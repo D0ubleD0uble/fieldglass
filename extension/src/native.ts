@@ -530,6 +530,121 @@ export interface NetcdfHandleCtor {
   fromBytes(bytes: Uint8Array): NetcdfHandle;
 }
 
+/** What the slice render panel needs of a handle.
+ *
+ *  Both {@link NetcdfHandle} and {@link ZarrHandle} satisfy it structurally, which
+ *  is what lets one panel drive either without knowing which container answered
+ *  (#659). The signatures are identical on purpose: a store answers the same
+ *  questions a NetCDF file does, and two shapes for one question is how the two
+ *  hosts drifted apart in the first place (#662).
+ *
+ *  Compare mode is included. `Session::combine` runs the alignment gate and the
+ *  arithmetic, so a combined field arrives like any other and a store gets
+ *  difference maps for free. */
+export interface SlicePanelHandle {
+  variables(): NetcdfVariableMeta[];
+  renderSlice(
+    variableIndex: number,
+    yDim: number,
+    xDim: number,
+    sliceIndices: number[],
+    options: RenderOptions,
+  ): RenderedGrid;
+  exportCsv(
+    variableIndex: number,
+    yDim: number,
+    xDim: number,
+    sliceIndices: number[],
+    format: string,
+  ): Buffer;
+  projectOverlay(
+    variableIndex: number,
+    yDim: number,
+    xDim: number,
+    options: RenderOptions,
+    latlon: Float64Array,
+    ringLengths: Uint32Array,
+  ): ProjectedOverlay;
+  projectContours(
+    variableIndex: number,
+    yDim: number,
+    xDim: number,
+    sliceIndices: number[],
+    options: RenderOptions,
+    interval?: number,
+  ): ProjectedOverlay;
+  probe(
+    variableIndex: number,
+    yDim: number,
+    xDim: number,
+    sliceIndices: number[],
+    options: RenderOptions,
+    px: number,
+    py: number,
+  ): ProbeResult | null;
+  renderSliceCombined(
+    variableIndexA: number,
+    yDim: number,
+    xDim: number,
+    sliceIndicesA: number[],
+    variableIndexB: number,
+    sliceIndicesB: number[],
+    op: CombineOp,
+    options: RenderOptions,
+  ): RenderedGrid;
+  probeSliceCombined(
+    variableIndexA: number,
+    yDim: number,
+    xDim: number,
+    sliceIndicesA: number[],
+    variableIndexB: number,
+    sliceIndicesB: number[],
+    op: string,
+    options: RenderOptions,
+    px: number,
+    py: number,
+  ): ProbeResult | null;
+  projectContoursSliceCombined(
+    variableIndexA: number,
+    yDim: number,
+    xDim: number,
+    sliceIndicesA: number[],
+    variableIndexB: number,
+    sliceIndicesB: number[],
+    op: string,
+    options: RenderOptions,
+    interval?: number,
+  ): ProjectedOverlay;
+}
+
+/** One array a store holds that this build will not read, and why (#709). */
+export interface ZarrLeftOut {
+  name: string;
+  reason: string;
+}
+
+/** A Zarr store, opened from a directory (#659).
+ *
+ *  A store is a folder rather than a file, so this is the one handle that takes
+ *  a path instead of bytes. It reuses {@link NetcdfVariableMeta} because a store
+ *  answers the same question a NetCDF file does, which is what lets the existing
+ *  slice picker drive it unchanged. */
+export interface ZarrHandle extends SlicePanelHandle {
+  /** The arrays the store holds and this build will not read. Shown beside the
+   *  variable list so a user sees *why* a name is absent. */
+  leftOut(): ZarrLeftOut[];
+}
+
+export interface ZarrHandleCtor {
+  /** Open the store rooted at `path`. Throws when the directory holds none of
+   *  `zarr.json`, `.zmetadata`, `.zgroup` or `.zarray`. */
+  fromDirectory(path: string): ZarrHandle;
+  /** Whether a directory looks like a store, without opening it — what the
+   *  folder picker asks so it can refuse in its own words. The `.zarr` suffix is
+   *  a convention and is **not** what this checks. */
+  isStore(path: string): boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Native module loader
 // ---------------------------------------------------------------------------
@@ -544,6 +659,7 @@ export interface FieldglassNative {
   Grib1Handle: Grib1HandleCtor;
   Grib2Handle: Grib2HandleCtor;
   NetcdfHandle: NetcdfHandleCtor;
+  ZarrHandle: ZarrHandleCtor;
 }
 
 let cached: FieldglassNative | undefined;

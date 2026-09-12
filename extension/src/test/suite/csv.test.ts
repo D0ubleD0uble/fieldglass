@@ -174,8 +174,11 @@ suite("CSV export (NetCDF)", () => {
   });
 });
 
-suite("Export CSV command (NetCDF slice)", () => {
-  test("handleExportSliceCsv reports a clear error when no NetCDF slice is open", async () => {
+suite("Export CSV command (slice panel)", () => {
+  // The message stopped naming NetCDF when #659 gave the slice panel a second
+  // container: the same guard now fires for a Zarr store, so saying "NetCDF"
+  // would be wrong half the time.
+  test("handleExportSliceCsv reports a clear error when no slice is open", async () => {
     const ext = vscode.extensions.getExtension<FieldglassApi>("fieldglass.fieldglass");
     assert.ok(ext, "extension is installed");
     const provider = (await ext.activate()).provider;
@@ -197,7 +200,15 @@ suite("Export CSV command (NetCDF slice)", () => {
       return Promise.resolve(undefined);
     };
     try {
-      await provider.handleExportSliceCsv(doc, {
+      // A subject whose handle has gone, which is what this test is about: the
+      // export refuses in words rather than throwing. Before #659 the same case
+      // was expressed as "a document with no handle in the map".
+      await provider.handleExportSliceCsv({
+        handle: () => undefined,
+        gone: "handle was disposed",
+        exportDir: vscode.Uri.joinPath(doc.uri, ".."),
+        caption: "test",
+      }, {
         variableIndex: 0,
         yDim: 0,
         xDim: 1,
@@ -206,6 +217,8 @@ suite("Export CSV command (NetCDF slice)", () => {
     } finally {
       vscode.window.showErrorMessage = original;
     }
-    assert.match(shown, /NetCDF/);
+    // "an open slice", not "an open NetCDF slice": #659 gave the panel a second
+    // container, so the same guard fires for a Zarr store too.
+    assert.match(shown, /open slice/);
   });
 });
