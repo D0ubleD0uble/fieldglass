@@ -47,13 +47,7 @@ fn subject(path: &str) -> Subject {
 
 impl Subject {
     fn source(&self) -> fieldglass::Source<'_> {
-        fieldglass::Source {
-            geometry: Ok(&self.field.georef.geometry),
-            ni: self.field.ni,
-            nj: self.field.nj,
-            scan: self.field.georef.scan,
-            family: &self.field.georef.kind,
-        }
+        self.field.source()
     }
 }
 

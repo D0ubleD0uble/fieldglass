@@ -409,7 +409,7 @@ fn every_wire_type_round_trips_through_json() {
 /// A `Georef` as it crosses the wire. `geometry` is `core`'s tagged enum and is
 /// described loosely to a schema consumer on purpose, so the smallest real
 /// variant stands in for it here.
-const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever"},"kind":"latlon","label":"latlon","ni":2,"nj":2,"boundsLonlat":[-1.0,1.0,-2.0,2.0],"corners":[1.0,-1.0,-2.0,2.0],"proj4":"+proj=longlat","axisUnits":"degrees","x0":0.0,"y0":1.0,"dx":1.0,"dy":-1.0,"periodicX":false,"scan":{"iNegative":false,"jPositive":true,"jConsecutive":false}}"#;
+const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever"},"kind":"latlon","label":"latlon","ni":2,"nj":2,"boundsLonlat":[-1.0,1.0,-2.0,2.0],"corners":[1.0,-1.0,-2.0,2.0],"pointsPerRow":null,"proj4":"+proj=longlat","axisUnits":"degrees","x0":0.0,"y0":1.0,"dx":1.0,"dy":-1.0,"periodicX":false,"scan":{"iNegative":false,"jPositive":true,"jConsecutive":false}}"#;
 
 /// A `Field`, with the smallest raster that still has a mask and statistics.
 const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"stats":{"min":1.0,"max":3.0,"validCount":3},"parameter":"Temperature","units":"K"}"#;

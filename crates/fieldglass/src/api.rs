@@ -280,6 +280,17 @@ api_type! {
         /// projection cannot place its far corner — reported absent rather than
         /// clamped, so a host shows nothing instead of a plausible fiction.
         pub corners: Option<[f64; 4]>,
+        /// Points per row for a **reduced** grid — `PL`, the number of values
+        /// each row really holds — and `None` for every other family (#244).
+        ///
+        /// A reduced grid's [`geometry`](Self::geometry) is its regular
+        /// sibling's, widened to the widest row, which is what lets it reproject
+        /// like any other grid. The file's own points are fewer: an N32 reduced
+        /// Gaussian grid holds 6,114 values that the widened raster spreads over
+        /// 8,192 cells by repeating each short row's values. Anything that
+        /// reports individual points rather than painting the raster needs this
+        /// to report the file's.
+        pub points_per_row: Option<Vec<u32>>,
         /// A PROJ string for the grid's own plane, for a map library that
         /// takes one. `None` for a family this build does not name a CRS for.
         pub proj4: Option<String>,
@@ -656,6 +667,17 @@ impl Georef {
         Self::from_declared(geom, scan, geom.label())
     }
 
+    /// This placement with the points per row a **reduced** grid stores (#244).
+    ///
+    /// Separate from the constructors because only the GRIB reduced families
+    /// have one, and every other caller would otherwise pass `None` to say so.
+    /// See [`points_per_row`](Self::points_per_row) for what it is for.
+    #[must_use]
+    pub fn with_points_per_row(mut self, points_per_row: Option<&[u32]>) -> Self {
+        self.points_per_row = points_per_row.map(<[u32]>::to_vec);
+        self
+    }
+
     /// As [`from_declared`](Self::from_declared), but with the corner pair the
     /// **container** reports rather than one recomputed from the geometry.
     ///
@@ -740,6 +762,7 @@ impl Georef {
             corners: geom
                 .corner_pair()
                 .map(|c| [c.lat_first, c.lon_first, c.lat_last, c.lon_last]),
+            points_per_row: None,
             proj4: geom.proj4(),
             axis_units,
             x0,

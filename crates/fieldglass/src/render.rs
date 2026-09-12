@@ -257,6 +257,16 @@ pub struct Source<'a> {
     /// quotes, so `reprojection not yet supported for grid type "healpix"` says
     /// the grid the file named.
     pub family: &'a str,
+    /// Points per row for a **reduced** grid, whose raster arrived widened to
+    /// its widest row; `None` for every other family (#244).
+    ///
+    /// The geometry of a reduced grid is its regular sibling's, so it places
+    /// `ni` evenly spaced columns on every row. That is the right raster to warp
+    /// and wrong for anything that reports *points*: a polar row of an N32
+    /// reduced Gaussian grid holds 20 values, and widening replicates each
+    /// across the 128 columns of the widest row. With this, the long CSV emits
+    /// the 20 the file holds, at the longitudes the file places them.
+    pub points_per_row: Option<&'a [u32]>,
 }
 
 #[cfg(any(feature = "render", feature = "analysis"))]
@@ -1380,6 +1390,31 @@ fn geolocatable_families() -> String {
     }
 }
 
+#[cfg(any(feature = "render", feature = "analysis"))]
+impl crate::api::Field {
+    /// The [`Source`] a display operation reads this field through.
+    ///
+    /// **Use this rather than building a `Source` by hand.** Every host used to
+    /// write the same five-line conversion out of `georef`, and they had already
+    /// diverged: half named the family by `georef.kind` and half by
+    /// `georef.label`, where #645 made `label` the right one because `kind` is
+    /// the collapsed name a reduced grid loses its identity under. A sixth
+    /// field made it worse — a host that builds its own source and forgets
+    /// [`Source::points_per_row`] silently exports a reduced grid's widened
+    /// raster as if every repeated cell were a point in the file (#244). One
+    /// conversion is one place to get both right.
+    pub fn source(&self) -> Source<'_> {
+        Source {
+            geometry: Ok(&self.georef.geometry),
+            ni: self.ni,
+            nj: self.nj,
+            scan: self.georef.scan,
+            family: &self.georef.label,
+            points_per_row: self.georef.points_per_row.as_deref(),
+        }
+    }
+}
+
 /// Build the forward geolocation closure `(i, j) → (lat, lon)` for a geometry
 /// whose family carries one ([`GEOLOCATABLE_GRIDS`]), or `None` for one that
 /// does not.
@@ -1425,6 +1460,54 @@ fn forward_geolocation(geometry: &GridGeometry) -> Option<ForwardAt<'_>> {
         | GridGeometry::Lookup(_) => Some(place),
         _ => None,
     }
+}
+
+/// Where column `i` of widened row `j` of a reduced grid sits, if it is the
+/// column that holds one of the row's own points — or `None` for a column that
+/// repeats one (#244).
+///
+/// A reduced row `j` stores `PL[j]` points equispaced around the full circle,
+/// and `expand_reduced_to_regular` widens it by giving output column `i` the
+/// source point `(i·PL[j] + ni/2) / ni mod PL[j]` — the nearest by longitude.
+/// So a short row's points are each repeated across several adjacent columns,
+/// and a long CSV walking every column exported every repeat as if it were a
+/// separate point in the file: 8,192 rows for an N32 reduced Gaussian grid that
+/// holds 6,114, with no way to tell the 2,078 copies from the originals.
+///
+/// This inverts that formula rather than approximating it. Before any wrap the
+/// quotient `q = (i·PL[j] + ni/2) / ni` rises monotonically by at most one per
+/// column (since `PL[j] ≤ ni`), so every source point `0..PL[j]` is the quotient
+/// of some column, and the **first** column reaching it holds its value exactly —
+/// the widened cell *is* `row[q]`. That column is emitted, at the longitude the
+/// source point has: `λ₀ + q·360/PL[j]`, where `λ₀` is the row's first column.
+/// Every later column with the same quotient is a repeat, and the columns whose
+/// quotient reaches `PL[j]` are the antimeridian wrap back onto point 0.
+#[cfg(feature = "analysis")]
+fn reduced_point(
+    geo: &ForwardAt<'_>,
+    points_per_row: &[u32],
+    ni: usize,
+    i: usize,
+    j: usize,
+) -> Option<(f64, f64)> {
+    let len = *points_per_row.get(j)? as usize;
+    if len == 0 || ni == 0 {
+        return None;
+    }
+    let point = |col: usize| (col * len + ni / 2) / ni;
+    let q = point(i);
+    // The wrap onto point 0, which column 0 already emitted.
+    if q >= len {
+        return None;
+    }
+    // A repeat of the point the previous column already emitted.
+    if i > 0 && point(i - 1) == q {
+        return None;
+    }
+    // Column 0 of every row is the row's first point, so its position gives the
+    // row's latitude and the longitude the circle starts from.
+    let (lat, lon_first) = geo(0, u32::try_from(j).ok()?)?;
+    Some((lat, lon_first + q as f64 * 360.0 / len as f64))
 }
 
 /// The forward map, or the caller's own refusal for a family that has none.
@@ -1831,14 +1914,16 @@ pub fn field_csv(
                     geolocatable_families()
                 )
             })?;
-            Ok(field_to_csv_long(
-                values,
-                ni as usize,
-                nj as usize,
-                // `i` / `j` walk the `u32` grid dimensions widened just above,
-                // so the round trip back to `u32` is exact.
-                |i, j| geo(i as u32, j as u32),
-            ))
+            let (ni, nj) = (ni as usize, nj as usize);
+            Ok(match source.points_per_row {
+                // A reduced grid: emit the points each row really holds.
+                Some(pl) if pl.len() == nj => {
+                    field_to_csv_long(values, ni, nj, |i, j| reduced_point(&geo, pl, ni, i, j))
+                }
+                // `i` / `j` walk the `u32` grid dimensions, so the round trip
+                // back to `u32` is exact.
+                _ => field_to_csv_long(values, ni, nj, |i, j| geo(i as u32, j as u32)),
+            })
         }
         other => Err(Error::InvalidOption {
             detail: format!("unknown CSV format {other:?} (expected \"long\" or \"matrix\")"),
@@ -2673,6 +2758,7 @@ mod warp_target_tests {
             nj,
             scan: Scan::north_down(),
             family,
+            points_per_row: None,
         }
     }
 
@@ -2982,6 +3068,7 @@ mod warp_target_tests {
             nj: 95,
             scan: Scan::north_down(),
             family: "polar_stereo",
+            points_per_row: None,
         };
         let err = warp_field(
             &src,
@@ -3008,6 +3095,7 @@ mod warp_target_tests {
             nj: 8,
             scan: Scan::north_down(),
             family: "healpix",
+            points_per_row: None,
         };
         let raw: Vec<Option<f64>> = vec![Some(1.0); 8 * 8];
         let err = warp_field(
@@ -3399,6 +3487,7 @@ mod planar_geolocation_tests {
             nj,
             scan: Scan::north_down(),
             family,
+            points_per_row: None,
         }
     }
 
