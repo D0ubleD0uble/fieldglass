@@ -114,6 +114,10 @@ pub mod conformance;
 pub mod error;
 #[cfg(feature = "fetchplan")]
 pub mod fetchplan;
+// The NetCDF surface a host needs beyond `Session`, so no host names a format
+// crate in its manifest (#662). Gated with the decoder it re-exports.
+#[cfg(feature = "netcdf")]
+pub mod netcdf;
 pub mod render;
 pub mod session;
 #[cfg(feature = "render")]

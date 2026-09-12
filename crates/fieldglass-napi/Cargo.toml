@@ -25,7 +25,6 @@ fieldglass         = { path = "../fieldglass",        version = "=0.5.0", defaul
 fieldglass-core   = { path = "../fieldglass-core",   version = "=0.5.0", features = ["render", "analysis"] }
 fieldglass-grib1  = { path = "../fieldglass-grib1",  version = "=0.5.0" }
 fieldglass-grib2  = { path = "../fieldglass-grib2",  version = "=0.5.0" }
-fieldglass-netcdf = { path = "../fieldglass-netcdf", version = "=0.5.0" }
 napi = { version = "3", features = ["napi6"] }
 napi-derive = "3"
 
@@ -33,6 +32,13 @@ napi-derive = "3"
 # The conformance suite (ADR-0006 decision 3, #573): the shipped addon does not
 # run it, so it is asked for here rather than above. `conformance_host` drives
 # this crate's own handles through it and checks they agree with `Session`.
+# The umbrella, and for NetCDF the *only* route to the reader (#662). This crate
+# used to depend on `fieldglass-netcdf` alongside it and build its NetCDF path
+# against the reader directly, so the two hosts had diverged: the browser bundle
+# reached the reader through `fieldglass`, the addon reached it twice over by two
+# routes. What `Session` does not answer — the backing's own attributes, the
+# geometry a host's cache is keyed on — comes through `fieldglass::netcdf`, so
+# one place decides the surface a host may use.
 fieldglass = { path = "../fieldglass", version = "=0.5.0", default-features = false, features = ["conformance"] }
 serde_json = { workspace = true }
 
