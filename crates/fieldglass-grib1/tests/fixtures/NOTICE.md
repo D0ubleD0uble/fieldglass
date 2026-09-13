@@ -255,6 +255,43 @@ Note also that eccodes writes both files with GRIB1 octet 4 bit 4
 `grib1/section.4.def` gates that block on the complex bit alone. eccodes and its
 samples are released under the Apache 2.0 license.
 
+## `reduced_gg_row_by_row.grib1` / `reduced_gg_row_by_row_boust.grib1` (+ `_expected.json`)
+
+`grid_second_order_row_by_row` on the N32 reduced Gaussian grid of
+`reduced_gg_n32_smooth.grib1` (64 rows of 20 to 128 points, 6114 total), which
+the reader used to refuse (#611). `row_by_row` has one group per row, so on a
+reduced grid group `j` holds `pl[j]` points; eccodes'
+`DataG1SecondOrderRowByRowPacking::unpack` fills its `numbersPerRow` from `pl`
+when the message has one.
+
+eccodes 2.34.1 cannot encode this packing (its `pack_double` switches the
+message to `grid_second_order`), so `tools/build_grib1_reduced_row_by_row_fixtures.py`
+hand-assembles the BDS to `grib1/data.grid_second_order_row_by_row.def` and
+splices it onto the source's IS, PDS and GDS:
+
+- the source field, as decoded by eccodes, quantised to 1/16 K
+  (`binaryScaleFactor = -4`, `referenceValue = 247`);
+- one group per row: the row's minimum as its first-order value, and the
+  smallest width that holds the row's residuals (4 to 9 bits);
+- every eighth row from row 3 flattened to its minimum, so those groups are
+  zero-width runs.
+
+The second file is the same octets with `boustrophedonicOrdering` (octet 14,
+0x04) set. **eccodes ignores that bit for this packing**: its
+`data.grid_second_order_row_by_row.def` is the one second-order data definition
+with no `data_apply_boustrophedonic` wrapper. Flipping the same bit on
+`hand_second_order_row_by_row.grib1` leaves 2.34.1's `grib_get_data` output
+byte-identical too, which is what the regular-grid test in
+`decode_second_order_classic.rs` holds the reader to.
+
+Both `_expected.json` files are the pinned `grib_get_data` decode of their own
+file: count, statistics, and four sampled points from every row. The builder
+also asserts that decode matches the field it packed at all 6114 points to
+1e-6, so the section is the layout eccodes reads. `jPointsAreConsecutive` stays
+0 on purpose: eccodes' unpack takes its row count from `Ni` when that flag is
+set, and a reduced grid's `Ni` is missing, so eccodes is no oracle for a
+flagged reduced message.
+
 ## `j_consecutive_latlon.grib1`
 
 The only fixture in the corpus that sets `jPointsAreConsecutive` (GDS octet 28,

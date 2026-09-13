@@ -76,6 +76,38 @@ fn decode_row_by_row_matches_eccodes_oracle() {
     }
 }
 
+/// The zig-zag bit leaves a regular `row_by_row` grid in stored order too.
+/// eccodes 2.34.1's `grib_get_data` output for this fixture with octet 14's
+/// 0x04 bit set is byte-identical to its output without it, because the
+/// packing's data definition has no boustrophedonic wrapper; this reader used
+/// to reverse the odd rows (#611).
+#[test]
+fn row_by_row_ignores_the_zigzag_bit_on_a_regular_grid() {
+    let plain = Grib1Reader::from_bytes(ROW_BY_ROW_FIXTURE.to_vec())
+        .expect("fixture parses")
+        .decode_message_values(0)
+        .expect("decodes");
+
+    let mut flagged = ROW_BY_ROW_FIXTURE.to_vec();
+    let bds_start = Grib1Reader::from_bytes(flagged.clone())
+        .expect("fixture parses")
+        .messages[0]
+        .bds_range
+        .start as usize;
+    assert_eq!(flagged[bds_start + 13], 0x10, "octet 14 before the flip");
+    flagged[bds_start + 13] |= 0x04;
+    let reader = Grib1Reader::from_bytes(flagged).expect("flagged fixture parses");
+    let range = reader.messages[0].bds_range;
+    let ext =
+        parse_bds_header(&reader.bytes()[range.start as usize..(range.start + range.len) as usize])
+            .expect("BDS header parses")
+            .complex_extended
+            .expect("extended flags");
+    assert!(ext.boustrophedonic());
+
+    assert_eq!(reader.decode_message_values(0).expect("decodes"), plain);
+}
+
 // ---------------------------------------------------------------------------
 // grid_second_order_constant_width
 // ---------------------------------------------------------------------------
