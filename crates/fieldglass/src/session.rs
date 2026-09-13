@@ -1417,6 +1417,7 @@ impl Session {
                     units: array_units(a.source.as_ref(), &v.name),
                     detected_y_dim: v.detected_y_dim.and_then(|d| u32::try_from(d).ok()),
                     detected_x_dim: v.detected_x_dim.and_then(|d| u32::try_from(d).ok()),
+                    detected_time_dim: v.detected_time_dim.and_then(|d| u32::try_from(d).ok()),
                     name: v.name,
                 })
                 .collect(),

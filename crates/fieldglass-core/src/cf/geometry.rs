@@ -53,6 +53,52 @@ pub fn detect_axis(array: &ArrayDescription) -> Option<AxisKind> {
     axis_from_name(&array.name)
 }
 
+/// Whether a coordinate array is a time axis by CF conventions (§4.4):
+/// `axis = "T"`, `standard_name = "time"`, or `units` of the form
+/// `<time unit> since <reference>`, the one form CF requires of a time
+/// coordinate (OISST states nothing else).
+///
+/// Separate from [`detect_axis`] rather than a third [`AxisKind`], because that
+/// enum answers where a field sits on the Earth, and a time axis places nothing.
+pub fn is_time_axis(array: &ArrayDescription) -> bool {
+    if text(array, "axis").map(str::trim) == Some("T")
+        || text(array, "standard_name").map(str::trim) == Some("time")
+    {
+        return true;
+    }
+    text(array, "units").is_some_and(|units| {
+        let lower = units.trim().to_ascii_lowercase();
+        lower.split_once(" since ").is_some_and(|(unit, _)| {
+            matches!(
+                unit.trim(),
+                "second"
+                    | "seconds"
+                    | "sec"
+                    | "secs"
+                    | "s"
+                    | "minute"
+                    | "minutes"
+                    | "min"
+                    | "mins"
+                    | "hour"
+                    | "hours"
+                    | "hr"
+                    | "hrs"
+                    | "h"
+                    | "day"
+                    | "days"
+                    | "d"
+                    | "week"
+                    | "weeks"
+                    | "month"
+                    | "months"
+                    | "year"
+                    | "years"
+            )
+        })
+    })
+}
+
 /// CF latitude/longitude `units` test. Accepts the canonical `degrees_north` /
 /// `degrees_east` family and the spelling variants CF permits
 /// (`degree_north`, `degreesN`, `degree_N`, …). Case-insensitive on the
@@ -309,6 +355,11 @@ pub struct RenderableArray {
     pub detected_y_dim: Option<usize>,
     /// Position of the longitude axis within `dims`.
     pub detected_x_dim: Option<usize>,
+    /// Position of the time axis within `dims`: the axis whose coordinate array
+    /// [`is_time_axis`], or failing that one named `time` in any case, which is
+    /// how WRF names its record axis with no coordinate array behind it. Never
+    /// one of the two image axes. `None` when the array has no such axis.
+    pub detected_time_dim: Option<usize>,
 }
 
 /// The arrays a slice picker can draw: numeric, at least 2-D, and neither a
@@ -336,6 +387,12 @@ pub fn renderable_arrays(root: &Group) -> Vec<RenderableArray> {
         .iter()
         .find(|(_, k)| *k == AxisKind::Longitude)
         .map(|(n, _)| *n);
+    let time_dims: Vec<&str> = catalog
+        .entries
+        .iter()
+        .filter(|e| e.is_coordinate() && is_time_axis(e.array))
+        .map(|e| e.name.as_str())
+        .collect();
 
     catalog
         .entries
@@ -355,12 +412,28 @@ pub fn renderable_arrays(root: &Group) -> Vec<RenderableArray> {
                 let at = |name: &str| e.dim_names().position(|d| d == name);
                 Some((at(&pair.y_dim)?, at(&pair.x_dim)?))
             });
+            let detected_y_dim = position(lat_dim).or(curvilinear.map(|(y, _)| y));
+            let detected_x_dim = position(lon_dim).or(curvilinear.map(|(_, x)| x));
+            let image = |i: usize| Some(i) == detected_y_dim || Some(i) == detected_x_dim;
+            let names: Vec<&str> = e.dim_names().collect();
+            let detected_time_dim = names
+                .iter()
+                .position(|d| time_dims.contains(d))
+                .or_else(|| {
+                    names.iter().position(|d| {
+                        d.rsplit('/')
+                            .next()
+                            .is_some_and(|n| n.eq_ignore_ascii_case("time"))
+                    })
+                })
+                .filter(|&i| !image(i));
             RenderableArray {
                 name: e.name.clone(),
                 element_type: e.array.element_type.clone(),
                 dims: e.dims.clone(),
-                detected_y_dim: position(lat_dim).or(curvilinear.map(|(y, _)| y)),
-                detected_x_dim: position(lon_dim).or(curvilinear.map(|(_, x)| x)),
+                detected_y_dim,
+                detected_x_dim,
+                detected_time_dim,
             }
         })
         .collect()
@@ -530,4 +603,50 @@ pub fn synthesize_geometry(lat: &[f64], lon: &[f64]) -> Result<SliceGeometry, Fi
         lon_descending,
         lat_ascending: lat_first < lat_last,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::array::Attribute;
+
+    fn coordinate(attributes: &[(&str, &str)]) -> ArrayDescription {
+        ArrayDescription {
+            name: "t".to_string(),
+            element_type: ElementType::Float(8),
+            dimensions: vec!["t".to_string()],
+            attributes: attributes
+                .iter()
+                .map(|(name, value)| Attribute::text(*name, *value))
+                .collect(),
+            chunk_grid: None,
+        }
+    }
+
+    #[test]
+    fn a_time_axis_is_recognised_by_any_one_cf_marker() {
+        for attrs in [
+            &[("axis", "T")][..],
+            &[("standard_name", "time")],
+            &[("units", "hours since 2020-01-01 00:00:00")],
+            &[("units", "  Days Since 1854-01-01")],
+            &[("units", "s since 1970-01-01T00:00:00Z")],
+        ] {
+            assert!(is_time_axis(&coordinate(attrs)), "{attrs:?}");
+        }
+    }
+
+    #[test]
+    fn a_since_that_is_not_a_time_unit_is_not_time() {
+        for attrs in [
+            &[][..],
+            &[("units", "degrees_north")],
+            &[("units", "m since the surface")],
+            &[("units", "hours")],
+            &[("axis", "Z")],
+            &[("standard_name", "time_bounds")],
+        ] {
+            assert!(!is_time_axis(&coordinate(attrs)), "{attrs:?}");
+        }
+    }
 }

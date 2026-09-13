@@ -1931,6 +1931,10 @@ pub struct NetcdfVariableMeta {
     /// Index into `dims` of the axis CF detection took for longitude / x, or
     /// `null` — see `detected_y_dim`.
     pub detected_x_dim: Option<i32>,
+    /// The axis index of the time dimension, what the panel animates along
+    /// (#170), or `null` when the variable has none. Never `detected_y_dim` or
+    /// `detected_x_dim`.
+    pub detected_time_dim: Option<i32>,
     /// The variable's CF `units`, typeset for display the way a GRIB unit is
     /// (ADR-0007). Empty when the variable declares none.
     ///
@@ -2052,6 +2056,7 @@ impl NetcdfHandle {
                     .collect(),
                 detected_y_dim: v.detected_y_dim.map(|p| p as i32),
                 detected_x_dim: v.detected_x_dim.map(|p| p as i32),
+                detected_time_dim: v.detected_time_dim.map(|p| p as i32),
                 units: self
                     .view
                     .var(v.decode_index)
@@ -3018,6 +3023,7 @@ impl ZarrHandle {
                     .collect(),
                 detected_y_dim: v.detected_y_dim.map(|d| d as i32),
                 detected_x_dim: v.detected_x_dim.map(|d| d as i32),
+                detected_time_dim: v.detected_time_dim.map(|d| d as i32),
                 units: v.units,
             })
             .collect()

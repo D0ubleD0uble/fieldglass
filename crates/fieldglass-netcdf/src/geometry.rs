@@ -304,6 +304,7 @@ impl DatasetView {
                     dims: array.dims,
                     detected_y_dim: array.detected_y_dim,
                     detected_x_dim: array.detected_x_dim,
+                    detected_time_dim: array.detected_time_dim,
                 })
             })
             .collect()
@@ -369,6 +370,9 @@ pub struct RenderableVariable {
     pub detected_y_dim: Option<usize>,
     /// Position (axis index) of the longitude dimension within `dims`.
     pub detected_x_dim: Option<usize>,
+    /// Position (axis index) of the time dimension within `dims` — see
+    /// [`fieldglass_core::cf::RenderableArray::detected_time_dim`].
+    pub detected_time_dim: Option<usize>,
 }
 
 /// Classify a coordinate variable's axis by CF conventions — `units` →

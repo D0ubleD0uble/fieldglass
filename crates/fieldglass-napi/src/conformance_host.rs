@@ -323,6 +323,7 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
                         "dtype": v.nc_type,
                         "detectedYDim": v.detected_y_dim,
                         "detectedXDim": v.detected_x_dim,
+                        "detectedTimeDim": v.detected_time_dim,
                     })
                 })
                 .collect();

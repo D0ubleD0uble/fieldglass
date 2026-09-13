@@ -159,6 +159,11 @@ api_type! {
         pub detected_y_dim: Option<u32>,
         /// The longitude half of [`Self::detected_y_dim`], under the same rule.
         pub detected_x_dim: Option<u32>,
+        /// Which axis is time: the one whose coordinate the file's conventions
+        /// mark as time (`axis = "T"`, `standard_name = "time"`, or units of the
+        /// form `hours since …`), or one named `time`. Never an image axis. What
+        /// a host animates along (#170).
+        pub detected_time_dim: Option<u32>,
     }
 
     /// Which element type a caller wants back from a decode.

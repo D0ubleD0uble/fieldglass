@@ -463,6 +463,9 @@ export interface NetcdfVariableMeta {
   dims: NetcdfAxis[];
   detectedYDim?: number;
   detectedXDim?: number;
+  /** The axis index of the time dimension, which the panel animates along
+   *  (#170); undefined when the variable has none. Never an image axis. */
+  detectedTimeDim?: number;
   /** The variable's CF `units`, typeset for display the way a GRIB unit is
    *  (ADR-0007). Empty string when the variable declares none. */
   units: string;

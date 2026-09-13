@@ -239,6 +239,39 @@ export function exportCanvasWidth(
   return Math.max(mapBlockW, margin + headerW + margin);
 }
 
+/** The frame an animation steps to from `index` along an axis of `length`
+ *  steps, moving by `step` (±1): the next index, wrapped to the other end when
+ *  `loop` is set, or `null` when an unlooped animation has run off the end.
+ *
+ *  Serialized into the panel script (`nextFrame.toString()`), so it must not
+ *  reference anything outside itself. */
+export function nextFrame(index: number, length: number, step: number, loop: boolean): number | null {
+  if (length <= 1) return null;
+  const next = index + step;
+  if (next >= 0 && next < length) return next;
+  if (!loop) return null;
+  return ((next % length) + length) % length;
+}
+
+/** Which axis a slice panel offers to animate along first: the variable's
+ *  detected time axis when it can be stepped, otherwise the first other axis
+ *  that can, or `null` when none can. `dims` are the variable's axis lengths;
+ *  the two image axes are never offered (#170).
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself. */
+export function defaultAnimationDim(
+  dims: number[],
+  yDim: number,
+  xDim: number,
+  timeDim: number | null | undefined,
+): number | null {
+  const steppable = dims.map((len, i) => i !== yDim && i !== xDim && len > 1);
+  if (steppable.some((ok, i) => ok && i === timeDim)) return timeDim ?? null;
+  const first = steppable.indexOf(true);
+  return first < 0 ? null : first;
+}
+
 /** A geographic window in degrees: what the lat/lon targets render (#245). */
 export interface MapWindow {
   latMin: number;
@@ -428,6 +461,8 @@ export function renderImagePanelHtml(
         ${exportCanvasWidth.toString()}
         ${zoomMapWindow.toString()}
         ${panMapWindow.toString()}
+        ${nextFrame.toString()}
+        ${defaultAnimationDim.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -485,6 +520,7 @@ export function renderImagePanelHtml(
           ySel.value = String(sliceState.yDim);
           xSel.value = String(sliceState.xDim);
           wrap.innerHTML = dimStepperHtml(v, sliceState.yDim, sliceState.xDim, sliceState.sliceIndices);
+          buildAnimationControls();
         }
 
         // One slider + number per dimension that isn't an image axis, reading
@@ -565,6 +601,130 @@ export function renderImagePanelHtml(
           });
         }
 
+        // --- Animation along an axis (#170) ----------------------------------
+        // Playing steps the chosen axis with the same slice-index change the
+        // stepper makes, and waits for each frame to arrive before timing the
+        // next one, so a slow decode lowers the frame rate rather than queueing
+        // requests behind itself.
+        let animation = null;
+
+        function animationDim() {
+          const sel = document.getElementById('animate-dim');
+          return sel && sel.value !== '' ? Number(sel.value) : null;
+        }
+
+        function buildAnimationControls() {
+          const row = document.getElementById('animate-row');
+          const sel = document.getElementById('animate-dim');
+          if (!row || !sel || !sliceState) return;
+          stopAnimation();
+          const v = sliceVariable(sliceState.variableIndex);
+          const lengths = v ? v.dims.map((d) => d.length) : [];
+          const choice = defaultAnimationDim(lengths, sliceState.yDim, sliceState.xDim, v ? v.detectedTimeDim : null);
+          if (!v || choice == null) {
+            row.toggleAttribute('hidden', true);
+            sel.innerHTML = '';
+            return;
+          }
+          sel.innerHTML = v.dims
+            .map((d, i) => (i === sliceState.yDim || i === sliceState.xDim || d.length <= 1)
+              ? ''
+              : '<option value="' + i + '">' + escapeAttr(d.name) + '</option>')
+            .join('');
+          sel.value = String(choice);
+          row.toggleAttribute('hidden', false);
+          updateFrameLabel();
+        }
+
+        function updateFrameLabel() {
+          const label = document.getElementById('anim-frame');
+          const dim = animationDim();
+          const v = sliceState && sliceVariable(sliceState.variableIndex);
+          if (!label || dim == null || !v) return;
+          label.textContent = 'step ' + sliceState.sliceIndices[dim] + ' of 0\u2013' + (v.dims[dim].length - 1);
+        }
+
+        // Move the animated axis to the given index and render it.
+        function showFrame(index) {
+          const dim = animationDim();
+          if (dim == null) return;
+          syncSliceIndex(dim, index);
+          updateFrameLabel();
+          snapshotState();
+          requestRender();
+        }
+
+        function stepAnimation(step) {
+          const dim = animationDim();
+          const v = sliceState && sliceVariable(sliceState.variableIndex);
+          if (dim == null || !v) return null;
+          const loop = !!(document.getElementById('anim-loop') || {}).checked;
+          return nextFrame(sliceState.sliceIndices[dim], v.dims[dim].length, step, loop);
+        }
+
+        function playAnimation() {
+          if (animation || animationDim() == null) return;
+          const mode = document.querySelector('input[name="range-mode"]:checked');
+          const auto = !mode || mode.value !== 'manual';
+          animation = {
+            lock: auto && lastPayload ? [lastPayload.usedMin, lastPayload.usedMax] : null,
+            awaiting: false,
+            timer: 0,
+            requestedAt: 0,
+          };
+          const play = document.getElementById('anim-play');
+          if (play) { play.textContent = '⏸'; play.setAttribute('aria-label', 'Pause'); play.title = 'Pause'; }
+          advanceAnimation();
+        }
+
+        function advanceAnimation() {
+          if (!animation) return;
+          const next = stepAnimation(1);
+          if (next == null) { stopAnimation(); return; }
+          animation.awaiting = true;
+          animation.requestedAt = Date.now();
+          showFrame(next);
+        }
+
+        // Called when a render lands (or fails) while playing.
+        function animationFrameArrived() {
+          if (!animation || !animation.awaiting) return;
+          animation.awaiting = false;
+          const speed = Number((document.getElementById('anim-speed') || {}).value) || 2;
+          const wait = Math.max(0, 1000 / speed - (Date.now() - animation.requestedAt));
+          animation.timer = setTimeout(advanceAnimation, wait);
+        }
+
+        function stopAnimation() {
+          if (!animation) return;
+          clearTimeout(animation.timer);
+          animation = null;
+          const play = document.getElementById('anim-play');
+          if (play) { play.textContent = '▶'; play.setAttribute('aria-label', 'Play'); play.title = 'Play'; }
+        }
+
+        function setupAnimation() {
+          const on = (id, handler) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('click', handler);
+          };
+          on('anim-play', () => (animation ? stopAnimation() : playAnimation()));
+          const jump = (pick) => () => {
+            stopAnimation();
+            const dim = animationDim();
+            const v = sliceState && sliceVariable(sliceState.variableIndex);
+            if (dim == null || !v) return;
+            const to = pick(v.dims[dim].length);
+            if (to != null && to !== sliceState.sliceIndices[dim]) showFrame(to);
+          };
+          on('anim-first', jump(() => 0));
+          on('anim-last', jump((len) => len - 1));
+          on('anim-back', jump(() => stepAnimation(-1)));
+          on('anim-forward', jump(() => stepAnimation(1)));
+          const sel = document.getElementById('animate-dim');
+          if (sel) sel.addEventListener('change', () => { stopAnimation(); updateFrameLabel(); });
+        }
+
         function setupSlice() {
           if (!sliceState) return;
           const varSel = document.getElementById('slice-variable');
@@ -617,6 +777,7 @@ export function renderImagePanelHtml(
           if (xSel) xSel.addEventListener('change', onAxisChange);
           buildSliceAxes();
           buildCompareAxes();
+          setupAnimation();
           // Delegate the dynamically-built index controls.
           // 'change' (slider release / number commit) rather than 'input' so a
           // slider drag doesn't fire a render per tick. 'input' still keeps the
@@ -631,7 +792,10 @@ export function renderImagePanelHtml(
             wrap.addEventListener('change', (ev) => {
               const t = ev.target;
               if (!t || t.dataset == null || t.dataset.dim == null) return;
+              // A step taken by hand is the user taking over from playback.
+              stopAnimation();
               syncSliceIndex(Number(t.dataset.dim), t.value);
+              updateFrameLabel();
               requestRender();
             });
           }
@@ -726,6 +890,12 @@ export function renderImagePanelHtml(
               options.rangeMin = min;
               options.rangeMax = max;
             }
+          } else if (animation && animation.lock) {
+            // Playing on an auto range: every frame is coloured on the range the
+            // first one was, so the colours mean the same values throughout
+            // rather than each frame stretching to its own extremes (#170).
+            options.rangeMin = animation.lock[0];
+            options.rangeMax = animation.lock[1];
           }
           // Manual extent applies to the warped lat/lon targets
           // (equirectangular + Web Mercator), which both render a lat/lon
@@ -859,6 +1029,7 @@ export function renderImagePanelHtml(
           if (typeof msg.parameterUnits === 'string') UNITS = msg.parameterUnits;
           blit(msg);
           updateLogAvailability();
+          animationFrameArrived();
           // The old probe readout referred to the previous field; clear it.
           const probeEl = document.getElementById('probe');
           if (probeEl) probeEl.textContent = '';
@@ -892,6 +1063,8 @@ export function renderImagePanelHtml(
 
         function handleGridError(msg) {
           clearGesturePreview();
+          // A frame that fails ends playback rather than retrying it forever.
+          stopAnimation();
           const err = msg.error || 'render failed';
           setStatus('Error: ' + err);
           // Self-heal the one render error the log toggle can cause: switching
@@ -2307,6 +2480,7 @@ export function renderImagePanelHtml(
     .slice-index input[type="range"] { vertical-align: middle; }
     .slice-index input[type="number"] { width: 4.5rem; }
     .slice-len { color: var(--vscode-descriptionForeground); font-size: 0.8rem; }
+    .animate-transport button { min-width: 2rem; }
   </style>
 </head>
 <body>
@@ -2324,6 +2498,25 @@ ${slice
       <label>X axis (cols) <select id="slice-x"></select></label>
       <span id="slice-dims"></span>
       <button type="button" id="export-slice-csv">Export CSV…</button>
+    </div>
+    <div class="toolbar-row" id="animate-row" hidden>
+      <label>Animate <select id="animate-dim"></select></label>
+      <span class="animate-transport">
+        <button type="button" id="anim-first" aria-label="First step" title="First step">⏮</button>
+        <button type="button" id="anim-back" aria-label="Step back" title="Step back">◀</button>
+        <button type="button" id="anim-play" aria-label="Play" title="Play">▶</button>
+        <button type="button" id="anim-forward" aria-label="Step forward" title="Step forward">▶|</button>
+        <button type="button" id="anim-last" aria-label="Last step" title="Last step">⏭</button>
+      </span>
+      <label>Speed <select id="anim-speed">
+        <option value="0.5">0.5 / s</option>
+        <option value="1">1 / s</option>
+        <option value="2" selected>2 / s</option>
+        <option value="5">5 / s</option>
+        <option value="10">10 / s</option>
+      </select></label>
+      <label><input type="checkbox" id="anim-loop" checked> Loop</label>
+      <span id="anim-frame" class="slice-len" aria-live="polite"></span>
     </div>`
     : ""}
     <div class="toolbar-row">

@@ -20750,6 +20750,7 @@
       },
       "expect": [
         {
+          "detectedTimeDim": 0,
           "detectedXDim": 3,
           "detectedYDim": 2,
           "dims": [
@@ -20776,6 +20777,7 @@
           "units": "degree_C"
         },
         {
+          "detectedTimeDim": 0,
           "detectedXDim": 3,
           "detectedYDim": 2,
           "dims": [
@@ -21604,6 +21606,7 @@
       },
       "expect": [
         {
+          "detectedTimeDim": 0,
           "detectedXDim": 3,
           "detectedYDim": 2,
           "dims": [
@@ -21630,6 +21633,7 @@
           "units": "%"
         },
         {
+          "detectedTimeDim": 0,
           "detectedXDim": 3,
           "detectedYDim": 2,
           "dims": [
