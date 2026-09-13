@@ -13,6 +13,7 @@ import { escapeHtml, nonce } from "./html";
 import {
   loadNative,
   nativeBinaryName,
+  type AxisValuesResult,
   type CombineOp,
   type CombineOpInfo,
   type DatasetMeta,
@@ -1405,6 +1406,27 @@ export class FieldglassEditorProvider
       }
     };
 
+    // The coordinate values a cross-section labels an axis from (#171). Like
+    // the line above, a failure answers with no values rather than an error:
+    // an axis with no coordinate array is an ordinary state, and the panel
+    // falls back to drawing indices.
+    const axis = (req: { slice?: SliceSpec; dim?: unknown }) => {
+      const docHandle = subject.handle();
+      if (!docHandle) return;
+      const spec = req.slice ?? initial;
+      const reply = (result: AxisValuesResult | null) =>
+        panel.webview.postMessage({ type: "axisResult", dim: req.dim, result });
+      if (!isNonNegativeInt(req.dim)) {
+        reply(null);
+        return;
+      }
+      try {
+        reply(docHandle.axisValues(spec.variableIndex, req.dim));
+      } catch {
+        reply(null);
+      }
+    };
+
     // Point-probe readout for the current slice (#172).
     const probe = (req: ProbeRequest) => {
       const docHandle = subject.handle();
@@ -1459,6 +1481,10 @@ export class FieldglassEditorProvider
         }
         if (m.type === "lineRequest") {
           line(m as LineRequest);
+          return;
+        }
+        if (m.type === "axisRequest") {
+          axis(m as { slice?: SliceSpec; dim?: unknown });
           return;
         }
         if (m.type === "zonalRequest") {

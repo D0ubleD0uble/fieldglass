@@ -1422,30 +1422,30 @@ netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/source/nearest	ok w=4 h=3 opa
 netcdf/netcdf4_hdf5_dummy.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf4_unsupported_type.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf_classic_dummy.nc	file	parsed=true fields=6	fc2e3e9795c31991
-netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#AGC_1202	meta	family=unresolved err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#AGC_1202	render/equirectangular/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#AGC_1202	render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#CD_310	combine/a_minus_b/render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#CD_310	meta	family=unresolved err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#CD_310	render/equirectangular/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#CD_310	render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#CS_300	combine/a_minus_b/render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#CS_300	meta	family=unresolved err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#CS_300	render/equirectangular/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#CS_300	render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#u_1205	combine/a_minus_b/render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#u_1205	meta	family=unresolved err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#u_1205	render/equirectangular/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#u_1205	render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#v_1206	combine/a_minus_b/render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#v_1206	meta	family=unresolved err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#v_1206	render/equirectangular/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#v_1206	render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=unresolved err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
-netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	err: parse error: coordinate variable contains a fill value	ecb660e78e0e96de
+netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
+netcdf/netcdf_classic_dummy.nc#AGC_1202	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
+netcdf/netcdf_classic_dummy.nc#AGC_1202	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#AGC_1202	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
+netcdf/netcdf_classic_dummy.nc#CD_310	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
+netcdf/netcdf_classic_dummy.nc#CD_310	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
+netcdf/netcdf_classic_dummy.nc#CD_310	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#CD_310	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
+netcdf/netcdf_classic_dummy.nc#CS_300	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
+netcdf/netcdf_classic_dummy.nc#CS_300	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
+netcdf/netcdf_classic_dummy.nc#CS_300	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#CS_300	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
+netcdf/netcdf_classic_dummy.nc#u_1205	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
+netcdf/netcdf_classic_dummy.nc#u_1205	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
+netcdf/netcdf_classic_dummy.nc#u_1205	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#u_1205	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
+netcdf/netcdf_classic_dummy.nc#v_1206	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
+netcdf/netcdf_classic_dummy.nc#v_1206	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
+netcdf/netcdf_classic_dummy.nc#v_1206	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#v_1206	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
+netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
+netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
+netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/oisst_avhrr_v2.nc	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/oisst_avhrr_v2.nc#ice	combine/a_minus_b/render/source/nearest	ok w=32 h=32 opaque=540	edf3a76c72bfedbc
 netcdf/oisst_avhrr_v2.nc#ice	meta	family=latlon ni=32 nj=32 reprojectable=true	62561fa0d1147dda

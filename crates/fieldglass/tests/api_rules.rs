@@ -34,10 +34,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
-    Addressing, AxisUnits, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype, Error, Field,
-    Georef, Isoline, LeftOutArray, Line, MessageInfo, PaletteOptions, PixelProbe, Probe, Projected,
-    Raster, RenderOptions, ResolvedOptions, SourceFormat, Stats, TargetKind, Values, VariableInfo,
-    WarpOptions, WarpTarget, Warped,
+    Addressing, AxisUnits, AxisValues, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype, Error,
+    Field, Georef, Isoline, LeftOutArray, Line, MessageInfo, PaletteOptions, PixelProbe, Probe,
+    Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat, Stats, TargetKind, Values,
+    VariableInfo, WarpOptions, WarpTarget, Warped,
 };
 
 // ---------------------------------------------------------------------------
@@ -100,6 +100,9 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Addressing", Class::Wire, ""),
     ("DimensionInfo", Class::Wire, ""),
     ("VariableInfo", Class::Wire, ""),
+    // One axis of a variable with its coordinate values, for labelling a
+    // cross-section's axes (#171).
+    ("AxisValues", Class::Wire, ""),
     // The arrays a container holds and would not read, one shape for every
     // container (#709).
     ("LeftOutArray", Class::Wire, ""),
@@ -412,6 +415,10 @@ fn every_wire_type_round_trips_through_json() {
         "VariableInfo",
         r#"{"index":0,"name":"/g/sst","dims":[{"name":"lat","length":2}],"dtype":"float","units":"K","detectedYDim":0,"detectedXDim":1,"detectedTimeDim":null}"#,
     );
+    round_trip::<AxisValues>(
+        "AxisValues",
+        r#"{"dimension":"time","length":3,"coordinates":[0.0,6.0,12.0],"units":"hours since 2020-01-01"}"#,
+    );
     round_trip::<LeftOutArray>(
         "LeftOutArray",
         r#"{"name":"PRODUCT/sst","reason":"unsupported section: codec bz2"}"#,
@@ -464,6 +471,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "Addressing",
     "DimensionInfo",
     "VariableInfo",
+    "AxisValues",
     "LeftOutArray",
 ];
 
@@ -1257,6 +1265,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<Addressing>("Addressing");
     check_schema::<DimensionInfo>("DimensionInfo");
     check_schema::<VariableInfo>("VariableInfo");
+    check_schema::<AxisValues>("AxisValues");
     check_schema::<LeftOutArray>("LeftOutArray");
 
     assert_covers_every_wire_type(
@@ -1289,6 +1298,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "Addressing",
     "DimensionInfo",
     "VariableInfo",
+    "AxisValues",
     "LeftOutArray",
 ];
 

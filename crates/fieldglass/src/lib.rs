@@ -130,8 +130,8 @@ pub mod shader;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{
-    Addressing, AxisUnits, DimensionInfo, Dtype, Field, Georef, LeftOutArray, Line, MessageInfo,
-    Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
+    Addressing, AxisUnits, AxisValues, DimensionInfo, Dtype, Field, Georef, LeftOutArray, Line,
+    MessageInfo, Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
 };
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};
@@ -145,13 +145,13 @@ pub use render::Source;
 #[cfg(feature = "render")]
 pub use render::{PixelProbe, Projected, RenderOptions, ResolvedOptions, TargetKind, WarpTarget};
 pub use session::PlacedSlice;
-/// One line through a named array, for a host that holds an `ArraySource`
-/// rather than a `Session` (#172).
-#[cfg(any(feature = "netcdf", feature = "zarr"))]
-pub use session::line_through;
 pub use session::{DecodeOptions, Session};
 #[cfg(feature = "render")]
 pub use session::{PaletteOptions, Raster, WarpOptions};
+/// One line through a named array, and one axis of it with its coordinates, for
+/// a host that holds an `ArraySource` rather than a `Session` (#172, #171).
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub use session::{axis_values, line_through};
 
 // The seams a **host** implements, and the error they return. `Session::open`
 // takes bytes and `Session::open_store` takes an `impl ObjectSource`, so a host

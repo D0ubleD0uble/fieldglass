@@ -226,6 +226,16 @@ export interface ParsedColorTable {
   slices: number;
 }
 
+/** One axis of a variable with its coordinate values, for labelling the axes of
+ *  a cross-section (#171). `coordinates` is undefined when the file holds no
+ *  coordinate array for the axis — it is then its own index. */
+export interface AxisValuesResult {
+  dimension: string;
+  length: number;
+  coordinates?: number[];
+  units: string;
+}
+
 export interface RenderedGrid {
   rgba: Buffer;
   width: number;
@@ -545,6 +555,9 @@ export interface NetcdfHandle {
   /** The slice's zonal mean, against latitude (#240). Throws for a slice whose
    *  rows are not circles of latitude. */
   zonalMean(variableIndex: number, yDim: number, xDim: number, sliceIndices: number[]): LineResult;
+  /** The coordinate values along one axis, for labelling a cross-section
+   *  (#171). Reads the coordinate array only, never the field. */
+  axisValues(variableIndex: number, dim: number): AxisValuesResult;
   /** Probe a NetCDF difference/sum/… map (#329): reads the combined field of
    *  slice A and slice B, so the readout matches the displayed map, not A. */
   probeSliceCombined(
@@ -635,6 +648,9 @@ export interface SlicePanelHandle {
   /** The slice's zonal mean, against latitude (#240). Throws for a slice whose
    *  rows are not circles of latitude. */
   zonalMean(variableIndex: number, yDim: number, xDim: number, sliceIndices: number[]): LineResult;
+  /** The coordinate values along one axis, for labelling a cross-section
+   *  (#171). Reads the coordinate array only, never the field. */
+  axisValues(variableIndex: number, dim: number): AxisValuesResult;
   renderSliceCombined(
     variableIndexA: number,
     yDim: number,
