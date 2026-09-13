@@ -239,6 +239,107 @@ export function exportCanvasWidth(
   return Math.max(mapBlockW, margin + headerW + margin);
 }
 
+/** A geographic window in degrees: what the lat/lon targets render (#245). */
+export interface MapWindow {
+  latMin: number;
+  latMax: number;
+  lonMin: number;
+  lonMax: number;
+}
+
+/** Zoom `window` by `factor` about the point `(fx, fy)` of the image, so the
+ *  place under the pointer stays under it.
+ *
+ *  `fx` and `fy` run 0 → 1 from the west and north edges. `factor` scales the
+ *  spans: below 1 zooms in, above 1 out. On Web Mercator (`mercator`) the
+ *  vertical axis is linear in Mercator Y, as the image rows are, so the anchor
+ *  holds there too; on the equirectangular target it is linear in latitude.
+ *
+ *  The spans stay between a hundredth of a degree and the whole world (360° of
+ *  longitude; 180° of latitude, or Mercator's ±85.0511° band), and a window that
+ *  would run past a pole is slid back rather than squashed. Longitude is not
+ *  clamped: a window may cross the antimeridian, which the renderer accepts.
+ *
+ *  Serialized into the panel script (`zoomMapWindow.toString()`), so it must not
+ *  reference anything outside itself. */
+export function zoomMapWindow(
+  window: MapWindow,
+  mercator: boolean,
+  fx: number,
+  fy: number,
+  factor: number,
+): MapWindow {
+  const MIN_SPAN = 0.01;
+  const MERCATOR_MAX_LAT = 85.05112877980659;
+  const toY = (lat: number) =>
+    mercator ? Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) : lat;
+  const toLat = (y: number) =>
+    mercator ? ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI : y;
+  const limit = mercator ? MERCATOR_MAX_LAT : 90;
+
+  const lonSpan = Math.min(360, Math.max(MIN_SPAN, (window.lonMax - window.lonMin) * factor));
+  const lonAnchor = window.lonMin + fx * (window.lonMax - window.lonMin);
+  let lonMin = lonAnchor - fx * lonSpan;
+  lonMin = ((((lonMin + 180) % 360) + 360) % 360) - 180;
+
+  const yTop = toY(window.latMax);
+  const yBottom = toY(window.latMin);
+  const yLimit = toY(limit);
+  const minYSpan = toY(Math.min(limit, MIN_SPAN / 2)) - toY(-Math.min(limit, MIN_SPAN / 2));
+  const ySpan = Math.min(2 * yLimit, Math.max(minYSpan, (yTop - yBottom) * factor));
+  const yAnchor = yTop - fy * (yTop - yBottom);
+  let top = yAnchor + fy * ySpan;
+  top = Math.min(yLimit, Math.max(-yLimit + ySpan, top));
+
+  return {
+    latMin: toLat(top - ySpan),
+    latMax: toLat(top),
+    lonMin,
+    lonMax: lonMin + lonSpan,
+  };
+}
+
+/** Pan `window` by a drag of `(dfx, dfy)`, as fractions of the image's width
+ *  and height, positive right and down: the map follows the pointer, so the
+ *  window moves the other way.
+ *
+ *  The spans are kept. Latitude is slid back inside the world (Mercator's band
+ *  on `mercator`) rather than past a pole; longitude runs freely across the
+ *  antimeridian, and the west edge is kept within [-180, 180) so repeated laps
+ *  do not grow the numbers.
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself. */
+export function panMapWindow(
+  window: MapWindow,
+  mercator: boolean,
+  dfx: number,
+  dfy: number,
+): MapWindow {
+  const MERCATOR_MAX_LAT = 85.05112877980659;
+  const toY = (lat: number) =>
+    mercator ? Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) : lat;
+  const toLat = (y: number) =>
+    mercator ? ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI : y;
+  const yLimit = toY(mercator ? MERCATOR_MAX_LAT : 90);
+
+  const lonSpan = window.lonMax - window.lonMin;
+  let lonMin = window.lonMin - dfx * lonSpan;
+  lonMin = ((((lonMin + 180) % 360) + 360) % 360) - 180;
+
+  const yTop = toY(window.latMax);
+  const ySpan = yTop - toY(window.latMin);
+  let top = yTop + dfy * ySpan;
+  top = Math.min(yLimit, Math.max(-yLimit + ySpan, top));
+
+  return {
+    latMin: toLat(top - ySpan),
+    latMax: toLat(top),
+    lonMin,
+    lonMax: lonMin + lonSpan,
+  };
+}
+
 /** The panel's heading: which message/variable is drawn, and in what units.
  *
  *  Exported because the heading has to be rebuilt whenever the drawn field
@@ -325,6 +426,8 @@ export function renderImagePanelHtml(
         // Injected verbatim so the export sizes itself with the same function
         // the host-side tests pin, instead of a re-implementation that can drift.
         ${exportCanvasWidth.toString()}
+        ${zoomMapWindow.toString()}
+        ${panMapWindow.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -657,6 +760,7 @@ export function renderImagePanelHtml(
         }
 
         function blit(payload) {
+          clearGesturePreview();
           const canvas = document.getElementById('canvas');
           if (!canvas) return;
           const ctx = canvas.getContext('2d');
@@ -787,6 +891,7 @@ export function renderImagePanelHtml(
         }
 
         function handleGridError(msg) {
+          clearGesturePreview();
           const err = msg.error || 'render failed';
           setStatus('Error: ' + err);
           // Self-heal the one render error the log toggle can cause: switching
@@ -1060,6 +1165,156 @@ export function renderImagePanelHtml(
         // A click maps to an output-raster pixel; ask the provider for the field
         // there. currentOptions() carries the projection so the readout matches
         // exactly what is on screen.
+        // --- Zoom and pan (#245) ---------------------------------------------
+        // Only the lat/lon targets render a window a gesture can move. A gesture
+        // computes the new window with zoomMapWindow / panMapWindow, writes it
+        // into the manual bounds fields, and re-renders through the same path
+        // typing those fields takes, so the two cannot disagree. While a gesture
+        // is under way the current image is moved with a CSS transform, which
+        // costs nothing; the real warp happens once it ends.
+        let gesture = null;
+        let suppressNextClick = false;
+        let pendingZoom = null;
+
+        // The window the image on screen was rendered for, when a gesture can
+        // move it: Rust echoes it for the lat/lon targets.
+        function currentMapWindow() {
+          const projection = (document.getElementById('picker-projection') || {}).value;
+          if (!warpsLatLon(projection) || !lastPayload || lastPayload.usedLatMin == null) return null;
+          return {
+            latMin: lastPayload.usedLatMin,
+            latMax: lastPayload.usedLatMax,
+            lonMin: lastPayload.usedLonMin,
+            lonMax: lastPayload.usedLonMax,
+          };
+        }
+
+        function isMercator() {
+          return (document.getElementById('picker-projection') || {}).value === 'web_mercator';
+        }
+
+        function applyMapWindow(w) {
+          const manual = document.querySelector('input[name="bounds-mode"][value="manual"]');
+          if (manual) manual.checked = true;
+          const fields = document.getElementById('bounds-manual-fields');
+          if (fields) fields.toggleAttribute('hidden', false);
+          const put = (id, v) => {
+            const el = document.getElementById(id);
+            if (el) el.value = Number(v).toFixed(4);
+          };
+          put('bounds-lat-min', w.latMin);
+          put('bounds-lat-max', w.latMax);
+          put('bounds-lon-min', w.lonMin);
+          put('bounds-lon-max', w.lonMax);
+          snapshotState();
+          requestRender();
+        }
+
+        function resetMapWindow() {
+          clearGesturePreview();
+          const auto = document.querySelector('input[name="bounds-mode"][value="auto"]');
+          if (auto) auto.checked = true;
+          const fields = document.getElementById('bounds-manual-fields');
+          if (fields) fields.toggleAttribute('hidden', true);
+          // Cleared so the next render pre-fills them with the grid's own extent.
+          ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+          });
+          snapshotState();
+          requestRender();
+        }
+
+        function previewTransform(css, origin) {
+          ['canvas', 'overlay'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.style.transformOrigin = origin || '';
+            el.style.transform = css;
+          });
+        }
+
+        function clearGesturePreview() {
+          if (pendingZoom && pendingZoom.timer) clearTimeout(pendingZoom.timer);
+          pendingZoom = null;
+          gesture = null;
+          previewTransform('', '');
+          const wrap = document.querySelector('.canvas-wrap');
+          if (wrap) wrap.classList.remove('dragging');
+        }
+
+        // Where a client point sits on the image, as fractions from the west and
+        // north edges, or null when it is off the image.
+        function imageFraction(clientX, clientY) {
+          const canvas = document.getElementById('canvas');
+          const rect = canvas && canvas.getBoundingClientRect();
+          if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+          return {
+            fx: (clientX - rect.left) / rect.width,
+            fy: (clientY - rect.top) / rect.height,
+            width: rect.width,
+            height: rect.height,
+            px: clientX - rect.left,
+            py: clientY - rect.top,
+          };
+        }
+
+        function onWheel(ev) {
+          const w = currentMapWindow();
+          if (!w) return;
+          const at = imageFraction(ev.clientX, ev.clientY);
+          if (!at || at.fx < 0 || at.fx > 1 || at.fy < 0 || at.fy > 1) return;
+          ev.preventDefault();
+          if (!pendingZoom) pendingZoom = { factor: 1, fx: at.fx, fy: at.fy, origin: at.px + 'px ' + at.py + 'px', timer: 0 };
+          // A notch of a mouse wheel is about 100 units: roughly 20% per notch,
+          // and trackpads' smaller deltas scale smoothly.
+          pendingZoom.factor = Math.min(64, Math.max(1 / 64, pendingZoom.factor * Math.pow(1.002, ev.deltaY)));
+          previewTransform('scale(' + (1 / pendingZoom.factor) + ')', pendingZoom.origin);
+          clearTimeout(pendingZoom.timer);
+          pendingZoom.timer = setTimeout(() => {
+            const z = pendingZoom;
+            pendingZoom = null;
+            if (z) applyMapWindow(zoomMapWindow(w, isMercator(), z.fx, z.fy, z.factor));
+          }, 250);
+        }
+
+        function onMouseDown(ev) {
+          if (ev.button !== 0 || !currentMapWindow()) return;
+          const at = imageFraction(ev.clientX, ev.clientY);
+          if (!at) return;
+          gesture = { x: ev.clientX, y: ev.clientY, width: at.width, height: at.height, moved: false };
+        }
+
+        function onMouseMove(ev) {
+          if (!gesture) return;
+          const dx = ev.clientX - gesture.x;
+          const dy = ev.clientY - gesture.y;
+          // A few pixels of wobble is still a click, which probes.
+          if (!gesture.moved && Math.hypot(dx, dy) < 4) return;
+          gesture.moved = true;
+          const wrap = document.querySelector('.canvas-wrap');
+          if (wrap) wrap.classList.add('dragging');
+          previewTransform('translate(' + dx + 'px, ' + dy + 'px)', '');
+        }
+
+        function onMouseUp(ev) {
+          if (!gesture) return;
+          const g = gesture;
+          gesture = null;
+          const wrap = document.querySelector('.canvas-wrap');
+          if (wrap) wrap.classList.remove('dragging');
+          if (!g.moved) return;
+          suppressNextClick = true;
+          const w = currentMapWindow();
+          if (!w) { previewTransform('', ''); return; }
+          applyMapWindow(panMapWindow(w, isMercator(), (ev.clientX - g.x) / g.width, (ev.clientY - g.y) / g.height));
+        }
+
+        function zoomButton(factor) {
+          const w = currentMapWindow();
+          if (w) applyMapWindow(zoomMapWindow(w, isMercator(), 0.5, 0.5, factor));
+        }
+
         function requestProbe(clientX, clientY) {
           if (!lastPayload || !lastPayload.width) return;
           const canvas = document.getElementById('canvas');
@@ -1788,8 +2043,22 @@ export function renderImagePanelHtml(
           // sits on top, so listen on the wrapper to catch the click regardless.
           const canvasWrap = document.querySelector('.canvas-wrap');
           if (canvasWrap) {
-            canvasWrap.addEventListener('click', (ev) => requestProbe(ev.clientX, ev.clientY));
+            canvasWrap.addEventListener('click', (ev) => {
+              // The click that ends a drag is not a probe.
+              if (suppressNextClick) { suppressNextClick = false; return; }
+              requestProbe(ev.clientX, ev.clientY);
+            });
+            canvasWrap.addEventListener('wheel', onWheel, { passive: false });
+            canvasWrap.addEventListener('mousedown', onMouseDown);
           }
+          window.addEventListener('mousemove', onMouseMove);
+          window.addEventListener('mouseup', onMouseUp);
+          const zoomIn = document.getElementById('zoom-in');
+          if (zoomIn) zoomIn.addEventListener('click', () => zoomButton(0.5));
+          const zoomOut = document.getElementById('zoom-out');
+          if (zoomOut) zoomOut.addEventListener('click', () => zoomButton(2));
+          const zoomReset = document.getElementById('zoom-reset');
+          if (zoomReset) zoomReset.addEventListener('click', resetMapWindow);
           // Keep the overlay aligned + crisp as the panel (and the displayed
           // image size) resizes.
           window.addEventListener('resize', drawOverlay);
@@ -1904,7 +2173,9 @@ export function renderImagePanelHtml(
     /* The image canvas and the vector overlay share one positioned box so the
        overlay sits exactly on top. The image is pixel-upscaled; the overlay is
        a crisp vector layer drawn at display resolution (see drawOverlay). */
-    .canvas-wrap { position: relative; flex: 1 1 auto; display: flex; }
+    .canvas-wrap { position: relative; flex: 1 1 auto; display: flex; overflow: hidden; }
+    .canvas-wrap.dragging { cursor: grabbing; }
+    .zoom-buttons { margin-left: 0.5rem; white-space: nowrap; }
     canvas#canvas {
       max-width: 100%;
       height: auto;
@@ -2121,6 +2392,11 @@ ${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compar
         <label>lat max <input type="number" id="bounds-lat-max" step="any"></label>
         <label>lon min <input type="number" id="bounds-lon-min" step="any"></label>
         <label>lon max <input type="number" id="bounds-lon-max" step="any"></label>
+      </span>
+      <span class="zoom-buttons" title="Scroll over the map to zoom, drag it to pan">
+        <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+        <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+        <button type="button" id="zoom-reset">Reset view</button>
       </span>
     </fieldset>
     <fieldset>
