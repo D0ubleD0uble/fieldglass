@@ -130,7 +130,8 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 1188,
-        "units": "K"
+        "units": "K",
+        "uvRelativeToGrid": false
       }
     },
     {
@@ -1976,7 +1977,8 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 179,
-        "units": "K"
+        "units": "K",
+        "uvRelativeToGrid": false
       }
     },
     {
@@ -3875,7 +3877,8 @@
         "sizeLabel": "N32",
         "subCentre": null,
         "totalLengthBytes": 10260,
-        "units": "K"
+        "units": "K",
+        "uvRelativeToGrid": false
       }
     },
     {
@@ -6247,7 +6250,8 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 10012,
-        "units": "Pa"
+        "units": "Pa",
+        "uvRelativeToGrid": true
       }
     },
     {
@@ -8099,7 +8103,8 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 1631,
-        "units": "K"
+        "units": "K",
+        "uvRelativeToGrid": false
       }
     },
     {
@@ -9943,7 +9948,8 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 191,
-        "units": "K"
+        "units": "K",
+        "uvRelativeToGrid": false
       }
     },
     {
@@ -11760,7 +11766,8 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 189,
-        "units": "K"
+        "units": "K",
+        "uvRelativeToGrid": false
       }
     },
     {
@@ -13393,7 +13400,8 @@
         "sizeLabel": "T63",
         "subCentre": null,
         "totalLengthBytes": 8473,
-        "units": "K"
+        "units": "K",
+        "uvRelativeToGrid": null
       }
     },
     {
@@ -15247,7 +15255,8 @@
         "sizeLabel": "Nside 4",
         "subCentre": null,
         "totalLengthBytes": 725,
-        "units": "K"
+        "units": "K",
+        "uvRelativeToGrid": null
       }
     },
     {
@@ -17113,7 +17122,8 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 188,
-        "units": "K"
+        "units": "K",
+        "uvRelativeToGrid": false
       }
     },
     {
@@ -18955,7 +18965,8 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 14524,
-        "units": "m s⁻¹"
+        "units": "m s⁻¹",
+        "uvRelativeToGrid": true
       }
     },
     {

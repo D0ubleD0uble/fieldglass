@@ -394,6 +394,9 @@ mod tests {
             total_length_bytes: None,
             production_status: None,
             data_type: None,
+            // A plan is built from an index, which does not carry the
+            // resolution flags a vector plot would read (#241).
+            uv_relative_to_grid: None,
         }
     }
 

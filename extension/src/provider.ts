@@ -866,6 +866,40 @@ export class FieldglassEditorProvider
       }
     };
 
+    // The arrows of a u/v pair, projected onto the current raster (#241). The
+    // panel's own message is the u component; the picker chooses v. A refusal
+    // travels with the reply — a grid with no forward geolocation cannot place
+    // an arrow — so the panel can say why rather than drawing nothing.
+    const projectVectors = (req: VectorRequest) => {
+      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      if (!docHandle) return;
+      if (!isNonNegativeInt(req.messageIndexV)) return;
+      const options = resolveRerenderOptions(req.options ?? {});
+      const spacing = isNonNegativeInt(req.spacing) && req.spacing > 0 ? req.spacing : undefined;
+      try {
+        const arrows = docHandle.projectVectors(
+          meta.messageIndex,
+          req.messageIndexV,
+          options,
+          spacing,
+          req.gridRelative === true,
+        );
+        panel.webview.postMessage({
+          type: "vectorResult",
+          seq: req.seq,
+          xy: arrows.xy,
+          segLengths: arrows.segLengths,
+          referenceSpeed: arrows.referenceSpeed,
+        });
+      } catch (err) {
+        panel.webview.postMessage({
+          type: "vectorResult",
+          seq: req.seq,
+          error: `${err}`.replace(/^Error:\s*/, ""),
+        });
+      }
+    };
+
     // Read the field under a clicked pixel and post the readout back (#172).
     // The field's zonal mean (#240). A refusal travels with the reply, because
     // the reason — a rotated or projected grid has no latitude circles to average
@@ -935,6 +969,10 @@ export class FieldglassEditorProvider
         }
         if (m.type === "contourRequest") {
           projectContours(m as ContourRequest);
+          return;
+        }
+        if (m.type === "vectorRequest") {
+          projectVectors(m as VectorRequest);
           return;
         }
         if (m.type === "probeRequest") {
@@ -1571,6 +1609,18 @@ export interface OverlayRequest {
   graticuleSpacing?: number;
   /** The NetCDF slice, when this panel renders a variable (#122). */
   slice?: SliceSpec;
+}
+
+/** `vectorRequest` posted by the render panel when the arrows are on: which
+ *  message is the v component, how far apart to draw them, and whether the
+ *  file states its components along the grid's axes (#241). */
+export interface VectorRequest {
+  type: "vectorRequest";
+  seq?: number;
+  messageIndexV?: unknown;
+  spacing?: unknown;
+  gridRelative?: unknown;
+  options?: Partial<RenderOptions>;
 }
 
 /** `contourRequest` posted by the render panel when contours are on and the
