@@ -21,7 +21,10 @@
 //!    falls through to (4); **anything else stops here** — see the guard below.
 //! 4. **1-D lat/lon coordinate arrays.** Reached only when no projection
 //!    resolved, which CF makes safe: a projected CRS is *required* to name a
-//!    `grid_mapping`, so its absence implies geographic coordinates.
+//!    `grid_mapping`, so its absence implies geographic coordinates. Only when
+//!    the Y axis's coordinate is a latitude and the X axis's a longitude,
+//!    though: a cross-section picks any two axes (#171), and a time or level
+//!    coordinate read as degrees placed a time–latitude plane on the map.
 //! 5. **Nothing.** [`GridGeometry::Unsupported`], the source-only fallback.
 //!
 //! # The guard that matters
@@ -42,7 +45,7 @@
 
 use std::ops::Range;
 
-use super::geometry::{Catalog, Entry, synthesize_geometry};
+use super::geometry::{AxisKind, Catalog, Entry, detect_axis, synthesize_geometry};
 use super::resolvers::{
     WrfMapProj, cf_scale_offset, resolve_cf_geostationary, resolve_wrf_lambert, resolve_wrf_latlon,
     resolve_wrf_mercator, resolve_wrf_polar_stereo, wrf_map_proj,
@@ -214,10 +217,17 @@ pub fn slice_placement(
         }
     }
 
-    // (4) 1-D lat/lon coordinate arrays.
+    // (4) 1-D lat/lon coordinate arrays: latitude down the rows and longitude
+    // across the columns, and nothing else. A cross-section's axes are a time,
+    // a level or a transposed pair (#171); none of those is a map, and reading
+    // their coordinates as degrees would draw one anyway.
     let (Some(lat), Some(lon)) = (
-        catalog.coordinate_of(&y_axis.name),
-        catalog.coordinate_of(&x_axis.name),
+        catalog
+            .coordinate_of(&y_axis.name)
+            .filter(|e| detect_axis(e.array) == Some(AxisKind::Latitude)),
+        catalog
+            .coordinate_of(&x_axis.name)
+            .filter(|e| detect_axis(e.array) == Some(AxisKind::Longitude)),
     ) else {
         return Ok(unordered(source_only()));
     };

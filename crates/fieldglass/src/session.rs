@@ -47,6 +47,10 @@ use crate::api::{
     Addressing, DimensionInfo, Dtype, Field, Georef, LeftOutArray, Line, MessageInfo, Probe, Scan,
     SourceFormat, Stats, Values, VariableInfo,
 };
+// The axis a cross-section labels itself from: only an array container has one
+// (#171), so the import is gated the way its readers are.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+use crate::api::AxisValues;
 #[cfg(feature = "analysis")]
 use crate::combine::CombineOp;
 use crate::error::Error;
@@ -754,6 +758,48 @@ pub fn line_through(
             .filter(|u| !u.is_empty()),
         coordinates,
         dimension,
+    })
+}
+
+/// One axis of the array named `array` in `source` — the implementation behind
+/// [`Session::axis_values`], keyed by name for the reason [`line_through`] is
+/// (#171).
+///
+/// Reads the coordinate array and nothing else: labelling a cross-section's
+/// axes must not decode the field.
+///
+/// # Errors
+///
+/// An array this source does not list as renderable, or a `dim` outside its
+/// axes. A coordinate array that fails to read is not an error — the axis comes
+/// back without coordinates, which is the same answer as having none, because
+/// an axis a host cannot label is still an axis it can draw.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<AxisValues, Error> {
+    let vars = renderable_arrays(source.group());
+    let var = vars
+        .iter()
+        .find(|v| v.name == array)
+        .ok_or(Error::NoSuchMessage {
+            index: 0,
+            count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
+        })?;
+    let axis = var.dims.get(dim as usize).ok_or(Error::InvalidOption {
+        detail: format!(
+            "`{}` has {} dimensions, so dim {dim} is outside them",
+            var.name,
+            var.dims.len()
+        ),
+    })?;
+    let coordinates = axis_coordinates(source, &axis.name, axis.length);
+    Ok(AxisValues {
+        units: coordinates
+            .as_ref()
+            .map(|_| array_units(source, &axis.name))
+            .unwrap_or_default(),
+        dimension: axis.name.clone(),
+        length: axis.length,
+        coordinates,
     })
 }
 
@@ -1592,6 +1638,44 @@ impl Session {
                     count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
                 })?;
                 line_through(source, &var.name, along_dim, indices, options)
+            }
+        }
+    }
+
+    /// The coordinate values along one axis of a variable, for labelling a plot
+    /// of it (#171).
+    ///
+    /// `variable` is a position in [`Session::variables`] and `dim` a position
+    /// in that variable's own axes. See [`axis_values`] for what is read and
+    /// what an absent coordinate array means.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongAddressing`] for a message-addressed file, and whatever
+    /// [`axis_values`] reports.
+    #[cfg(any(feature = "netcdf", feature = "zarr"))]
+    pub fn axis_values(&self, variable: u32, dim: u32) -> Result<AxisValues, Error> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => Err(wrong_addressing(
+                Addressing::Messages,
+                "axis_values",
+                "message",
+            )),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => Err(wrong_addressing(
+                Addressing::Messages,
+                "axis_values",
+                "message",
+            )),
+            Reader::Arrays(a) => {
+                let source = a.source.as_ref();
+                let vars = renderable_arrays(source.group());
+                let var = vars.get(variable as usize).ok_or(Error::NoSuchMessage {
+                    index: variable,
+                    count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
+                })?;
+                axis_values(source, &var.name, dim)
             }
         }
     }

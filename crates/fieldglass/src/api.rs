@@ -166,6 +166,26 @@ api_type! {
         pub detected_time_dim: Option<u32>,
     }
 
+    /// One axis of a variable, with the coordinate values along it (#171).
+    ///
+    /// What a host labels a cross-section's axes from: a plot of any two
+    /// dimensions needs the numbers down its side and along its foot, and those
+    /// are the 1-D coordinate array CF names after the dimension. `coordinates`
+    /// is `None` when the container holds no such array — an axis is then its
+    /// own index — and `units` is empty when it states none.
+    #[serde(rename_all = "camelCase")]
+    pub struct AxisValues {
+        /// The dimension's name, as the container spells it.
+        pub dimension: String,
+        /// How many points it has, whether or not it has coordinates.
+        pub length: u64,
+        /// The coordinate value at each index, in index order.
+        pub coordinates: Option<Vec<f64>>,
+        /// The coordinate array's own `units`, empty when it states none. For a
+        /// time axis this is the CF form, `hours since 2020-01-01`.
+        pub units: String,
+    }
+
     /// Which element type a caller wants back from a decode.
     #[derive(Default)]
     #[serde(rename_all = "snake_case")]

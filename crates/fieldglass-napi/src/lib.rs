@@ -969,6 +969,35 @@ pub fn colormaps() -> Vec<ColormapInfo> {
         .collect()
 }
 
+/// One axis of a variable with its coordinate values, for labelling the axes of
+/// a cross-section (#171).
+#[napi(object)]
+#[derive(Debug)]
+pub struct AxisValuesResult {
+    /// The dimension's name, as the file spells it.
+    pub dimension: String,
+    /// How many points the axis has.
+    pub length: f64,
+    /// The coordinate value at each index, or `null` when the container holds no
+    /// coordinate array for the axis — the axis is then its own index.
+    pub coordinates: Option<Vec<f64>>,
+    /// The coordinate array's `units`, empty when it states none. A time axis
+    /// carries the CF form, `hours since 2020-01-01`.
+    pub units: String,
+}
+
+impl From<fieldglass::AxisValues> for AxisValuesResult {
+    fn from(a: fieldglass::AxisValues) -> Self {
+        Self {
+            dimension: a.dimension,
+            // `f64` for the reason `NetcdfAxis::length` is one.
+            length: a.length as f64,
+            coordinates: a.coordinates,
+            units: a.units,
+        }
+    }
+}
+
 /// A colour palette table (`.cpt`) read and compiled, as an import needs it.
 #[napi(object)]
 #[derive(Debug)]
@@ -2124,6 +2153,18 @@ impl NetcdfHandle {
         .into_napi()
     }
 
+    /// The coordinate values along one axis of a variable, for labelling a
+    /// cross-section (#171). Reads the coordinate array only, never the field.
+    #[napi]
+    pub fn axis_values(&self, variable_index: u32, dim: u32) -> napi::Result<AxisValuesResult> {
+        let var = self.renderable(variable_index)?;
+        let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
+        let name = var.name.strip_prefix('/').unwrap_or(&var.name);
+        fieldglass::axis_values(&arrays, name, dim)
+            .map(AxisValuesResult::from)
+            .into_napi()
+    }
+
     /// The slice's zonal mean, against latitude (#240) — see
     /// `fieldglass::render::zonal_mean`. The same arguments as `render_slice`.
     #[napi]
@@ -3232,6 +3273,16 @@ impl ZarrHandle {
                 &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
             )
             .map(LineResult::from)
+            .into_napi()
+    }
+
+    /// The coordinate values along one axis — see `NetcdfHandle::axis_values`,
+    /// read through this handle's session (#171).
+    #[napi]
+    pub fn axis_values(&self, variable_index: u32, dim: u32) -> napi::Result<AxisValuesResult> {
+        self.session
+            .axis_values(variable_index, dim)
+            .map(AxisValuesResult::from)
             .into_napi()
     }
 

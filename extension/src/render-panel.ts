@@ -239,6 +239,82 @@ export function exportCanvasWidth(
   return Math.max(mapBlockW, margin + headerW + margin);
 }
 
+/** Whether the slice on axes `(yDim, xDim)` is a map — the file's own
+ *  horizontal pair — as opposed to a cross-section through any two other axes
+ *  (#171).
+ *
+ *  A file whose horizontal axes are projected (WRF, a satellite swath) detects
+ *  neither, and its axes are whatever the picker opened on; those stay maps,
+ *  because only the Rust side can say where such a grid sits. A file that names
+ *  its latitude and longitude is a map on exactly that pair, in that order: the
+ *  transposed pick draws latitude across the columns, which is a plot, not a
+ *  map.
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself. */
+export function isMapSlice(
+  yDim: number,
+  xDim: number,
+  detectedYDim: number | null | undefined,
+  detectedXDim: number | null | undefined,
+): boolean {
+  if (detectedYDim == null || detectedXDim == null) return true;
+  return yDim === detectedYDim && xDim === detectedXDim;
+}
+
+/** Up to `count` evenly spaced indices along an axis of `length` points, always
+ *  including the first and last. Where a cross-section puts its tick labels.
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself. */
+export function axisTickIndices(length: number, count: number): number[] {
+  if (length <= 0) return [];
+  if (length === 1) return [0];
+  const wanted = Math.max(2, Math.min(count, length));
+  const ticks: number[] = [];
+  for (let i = 0; i < wanted; i++) {
+    ticks.push(Math.round((i * (length - 1)) / (wanted - 1)));
+  }
+  // Rounding can land two ticks on one index on a short axis.
+  return ticks.filter((v, i) => i === 0 || v !== ticks[i - 1]);
+}
+
+/** One axis value as a tick label. A CF time (`units` of the form
+ *  `<unit> since <reference>`) becomes a date, since `481140 minutes` is not a
+ *  label anyone can read; everything else is the number, trimmed.
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself. */
+export function formatAxisValue(value: number, units: string): string {
+  if (!Number.isFinite(value)) return "";
+  const since = /^\s*(\w+)\s+since\s+(.+?)\s*$/i.exec(units || "");
+  const perUnit: Record<string, number> = {
+    second: 1000, seconds: 1000, sec: 1000, secs: 1000, s: 1000,
+    minute: 60000, minutes: 60000, min: 60000, mins: 60000,
+    hour: 3600000, hours: 3600000, hr: 3600000, hrs: 3600000, h: 3600000,
+    day: 86400000, days: 86400000, d: 86400000,
+    week: 604800000, weeks: 604800000,
+  };
+  const step = since ? perUnit[since[1].toLowerCase()] : undefined;
+  if (since && step) {
+    // `1990-01-01 00:00:00` is CF's spelling; `T` and a zone make it ISO. A
+    // reference the browser cannot read falls through to the number.
+    const reference = since[2].replace(" ", "T");
+    const epoch = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(reference) ? reference : reference + "Z");
+    if (Number.isFinite(epoch)) {
+      const at = new Date(epoch + value * step);
+      const date = at.toISOString().slice(0, 10);
+      const time = at.toISOString().slice(11, 16);
+      return time === "00:00" ? date : date + " " + time;
+    }
+  }
+  // Six significant digits, then back through `Number` to drop the padding
+  // `toPrecision` adds: a coordinate array carries float noise
+  // (`0.30000000004`), and a tick label should show neither that, nor `0.000`
+  // for zero, nor `1013` for a pressure level of `1013.25`.
+  return String(Number(value.toPrecision(6)));
+}
+
 /** The frame an animation steps to from `index` along an axis of `length`
  *  steps, moving by `step` (±1): the next index, wrapped to the other end when
  *  `loop` is set, or `null` when an unlooped animation has run off the end.
@@ -463,6 +539,9 @@ export function renderImagePanelHtml(
         ${panMapWindow.toString()}
         ${nextFrame.toString()}
         ${defaultAnimationDim.toString()}
+        ${isMapSlice.toString()}
+        ${axisTickIndices.toString()}
+        ${formatAxisValue.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -521,6 +600,7 @@ export function renderImagePanelHtml(
           xSel.value = String(sliceState.xDim);
           wrap.innerHTML = dimStepperHtml(v, sliceState.yDim, sliceState.xDim, sliceState.sliceIndices);
           buildAnimationControls();
+          syncCrossSectionMode();
         }
 
         // One slider + number per dimension that isn't an image axis, reading
@@ -599,6 +679,125 @@ export function renderImagePanelHtml(
           document.querySelectorAll('#slice-dims [data-dim="' + dim + '"]').forEach((el) => {
             if (el.value !== String(clamped)) el.value = String(clamped);
           });
+        }
+
+        // --- Cross-sections (#171) -------------------------------------------
+        // Any two axes may be the image's. When they are not the file's own
+        // latitude/longitude pair, the plane is not a map: nothing places it on
+        // the Earth, so the projection picker and the overlays are put away and
+        // the axes are labelled from their coordinate arrays instead.
+        //
+        // The axis values are asked for per (variable, axis) and kept, because
+        // they change only when the picker does and reading one must not cost a
+        // decode.
+        let axisCache = {};
+        let axisPending = {};
+
+        function isCrossSection() {
+          if (!sliceState) return false;
+          const v = sliceVariable(sliceState.variableIndex);
+          if (!v) return false;
+          return !isMapSlice(sliceState.yDim, sliceState.xDim, v.detectedYDim, v.detectedXDim);
+        }
+
+        function axisKey(dim) {
+          return sliceState ? sliceState.variableIndex + ':' + dim : '';
+        }
+
+        // Ask the host for an axis's coordinates once, then redraw the rails.
+        function requestAxis(dim) {
+          const key = axisKey(dim);
+          if (!key || axisCache[key] !== undefined || axisPending[key]) return;
+          axisPending[key] = true;
+          vscode.postMessage(Object.assign({ type: 'axisRequest', dim: dim }, sliceFields()));
+        }
+
+        function handleAxisResult(msg) {
+          const key = axisKey(msg.dim);
+          if (key) {
+            axisPending[key] = false;
+            axisCache[key] = msg.result || null;
+          }
+          drawAxisRails();
+        }
+
+        // Place the tick labels down the left of the image and under it. A label
+        // sits at the fraction of the image its index does — the centre of its
+        // row or column — and reads the coordinate value there, or the index
+        // when the file gives the axis no coordinates.
+        function drawAxisRails() {
+          const railY = document.getElementById('axis-y');
+          const railX = document.getElementById('axis-x');
+          const caption = document.getElementById('axis-caption');
+          if (!railY || !railX || !caption) return;
+          const cross = isCrossSection();
+          railY.toggleAttribute('hidden', !cross);
+          railX.toggleAttribute('hidden', !cross);
+          caption.toggleAttribute('hidden', !cross);
+          if (!cross || !sliceState || !lastPayload) {
+            railY.innerHTML = '';
+            railX.innerHTML = '';
+            return;
+          }
+          const v = sliceVariable(sliceState.variableIndex);
+          if (!v) return;
+          const flip = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
+          const axisY = axisCache[axisKey(sliceState.yDim)];
+          const axisX = axisCache[axisKey(sliceState.xDim)];
+          const rows = lastPayload.height;
+          const cols = lastPayload.width;
+
+          const label = (axis, index) => {
+            const values = axis && axis.coordinates;
+            if (!values || index >= values.length) return String(index);
+            return formatAxisValue(values[index], axis ? axis.units : '');
+          };
+          railY.innerHTML = axisTickIndices(rows, 6)
+            .map((row) => {
+              // Which index that row shows: the renderer draws row 0 first, and
+              // the flip-y toggle turns the plane over.
+              const index = flip ? rows - 1 - row : row;
+              const at = ((row + 0.5) / rows) * 100;
+              return '<span style="top:' + at + '%">' + escapeAttr(label(axisY, index)) + '</span>';
+            })
+            .join('');
+          railX.innerHTML = axisTickIndices(cols, 5)
+            .map((col) => {
+              const at = ((col + 0.5) / cols) * 100;
+              return '<span style="left:' + at + '%">' + escapeAttr(label(axisX, col)) + '</span>';
+            })
+            .join('');
+          const name = (axis, dim) => {
+            const base = axis ? axis.dimension : v.dims[dim].name;
+            const units = axis && axis.units && !/ since /i.test(axis.units) ? ' (' + axis.units + ')' : '';
+            return base + units;
+          };
+          caption.textContent = 'x: ' + name(axisX, sliceState.xDim) + ' · y: ' + name(axisY, sliceState.yDim);
+        }
+
+        // A cross-section has no projection and no coastlines to draw on it.
+        function syncCrossSectionMode() {
+          const cross = isCrossSection();
+          const note = document.getElementById('cross-section-note');
+          const projection = document.getElementById('picker-projection');
+          const overlays = document.getElementById('overlay-fieldset');
+          if (note) {
+            note.toggleAttribute('hidden', !cross);
+            note.textContent = cross
+              ? 'Cross-section: these axes are not a map, so it is drawn in index space.'
+              : '';
+          }
+          if (projection) {
+            if (cross && projection.value !== 'source') projection.value = 'source';
+            projection.disabled = cross;
+          }
+          if (overlays) overlays.toggleAttribute('hidden', cross);
+          if (cross && sliceState) {
+            requestAxis(sliceState.yDim);
+            requestAxis(sliceState.xDim);
+          }
+          syncProjectionControls();
+          drawAxisRails();
         }
 
         // --- Animation along an axis (#170) ----------------------------------
@@ -1030,6 +1229,7 @@ export function renderImagePanelHtml(
           blit(msg);
           updateLogAvailability();
           animationFrameArrived();
+          syncCrossSectionMode();
           // The old probe readout referred to the previous field; clear it.
           const probeEl = document.getElementById('probe');
           if (probeEl) probeEl.textContent = '';
@@ -2270,6 +2470,7 @@ export function renderImagePanelHtml(
           else if (msg.type === 'contourReady') handleContourReady(msg);
           else if (msg.type === 'probeResult') handleProbeResult(msg);
           else if (msg.type === 'lineResult') handleLineResult(msg);
+          else if (msg.type === 'axisResult') handleAxisResult(msg);
           else if (msg.type === 'zonalResult') handleZonalResult(msg);
           else if (msg.type === 'contourError') handleContourError(msg);
           else if (msg.type === 'exportPngDone') handleExportPngDone(msg);
@@ -2480,6 +2681,26 @@ export function renderImagePanelHtml(
     .slice-index input[type="range"] { vertical-align: middle; }
     .slice-index input[type="number"] { width: 4.5rem; }
     .slice-len { color: var(--vscode-descriptionForeground); font-size: 0.8rem; }
+    /* Cross-section axes (#171): two rails of absolutely-placed labels, one
+       down the left of the image and one under it, so a label sits at the
+       fraction of the image its index does. */
+    .plot-wrap { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+    .plot-row { display: flex; align-items: stretch; min-width: 0; }
+    .axis-rail {
+      position: relative;
+      color: var(--vscode-descriptionForeground);
+      font-size: 0.75rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .axis-y { width: 6.5rem; flex: 0 0 auto; }
+    .axis-y span { position: absolute; right: 0.35rem; transform: translateY(-50%); white-space: nowrap; }
+    .axis-x { height: 1.1rem; margin-left: 6.5rem; }
+    .axis-x span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+    .axis-caption {
+      margin-left: 6.5rem;
+      color: var(--vscode-descriptionForeground);
+      font-size: 0.78rem;
+    }
     .animate-transport button { min-width: 2rem; }
   </style>
 </head>
@@ -2520,6 +2741,7 @@ ${slice
     </div>`
     : ""}
     <div class="toolbar-row">
+      <span id="cross-section-note" class="picker-note" hidden></span>
       <label>Projection
         <select id="picker-projection">
           <option value="source" selected>Source projection</option>
@@ -2592,7 +2814,7 @@ ${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compar
         <button type="button" id="zoom-reset">Reset view</button>
       </span>
     </fieldset>
-    <fieldset>
+    <fieldset id="overlay-fieldset">
       <legend>Overlay:</legend>
       <span class="overlay-layer">
         <label><input type="checkbox" id="overlay-coastlines"> Coastlines</label>
@@ -2641,9 +2863,16 @@ ${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compar
     <div id="line-caption" class="line-caption"></div>
   </div>
   <div class="render-area">
-    <div class="canvas-wrap">
-      <canvas id="canvas" width="320" height="320"></canvas>
-      <canvas id="overlay"></canvas>
+    <div class="plot-wrap" id="plot-wrap">
+      <div class="plot-row">
+        <div class="axis-rail axis-y" id="axis-y" hidden></div>
+        <div class="canvas-wrap">
+          <canvas id="canvas" width="320" height="320"></canvas>
+          <canvas id="overlay"></canvas>
+        </div>
+      </div>
+      <div class="axis-rail axis-x" id="axis-x" hidden></div>
+      <div class="axis-caption" id="axis-caption" hidden></div>
     </div>
     <div class="colorbar-wrap">
       <div class="cb" aria-label="colormap"></div>
