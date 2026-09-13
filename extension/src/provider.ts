@@ -1,11 +1,18 @@
 import * as vscode from "vscode";
 import * as path from "path";
 
+import {
+  IMPORT_COLOR_TABLE_COMMAND,
+  importColorTableFile,
+  importedColorTable,
+  importedPickerColormaps,
+  useColorTableStore,
+  type PickerColormap,
+} from "./color-tables";
 import { escapeHtml, nonce } from "./html";
 import {
   loadNative,
   nativeBinaryName,
-  type ColormapInfo,
   type CombineOp,
   type CombineOpInfo,
   type DatasetMeta,
@@ -151,10 +158,11 @@ export class FieldglassEditorProvider
   public static readonly viewType = "fieldglass.viewer";
   public static readonly viewTypeAny = "fieldglass.viewer.any";
 
-  public static register(_context: vscode.ExtensionContext): {
+  public static register(context: vscode.ExtensionContext): {
     provider: FieldglassEditorProvider;
     disposables: vscode.Disposable[];
   } {
+    useColorTableStore(context.globalState);
     const provider = new FieldglassEditorProvider();
     const opts = { supportsMultipleEditorsPerDocument: true };
     return {
@@ -169,6 +177,11 @@ export class FieldglassEditorProvider
         // point has to be a command.
         vscode.commands.registerCommand(FieldglassEditorProvider.openStoreCommand, () =>
           provider.promptOpenZarrStore(),
+        ),
+        // Import a colour palette table (#236). A command for the same reason
+        // as the one above: it acts on no document.
+        vscode.commands.registerCommand(IMPORT_COLOR_TABLE_COMMAND, () =>
+          provider.promptImportColorTable(),
         ),
       ],
     };
@@ -248,6 +261,50 @@ export class FieldglassEditorProvider
     }
     this._zarrHandlesByStore.set(storeUri.toString(), handle);
     this.openZarrRenderPanel(storeUri, variables[0].variableIndex);
+  }
+
+  /** Ask for a `.cpt` file, import it, and offer it in every open render panel.
+   *
+   * The file dialog is the only part a test cannot drive, so the rest is
+   * {@link importColorTable}. */
+  public async promptImportColorTable(): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      openLabel: "Import Color Table",
+      title: "Select a GMT color palette table",
+      filters: { "Color palette tables": ["cpt"], "All files": ["*"] },
+    });
+    const uri = picked?.[0];
+    if (uri) await this.importColorTable(uri);
+  }
+
+  /** Import the colour table at `uri`, then rebuild every open render panel so
+   *  its picker offers it. Resolves to whether the file was imported. */
+  public async importColorTable(uri: vscode.Uri): Promise<boolean> {
+    const entry = await importColorTableFile(uri);
+    if (!entry) return false;
+    for (const rebuild of this._renderPanelBuilders.values()) rebuild();
+    return true;
+  }
+
+  /** How to rebuild each open render panel's HTML, so an import reaches a panel
+   *  that is already open.
+   *
+   * A rebuild rather than a message to the webview. The panels are created
+   * with `retainContextWhenHidden: false`, so a hidden one is reloaded from its
+   * HTML when it is shown again, and a message would only reach the visible
+   * ones; the HTML is what every one of them reloads from. The script restores
+   * its selections from `vscode.setState` on load, so a rebuild repaints what
+   * was on screen. */
+  private readonly _renderPanelBuilders = new Map<vscode.WebviewPanel, () => void>();
+
+  /** Build `panel`'s HTML now, and again whenever the colormaps change. */
+  private trackRenderPanel(panel: vscode.WebviewPanel, build: () => void): void {
+    build();
+    this._renderPanelBuilders.set(panel, build);
+    panel.onDidDispose(() => this._renderPanelBuilders.delete(panel));
   }
 
   private readonly _onDidChangeCustomDocument =
@@ -685,15 +742,17 @@ export class FieldglassEditorProvider
       ?.messages()
       .map((m) => ({ index: m.messageIndex, label: gribFieldLabel(m) }));
 
-    panel.webview.html = renderImagePanelHtml(
-      panel.webview,
-      meta,
-      describeProjection(meta),
-      colormapRegistry(),
-      combineOpRegistry(),
-      undefined,
-      compareFields,
-    );
+    this.trackRenderPanel(panel, () => {
+      panel.webview.html = renderImagePanelHtml(
+        panel.webview,
+        meta,
+        describeProjection(meta),
+        colormapRegistry(),
+        combineOpRegistry(),
+        undefined,
+        compareFields,
+      );
+    });
 
     const paint = (options: RenderOptions, compare?: GribCompare) => {
       const docHandle = this._handlesByDoc.get(document.uri.toString());
@@ -1171,14 +1230,16 @@ export class FieldglassEditorProvider
       { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [] },
     );
     const slice: SlicePanelData = { variables, initial };
-    panel.webview.html = renderImagePanelHtml(
-      panel.webview,
-      meta,
-      subject.caption,
-      colormapRegistry(),
-      combineOpRegistry(),
-      slice,
-    );
+    this.trackRenderPanel(panel, () => {
+      panel.webview.html = renderImagePanelHtml(
+        panel.webview,
+        meta,
+        subject.caption,
+        colormapRegistry(),
+        combineOpRegistry(),
+        slice,
+      );
+    });
 
     // The variable a render is actually drawing. The picker can move off the
     // one the panel opened on, and the heading and probe units have to follow
@@ -1611,12 +1672,13 @@ const PROJECTIONS: ReadonlyArray<RenderOptions["projection"]> = [
  * this clamp. The original two-value clamp here (source/equirectangular) was
  * the #71 regression where the new targets and presets silently did nothing.
  */
-/** The colormap registry, straight from Rust. Empty when the native binding
- *  is unavailable, which leaves the panel with no colormap picker rather than
- *  a picker offering names the renderer doesn't have. */
-function colormapRegistry(): ColormapInfo[] {
+/** The colormap registry, straight from Rust, followed by any imported colour
+ *  tables (#236). Empty when the native binding is unavailable, which leaves
+ *  the panel with no colormap picker rather than a picker offering names the
+ *  renderer doesn't have. */
+function colormapRegistry(): PickerColormap[] {
   const native = loadNative();
-  return native ? native.colormaps() : [];
+  return native ? [...native.colormaps(), ...importedPickerColormaps()] : [];
 }
 
 /** The colormap names the Rust side accepts, read once from the registry.
@@ -1722,9 +1784,13 @@ export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions
     m.resampling === "bilinear" ? "bilinear" : "nearest";
   // An unknown colormap drops to `undefined` — the native default (viridis) —
   // rather than round-tripping a name Rust would reject with an error popup.
-  // Same clamp as the projection, for the same reason.
-  const colormap =
+  // Same clamp as the projection, for the same reason. An imported colour table
+  // is not a name Rust knows: it is sent as the table it compiled to (#236).
+  const named =
     m.colormap !== undefined && knownColormaps().has(m.colormap) ? m.colormap : undefined;
+  const imported =
+    named === undefined && m.colormap !== undefined ? importedColorTable(m.colormap) : undefined;
+  const colormapTable = imported?.table;
   // Only "log10" turns log scaling on; anything else (including a typo) drops to
   // the native default of linear rather than round-tripping a value Rust would
   // reject. Same clamp shape as the colormap above.
@@ -1742,7 +1808,8 @@ export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions
     boundsLatMax: m.boundsLatMax,
     boundsLonMin: m.boundsLonMin,
     boundsLonMax: m.boundsLonMax,
-    colormap,
+    colormap: named,
+    colormapTable,
     reverseColormap: !!m.reverseColormap,
     scaleMode,
   };

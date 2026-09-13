@@ -13,7 +13,8 @@
 import * as vscode from "vscode";
 
 import { escapeHtml, nonce } from "./html";
-import type { ColormapInfo, CombineOpInfo, MessageMeta, NetcdfVariableMeta } from "./native";
+import type { PickerColormap } from "./color-tables";
+import type { CombineOpInfo, MessageMeta, NetcdfVariableMeta } from "./native";
 
 /** Which 2-D plane of an N-D NetCDF variable to draw: the variable, the two
  *  image axes (positions into the variable's dimensions), and the held index
@@ -63,16 +64,16 @@ function sliceJson(slice: SlicePanelData): string {
 /** The colormap registry, inlined into the panel script. Same `<` escaping as
  *  {@link sliceJson}. The panel needs it to build its picker and to paint the
  *  legend gradient in the colours Rust will actually paint the grid with. */
-function colormapsJson(colormaps: ColormapInfo[]): string {
+function colormapsJson(colormaps: PickerColormap[]): string {
   return JSON.stringify(colormaps).replace(/</g, "\\u003c");
 }
 
 /** The Colors toolbar row: the colormap dropdown (grouped sequential /
- *  diverging) plus the reverse toggle. Built from the registry, so a colormap
+ *  diverging / imported) plus the reverse toggle. Built from the registry, so a colormap
  *  added in Rust shows up here with no edit. With no registry — the native
  *  binding failed to load — the row is omitted entirely rather than offering a
  *  picker the renderer can't honour. */
-function colormapFieldsetHtml(colormaps: ColormapInfo[]): string {
+function colormapFieldsetHtml(colormaps: PickerColormap[]): string {
   if (colormaps.length === 0) {
     return "";
   }
@@ -94,7 +95,12 @@ function colormapFieldsetHtml(colormaps: ColormapInfo[]): string {
       .join("\n");
     return `          <optgroup label="${escapeHtml(label)}">\n${opts}\n          </optgroup>`;
   };
-  const groups = [group("sequential", "Sequential"), group("diverging", "Diverging")]
+  const groups = [
+    group("sequential", "Sequential"),
+    group("diverging", "Diverging"),
+    // Colour tables the user imported (#236), after the built-in maps.
+    group("imported", "Imported"),
+  ]
     .filter(Boolean)
     .join("\n");
   return `    <fieldset>
@@ -250,7 +256,7 @@ export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: MessageMeta,
   projectionSummary: string,
-  colormaps: ColormapInfo[],
+  colormaps: PickerColormap[],
   combineOps: CombineOpInfo[],
   slice?: SlicePanelData,
   compareFields?: CompareFieldOption[]

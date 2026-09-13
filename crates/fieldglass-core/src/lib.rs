@@ -33,7 +33,7 @@
 //! # Feature flags
 //!
 //! - **`render`** *(default)* — the viewer-domain modules `warp`, `overlay`,
-//!   and `colormap`, consumed only by `fieldglass-napi`. Depend with
+//!   `colormap` and `cpt`, consumed only by `fieldglass-napi`. Depend with
 //!   `default-features = false` to get just the parsing surface (no warp
 //!   pipeline in your API). [`projection`] stays available either way, since
 //!   decode-side consumers need it.
@@ -72,6 +72,9 @@ pub mod bits;
 pub mod bytes;
 pub mod cct_tables;
 pub mod cf;
+/// Generated X11 colour names for the CPT parser (`tools/gen_color_names.py`).
+#[cfg(feature = "render")]
+mod color_names;
 #[cfg(feature = "render")]
 pub mod colormap;
 /// Generated colormap anchor tables (`tools/gen_colormaps.py`).
@@ -81,6 +84,8 @@ mod colormap_tables;
 pub mod combine;
 #[cfg(feature = "analysis")]
 pub mod contour;
+#[cfg(feature = "render")]
+pub mod cpt;
 #[cfg(feature = "analysis")]
 pub mod csv;
 /// Format sniffing from the leading bytes of a file.

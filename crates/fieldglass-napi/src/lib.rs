@@ -893,6 +893,11 @@ pub struct RenderOptions {
     /// exactly as before. An unknown name is an error rather than a silent
     /// fallback, so a typo can't quietly paint the wrong colours.
     pub colormap: Option<String>,
+    /// A colormap as its lookup table instead of by name: 768 bytes, 256 RGB
+    /// entries from the low end to the high end, which is what
+    /// [`parse_color_table`] hands back for an imported colour table. Naming a
+    /// `colormap` as well is an error, and so is any other length.
+    pub colormap_table: Option<Vec<u8>>,
     /// Flip the colormap end-for-end (blue↔red on a diverging map, dark↔light
     /// on a sequential one). `None` is `false`.
     pub reverse_colormap: Option<bool>,
@@ -962,6 +967,36 @@ pub fn colormaps() -> Vec<ColormapInfo> {
             stops: c.css_stops(COLORMAP_STOPS, false),
         })
         .collect()
+}
+
+/// A colour palette table (`.cpt`) read and compiled, as an import needs it.
+#[napi(object)]
+#[derive(Debug)]
+pub struct ParsedColorTable {
+    /// Evenly spaced `#rrggbb` stops for the legend, sampled from `table`, as
+    /// [`ColormapInfo::stops`] are for a registered colormap.
+    pub stops: Vec<String>,
+    /// The 768-byte lookup table to paint with: what
+    /// [`RenderOptions::colormap_table`] takes.
+    pub table: Vec<u8>,
+    /// How many slices the file held, for a confirmation message.
+    pub slices: u32,
+}
+
+/// Read a GMT colour palette table from its text and compile it to the lookup
+/// table the painter uses. A file this cannot read — another colour model, a
+/// categorical table, a gap between slices — throws with the line and the
+/// reason, so an import can say what is wrong with it.
+#[napi]
+pub fn parse_color_table(text: String) -> napi::Result<ParsedColorTable> {
+    let table =
+        fieldglass::parse_cpt(&text).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let colormap = table.to_colormap("imported", "Imported");
+    Ok(ParsedColorTable {
+        stops: colormap.css_stops(COLORMAP_STOPS, false),
+        table: table.lut().to_vec(),
+        slices: u32::try_from(table.slice_count()).unwrap_or(u32::MAX),
+    })
 }
 
 /// One entry of the field-combine operation vocabulary, as the Compare picker
@@ -3493,7 +3528,7 @@ fn render_from_source(
         used_min,
         used_max,
         flip_y,
-        resolved.colormap,
+        &resolved.colormap,
         resolved.reverse_colormap,
         resolved.scale,
     );
@@ -3661,6 +3696,7 @@ fn engine_options(o: &RenderOptions) -> fieldglass::RenderOptions {
     engine.bounds_lon_min = o.bounds_lon_min;
     engine.bounds_lon_max = o.bounds_lon_max;
     engine.colormap = o.colormap.clone();
+    engine.colormap_table = o.colormap_table.clone();
     engine.reverse_colormap = o.reverse_colormap;
     engine.scale_mode = o.scale_mode.clone();
     engine.width = o.width;
@@ -4325,6 +4361,47 @@ mod colormap_export_tests {
                 c.name
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod color_table_tests {
+    use super::*;
+
+    const BATLOW: &str = include_str!("../../fieldglass-core/tests/fixtures/cpt/batlow.cpt");
+
+    /// An import gets what the picker needs and what the painter takes, and the
+    /// table it gets is one the render side resolves.
+    #[test]
+    fn a_parsed_color_table_feeds_the_legend_and_the_renderer() {
+        let parsed = parse_color_table(BATLOW.to_string()).expect("batlow parses");
+        assert_eq!(parsed.slices, 255);
+        assert_eq!(parsed.table.len(), 768);
+        assert_eq!(parsed.stops.len(), COLORMAP_STOPS);
+        // The legend's ends are the table's ends.
+        assert_eq!(parsed.stops.first().map(String::as_str), Some("#011959"));
+        assert_eq!(parsed.stops.last().map(String::as_str), Some("#faccfa"));
+
+        // This host's options carry the table to the engine intact.
+        let mut o = crate::netcdf_slice_tests::opts("source");
+        o.colormap_table = Some(parsed.table.clone());
+        let resolved = ResolvedOptions::parse(&engine_options(&o)).expect("the table resolves");
+        assert_eq!(
+            resolved.colormap.lut(false).as_slice(),
+            parsed.table.as_slice()
+        );
+    }
+
+    /// A file that cannot be imported throws with the line and the reason, which
+    /// is the text the import command shows.
+    #[test]
+    fn an_unreadable_color_table_says_where_and_why() {
+        let err = parse_color_table("0 red 1 blue\n2 red 3 blue\n".to_string()).expect_err("a gap");
+        assert!(
+            err.reason.contains("line 2") && err.reason.contains("gap"),
+            "{}",
+            err.reason
+        );
     }
 }
 
@@ -5073,6 +5150,7 @@ mod overlay_projection_tests {
             bounds_lon_max: None,
             colormap: None,
             reverse_colormap: None,
+            colormap_table: None,
             scale_mode: None,
             width: None,
             height: None,
@@ -5248,6 +5326,7 @@ mod zarr_handle_tests {
             bounds_lon_max: None,
             colormap: Some("viridis".to_string()),
             reverse_colormap: None,
+            colormap_table: None,
             scale_mode: None,
             width: None,
             height: None,
@@ -5693,6 +5772,7 @@ mod netcdf_slice_tests {
             bounds_lon_max: None,
             colormap: None,
             reverse_colormap: None,
+            colormap_table: None,
             scale_mode: None,
             width: None,
             height: None,
@@ -7015,6 +7095,7 @@ mod space_view_geos_tests {
             bounds_lon_max: None,
             colormap: None,
             reverse_colormap: None,
+            colormap_table: None,
             scale_mode: None,
             width: None,
             height: None,
@@ -7118,6 +7199,7 @@ mod planar_geolocation_tests {
             bounds_lon_max: None,
             colormap: None,
             reverse_colormap: None,
+            colormap_table: None,
             scale_mode: None,
             width: None,
             height: None,
@@ -7830,6 +7912,7 @@ mod reduced_grid_render_tests {
             bounds_lon_max: None,
             colormap: None,
             reverse_colormap: None,
+            colormap_table: None,
             scale_mode: None,
             width: None,
             height: None,
@@ -8146,6 +8229,7 @@ mod curvilinear_render_tests {
             bounds_lon_max: None,
             colormap: None,
             reverse_colormap: None,
+            colormap_table: None,
             scale_mode: None,
             width: None,
             height: None,
@@ -8797,6 +8881,7 @@ mod sized_output_raster_tests {
             bounds_lon_max: Some(-66.0),
             colormap: None,
             reverse_colormap: None,
+            colormap_table: None,
             scale_mode: None,
             width: size.map(|(w, _)| w),
             height: size.map(|(_, h)| h),

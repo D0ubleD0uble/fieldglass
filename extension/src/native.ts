@@ -189,6 +189,11 @@ export interface RenderOptions {
    *  reports. Omitted uses the default ("viridis"). An unknown name is an
    *  error on the Rust side rather than a silent fallback. */
   colormap?: string;
+  /** A colormap as its 768-byte lookup table instead of by name — 256 RGB
+   *  entries, low to high — which is how an imported colour table is painted
+   *  (#236). Sending `colormap` as well is an error on the Rust side, and so is
+   *  any other length. */
+  colormapTable?: number[];
   /** Flip the colormap end-for-end. Omitted is false. */
   reverseColormap?: boolean;
   /** Value→colour scaling: "linear" (default) or "log10". Under "log10" the
@@ -209,6 +214,16 @@ export interface ColormapInfo {
   label: string;
   kind: "sequential" | "diverging";
   stops: string[];
+}
+
+/** A colour palette table (`.cpt`) read and compiled by `parseColorTable`. */
+export interface ParsedColorTable {
+  /** Legend stops, sampled from `table` as a registered colormap's are. */
+  stops: string[];
+  /** The 768-byte lookup table to send as `RenderOptions.colormapTable`. */
+  table: number[];
+  /** How many slices the file held. */
+  slices: number;
 }
 
 export interface RenderedGrid {
@@ -689,6 +704,9 @@ export interface FieldglassNative {
   openNetcdf(bytes: Uint8Array): DatasetMeta;
   /** The colormap registry, in picker order; the first entry is the default. */
   colormaps(): ColormapInfo[];
+  /** Read a GMT colour palette table from its text. Throws with the line and
+   *  the reason when the file cannot be imported. */
+  parseColorTable(text: string): ParsedColorTable;
   /** The field-combine op vocabulary, in menu order (#342). */
   combineOps(): CombineOpInfo[];
   Grib1Handle: Grib1HandleCtor;

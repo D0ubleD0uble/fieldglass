@@ -61,13 +61,11 @@ suite("Zarr store", () => {
     const manifest = JSON.parse(
       fs.readFileSync(path.join(repoRoot(), "extension", "package.json"), "utf8"),
     ) as { contributes?: { commands?: { command: string; title: string }[] } };
-    const contributed = manifest.contributes?.commands ?? [];
-    assert.deepStrictEqual(
-      contributed.map((c) => c.command),
-      [FieldglassEditorProvider.openStoreCommand],
-      "the manifest and the registration disagree",
+    const contributed = (manifest.contributes?.commands ?? []).find(
+      (c) => c.command === FieldglassEditorProvider.openStoreCommand,
     );
-    assert.match(contributed[0].title, /Zarr/, "the palette entry should say Zarr");
+    assert.ok(contributed, "the manifest and the registration disagree");
+    assert.match(contributed.title, /Zarr/, "the palette entry should say Zarr");
   });
 
   test("detection is by metadata, not by the .zarr suffix", () => {

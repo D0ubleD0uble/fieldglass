@@ -125,6 +125,11 @@
         "command": "fieldglass.openZarrStore",
         "title": "Open Zarr Store\u2026",
         "category": "Fieldglass"
+      },
+      {
+        "command": "fieldglass.importColorTable",
+        "title": "Import Color Table\u2026",
+        "category": "Fieldglass"
       }
     ]
   },
