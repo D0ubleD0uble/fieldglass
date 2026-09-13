@@ -303,7 +303,7 @@ mod tests {
 
     /// eccodes' Fortran `**` operator, which is what the ECMWF GRIB1 local
     /// tables (and, from #424-#426, the GRIB2 local ones) are written in.
-    /// Every case here is a real string from `tables_ecmwf.rs`.
+    /// Every case here is a real string from `tables_local.rs`.
     #[test]
     fn fortran_star_star_exponents_typeset() {
         assert_eq!(normalize_units("m**2 s**-1"), "m² s⁻¹");

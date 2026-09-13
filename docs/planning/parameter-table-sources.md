@@ -1,11 +1,11 @@
 # Parameter and code table sources
 
 Today `grib2/src/tables.rs::lookup_parameter` carries 44 curated triples and
-`grib1/src/tables.rs` about 375, plus the generated `tables_ecmwf.rs`. The
+`grib1/src/tables.rs` about 375, plus the generated `tables_local.rs`. The
 full WMO master set is about 1,430 parameters, before local tables.
 
 Each source below becomes a generator script under `tools/` that regenerates
-Rust tables from a pinned upstream (the existing `gen_ecmwf_tables.py`
+Rust tables from a pinned upstream (the existing `gen_grib1_local_tables.py`
 pattern). Every generator is an independent, reviewable PR.
 
 | Source | Covers | Size | License |
@@ -133,7 +133,7 @@ Two things worth carrying into the remaining generators:
   |---|---|---|---|
   | WMO GRIB2 master (v37) | — | 16 strings | — |
   | ON388 GRIB1 (`grib1/src/tables.rs`) | — | ~20 strings | 6 strings |
-  | eccodes ECMWF (`grib1/src/tables_ecmwf.rs`, and #424) | 61 distinct | — | — |
+  | eccodes ECMWF (`grib1/src/tables_local.rs`, and #424) | 61 distinct | — | — |
   | eccodes NCEP (unused) | 28 distinct | — | — |
   | wgrib2 NCEP (`grib2/src/tables_ncep.rs`, #426) | — | 33 strings | 6 strings |
   | eccodes DWD/ICON (#425) | — | — | — |

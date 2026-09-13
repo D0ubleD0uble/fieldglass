@@ -229,12 +229,19 @@ Reading a line through a variable (#172) added 5,683 raw bytes and 2,503
 gzipped, 0.5%: the `decodeLine` binding, the region read and CF unpacking behind
 it, and the serialisation of the `Line` it returns.
 
+Carrying every ECMWF GRIB1 local parameter table (#601) added 157,353 raw bytes
+and 41,657 gzipped, 7.9%: the 27 tables past 128 and 129, 2,255 entries of names and
+units, which GRIB1 message metadata reports in the browser as it does
+everywhere else. Unlike the growth above, this is data rather than code, and it
+is the one change here a browser host might reasonably want to opt out of; the
+format crate has no feature to do that with today.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,350,746 | 529,225 |
-| `+simd128` | 1,335,247 | 524,268 |
+| baseline | 1,508,099 | 570,882 |
+| `+simd128` | 1,492,600 | 565,992 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

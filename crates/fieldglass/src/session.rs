@@ -2150,6 +2150,7 @@ fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String, Str
         msg.pds.parameter_id,
         msg.pds.table_version,
         msg.pds.originating_centre,
+        msg.pds.sub_centre,
     ) {
         // Units are normalised at the display seam, the same way the napi host
         // does it: the ECMWF local tables are generated from eccodes'
