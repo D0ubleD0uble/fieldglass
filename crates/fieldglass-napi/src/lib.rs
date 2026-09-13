@@ -148,6 +148,10 @@ pub struct MessageMeta {
     /// so opening the box and saving an untouched value would have tripled the
     /// lead time.
     pub p1_octet: Option<i32>,
+    /// Whether this message's `u`/`v` components run along the grid's own axes
+    /// rather than east and north (#241). `null` when the family states no
+    /// resolution flags, and for a NetCDF or Zarr slice.
+    pub uv_relative_to_grid: Option<bool>,
     /// Originating centre name (WMO Common Code Table C-11), or the numeric
     /// code when the centre is unassigned.
     pub originating_centre: String,
@@ -1117,6 +1121,32 @@ impl ProjectedOverlay {
     }
 }
 
+/// Projected vector arrows, plus the speed the longest one stands for (#241).
+///
+/// The runs are [`ProjectedOverlay`]'s shape — five vertices per arrow — so the
+/// same canvas code draws them. `referenceSpeed` is what a legend puts beside a
+/// full-length reference arrow, in the components' own units; `0` when nothing
+/// was drawn.
+#[napi(object)]
+pub struct ProjectedVectors {
+    /// Flat `[x0, y0, …]` vertex coordinates, five vertices per arrow.
+    pub xy: napi::bindgen_prelude::Float64Array,
+    /// Vertex count of each run.
+    pub seg_lengths: napi::bindgen_prelude::Uint32Array,
+    /// The speed a full-length arrow stands for.
+    pub reference_speed: f64,
+}
+
+impl ProjectedVectors {
+    fn from_arrows(a: fieldglass::render::VectorArrows) -> Self {
+        Self {
+            xy: a.runs.xy.into(),
+            seg_lengths: a.runs.seg_lengths.into(),
+            reference_speed: a.reference_speed,
+        }
+    }
+}
+
 /// Decoded grid values + presence mask returned by the handle-based
 /// `decode_grid`. `values[k]` is the decoded value at scan-order index
 /// `k`; `mask[k]` is `1` when present and `0` when bitmap-masked.
@@ -1165,6 +1195,16 @@ impl std::fmt::Debug for RenderedGrid {
             .field("used_lon_min", &self.used_lon_min)
             .field("used_lon_max", &self.used_lon_max)
             .field("projection_summary", &self.projection_summary)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for ProjectedVectors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProjectedVectors")
+            .field("xy.len", &self.xy.len())
+            .field("seg_lengths.len", &self.seg_lengths.len())
+            .field("reference_speed", &self.reference_speed)
             .finish()
     }
 }
@@ -1527,6 +1567,35 @@ impl Grib1Handle {
             .map(ProjectedOverlay::from_polylines)
     }
 
+    /// Arrows for a vector field built from two messages (#241): `u` eastward
+    /// and `v` northward, or the grid's own axes under `gridRelative` — which is
+    /// what this file's resolution flag says, and what HRRR and NAM set.
+    ///
+    /// One arrow is one run of five vertices (tail, tip, barb, tip, barb), in
+    /// the same pixel space the coastlines come back in, for the same canvas.
+    #[napi]
+    pub fn project_vectors(
+        &self,
+        message_index_u: u32,
+        message_index_v: u32,
+        options: RenderOptions,
+        spacing: Option<u32>,
+        grid_relative: Option<bool>,
+    ) -> napi::Result<ProjectedVectors> {
+        let (u, meta, _, _) = self.resolved(message_index_u)?;
+        let (v, _, _, _) = self.resolved(message_index_v)?;
+        project_vectors_impl(
+            &meta,
+            u.as_ref(),
+            v.as_ref(),
+            &options,
+            spacing,
+            grid_relative,
+            None,
+        )
+        .map(ProjectedVectors::from_arrows)
+    }
+
     /// Read the field under a rendered pixel (#172): the point-probe readout.
     /// `(px, py)` are output-raster pixels (post-flip). `None` when the pixel is
     /// off the raster or off the globe.
@@ -1766,6 +1835,31 @@ impl Grib2Handle {
             None,
         )
         .map(ProjectedOverlay::from_polylines)
+    }
+
+    /// Arrows for a vector field built from two messages (#241). Sibling to
+    /// [`Grib1Handle::project_vectors`].
+    #[napi]
+    pub fn project_vectors(
+        &self,
+        message_index_u: u32,
+        message_index_v: u32,
+        options: RenderOptions,
+        spacing: Option<u32>,
+        grid_relative: Option<bool>,
+    ) -> napi::Result<ProjectedVectors> {
+        let (u, meta, _, _) = self.resolved(message_index_u)?;
+        let (v, _, _, _) = self.resolved(message_index_v)?;
+        project_vectors_impl(
+            &meta,
+            u.as_ref(),
+            v.as_ref(),
+            &options,
+            spacing,
+            grid_relative,
+            None,
+        )
+        .map(ProjectedVectors::from_arrows)
     }
 
     /// Contour isolines for this message, projected onto the render raster.
@@ -2685,6 +2779,7 @@ impl NetcdfHandle {
 fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
     MessageMeta {
         p1_octet: None,
+        uv_relative_to_grid: None,
         earth_radius_metres: None,
         message_index: 0,
         offset_bytes: 0.0,
@@ -3930,6 +4025,28 @@ fn project_contours_impl(
     fieldglass::render::contour_polylines(&source.as_source(), raw, &engine, interval).into_napi()
 }
 
+/// Arrows for a vector field, projected onto the rendered raster (#241).
+///
+/// `u` and `v` are two decoded fields on one grid. `grid_relative` says the
+/// components run along the grid's own axes rather than east and north, which is
+/// what GRIB's resolution flag reports and what HRRR and NAM set.
+fn project_vectors_impl(
+    meta: &MessageMeta,
+    u: &[Option<f64>],
+    v: &[Option<f64>],
+    options: &RenderOptions,
+    spacing: Option<u32>,
+    grid_relative: Option<bool>,
+    lookup: Option<&GridGeometry>,
+) -> napi::Result<fieldglass::render::VectorArrows> {
+    let engine = engine_options(options);
+    let source = RenderSource::resolve(meta, lookup)?;
+    let mut vectors = fieldglass::render::VectorOptions::new();
+    vectors.spacing = spacing;
+    vectors.grid_relative = grid_relative.unwrap_or(false);
+    fieldglass::render::vector_polylines(&source.as_source(), u, v, &engine, &vectors).into_napi()
+}
+
 /// One line through a variable — a profile or a time series at a cell (#172).
 ///
 /// The napi spelling of `fieldglass::Line`: `values` beside a `mask` the way
@@ -4474,6 +4591,7 @@ mod meta_geometry_tests {
     pub(crate) fn cmc_polar_meta() -> MessageMeta {
         MessageMeta {
             p1_octet: None,
+            uv_relative_to_grid: None,
             earth_radius_metres: None,
             message_index: 0,
             offset_bytes: 0.0,
@@ -5117,6 +5235,7 @@ mod overlay_projection_tests {
     fn global_latlon_meta() -> MessageMeta {
         MessageMeta {
             p1_octet: None,
+            uv_relative_to_grid: None,
             earth_radius_metres: None,
             message_index: 0,
             offset_bytes: 0.0,
@@ -6989,6 +7108,7 @@ mod space_view_geos_tests {
         let g = space_view_params();
         MessageMeta {
             p1_octet: None,
+            uv_relative_to_grid: None,
             earth_radius_metres: None,
             message_index: 0,
             offset_bytes: 0.0,

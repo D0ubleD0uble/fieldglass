@@ -61,6 +61,7 @@ pub(crate) fn meta_from_session(
         forecast_hours: info.forecast_hours.unwrap_or(0),
         forecast_display: info.forecast.clone(),
         p1_octet: info.p1_octet,
+        uv_relative_to_grid: info.uv_relative_to_grid,
         originating_centre: info.originating_centre.clone(),
         sub_centre: info.sub_centre.clone(),
         format: format.to_string(),

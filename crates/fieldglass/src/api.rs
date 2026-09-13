@@ -556,6 +556,16 @@ api_type! {
         /// The GRIB2 data type — analysis, forecast, reanalysis — named. `None`
         /// for GRIB1.
         pub data_type: Option<String>,
+        /// Whether this message's `u`/`v` components are resolved along the
+        /// grid's own axes rather than east and north (GRIB1 GDS octet 17 bit 5,
+        /// GRIB2 §3 Flag Table 3.3 bit 5).
+        ///
+        /// What a vector plot must know before it draws an arrow (#241): a
+        /// grid-relative pair drawn as east/north points wrong by the grid's
+        /// convergence angle, which over a continental Lambert domain is tens of
+        /// degrees. HRRR and NAM set it. `None` for a message whose family
+        /// states no resolution flags, and for a container that is not GRIB.
+        pub uv_relative_to_grid: Option<bool>,
     }
 
     /// A resampled raster: [`crate::Session::warp`] without the paint step.

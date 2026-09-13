@@ -1031,6 +1031,39 @@ impl GridDefinitionSection {
         }
     }
 
+    /// Whether the message's `u`/`v` components are resolved along the grid's
+    /// own axes rather than east and north — §3 Flag Table 3.3, bit 5.
+    ///
+    /// The question a vector plot must ask before it draws an arrow (#241):
+    /// drawn as east/north, a grid-relative pair points wrong by the grid's
+    /// convergence angle, which is why HRRR and NAM winds must be rotated.
+    /// `None` for a template that states no resolution flags.
+    pub fn uv_relative_to_grid(&self) -> Option<bool> {
+        // Bit 5 counted from the most significant, as the flag tables number
+        // them: the same 0x08 GRIB1 uses in its GDS octet 17.
+        self.resolution_flags().map(|f| f & 0x08 != 0)
+    }
+
+    /// The resolution and component flags (§3 Flag Table 3.3), for the
+    /// templates that carry them.
+    pub fn resolution_flags(&self) -> Option<u8> {
+        match &self.template {
+            GridTemplate::LatLon(t) => Some(t.resolution_flags),
+            GridTemplate::RotatedLatLon(t) => Some(t.resolution_flags),
+            GridTemplate::Mercator(t) => Some(t.resolution_flags),
+            GridTemplate::TransverseMercator(t) => Some(t.resolution_flags),
+            GridTemplate::PolarStereographic(t) => Some(t.resolution_flags),
+            GridTemplate::Lambert(t) => Some(t.resolution_flags),
+            GridTemplate::LambertAzimuthal(t) => Some(t.resolution_flags),
+            GridTemplate::Gaussian(t) => Some(t.resolution_flags),
+            GridTemplate::SpaceView(t) => Some(t.resolution_flags),
+            GridTemplate::SphericalHarmonic(_) => None,
+            GridTemplate::BiFourier(_) => None,
+            GridTemplate::Healpix(_) => None,
+            GridTemplate::Unsupported(_) => None,
+        }
+    }
+
     /// The `(lat, lon)` of the declared first grid point, for the templates
     /// that state one.
     ///

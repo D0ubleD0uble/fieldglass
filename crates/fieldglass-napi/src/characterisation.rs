@@ -767,6 +767,10 @@ fn meta_row(subject: &Subject<'_>) -> Row {
     let mut h = hasher();
     mix_str(&mut h, "meta");
     let MessageMeta {
+        // Not part of the display path: it says how a *vector pair* should be
+        // read, which changes no pixel of a single field's render. The
+        // conformance suite pins it per message instead (#241).
+        uv_relative_to_grid: _,
         grid_type,
         grid_ni,
         grid_nj,

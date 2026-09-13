@@ -156,6 +156,44 @@ ${options}
 `;
 }
 
+/** The Vectors row (#241): the second component of a u/v pair, the arrow
+ *  spacing, and the usual colour and weight.
+ *
+ *  GRIB carries wind as two messages, so the pair is picked the way Compare
+ *  picks its second field — and like Compare, the row only appears when the
+ *  file holds two messages to pair. `uvRelativeToGrid` decides whether the
+ *  components are read along the grid's axes; it comes from the message rather
+ *  than from the user, because the file states it. */
+function vectorFieldsetHtml(fields: CompareFieldOption[], gridRelative: boolean): string {
+  if (fields.length < 2) {
+    return "";
+  }
+  const options = fields
+    .map((f) => `          <option value="${f.index}">${escapeHtml(f.label)}</option>`)
+    .join("\n");
+  return `    <fieldset id="vector-fieldset">
+      <legend>Vectors:</legend>
+      <label><input type="checkbox" id="overlay-vectors"> Arrows</label>
+      <label>V component
+        <select id="vector-field-v">
+${options}
+        </select>
+      </label>
+      <label>every
+        <input type="number" id="vector-spacing" class="layer-width" min="1" max="64" step="1" placeholder="auto" title="Draw an arrow every N grid cells; blank fits about 24 across">
+        cells</label>
+      <input type="color" id="color-vectors" class="layer-color" aria-label="Arrow colour">
+      <input type="number" id="width-vectors" class="layer-width" value="1" min="0.2" max="5" step="0.1" aria-label="Arrow line weight">
+      <span class="slice-len" id="vector-scale" aria-live="polite"></span>
+      <span class="picker-note" id="vector-note">${
+        gridRelative
+          ? "This file states its components along the grid's axes; they are rotated to true north."
+          : ""
+      }</span>
+    </fieldset>
+`;
+}
+
 /** The NetCDF Compare row: the operation selector plus a second set of index
  *  steppers for Field B, which is the same variable at a different slice (the
  *  "difference of two time steps / levels" case). The steppers are built
@@ -532,6 +570,9 @@ export function renderImagePanelHtml(
         let TITLE_LINE = ${JSON.stringify(titleLine)};
         const SUB_LINE = ${JSON.stringify(subLine)};
         const DEFAULT_PNG_NAME = ${JSON.stringify(defaultPngName)};
+        // Whether this message's u/v run along the grid's axes (#241). The file
+        // says so; the panel passes it on rather than asking the user.
+        const UV_GRID_RELATIVE = ${JSON.stringify(meta.uvRelativeToGrid === true)};
         // Injected verbatim so the export sizes itself with the same function
         // the host-side tests pin, instead of a re-implementation that can drift.
         ${exportCanvasWidth.toString()}
@@ -1248,8 +1289,11 @@ export function renderImagePanelHtml(
             // their re-fetch lands — before clearOverlay, which repaints and
             // would otherwise re-stroke the stale runs it was called to remove.
             lastContour = null;
+            lastVectors = null;
             clearOverlay();
             requestOverlay();
+            // The arrows are pixel-space too, so they follow the geometry.
+            requestVectors();
           }
           // Contours track the field, used range, projection, and interval —
           // re-fetch only when one of those moved. A palette- or resampling-only
@@ -1301,6 +1345,10 @@ export function renderImagePanelHtml(
         // projected runs and request counter, re-fetched on any render (the
         // field, range, projection, or interval can all move them).
         let lastContour = null;
+        // The projected arrows of a u/v pair (#241), and the request that is in
+        // flight, so a stale answer cannot overwrite a newer one.
+        let lastVectors = null;
+        let vectorSeq = 0;
         let contourSeq = 0;
         // The state the cached contour runs correspond to (geometry + used range
         // + interval + field). A palette-only repaint leaves it unchanged, so we
@@ -1349,6 +1397,9 @@ export function renderImagePanelHtml(
           // Contours default to the themed foreground too (#238).
           const contour = document.getElementById('color-contours');
           if (contour && !contour.dataset.userSet) contour.value = toHexColour(themedForeground());
+          // And the arrows (#241).
+          const vectors = document.getElementById('color-vectors');
+          if (vectors && !vectors.dataset.userSet) vectors.value = toHexColour(themedForeground());
         }
 
         // An <input type="color"> only accepts #rrggbb. The themed foreground
@@ -1466,6 +1517,50 @@ export function renderImagePanelHtml(
           // against the current raster.
           if (msg.seq !== overlaySeq) return;
           lastOverlay = msg;
+          drawOverlay();
+        }
+
+        function vectorsEnabled() {
+          return !!(document.getElementById('overlay-vectors') || {}).checked;
+        }
+
+        // Ask the provider for the arrows of this message paired with the chosen
+        // V component, projected onto the current raster. Re-fetched whenever the
+        // raster geometry moves, like the contours.
+        function requestVectors() {
+          if (!lastPayload || !vectorsEnabled()) {
+            lastVectors = null;
+            drawOverlay();
+            return;
+          }
+          const v = Number((document.getElementById('vector-field-v') || {}).value);
+          if (!Number.isFinite(v)) return;
+          const spacing = Number((document.getElementById('vector-spacing') || {}).value);
+          vectorSeq += 1;
+          vscode.postMessage({
+            type: 'vectorRequest',
+            seq: vectorSeq,
+            messageIndexV: v,
+            spacing: Number.isFinite(spacing) && spacing >= 1 ? Math.round(spacing) : undefined,
+            gridRelative: UV_GRID_RELATIVE,
+            options: currentOptions(),
+          });
+        }
+
+        function handleVectorResult(msg) {
+          // An answer to a request that has since been superseded is dropped.
+          if (msg.seq !== vectorSeq) return;
+          lastVectors = msg.error ? null : msg;
+          if (msg.error) setContourStatus('Vectors: ' + msg.error);
+          // What a full-length arrow stands for, in the field's own units: the
+          // reference a reader needs to take a speed off the picture.
+          const scale = document.getElementById('vector-scale');
+          if (scale) {
+            const speed = lastVectors && lastVectors.referenceSpeed;
+            scale.textContent = speed
+              ? '\u27F6 ' + Number(speed).toPrecision(3) + (UNITS ? ' ' + UNITS : '')
+              : '';
+          }
           drawOverlay();
         }
 
@@ -1949,6 +2044,18 @@ export function renderImagePanelHtml(
             }
             ctx.stroke();
           };
+          // Arrows sit with the contours, under the geographic overlays.
+          if (lastVectors && lastVectors.xy && vectorsEnabled()) {
+            const colour = (document.getElementById('color-vectors') || {}).value
+              || themedForeground();
+            const vw = Number((document.getElementById('width-vectors') || {}).value);
+            ctx.save();
+            ctx.strokeStyle = colour;
+            ctx.lineWidth = (Number.isFinite(vw) && vw > 0 ? vw : 1) * dpr;
+            ctx.lineJoin = 'round';
+            strokeRuns(lastVectors.xy || [], lastVectors.segLengths || []);
+            ctx.restore();
+          }
           // Contours sit under the geographic overlays so a coastline reads on
           // top of them.
           if (lastContour && lastContour.xy && contoursEnabled()) {
@@ -2399,6 +2506,21 @@ export function renderImagePanelHtml(
               requestContours();
             });
           }
+          const vectorToggle = document.getElementById('overlay-vectors');
+          if (vectorToggle) vectorToggle.addEventListener('change', requestVectors);
+          const vectorField = document.getElementById('vector-field-v');
+          if (vectorField) vectorField.addEventListener('change', requestVectors);
+          const vectorSpacing = document.getElementById('vector-spacing');
+          if (vectorSpacing) vectorSpacing.addEventListener('change', requestVectors);
+          const vectorColour = document.getElementById('color-vectors');
+          if (vectorColour) {
+            vectorColour.addEventListener('input', () => {
+              vectorColour.dataset.userSet = '1';
+              drawOverlay();
+            });
+          }
+          const vectorWidth = document.getElementById('width-vectors');
+          if (vectorWidth) vectorWidth.addEventListener('input', drawOverlay);
           const contourInterval = document.getElementById('contour-interval');
           if (contourInterval) contourInterval.addEventListener('change', requestContours);
           const contourColour = document.getElementById('color-contours');
@@ -2471,6 +2593,7 @@ export function renderImagePanelHtml(
           else if (msg.type === 'probeResult') handleProbeResult(msg);
           else if (msg.type === 'lineResult') handleLineResult(msg);
           else if (msg.type === 'axisResult') handleAxisResult(msg);
+          else if (msg.type === 'vectorResult') handleVectorResult(msg);
           else if (msg.type === 'zonalResult') handleZonalResult(msg);
           else if (msg.type === 'contourError') handleContourError(msg);
           else if (msg.type === 'exportPngDone') handleExportPngDone(msg);
@@ -2789,6 +2912,7 @@ ${metaIsReprojectable(meta)
     </div>
 ${colormapFieldsetHtml(colormaps)}
 ${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compareFields ?? [], combineOps)}
+${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true)}
     <fieldset>
       <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>

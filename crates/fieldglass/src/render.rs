@@ -41,8 +41,9 @@ use fieldglass_core::LonLatBox;
 use fieldglass_core::csv::{field_to_csv_long, field_to_csv_matrix};
 #[cfg(feature = "render")]
 use fieldglass_core::{
-    EqualEarth, Mollweide, Orthographic, PolarStereographic, ProjectedPolylines, Resampling,
-    Robinson, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
+    DEFAULT_EARTH_RADIUS_M, EqualEarth, Mollweide, Orthographic, PolarStereographic,
+    ProjectedPolylines, Resampling, Robinson, SourceGrid, SourceOverlayTarget, TargetRaster,
+    WebMercator,
     colormap::{Colormap, ColormapKind, ScaleMode, default_colormap},
     project_polylines,
     warp::{PreparedTarget, TargetProjection, WarpedRaster, warp},
@@ -1399,7 +1400,7 @@ pub fn overlay_polylines(
 /// Two families are absent on purpose. Space view (§3.90) has grid points off
 /// the disc entirely, which have no geographic position at all, and a family
 /// this build does not model has none either.
-#[cfg(feature = "analysis")]
+#[cfg(any(feature = "render", feature = "analysis"))]
 const GEOLOCATABLE_GRIDS: &[(&str, &str)] = &[
     ("latlon", "regular lat/lon"),
     ("mercator", "Mercator"),
@@ -1426,7 +1427,7 @@ const GEOLOCATABLE_GRIDS: &[(&str, &str)] = &[
 
 /// [`GEOLOCATABLE_GRIDS`] as an Oxford-comma list ("a, b, and c") for the
 /// "unsupported grid" messages.
-#[cfg(feature = "analysis")]
+#[cfg(any(feature = "render", feature = "analysis"))]
 fn geolocatable_families() -> String {
     let names: Vec<&str> = GEOLOCATABLE_GRIDS.iter().map(|(_, name)| *name).collect();
     match names.split_last() {
@@ -1580,7 +1581,7 @@ fn reduced_source_point(i: usize, len: usize, ni: usize) -> Option<usize> {
 /// reads "contours not yet supported…" for the contour path and points long-CSV
 /// callers at the Matrix layout, instead of one feature's hard-coded wording
 /// leaking into the others (#337).
-#[cfg(feature = "analysis")]
+#[cfg(any(feature = "render", feature = "analysis"))]
 fn require_forward_geolocation<'a>(
     source: &'a Source<'_>,
     unsupported: impl Fn(&str) -> String,
@@ -1807,6 +1808,311 @@ pub fn contour_polylines(
     }
 
     overlay_polylines(source, options, &latlon, &ring_lengths)
+}
+
+// ---------------------------------------------------------------------------
+// Vector arrows
+// ---------------------------------------------------------------------------
+
+/// How to draw a vector field: which cells get an arrow, how long the arrows
+/// are, and which way the components point (#241).
+#[cfg(feature = "render")]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct VectorOptions {
+    /// Draw an arrow every `spacing` grid cells, in both directions. `None` and
+    /// `0` mean "about 24 arrows across the grid", which reads at any size.
+    #[serde(default)]
+    pub spacing: Option<u32>,
+    /// **Are the components along the grid's axes rather than east and north?**
+    ///
+    /// GRIB says so in its resolution flags, and the common projected files —
+    /// HRRR, NAM — set it. Drawn as if they were east and north, a grid-relative
+    /// pair points wrong by the grid's convergence angle: up to tens of degrees
+    /// away from the projection's central meridian. When this is set the
+    /// components are rotated through the grid's own north, per cell.
+    #[serde(default)]
+    pub grid_relative: bool,
+    /// The speed the longest arrow stands for.
+    ///
+    /// `None` takes the fastest cell **that is drawn**, so the plot fills itself
+    /// at any spacing — which also means a sparser spacing can report a slower
+    /// reference, having skipped the fastest cell. State one to hold the scale
+    /// still across two renders a user is comparing.
+    #[serde(default)]
+    pub reference_speed: Option<f64>,
+}
+
+#[cfg(feature = "render")]
+impl VectorOptions {
+    /// The defaults: an automatic spacing, earth-relative components, and a
+    /// scale from the field's own fastest cell.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+/// Roughly how many arrows the automatic spacing puts across the grid's long
+/// edge. Dense enough to show a flow pattern, sparse enough that the arrows do
+/// not overlap at the size a panel draws.
+#[cfg(feature = "render")]
+const ARROWS_ACROSS: u32 = 24;
+
+/// Vertices in one arrow's run: tail, tip, barb, tip again, the other barb.
+#[cfg(feature = "render")]
+pub const ARROW_VERTICES: u32 = 5;
+
+/// The head's barbs, as a fraction of the shaft and an angle from it.
+#[cfg(feature = "render")]
+const HEAD_FRACTION: f64 = 0.32;
+#[cfg(feature = "render")]
+const HEAD_ANGLE_DEG: f64 = 155.0;
+
+/// The point `distance` metres from `(lat, lon)` along `bearing` (radians,
+/// clockwise from north), on a sphere. The standard great-circle destination:
+/// arrows are drawn as geographic segments so that *the projection* bends them,
+/// rather than each target needing its own rotation.
+#[cfg(feature = "render")]
+fn destination(lat: f64, lon: f64, bearing: f64, distance: f64) -> (f64, f64) {
+    let angular = distance / DEFAULT_EARTH_RADIUS_M;
+    let (lat1, lon1) = (lat.to_radians(), lon.to_radians());
+    let (sin_lat1, cos_lat1) = lat1.sin_cos();
+    let (sin_d, cos_d) = angular.sin_cos();
+    let lat2 = (sin_lat1 * cos_d + cos_lat1 * sin_d * bearing.cos()).asin();
+    let lon2 = lon1 + (bearing.sin() * sin_d * cos_lat1).atan2(cos_d - sin_lat1 * lat2.sin());
+    (lat2.to_degrees(), lon2.to_degrees())
+}
+
+/// The initial bearing from one point to another (radians, clockwise from
+/// north), or `None` when the two coincide.
+#[cfg(feature = "render")]
+fn bearing_between(from: (f64, f64), to: (f64, f64)) -> Option<f64> {
+    let (lat1, lon1) = (from.0.to_radians(), from.1.to_radians());
+    let (lat2, lon2) = (to.0.to_radians(), to.1.to_radians());
+    let d_lon = lon2 - lon1;
+    let y = d_lon.sin() * lat2.cos();
+    let x = lat1.cos() * lat2.sin() - lat1.sin() * lat2.cos() * d_lon.cos();
+    (y != 0.0 || x != 0.0).then(|| y.atan2(x))
+}
+
+/// Great-circle distance between two points, in metres.
+#[cfg(feature = "render")]
+fn distance_between(from: (f64, f64), to: (f64, f64)) -> f64 {
+    let (lat1, lat2) = (from.0.to_radians(), to.0.to_radians());
+    let d_lat = lat2 - lat1;
+    let d_lon = (to.1 - from.1).to_radians();
+    let h = (d_lat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (d_lon / 2.0).sin().powi(2);
+    2.0 * DEFAULT_EARTH_RADIUS_M * h.sqrt().clamp(0.0, 1.0).asin()
+}
+
+/// Arrows for a vector field, and the speed the longest one stands for (#241).
+///
+/// Rust vocabulary rather than a wire type: it wraps `core`'s own
+/// [`ProjectedPolylines`], which a host converts on its way out — the napi
+/// binding hands back the same `{ xy, segLengths }` shape the coastlines and
+/// contours come in, plus this scale.
+#[cfg(feature = "render")]
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct VectorArrows {
+    /// Pixel-space runs, five vertices per arrow — see [`vector_polylines`].
+    pub runs: ProjectedPolylines,
+    /// The speed a full-length arrow stands for, in the components' own units:
+    /// what a legend puts beside its reference arrow. The fastest cell drawn,
+    /// or [`VectorOptions::reference_speed`] when the caller pinned one. `0.0`
+    /// when nothing was drawn.
+    pub reference_speed: f64,
+}
+
+#[cfg(feature = "render")]
+impl Default for VectorArrows {
+    /// Nothing drawn: an empty set of runs and no scale.
+    fn default() -> Self {
+        Self {
+            runs: ProjectedPolylines::default(),
+            reference_speed: 0.0,
+        }
+    }
+}
+
+/// Arrows for a vector field, projected onto the same raster the render and the
+/// overlays use (#241).
+///
+/// `u` and `v` are two decoded fields on one grid — eastward and northward
+/// components, or the grid's own x and y under
+/// [`VectorOptions::grid_relative`]. A cell missing in either is skipped.
+///
+/// **Each arrow is built in geographic space and projected like a coastline.**
+/// The shaft runs from the cell along the flow's own bearing, so the target
+/// projection rotates it the same way it rotates every other line, and a target
+/// that turns the map — an orthographic globe, a polar stereographic — turns the
+/// arrows with it. Nothing here knows which projection is in use.
+///
+/// Each arrow is **one run of five vertices** — tail, tip, one barb, back to the
+/// tip, the other barb — so that stroking it draws the whole arrow in a single
+/// path and a host can still tell one arrow from the next. (A run split for
+/// visibility or at the antimeridian comes back shorter, exactly as a coastline
+/// does.) The runs are pixel-space, for the same canvas the coastlines use.
+///
+/// # Errors
+///
+/// [`Error::Unsupported`] for a grid with no forward geolocation — the refusal
+/// names the families that have one, as the contour and CSV paths do — plus the
+/// reprojection refusals [`overlay_polylines`] reports, and
+/// [`Error::InvalidOption`] when the two fields are not the same size.
+#[cfg(feature = "render")]
+pub fn vector_polylines(
+    source: &Source<'_>,
+    u: &[Option<f64>],
+    v: &[Option<f64>],
+    options: &RenderOptions,
+    vectors: &VectorOptions,
+) -> Result<VectorArrows, Error> {
+    let forward = require_forward_geolocation(source, |gt| {
+        format!(
+            "vector arrows are not supported for grid type {gt:?} (only {} for now)",
+            geolocatable_families()
+        )
+    })?;
+    let (ni, nj) = (source.ni, source.nj);
+    let cells = (ni as usize).saturating_mul(nj as usize);
+    if u.len() != cells || v.len() != cells {
+        return Err(Error::InvalidOption {
+            detail: format!(
+                "the two components must cover the same {ni} × {nj} grid; \
+                 got {} and {} values",
+                u.len(),
+                v.len()
+            ),
+        });
+    }
+    if ni < 2 || nj < 2 {
+        return Ok(VectorArrows::default());
+    }
+
+    // One arrow every `step` cells. The automatic choice keeps the count the
+    // same whatever the grid's resolution, which is what makes a 0.25° global
+    // field and a 3 km regional one both readable.
+    let step = match vectors.spacing {
+        Some(s) if s > 0 => s,
+        _ => (ni.max(nj) / ARROWS_ACROSS).max(1),
+    } as usize;
+
+    // The scale: the fastest sampled cell sets the longest arrow, unless the
+    // caller pinned a reference speed so two renders compare.
+    let speed_at = |index: usize| match (u[index], v[index]) {
+        (Some(u), Some(v)) if u.is_finite() && v.is_finite() => Some(u.hypot(v)),
+        _ => None,
+    };
+    let sampled: Vec<(usize, usize)> = (0..nj as usize)
+        .step_by(step)
+        .flat_map(|j| (0..ni as usize).step_by(step).map(move |i| (i, j)))
+        .collect();
+    let fastest = vectors.reference_speed.filter(|s| *s > 0.0).or_else(|| {
+        sampled
+            .iter()
+            .filter_map(|(i, j)| speed_at(j * ni as usize + i))
+            .filter(|s| *s > 0.0)
+            .fold(None, |best: Option<f64>, s| {
+                Some(best.map_or(s, |b| b.max(s)))
+            })
+    });
+    let Some(fastest) = fastest else {
+        // Every sampled cell is missing or still: nothing to draw, which is not
+        // an error — an all-calm field is a legitimate answer.
+        return Ok(VectorArrows::default());
+    };
+
+    let at = |i: usize, j: usize| forward(i as u32, j as u32);
+    // How long the fastest arrow is: the spacing between sampled cells, so
+    // arrows just touch at the top of the scale rather than crossing the plot.
+    let longest = sampled
+        .iter()
+        .filter_map(|&(i, j)| {
+            let here = at(i, j)?;
+            let along = at((i + step).min(ni as usize - 1), j)?;
+            let d = distance_between(here, along);
+            (d > 0.0).then_some(d)
+        })
+        .fold(None, |sum: Option<(f64, u32)>, d| {
+            Some(sum.map_or((d, 1), |(total, n)| (total + d, n + 1)))
+        })
+        .map(|(total, n)| total / f64::from(n))
+        .unwrap_or(0.0);
+    if longest <= 0.0 {
+        return Ok(VectorArrows::default());
+    }
+
+    let mut latlon: Vec<f64> = Vec::new();
+    let mut ring_lengths: Vec<u32> = Vec::new();
+    for &(i, j) in &sampled {
+        let index = j * ni as usize + i;
+        let (Some(u), Some(v)) = (u[index], v[index]) else {
+            continue;
+        };
+        if !u.is_finite() || !v.is_finite() {
+            continue;
+        }
+        let speed = u.hypot(v);
+        if speed <= 0.0 {
+            continue;
+        }
+        let Some(start) = at(i, j) else { continue };
+        // Which way the flow points, as a bearing. Earth-relative components
+        // give it outright; grid-relative ones are measured from the grid's own
+        // north, which is the bearing to the next row.
+        let from_north = u.atan2(v);
+        let bearing = if vectors.grid_relative {
+            // The grid's `+y`, which its components are measured from, points
+            // the way the *projection's* y increases — not the way the rows are
+            // stored. A north-down grid (the common one) walks its rows
+            // southward, so `+y` is the step to the previous row.
+            let towards = if source.scan.j_positive { 1i64 } else { -1 };
+            let neighbour = j as i64 + towards;
+            let (from, to) = if (0..nj as i64).contains(&neighbour) {
+                (j, neighbour as usize)
+            } else {
+                // The edge row steps the other way and the bearing is reversed.
+                ((j as i64 - towards) as usize, j)
+            };
+            let (Some(a), Some(b)) = (at(i, from), at(i, to)) else {
+                continue;
+            };
+            let Some(grid_north) = bearing_between(a, b) else {
+                continue;
+            };
+            grid_north + from_north
+        } else {
+            from_north
+        };
+        let length = longest * (speed / fastest).clamp(0.0, 1.0);
+        if length <= 0.0 {
+            continue;
+        }
+        let tip = destination(start.0, start.1, bearing, length);
+        let barb = |side: f64| {
+            destination(
+                tip.0,
+                tip.1,
+                bearing + side * HEAD_ANGLE_DEG.to_radians(),
+                length * HEAD_FRACTION,
+            )
+        };
+        let (left, right) = (barb(-1.0), barb(1.0));
+        // Tail, tip, one barb, back to the tip, the other: one stroke.
+        for point in [start, tip, left, tip, right] {
+            latlon.extend_from_slice(&[point.0, point.1]);
+        }
+        ring_lengths.push(ARROW_VERTICES);
+    }
+
+    Ok(VectorArrows {
+        runs: overlay_polylines(source, options, &latlon, &ring_lengths)?,
+        reference_speed: fastest,
+    })
 }
 
 // ---------------------------------------------------------------------------

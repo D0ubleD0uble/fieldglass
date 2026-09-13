@@ -496,6 +496,33 @@ impl GridDescription {
         }
     }
 
+    /// Whether the message's `u`/`v` components are resolved along the grid's
+    /// own axes rather than east and north (GDS octet 17, bit 5).
+    ///
+    /// The question a vector plot must ask before it draws an arrow (#241):
+    /// drawn as east/north, a grid-relative pair points wrong by the grid's
+    /// convergence angle. `None` for a message with no resolution flags to
+    /// state it — the spherical-harmonic and unsupported families.
+    pub fn uv_relative_to_grid(&self) -> Option<bool> {
+        self.resolution_flags().map(|f| f.uv_relative_to_grid)
+    }
+
+    /// The resolution and component flags (GDS octet 17), for the families that
+    /// carry them.
+    pub fn resolution_flags(&self) -> Option<&ResolutionFlags> {
+        match self {
+            Self::LatLon(g) => Some(&g.resolution_flags),
+            Self::RotatedLatLon(g) => Some(&g.resolution_flags),
+            Self::ReducedLatLon(g) => Some(&g.resolution_flags),
+            Self::Gaussian(g) => Some(&g.resolution_flags),
+            Self::ReducedGaussian(g) => Some(&g.resolution_flags),
+            Self::PolarStereographic(g) => Some(&g.resolution_flags),
+            Self::LambertConformal(g) => Some(&g.resolution_flags),
+            Self::SphericalHarmonic(_) => None,
+            Self::Unsupported { .. } => None,
+        }
+    }
+
     /// Whether this message's values lie on a raster at all.
     ///
     /// False for spherical-harmonic coefficients (wavenumber space, decoded by

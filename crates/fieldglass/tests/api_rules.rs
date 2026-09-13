@@ -37,7 +37,7 @@ use fieldglass::{
     Addressing, AxisUnits, AxisValues, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype, Error,
     Field, Georef, Isoline, LeftOutArray, Line, MessageInfo, PaletteOptions, PixelProbe, Probe,
     Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat, Stats, TargetKind, Values,
-    VariableInfo, WarpOptions, WarpTarget, Warped,
+    VariableInfo, VectorOptions, WarpOptions, WarpTarget, Warped,
 };
 
 // ---------------------------------------------------------------------------
@@ -100,6 +100,15 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Addressing", Class::Wire, ""),
     ("DimensionInfo", Class::Wire, ""),
     ("VariableInfo", Class::Wire, ""),
+    // How a vector plot is drawn: spacing, the components' convention, and the
+    // speed the longest arrow stands for (#241).
+    ("VectorOptions", Class::Wire, ""),
+    (
+        "VectorArrows",
+        Class::Engine,
+        "the arrows of a vector field plus their scale; a host converts the runs \
+         on its way out, as it already does for a coastline's (#241)",
+    ),
     // One axis of a variable with its coordinate values, for labelling a
     // cross-section's axes (#171).
     ("AxisValues", Class::Wire, ""),
@@ -415,6 +424,10 @@ fn every_wire_type_round_trips_through_json() {
         "VariableInfo",
         r#"{"index":0,"name":"/g/sst","dims":[{"name":"lat","length":2}],"dtype":"float","units":"K","detectedYDim":0,"detectedXDim":1,"detectedTimeDim":null}"#,
     );
+    round_trip::<VectorOptions>(
+        "VectorOptions",
+        r#"{"spacing":6,"gridRelative":true,"referenceSpeed":25.0}"#,
+    );
     round_trip::<AxisValues>(
         "AxisValues",
         r#"{"dimension":"time","length":3,"coordinates":[0.0,6.0,12.0],"units":"hours since 2020-01-01"}"#,
@@ -439,7 +452,7 @@ const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
-const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"sizeLabel":"N32","forecastHours":6,"p1Octet":null,"originatingCentre":"Centre 98","subCentre":null,"edition":2,"discipline":"Meteorological products","totalLengthBytes":1234,"productionStatus":"Operational products","dataType":"Analysis and forecast products"}"#;
+const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"sizeLabel":"N32","forecastHours":6,"p1Octet":null,"originatingCentre":"Centre 98","subCentre":null,"edition":2,"discipline":"Meteorological products","totalLengthBytes":1234,"productionStatus":"Operational products","dataType":"Analysis and forecast products","uvRelativeToGrid":null}"#;
 
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a
@@ -472,6 +485,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "DimensionInfo",
     "VariableInfo",
     "AxisValues",
+    "VectorOptions",
     "LeftOutArray",
 ];
 
@@ -1266,6 +1280,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<DimensionInfo>("DimensionInfo");
     check_schema::<VariableInfo>("VariableInfo");
     check_schema::<AxisValues>("AxisValues");
+    check_schema::<VectorOptions>("VectorOptions");
     check_schema::<LeftOutArray>("LeftOutArray");
 
     assert_covers_every_wire_type(
@@ -1299,6 +1314,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "DimensionInfo",
     "VariableInfo",
     "AxisValues",
+    "VectorOptions",
     "LeftOutArray",
 ];
 

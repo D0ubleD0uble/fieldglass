@@ -143,7 +143,9 @@ pub use error::Error;
 // shape rather than anything a host serialises.
 pub use render::Source;
 #[cfg(feature = "render")]
-pub use render::{PixelProbe, Projected, RenderOptions, ResolvedOptions, TargetKind, WarpTarget};
+pub use render::{
+    PixelProbe, Projected, RenderOptions, ResolvedOptions, TargetKind, VectorOptions, WarpTarget,
+};
 pub use session::PlacedSlice;
 pub use session::{DecodeOptions, Session};
 #[cfg(feature = "render")]

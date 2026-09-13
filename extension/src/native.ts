@@ -30,6 +30,11 @@ export interface MessageMeta {
   /** Raw GRIB1 P1 octet, or absent where editing one octet would be wrong
    *  (GRIB2/NetCDF have no P1; time-range 10 spends two octets on one value). */
   p1Octet: number | null;
+  /** Whether this message's u/v components run along the grid's own axes rather
+   *  than east and north (#241) — GRIB's resolution flag, which HRRR and NAM
+   *  set. Undefined when the family states none, and for a NetCDF or Zarr
+   *  slice. */
+  uvRelativeToGrid?: boolean;
   forecastDisplay: string;
   originatingCentre: string;
   /** Sub-centre name (WMO C-12), or absent when the field is 0 or unassigned. */
@@ -236,6 +241,14 @@ export interface AxisValuesResult {
   units: string;
 }
 
+/** Projected vector arrows plus the speed a full-length arrow stands for
+ *  (#241). The runs are the overlay's shape — five vertices per arrow. */
+export interface ProjectedVectors {
+  xy: Float64Array;
+  segLengths: Uint32Array;
+  referenceSpeed: number;
+}
+
 export interface RenderedGrid {
   rgba: Buffer;
   width: number;
@@ -355,6 +368,17 @@ export interface Grib1Handle {
     options: RenderOptions,
     interval?: number,
   ): ProjectedOverlay;
+  /** Arrows for a vector field built from two messages (#241): `u` eastward and
+   *  `v` northward, or along the grid's own axes under `gridRelative` — which is
+   *  what `MessageMeta.uvRelativeToGrid` reports. One arrow is one run of five
+   *  vertices, in the same pixel space the coastlines come back in. */
+  projectVectors(
+    messageIndexU: number,
+    messageIndexV: number,
+    options: RenderOptions,
+    spacing?: number,
+    gridRelative?: boolean,
+  ): ProjectedVectors;
   /** Read the field under a rendered pixel (#172): the point-probe readout.
    *  `px`/`py` are output-raster pixels (post-flip). Undefined when the pixel is
    *  off the raster or off the globe. */
@@ -414,6 +438,17 @@ export interface Grib2Handle {
     options: RenderOptions,
     interval?: number,
   ): ProjectedOverlay;
+  /** Arrows for a vector field built from two messages (#241): `u` eastward and
+   *  `v` northward, or along the grid's own axes under `gridRelative` — which is
+   *  what `MessageMeta.uvRelativeToGrid` reports. One arrow is one run of five
+   *  vertices, in the same pixel space the coastlines come back in. */
+  projectVectors(
+    messageIndexU: number,
+    messageIndexV: number,
+    options: RenderOptions,
+    spacing?: number,
+    gridRelative?: boolean,
+  ): ProjectedVectors;
   /** Read the field under a rendered pixel (#172): the point-probe readout.
    *  `px`/`py` are output-raster pixels (post-flip). Undefined when the pixel is
    *  off the raster or off the globe. */

@@ -2294,6 +2294,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         // Time range 10 spends `P1` as the high octet of a two-octet value, so
         // reporting it as a lead time there would be reporting half a number.
         p1_octet: (msg.pds.time_range != 10).then_some(i32::from(msg.pds.p1)),
+        uv_relative_to_grid: msg.gds.as_ref().and_then(|g| g.uv_relative_to_grid()),
         originating_centre: fieldglass_grib1::tables_cct::lookup_centre(msg.pds.originating_centre)
             .map(str::to_string)
             .unwrap_or_else(|| format!("Centre {}", msg.pds.originating_centre)),
@@ -2392,6 +2393,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         forecast_hours: common.and_then(fieldglass_grib2::forecast_hours),
         // A GRIB1 octet, and edition 2 does not have it.
         p1_octet: None,
+        uv_relative_to_grid: msg.gds.uv_relative_to_grid(),
         originating_centre: fieldglass_grib2::tables_cct::lookup_centre(msg.ids.centre)
             .map(str::to_string)
             .unwrap_or_else(|| format!("Centre {}", msg.ids.centre)),
