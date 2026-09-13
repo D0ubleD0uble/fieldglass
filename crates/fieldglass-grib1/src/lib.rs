@@ -65,7 +65,7 @@ pub mod reader;
 /// WMO ON388 Table 2 parameter lookup, international and centre-local.
 pub mod tables;
 pub mod tables_cct;
-mod tables_ecmwf;
+mod tables_local;
 
 pub use bds::{
     BDS_DATA_OFFSET, BdsHeader, ComplexExtendedHeader, SphericalExtendedHeader, parse_bds_header,

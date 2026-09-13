@@ -22,7 +22,7 @@
 //! about whether two parsers read the same octets the same way. So do
 //! `shortName` and friends, which come from eccodes' own parameter tables (the
 //! GRIB1 tables are cross-checked against eccodes separately, in
-//! `tables.rs`/`tables_ecmwf.rs`). The second-order sub-header widths (`N2`,
+//! `tables.rs`/`tables_local.rs`). The second-order sub-header widths (`N2`,
 //! `NL`, `widthOfWidths`, `widthOfLengths`) are read inside the packing
 //! decoder rather than published on a type, so there is nothing here to compare
 //! them against; their effect is pinned by the value oracles in

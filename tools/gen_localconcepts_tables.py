@@ -71,7 +71,7 @@ Two more exclusions, both upstream of the buckets above:
     centre.
 
 `~` in `shortName` or `units` is eccodes' "unset" marker and becomes an empty
-string, the same convention `gen_ecmwf_tables.py` follows for GRIB1. DWD writes
+string, the same convention `gen_grib1_local_tables.py` follows for GRIB1. DWD writes
 `''` for the same thing, which parses to an empty string already — the two
 spellings are indistinguishable in the emitted table, which is why the oracle
 reads one key per pass rather than splitting a joined line (see
@@ -89,7 +89,7 @@ import tempfile
 import textwrap
 from pathlib import Path
 
-# The eccodes the repo validates against. `gen_ecmwf_tables.py` reads the same
+# The eccodes the repo validates against. `gen_grib1_local_tables.py` reads the same
 # install for the GRIB1 tables.
 ECCODES_VERSION = "2.34.1"
 DEFINITIONS = Path("/usr/share/eccodes/definitions")

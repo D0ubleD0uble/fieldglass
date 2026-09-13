@@ -2,7 +2,7 @@
 //!
 //! The GRIB1 side carries two ASCII notations, from two generated sources.
 //! WMO ON388 Table 2 writes products with solidi and chains them —
-//! `kg/m2`, `kg/m2/s`, `W/m3/sr` — while the ECMWF local tables 128/129 are
+//! `kg/m2`, `kg/m2/s`, `W/m3/sr` — while the ECMWF local tables are
 //! generated from eccodes, which writes exponents Fortran-style: `kg m**-2`,
 //! `K m**2 kg**-1 s**-1`. Both files are reproduced from their upstream, so
 //! `normalize_units` reconciles them at the display seam instead
@@ -32,22 +32,23 @@ const CENTRE_WMO: u8 = 0;
 
 /// Every distinct unit string the GRIB1 tables can return.
 ///
-/// Versions 1-3 are the ON388 international table and 128/129 the ECMWF local
-/// ones. Only three of the ten combinations carry units of their own — the
-/// international table is centre-independent, and a local version resolves to
-/// nothing at all for a centre whose table this crate does not ship (#547) —
-/// so enumerating every combination is redundant today. Which is the point: if
-/// that routing ever changes, the snapshot widens rather than silently going on
+/// Every table version, for the WMO centre and for ECMWF: versions 1-127 are
+/// the ON388 international table, and 128-254 ECMWF's local ones, of which this
+/// crate carries every one eccodes ships (#601). Most combinations answer
+/// nothing — the international table is centre-independent, and a local version
+/// resolves to nothing for a centre whose table this crate does not ship (#547)
+/// — so enumerating every one is redundant today. Which is the point: if that
+/// routing ever changes, the snapshot widens rather than silently going on
 /// testing a narrower table than its own doc comment claims.
 fn distinct_units() -> BTreeSet<String> {
     let mut units = BTreeSet::new();
     for centre in [CENTRE_WMO, CENTRE_ECMWF] {
-        for version in [1, 2, 3, 128, 129] {
+        for version in 0..=255u8 {
             for id in 0..=255u8 {
                 // An unresolved id contributes the empty string, which is what
                 // it contributed when the lookup answered a sentinel entry with
                 // empty units — so the snapshot is unchanged by #633.
-                let units_str = lookup_parameter(id, version, centre).map_or("", |p| p.units);
+                let units_str = lookup_parameter(id, version, centre, 0).map_or("", |p| p.units);
                 units.insert(units_str.to_string());
             }
         }
