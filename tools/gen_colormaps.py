@@ -107,10 +107,10 @@ def main() -> None:
         tables.append((const, anchors, licence))
         entries.append(
             f'    Colormap {{\n'
-            f'        name: "{ident}",\n'
-            f'        label: "{label}",\n'
+            f'        name: Cow::Borrowed("{ident}"),\n'
+            f'        label: Cow::Borrowed("{label}"),\n'
             f'        kind: ColormapKind::{kind},\n'
-            f'        anchors: &{const},\n'
+            f'        anchors: Cow::Borrowed(&{const}),\n'
             f'    }},'
         )
 
@@ -140,6 +140,8 @@ def main() -> None:
 //! documentation; it is in the README's licence section.
 //!
 //! Generated against matplotlib {matplotlib.__version__}.
+
+use std::borrow::Cow;
 
 use crate::colormap::{{Colormap, ColormapKind}};
 

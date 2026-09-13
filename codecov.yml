@@ -80,6 +80,9 @@ flag_management:
 #    table (from matplotlib via `tools/gen_colormaps.py`) — RGB anchor stops
 #    and nothing else. The code that reads it lives in `colormap.rs` and is
 #    covered there.
+#  - `crates/fieldglass-core/src/color_names.rs`: the X11 colour names the CPT
+#    parser looks up (from `tools/gen_color_names.py`). One constant slice; the
+#    lookup that reads it is in `cpt.rs` and is covered there.
 ignore:
   - "crates/fieldglass-napi/src/**"
   - "crates/fieldglass-wasm/src/**"
@@ -94,5 +97,6 @@ ignore:
   - "crates/fieldglass-grib2/src/tables_cct.rs"
   - "crates/fieldglass-core/src/cct_tables.rs"
   - "crates/fieldglass-core/src/colormap_tables.rs"
+  - "crates/fieldglass-core/src/color_names.rs"
   - "**/tests/**"
   - "**/examples/**"

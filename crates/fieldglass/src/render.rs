@@ -43,7 +43,7 @@ use fieldglass_core::csv::{field_to_csv_long, field_to_csv_matrix};
 use fieldglass_core::{
     EqualEarth, Mollweide, Orthographic, PolarStereographic, ProjectedPolylines, Resampling,
     Robinson, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
-    colormap::{Colormap, ScaleMode, default_colormap},
+    colormap::{Colormap, ColormapKind, ScaleMode, default_colormap},
     project_polylines,
     warp::{PreparedTarget, TargetProjection, WarpedRaster, warp},
 };
@@ -58,6 +58,8 @@ use fieldglass_core::{
     colormap::min_max_ignoring_mask,
     contour::{contour_segments, contour_segments_global, nice_levels},
 };
+#[cfg(feature = "render")]
+use std::borrow::Cow;
 
 use crate::error::Error;
 
@@ -134,6 +136,15 @@ pub struct RenderOptions {
     /// A colormap name `core` knows. `None` is the default map. An unknown name
     /// is an error rather than a silent fallback.
     pub colormap: Option<String>,
+    /// A colormap given as its lookup table instead of by name: 768 bytes, 256
+    /// RGB entries from the low end of the ramp to the high end. This is how an
+    /// imported colour table reaches the painter — a host parses the file once
+    /// (`fieldglass::parse_cpt`) and sends the table it compiles to — and it
+    /// takes [`reverse_colormap`](Self::reverse_colormap) like any named map.
+    ///
+    /// Naming a [`colormap`](Self::colormap) as well is an error rather than a
+    /// guess at which one was meant, and so is a table of any other length.
+    pub colormap_table: Option<Vec<u8>>,
     /// Walk the colormap high-to-low. `None` is `false`.
     pub reverse_colormap: Option<bool>,
     /// `"linear"` (default) or `"log10"`. `None` is linear; anything else is an
@@ -216,6 +227,7 @@ impl Default for RenderOptions {
             bounds_lon_min: None,
             bounds_lon_max: None,
             colormap: None,
+            colormap_table: None,
             reverse_colormap: None,
             scale_mode: None,
             width: None,
@@ -311,12 +323,42 @@ pub struct ResolvedOptions {
     /// The caller's output raster, when it named one (#465). Read by the
     /// lat/lon-box targets only — see [`RenderOptions::height`].
     pub size: Option<(u32, u32)>,
-    /// The colormap the name resolved to.
-    pub colormap: &'static Colormap,
+    /// The colormap the name or the table resolved to. Borrowed from the
+    /// registry for a name, owned for a table.
+    pub colormap: Cow<'static, Colormap>,
     /// Walk the colormap high-to-low.
     pub reverse_colormap: bool,
     /// Linear or log10.
     pub scale: ScaleMode,
+}
+
+/// The colormap a caller sent as a lookup table — [`RenderOptions::colormap_table`]
+/// and [`PaletteOptions::colormap_table`](crate::PaletteOptions::colormap_table).
+///
+/// One function for both option types, so the two cannot disagree about what
+/// a table is or when it is refused. `name` is the colormap the same request
+/// named, which must be absent.
+#[cfg(feature = "render")]
+pub(crate) fn colormap_from_table(table: &[u8], name: Option<&str>) -> Result<Colormap, Error> {
+    if let Some(name) = name {
+        return Err(Error::InvalidOption {
+            detail: format!(
+                "both a colormap name ({name:?}) and a colormap table were given; send one"
+            ),
+        });
+    }
+    let lut: &[u8; 256 * 3] = table.try_into().map_err(|_| Error::InvalidOption {
+        detail: format!(
+            "a colormap table holds {} bytes; it must hold 768, three for each of 256 entries",
+            table.len()
+        ),
+    })?;
+    Ok(Colormap::from_lut(
+        "table",
+        "Table",
+        ColormapKind::Sequential,
+        lut,
+    ))
 }
 
 /// What the picker's `projection` string resolved to. Named `TargetKind` rather
@@ -476,9 +518,13 @@ impl ResolvedOptions {
         };
         // An unknown colormap is an error, not a silent fallback to viridis: a
         // typo'd name should say so rather than paint the wrong colours.
-        let colormap = match options.colormap.as_deref() {
-            None => default_colormap(),
-            Some(name) => Colormap::by_name(name).ok_or_else(|| {
+        let colormap = match (
+            options.colormap_table.as_deref(),
+            options.colormap.as_deref(),
+        ) {
+            (Some(table), name) => Cow::Owned(colormap_from_table(table, name)?),
+            (None, None) => Cow::Borrowed(default_colormap()),
+            (None, Some(name)) => Cow::Borrowed(Colormap::by_name(name).ok_or_else(|| {
                 let known: Vec<&str> = fieldglass_core::colormap::colormaps()
                     .iter()
                     .map(|c| c.name())
@@ -489,7 +535,7 @@ impl ResolvedOptions {
                         known.join(", ")
                     ),
                 }
-            })?,
+            })?),
         };
         // An unknown scale mode is an error for the same reason an unknown
         // colormap is: a typo should say so, not silently paint linearly.
@@ -2690,6 +2736,27 @@ mod resolved_options_tests {
             assert_eq!(r.colormap.name(), c.name());
             assert!(r.reverse_colormap);
         }
+    }
+
+    #[test]
+    fn a_colormap_table_resolves_to_the_colormap_it_describes() {
+        for c in fieldglass_core::colormap::colormaps() {
+            let mut o = opts("source", "nearest");
+            o.colormap_table = Some(c.lut(false).to_vec());
+            let r = ResolvedOptions::parse(&o).expect("a 768-byte table");
+            assert_eq!(r.colormap.lut(false), c.lut(false), "{}", c.name());
+        }
+
+        let mut both = opts("source", "nearest");
+        both.colormap = Some("viridis".to_string());
+        both.colormap_table = Some(vec![0; 768]);
+        let err = ResolvedOptions::parse(&both).expect_err("a name and a table");
+        assert!(matches!(err, Error::InvalidOption { .. }), "{err}");
+
+        let mut short = opts("source", "nearest");
+        short.colormap_table = Some(vec![0; 3]);
+        let err = ResolvedOptions::parse(&short).expect_err("a short table");
+        assert!(err.to_string().contains("holds 3 bytes"), "{err}");
     }
 
     #[test]

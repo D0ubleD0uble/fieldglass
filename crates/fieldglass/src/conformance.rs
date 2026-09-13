@@ -187,6 +187,8 @@ pub struct Args {
     pub height: Option<u32>,
     /// [`PaletteOptions::colormap`].
     pub colormap: Option<String>,
+    /// [`PaletteOptions::colormap_table`]: 768 bytes when set.
+    pub colormap_table: Option<Vec<u8>>,
     /// [`PaletteOptions::reversed`].
     pub reversed: Option<bool>,
     /// [`PaletteOptions::scale`].
@@ -655,12 +657,41 @@ pub fn cases() -> Vec<Case> {
         }
     }
 
+    // ---- A colormap sent as a table (#236) ---------------------------------
+    //
+    // How an imported colour table reaches the painter. One fixture is enough:
+    // what is under test is that every host carries the 768 bytes to `core`
+    // intact and in order, which the palette's sampled entries and the render's
+    // sampled pixels both show. The ramp is no registry map's, and its three
+    // channels run in different directions, so a table read back to front, or
+    // with its channels rotated, cannot match.
+    let table: Vec<u8> = (0..=255u8)
+        .flat_map(|i| [i, 255 - i, i.wrapping_mul(37)])
+        .collect();
+    let latlon = format!("{G2}regular_latlon_surface.grib2");
+    for (id, op) in [
+        ("palette/colormap_table", Op::Palette),
+        ("render/colormap_table", Op::Render),
+    ] {
+        out.push(Case {
+            id: id.to_string(),
+            fixture: latlon.clone(),
+            op,
+            args: Args {
+                colormap_table: Some(table.clone()),
+                reversed: Some(true),
+                scale: Some("linear".to_string()),
+                flip_y: Some(false),
+                ..Args::default()
+            },
+        });
+    }
+
     // ---- The error cases, one per `Error` code -----------------------------
     //
     // Every code in `Suite::error_codes` has to be reachable through a call a
     // host can make, or "the codes are stable" is a claim about an enum rather
     // than about the API. These five are that proof.
-    let latlon = format!("{G2}regular_latlon_surface.grib2");
     out.push(Case {
         // Not a container at all. Three bytes is short of the indicator
         // section, so detection recognises nothing — as against the `decode`
@@ -707,6 +738,19 @@ pub fn cases() -> Vec<Case> {
         args: Args {
             short_read: Some(16),
             dtype: Some(Dtype::Auto),
+            ..Args::default()
+        },
+    });
+    out.push(Case {
+        // A table and a name in one request: refused rather than choosing.
+        id: "error/invalid_option_table_and_name".to_string(),
+        fixture: latlon.clone(),
+        op: Op::Palette,
+        args: Args {
+            colormap: Some("viridis".to_string()),
+            colormap_table: Some(vec![0; 256 * 3]),
+            reversed: Some(false),
+            scale: Some("linear".to_string()),
             ..Args::default()
         },
     });
@@ -1009,6 +1053,7 @@ fn decode_options(args: &Args) -> DecodeOptions {
 fn palette_options(args: &Args) -> PaletteOptions {
     PaletteOptions {
         colormap: args.colormap.clone(),
+        colormap_table: args.colormap_table.clone(),
         reversed: args.reversed.unwrap_or(false),
         min: args.range_min,
         max: args.range_max,

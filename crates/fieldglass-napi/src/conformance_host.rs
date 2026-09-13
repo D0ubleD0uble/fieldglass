@@ -227,6 +227,7 @@ fn render_options(args: &Args) -> RenderOptions {
         bounds_lon_min: None,
         bounds_lon_max: None,
         colormap: args.colormap.clone(),
+        colormap_table: args.colormap_table.clone(),
         reverse_colormap: args.reversed,
         scale_mode: args.scale.clone(),
         width: None,

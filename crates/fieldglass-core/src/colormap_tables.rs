@@ -23,7 +23,9 @@
 //! The Apache-licensed sources ask for an attribution notice in end-user
 //! documentation; it is in the README's licence section.
 //!
-//! Generated against matplotlib 3.11.0.
+//! Generated against matplotlib 3.11.1.
+
+use std::borrow::Cow;
 
 use crate::colormap::{Colormap, ColormapKind};
 
@@ -31,52 +33,52 @@ use crate::colormap::{Colormap, ColormapKind};
 /// default.
 pub(crate) const COLORMAPS: &[Colormap] = &[
     Colormap {
-        name: "viridis",
-        label: "Viridis",
+        name: Cow::Borrowed("viridis"),
+        label: Cow::Borrowed("Viridis"),
         kind: ColormapKind::Sequential,
-        anchors: &VIRIDIS,
+        anchors: Cow::Borrowed(&VIRIDIS),
     },
     Colormap {
-        name: "plasma",
-        label: "Plasma",
+        name: Cow::Borrowed("plasma"),
+        label: Cow::Borrowed("Plasma"),
         kind: ColormapKind::Sequential,
-        anchors: &PLASMA,
+        anchors: Cow::Borrowed(&PLASMA),
     },
     Colormap {
-        name: "cividis",
-        label: "Cividis",
+        name: Cow::Borrowed("cividis"),
+        label: Cow::Borrowed("Cividis"),
         kind: ColormapKind::Sequential,
-        anchors: &CIVIDIS,
+        anchors: Cow::Borrowed(&CIVIDIS),
     },
     Colormap {
-        name: "turbo",
-        label: "Turbo",
+        name: Cow::Borrowed("turbo"),
+        label: Cow::Borrowed("Turbo"),
         kind: ColormapKind::Sequential,
-        anchors: &TURBO,
+        anchors: Cow::Borrowed(&TURBO),
     },
     Colormap {
-        name: "grayscale",
-        label: "Grayscale",
+        name: Cow::Borrowed("grayscale"),
+        label: Cow::Borrowed("Grayscale"),
         kind: ColormapKind::Sequential,
-        anchors: &GRAYSCALE,
+        anchors: Cow::Borrowed(&GRAYSCALE),
     },
     Colormap {
-        name: "rdbu",
-        label: "Red–Blue",
+        name: Cow::Borrowed("rdbu"),
+        label: Cow::Borrowed("Red–Blue"),
         kind: ColormapKind::Diverging,
-        anchors: &RD_BU,
+        anchors: Cow::Borrowed(&RD_BU),
     },
     Colormap {
-        name: "brbg",
-        label: "Brown–Teal",
+        name: Cow::Borrowed("brbg"),
+        label: Cow::Borrowed("Brown–Teal"),
         kind: ColormapKind::Diverging,
-        anchors: &BR_BG,
+        anchors: Cow::Borrowed(&BR_BG),
     },
     Colormap {
-        name: "coolwarm",
-        label: "Cool–Warm",
+        name: Cow::Borrowed("coolwarm"),
+        label: Cow::Borrowed("Cool–Warm"),
         kind: ColormapKind::Diverging,
-        anchors: &COOLWARM,
+        anchors: Cow::Borrowed(&COOLWARM),
     },
 ];
 

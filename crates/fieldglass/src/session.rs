@@ -17,6 +17,8 @@ use fieldglass_core::bytes::ObjectSource;
 use fieldglass_core::bytes::{ByteSource, read_up_to};
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use fieldglass_core::units::normalize_units;
+#[cfg(feature = "render")]
+use std::borrow::Cow;
 use std::sync::Arc;
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 use std::{collections::HashMap, sync::Mutex};
@@ -154,6 +156,11 @@ pub struct PaletteOptions {
     /// silent fallback: a host that misspells one should hear about it.
     #[serde(default)]
     pub colormap: Option<String>,
+    /// A colormap given as its 768-byte lookup table instead of by name, as
+    /// [`RenderOptions::colormap_table`](crate::RenderOptions::colormap_table)
+    /// describes, and refused on the same terms.
+    #[serde(default)]
+    pub colormap_table: Option<Vec<u8>>,
     /// Walk the colormap high-to-low. Applied after `colormap` is resolved,
     /// so a reversed unknown name is still an error.
     #[serde(default)]
@@ -182,6 +189,7 @@ impl PaletteOptions {
     pub fn new(colormap: Option<&str>, scale: Option<&str>) -> Self {
         Self {
             colormap: colormap.map(str::to_string),
+            colormap_table: None,
             reversed: false,
             min: None,
             max: None,
@@ -2059,11 +2067,17 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
 
 #[cfg(feature = "render")]
 fn build_palette(field: &Field, options: &PaletteOptions) -> Result<Palette, Error> {
-    let colormap = match &options.colormap {
-        Some(name) => Colormap::by_name(name).ok_or_else(|| Error::InvalidOption {
-            detail: format!("no colormap named {name:?}"),
-        })?,
-        None => default_colormap(),
+    let colormap = match (
+        options.colormap_table.as_deref(),
+        options.colormap.as_deref(),
+    ) {
+        (Some(table), name) => Cow::Owned(crate::render::colormap_from_table(table, name)?),
+        (None, Some(name)) => {
+            Cow::Borrowed(Colormap::by_name(name).ok_or_else(|| Error::InvalidOption {
+                detail: format!("no colormap named {name:?}"),
+            })?)
+        }
+        (None, None) => Cow::Borrowed(default_colormap()),
     };
     let scale = match options.scale.as_deref() {
         None | Some("linear") => ScaleMode::Linear,
@@ -2095,7 +2109,7 @@ fn build_palette(field: &Field, options: &PaletteOptions) -> Result<Palette, Err
             ),
         });
     }
-    Ok(Palette::build(colormap, options.reversed, min, max, scale))
+    Ok(Palette::build(&colormap, options.reversed, min, max, scale))
 }
 
 // ---------------------------------------------------------------------------

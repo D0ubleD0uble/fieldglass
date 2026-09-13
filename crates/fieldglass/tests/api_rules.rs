@@ -55,7 +55,7 @@ enum Class {
     /// `#[non_exhaustive]`, the no-generics rule and the no-`Vec<Option<…>>`
     /// rule, but not the serde ones — and not the no-borrows rule either,
     /// because a `&'static` borrow is owned-equivalent and
-    /// `ResolvedOptions::colormap` is one.
+    /// `ResolvedOptions::colormap` is a `Cow<'static, _>` of one.
     Engine,
     /// A type a host builds with **struct-literal syntax**, because it borrows
     /// and so cannot be deserialised or handed over by a constructor that owns
@@ -200,8 +200,20 @@ const FOREIGN_REEXPORTS: &[(&str, Class, &str)] = &[
     (
         "Colormap",
         Class::Engine,
-        "a static table a host names by string and never receives by value; \
-         `colormaps()` hands out `&'static [Colormap]`",
+        "a table a host names by string or sends as its 768-byte lookup table, \
+         and never receives by value; `colormaps()` hands out `&'static [Colormap]`",
+    ),
+    (
+        "ColorTable",
+        Class::Engine,
+        "a parsed `.cpt`, read in Rust; a host keeps and sends only the lookup \
+         table it compiles to, never the table itself (#236)",
+    ),
+    (
+        "CptError",
+        Class::Engine,
+        "why a `.cpt` did not parse; a host shows its `Display` and nothing \
+         serialises it",
     ),
     (
         "CombineOp",
@@ -380,7 +392,7 @@ fn every_wire_type_round_trips_through_json() {
     );
     round_trip::<PaletteOptions>(
         "PaletteOptions",
-        r#"{"colormap":"viridis","reversed":false,"min":null,"max":null,"scale":null}"#,
+        r#"{"colormap":"viridis","colormapTable":null,"reversed":false,"min":null,"max":null,"scale":null}"#,
     );
     // The three the extension's declarations are generated from (#574). Their
     // documents are long, which is the point: every field name is pinned here.
@@ -425,7 +437,7 @@ const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Tempe
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a
 /// host reading `512.0` where the schema says `u32` is the drift this catches.
-const RENDER_OPTIONS_JSON: &str = r#"{"projection":"equirectangular","projectionPreset":"atlantic","centerLat":0.0,"centerLon":0.0,"resampling":"bilinear","flipY":false,"rangeMin":null,"rangeMax":null,"boundsLatMin":null,"boundsLatMax":null,"boundsLonMin":null,"boundsLonMax":null,"colormap":"viridis","reverseColormap":false,"scaleMode":"linear","width":512,"height":384}"#;
+const RENDER_OPTIONS_JSON: &str = r#"{"projection":"equirectangular","projectionPreset":"atlantic","centerLat":0.0,"centerLon":0.0,"resampling":"bilinear","flipY":false,"rangeMin":null,"rangeMax":null,"boundsLatMin":null,"boundsLatMax":null,"boundsLonMin":null,"boundsLonMax":null,"colormap":"viridis","colormapTable":null,"reverseColormap":false,"scaleMode":"linear","width":512,"height":384}"#;
 
 /// The wire types the round-trip test covers, so it can be held to the
 /// classification rather than to whoever last edited the list.

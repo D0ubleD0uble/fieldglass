@@ -21,6 +21,8 @@
 //! channel. Masked / non-finite pixels paint as fully transparent (alpha
 //! = 0) so the editor background shows through.
 
+use std::borrow::Cow;
+
 use crate::colormap_tables::COLORMAPS;
 
 /// How a colormap is meant to be read: a sequential ramp runs low → high, a
@@ -133,12 +135,16 @@ fn position_in(v: f64, t0: f64, t1: f64, scale: ScaleMode) -> Option<f64> {
 
 /// One named colormap: a stable `name` (the wire value), a human `label` for
 /// the picker, its `kind`, and the RGB anchor stops it interpolates.
-#[derive(Debug, Clone, Copy)]
+///
+/// The registry's entries borrow static tables. A colormap built at runtime —
+/// an imported colour table, through [`from_lut`](Self::from_lut) — owns its
+/// stops instead, and paints through exactly the same code.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Colormap {
-    pub(crate) name: &'static str,
-    pub(crate) label: &'static str,
+    pub(crate) name: Cow<'static, str>,
+    pub(crate) label: Cow<'static, str>,
     pub(crate) kind: ColormapKind,
-    pub(crate) anchors: &'static [[f64; 3]],
+    pub(crate) anchors: Cow<'static, [[f64; 3]]>,
 }
 
 /// The colormap used when a caller names none — the first registry entry, and
@@ -160,14 +166,40 @@ impl Colormap {
         COLORMAPS.iter().find(|c| c.name == name)
     }
 
+    /// A colormap whose lookup table is `lut`: 256 RGB entries, low → high.
+    ///
+    /// What an imported colour table compiles to. Each entry becomes one of 256
+    /// anchors, so [`lut`](Self::lut) hands the same bytes back — an entry `i`
+    /// sits exactly on anchor `i` — and a table that steps sharply between two
+    /// entries keeps its step instead of being smoothed over.
+    pub fn from_lut(
+        name: impl Into<String>,
+        label: impl Into<String>,
+        kind: ColormapKind,
+        lut: &[u8; 256 * 3],
+    ) -> Self {
+        let anchors = lut
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|rgb| rgb.map(|c| f64::from(c) / 255.0))
+            .collect();
+        Self {
+            name: Cow::Owned(name.into()),
+            label: Cow::Owned(label.into()),
+            kind,
+            anchors: Cow::Owned(anchors),
+        }
+    }
+
     /// The wire name.
-    pub fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// The label to show in a picker.
-    pub fn label(&self) -> &'static str {
-        self.label
+    pub fn label(&self) -> &str {
+        &self.label
     }
 
     /// Sequential or diverging.

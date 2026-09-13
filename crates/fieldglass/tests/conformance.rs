@@ -183,6 +183,9 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "degenerate/warp/sized",
     "error/decode",
     "error/invalid_option",
+    // A colormap table sent beside a colormap name (#236): refused rather than
+    // choosing one, by every host.
+    "error/invalid_option_table_and_name",
     "error/no_such_message",
     // A truncated transfer, which is a different answer from a truncated file
     // (`error/decode` above) and the one a host can retry (#707). Reachable only

@@ -110,6 +110,7 @@ function georef(grid) {
 function paletteOptions(args) {
   return {
     colormap: args.colormap ?? null,
+    colormapTable: args.colormapTable ?? null,
     reversed: args.reversed ?? false,
     min: args.rangeMin ?? null,
     max: args.rangeMax ?? null,
