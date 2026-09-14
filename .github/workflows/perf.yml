@@ -1,0 +1,124 @@
+name: Performance
+
+# Cost per scenario, held to docs/performance.md (#743).
+#
+# Blocking on purpose, unlike Verify: every gated number here is deterministic
+# (exact for bytes, requests, allocations and peak heap; a small tolerance for
+# Callgrind's instruction counts and one page for wasm memory), so a red run is
+# a number that moved, never noise. Wall time is printed, never gated.
+#
+# No path filter. The harness measures the readers, so a change to any crate can
+# move a number, and a filter narrower than "everything" would report green
+# over exactly the change that should have failed.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  perf:
+    name: gated cost tiers + report
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      # The same pin and checksum as ci.yml and release.yml;
+      # `tools/check_binaryen_pin.py` holds the three together.
+      BINARYEN_VERSION: version_132
+      BINARYEN_SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      # Both workspaces: the root one builds the wasm bundles, the harness is its
+      # own. `cache-bin` keeps the installed gungraun-runner between runs.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            .
+            crates/fieldglass-perf
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      # The corpus writers at exactly the versions the recorded table describes;
+      # `corpus/generate.py` refuses any other.
+      - name: Install the corpus writers
+        run: python3 -m pip install -r crates/fieldglass-perf/requirements.txt
+
+      # Ubuntu 24.04's Valgrind is 3.22, the version the table was recorded with.
+      - name: Install Valgrind
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
+
+      - name: Install gungraun-runner
+        run: |
+          version="$(grep -A1 '^name = "gungraun"$' crates/fieldglass-perf/Cargo.lock \
+                     | sed -n 's/^version = "\(.*\)"$/\1/p')"
+          test -n "$version" || { echo "no gungraun in the harness lockfile"; exit 1; }
+          cargo install gungraun-runner --version "$version" --locked
+
+      - name: Read the resolved wasm-bindgen version
+        id: wasm-bindgen-version
+        run: |
+          version="$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock \
+                     | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n1)"
+          test -n "$version" || { echo "no wasm-bindgen in Cargo.lock"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install wasm-bindgen CLI
+        uses: taiki-e/install-action@7b8d4719ee4aaa279bdf55df38dacb9ebfe12a6c # v2.87.6
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen-version.outputs.version }}
+
+      - name: Install binaryen (wasm-opt)
+        run: |
+          tarball="binaryen-${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          curl -fsSLO "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/${tarball}"
+          echo "${BINARYEN_SHA256}  ${tarball}" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/binaryen"
+          tar xzf "$tarball" -C "$RUNNER_TEMP/binaryen" --strip-components=1
+          echo "$RUNNER_TEMP/binaryen/bin" >> "$GITHUB_PATH"
+
+      # The harness is its own workspace, so no root gate lints or tests it.
+      - name: Lint and test the harness
+        run: |
+          cargo clippy --manifest-path crates/fieldglass-perf/Cargo.toml --locked --all-targets -- -D warnings
+          cargo test --manifest-path crates/fieldglass-perf/Cargo.toml --locked --lib
+
+      # Keyed on the manifest's own hash: the network is touched only when the
+      # manifest changes, and `run.sh --report` proves the rest with an
+      # `--offline` verification of every object before it reads one.
+      - name: Cache the real data
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/fieldglass-perf
+          key: fieldglass-perf-data-${{ hashFiles('crates/fieldglass-perf/manifests/era5.json') }}
+
+      - name: Gate, then report
+        run: crates/fieldglass-perf/run.sh --report
+
+      # The same deterministic tiers a second time on the same runner. The table
+      # check above already compared this runner with the machine that recorded
+      # the table; this proves the runner agrees with itself, byte for byte.
+      - name: The gated numbers repeat exactly
+        run: |
+          cp crates/fieldglass-perf/target/perf/measured.json "$RUNNER_TEMP/first.json"
+          crates/fieldglass-perf/run.sh --only io,heap
+          cmp "$RUNNER_TEMP/first.json" crates/fieldglass-perf/target/perf/measured.json

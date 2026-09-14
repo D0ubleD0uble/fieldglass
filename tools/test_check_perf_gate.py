@@ -50,9 +50,9 @@ ORDER = [
 ]
 
 
-def scenario(cells, bytes_, bound, blocks, peak, requests=1):
+def scenario(cells, bytes_, bound, blocks, peak, requests=1, width=4):
     return {
-        "cells": cells, "bytes": bytes_, "requests": requests, "bound_bytes": bound,
+        "cells": cells, "width": width, "bytes": bytes_, "requests": requests, "bound_bytes": bound,
         "input_bytes": 0, "blocks": blocks, "peak": peak,
     }
 
@@ -274,6 +274,15 @@ class BoundsTest(unittest.TestCase):
         # peak(S) = 600 at 16 cells, peak(L) = 2000 at 64: B = 1400/48.
         text = chk.render_bounds(self.rows(), set(chk.TIERS))
         self.assertIn(f"| `grib2-5.0/decode` | {1400 / 48:.1f} B |", text)
+
+    def test_the_floor_follows_the_decoded_width(self):
+        text = chk.render_bounds(self.rows(), set(chk.TIERS))
+        # 5.0 decodes to width 4: floor 5 B, and 1400/48 = 29.2 B is 5.8x it.
+        self.assertIn(f"| `grib2-5.0/decode` | {1400 / 48:.1f} B | ", text)
+        self.assertIn("| 5 B | 5.8× | output value (4) + mask byte (1)", text)
+        # A classic slice reads in place: no chunk element in its floor.
+        peak = text.split("#### Peak heap per cell")[1]
+        self.assertIn("| 5 B |", peak.split("`netcdf-classic/slice`")[1].splitlines()[0])
 
     def test_the_variable_ratio_uses_the_deep_input(self):
         text = chk.render_bounds(self.rows(), set(chk.TIERS))

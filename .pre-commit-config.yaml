@@ -276,14 +276,15 @@ repos:
         pass_filenames: false
 
       - id: binaryen-pin
-        name: both workflows pin the same binaryen
+        name: every workflow pins the same binaryen
         language: system
         # `wasm-opt` decides the bytes of the shipped module. `ci.yml` runs it to
         # produce the bundle the size gate measures against the README;
         # `release.yml` runs it to produce the module inside the npm package
-        # (#466). Drift between them would ship a module the gate never saw,
-        # with every check still green.
-        files: ^(\.github/workflows/(ci|release)\.yml|tools/check_binaryen_pin\.py)$
+        # (#466); `perf.yml` runs it to produce the bundles whose memory the
+        # performance gate records (#743). Drift between them would ship a
+        # module the gates never saw, with every check still green.
+        files: ^(\.github/workflows/(ci|perf|release)\.yml|tools/check_binaryen_pin\.py)$
         entry: python3 tools/check_binaryen_pin.py
         pass_filenames: false
 
@@ -433,6 +434,18 @@ repos:
         stages: [pre-push]
         files: ^tools/(test_)?check_perf_gate\.py$
         entry: python3 tools/test_check_perf_gate.py
+        pass_filenames: false
+
+      - id: fetch-perf-data-selftest
+        name: tools/fetch_perf_data.py unit tests
+        language: system
+        # The real-data fetcher's promises are the kind that only fail quietly:
+        # a changed cached object re-fetched behind the user's back, a partial
+        # file left after a hash mismatch, a `file://` URL followed. No network;
+        # the committed manifest is loaded and checked against its own cap.
+        stages: [pre-push]
+        files: ^(tools/(test_)?fetch_perf_data\.py|crates/fieldglass-perf/manifests/era5\.json)$
+        entry: python3 tools/test_fetch_perf_data.py
         pass_filenames: false
 
       - id: nested-lockfiles-selftest

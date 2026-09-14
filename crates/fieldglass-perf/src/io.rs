@@ -29,9 +29,9 @@ pub struct Io {
 /// single-threaded harness, and these two newtypes are the forwarding that makes
 /// an `Rc` a source. Every method forwards, so the recording sees exactly what
 /// the reader asked.
-pub(crate) struct SharedBytes(pub(crate) Rc<Recording<Vec<u8>>>);
+pub(crate) struct SharedBytes<S = Vec<u8>>(pub(crate) Rc<Recording<S>>);
 
-impl ByteSource for SharedBytes {
+impl<S: ByteSource> ByteSource for SharedBytes<S> {
     fn size(&self) -> u64 {
         self.0.size()
     }
@@ -70,6 +70,27 @@ impl ObjectSource for SharedObjects {
     }
 }
 
+/// A range recording, whatever it wraps.
+pub(crate) trait RangeLog {
+    fn prefetches(&self) -> Vec<Vec<ByteRange>>;
+    fn reads(&self) -> Vec<ByteRange>;
+    fn clear(&self);
+}
+
+impl<S> RangeLog for Recording<S> {
+    fn prefetches(&self) -> Vec<Vec<ByteRange>> {
+        Recording::prefetches(self)
+    }
+
+    fn reads(&self) -> Vec<ByteRange> {
+        Recording::reads(self)
+    }
+
+    fn clear(&self) {
+        Recording::clear(self);
+    }
+}
+
 /// Where the I/O tier reads its numbers from.
 pub(crate) enum Recorder {
     /// Not recorded: prepared [`Via::Memory`](crate::Via::Memory), or a codec.
@@ -77,7 +98,7 @@ pub(crate) enum Recorder {
     /// An open scenario prepared for recording, whose source does not exist yet.
     Pending,
     /// A single-object source, recorded by range.
-    Ranges(Rc<Recording<Vec<u8>>>),
+    Ranges(Rc<dyn RangeLog>),
     /// A keyed store, recorded by key.
     Objects(Rc<Recording<MemoryObjects>>),
     /// A reader with no source seam, handed the whole file of this many bytes.

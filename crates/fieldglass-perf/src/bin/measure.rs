@@ -41,6 +41,7 @@ fn main() {
             let cells = prepared.execute();
             (cells, dhat::HeapStats::get())
         };
+        let width = prepared.value_width();
         drop(prepared);
 
         eprintln!(
@@ -51,6 +52,7 @@ fn main() {
             scenario.id.clone(),
             json!({
                 "cells": cells,
+                "width": width,
                 "bytes": io.bytes,
                 "requests": io.requests,
                 "bound_bytes": bound_bytes(&corpus, scenario),

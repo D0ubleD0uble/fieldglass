@@ -16,6 +16,7 @@
 
 mod corpus;
 mod io;
+pub mod real;
 
 use std::hint::black_box;
 use std::rc::Rc;
@@ -190,6 +191,8 @@ pub struct Prepared {
     /// Kept until the prepared scenario is dropped, so nothing the operation
     /// produced is freed inside the measurement.
     output: Option<Box<dyn std::any::Any>>,
+    /// Bytes per value in the decoded field, once a decoding operation has run.
+    value_width: Option<u32>,
 }
 
 enum State {
@@ -276,11 +279,14 @@ impl Prepared {
             state,
             recorder,
             output: None,
+            value_width: None,
         }
     }
 
-    /// Run the operation. Returns how many cells (or decompressed elements) it
-    /// produced, which is what a per-cell bound divides by.
+    /// Run the operation. Returns how many cells (or decompressed elements) one
+    /// output holds, which is what a per-cell bound divides by. A scrub
+    /// returns one frame's cells: its frames are alive one at a time, so the
+    /// peak is a frame's and not the sum of eight.
     ///
     /// # Panics
     ///
@@ -298,7 +304,7 @@ impl Prepared {
                     Session::open(bytes)
                 } else if pending {
                     let recording = Rc::new(Recording::new(bytes));
-                    self.recorder = Recorder::Ranges(Rc::clone(&recording));
+                    self.recorder = Recorder::Ranges(Rc::clone(&recording) as Rc<dyn io::RangeLog>);
                     Session::open_source(SharedBytes(recording))
                 } else {
                     Session::open_source(bytes)
@@ -323,6 +329,7 @@ impl Prepared {
                 let field = session
                     .decode(0, &options)
                     .expect("a generated message decodes");
+                self.value_width = Some(width(&field));
                 (field.values.len() as u64, Box::new((session, field)))
             }
             (Op::Place, State::Session { session, .. }) => {
@@ -339,6 +346,7 @@ impl Prepared {
                 let field = session
                     .decode_slice(variable, 1, 2, &[SLICE_PLANE, 0, 0], &options)
                     .expect("a generated plane decodes");
+                self.value_width = Some(width(&field));
                 (field.values.len() as u64, Box::new((session, field)))
             }
             (Op::Scrub, State::Session { session, variable }) => {
@@ -349,7 +357,8 @@ impl Prepared {
                     let field = session
                         .decode_slice(variable, 1, 2, &[frame, 0, 0], &options)
                         .expect("a generated plane decodes");
-                    cells += field.values.len() as u64;
+                    cells = field.values.len() as u64;
+                    self.value_width = Some(width(&field));
                     black_box(&field);
                 }
                 (cells, Box::new(session))
@@ -409,10 +418,24 @@ impl Prepared {
         cells
     }
 
+    /// Bytes per value of the field a decode, slice or scrub produced: 4 when
+    /// `Dtype::Auto` narrowed it to `f32`, 8 otherwise. `None` for the
+    /// operations that produce no decoded field.
+    pub fn value_width(&self) -> Option<u32> {
+        self.value_width
+    }
+
     /// What the operation asked its source for. Meaningful after
     /// [`execute`](Self::execute) on a scenario prepared [`Via::Recorded`].
     pub fn io(&self) -> Io {
         self.recorder.tally()
+    }
+}
+
+fn width(field: &Field) -> u32 {
+    match field.values {
+        fieldglass::Values::F32(_) => 4,
+        _ => 8,
     }
 }
 
@@ -437,7 +460,7 @@ fn open(corpus: &Corpus, name: &str, via: Via, recorder: &mut Recorder) -> Sessi
         (_, Via::Memory) => Session::open_source(corpus.bytes(name)),
         (_, Via::Recorded) => {
             let recording = Rc::new(Recording::new(corpus.bytes(name)));
-            *recorder = Recorder::Ranges(Rc::clone(&recording));
+            *recorder = Recorder::Ranges(Rc::clone(&recording) as Rc<dyn io::RangeLog>);
             Session::open_source(SharedBytes(recording))
         }
     };

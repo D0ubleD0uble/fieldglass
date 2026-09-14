@@ -61,6 +61,7 @@ WASM_PAGE = 65536
 # (key, heading, tier). The order is the table's.
 COLUMNS = [
     ("cells", "Cells", "base"),
+    ("width", "Value bytes", "base"),
     ("bytes", "Bytes read", "io"),
     ("bound", "Bound", "io"),
     ("requests", "Requests", "io"),
@@ -77,13 +78,11 @@ TIERS = ("io", "heap", "instructions", "wasm")
 ALWAYS = {"base"}
 WASM_BUILDS = {"baseline": "wasm", "+simd128": "wasm_simd"}
 
-# Per-cell floors, in bytes: the least any implementation could hold per cell
-# while doing the operation, and why. `docs/performance.md` prints these beside
-# the per-cell cost measured today.
-FLOORS = {
-    "decode": (9, "f64 output value (8) + mask byte (1); simple unpacking needs no buffer"),
-    "slice": (9, "f32 output (4) + mask (1) + one decompressed f32 chunk element (4)"),
-    "slice-uncompressed": (5, "f32 output (4) + mask (1); the plane is read in place"),
+# Per-cell floors, in bytes, for the operations whose floor does not depend on
+# the decoded value width: the least any implementation could hold per cell, and
+# why. The decoding operations' floors are in `floor_for`, because they follow
+# the width `Dtype::Auto` chose.
+FIXED_FLOORS = {
     "warp": (5, "f32 output (4) + mask (1) per output pixel"),
     "render": (4, "one RGBA pixel"),
     "contours": (0, "marching squares needs a row of state, not a cell's"),
@@ -162,6 +161,7 @@ def measured_rows(
             "blocks": m["blocks"],
             "peak": m["peak"],
             "cells": m["cells"],
+            "width": m.get("width"),
         }
         if instructions is not None:
             row.update(instructions[scenario])
@@ -273,10 +273,16 @@ def families(rows: dict) -> list[tuple[str, str]]:
     return seen
 
 
-def floor_for(family: str, op: str) -> tuple[int, str] | None:
-    if op == "slice" or op == "scrub":
-        return FLOORS["slice-uncompressed" if family == "netcdf-classic" else "slice"]
-    return FLOORS.get(op)
+def floor_for(family: str, op: str, row: dict) -> tuple[int, str] | None:
+    """The least per-cell heap an operation could hold, and the reason."""
+    width = row.get("width")
+    if op == "decode" and width:
+        return width + 1, f"output value ({width}) + mask byte (1); unpacking writes straight into the output"
+    if op in ("slice", "scrub") and width:
+        if family == "netcdf-classic":
+            return width + 1, f"output value ({width}) + mask (1); the plane is read in place"
+        return width + 5, f"output value ({width}) + mask (1) + one decompressed f32 chunk element (4)"
+    return FIXED_FLOORS.get(op)
 
 
 def render_bounds(rows: dict[str, dict[str, int | None]], tiers: set[str]) -> str:
@@ -326,10 +332,12 @@ def render_bounds(rows: dict[str, dict[str, int | None]], tiers: set[str]) -> st
     ]
     for family, op in families(rows):
         p = pair(rows, (family, op), "S", "L")
-        floor = floor_for(family, op)
-        if not p or floor is None:
+        if not p:
             continue
         s, l = p
+        floor = floor_for(family, op, s)
+        if floor is None:
+            continue
         if l["cells"] == s["cells"]:
             continue
         slope = (l["peak"] - s["peak"]) / (l["cells"] - s["cells"])

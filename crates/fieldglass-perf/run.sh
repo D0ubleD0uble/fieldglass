@@ -113,7 +113,18 @@ fi
 "${gate[@]}" --only "$ONLY"
 
 if [ "$REPORT" -eq 1 ]; then
-  echo "── report"
-  cargo run --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release -q --bin report
-  python3 "$CRATE_DIR/reference.py" --corpus "$CORPUS/inputs" --measured "$OUT/measured.json"
+  has_tier wasm || fail "--report prints wasm beside native, so it needs the wasm tier"
+  echo "── report: real data"
+  MANIFEST="$CRATE_DIR/manifests/era5.json"
+  CACHE="$(python3 "$REPO_ROOT/tools/fetch_perf_data.py" --print-dir)"
+  # Fetch what is missing, then prove the cache is whole without the network:
+  # the report reads only what the second call verified.
+  python3 "$REPO_ROOT/tools/fetch_perf_data.py" --manifest "$MANIFEST" --cache "$CACHE"
+  python3 "$REPO_ROOT/tools/fetch_perf_data.py" --manifest "$MANIFEST" --cache "$CACHE" --offline
+  echo "── report: wall time"
+  cargo run --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release -q --bin report -- \
+    --manifest "$MANIFEST" --cache "$CACHE" >"$OUT/native.json"
+  python3 "$CRATE_DIR/report.py" --corpus "$CORPUS/inputs" --native "$OUT/native.json" \
+    --wasm "$OUT/wasm.json" --wasm-simd "$OUT/wasm-simd.json" \
+    --manifest "$MANIFEST" --cache "$CACHE" | tee "$OUT/report.md"
 fi
