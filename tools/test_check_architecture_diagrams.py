@@ -218,5 +218,26 @@ class TestSupportExclusion(unittest.TestCase):
             self.assertTrue((chk.CRATES_DIR / rel).is_file(), f"{rel} does not exist")
             self.assertNotIn(rel, scanned)
 
+class NestedWorkspaceExclusion(unittest.TestCase):
+    """Crates that are workspaces of their own are not architecture."""
+
+    NESTED = ("fieldglass-perf", "fieldglass-verify")
+
+    def test_the_nested_crates_are_recognised_as_such(self):
+        for name in self.NESTED:
+            self.assertTrue(chk.is_nested_workspace(chk.CRATES_DIR / name), name)
+        # And a member is not, or the exclusion would be hiding the workspace.
+        self.assertFalse(chk.is_nested_workspace(chk.CRATES_DIR / "fieldglass-core"))
+
+    def test_their_sources_and_edges_are_left_out_of_the_scan(self):
+        scanned = {p.relative_to(chk.CRATES_DIR).parts[0] for p in chk.rust_sources()}
+        consumers = {consumer for consumer, _ in chk.actual_crate_edges()}
+        for name in self.NESTED:
+            self.assertNotIn(name, scanned)
+            self.assertNotIn(name.removeprefix("fieldglass-"), consumers)
+        self.assertIn("fieldglass-core", scanned)
+        self.assertIn("grib2", consumers)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

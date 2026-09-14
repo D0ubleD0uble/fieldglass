@@ -3,10 +3,12 @@
 
     python3 tools/check_nested_lockfiles.py
 
-Six crates in this tree declare a bare `[workspace]` and so form workspaces of
-their own: the five `fuzz/` crates, kept out so the stable gates never try to
-compile a nightly-only libFuzzer target, and `crates/fieldglass-verify`, kept out
-so a published crate never carries `vstd`. Each therefore has its own
+Seven crates in this tree declare a bare `[workspace]` and so form workspaces
+of their own: the five `fuzz/` crates, kept out so the stable gates never try to
+compile a nightly-only libFuzzer target; `crates/fieldglass-verify`, kept out so
+a published crate never carries `vstd`; and `crates/fieldglass-perf`, kept out
+so dhat, Gungraun and the benchmark-only codec pins never enter the workspace
+graph (#743). Each therefore has its own
 `Cargo.lock`, and that is the blind spot: no `--workspace` command resolves them,
 so `cargo build`, `cargo clippy`, `cargo test --workspace` and
 `cargo deny --locked check` all pass over a lock that has gone stale. The root

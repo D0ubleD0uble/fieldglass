@@ -39,6 +39,17 @@ repos:
         entry: bash -c 'for d in crates/fieldglass-*/fuzz; do (cd "$d" && cargo fmt --check) || exit 1; done'
         pass_filenames: false
 
+      - id: cargo-fmt-perf
+        name: cargo fmt --check (performance harness)
+        language: system
+        # The same hole as the fuzz crates: `crates/fieldglass-perf` is its own
+        # workspace (#743), so `cargo fmt --all` never reaches it. Clippy and
+        # its build run in `.github/workflows/perf.yml` on every pull request,
+        # where the harness has to compile anyway to measure anything.
+        files: ^crates/fieldglass-perf/.*\.rs$
+        entry: cargo fmt --manifest-path crates/fieldglass-perf/Cargo.toml --check
+        pass_filenames: false
+
       - id: cargo-clippy
         name: cargo clippy --all-targets -- -D warnings
         language: system
@@ -279,11 +290,11 @@ repos:
       - id: nested-lockfiles
         name: each nested crate's Cargo.lock matches its manifest
         language: system
-        # Six crates declare a bare `[workspace]` and so carry their own
-        # `Cargo.lock`: the five `fuzz/` crates and `fieldglass-verify`. No
-        # `--workspace` command resolves any of them, so nothing in the normal
-        # loop — not clippy, not `cargo test`, not `cargo deny --locked` —
-        # notices when one drifts. A fuzz lock goes stale from an edit to its
+        # Seven crates declare a bare `[workspace]` and so carry their own
+        # `Cargo.lock`: the five `fuzz/` crates, `fieldglass-verify` and
+        # `fieldglass-perf`. No `--workspace` command resolves any of them, so
+        # nothing in the normal loop — not clippy, not `cargo test`, not `cargo
+        # deny --locked` — notices when one drifts. A fuzz lock goes stale from an edit to its
         # *format crate's* manifest, since it path-depends on it: #640 edited
         # all three and heard about it from three red fuzz jobs on the pull
         # request. Same check as `.github/workflows/fuzz.yml`'s `lockfiles`
@@ -292,7 +303,7 @@ repos:
         # never looked at.
         #
         # Commit stage rather than pre-push because it is free: `cargo metadata
-        # --locked` resolves without building (~130 ms for all six), and the
+        # --locked` resolves without building (~130 ms for all seven), and the
         # common drift — a dependency dropped, or re-pinned to a version already
         # cached — is refused in ~20 ms without touching the network. Adding a
         # dependency cargo has never seen costs one index update first.
@@ -411,6 +422,17 @@ repos:
         language: system
         files: ^tools/(check_binaryen_pin|test_check_binaryen_pin)\.py$
         entry: python3 tools/test_check_binaryen_pin.py
+        pass_filenames: false
+
+      - id: perf-gate-selftest
+        name: tools/check_perf_gate.py unit tests
+        language: system
+        # The gate is `docs/performance.md`'s table (#743); a checker that let a
+        # moved number through would make every PR's green perf job a claim
+        # about nothing. Pre-push because the checker only changes by hand.
+        stages: [pre-push]
+        files: ^tools/(test_)?check_perf_gate\.py$
+        entry: python3 tools/test_check_perf_gate.py
         pass_filenames: false
 
       - id: nested-lockfiles-selftest
