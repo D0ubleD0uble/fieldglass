@@ -28,9 +28,10 @@ readers never do, as ADR-0005 requires — and it is deliberately strict:
   manifest entry needs are removed oldest first. A manifest that needs more than
   the cap on its own is refused before anything is fetched.
 
-URLs are limited to `ALLOWED_PREFIXES`. A manifest is a file in the repository,
-but `urllib` also opens `file://` and `ftp://`, and the fetcher is exactly where
-a doctored manifest would be turned into a read of something else.
+URLs are limited to `ALLOWED_PREFIXES`, and fetched through an opener that can
+only speak HTTPS. A manifest is a file in the repository, but the fetcher is exactly
+where a doctored one would be turned into a read of something else — `urllib`
+would open `file://` for it.
 """
 
 from __future__ import annotations
@@ -41,7 +42,10 @@ import json
 import os
 import re
 import shutil
+import ssl
 import sys
+import urllib.parse
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -49,7 +53,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_MANIFEST = REPO / "crates" / "fieldglass-perf" / "manifests" / "era5.json"
 
-ALLOWED_PREFIXES = ("https://storage.googleapis.com/gcp-public-data-arco-era5/",)
+ALLOWED_HOST = "storage.googleapis.com"
+ALLOWED_PREFIXES = (f"https://{ALLOWED_HOST}/gcp-public-data-arco-era5/",)
 
 SHA256 = re.compile(r"[0-9a-f]{64}")
 PARTIAL_SUFFIX = ".partial"
@@ -69,15 +74,41 @@ def default_cache() -> Path:
     return Path(base) / "fieldglass-perf"
 
 
+def https_only_opener() -> urllib.request.OpenerDirector:
+    """An opener that can reach HTTPS and nothing else.
+
+    `urllib.request.urlopen` installs every default handler, so a URL string
+    naming `file://` or `ftp://` is followed. A bare `OpenerDirector` holding
+    only an `HTTPSHandler` (and the `UnknownHandler` that turns every other
+    scheme into an error) refuses any other scheme with "unknown url type", and
+    with no redirect handler a 3xx comes back as a status to reject rather than
+    a hop to somewhere the manifest never named. The TLS context is the default
+    one, stated: certificates and hostnames verified.
+    """
+    opener = urllib.request.OpenerDirector()
+    opener.add_handler(urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    # Without it an unhandled scheme makes `open` return None rather than raise.
+    opener.add_handler(urllib.request.UnknownHandler())
+    return opener
+
+
 def http_fetch(url: str, offset: int | None, length: int) -> bytes:
+    """GET `url`, or one range of it, from the one host a manifest may name."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or parts.netloc != ALLOWED_HOST or parts.query or parts.fragment:
+        raise Failure(f"{url}: not a plain https URL on {ALLOWED_HOST}")
     request = urllib.request.Request(url)
     if offset is not None:
         request.add_header("Range", f"bytes={offset}-{offset + length - 1}")
-    with urllib.request.urlopen(request, timeout=120) as response:  # prefix-checked in `load_manifest`
+    # Bound to a name of its own: this opens a URL, not a text file, and
+    # `tools/check_generator_encoding.py` reads a bare `.open(` as the latter.
+    open_url = https_only_opener().open
+    with open_url(request, timeout=120) as response:
+        expected = 200 if offset is None else 206
         # A server that ignores `Range` answers 200 with the whole object, which
         # for the GRIB month file is 11.7 GB: refuse it rather than read it.
-        if offset is not None and response.status != 206:
-            raise Failure(f"{url}: asked for a byte range and got HTTP {response.status}, not 206")
+        if response.status != expected:
+            raise Failure(f"{url}: HTTP {response.status}, expected {expected}")
         # One byte past the length is enough to tell "too long" from "exact".
         return response.read(length + 1)
 

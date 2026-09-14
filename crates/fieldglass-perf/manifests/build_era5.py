@@ -44,7 +44,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import ssl
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -71,11 +73,28 @@ GRIB_PARAM = (128, 167)
 CACHE_CAP_BYTES = 256 * 1024 * 1024
 
 
+HOST = "storage.googleapis.com"
+
+# HTTPS and nothing else: a bare opener with only an HTTPS handler refuses every
+# other scheme and follows no redirect, where `urllib.request.urlopen` would open
+# whatever a URL string named. Certificates and hostnames are verified.
+OPENER = urllib.request.OpenerDirector()
+OPENER.add_handler(urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+OPENER.add_handler(urllib.request.UnknownHandler())
+
+
+def _request(method: str, url: str, headers: dict[str, str]):
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or parts.netloc != HOST:
+        sys.exit(f"{url}: not an https URL on {HOST}")
+    return OPENER.open(urllib.request.Request(url, headers=headers, method=method), timeout=120)
+
+
 def get(url: str, start: int | None = None, length: int | None = None) -> bytes:
-    request = urllib.request.Request(url)
-    if start is not None:
-        request.add_header("Range", f"bytes={start}-{start + length - 1}")
-    with urllib.request.urlopen(request) as response:  # the bucket's fixed URLs above
+    headers = {} if start is None else {"Range": f"bytes={start}-{start + length - 1}"}
+    with _request("GET", url, headers) as response:
+        if response.status != (200 if start is None else 206):
+            sys.exit(f"{url}: HTTP {response.status}")
         data = response.read()
     if length is not None and len(data) != length:
         sys.exit(f"{url} [{start}+{length}]: got {len(data)} bytes")
@@ -83,8 +102,7 @@ def get(url: str, start: int | None = None, length: int | None = None) -> bytes:
 
 
 def size_of(url: str) -> int:
-    request = urllib.request.Request(url, method="HEAD")
-    with urllib.request.urlopen(request) as response:
+    with _request("HEAD", url, {}) as response:
         return int(response.headers["Content-Length"])
 
 

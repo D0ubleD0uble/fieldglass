@@ -48,7 +48,7 @@ Only a deterministic metric may gate a pull request.
 |---|---|---|---|
 | Gate | Bytes read and requests per operation | `fieldglass_core::testing::Recording` around the source | exact |
 | Gate | Allocation count, peak heap | dhat's testing profiler around the operation alone | exact |
-| Gate | Instructions, estimated cycles | Gungraun on Callgrind, cache geometry fixed | 2% |
+| Gate | Instructions, estimated cycles | Gungraun on Callgrind, cache geometry fixed | 2%, or 40,000 for small operations |
 | Gate | wasm linear-memory high-water mark | `memory.buffer.byteLength` after preparing and running the operation, one Node process per scenario | one 64 KiB page |
 | Report | Wall time, native and wasm (baseline and `+simd128`) | `report` binary, `wasm/measure.mjs` | printed |
 | Report | Ratio to a reference tool | `reference.py`: eccodes, netCDF4, zarr-python | printed |
@@ -562,8 +562,13 @@ crates/fieldglass-perf/run.sh --write
   `crates/fieldglass-perf/rust-toolchain.toml` (`run.sh` builds the wasm bundles
   with it too, and refuses any other). Bumping it is a re-record with the bump
   named as the reason.
-- **Instructions** are allowed 2%. Two runs on one machine differ by under
-  0.02% (hash-map seeding), so 2% is room for the compiler, not for noise.
+- **Instructions** are allowed 2%, or 40,000 instructions, whichever is
+  larger. Two full runs on one machine differ by under 0.02% on almost every
+  row, but a small operation can jump by a fixed amount: `netcdf-classic-S/place`
+  reads 123,558 run alone and 136,757 inside the full run, because malloc takes
+  its heap-growth path or not depending on what preparation left behind. The
+  floor covers that and nothing bigger: every injected fault in the next section
+  moved its rows by far more.
 - **wasm memory** is allowed one 64 KiB page, for the same reason.
 - **The corpus digest** changes when a generator or a pinned writer does. Every
   number may then move with it, and the checker says so before listing them.

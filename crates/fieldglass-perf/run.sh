@@ -131,8 +131,8 @@ if [ "$REPORT" -eq 1 ]; then
   python3 "$REPO_ROOT/tools/fetch_perf_data.py" --manifest "$MANIFEST" --cache "$CACHE"
   python3 "$REPO_ROOT/tools/fetch_perf_data.py" --manifest "$MANIFEST" --cache "$CACHE" --offline
   echo "── report: wall time"
-  cargo run --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release -q --bin report -- \
-    --manifest "$MANIFEST" --cache "$CACHE" >"$OUT/native.json"
+  FIELDGLASS_PERF_MANIFEST="$MANIFEST" FIELDGLASS_PERF_CACHE="$CACHE" \
+    cargo run --manifest-path "$CRATE_DIR/Cargo.toml" --locked --release -q --bin report >"$OUT/native.json"
   python3 "$CRATE_DIR/report.py" --corpus "$CORPUS/inputs" --native "$OUT/native.json" \
     --wasm "$OUT/wasm.json" --wasm-simd "$OUT/wasm-simd.json" \
     --manifest "$MANIFEST" --cache "$CACHE" | tee "$OUT/report.md"

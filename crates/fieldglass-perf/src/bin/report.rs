@@ -1,7 +1,12 @@
 //! The report tier: wall time. Printed, never gated.
 //!
-//!     FIELDGLASS_PERF_CORPUS=<dir> cargo run --release --bin report -- \
-//!         [--manifest manifests/era5.json --cache ~/.cache/fieldglass-perf] > native.json
+//!     FIELDGLASS_PERF_CORPUS=<dir> [FIELDGLASS_PERF_MANIFEST=manifests/era5.json \
+//!         FIELDGLASS_PERF_CACHE=~/.cache/fieldglass-perf] cargo run --release --bin report > native.json
+//!
+//! Configured through the environment rather than arguments, like the corpus:
+//! reading `std::env::args()` trips semgrep's `rust.lang.security.args.args`,
+//! and this repo keeps zero suppressions (the same reason `bench_decode` takes
+//! none).
 //!
 //! Wall time on a shared runner is noise, which is why none of this gates. It
 //! is here because a ratio against a reference tool, and a real scrub over real
@@ -26,14 +31,13 @@ fn fail(message: impl std::fmt::Display) -> ! {
     std::process::exit(1)
 }
 
-/// `--flag value`, or `None` when the flag is absent. A flag with no value is a
-/// mistake, not a default.
-fn flag(name: &str) -> Option<PathBuf> {
-    let args: Vec<String> = std::env::args().collect();
-    let at = args.iter().position(|a| a == name)?;
-    match args.get(at + 1) {
-        Some(value) if !value.starts_with("--") => Some(PathBuf::from(value)),
-        _ => fail(format!("{name} wants a value")),
+/// A path from the environment, or `None` when the variable is unset. Set and
+/// empty is a mistake, not a default.
+fn path_from_env(name: &str) -> Option<PathBuf> {
+    match std::env::var_os(name) {
+        Some(value) if value.is_empty() => fail(format!("{name} is set but empty")),
+        Some(value) => Some(PathBuf::from(value)),
+        None => None,
     }
 }
 
@@ -53,7 +57,10 @@ fn main() {
         native.insert(scenario.id.clone(), json!(times[ITERATIONS / 2]));
     }
 
-    let real_rows = match (flag("--manifest"), flag("--cache")) {
+    let real_rows = match (
+        path_from_env("FIELDGLASS_PERF_MANIFEST"),
+        path_from_env("FIELDGLASS_PERF_CACHE"),
+    ) {
         (Some(manifest), Some(cache)) => real::era5(&manifest, &cache)
             .unwrap_or_else(|e| fail(e))
             .into_iter()
@@ -71,7 +78,7 @@ fn main() {
             })
             .collect(),
         (None, None) => Vec::new(),
-        _ => fail("--manifest and --cache go together"),
+        _ => fail("FIELDGLASS_PERF_MANIFEST and FIELDGLASS_PERF_CACHE go together"),
     };
 
     let report = json!({

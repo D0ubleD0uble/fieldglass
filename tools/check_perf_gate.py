@@ -20,7 +20,8 @@ against a stale, generous number.
 and the recording counts requested ranges, so the same code over the same bytes
 gives the same numbers on every machine. Instruction counts and estimated cycles
 come from Callgrind and move a little with the toolchain, so they get a relative
-tolerance. wasm memory grows in 64 KiB pages and is exact for one build; it gets
+tolerance, with an absolute floor for small operations (see
+`INSTRUCTION_FLOOR`). wasm memory grows in 64 KiB pages and is exact for one build; it gets
 one page either way, so a rustc bump that nudges the allocator across a page
 boundary is not mistaken for a regression.
 
@@ -56,6 +57,13 @@ BOUNDS_END = "<!-- perf-gate:bounds:end -->"
 DIGEST = re.compile(r"Corpus digest: `([0-9a-f]{64})`")
 
 INSTRUCTION_TOLERANCE = 0.02
+# ...or this many, whichever is larger. A small operation's count can jump by a
+# fixed amount with no change in the code: malloc takes its heap-growth path or
+# not depending on what preparation and the process environment left behind.
+# Measured: `netcdf-classic-S/place` read 123,558 run alone and 136,757 inside the
+# full run on the same machine (+13,199), and the `D` row swapped the other way.
+# Relative tolerance alone would fail rows of ~100k instructions on that.
+INSTRUCTION_FLOOR = 40_000
 WASM_PAGE = 65536
 
 # (key, heading, tier). The order is the table's.
@@ -246,7 +254,7 @@ def compare(
                 failures.append(f"{scenario}: {heading} recorded {fmt(want)}, measured {fmt(got)}")
                 continue
             if tier == "instructions":
-                ok = abs(got - want) <= instruction_tolerance * max(want, 1)
+                ok = abs(got - want) <= max(instruction_tolerance * want, INSTRUCTION_FLOOR)
             elif tier == "wasm":
                 ok = abs(got - want) <= WASM_PAGE
             else:

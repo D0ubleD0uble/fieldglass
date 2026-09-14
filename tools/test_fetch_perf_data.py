@@ -187,6 +187,17 @@ class FetchTest(unittest.TestCase):
             with self.assertRaises(fetch.Failure, msg=url):
                 fetch.load_manifest(path)
 
+    def test_the_opener_refuses_every_scheme_but_https(self):
+        open_url = fetch.https_only_opener().open
+        for url in ("file:///etc/hostname", "ftp://example.com/x", "http://example.com/x"):
+            with self.assertRaises(fetch.urllib.error.URLError, msg=url):
+                open_url(url, timeout=1)
+
+    def test_a_url_off_the_allowed_host_is_refused_before_any_request(self):
+        for url in ("https://example.com/gcp-public-data-arco-era5/x", "file:///etc/passwd"):
+            with self.assertRaises(fetch.Failure, msg=url):
+                fetch.http_fetch(url, None, 1)
+
     def test_the_committed_manifest_loads_and_fits_its_cap(self):
         m = fetch.load_manifest(fetch.DEFAULT_MANIFEST)
         total = sum(entry["length"] for entry in m["objects"].values())

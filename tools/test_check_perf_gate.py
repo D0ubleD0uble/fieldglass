@@ -87,6 +87,7 @@ def write_gungraun(root: Path, counts: dict[str, int]) -> None:
 
 
 COUNTS = {name: 1_000_000 + 1000 * i for i, name in enumerate(ORDER)}
+COUNTS["grib2-5.42-S/codec"] = 120_000  # a small operation, for the floor
 
 
 def wasm(after=4_000_000):
@@ -177,9 +178,19 @@ class GateTest(unittest.TestCase):
 
     def test_instructions_past_the_tolerance_fail(self):
         counts = dict(COUNTS)
-        counts["grib2-5.0-L/decode"] = int(counts["grib2-5.0-L/decode"] * 1.03)
+        # 5% of a million: past both the 2% and the absolute floor.
+        counts["grib2-5.0-L/decode"] = int(counts["grib2-5.0-L/decode"] * 1.05)
         self.ws.set(measured(), counts, wasm())
         self.assertTrue(any("grib2-5.0-L/decode: Instructions" in f for f in self.failures()))
+
+    def test_a_small_count_gets_the_absolute_floor(self):
+        counts = dict(COUNTS)
+        counts["grib2-5.42-S/codec"] += 15_000  # +12.5%, inside the floor (cycles +30,000)
+        self.ws.set(measured(), counts, wasm())
+        self.assertEqual(self.failures(), [])
+        counts["grib2-5.42-S/codec"] = 120_000 + chk.INSTRUCTION_FLOOR + 1
+        self.ws.set(measured(), counts, wasm())
+        self.assertTrue(any("grib2-5.42-S/codec: Instructions" in f for f in self.failures()))
 
     def test_wasm_memory_gets_one_page(self):
         self.ws.set(measured(), COUNTS, wasm(4_000_000 + chk.WASM_PAGE))
