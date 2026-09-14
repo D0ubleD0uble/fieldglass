@@ -228,6 +228,7 @@
  "netcdf": {
   "variable": "t2m",
   "frames": 12,
+  "element_bytes": 2,
   "object": "22c1176b22e1d8da0d4977deb99db42ca2b0aa2b768faebbc74eac537a773271"
  },
  "grib1": {

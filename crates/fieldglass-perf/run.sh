@@ -48,12 +48,21 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
+# The pinned compiler, for the harness and for the wasm bundles it measures:
+# `cargo --manifest-path` from the repository root would not read the toolchain
+# file beside the crate on its own.
+TOOLCHAIN="$(sed -n 's/^channel = "\(.*\)"$/\1/p' "$CRATE_DIR/rust-toolchain.toml")"
+[ -n "$TOOLCHAIN" ] || { echo "error: no channel in $CRATE_DIR/rust-toolchain.toml" >&2; exit 1; }
+export RUSTUP_TOOLCHAIN="$TOOLCHAIN"
+
 has_tier() { case ",$ONLY," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
 
 fail() { echo "error: $*" >&2; exit 1; }
 
 # ── Prerequisites ─────────────────────────────────────────────────────────────
 command -v python3 >/dev/null || fail "python3 is required (the corpus generator)"
+rustc --version 2>/dev/null | grep -q "^rustc $TOOLCHAIN " \
+  || fail "the harness is pinned to Rust $TOOLCHAIN: rustup toolchain install $TOOLCHAIN -t wasm32-unknown-unknown"
 if has_tier instructions; then
   command -v valgrind >/dev/null \
     || fail "the instructions tier needs Valgrind (apt install valgrind); it runs on Linux only"

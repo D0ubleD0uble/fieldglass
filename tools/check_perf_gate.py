@@ -216,6 +216,9 @@ def parse_table(body: str, doc: Path) -> dict[str, dict[str, int | None]]:
         if len(cells) != len(COLUMNS) + 1:
             raise Failure(f"{doc}: row {cells[0]} has {len(cells) - 1} values, the table has {len(COLUMNS)} columns")
         scenario = cells[0].strip("`")
+        if scenario in rows:
+            # Otherwise the last copy wins, and a stale first copy passes review.
+            raise Failure(f"{doc}: scenario {scenario} has more than one row")
         rows[scenario] = {key: parse_number(cell) for (key, _, _), cell in zip(COLUMNS, cells[1:])}
     if not rows:
         raise Failure(f"{doc}: the gated table has no rows")
@@ -349,8 +352,8 @@ def render_bounds(rows: dict[str, dict[str, int | None]], tiers: set[str]) -> st
         "",
         "#### Work against the variable, not the plane",
         "",
-        "A slice and a scrub at `D` (four times the variable, the same plane) against",
-        "`S`. The bound is a ratio of 1: the planes nobody asked for cost nothing.",
+        "An open, a slice and a scrub at `D` (four times the variable, the same plane)",
+        "against `S`. The bound is a ratio of 1: the planes nobody asked for cost nothing.",
         "",
         "| Operation | Peak heap `D`/`S` | Allocations `D`/`S` |"
         + (" Instructions `D`/`S` |" if "instructions" in tiers else ""),

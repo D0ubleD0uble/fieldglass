@@ -212,16 +212,23 @@ fn netcdf(cache: &Cache<'_>) -> Result<RealRow, String> {
     let (cells, frame_ms) = scrub(frames, |k| {
         session.decode_slice(var, 1, 2, &[k, 0, 0], &DecodeOptions::default())
     })?;
-    // The day's file holds 24 frames of packed int16 after a small header; the
-    // twelve asked for are half of its data.
+    // The day's file holds 24 frames after a small header; the twelve asked
+    // for are half of its data. The element size is the manifest's, checked
+    // against the file: a plane layout that does not fit is an error rather
+    // than a bound computed from a guess.
     let planes = session
         .variables()
         .iter()
         .find(|v| v.index == var)
         .and_then(|v| v.dims.first().map(|d| d.length))
         .unwrap_or(u64::from(frames).max(1));
-    let plane_bytes = cells * 2;
-    let header = size.saturating_sub(planes * plane_bytes);
+    let element = section["element_bytes"]
+        .as_u64()
+        .ok_or("the manifest's netcdf section names no element_bytes")?;
+    let plane_bytes = cells * element;
+    let header = size.checked_sub(planes * plane_bytes).ok_or_else(|| {
+        format!("{planes} planes of {plane_bytes} bytes do not fit a {size}-byte file")
+    })?;
     Ok(RealRow {
         name: "era5-netcdf",
         frames,
@@ -252,6 +259,9 @@ fn grib1(cache: &Cache<'_>) -> Result<RealRow, String> {
         offsets.push(offset);
     }
     let bound_bytes = pieces.iter().map(|(_, b)| b.len() as u64).sum();
+    if offsets.is_empty() {
+        return Err("the manifest's grib1 section lists no messages".to_string());
+    }
     let frames = u32::try_from(offsets.len()).map_err(|e| e.to_string())?;
     let recording = Rc::new(Recording::new(Sparse { size, pieces }));
     let recorder = Recorder::Ranges(Rc::clone(&recording) as Rc<dyn RangeLog>);

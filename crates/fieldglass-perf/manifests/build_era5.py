@@ -33,7 +33,7 @@ hourly frames, as the bucket holds it three ways:
   the cross-format comparison is of the same work, not the same cells.
 
 The time index is read from the store's own `time` array rather than computed
-from a calendar: a hand-computed index was off by 43 years the first time.
+from a calendar: a hand-computed index was off by 40 years the first time.
 
 ERA5 is Copernicus Climate Change Service information, used under the
 Copernicus licence. No ERA5 bytes are committed; this writes URLs and hashes.
@@ -184,7 +184,8 @@ def main() -> int:
     objects = Objects()
     zarr = zarr_subset(objects)
     grib = grib_messages(objects)
-    netcdf = {"variable": "t2m", "frames": FRAMES, "object": objects.add(NETCDF)}
+    # Packed `int16` (`scale_factor`/`add_offset`), as grib_to_netcdf writes it.
+    netcdf = {"variable": "t2m", "frames": FRAMES, "element_bytes": 2, "object": objects.add(NETCDF)}
     total = sum(entry["length"] for entry in objects.table.values())
     if total > CACHE_CAP_BYTES:
         sys.exit(f"the manifest needs {total:,} bytes, over its own cache cap of {CACHE_CAP_BYTES:,}")

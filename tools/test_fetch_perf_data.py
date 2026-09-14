@@ -97,10 +97,30 @@ class FetchTest(unittest.TestCase):
 
     def test_an_upstream_change_fails_and_leaves_no_partial(self):
         self.remote.blobs["a"] = b"ALPHA" * 100
-        with self.assertRaises(fetch.Failure) as caught:
-            self.ensure()
+        written = []
+        original = Path.write_bytes
+
+        def spy(path, data):
+            written.append(path.name)
+            return original(path, data)
+
+        Path.write_bytes = spy
+        try:
+            with self.assertRaises(fetch.Failure) as caught:
+                self.ensure()
+        finally:
+            Path.write_bytes = original
         self.assertIn("upstream object changed", str(caught.exception))
+        # The partial was written (the hash is checked from disk) and removed.
+        self.assertTrue(any(name.endswith(fetch.PARTIAL_SUFFIX) for name in written), written)
         self.assertFalse(any(p.name.endswith(fetch.PARTIAL_SUFFIX) for p in self.cache.iterdir()))
+
+    def test_a_partial_left_by_a_killed_run_is_removed(self):
+        self.cache.mkdir()
+        stale = self.cache / f"{'9' * 64}{fetch.PARTIAL_SUFFIX}"
+        stale.write_bytes(b"half")
+        self.ensure()
+        self.assertFalse(stale.exists())
 
     def test_a_short_response_fails(self):
         self.remote.blobs["b"] = BLOBS["b"][:-3]
@@ -121,7 +141,9 @@ class FetchTest(unittest.TestCase):
 
     def test_least_recently_used_unneeded_objects_are_evicted_first(self):
         self.cache.mkdir()
-        old, new = "1" * 64, "2" * 64
+        # The older file sorts *last* by name, so eviction by name order would
+        # remove the wrong one and fail this test.
+        old, new = "2" * 64, "1" * 64
         (self.cache / old).write_bytes(b"x" * 400)
         (self.cache / new).write_bytes(b"y" * 400)
         os.utime(self.cache / old, (1, 1))

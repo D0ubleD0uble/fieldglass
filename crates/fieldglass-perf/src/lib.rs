@@ -292,9 +292,34 @@ impl Prepared {
     ///
     /// When called twice, or when the reader fails on a generated input.
     pub fn execute(&mut self) -> u64 {
+        self.execute_with(|| ()).0
+    }
+
+    /// [`execute`](Self::execute), calling `probe` the moment the operation
+    /// returns and before the harness does anything with its output.
+    ///
+    /// Keeping the output alive until the scenario is dropped takes one
+    /// allocation of the harness's own, a box around it. The heap tier reads
+    /// dhat's statistics in `probe`, so that allocation is never counted as the
+    /// operation's.
+    ///
+    /// # Panics
+    ///
+    /// As [`execute`](Self::execute).
+    pub fn execute_with<R>(&mut self, probe: impl FnOnce() -> R) -> (u64, R) {
+        // The operation's result first, then the probe, then the box: the
+        // order is the point, so it is written once here rather than per arm.
+        macro_rules! done {
+            ($cells:expr, $output:expr) => {{
+                let cells = $cells;
+                let output = $output;
+                let probed = probe();
+                (cells, Box::new(output) as Box<dyn std::any::Any>, probed)
+            }};
+        }
         let options = DecodeOptions::default();
         let state = std::mem::replace(&mut self.state, State::Taken);
-        let (cells, output): (u64, Box<dyn std::any::Any>) = match (self.op, state) {
+        let (cells, output, probed) = match (self.op, state) {
             (Op::Open, State::Bytes { format, bytes }) => {
                 let pending = matches!(self.recorder, Recorder::Pending);
                 let session = if format == "netcdf" {
@@ -311,7 +336,7 @@ impl Prepared {
                 }
                 .expect("a generated input opens");
                 black_box(session.count());
-                (0, Box::new(session))
+                done!(0, session)
             }
             (Op::Open, State::Objects(objects)) => {
                 let session = if matches!(self.recorder, Recorder::Pending) {
@@ -323,31 +348,31 @@ impl Prepared {
                 }
                 .expect("a generated store opens");
                 black_box(session.variables().len());
-                (0, Box::new(session))
+                done!(0, session)
             }
             (Op::Decode, State::Session { session, .. }) => {
                 let field = session
                     .decode(0, &options)
                     .expect("a generated message decodes");
                 self.value_width = Some(width(&field));
-                (field.values.len() as u64, Box::new((session, field)))
+                done!(field.values.len() as u64, (session, field))
             }
             (Op::Place, State::Session { session, .. }) => {
                 let georef = session
                     .place_message(0)
                     .expect("a generated message places");
-                (0, Box::new((session, georef)))
+                done!(0, (session, georef))
             }
             (Op::Variables, State::Session { session, .. }) => {
                 let listed = (session.variables(), session.dimensions());
-                (0, Box::new((session, listed)))
+                done!(0, (session, listed))
             }
             (Op::Slice, State::Session { session, variable }) => {
                 let field = session
                     .decode_slice(variable, 1, 2, &[SLICE_PLANE, 0, 0], &options)
                     .expect("a generated plane decodes");
                 self.value_width = Some(width(&field));
-                (field.values.len() as u64, Box::new((session, field)))
+                done!(field.values.len() as u64, (session, field))
             }
             (Op::Scrub, State::Session { session, variable }) => {
                 let mut cells = 0;
@@ -361,44 +386,38 @@ impl Prepared {
                     self.value_width = Some(width(&field));
                     black_box(&field);
                 }
-                (cells, Box::new(session))
+                done!(cells, session)
             }
             (Op::PlaceSlice, State::Session { session, variable }) => {
                 let placed = session
                     .place_slice(variable, 1, 2)
                     .expect("a generated plane places");
-                (0, Box::new((session, placed)))
+                done!(0, (session, placed))
             }
             (Op::Warp, State::Field(boxed)) => {
                 let (session, field) = *boxed;
                 let warped = session.warp(&field, &WarpOptions::new(true)).expect("warp");
-                (
-                    warped.values.len() as u64,
-                    Box::new((session, field, warped)),
-                )
+                done!(warped.values.len() as u64, (session, field, warped))
             }
             (Op::Palette, State::Field(boxed)) => {
                 let (session, field) = *boxed;
                 let palette = session
                     .palette(&field, &PaletteOptions::new(None, None))
                     .expect("palette");
-                (0, Box::new((session, field, palette)))
+                done!(0, (session, field, palette))
             }
             (Op::Render, State::Field(boxed)) => {
                 let (session, field) = *boxed;
                 let raster = session
                     .render(&field, &PaletteOptions::new(None, None), false)
                     .expect("render");
-                (
-                    raster.rgba.len() as u64 / 4,
-                    Box::new((session, field, raster)),
-                )
+                done!(raster.rgba.len() as u64 / 4, (session, field, raster))
             }
             (Op::Contours, State::Field(boxed)) => {
                 let (session, field) = *boxed;
                 let lines = session.contours(&field, CONTOUR_LEVELS).expect("contours");
                 let cells = field.values.len() as u64;
-                (cells, Box::new((session, field, lines)))
+                done!(cells, (session, field, lines))
             }
             (
                 Op::Codec(_),
@@ -410,12 +429,12 @@ impl Prepared {
                 },
             ) => {
                 let (elements, out) = run_codec(codec, &bytes, aec, cells);
-                (elements, Box::new((bytes, out)))
+                done!(elements, (bytes, out))
             }
             (op, _) => panic!("scenario {op:?} executed twice or prepared for another operation"),
         };
         self.output = Some(output);
-        cells
+        (cells, probed)
     }
 
     /// Bytes per value of the field a decode, slice or scrub produced: 4 when
@@ -499,6 +518,16 @@ fn codec_input(corpus: &Corpus, name: &str, codec: Codec) -> State {
     }
 }
 
+/// What a codec produced, held unboxed so keeping it alive allocates nothing.
+#[expect(
+    dead_code,
+    reason = "held only so the output is freed after the measurement, never read"
+)]
+enum CodecOutput {
+    Image(rust_j2k::Image),
+    Bytes(Vec<u8>),
+}
+
 /// Decompress `bytes` with `codec` alone, the way the reader invokes it.
 /// Returns the samples (or bytes) produced and the output itself.
 fn run_codec(
@@ -506,12 +535,12 @@ fn run_codec(
     bytes: &[u8],
     aec: Option<[u32; 4]>,
     cells: usize,
-) -> (u64, Box<dyn std::any::Any>) {
+) -> (u64, CodecOutput) {
     let out = match codec {
         Codec::Jpeg2000 => {
             let image = rust_j2k::decode(bytes).expect("a generated codestream decodes");
             let samples = u64::from(image.width) * u64::from(image.height);
-            return (samples, Box::new(image));
+            return (samples, CodecOutput::Image(image));
         }
         Codec::Aec => {
             let [bits, block, rsi, grib_flags] = aec.expect("aec parameters");
@@ -547,7 +576,7 @@ fn run_codec(
             fieldglass_zarr::blosc::decompress(bytes, usize::MAX).expect("a generated blosc frame")
         }
     };
-    (out.len() as u64, Box::new(out))
+    (out.len() as u64, CodecOutput::Bytes(out))
 }
 
 /// The most bytes the operation could need, from the corpus's facts alone.
@@ -585,7 +614,10 @@ pub fn bound_bytes(corpus: &Corpus, scenario: &Scenario) -> Option<u64> {
             let (header, sections) = if format == "grib2" { (5, 9) } else { (11, 6) };
             let (_, length) = corpus.data_section(name);
             let window = sections * FIRST_WINDOW_BYTES as u64;
-            corpus.message_length(name) - (length as u64).saturating_sub(header) + window
+            let headers = corpus.message_length(name) - (length as u64).saturating_sub(header);
+            // Never more than the message: on a message smaller than its
+            // look-ahead windows, a whole-message read is not within bounds.
+            (headers + window).min(corpus.message_length(name))
         }
         Op::Open | Op::Variables | Op::PlaceSlice | Op::Place => {
             total - planes_bytes(corpus, name, &mut |_| true)

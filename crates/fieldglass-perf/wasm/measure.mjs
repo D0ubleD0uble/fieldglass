@@ -4,10 +4,13 @@
 //       [--pkg crates/fieldglass-wasm/pkg/nodejs] [--label baseline] > wasm.json
 //
 // Linear memory never shrinks, so `memory.buffer.byteLength` read after an
-// operation is the most memory that operation made the module hold — a
-// high-water mark with no profiler involved. It is only a *per-operation* number
-// if nothing else ran in that instance first, so every scenario gets a fresh
-// Node process: one instance, one prepare, one operation, one reading.
+// operation is the most memory the module has held so far — a high-water mark
+// with no profiler involved. Every scenario gets a fresh Node process (one
+// instance, one prepare, one operation, one reading), so the mark is that
+// scenario's own. It is prepare *and* operation, though, not the operation
+// alone: an operation that fits inside memory preparation already grew and
+// freed reads the same as the preparation. `before` is recorded beside it for
+// that reason.
 //
 // The shipped glue does not export the module's memory, and adding an export to
 // the published bundle for a benchmark would cost every browser download the

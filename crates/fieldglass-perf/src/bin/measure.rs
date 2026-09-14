@@ -38,8 +38,9 @@ fn main() {
         let mut prepared = Prepared::new(&corpus, scenario, Via::Memory);
         let (cells, stats) = {
             let _profiler = dhat::Profiler::builder().testing().build();
-            let cells = prepared.execute();
-            (cells, dhat::HeapStats::get())
+            // Read inside the operation's own window: `execute_with` calls the
+            // probe before the harness boxes the output to keep it alive.
+            prepared.execute_with(dhat::HeapStats::get)
         };
         let width = prepared.value_width();
         drop(prepared);

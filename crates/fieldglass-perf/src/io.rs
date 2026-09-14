@@ -74,6 +74,7 @@ impl ObjectSource for SharedObjects {
 pub(crate) trait RangeLog {
     fn prefetches(&self) -> Vec<Vec<ByteRange>>;
     fn reads(&self) -> Vec<ByteRange>;
+    fn reads_after_batch(&self) -> Vec<ByteRange>;
     fn clear(&self);
 }
 
@@ -84,6 +85,10 @@ impl<S> RangeLog for Recording<S> {
 
     fn reads(&self) -> Vec<ByteRange> {
         Recording::reads(self)
+    }
+
+    fn reads_after_batch(&self) -> Vec<ByteRange> {
+        Recording::reads_after_batch(self)
     }
 
     fn clear(&self) {
@@ -122,7 +127,18 @@ impl Recorder {
                 bytes: *bytes,
                 requests: 1,
             },
-            Recorder::Ranges(r) => tally_ranges(&r.prefetches(), &r.reads()),
+            Recorder::Ranges(r) => {
+                let reads = r.reads();
+                let batches = r.prefetches();
+                // `Recording` marks where the first batch arrived; a read
+                // before it cannot have been saved by any batch.
+                let before = if batches.is_empty() {
+                    reads.len()
+                } else {
+                    reads.len() - r.reads_after_batch().len()
+                };
+                tally_ranges(&batches, &reads, before)
+            }
             Recorder::Objects(r) => tally_objects(
                 r.inner(),
                 &r.key_prefetches(),
@@ -135,19 +151,21 @@ impl Recorder {
 
 /// Requests and distinct bytes for a range-addressed source.
 ///
-/// A read is a request of its own unless an earlier prefetch batch covered it
-/// entirely — the order matters, since a batch that arrives after the read did
-/// not save it a round trip. The reads and batches are not in one interleaved
-/// log, so this treats every batch as preceding every read, which is the
-/// generous reading; `Recording` keeps the split point if a reader is ever
-/// found to read before it batches.
-fn tally_ranges(batches: &[Vec<ByteRange>], reads: &[ByteRange]) -> Io {
+/// A read is a request of its own unless a prefetch batch that came before it
+/// covered it entirely: a batch that arrives after the read did not save it a
+/// round trip. The first `before` reads came before any batch and are all
+/// requests. `Recording` does not interleave the later reads with the later
+/// batches, so a read after the first batch counts as covered by *any* batch —
+/// generous only for a reader that batches more than once, which none does
+/// today.
+fn tally_ranges(batches: &[Vec<ByteRange>], reads: &[ByteRange], before: usize) -> Io {
     let batched: Vec<(u64, u64)> = batches.iter().flatten().map(span).collect();
-    let uncovered = reads
+    let uncovered = reads[before..]
         .iter()
         .map(span)
         .filter(|&(start, end)| !batched.iter().any(|&(s, e)| s <= start && end <= e))
-        .count() as u64;
+        .count() as u64
+        + before as u64;
     let mut spans: Vec<(u64, u64)> = batched
         .iter()
         .copied()
@@ -214,7 +232,7 @@ mod tests {
     #[test]
     fn overlapping_and_repeated_ranges_count_once() {
         let r = |start, len| ByteRange::new(start, len);
-        let io = tally_ranges(&[], &[r(0, 10), r(5, 10), r(0, 10), r(100, 1)]);
+        let io = tally_ranges(&[], &[r(0, 10), r(5, 10), r(0, 10), r(100, 1)], 4);
         assert_eq!(
             io,
             Io {
@@ -227,7 +245,7 @@ mod tests {
     #[test]
     fn a_read_inside_a_batch_is_not_a_request() {
         let r = |start, len| ByteRange::new(start, len);
-        let io = tally_ranges(&[vec![r(0, 100)]], &[r(10, 10), r(90, 20)]);
+        let io = tally_ranges(&[vec![r(0, 100)]], &[r(10, 10), r(90, 20)], 0);
         assert_eq!(
             io,
             Io {
@@ -235,6 +253,30 @@ mod tests {
                 requests: 2
             }
         );
+    }
+
+    #[test]
+    fn a_read_before_the_batch_is_still_a_request() {
+        let r = |start, len| ByteRange::new(start, len);
+        // The first read came before the batch that covers it.
+        let io = tally_ranges(&[vec![r(0, 100)]], &[r(10, 10), r(20, 10)], 1);
+        assert_eq!(
+            io,
+            Io {
+                bytes: 100,
+                requests: 2
+            }
+        );
+    }
+
+    #[test]
+    fn a_recorded_read_before_a_prefetch_is_counted() {
+        let recording = Rc::new(Recording::new(vec![0u8; 200]));
+        let recorder = Recorder::Ranges(Rc::clone(&recording) as Rc<dyn RangeLog>);
+        recording.read(ByteRange::new(0, 10)).unwrap();
+        recording.prefetch(&[ByteRange::new(0, 100)]).unwrap();
+        recording.read(ByteRange::new(20, 10)).unwrap();
+        assert_eq!(recorder.tally().requests, 2);
     }
 
     #[test]

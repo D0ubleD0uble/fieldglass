@@ -252,6 +252,13 @@ class GateTest(unittest.TestCase):
         with self.assertRaises(chk.Failure):
             self.failures(instructions=None)
 
+    def test_a_duplicated_row_is_refused(self):
+        text = self.ws.doc.read_text(encoding="utf-8")
+        row = next(line for line in text.splitlines() if line.startswith("| `grib2-5.0-S/decode`"))
+        self.ws.doc.write_text(text.replace(row, f"{row}\n{row}"), encoding="utf-8")
+        with self.assertRaises(chk.Failure):
+            self.failures()
+
     def test_write_refuses_a_partial_tier_set(self):
         with self.assertRaises(chk.Failure):
             chk.run(self.ws.args(write=True, only="io"))

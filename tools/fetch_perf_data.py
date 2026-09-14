@@ -74,7 +74,12 @@ def http_fetch(url: str, offset: int | None, length: int) -> bytes:
     if offset is not None:
         request.add_header("Range", f"bytes={offset}-{offset + length - 1}")
     with urllib.request.urlopen(request, timeout=120) as response:  # prefix-checked in `load_manifest`
-        return response.read()
+        # A server that ignores `Range` answers 200 with the whole object, which
+        # for the GRIB month file is 11.7 GB: refuse it rather than read it.
+        if offset is not None and response.status != 206:
+            raise Failure(f"{url}: asked for a byte range and got HTTP {response.status}, not 206")
+        # One byte past the length is enough to tell "too long" from "exact".
+        return response.read(length + 1)
 
 
 def load_manifest(path: Path) -> dict:
@@ -134,6 +139,10 @@ def ensure(
         raise Failure(f"the manifest needs {needed:,} bytes, over the cache cap of {cap:,}")
 
     cache.mkdir(parents=True, exist_ok=True)
+    # A partial file is only ever left by a run that was killed mid-write. It is
+    # nobody's object, and it would otherwise sit outside the cap for ever.
+    for stale in cache.glob(f"*{PARTIAL_SUFFIX}"):
+        stale.unlink()
     fetched = fetched_bytes = 0
     missing: list[str] = []
     for digest, entry in objects.items():
@@ -157,13 +166,15 @@ def ensure(
         try:
             if len(data) != entry["length"]:
                 raise Failure(f"{entry['url']}{where}: fetched {len(data):,} bytes, the manifest says {entry['length']:,}")
-            actual = hashlib.sha256(data).hexdigest()
+            # Written first and verified from disk, so what is renamed into place
+            # is exactly what was hashed; a failure unlinks the partial below.
+            partial.write_bytes(data)
+            actual = sha256_file(partial)
             if actual != digest:
                 raise Failure(
                     f"{entry['url']}{where}: fetched bytes hash to {actual}, the manifest says {digest}; "
                     "the upstream object changed, so the manifest needs rebuilding"
                 )
-            partial.write_bytes(data)
             partial.replace(path)
         finally:
             partial.unlink(missing_ok=True)

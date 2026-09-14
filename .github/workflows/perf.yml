@@ -32,10 +32,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The version in crates/fieldglass-perf/rust-toolchain.toml. `run.sh`
+      # fails if the two disagree, since the exact tiers count std's own
+      # allocations and a different compiler is a different table.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
-          toolchain: stable
+          toolchain: 1.98.0
           targets: wasm32-unknown-unknown
           components: clippy
 
@@ -99,8 +102,8 @@ jobs:
       # The harness is its own workspace, so no root gate lints or tests it.
       - name: Lint and test the harness
         run: |
-          cargo clippy --manifest-path crates/fieldglass-perf/Cargo.toml --locked --all-targets -- -D warnings
-          cargo test --manifest-path crates/fieldglass-perf/Cargo.toml --locked --lib
+          cargo +1.98.0 clippy --manifest-path crates/fieldglass-perf/Cargo.toml --locked --all-targets -- -D warnings
+          cargo +1.98.0 test --manifest-path crates/fieldglass-perf/Cargo.toml --locked --lib
 
       # Keyed on the manifest's own hash: the network is touched only when the
       # manifest changes, and `run.sh --report` proves the rest with an
