@@ -1,0 +1,12 @@
+# The compiler the gated numbers in docs/performance.md were recorded with.
+#
+# Pinned because the exact tiers are exact about the standard library too: its
+# own allocations are counted, so a new stable could move allocations and peak
+# heap on every row and turn the gate red on a pull request that changed
+# nothing. `run.sh` exports this channel as RUSTUP_TOOLCHAIN, so the wasm bundles
+# it measures are built by the same compiler, and `.github/workflows/perf.yml`
+# installs the same version. Bump it deliberately, re-record, and say so.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]

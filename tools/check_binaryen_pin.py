@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Fail when the two workflows pin different versions of binaryen.
+"""Fail when the workflows that install binaryen pin different versions of it.
 
     python3 tools/check_binaryen_pin.py
 
 `wasm-opt` decides the bytes of the shipped WebAssembly module. `ci.yml` runs
 it to produce the bundle the size gate measures against the README table
 (#462); `release.yml` runs it to produce the module inside the npm package
-(#466). Those are two files with the same pin written twice, which is a pin
-waiting to drift.
+(#466); `perf.yml` runs it to produce the bundles whose linear memory the
+performance gate records (#743). Those are three files with the same pin written
+three times, which is a pin waiting to drift.
 
 **What drift would cost.** Nothing loud. A release built with a different
 optimiser produces a module the size gate never saw — so the figure the README
@@ -40,10 +41,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
-# The two files that install binaryen. Listed rather than globbed: a new
+# The files that install binaryen. Listed rather than globbed: a new
 # workflow that pins it should be added here deliberately, and a glob would let
 # one that pins it *differently* pass by never being compared.
-PINNING_WORKFLOWS = ("ci.yml", "release.yml")
+PINNING_WORKFLOWS = ("ci.yml", "perf.yml", "release.yml")
 
 KEYS = ("BINARYEN_VERSION", "BINARYEN_SHA256")
 
@@ -84,8 +85,9 @@ def main() -> int:
         missing = [name for name, value in values.items() if value is None]
         if missing:
             print(
-                f"{key} is not set in: {', '.join(missing)} — both workflows build the "
-                f"module that the size gate and the npm package share, so both must pin it",
+                f"{key} is not set in: {', '.join(missing)} — every one of these workflows "
+                f"builds the module the size gate, the performance gate and the npm package "
+                f"share, so each must pin it",
                 file=sys.stderr,
             )
             failed = True
