@@ -18,7 +18,10 @@ attacker-controlled bytes, so the decoder is fuzzed before either reader uses it
   way libsz does it: decode the padded stream into a buffer, drop each
   scanline's pads, then deinterleave byte planes. It asserts the two agree on
   the verdict and, on success, on every byte, and that a length that is not a
-  whole number of pixels is refused by name.
+  whole number of pixels is refused by name. The one difference it allows is
+  the one ADR-0012 records: the reference, like libsz, decodes padded
+  scanlines whole, so it can fail after the last pixel where the crate
+  returns `Ok`.
 
 Each input is a 7-byte header, then the stream. The header maps to a parameter
 set the crate accepts (bits per sample, block size, reference sample interval,

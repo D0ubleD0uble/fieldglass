@@ -26,7 +26,10 @@ The `sz` target reads an 8-byte szip header instead (see
     bytes 5-6   output length in bytes, little endian
     byte 7      unused
 
-Every szip case in the corpus is small, so each one is a seed.
+Every szip case in the corpus is small, so each one is a seed. One more is
+built here: the stream of `a_bad_code_after_the_last_pixel_is_never_read` in
+`crates/fieldglass-aec/tests/sz_corpus.rs`, so the target starts on the one
+difference from libsz it allows (a bad code after the last pixel).
 
     python3 tools/build_aec_fuzz_seeds.py
 """
@@ -53,6 +56,11 @@ def header(case):
         case["flags"] & 0x3F,
         case["samples"],
     )
+
+
+# 8 bits, 2 per block, 5 per scanline: uncompressed blocks 1 2, 3 4, 5 pad,
+# 6 7, 8 9, then a zero block of two blocks with one left in the interval.
+BAD_CODE_AFTER_LAST_PIXEL = bytes.fromhex("e0205c0c13828070607e101208")
 
 
 def sz_header(case):
@@ -98,6 +106,12 @@ def main():
     for target in TARGETS:
         write_seeds(OUT / target, seeds)
     sz = [(c["name"], sz_header(c) + (FIXTURES / c["stream"]).read_bytes()) for c in manifest["sz_cases"]]
+    sz.append((
+        "sz_bad_code_after_last_pixel",
+        sz_header({"options_mask": 0, "bits_per_pixel": 8, "pixels_per_block": 2,
+                   "pixels_per_scanline": 5, "dest_len": 6})
+        + BAD_CODE_AFTER_LAST_PIXEL,
+    ))
     write_seeds(OUT / "sz", sz)
     print(f"{len(chosen)} seeds per AEC target, {len(sz)} for sz")
 

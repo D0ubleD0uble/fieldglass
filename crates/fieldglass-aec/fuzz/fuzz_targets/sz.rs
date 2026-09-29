@@ -3,10 +3,10 @@
 //! HDF5 szip chunks are attacker-controlled, so `sz::decompress` runs on
 //! arbitrary bytes under arbitrary valid szip parameters and output lengths,
 //! and is held against a reference written here the way libsz does it
-//! (`SZ_BufftoBuffDecompress`, `sz_compat.c`): decode the padded stream
-//! into a buffer, remove each scanline's pads, then deinterleave byte
-//! planes into a second buffer. The crate does none of that, so the two share
-//! only the kernel. It must:
+//! (`SZ_BufftoBuffDecompress`, `sz_compat.c`): decode the padded stream into
+//! a buffer, every scanline whole when scanlines are padded, remove each
+//! scanline's pads, then deinterleave byte planes into a second buffer. The
+//! crate does none of that, so the two share only the kernel. It must:
 //!
 //! * never panic, and never overflow (cargo-fuzz builds with overflow checks
 //!   on);
@@ -14,6 +14,13 @@
 //!   before decoding;
 //! * agree with the reference on the verdict, and on success on every byte;
 //! * on `Truncated`, report fewer samples than it was asked for.
+//!
+//! One difference is allowed, and it is the one ADR-0012 records: the crate
+//! stops at the last pixel, so where the reference fails in a block at or
+//! after the one holding the last pixel (a bad code or the end of the input
+//! in samples nobody asked for), the crate returns `Ok`. The block holding
+//! the last pixel counts because the crate reads only the part of it that
+//! the output needs.
 //!
 //! Input layout: an 8-byte header, then the stream.
 //!
@@ -51,8 +58,17 @@ impl Sink for Collect {
     }
 }
 
-/// libsz's decompression, the long way, or the kernel's error.
-fn reference(stream: &[u8], p: &SzParams, len: usize) -> Result<Vec<u8>, AecError> {
+/// Where the block holding the last output pixel starts: as a stream index,
+/// pads included, and as an output index, pads dropped.
+#[derive(Debug, Clone, Copy)]
+struct LastBlock {
+    stream: usize,
+    output: usize,
+}
+
+/// libsz's decompression, the long way, or the kernel's error; and where the
+/// block holding the last output pixel starts.
+fn reference(stream: &[u8], p: &SzParams, len: usize) -> (Result<Vec<u8>, AecError>, LastBlock) {
     let bpp = p.bits_per_pixel();
     let planes = bpp == 32 || bpp == 64;
     let bits = if planes { 8 } else { bpp };
@@ -74,17 +90,27 @@ fn reference(stream: &[u8], p: &SzParams, len: usize) -> Result<Vec<u8>, AecErro
     }
     let params = Params::new(bits as u8, ppb as u16, rsi as u16, flags).unwrap();
 
-    // The padded stream up to the last pixel. libsz decodes every scanline
-    // in full, but the pads after the last pixel change no output byte, and
-    // the crate stops before them.
+    // What libsz decodes: every scanline whole when scanlines are padded
+    // (sz_compat.c:264-267), and exactly the output otherwise.
     let samples = len / sample_bytes;
     let line = rsi * ppb;
-    let count = match samples.checked_sub(1) {
+    let count = if pps % ppb != 0 {
+        samples.div_ceil(pps) * line
+    } else {
+        samples
+    };
+    let start = match samples.checked_sub(1) {
         None => 0,
-        Some(last) => last / pps * line + last % pps + 1,
+        Some(last) => (last / pps * line + last % pps) / ppb * ppb,
+    };
+    let last_block = LastBlock {
+        stream: start,
+        output: start / line * pps + (start % line).min(pps),
     };
     let mut padded = Collect::default();
-    decode(stream, &params, count, &mut padded)?;
+    if let Err(e) = decode(stream, &params, count, &mut padded) {
+        return (Err(e), last_block);
+    }
 
     // remove_padding, sz_compat.c:119-130.
     let mut pixels = Vec::with_capacity(samples);
@@ -94,7 +120,18 @@ fn reference(stream: &[u8], p: &SzParams, len: usize) -> Result<Vec<u8>, AecErro
         }
     }
     assert_eq!(pixels.len(), samples);
+    let result = expand(
+        pixels,
+        flags,
+        sample_bytes,
+        planes.then_some((bpp / 8) as usize),
+    );
+    (Ok(result), last_block)
+}
 
+/// The pixels in the coder's byte layout, then deinterleaved when they are
+/// byte planes of `w`-byte pixels.
+fn expand(pixels: Vec<u32>, flags: Flags, sample_bytes: usize, planes: Option<usize>) -> Vec<u8> {
     // The coder's byte layout, as `decode_to_bytes` writes it.
     let msb = flags.contains(Flags::MSB);
     let bytes: Vec<u8> = pixels
@@ -107,11 +144,10 @@ fn reference(stream: &[u8], p: &SzParams, len: usize) -> Result<Vec<u8>, AecErro
             b
         })
         .collect();
-    if !planes {
-        return Ok(bytes);
-    }
+    let Some(w) = planes else {
+        return bytes;
+    };
     // deinterleave_buffer, sz_compat.c:84-93.
-    let w = (bpp / 8) as usize;
     let n = bytes.len() / w;
     let mut out = vec![0u8; bytes.len()];
     for i in 0..n {
@@ -119,7 +155,7 @@ fn reference(stream: &[u8], p: &SzParams, len: usize) -> Result<Vec<u8>, AecErro
             out[i * w + j] = bytes[j * n + i];
         }
     }
-    Ok(out)
+    out
 }
 
 fuzz_target!(|data: &[u8]| {
@@ -150,7 +186,28 @@ fuzz_target!(|data: &[u8]| {
         );
         return;
     }
-    let want = reference(stream, &params, len);
+    let (want, last_block) = reference(stream, &params, len);
+    let failed_at = match &want {
+        Err(AecError::InvalidCode { sample, .. }) => Some(*sample),
+        Err(AecError::Truncated { decoded, .. }) => Some(*decoded),
+        _ => None,
+    };
+    if failed_at.is_some_and(|at| at >= last_block.stream) {
+        // The recorded divergence: the reference failed only in samples the
+        // output does not need, so the crate returns `Ok`. Or both failed in
+        // the block holding the last pixel, which the crate reads only in
+        // part, so the two can meet a different fault first (the end of the
+        // input against a value too wide); the crate's must be in that block.
+        match got {
+            Ok(()) => {}
+            Err(AecError::InvalidCode { sample: at, .. })
+            | Err(AecError::Truncated { decoded: at, .. }) => {
+                assert_eq!(at, last_block.output, "{got:?} against {want:?}");
+            }
+            Err(e) => panic!("{e:?} against {want:?}"),
+        }
+        return;
+    }
     match (&got, &want) {
         (Ok(()), Ok(bytes)) => assert_eq!(&out, bytes, "bytes differ from libsz's way"),
         (Err(AecError::Truncated { decoded, requested }), Err(AecError::Truncated { .. })) => {
