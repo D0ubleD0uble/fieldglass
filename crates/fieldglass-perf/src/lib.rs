@@ -283,8 +283,8 @@ impl Prepared {
         }
     }
 
-    /// Run the operation. Returns how many cells (or decompressed elements) one
-    /// output holds, which is what a per-cell bound divides by. A scrub
+    /// Run the operation. Returns how many cells one output holds, which is
+    /// what a per-cell bound divides by. A scrub
     /// returns one frame's cells: its frames are alive one at a time, so the
     /// peak is a frame's and not the sum of eight.
     ///
@@ -529,7 +529,11 @@ enum CodecOutput {
 }
 
 /// Decompress `bytes` with `codec` alone, the way the reader invokes it.
-/// Returns the samples (or bytes) produced and the output itself.
+/// Returns the cells decoded and the output itself.
+///
+/// Cells, not output bytes, so every codec row counts in the same unit as the
+/// decode rows: a byte codec's output is `cells` samples of whatever width the
+/// container stored, which the assertion holds it to.
 fn run_codec(
     codec: Codec,
     bytes: &[u8],
@@ -576,7 +580,12 @@ fn run_codec(
             fieldglass_zarr::blosc::decompress(bytes, usize::MAX).expect("a generated blosc frame")
         }
     };
-    (out.len() as u64, CodecOutput::Bytes(out))
+    assert!(
+        cells > 0 && out.len() % cells == 0,
+        "{codec:?} produced {} bytes, not a whole sample for each of {cells} cells",
+        out.len()
+    );
+    (cells as u64, CodecOutput::Bytes(out))
 }
 
 /// The most bytes the operation could need, from the corpus's facts alone.

@@ -25,7 +25,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const require = createRequire(import.meta.url);
 const here = fileURLToPath(import.meta.url);
@@ -60,7 +60,7 @@ const pkgDir = argValue('--pkg', 'crates/fieldglass-wasm/pkg/nodejs');
 const label = argValue('--label', 'baseline');
 const child = argValue('--child');
 
-const glue = join(repoRoot, pkgDir, 'fieldglass_wasm.js');
+const glue = resolve(repoRoot, pkgDir, 'fieldglass_wasm.js');
 if (!existsSync(glue)) die(`missing: ${glue}\n  build it first: crates/fieldglass-wasm/build.sh nodejs`);
 const corpus = JSON.parse(readFileSync(join(corpusDir, 'corpus.json'), 'utf8'));
 

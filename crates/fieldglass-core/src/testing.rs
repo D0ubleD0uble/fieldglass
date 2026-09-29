@@ -60,11 +60,13 @@ pub struct Recording<S> {
     inner: S,
     ranges: RefCell<Vec<ByteRange>>,
     range_batches: RefCell<Vec<Vec<ByteRange>>>,
-    /// How many reads had happened when the first batch arrived, so a test can
-    /// separate a traversal's reads from the data reads that follow it.
-    ranges_before_first_batch: Cell<Option<usize>>,
+    /// How many reads had happened when each range batch arrived, so a read
+    /// can be matched against the batches that came before it and no others.
+    ranges_before_batch: RefCell<Vec<usize>>,
     keys: RefCell<Vec<String>>,
     key_batches: RefCell<Vec<Vec<String>>>,
+    /// How many `get`s had happened when each key batch arrived.
+    keys_before_batch: RefCell<Vec<usize>>,
     listings: RefCell<Vec<(String, Vec<String>)>>,
 }
 
@@ -75,9 +77,10 @@ impl<S> Recording<S> {
             inner,
             ranges: RefCell::new(Vec::new()),
             range_batches: RefCell::new(Vec::new()),
-            ranges_before_first_batch: Cell::new(None),
+            ranges_before_batch: RefCell::new(Vec::new()),
             keys: RefCell::new(Vec::new()),
             key_batches: RefCell::new(Vec::new()),
+            keys_before_batch: RefCell::new(Vec::new()),
             listings: RefCell::new(Vec::new()),
         }
     }
@@ -105,10 +108,20 @@ impl<S> Recording<S> {
     /// The reads that came after the first prefetch batch — a variable's
     /// stored data, as opposed to the traversal that located it.
     pub fn reads_after_batch(&self) -> Vec<ByteRange> {
-        match self.ranges_before_first_batch.get() {
-            Some(mark) => self.ranges.borrow()[mark..].to_vec(),
+        match self.ranges_before_batch.borrow().first() {
+            Some(&mark) => self.ranges.borrow()[mark..].to_vec(),
             None => Vec::new(),
         }
+    }
+
+    /// For each [`prefetches`](Self::prefetches) batch, how many
+    /// [`reads`](Self::reads) came before it.
+    ///
+    /// A batch only saves the reads after it. An operation that runs several
+    /// times over one recording batches several times, and without this a read
+    /// could not be told apart from one the *next* batch covered.
+    pub fn reads_before_each_batch(&self) -> Vec<usize> {
+        self.ranges_before_batch.borrow().clone()
     }
 
     /// Every key [`ObjectSource::get`] was called with, in order, including
@@ -120,6 +133,13 @@ impl<S> Recording<S> {
     /// Every [`ObjectSource::prefetch`] batch, in order.
     pub fn key_prefetches(&self) -> Vec<Vec<String>> {
         self.key_batches.borrow().clone()
+    }
+
+    /// For each [`key_prefetches`](Self::key_prefetches) batch, how many
+    /// [`gets`](Self::gets) came before it: the key-side
+    /// [`reads_before_each_batch`](Self::reads_before_each_batch).
+    pub fn gets_before_each_batch(&self) -> Vec<usize> {
+        self.keys_before_batch.borrow().clone()
     }
 
     /// Every listing, as the prefix asked for and the keys that came back.
@@ -151,9 +171,10 @@ impl<S> Recording<S> {
     pub fn clear(&self) {
         self.ranges.borrow_mut().clear();
         self.range_batches.borrow_mut().clear();
-        self.ranges_before_first_batch.set(None);
+        self.ranges_before_batch.borrow_mut().clear();
         self.keys.borrow_mut().clear();
         self.key_batches.borrow_mut().clear();
+        self.keys_before_batch.borrow_mut().clear();
         self.listings.borrow_mut().clear();
     }
 }
@@ -168,10 +189,9 @@ impl<S: ByteSource> ByteSource for Recording<S> {
     }
 
     fn prefetch(&self, ranges: &[ByteRange]) -> Result<(), FieldglassError> {
-        if self.ranges_before_first_batch.get().is_none() {
-            self.ranges_before_first_batch
-                .set(Some(self.ranges.borrow().len()));
-        }
+        self.ranges_before_batch
+            .borrow_mut()
+            .push(self.ranges.borrow().len());
         self.range_batches.borrow_mut().push(ranges.to_vec());
         self.inner.prefetch(ranges)
     }
@@ -208,6 +228,9 @@ impl<O: ObjectSource> ObjectSource for Recording<O> {
     }
 
     fn prefetch(&self, keys: &[&str]) -> Result<(), FieldglassError> {
+        self.keys_before_batch
+            .borrow_mut()
+            .push(self.keys.borrow().len());
         self.key_batches
             .borrow_mut()
             .push(keys.iter().map(|k| (*k).to_string()).collect());
@@ -502,5 +525,40 @@ impl ObjectSource for Minimal {
             .filter(|key| key.starts_with(prefix))
             .cloned()
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bytes::MemoryObjects;
+
+    /// Each batch is marked with the reads before it, so a read the second
+    /// batch covers is not mistaken for one the first batch saved.
+    #[test]
+    fn each_batch_marks_the_reads_before_it() {
+        let source = Recording::new(vec![0u8; 200]);
+        for start in [0, 100] {
+            source.read(ByteRange::new(start, 10)).unwrap();
+            source.prefetch(&[ByteRange::new(start, 100)]).unwrap();
+            source.read(ByteRange::new(start + 20, 10)).unwrap();
+        }
+        assert_eq!(source.reads_before_each_batch(), [1, 3]);
+        assert_eq!(source.reads_after_batch().len(), 3);
+        source.clear();
+        assert!(source.reads_before_each_batch().is_empty());
+        assert!(source.reads_after_batch().is_empty());
+    }
+
+    #[test]
+    fn each_key_batch_marks_the_gets_before_it() {
+        let source = Recording::new(MemoryObjects::from_iter([("a", vec![1])]));
+        source.get("a").unwrap();
+        source.prefetch(&["a"]).unwrap();
+        source.get("a").unwrap();
+        source.prefetch(&["a"]).unwrap();
+        assert_eq!(source.gets_before_each_batch(), [1, 2]);
+        source.clear();
+        assert!(source.gets_before_each_batch().is_empty());
     }
 }
