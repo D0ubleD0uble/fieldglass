@@ -54,7 +54,7 @@ use fieldglass_core::{
 use fieldglass_core::{
     ForwardAt, GeostationaryProjector, LambertAzimuthalProjector, LambertProjector,
     PlanarGridProjector, PolarStereoProjector, TransverseMercatorProjector, normalise_lon,
-    projection::planar_grid_is_placeable,
+    plane_spans_a_grid_cell, projection::planar_grid_is_placeable,
 };
 #[cfg(all(feature = "render", feature = "analysis"))]
 use fieldglass_core::{
@@ -1126,18 +1126,22 @@ fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Er
     };
     match geometry {
         GridGeometry::Lambert(p) => {
+            require_declared_radius(geometry, p.earth_radius_m, p.dx_metres, p.dy_metres)?;
             let proj = LambertProjector::new(*p);
             placeable(proj.is_well_defined(), &proj)
         }
         GridGeometry::PolarStereo(p) => {
+            require_declared_radius(geometry, p.earth_radius_m, p.dx_metres, p.dy_metres)?;
             let proj = PolarStereoProjector::new(*p);
             placeable(proj.is_well_defined(), &proj)
         }
         GridGeometry::TransverseMercator(p) => {
+            require_declared_radius(geometry, p.semi_major_m, p.dx_metres, p.dy_metres)?;
             let proj = TransverseMercatorProjector::new(*p);
             placeable(proj.is_well_defined(), &proj)
         }
         GridGeometry::LambertAzimuthal(p) => {
+            require_declared_radius(geometry, p.semi_major_m, p.dx_metres, p.dy_metres)?;
             let proj = LambertAzimuthalProjector::new(*p);
             placeable(proj.is_well_defined(), &proj)
         }
@@ -1165,6 +1169,43 @@ fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Er
         }),
         _ => Ok(()),
     }
+}
+
+/// Refuse a planar grid whose declared Earth radius (the sphere's radius, or a
+/// spheroid's semi-major axis) is no sphere at all or is too small to hold one
+/// cell of the grid, and say which radius (#610).
+///
+/// Both fail quietly otherwise: a zero radius keeps the projection constants
+/// finite and inverts every point to the pole, and a 1e-6 m sphere puts every
+/// point on Earth in one cell. The engine would refuse either as "degenerate
+/// projection parameters", which does not tell the user which number is wrong;
+/// the Geostationary arm names its axes for the same reason. The cell floor is
+/// [`plane_spans_a_grid_cell`], which passes a grid with no spacing vacuously,
+/// so a zero step still gets the generic refusal below.
+#[cfg(any(feature = "render", feature = "analysis"))]
+fn require_declared_radius(
+    geometry: &GridGeometry,
+    radius_m: f64,
+    dx_metres: f64,
+    dy_metres: f64,
+) -> Result<(), Error> {
+    let detail = if !(radius_m.is_finite() && radius_m > 0.0) {
+        format!(
+            "grid type {:?} declares an Earth radius of {radius_m} m, which describes no \
+             sphere to place its grid points on",
+            geometry.kind()
+        )
+    } else if !plane_spans_a_grid_cell(radius_m, dx_metres, dy_metres) {
+        format!(
+            "grid type {:?} declares an Earth radius of {radius_m} m, smaller than one \
+             {dx_metres} × {dy_metres} m cell of its own grid, so no grid point has a \
+             distinguishable position",
+            geometry.kind()
+        )
+    } else {
+        return Ok(());
+    };
+    Err(Error::Unsupported { detail })
 }
 
 /// The render window a warp target frames a grid with, from `core`.

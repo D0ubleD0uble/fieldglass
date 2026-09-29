@@ -6679,7 +6679,7 @@ mod planar_geolocation_tests {
 
     /// A spheroid with no shape places no point, so every operation that needs
     /// a position refuses it — in `fieldglass::render`'s words, which every host
-    /// shows (#574). The fixture it was cloned from still renders, so the
+    /// shows (#574), naming the axis (#610). The fixture it was cloned from still renders, so the
     /// refusal is about the axes and not the family.
     ///
     /// The other half of this case, a Lambert cone whose two standard parallels
@@ -6701,11 +6701,9 @@ mod planar_geolocation_tests {
             &render_options("equirectangular"),
         )
         .expect_err("a shapeless spheroid places no point");
-        assert!(
-            err.reason.contains("degenerate projection parameters"),
-            "{}",
-            err.reason
-        );
+        // The semi-major axis is the radius the plane is built on, so it is the
+        // number named (#610).
+        assert!(err.reason.contains("Earth radius of 0 m"), "{}", err.reason);
         assert!(field_csv(&values, &shapeless, "long").is_err());
         // Its source view still paints the array as stored.
         assert!(
@@ -6753,18 +6751,23 @@ mod planar_geolocation_tests {
             // The operations that place a point refuse: the warp rather than
             // painting nothing, and the long CSV rather than writing a header
             // with no rows under it.
+            // Both name the radius, so the user can tell which number is wrong.
             let err =
                 render_from_source(&tiny.source(), &values, &render_options("equirectangular"))
                     .err()
                     .unwrap_or_else(|| panic!("{family}: the warp accepted a collapsed plane"));
             assert!(
-                err.reason.contains("degenerate projection parameters"),
-                "{family}: {}",
+                err.reason.contains("Earth radius of 0.000001 m"),
+                "{family}: the refusal should name the radius, got: {}",
                 err.reason
             );
+            let err = field_csv(&values, &tiny, "long")
+                .err()
+                .unwrap_or_else(|| panic!("{family}: the long CSV still exported coordinates"));
             assert!(
-                field_csv(&values, &tiny, "long").is_err(),
-                "{family}: the long CSV still exported coordinates"
+                err.reason.contains("Earth radius of 0.000001 m"),
+                "{family}: the CSV refusal should name the radius, got: {}",
+                err.reason
             );
             // And the grid is not offered a reprojection in the first place.
             assert!(!tiny.geometry.reprojectable(tiny.scan), "{family}");
@@ -6958,15 +6961,25 @@ mod planar_geolocation_tests {
                 ),
             );
             // The warp declines the grid rather than painting the pole across
-            // the raster, and the long CSV rather than exporting it.
-            assert!(
+            // the raster, and the long CSV rather than exporting it. Both say
+            // which radius (#610).
+            let named = format!("Earth radius of {radius} m");
+            let err =
                 render_from_source(&broken.source(), values, &render_options("equirectangular"))
-                    .is_err(),
-                "{family}: the warp refuses a {radius} m Earth"
-            );
+                    .err()
+                    .unwrap_or_else(|| panic!("{family}: the warp accepted a {radius} m Earth"));
             assert!(
-                field_csv(values, &broken, "long").is_err(),
-                "{family}: the long CSV refuses a {radius} m Earth"
+                err.reason.contains(&named),
+                "{family}: the refusal should name the radius, got: {}",
+                err.reason
+            );
+            let err = field_csv(values, &broken, "long")
+                .err()
+                .unwrap_or_else(|| panic!("{family}: the long CSV accepted a {radius} m Earth"));
+            assert!(
+                err.reason.contains(&named),
+                "{family}: the CSV refusal should name the radius, got: {}",
+                err.reason
             );
         }
     }
