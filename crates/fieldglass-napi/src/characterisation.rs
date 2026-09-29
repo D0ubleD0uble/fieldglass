@@ -822,8 +822,11 @@ fn meta_row(subject: &Subject<'_>) -> Row {
         geos_dy_rad,
         j_scans_positive,
         // Not folded: the metadata a difference map holds constant, plus the
-        // ones derived from the geometry above rather than part of it.
-        // `reprojectable` and `placement` are pure functions of it; `grid_size_label`
+        // answers that are not part of the geometry. For a GRIB message
+        // `reprojectable` and `placement` are the *message's* answers
+        // (`MessageInfo`, about where its values land), whichever grid the row
+        // describes, and for a NetCDF slice they are derived from the geometry
+        // above; `reprojectable` is printed in the portable column. `grid_size_label`
         // states the *native* size of a grid-less message, which is not the
         // synthesised raster this row describes; the rest are indices,
         // parameter, level, time, format and packing.

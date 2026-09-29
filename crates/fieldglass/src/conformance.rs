@@ -810,6 +810,24 @@ pub fn cases() -> Vec<Case> {
         args: slice(0, vec![0, 0]),
     });
 
+    // A slice with no coordinates at all: a 10×10 HDF5 dataset nothing places,
+    // which renders in grid coordinates. Its georef records `unplaceable`, the
+    // answer that was `no_raster` until #776's review — so the browser host,
+    // which reads `field.grid().placement`, is held to it too.
+    out.push(Case {
+        id: "source_only/decode_slice".to_string(),
+        fixture: format!("{NC}hdf5_v2_linkinfo.h5"),
+        op: Op::DecodeSlice,
+        args: Args {
+            dtype: Some(Dtype::Auto),
+            variable: Some(0),
+            y_dim: Some(0),
+            x_dim: Some(1),
+            slice_indices: Some(vec![0, 0]),
+            ..Args::default()
+        },
+    });
+
     // The two ways a slice request is refused on a file that has the variable
     // mode. One position per dimension, always: a short list is refused rather
     // than padded with zeros, which is how a viewer shows the first time step

@@ -165,3 +165,91 @@ fn a_grib1_message_without_a_grid_description() {
         assert_eq!(info.reprojectable, has_grid, "grid {number}");
     }
 }
+
+/// A NetCDF-4 / HDF5 slice with no coordinate arrays: `core::cf` resolves it to
+/// a source-only geometry with no grid points, and the field still has 10×10
+/// cells that render in grid coordinates. A raster nothing places, so
+/// `unplaceable` — not `no_raster`, which would tell a host there is nothing
+/// to draw.
+#[test]
+fn a_coordinate_less_array_slice_is_unplaceable() {
+    let session = open("../fieldglass-netcdf/tests/fixtures/hdf5_v2_linkinfo.h5");
+    let variables = session.variables();
+    let var = variables
+        .iter()
+        .find(|v| v.name.trim_start_matches('/') == "chunked")
+        .expect("the fixture holds `chunked`");
+    let rank = var.dims.len() as u32;
+    assert!(rank >= 2, "a plane to slice");
+    let at = vec![0; var.dims.len()];
+    let field = session
+        .decode_slice(
+            var.index,
+            rank - 2,
+            rank - 1,
+            &at,
+            &DecodeOptions::default(),
+        )
+        .expect("decodes");
+    assert_eq!((field.ni, field.nj), (10, 10));
+    assert_eq!(field.stats.valid_count, 100);
+    assert_eq!(field.georef.placement, Placement::Unplaceable);
+    assert!(!field.georef.reprojectable);
+}
+
+/// Walk a GRIB2 message's sections and patch the §3 template number (octets
+/// 13–14) to `template`, leaving everything else — including the point count
+/// in octets 7–10 — as the file wrote it.
+fn grib2_with_grid_template(bytes: &[u8], template: u16) -> Vec<u8> {
+    let mut out = bytes.to_vec();
+    let mut at = 16; // past §0
+    while at + 5 <= out.len() && &out[at..at + 4] != b"7777" {
+        let len = u32::from_be_bytes([out[at], out[at + 1], out[at + 2], out[at + 3]]) as usize;
+        if out[at + 4] == 3 {
+            out[at + 12..at + 14].copy_from_slice(&template.to_be_bytes());
+            return out;
+        }
+        at += len;
+    }
+    panic!("no §3 in the message");
+}
+
+/// A grid template this build does not model still declares grid points, so
+/// it is `unsupported` rather than `no_raster` — both as declared and for the
+/// values — and nothing decodes it. Hand-built from the committed lat/lon
+/// fixture with its §3 template renumbered to 3.4 (variable-resolution
+/// lat/lon), which no committed producer writes and this build does not parse.
+#[test]
+fn an_unmodelled_grib2_template_is_unsupported() {
+    let bytes = std::fs::read(format!("{G2}regular_latlon_surface.grib2")).expect("fixture");
+    let session = Session::open(grib2_with_grid_template(&bytes, 4)).expect("opens");
+    let info = session.message(0).expect("message 0");
+    let grid = info.grid.as_ref().expect("a GRIB2 message declares a grid");
+    assert_eq!(grid.label, "unsupported(3.4)");
+    assert_eq!(grid.placement, Placement::Unsupported);
+    assert_eq!(info.placement, Placement::Unsupported);
+    assert!(!info.reprojectable);
+    assert_eq!(
+        session.place_message(0).expect("places").placement,
+        Placement::Unsupported
+    );
+    assert!(session.decode(0, &DecodeOptions::default()).is_err());
+}
+
+/// The GRIB1 half: a data representation type this parser does not model
+/// (90, space view), patched into GDS octet 6 of the committed CMC fixture.
+#[test]
+fn an_unmodelled_grib1_grid_type_is_unsupported() {
+    let mut bytes =
+        std::fs::read(format!("{G1}cmc_wind_300_2010052400_p012.grib")).expect("fixture");
+    let pds_len = u32::from_be_bytes([0, bytes[8], bytes[9], bytes[10]]) as usize;
+    assert_ne!(bytes[8 + 7] & 0x80, 0, "the fixture carries a GDS");
+    bytes[8 + pds_len + 5] = 90; // GDS octet 6: data representation type
+    let session = Session::open(bytes).expect("opens");
+    let info = session.message(0).expect("message 0");
+    assert_eq!(
+        info.grid.as_ref().map(|g| g.placement),
+        Some(Placement::Unsupported)
+    );
+    assert_eq!(info.placement, Placement::Unsupported);
+}

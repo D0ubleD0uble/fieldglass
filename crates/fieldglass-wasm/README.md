@@ -236,16 +236,17 @@ everywhere else. Unlike the growth above, this is data rather than code, and it
 is the one change here a browser host might reasonably want to opt out of; the
 format crate has no feature to do that with today.
 
-Saying why a grid can or can't be placed (#776) added 1,813 raw bytes and 1,233
-gzipped, 0.2%: the `Placement` vocabulary and two more fields on every `Georef`
-and `MessageInfo` the browser hands back.
+Saying why a grid can or can't be placed (#776) added 1,387 raw bytes and 810
+gzipped, 0.1%, against the figures recorded before it: the `Placement`
+vocabulary and two more fields on every `Georef` and `MessageInfo` the browser
+hands back.
 
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,513,039 | 572,805 |
-| `+simd128` | 1,497,520 | 568,139 |
+| baseline | 1,512,613 | 572,382 |
+| `+simd128` | 1,497,070 | 567,961 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

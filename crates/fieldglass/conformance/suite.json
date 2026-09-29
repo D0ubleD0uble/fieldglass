@@ -25198,6 +25198,105 @@
       }
     },
     {
+      "id": "source_only/decode_slice",
+      "fixture": "fieldglass-netcdf/tests/fixtures/hdf5_v2_linkinfo.h5",
+      "op": "decodeSlice",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": 0,
+        "xDim": 1,
+        "sliceIndices": [
+          0,
+          0
+        ],
+        "alongDim": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "corners": null,
+          "dx": null,
+          "dy": null,
+          "kind": "unsupported",
+          "label": "source",
+          "ni": 0,
+          "nj": 0,
+          "periodicX": false,
+          "placement": "unplaceable",
+          "pointsPerRow": null,
+          "proj4": null,
+          "reprojectable": false,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 100,
+        "maskLen": 100,
+        "maskOnes": 100,
+        "ni": 10,
+        "nj": 10,
+        "parameter": "chunked",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 25,
+            "m": 1,
+            "v": 25.0
+          },
+          {
+            "i": 50,
+            "m": 1,
+            "v": 50.0
+          },
+          {
+            "i": 75,
+            "m": 1,
+            "v": 75.0
+          },
+          {
+            "i": 99,
+            "m": 1,
+            "v": 99.0
+          }
+        ],
+        "stats": {
+          "max": 99.0,
+          "min": 0.0,
+          "validCount": 100
+        },
+        "units": ""
+      }
+    },
+    {
       "id": "ersst/decode_slice/short_slice_indices",
       "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
       "op": "decodeSlice",

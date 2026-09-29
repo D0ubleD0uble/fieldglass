@@ -44,16 +44,13 @@ use crate::api::Isoline;
 #[cfg(feature = "render")]
 use crate::api::Warped;
 use crate::api::{
-    Addressing, DimensionInfo, Dtype, Field, Georef, LeftOutArray, Line, MessageInfo, Probe, Scan,
-    SourceFormat, Stats, Values, VariableInfo,
+    Addressing, DimensionInfo, Dtype, Field, Georef, LeftOutArray, Line, MessageInfo, Placement,
+    Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
 };
 // The axis a cross-section labels itself from: only an array container has one
 // (#171), so the import is gated the way its readers are.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 use crate::api::AxisValues;
-// A message's placement is a GRIB question: an array container places slices.
-#[cfg(any(feature = "grib1", feature = "grib2"))]
-use crate::api::Placement;
 #[cfg(feature = "analysis")]
 use crate::combine::CombineOp;
 use crate::error::Error;
@@ -491,12 +488,21 @@ fn build_field(
     options: &DecodeOptions,
 ) -> Field {
     let (values, mask, stats) = pack_values(raw, options);
+    // A field with cells and no geometry to put them anywhere is a raster
+    // nothing places — a NetCDF, HDF5 or Zarr slice with no coordinates, which
+    // `core::cf` resolves to a source-only geometry. It still renders in grid
+    // coordinates, so it is not "no raster" (#776).
+    let without_geometry = if ni > 0 && nj > 0 {
+        Placement::Unplaceable
+    } else {
+        Placement::NoRaster
+    };
     Field {
         values,
         mask,
         ni,
         nj,
-        georef: Georef::from_declared(geometry, scan, declared),
+        georef: Georef::from_container(geometry, scan, declared, None, without_geometry),
         stats,
         parameter,
         units,
@@ -1842,22 +1848,24 @@ impl Session {
                     // `raster_bounds`, not `bounds`: this is where the values
                     // land, and a reduced grid's values land on the widened
                     // raster.
-                    Ok(Georef::from_declared_corners(
+                    Ok(Georef::from_container(
                         &GridGeometry::from(gds),
                         grib1_scan(msg),
                         gds.grid_type_name(),
                         gds.raster_bounds(),
+                        grib1_without_geometry(gds),
                     )
                     .with_points_per_row(gds.points_per_row()))
                 }
                 #[cfg(feature = "grib2")]
                 Reader::Grib2(r) => {
                     let msg = &r.messages[i];
-                    Ok(Georef::from_declared_corners(
+                    Ok(Georef::from_container(
                         &GridGeometry::from(&msg.gds),
                         grib2_scan(msg),
                         &msg.gds.template_name(),
                         msg.gds.raster_bounds(),
+                        grib2_without_geometry(&msg.gds),
                     )
                     .with_points_per_row(msg.gds.points_per_row()))
                 }
@@ -2288,17 +2296,67 @@ fn landing(
     declared.map_or((without_grid, false), |g| (g.placement, g.reprojectable))
 }
 
+/// What a GRIB1 grid the geometry has no points for is (#776).
+///
+/// A data representation type this parser does not model still declares a grid
+/// (`unsupported`); one it models with no raster (spherical harmonics) has
+/// nothing to place; one it models with a raster the geometry cannot build has
+/// a raster nothing places. The format crate's own answers, read rather than
+/// re-derived: `GridDescription::Unsupported` is its "not modelled", and
+/// `dimensions` its "has rows and columns".
+#[cfg(feature = "grib1")]
+fn grib1_without_geometry(gds: &fieldglass_grib1::gds::GridDescription) -> Placement {
+    if matches!(
+        gds,
+        fieldglass_grib1::gds::GridDescription::Unsupported { .. }
+    ) {
+        return Placement::Unsupported;
+    }
+    raster_without_geometry(gds.dimensions())
+}
+
+/// The GRIB2 half of [`grib1_without_geometry`]. A §3 template this build does
+/// not model is `unsupported` when the section states grid points at all
+/// (octets 7–10, present in every template); a modelled one with a raster the
+/// geometry cannot build — a §3.90 camera that sees no Earth — is
+/// `unplaceable`; spectral, bi-Fourier and HEALPix have no rows and columns.
+#[cfg(feature = "grib2")]
+fn grib2_without_geometry(gds: &fieldglass_grib2::gds::GridDefinitionSection) -> Placement {
+    if matches!(
+        gds.template,
+        fieldglass_grib2::gds::GridTemplate::Unsupported(_)
+    ) {
+        return if gds.num_data_points > 0 {
+            Placement::Unsupported
+        } else {
+            Placement::NoRaster
+        };
+    }
+    raster_without_geometry(gds.dimensions())
+}
+
+/// A modelled template whose geometry has no points: a raster nothing places
+/// when the section states rows and columns, and nothing to place otherwise.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn raster_without_geometry(dims: Option<(u32, u32)>) -> Placement {
+    match dims {
+        Some((ni, nj)) if ni > 0 && nj > 0 => Placement::Unplaceable,
+        _ => Placement::NoRaster,
+    }
+}
+
 #[cfg(feature = "grib1")]
 fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -> MessageInfo {
     let msg = &reader.messages[index];
     let grid = msg.gds.as_ref().map(|gds| {
         // `bounds`, not `raster_bounds`: this is what the message *declares*,
         // and a reduced grid declares the corner of the grid it really is.
-        Georef::from_declared_corners(
+        Georef::from_container(
             &GridGeometry::from(gds),
             grib1_scan(msg),
             gds.grid_type_name(),
             gds.bounds(),
+            grib1_without_geometry(gds),
         )
         .with_points_per_row(gds.points_per_row())
     });
@@ -2405,11 +2463,12 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         ),
         None => ("—".to_string(), "—".to_string()),
     };
-    let grid = Georef::from_declared_corners(
+    let grid = Georef::from_container(
         &GridGeometry::from(&msg.gds),
         grib2_scan(msg),
         &msg.gds.template_name(),
         msg.gds.bounds(),
+        grib2_without_geometry(&msg.gds),
     )
     .with_points_per_row(msg.gds.points_per_row());
     // Every GRIB2 message carries a §3, so the no-grid answer is unreachable;
