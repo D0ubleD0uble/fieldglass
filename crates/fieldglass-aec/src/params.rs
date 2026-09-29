@@ -10,8 +10,18 @@ use crate::AecError;
 /// The option flags of a stream, libaec's `AEC_*` bits.
 ///
 /// The bit values are libaec's, and GRIB2's `ccsdsFlags` (template 5.42)
-/// uses the same ones, so a GRIB2 reader can pass the octet straight to
-/// [`Flags::from_bits_truncate`].
+/// uses the same ones, so a GRIB2 reader can turn the octet into `Flags` with
+/// [`Flags::from_bits_truncate`]. That gives libaec's reading of the octet,
+/// not a GRIB2 reader's: ADR-0012 decision 5 has the reader clear
+/// [`Flags::PAD_RSI`] before decoding (D1) and take a SIGNED sample as its
+/// n-bit pattern (Q5), because that is what eccodes' encoder wrote.
+///
+/// ```
+/// use fieldglass_aec::Flags;
+///
+/// let flags = Flags::from_bits_truncate(46).difference(Flags::PAD_RSI);
+/// assert_eq!(flags, Flags::from_bits_truncate(14));
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Flags(u8);
 
@@ -59,6 +69,31 @@ impl Flags {
     /// Whether every flag in `other` is set in `self`.
     pub const fn contains(self, other: Flags) -> bool {
         self.0 & other.0 == other.0
+    }
+
+    /// Whether no flag is set.
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The flags in `self` that are not in `other`.
+    pub const fn difference(self, other: Flags) -> Self {
+        Flags(self.0 & !other.0)
+    }
+
+    /// The flags set in both `self` and `other`.
+    pub const fn intersection(self, other: Flags) -> Self {
+        Flags(self.0 & other.0)
+    }
+
+    /// Clear every flag in `other`.
+    pub fn remove(&mut self, other: Flags) {
+        *self = self.difference(other);
+    }
+
+    /// Set every flag in `other`.
+    pub fn insert(&mut self, other: Flags) {
+        *self |= other;
     }
 }
 
@@ -232,6 +267,31 @@ mod tests {
         .map(|f| f.bits())
         .collect();
         assert_eq!(bits, [1, 2, 4, 8, 16, 32]);
+    }
+
+    #[test]
+    fn set_operations_stay_within_the_known_bits() {
+        let grib2 = Flags::from_bits_truncate(46); // PAD_RSI | PP | 3BYTE | MSB
+        assert!(grib2.contains(Flags::PAD_RSI));
+
+        let cleared = grib2.difference(Flags::PAD_RSI);
+        assert!(!cleared.contains(Flags::PAD_RSI));
+        assert_eq!(cleared.bits(), 14);
+
+        let mut f = grib2;
+        f.remove(Flags::PAD_RSI | Flags::MSB);
+        assert_eq!(f, Flags::PREPROCESS | Flags::THREE_BYTE);
+        f.remove(Flags::SIGNED); // not set: no change
+        assert_eq!(f.bits(), 10);
+        f.insert(Flags::SIGNED);
+        assert_eq!(f.bits(), 11);
+
+        assert_eq!(grib2.intersection(Flags::MSB | Flags::SIGNED), Flags::MSB);
+        assert!(Flags::empty().is_empty());
+        assert!(!Flags::SIGNED.is_empty());
+        assert!(grib2.difference(grib2).is_empty());
+        // `difference` never sets a bit `from_bits_truncate` would drop.
+        assert_eq!(Flags::empty().difference(Flags::SIGNED).bits(), 0);
     }
 
     #[test]
