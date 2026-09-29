@@ -29,6 +29,14 @@
 //! and libnetcdf packs a lone record variable of those the same way; the
 //! fixtures in `tests/fixtures/record_single_ubyte_cdf5.nc` record that.
 //!
+//! "Exactly one record variable" is counted as the specification says, by
+//! variables. libnetcdf instead tests whether `recsize` equals the first
+//! record variable's padded slab, which also holds when every other record
+//! variable has a zero-size slab. A valid file has none: a record slab is the
+//! product of the dimensions after the unlimited one, a dimension of length 0
+//! is the unlimited one, and a file has only one. So the two agree on every
+//! valid file.
+//!
 //! # Verified kernel
 //!
 //! This file is compiled twice. This crate compiles it as ordinary Rust; the
