@@ -93,6 +93,10 @@ There is one copy of the code, so nothing can drift between a proof and the
 function it is about. `vstd` appears in no published manifest and in no lockfile
 but the verification crate's own. The workspace declares the cfg in
 `[workspace.lints.rust]` (`unexpected_cfgs`) so rustc does not warn about it.
+The cfg is only supported through `scripts/verify.sh` (cargo-verus): a build
+that sets `--cfg verus_keep_ghost` globally, say through `RUSTFLAGS`, fails to
+compile `fieldglass-core`, because under that cfg `scaling.rs` names
+`crate::bits_model` and `vstd`, which only the verification crate provides.
 
 The other layouts were measured before this one was chosen. A restated copy in
 the verification crate needs a checker to keep the copy honest. `vstd` as a
@@ -121,7 +125,11 @@ Two things keep the arrangement from failing silently, and
 verification crate, and must be listed in the `push` and `pull_request` path
 filters of `.github/workflows/verify.yml`. Without the first, a deleted include
 leaves specs that look like proofs and are never checked; without the second, an
-edit to a kernel never runs Verus and the job stays green.
+edit to a kernel never runs Verus and the job stays green. Only a live include
+counts: one that is commented out, or that sits on a `mod` item carrying a
+`cfg` or nested in a block, is reported. The path filters must also cover the
+core files a kernel's build in the verification crate reads (`bits.rs`,
+`error.rs`, and core's `lib.rs` and `Cargo.toml`).
 
 ### What is proved, and what is trusted
 
@@ -151,12 +159,13 @@ proof.
 
 **Trusted, not proved.** The proofs rest on three statements in
 `crates/fieldglass-verify/src/bits_model.rs` and its `axioms.rs`, each short
-enough to check by reading:
+enough to check by reading, and on allocation succeeding:
 
 | Assumption | Why it is assumed | What would remove it |
 |---|---|---|
 | `BitReader::new` and `read_bits` behave as the MSB-first model `msb_bits` says, stated with `assume_specification` | `read_bits` is Tier 0 and not yet proved | a proof of `read_bits`, which would make `bits.rs` a kernel file |
 | `f64::powi(b, n)` is some fixed function `powi_spec(b, n)`, and nothing more | Verus has no specification for `powi`; the proofs only need to know *which* base and exponent each factor uses | not needed: the claim is about direction, not about `powi`'s accuracy |
+| Allocation succeeds: `Vec::with_capacity(count)` and `push` in `unpack_simple` do not panic or abort on a huge `count` | Verus models `Vec` without an allocator, so a capacity overflow or running out of memory is outside the proof, as it is for any Rust function that allocates | not planned: callers bound `count` by the grid or message size before calling |
 | `f64` `+` and `*` never panic and are deterministic, and `u32 as f64` is exact | the pinned `vstd` requires an `add_req` / `mul_req` of `f64` arithmetic and defines neither, so no `f64` expression verifies without this | a `vstd` that specifies `f64` arithmetic |
 
 The `f64` axiom is a `broadcast` lemma, and under the pinned Verus it fires for
