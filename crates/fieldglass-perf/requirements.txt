@@ -1,0 +1,13 @@
+# The corpus writers, pinned: a different encoder writes different bytes, and
+# every gated number in docs/performance.md describes these bytes.
+# `corpus/generate.py` refuses to run on any other version.
+eccodes==2.47.0
+# The C library the binding loads; this is what writes the GRIB bytes.
+eccodeslib==2.48.0.26
+h5py==3.16.0
+netCDF4==1.7.4
+numcodecs==0.16.5
+numpy==2.4.6
+zarr==3.3.0
+# The reference tier's comparison, not a writer.
+xarray==2026.7.0

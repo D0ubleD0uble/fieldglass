@@ -1,0 +1,4 @@
+# Build output, Gungraun's summaries and the measurements `run.sh` writes. The
+# corpus itself never lands here: it is generated into a temporary directory
+# and removed when the run ends.
+/target

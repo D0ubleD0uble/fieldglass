@@ -1,0 +1,299 @@
+{
+ "schema": 1,
+ "name": "era5-2t-2020-01-01",
+ "attribution": "Contains modified Copernicus Climate Change Service information (ERA5), via ARCO-ERA5 on Google Cloud Public Datasets; Copernicus licence",
+ "cache_cap_bytes": 268435456,
+ "total_bytes": 90895724,
+ "objects": {
+  "1a53cc1f717483ba8705eebfc0a0294b5c662d7f32d4593c49a3326bcdc3c450": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051896.0.0",
+   "length": 2339597
+  },
+  "21d9cd6eddef4a674bd8a1b962885596058e7f37c9a46c090ab18b1d5355e4af": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 21711240
+  },
+  "22c1176b22e1d8da0d4977deb99db42ca2b0aa2b768faebbc74eac537a773271": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/date-variable-single_level/2020/01/01/2m_temperature/surface.nc",
+   "length": 49845328
+  },
+  "2fbcd5928413a9e0f82841a53bc48a1a193c0df385493b52e45e708ff833d067": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051900.0.0",
+   "length": 2334986
+  },
+  "37d7e6328674ab1a8af6bf67aa6394350104865d457cd824836c973ddb12d8d8": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051897.0.0",
+   "length": 2340753
+  },
+  "43d700d692fd013e965960da6e49c33248ff72230cecdf521bc0c69c454ec707": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051901.0.0",
+   "length": 2335164
+  },
+  "4565b045005ec5e55cc13f928806fe6b8a9c15c2a91d01da61d418d0435c7fb5": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051902.0.0",
+   "length": 2333189
+  },
+  "4e0b69da85783b5508d853c7c9c161c77242cfe35cfed82a7e54b4ba399ded88": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051898.0.0",
+   "length": 2339290
+  },
+  "52e4e24692ad6658e99892bb3f46aabbfde9e035fccf78ecd5e4270361a89f4f": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/longitude/.zattrs",
+   "length": 115
+  },
+  "53aa3aeaeb37dc5aba47222484a09d4a50aafa5318e83eac32dde4a1b7b64013": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051905.0.0",
+   "length": 2332479
+  },
+  "643f8f6f05dd0a0bff51bb6d0d8904514eaa4d19833077e4fabde1fe9d0df404": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/.zattrs",
+   "length": 175
+  },
+  "7942ebac63ba4e69e05575019aaebe2b2ebb927b316590cac1dcfc7eb08f09ee": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/longitude/0",
+   "length": 1587
+  },
+  "81da4e5e786a9dffcc46ea9f4779af3be0e67041e350866dcd72c0e3a09c7598": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 100416240
+  },
+  "8487875fb3626a521cb55dac5c6d504759d6c3673b124726ce3be5db6c660e1d": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 116157240
+  },
+  "9e0c8f48ecfa440a35fa6c7b2f345868ab33bd016a6763bfbba077a85d34832a": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 179121240
+  },
+  "9fde708782bea37bfd713f1bda9685a46b66f986dc08714441466f85015fbd6a": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 163380240
+  },
+  "a2fdfd5ffee6de34b664b9f1a83b053d362388553e93060b747cf8da872ccdfb": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/latitude/.zattrs",
+   "length": 114
+  },
+  "aad0eee7c8a71375b715bf39cc2372e6e5f329ce0199f39ae82571a383aea41d": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/latitude/.zarray",
+   "length": 317
+  },
+  "ad2559188f8603a7a136eb4b81c1e96a4a78549a184b6e09def2a60a78631c25": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/latitude/0",
+   "length": 844
+  },
+  "b87b48b9e39f7539777432ca7e0c5fbf0f18b1bb895cfcf1464c9f1252caf948": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 53193240
+  },
+  "c49ede010faff33480419918a4640d594d6992303a84788f471f0c029b3005e3": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051907.0.0",
+   "length": 2331108
+  },
+  "c5337a85069fa0fc78a930ecd2c9596325fabaa4df4b291f9b387639198baf56": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/longitude/.zarray",
+   "length": 319
+  },
+  "cbf3b7c634de410df5fbe4a4838d837826186183cd147b09f4159bd9b4aa8b30": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 131898240
+  },
+  "cce192c75603adb3063bbeeee3e1a5afa4d018198dbd8186fa00e05f56a526cb": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 5970240
+  },
+  "cd34a254cbe361baa8ac5580d3c1749fa4dce6f7586d08c7fe3cf7b1a9c581cd": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 84675240
+  },
+  "d3acfce479ba399814cd7de40ebefc2b8b0fa38e683aaf6f05a048aa1b660857": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 147639240
+  },
+  "dd645af06e1b5a4766e192ed9925a39d62f41c38c07947246f9e896739b99b35": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 68934240
+  },
+  "dd74fb074dac77583b89760fbd34771d873b9f06fa91d79525c9fd8b6f262f4d": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051906.0.0",
+   "length": 2331301
+  },
+  "e0b96b2dfdc6f90cb4629be54d20965c1ad4de4f37790a99bf6bcbcab97c910c": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051899.0.0",
+   "length": 2337802
+  },
+  "efa4a235982450fc245b6251bbad0d3fd3ca6fe6df3b4801845335592ce2dc6b": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051903.0.0",
+   "length": 2332367
+  },
+  "f3981c36c569251d498b762a8d3b3b325e619e023dbe12c3e6e1b416fe3c8c13": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/raw/ERA5GRIB/HRES/Month/2020/202001_hres_sfc.grb2",
+   "length": 1085548,
+   "offset": 37452240
+  },
+  "fc2cfcd7e132b1606e2ecdd679484efdcedd8e579a18df84c903ec3d4430e8b9": {
+   "url": "https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3/2m_temperature/1051904.0.0",
+   "length": 2332313
+  }
+ },
+ "zarr": {
+  "variable": "2m_temperature",
+  "frames": 12,
+  "first_time_index": 1051896,
+  "objects": {
+   "2m_temperature/0.0.0": "1a53cc1f717483ba8705eebfc0a0294b5c662d7f32d4593c49a3326bcdc3c450",
+   "2m_temperature/1.0.0": "37d7e6328674ab1a8af6bf67aa6394350104865d457cd824836c973ddb12d8d8",
+   "2m_temperature/2.0.0": "4e0b69da85783b5508d853c7c9c161c77242cfe35cfed82a7e54b4ba399ded88",
+   "2m_temperature/3.0.0": "e0b96b2dfdc6f90cb4629be54d20965c1ad4de4f37790a99bf6bcbcab97c910c",
+   "2m_temperature/4.0.0": "2fbcd5928413a9e0f82841a53bc48a1a193c0df385493b52e45e708ff833d067",
+   "2m_temperature/5.0.0": "43d700d692fd013e965960da6e49c33248ff72230cecdf521bc0c69c454ec707",
+   "2m_temperature/6.0.0": "4565b045005ec5e55cc13f928806fe6b8a9c15c2a91d01da61d418d0435c7fb5",
+   "2m_temperature/7.0.0": "efa4a235982450fc245b6251bbad0d3fd3ca6fe6df3b4801845335592ce2dc6b",
+   "2m_temperature/8.0.0": "fc2cfcd7e132b1606e2ecdd679484efdcedd8e579a18df84c903ec3d4430e8b9",
+   "2m_temperature/9.0.0": "53aa3aeaeb37dc5aba47222484a09d4a50aafa5318e83eac32dde4a1b7b64013",
+   "2m_temperature/10.0.0": "dd74fb074dac77583b89760fbd34771d873b9f06fa91d79525c9fd8b6f262f4d",
+   "2m_temperature/11.0.0": "c49ede010faff33480419918a4640d594d6992303a84788f471f0c029b3005e3",
+   "latitude/.zarray": "aad0eee7c8a71375b715bf39cc2372e6e5f329ce0199f39ae82571a383aea41d",
+   "latitude/.zattrs": "a2fdfd5ffee6de34b664b9f1a83b053d362388553e93060b747cf8da872ccdfb",
+   "latitude/0": "ad2559188f8603a7a136eb4b81c1e96a4a78549a184b6e09def2a60a78631c25",
+   "longitude/.zarray": "c5337a85069fa0fc78a930ecd2c9596325fabaa4df4b291f9b387639198baf56",
+   "longitude/.zattrs": "52e4e24692ad6658e99892bb3f46aabbfde9e035fccf78ecd5e4270361a89f4f",
+   "longitude/0": "7942ebac63ba4e69e05575019aaebe2b2ebb927b316590cac1dcfc7eb08f09ee",
+   "2m_temperature/.zattrs": "643f8f6f05dd0a0bff51bb6d0d8904514eaa4d19833077e4fabde1fe9d0df404"
+  },
+  "documents": {
+   ".zgroup": {
+    "zarr_format": 2
+   },
+   "2m_temperature/.zarray": {
+    "chunks": [
+     1,
+     721,
+     1440
+    ],
+    "compressor": {
+     "blocksize": 0,
+     "clevel": 5,
+     "cname": "lz4",
+     "id": "blosc",
+     "shuffle": 1
+    },
+    "dtype": "<f4",
+    "fill_value": "NaN",
+    "filters": null,
+    "order": "C",
+    "shape": [
+     12,
+     721,
+     1440
+    ],
+    "zarr_format": 2
+   },
+   "time/.zarray": {
+    "chunks": [
+     12
+    ],
+    "compressor": null,
+    "dtype": "<i8",
+    "fill_value": null,
+    "filters": null,
+    "order": "C",
+    "shape": [
+     12
+    ],
+    "zarr_format": 2
+   },
+   "time/.zattrs": {
+    "_ARRAY_DIMENSIONS": [
+     "time"
+    ],
+    "calendar": "proleptic_gregorian",
+    "units": "hours since 1900-01-01 00:00:00"
+   }
+  },
+  "binary": {
+   "time/0": "+AwQAAAAAAD5DBAAAAAAAPoMEAAAAAAA+wwQAAAAAAD8DBAAAAAAAP0MEAAAAAAA/gwQAAAAAAD/DBAAAAAAAAANEAAAAAAAAQ0QAAAAAAACDRAAAAAAAAMNEAAAAAAA"
+  }
+ },
+ "netcdf": {
+  "variable": "t2m",
+  "frames": 12,
+  "element_bytes": 2,
+  "object": "22c1176b22e1d8da0d4977deb99db42ca2b0aa2b768faebbc74eac537a773271"
+ },
+ "grib1": {
+  "size": 11711304000,
+  "messages": [
+   {
+    "hour": 0,
+    "offset": 5970240,
+    "object": "cce192c75603adb3063bbeeee3e1a5afa4d018198dbd8186fa00e05f56a526cb"
+   },
+   {
+    "hour": 1,
+    "offset": 21711240,
+    "object": "21d9cd6eddef4a674bd8a1b962885596058e7f37c9a46c090ab18b1d5355e4af"
+   },
+   {
+    "hour": 2,
+    "offset": 37452240,
+    "object": "f3981c36c569251d498b762a8d3b3b325e619e023dbe12c3e6e1b416fe3c8c13"
+   },
+   {
+    "hour": 3,
+    "offset": 53193240,
+    "object": "b87b48b9e39f7539777432ca7e0c5fbf0f18b1bb895cfcf1464c9f1252caf948"
+   },
+   {
+    "hour": 4,
+    "offset": 68934240,
+    "object": "dd645af06e1b5a4766e192ed9925a39d62f41c38c07947246f9e896739b99b35"
+   },
+   {
+    "hour": 5,
+    "offset": 84675240,
+    "object": "cd34a254cbe361baa8ac5580d3c1749fa4dce6f7586d08c7fe3cf7b1a9c581cd"
+   },
+   {
+    "hour": 6,
+    "offset": 100416240,
+    "object": "81da4e5e786a9dffcc46ea9f4779af3be0e67041e350866dcd72c0e3a09c7598"
+   },
+   {
+    "hour": 7,
+    "offset": 116157240,
+    "object": "8487875fb3626a521cb55dac5c6d504759d6c3673b124726ce3be5db6c660e1d"
+   },
+   {
+    "hour": 8,
+    "offset": 131898240,
+    "object": "cbf3b7c634de410df5fbe4a4838d837826186183cd147b09f4159bd9b4aa8b30"
+   },
+   {
+    "hour": 9,
+    "offset": 147639240,
+    "object": "d3acfce479ba399814cd7de40ebefc2b8b0fa38e683aaf6f05a048aa1b660857"
+   },
+   {
+    "hour": 10,
+    "offset": 163380240,
+    "object": "9fde708782bea37bfd713f1bda9685a46b66f986dc08714441466f85015fbd6a"
+   },
+   {
+    "hour": 11,
+    "offset": 179121240,
+    "object": "9e0c8f48ecfa440a35fa6c7b2f345868ab33bd016a6763bfbba077a85d34832a"
+   }
+  ]
+ }
+}

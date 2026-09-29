@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -288,11 +289,39 @@ def crate_deps_from_toml(text: str) -> set[str]:
 # ── filesystem walking (thin wrappers over the pure functions above) ──────────
 
 
+def is_nested_workspace(crate_dir: Path) -> bool:
+    """Whether the crate at ``crate_dir`` is a workspace of its own.
+
+    Such a crate is outside the architecture these diagrams describe by
+    construction: it declares a bare ``[workspace]`` precisely so the root
+    workspace never builds it. The ``fuzz/`` crates, ``fieldglass-verify`` and
+    ``fieldglass-perf`` (#743) are the ones today — the same definition
+    ``tools/check_nested_lockfiles.py`` walks by. Without this, a benchmark
+    harness's forwarding wrappers were demanded as edges in
+    ``02-trait-seams.md`` and its dependencies as arrows in ``01-crates.md``.
+    """
+    manifest = crate_dir / "Cargo.toml"
+    try:
+        return "workspace" in tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+
+
+def _outside_nested_workspace(path: Path) -> bool:
+    for parent in path.parents:
+        if parent == CRATES_DIR or CRATES_DIR not in parent.parents:
+            return True
+        if is_nested_workspace(parent):
+            return False
+    return True
+
+
 def rust_sources() -> list[Path]:
     return [
         p
         for p in sorted(CRATES_DIR.glob("**/src/**/*.rs"))
         if p.relative_to(CRATES_DIR).as_posix() not in TEST_SUPPORT_FILES
+        and _outside_nested_workspace(p)
     ]
 
 
@@ -342,6 +371,8 @@ def actual_crate_edges() -> set[tuple[str, str]]:
     """
     edges: set[tuple[str, str]] = set()
     for toml in CRATES_DIR.glob("fieldglass*/Cargo.toml"):
+        if is_nested_workspace(toml.parent):
+            continue
         consumer = toml.parent.name.removeprefix("fieldglass-")
         for dep in crate_deps_from_toml(_read(toml)):
             edges.add((consumer, dep))

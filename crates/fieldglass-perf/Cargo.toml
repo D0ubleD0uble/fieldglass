@@ -1,0 +1,29 @@
+[workspace]
+
+[package]
+name = "fieldglass-perf"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+fieldglass = { path = "../fieldglass", default-features = false, features = ["grib1", "grib2", "netcdf", "zarr", "render", "analysis"] }
+fieldglass-core = { path = "../fieldglass-core", features = ["testing"] }
+fieldglass-zarr = { path = "../fieldglass-zarr" }
+dhat = "=0.3.3"
+serde_json = "1"
+# The codecs alone, for the codec-ceiling rows. Pinned to exactly what the root
+# `Cargo.lock` resolves, so a row measures the implementation the readers link.
+miniz_oxide = "=0.9.1"
+png = "=0.18.1"
+ruzstd = "=0.9.0"
+rust-aec = "=0.1.1"
+rust-j2k = "=0.3.0"
+
+[dev-dependencies]
+gungraun = "=0.19.4"
+
+[[bench]]
+name = "instructions"
+harness = false

@@ -300,6 +300,7 @@ Open any file with a supported extension. VS Code will use Fieldglass as the def
 | `crates/fieldglass-napi` | Node.js bindings exposed via napi-rs. The only crate that knows about Node. |
 | `crates/fieldglass-wasm` | wasm-bindgen façade for the browser, meant to run in a Web Worker. |
 | `crates/fieldglass-verify` | Verus proofs of the decode kernel. Its own workspace, deliberately outside the root one; run by `scripts/verify.sh`. |
+| `crates/fieldglass-perf` | Performance and memory benchmarks, held to stated bounds. Its own workspace, like `fieldglass-verify`; run by `crates/fieldglass-perf/run.sh`, results in [docs/performance.md](docs/performance.md). |
 | `extension/` | TypeScript VS Code extension. Registers a custom read-only editor and renders a webview. |
 
 The four library crates (`fieldglass-core`, `-grib1`, `-grib2`, `-netcdf`) are published to crates.io on each stable release, so the readers can be used from Rust on their own, without the extension. `fieldglass` is the crate a Rust consumer starts from: it sits above the readers and hands back plain data, and since #662 it reaches all three shipped decoders, so a NetCDF program no longer has to take `fieldglass-netcdf` directly. Each reader stays usable on its own and links nothing the others need ([ADR-0010](docs/decisions/0010-a-common-array-model-and-containers-as-drivers.md)).

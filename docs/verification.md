@@ -1,4 +1,23 @@
-# Formal verification with Verus
+# Verification
+
+Verification here has two halves, and each holds the code to something outside
+itself rather than to its own history.
+
+- **Correctness: the numbers are right.** Every decoder is checked against an
+  outside oracle (eccodes, netCDF4, zarr-python) through committed fixtures and
+  snapshots; the conformance suite holds every host to the same recorded
+  answers; fuzz targets feed the readers hostile bytes; refactors are proved
+  byte-identical before and after; and the decode kernel carries Verus proofs,
+  described below.
+- **Cost: producing them is close to the best anyone could.** Bytes read,
+  allocations, peak heap, instructions and wasm memory per operation, each held
+  to a stated bound: [performance.md](performance.md).
+
+Both halves share one rule. A check that cannot fail proves nothing, and a gate
+that quietly skips when a prerequisite is missing has measured nothing, so every
+one of them fails loudly instead.
+
+## Formal verification with Verus
 
 *Bootstrapped 2026-08-23 ([#197](https://github.com/D0ubleD0uble/fieldglass/issues/197)).*
 
@@ -9,7 +28,7 @@ every GRIB value in the project passes through it. [Verus](https://github.com/ve
 verifies real Rust in place, as ghost code that carries no runtime cost, so
 there is no port and no second source of truth.
 
-## Running it
+### Running it
 
 ```sh
 scripts/verify.sh              # verify
@@ -28,7 +47,7 @@ is small enough that whole-crate verification takes well under a second once
 cd crates/fieldglass-verify && cargo verus verify
 ```
 
-## Why the proofs live in their own crate
+### Why the proofs live in their own crate
 
 `crates/fieldglass-verify` is **not** a member of the root workspace. Like each
 `fuzz/` crate it declares an empty `[workspace]` table and carries its own
@@ -53,7 +72,7 @@ The CI job asserts the isolation rather than trusting it: no `vstd`,
 `verus_builtin`, or `verus_builtin_macros` may appear in the workspace
 dependency graph.
 
-## The open question this bootstrap does not settle
+### The open question this bootstrap does not settle
 
 The function proved today is *written* in the verification crate. Proving the
 shipped `fieldglass-core` functions instead needs one of:
@@ -76,7 +95,7 @@ shipped code, a change to that code will not trigger verification — and the jo
 will keep reporting green while guarding nothing. That is the failure mode this
 whole setup is meant to avoid, so it is called out in the workflow itself too.
 
-## Pinning
+### Pinning
 
 Verus, `vstd`, and the Rust toolchain are pinned **together** and bumped
 together:
@@ -96,7 +115,7 @@ Verus is a bus-factor concern in the same sense as `rust-aec` and `rust-j2k`
 under ADR-0001, but with an important difference: nothing that ships depends on
 it, so an upstream that stalls costs us proofs, never releases.
 
-## Policy: unverified is fine, verified must stay verified
+### Policy: unverified is fine, verified must stay verified
 
 Incremental by design. Most of the codebase is not verified and does not need to
 be. What is not allowed is regression: once a function carries a proof, a change
@@ -121,7 +140,7 @@ Two things that make a proof worth having, both learned bootstrapping this:
   (`vstd` stays cached, so it costs 0.6 s rather than 30 s) and then fails if
   Verus produced no results at all.
 
-## Formatting
+### Formatting
 
 `verusfmt` formats `verus! { }` blocks; `rustfmt` does not understand them, and
 the two are designed to coexist.
@@ -137,7 +156,7 @@ That detail matters more than it looks: an earlier draft ran `verusfmt` from
 `pre-commit run --all-files`, so that version would have turned the main lint
 job red on every pull request.
 
-## What gets verified next
+### What gets verified next
 
 Ordered by blast radius, from the milestone:
 
