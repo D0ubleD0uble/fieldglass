@@ -247,12 +247,21 @@ commit before it on the same machine. The new decoder is about the same size as
 the old one; the sink that scales samples straight into the field replaces the
 byte buffer and re-parse.
 
+Rendering the addon on the geometry the library placed (#574) took 361 raw
+bytes and 189 gzipped out, measured against a build of the commit before it on
+the same machine. The browser build carries the parts of that change that live
+in `fieldglass`: the combine gate lost the arm that compared two refusals, a
+refusal names an unplaced grid by its own label, and a planar grid's refusal
+names the Earth radius it declares. The figures below also carry the two
+changes merged after the table was last recorded (#781, #786), which between
+them added about 1,300 raw bytes.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,513,401 | 573,824 |
-| `+simd128` | 1,497,820 | 568,562 |
+| baseline | 1,514,338 | 574,707 |
+| `+simd128` | 1,498,791 | 569,029 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
