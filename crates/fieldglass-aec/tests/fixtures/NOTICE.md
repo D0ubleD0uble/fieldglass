@@ -142,15 +142,23 @@ not rediscover them.
   pair sum of 12 (`SE_TABLE_SIZE`, 90 entries past zero), and a larger codeword
   is `AEC_DATA_ERROR` (`decode.c:566, 599`). CCSDS 121.0-B-3 puts no bound on
   the sum. At 3 bits and block 256 the encoder writes sums of 13 and 14, and
-  libaec cannot read its own stream back. These are exactly ADR-0012's claim
-  14 parameters (3 bits, block 256, RSI 3, 2,050 samples): that claim is this
-  rejection, not trailing fill. `se_pair_sum_over_12_b03_j256_r3_pp` records
-  it, as kind `libaec_rejects`: libaec's status, the 2,047 samples it produced
-  before the error (counted by decoding one sample per call) and their digest,
-  and `source_sha256`, the digest of the field the encoder was given.
+  libaec cannot read its own stream back. The planning spike's example for
+  ADR-0012 decision 4 (3 bits, block 256, RSI 3, 2,050 samples) was really this
+  rejection, misread because `total_out` reports the full room after an error
+  (next point). The trailing-fill behaviour decision 4 describes is real, and
+  is pinned by `trailing_zero_block_overrun_b08`.
+  `se_pair_sum_over_12_b03_j256_r3_pp` records the rejection, as kind
+  `libaec_rejects`: libaec's status, the 2,047 samples it produced before the
+  error (counted by decoding one sample per call) and their digest, and
+  `source_sha256`, the digest of the field the encoder was given. The
+  generator only accepts such a case after confirming the cause: it builds a
+  third libaec whose decoder table covers pair sums up to 128, and that build
+  must decode the stream to exactly the source field. It never supplies an
+  expected output. The same check guards every rejection in the `--full`
+  matrix; any other failure stops the generator.
 - **`total_out` means nothing after an error.** `aec_decode` adds `avail_out`
-  to `total_out` on entry and returns on `M_ERROR` before subtracting it or
-  flushing (`decode.c:829-834`), so `aec_buffer_decode` reports the full room it
+  to `total_out` on entry (`decode.c:824`) and returns on `M_ERROR` before
+  subtracting it or flushing (`decode.c:830-831`), so `aec_buffer_decode` reports the full room it
   was given, and the last partial RSI is never written. A reported
   `total_out` equal to the requested length is not evidence the output is
   complete.

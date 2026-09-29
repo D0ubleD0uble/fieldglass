@@ -17,6 +17,10 @@ temporary directory, and drives the built libraries through `ctypes`:
   nothing in libaec's CMake defines it). Only its encoder is used: the macro
   does not touch the decoder.
 
+A third build, with the decoder's second-extension table widened, is used only
+to confirm why the stock decoder refuses a stream (`is_se_table_rejection`). It
+never supplies an expected output.
+
 Every stream comes from **libaec's own encoder**, and libaec's **decoder** is
 always the value oracle. There are no hand-built streams. The inputs of the
 option-forced cases are ported from libaec's `tests/check_code_options.c`
@@ -101,6 +105,7 @@ SZ_MSB = 16
 SZ_NN = 32
 
 AEC_OK = 0
+AEC_DATA_ERROR = -3
 
 # check_code_options.c's buffer: 3 KiB of samples per case.
 CHECK_BUF_BYTES = 1024 * 3
@@ -129,8 +134,31 @@ def fetch_source(tarball: Path | None) -> bytes:
     return data
 
 
+# The confirmation build: libaec's decoder with its second-extension table
+# widened from pair sums 0-12 to 0-128, which covers any sum a block of up to
+# 256 samples at up to 32 bits can reach within the uncompressed length the
+# encoder bounds it by. It is never an oracle for output. It only proves that a
+# stream the stock decoder refuses fails for that one reason: the wide decoder
+# must then return exactly the field the encoder was given.
+SE_TABLE_PATCHES = (
+    ("src/decode.h", "#define SE_TABLE_SIZE 90\n", "#define SE_TABLE_SIZE 8384\n"),
+    ("src/decode.c", "    for (int i = 0; i < 13; i++) {\n", "    for (int i = 0; i < 129; i++) {\n"),
+)
+
+
+def widen_se_table(src: Path, dest: Path) -> None:
+    """Copy the source tree to `dest` with SE_TABLE_PATCHES applied, each once."""
+    shutil.copytree(src, dest)
+    for rel, old, new in SE_TABLE_PATCHES:
+        path = dest / rel
+        text = path.read_text(encoding="utf-8")
+        if text.count(old) != 1:
+            raise SystemExit(f"{rel}: expected exactly one {old.strip()!r} to widen the SE table")
+        path.write_text(text.replace(old, new), encoding="utf-8")
+
+
 def build_libaec(work: Path, source: bytes) -> dict[str, Path]:
-    """Build both flavours; return the directory holding each one's libraries."""
+    """Build every flavour; return the directory holding each one's libraries."""
     # Member by member rather than `extractall`: regular files only, and none
     # that would land outside `work`. The digest check already pins the
     # tarball; this keeps a bad one from writing anywhere even so.
@@ -148,11 +176,17 @@ def build_libaec(work: Path, source: bytes) -> dict[str, Path]:
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(handle.read())
     src = work / f"libaec-{LIBAEC_VERSION}"
+    wide_src = work / "libaec-wide-se-table"
+    widen_se_table(src, wide_src)
     out: dict[str, Path] = {}
-    for name, extra in (("default", []), ("rsi_padding", [RSI_PADDING_FLAGS])):
+    for name, tree, extra in (
+        ("default", src, []),
+        ("rsi_padding", src, [RSI_PADDING_FLAGS]),
+        ("wide_se_table", wide_src, []),
+    ):
         build = work / f"build-{name}"
         subprocess.run(
-            ["cmake", "-S", str(src), "-B", str(build), *CMAKE_COMMON, *extra],
+            ["cmake", "-S", str(tree), "-B", str(build), *CMAKE_COMMON, *extra],
             check=True,
             stdout=subprocess.DEVNULL,
         )
@@ -799,7 +833,7 @@ def field_cases(libs: dict[str, Libaec]) -> list[AecCase]:
     )
 
     cases.append(trailing_zero_block_case(aec))
-    cases.append(se_pair_sum_case(aec))
+    cases.append(se_pair_sum_case(libs))
     return cases
 
 
@@ -835,43 +869,69 @@ def trailing_zero_block_case(aec: Libaec) -> AecCase:
     raise SystemExit("no appended bytes reproduce the trailing zero-block AEC_DATA_ERROR")
 
 
-def se_pair_sum_case(aec: Libaec) -> AecCase:
+def is_se_table_rejection(libs: dict[str, Libaec], case: AecCase) -> bool:
+    """Whether libaec refuses `case` only because of its second-extension table.
+
+    The stock decoder must return AEC_DATA_ERROR (-3), and the wide-table build
+    must decode the same stream to exactly the field the encoder was given.
+    Anything else is a failure nobody has explained, and must stop the build.
+    """
+    args = (case.stream, case.bits_per_sample, case.block_size, case.rsi, case.flags)
+    status, _ = libs["default"].decode(*args, len(case.source))
+    if status != AEC_DATA_ERROR:
+        return False
+    wide_status, wide_out = libs["wide_se_table"].decode(*args, len(case.source))
+    return wide_status == AEC_OK and wide_out == case.source
+
+
+def se_pair_sum_case(libs: dict[str, Libaec]) -> AecCase:
     """A stream libaec's own encoder writes and its decoder rejects.
 
-    The parameters are ADR-0012's claim 14 (3 bits, block 256, RSI 3, 2,050
-    samples). The encoder bounds a second-extension block only by its total
-    length (`assess_se_option`, `encode.c:396-416`), so at 3 bits and block 256
-    it can emit a pair whose sum is 13 or 14. The decoder's table stops at a
-    sum of 12 (`SE_TABLE_SIZE`, 90), so it returns AEC_DATA_ERROR mid-stream
+    The encoder bounds a second-extension block only by its total length
+    (`assess_se_option`, `encode.c:396-416`), so at 3 bits and block 256 it can
+    emit a pair whose sum is 13 or 14. The decoder's table stops at a sum of 12
+    (`SE_TABLE_SIZE`, 90), so it returns AEC_DATA_ERROR mid-stream
     (`decode.c:566, 599`). CCSDS 121.0-B-3 puts no bound on the sum.
 
-    `aec_buffer_decode` reports `total_out` equal to the room it was given when
-    it fails, because it returns before flushing (`decode.c:829-830`), so that
-    number says nothing. The samples libaec really produced are counted by
-    decoding one sample per call instead. The manifest records that prefix and
-    the digest of the field the encoder was given.
+    These are the parameters of the planning spike's example for ADR-0012
+    decision 4 (3 bits, block 256, RSI 3, 2,050 samples). That example was
+    really this rejection, misread because `total_out` reports the full room
+    after an error: `aec_decode` adds `avail_out` to it on entry
+    (`decode.c:824`) and returns on M_ERROR before subtracting it or flushing
+    (`decode.c:830-831`). The trailing-fill behaviour decision 4 describes is
+    real, and `trailing_zero_block_overrun_b08` pins it.
+
+    The samples libaec really produced are counted by decoding one sample per
+    call. The manifest records that prefix and the digest of the field the
+    encoder was given. The case is only accepted if `is_se_table_rejection`
+    confirms the cause.
     """
+    aec = libs["default"]
     bps, block, rsi, n, flags = 3, 256, 3, 2050, PREPROCESS
     for seed in range(10_000):
         vals = field_values("noise", n, bps, flags, 9000 + seed)
         stream = aec.encode(pack(vals, bps, flags), bps, block, rsi, flags | NOT_ENFORCE)
         status, _ = aec.decode(stream, bps, block, rsi, flags, n)
-        if status != AEC_OK:
-            return AecCase(
-                "se_pair_sum_over_12_b03_j256_r3_pp",
-                "libaec_rejects",
-                bps,
-                block,
-                rsi,
-                flags,
-                n,
-                stream,
-                note=(
-                    "libaec's encoder writes a second-extension pair sum above 12 and its decoder "
-                    f"returns {status} (seed {9000 + seed})"
-                ),
-                source=decoded_layout(vals, bps, flags),
-            )
+        if status == AEC_OK:
+            continue
+        case = AecCase(
+            "se_pair_sum_over_12_b03_j256_r3_pp",
+            "libaec_rejects",
+            bps,
+            block,
+            rsi,
+            flags,
+            n,
+            stream,
+            note=(
+                "libaec's encoder writes a second-extension pair sum above 12 and its decoder "
+                f"returns {status} (seed {9000 + seed}); a decoder with a wider table reads it exactly"
+            ),
+            source=decoded_layout(vals, bps, flags),
+        )
+        if not is_se_table_rejection(libs, case):
+            raise SystemExit(f"seed {9000 + seed}: libaec returns {status}, and not because of its SE table")
+        return case
     raise SystemExit("no stream reproduces the second-extension rejection")
 
 
@@ -1163,7 +1223,7 @@ def full_corpus(libs: dict[str, Libaec]) -> list[AecCase]:
                 n = min(block * rsi * 2 + 7, 20_000)
                 vals = field_values(kind, n, bps, flags, 20_000 + idx)
                 name = f"full_b{bps:02d}_j{block:03d}_r{rsi:04d}_{flag_tag(flags)}_{kind}"
-                cases.append(label_rejects(aec, encode_case(aec, name, "field", vals, bps, block, rsi, flags)))
+                cases.append(label_rejects(libs, encode_case(aec, name, "field", vals, bps, block, rsi, flags)))
                 idx += 1
     for bps in range(1, 33):
         for block in (8, 16, 32, 64):
@@ -1173,23 +1233,28 @@ def full_corpus(libs: dict[str, Libaec]) -> list[AecCase]:
                 vals = field_values("runs", n, bps, flags, 30_000 + idx)
                 name = f"full_pad_b{bps:02d}_j{block:03d}_r{rsi:04d}_{flag_tag(flags)}"
                 case = encode_case(aec, name, "field", vals, bps, block, rsi, flags, encoder="rsi_padding", libs=libs)
-                cases.append(label_rejects(aec, case))
+                cases.append(label_rejects(libs, case))
                 idx += 1
     return cases
 
 
-def label_rejects(aec: Libaec, case: AecCase) -> AecCase:
-    """Mark a matrix case libaec's decoder refuses.
+def label_rejects(libs: dict[str, Libaec], case: AecCase) -> AecCase:
+    """Mark a matrix case libaec's decoder refuses for the known reason.
 
     At large blocks and few bits libaec's encoder can write a second-extension
-    pair its decoder rejects (see `se_pair_sum_case`). The committed corpus
-    holds one such case on purpose; the matrix keeps whichever it meets,
-    labelled, rather than failing the round-trip self-check.
+    pair its decoder rejects (see `se_pair_sum_case`). A case that fails for
+    that reason, confirmed by `is_se_table_rejection`, is kept and labelled.
+    Any other failure stops the build: it is unexplained, and relabelling it
+    would hide it.
     """
     args = (case.stream, case.bits_per_sample, case.block_size, case.rsi, case.flags)
-    status, _ = aec.decode(*args, len(case.source))
-    if status != AEC_OK:
-        case.kind = "libaec_rejects"
+    status, _ = libs["default"].decode(*args, len(case.source))
+    if status == AEC_OK:
+        return case
+    if not is_se_table_rejection(libs, case):
+        raise SystemExit(f"{case.name}: libaec returns {status}, and not because of its SE table")
+    case.kind = "libaec_rejects"
+    print(f"{case.name}: libaec's SE table refuses it; labelled libaec_rejects", file=sys.stderr)
     return case
 
 
@@ -1252,8 +1317,9 @@ def main(argv: list[str] | None = None) -> int:
         dump_expected(args.dump_expected, corpus)
     size = sum(p.stat().st_size for p in out.rglob("*") if p.is_file())
     print(
-        f"{len(corpus.grid)} grid rows, {len(corpus.aec)} aec cases, {len(corpus.sz)} sz cases, "
-        f"{check_count} check_code_options assertions; {size} bytes under {out}",
+        f"{len(corpus.grid)} grid rows, {len(corpus.aec)} aec cases "
+        f"({sum(c.kind == 'libaec_rejects' for c in corpus.aec)} refused by libaec's SE table), "
+        f"{len(corpus.sz)} sz cases, {check_count} check_code_options assertions; {size} bytes under {out}",
         file=sys.stderr,
     )
     return 0
