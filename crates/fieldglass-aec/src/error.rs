@@ -51,6 +51,8 @@ pub enum AecError {
     ///   rules out and libaec silently wraps;
     /// - a second-extension pair beside a reference sample whose first value
     ///   is not the 0 the standard puts there, which libaec ignores;
+    /// - a zero-block run longer than the 63 blocks of CCSDS 121.0-B-3
+    ///   Table 3-2, which libaec accepts if it fits the interval;
     /// - a zero-block run that passes the end of its reference sample
     ///   interval, which libaec also refuses.
     #[error("invalid code in the block starting at sample {sample}: {reason}")]

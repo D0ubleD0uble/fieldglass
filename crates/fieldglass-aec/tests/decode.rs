@@ -216,6 +216,20 @@ fn a_second_extension_pair_beside_a_reference_must_start_with_zero() {
 }
 
 #[test]
+fn a_zero_run_longer_than_table_3_2_is_an_invalid_code() {
+    // 8 bits, block 2, RSI 128. Table 3-2 ends at 63 zeros and a one (63
+    // blocks); libaec would read 64 zeros as 64 blocks, since they fit.
+    let p = params(8, 2, 128, Flags::empty());
+    let run = |fs| Bits::default().put(0b000, 3).put(0, 1).fs(fs).done();
+    let sink = collect(&run(63), &p, 126).unwrap();
+    assert_eq!(sink.samples, vec![0; 126]);
+    assert!(matches!(
+        collect(&run(64), &p, 128),
+        Err(AecError::InvalidCode { sample: 0, .. })
+    ));
+}
+
+#[test]
 fn a_zero_run_past_the_interval_is_an_invalid_code() {
     // RSI of 2 blocks; fs = 2 asks for 3 zero blocks.
     let p = params(8, 4, 2, Flags::empty());

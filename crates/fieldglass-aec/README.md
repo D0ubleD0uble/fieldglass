@@ -7,8 +7,9 @@ filter.
 The goal is to decode correctly per the standard, CCSDS 121.0-B-3.
 [libaec](https://github.com/MathisRosenhauer/libaec) 1.1.7 is the reference it
 is checked against: the crate accepts exactly the parameter sets libaec's
-decoder accepts, and its output equals libaec's, byte for byte, on every stream
-in a committed corpus that libaec's encoder wrote. Where libaec disagrees with
+decoder accepts, and its output matches libaec's byte for byte wherever libaec
+is correct, over a committed corpus of streams that libaec's encoder wrote.
+Where libaec disagrees with
 the standard, or accepts a stream no valid encoder writes, the crate follows
 the standard (see below). It depends on nothing but `thiserror`, contains no
 `unsafe`, and allocates nothing while decoding.
@@ -58,6 +59,8 @@ The complement of libaec 1.1.7's `aec_decode_init` refusals:
 - A value of 2^n or more before postprocessing is an error. libaec wraps it.
 - A second-extension pair beside a reference sample must start with the 0 the
   standard puts there. libaec ignores that value.
+- A zero-block run longer than 63 blocks is an error: the standard's table of
+  run codes ends there. libaec accepts any length that fits the interval.
 - Decoding stops at the requested count, so trailing fill that libaec misreads
   after the last sample is never an error.
 

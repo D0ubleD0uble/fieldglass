@@ -392,7 +392,8 @@ file of the shipped crates by `#[path]` and proves it in place; the specs sit
 in `cfg_attr(verus_keep_ghost, ...)` attributes a normal build never expands
 (#199, [`../../verification.md`](../../verification.md)). The GRIB scaling
 kernel and the inverse spatial differencing, both shared by the two editions,
-are proved; the rest is planned.
+are proved, and so is the byte shuffle the HDF5 and Zarr readers share; the
+rest is planned.
 
 ```mermaid
 flowchart LR
@@ -401,10 +402,10 @@ flowchart LR
         t1b["core::spatial_diff apply_spd_inverse #200"]
         t1c["grib2::decode_complex_groups #201"]
         t2a["decode_inline_bitmap / parse_bitmap #202"]
-        t2b["hdf5 unshuffle #203"]
+        t2b["core::shuffle unshuffle, shuffle #203"]
         t3["classic read_slab / record_size #204"]
     end
     verify["fieldglass-verify #205"] -. proves .-> kernel
     classDef planned stroke-dasharray: 6 4
-    class t1c,t2a,t2b,t3 planned
+    class t1c,t2a,t3 planned
 ```

@@ -253,7 +253,14 @@ class TheRepoItselfPasses(unittest.TestCase):
         # Pinned by path, so a new kernel file — or a lost one — comes past a
         # reviewer here rather than quietly changing what is verified.
         found = [p.as_posix() for p in chk.kernel_files(chk.REPO)]
-        self.assertEqual(found, [KERNEL, "crates/fieldglass-core/src/spatial_diff.rs"])
+        self.assertEqual(
+            found,
+            [
+                KERNEL,
+                "crates/fieldglass-core/src/shuffle.rs",
+                "crates/fieldglass-core/src/spatial_diff.rs",
+            ],
+        )
 
     def test_every_kernel_is_included_and_covered(self):
         self.assertEqual(chk.check(), [])

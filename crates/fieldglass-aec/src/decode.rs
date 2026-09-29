@@ -27,6 +27,10 @@ const ROS: u64 = 5;
 /// Blocks per segment, for [`ROS`].
 const SEGMENT_BLOCKS: u32 = 64;
 
+/// The longest zero-block fundamental sequence Table 3-2 defines: 63 zeros
+/// and a one, for 63 blocks.
+const MAX_ZERO_RUN_FS: u64 = 63;
+
 /// The largest second-extension codeword this decoder reads.
 ///
 /// CCSDS 121.0-B-3 §3.4.2 puts no bound on a codeword `γ = (α+β)(α+β+1)/2 + β`
@@ -55,6 +59,7 @@ impl From<Eof> for Stop {
 
 const TOO_WIDE: &str = "a value wider than the sample width";
 const RUN_PAST_RSI: &str = "a zero-block run past the end of the reference sample interval";
+const RUN_PAST_TABLE: &str = "a zero-block run longer than the 63 blocks of Table 3-2";
 const SE_OUT_OF_RANGE: &str = "a second-extension codeword beyond the decoder's table";
 const SE_REFERENCE_PAIR: &str =
     "a second-extension pair beside a reference sample that does not start with 0";
@@ -307,8 +312,7 @@ impl<'a> Kernel<'a> {
                 return Ok(Cds::Block);
             }
             let fs = self.reader.fs()?;
-            let blocks =
-                zero_run_blocks(fs, blocks_in_rsi, self.rsi).ok_or(Stop::Invalid(RUN_PAST_RSI))?;
+            let blocks = zero_run_blocks(fs, blocks_in_rsi, self.rsi).map_err(Stop::Invalid)?;
             return Ok(Cds::ZeroRun { blocks });
         }
         self.split(buf, id - 1, has_ref, want)?;
@@ -444,20 +448,36 @@ enum Cds {
 
 /// How many zero blocks a zero-block CDS covers, given its fundamental
 /// sequence `fs`, the blocks already decoded in this reference sample interval
-/// and the interval's length; `None` if the run passes the end of the interval.
+/// and the interval's length; or why the code is invalid.
 ///
 /// CCSDS 121.0-B-3 Table 3-2: `fs + 1` blocks for 1 to 4, then the ROS code (5)
-/// for "the rest of this 64-block segment", and `fs` blocks above it. Segments
-/// count from the start of the interval, and the rest of a segment stops at the
+/// for "the rest of this 64-block segment", and `fs` blocks from 5 to 63. The
+/// table ends at 63 zeros and a one, a whole segment, so a longer sequence is
+/// refused; libaec accepts any length that fits the interval. Segments count
+/// from the start of the interval, and the rest of a segment stops at the
 /// interval's end.
-pub(crate) fn zero_run_blocks(fs: u64, blocks_in_rsi: u32, rsi: u32) -> Option<u32> {
-    let left_in_rsi = rsi.checked_sub(blocks_in_rsi)?;
-    let blocks = match fs.checked_add(1)? {
+///
+/// A run other than ROS may cross a segment boundary. B-3 lists "specifies the
+/// size of a segment as 64 blocks" among its changes affecting backward
+/// compatibility, so an encoder written to the earlier issue can place runs
+/// that way; they are accepted, as libaec accepts them. A run past the end of
+/// the interval is refused.
+pub(crate) fn zero_run_blocks(fs: u64, blocks_in_rsi: u32, rsi: u32) -> Result<u32, &'static str> {
+    let left_in_rsi = rsi.checked_sub(blocks_in_rsi).ok_or(RUN_PAST_RSI)?;
+    if fs > MAX_ZERO_RUN_FS {
+        return Err(RUN_PAST_TABLE);
+    }
+    // `fs <= 63`, so each count fits a `u32`.
+    let blocks = match fs + 1 {
         ROS => left_in_rsi.min(SEGMENT_BLOCKS - blocks_in_rsi % SEGMENT_BLOCKS),
-        b if b < ROS => u32::try_from(b).ok()?,
-        b => u32::try_from(b - 1).ok()?,
+        b if b < ROS => u32::try_from(b).map_err(|_| RUN_PAST_TABLE)?,
+        b => u32::try_from(b - 1).map_err(|_| RUN_PAST_TABLE)?,
     };
-    (blocks <= left_in_rsi).then_some(blocks)
+    if blocks <= left_in_rsi {
+        Ok(blocks)
+    } else {
+        Err(RUN_PAST_RSI)
+    }
 }
 
 /// The pair of values `(α, β)` a second-extension codeword `γ` stands for,
@@ -528,25 +548,34 @@ mod tests {
     fn zero_runs_follow_table_3_2() {
         // 1 to 4 blocks, then ROS, then fs blocks.
         for fs in 0..4 {
-            assert_eq!(zero_run_blocks(fs, 0, 128), Some(fs as u32 + 1));
+            assert_eq!(zero_run_blocks(fs, 0, 128), Ok(fs as u32 + 1));
         }
-        assert_eq!(zero_run_blocks(5, 0, 128), Some(5));
-        assert_eq!(zero_run_blocks(63, 0, 128), Some(63));
+        assert_eq!(zero_run_blocks(5, 0, 128), Ok(5));
+        assert_eq!(zero_run_blocks(63, 0, 128), Ok(63));
         // ROS: to the end of the 64-block segment...
-        assert_eq!(zero_run_blocks(4, 0, 128), Some(64));
-        assert_eq!(zero_run_blocks(4, 70, 128), Some(58));
+        assert_eq!(zero_run_blocks(4, 0, 128), Ok(64));
+        assert_eq!(zero_run_blocks(4, 70, 128), Ok(58));
+        // ROS starting mid-segment counts to that segment's end, not 64 on.
+        assert_eq!(zero_run_blocks(4, 10, 128), Ok(54));
+        assert_eq!(zero_run_blocks(4, 100, 4096), Ok(28));
         // ...or of the interval, whichever is first.
-        assert_eq!(zero_run_blocks(4, 10, 20), Some(10));
-        assert_eq!(zero_run_blocks(4, 0, 1), Some(1));
+        assert_eq!(zero_run_blocks(4, 10, 20), Ok(10));
+        assert_eq!(zero_run_blocks(4, 0, 1), Ok(1));
+        // A run other than ROS may cross a segment boundary (B-3's segment
+        // definition is newer than some encoders).
+        assert_eq!(zero_run_blocks(9, 60, 128), Ok(9));
     }
 
     #[test]
-    fn a_zero_run_past_the_interval_is_refused() {
-        assert_eq!(zero_run_blocks(3, 0, 4), Some(4));
-        assert_eq!(zero_run_blocks(3, 1, 4), None);
-        assert_eq!(zero_run_blocks(u64::MAX, 0, 4096), None);
-        assert_eq!(zero_run_blocks(u64::MAX - 1, 0, 4096), None);
-        assert_eq!(zero_run_blocks(0, 5, 4), None);
+    fn a_zero_run_past_the_interval_or_the_table_is_refused() {
+        assert_eq!(zero_run_blocks(3, 0, 4), Ok(4));
+        assert_eq!(zero_run_blocks(3, 1, 4), Err(RUN_PAST_RSI));
+        assert_eq!(zero_run_blocks(0, 5, 4), Err(RUN_PAST_RSI));
+        // Table 3-2 stops at 63 zeros: longer is refused even inside the
+        // interval, where libaec would accept it.
+        assert_eq!(zero_run_blocks(63, 0, 4096), Ok(63));
+        assert_eq!(zero_run_blocks(64, 0, 4096), Err(RUN_PAST_TABLE));
+        assert_eq!(zero_run_blocks(u64::MAX, 0, 4096), Err(RUN_PAST_TABLE));
     }
 
     #[test]

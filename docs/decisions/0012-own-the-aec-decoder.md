@@ -148,16 +148,25 @@ byte layout, so this is libaec's convention, kept for the oracle.
 
 Each row is a stream on which libaec's decoder and the standard disagree, or
 on which libaec returns success with output nobody asked for (Q4). Each has
-the clause of CCSDS 121.0-B-3 that decides it and a case that reproduces it.
+the clause of CCSDS 121.0-B-3 that decides it, or says plainly that it is an
+API choice with no clause, and a case that reproduces it.
 
 | Case | libaec 1.1.7 | `fieldglass-aec` | Evidence |
 | --- | --- | --- | --- |
 | A second-extension pair sum above 12 | `AEC_DATA_ERROR` part-way: its table stops at codeword 90 (`create_se_table`, `decode.c:674-685`; `SE_TABLE_SIZE`, `decode.h:53`), though its own encoder writes such streams (`assess_se_option`, `encode.c:396-416`) | Decoded as the standard defines | §3.4.2 extends the codewords "in the obvious manner" with no bound. Corpus case `se_pair_sum_over_12_b03_j256_r3_pp`: libaec gives 2,047 of 2,050 samples, this crate gives the encoder's input (`source_sha256`). Maintainer decision on #759. |
 | A second-extension pair beside a reference sample whose first value is not 0 | Ignores the first value and keeps the second (`decode.c:570-575, 604-607`) | `AecError` | §3.4.1 and §5.2.6: with a reference sample, a 0 goes in front of the J - 1 mapped errors, so the first pair is (0, δ2). libaec's encoder writes that 0 (`encode.c:236, 272`), so no corpus stream has another value; a unit test in `tests/decode.rs` does. |
-| Truncated input | `AEC_OK` with short output (`decode.c:833-849`) | `AecError`, with the count of samples decoded. Never zero-filled. | Corpus cases `truncated_half_b16` (libaec gives 4,098 of 8,192 bytes) and `truncated_one_byte_b16`. |
+| A zero-block fundamental sequence longer than 63 zeros | Accepted as that many blocks, if the run fits the RSI (`decode.c:527-541`) | `AecError` | Table 3-2 ends at "63 … (63 0s and a 1)", one whole segment. No libaec-encoded corpus stream has one; unit tests in `src/decode.rs` and `tests/decode.rs` do. |
+| Truncated input | `AEC_OK` with short output (`decode.c:833-849`) | `AecError`, with the count of samples decoded. Never zero-filled. | No clause: an API choice (Q4), so a short input is never mistaken for a short field. Corpus cases `truncated_half_b16` (libaec gives 4,098 of 8,192 bytes) and `truncated_one_byte_b16`. |
 | A value of 2^n or more before postprocessing | Wraps silently | `AecError` | §4.4 maps every prediction error into `0..2^n`, so no valid encoder emits one. The corpus test asserts no libaec-encoded case hits it; unit tests build each kind (split high part, split with k above n, second extension). |
-| szip output shorter than asked | `SZ_OK` with a smaller `destLen` (`sz_compat.c:302-303`) | `AecError`. The output must fill exactly. | #761. |
-| Trailing fill after the last sample | Can return `AEC_DATA_ERROR` *after* producing every sample, when the fill parses as a zero block that overruns the RSI (`decode.c:529-541` is checked before `avail_out`) | Stops at the requested count and never reads the fill, so the same bytes with `Ok` | Corpus case `trailing_zero_block_overrun_b08`. |
+| szip output shorter than asked | `SZ_OK` with a smaller `destLen` (`sz_compat.c:302-303`) | `AecError`. The output must fill exactly. | No clause: szip framing is libsz's contract, not CCSDS 121.0. An API choice (Q4): the caller knows the exact length (HDF5 stores it in the chunk's size prefix), so a short result is lost data. #761. |
+| Trailing fill after the last sample | Can return `AEC_DATA_ERROR` *after* producing every sample, when the fill parses as a zero block that overruns the RSI (`decode.c:529-541` is checked before `avail_out`) | Stops at the requested count and never reads the fill, so the same bytes with `Ok` | §5.3.1: "Fill bits of zero value may be needed to force the packet to end on a byte boundary", so bits after the last CDS are fill, not codes. Corpus case `trailing_zero_block_overrun_b08`. |
+
+One leniency is deliberate and matches libaec: a zero-block run other than ROS
+may cross a 64-block segment boundary. B-3 lists "specifies the size of a
+segment as 64 blocks" among its changes affecting backward compatibility, so an
+encoder written to the earlier issue can place runs that way, and refusing them
+would reject streams that decode unambiguously. `zero_run_blocks` in
+`src/decode.rs` records the same reasoning, and a unit test pins it.
 
 The planning spike's example of the last row (3 bits, block 256, RSI 3, 2,050
 samples) was really the first: `total_out` reports the full room after an

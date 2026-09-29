@@ -145,6 +145,23 @@ defect, and the issue should name the command.
 - Exception: outputs that aren't one scalar per grid point (e.g. the GRIB1 true
   `matrixOfValues` form) use their own path, not `decode_message_values`.
 
+## Correctness comes first; reference libraries are oracles
+The goal is to decode correctly per the format's specification (WMO FM 92 /
+ON388, CCSDS 121.0-B, the HDF5 and NetCDF format documents), wherever one
+defines the behaviour. eccodes, libaec
+and libhdf5 are oracles for checking that, not the definition of correct.
+Matching one of them everywhere assumes it has no bugs, and each has shown
+some: libaec's encoder writes second-extension codes its own decoder rejects
+(#759), and eccodes 2.34.1 writes SIGNED and PAD_RSI flags on CCSDS streams that
+are neither, then decodes them wrongly (#756).
+
+- Where a reference agrees with the spec, match it exactly and test against it.
+- Where it disagrees, follow the spec. Record the evidence (the spec clause and
+  a committed, reproducible case) in the fixture's `NOTICE.md`, the test, and
+  the relevant ADR, and list it as a known divergence.
+- Don't describe "byte-exact with X" as a goal. Say "correct per the spec,
+  matching X wherever X is correct".
+
 ## eccodes validation
 - GRIB decoders are cross-checked against eccodes (pinned to 2.34.1). The test
   suite needs **no** eccodes at runtime — it uses committed fixtures and
