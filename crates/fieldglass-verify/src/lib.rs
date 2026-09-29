@@ -51,10 +51,23 @@ pub fn bits_to_bytes(bits: usize) -> (out: usize)
 } // verus!
 // The proofs over shipped code (#199: `scaling`; #201: `groups`). Each kernel file is the production
 // source itself, included by path, so there is one copy to keep verified.
-// Those files name `crate::FieldglassError` and `crate::bits::BitReader`, which
-// these re-exports provide here exactly as `fieldglass-core` does, and
-// `crate::bits_model`, the trusted specifications of what they call.
-pub use fieldglass_core::{bits, FieldglassError};
+// Those files name `crate::FieldglassError`, which this re-export provides
+// here exactly as `fieldglass-core` does, `crate::bits::BitReader`, and
+// `crate::bits_model`, the specifications and the trusted statements they rest
+// on.
+pub use fieldglass_core::FieldglassError;
+
+// The bit reader every packed-integer kernel reads through (#771). Core ships
+// this file as its private `bits::reader` and re-exports `BitReader` from
+// `bits`; `bits` below does the same here, so the other kernels' paths resolve
+// to the proved reader rather than to core's copy.
+#[path = "../../fieldglass-core/src/bits/reader.rs"]
+pub mod bit_reader;
+
+/// The path the kernels name the reader by, as in `fieldglass-core`.
+pub mod bits {
+    pub use crate::bit_reader::BitReader;
+}
 
 pub mod bits_model;
 
