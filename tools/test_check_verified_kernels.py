@@ -262,6 +262,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 KERNEL,
                 "crates/fieldglass-core/src/shuffle.rs",
                 "crates/fieldglass-core/src/spatial_diff.rs",
+                "crates/fieldglass-netcdf/src/classic/layout.rs",
             ],
         )
 
