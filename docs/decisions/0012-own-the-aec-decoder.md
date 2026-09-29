@@ -62,9 +62,10 @@ before any code is written.
 
 The libaec, rust-aec, HDF5 and eccodes line references in this record were
 checked against libaec v1.1.7 (tag commit `0c4c014`, built twice, default and
-`-DENABLE_RSI_PADDING`), rust-aec 0.1.1 from the cargo registry, HDF5
-`develop` (`H5Zszip.c`, `H5Zpublic.h`), and the eccodes 2.34.1 CLI, during the
-milestone's planning review.
+with `-DCMAKE_C_FLAGS=-DENABLE_RSI_PADDING`), rust-aec 0.1.1 from the cargo
+registry, HDF5 `develop` (`H5Zszip.c`, `H5Zpublic.h`), the eccodes 2.45.0
+source tree (`DataCcsdsPacking.cc`), and the pinned eccodes 2.34.1 CLI (the
+flag table), during the milestone's planning review.
 
 ## Decision
 
@@ -163,7 +164,8 @@ two rules that match what eccodes' encoder wrote:
   is wrong. The alternative, libaec semantics, would turn flag 36 files into the
   garbage in the table.
 
-These live in `fieldglass-grib2`'s sink, not in the codec crate. The codec
+These live in `fieldglass-grib2`, in the flags it passes and the sink it
+decodes into, not in the codec crate. The codec
 matches libaec; the consumer decides what a GRIB2 message meant. #756's fixtures
 pin both rules, and #762 must keep them green.
 
@@ -222,8 +224,9 @@ signature.
 
 - **A pinned libaec source build.** `tools/build_aec_fixtures.py` (#758)
   downloads the libaec v1.1.7 tag tarball, checks its SHA-256, builds it with
-  cmake twice (default, and `-DENABLE_RSI_PADDING`, because the default encoder
-  cannot write PAD_RSI), and drives it through `ctypes`. cmake and a C compiler
+  cmake twice (default, and `-DCMAKE_C_FLAGS=-DENABLE_RSI_PADDING`, because the
+  default encoder cannot write PAD_RSI; libaec's CMake has no option for it),
+  and drives it through `ctypes`. cmake and a C compiler
   are needed only to regenerate; the tests need nothing, as with eccodes.
 - **Streams from libaec's own encoder.** Inputs are ported from libaec's
   `tests/check_code_options.c`, which forces every coding option (zero block,
@@ -242,8 +245,8 @@ signature.
   manifest is caught. It also runs the full matrix (about 5,300 cases) and the
   66 CCSDS 121.0-B-2 sample files from the tarball, neither of which is
   committed.
-- **No differential testing against rust-aec.** It diverges from libaec on
-  purpose in two places, and on random bytes both decoders mostly error, so the
+- **No differential testing against rust-aec.** It diverges from libaec in two
+  places (see Context), and on random bytes both decoders mostly error, so the
   comparison says nothing. Fuzzing covers panics, hangs and exact output length.
 
 The four eccodes 5.42 fixtures stay unchanged as the GRIB2 backstop, and h5py

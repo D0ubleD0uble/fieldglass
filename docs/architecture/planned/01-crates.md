@@ -72,7 +72,8 @@ beside `core` and depends on neither
 ([ADR-0012](../../decisions/0012-own-the-aec-decoder.md)). Only the two readers
 whose containers use the coder take it, `grib2` for template 5.42 and `netcdf`
 for the HDF5 szip filter, so a GRIB1 or Zarr consumer never links it and no
-reader depends on another to reach it.
+reader depends on another to reach it. For `grib2` it replaces the external
+`rust-aec`, so what a GRIB2-only consumer links does not grow.
 
 **What each layer is, and what changes in it**
 
