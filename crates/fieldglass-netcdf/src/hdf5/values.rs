@@ -368,7 +368,7 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
         let expanded = if pipeline.filters.is_empty() {
             stored.into_owned()
         } else {
-            pipeline.reverse(stored.into_owned(), chunk.filter_mask, elem)?
+            pipeline.reverse(stored.into_owned(), chunk.filter_mask, elem, chunk_bytes)?
         };
         if expanded.len() < chunk_bytes {
             return Err(FieldglassError::Parse(format!(

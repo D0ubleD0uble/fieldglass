@@ -12,6 +12,10 @@ keywords    = ["netcdf", "hdf5", "meteorology", "weather", "science"]
 categories  = ["science", "parser-implementations"]
 
 [dependencies]
+# The CCSDS 121.0 decoder and libsz framing behind the HDF5 szip filter (id 4,
+# #421). A codec crate with no workspace dependencies, so this adds exactly one
+# crate to the tree (ADR-0012 decision 1).
+fieldglass-aec = { path = "../fieldglass-aec", version = "=0.5.0" }
 fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false }
 # DEFLATE (zlib) decode for the HDF5 deflate filter on chunked NetCDF-4 datasets.
 miniz_oxide = { workspace = true }

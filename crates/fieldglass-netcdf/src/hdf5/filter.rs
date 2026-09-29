@@ -2,8 +2,8 @@
 //! (issue #121, under #33). A chunked dataset may pass each chunk through a
 //! pipeline of filters on write; reading reverses them, in the opposite order.
 //!
-//! Four filters cover the overwhelming majority of NetCDF-4 climate data, and
-//! all are decoded here in pure Rust:
+//! Five filters cover the overwhelming majority of NetCDF-4 and HDF5 science
+//! data, and all are decoded here in pure Rust:
 //!
 //! * **deflate** (filter id 1) — a zlib stream, undone with `miniz_oxide`.
 //! * **shuffle** (filter id 2) — reorders an element's bytes so like-significance
@@ -12,14 +12,20 @@
 //!   appends four bytes to the chunk, which reading verifies and strips (#412).
 //! * **zstd** (filter id 32015) — netcdf-c >= 4.9's recommended compressor for
 //!   new climate archives, undone with `ruzstd` (#413).
+//! * **szip** (filter id 4) — CCSDS 121.0 adaptive entropy coding, common
+//!   across the NASA EOS archive (AIRS, MODIS). The coder and libsz's framing
+//!   are `fieldglass_aec::sz`; the HDF5 part (the `cd_values` order and the
+//!   size prefix) is here (#421).
 //!
-//! Any other filter (szip, nbit, scale-offset, …) is recognised by id and
-//! rejected with a clear error rather than silently mis-decoded.
+//! Any other filter (nbit, scale-offset, …) is recognised by id and rejected
+//! with a clear error rather than silently mis-decoded.
 //!
 //! Reference: HDF5 file format specification version 3, "Data Storage - Filter
 //! Pipeline Message".
 
 use super::object_header::{read_uint_le, read_usize_le};
+use fieldglass_aec::AecError;
+use fieldglass_aec::sz::{self, SzParams};
 use fieldglass_core::FieldglassError;
 // The shuffle filter's inverse is the byte transpose blosc and Zarr use too, so
 // it lives once in core, which proves it (#203). A chunk that is not a whole
@@ -30,12 +36,20 @@ use fieldglass_core::shuffle::unshuffle;
 const FILTER_DEFLATE: u16 = 1;
 const FILTER_SHUFFLE: u16 = 2;
 const FILTER_FLETCHER32: u16 = 3;
+const FILTER_SZIP: u16 = 4;
 /// Registered (not reserved) id: HDF5 allocates 32768+ to third parties, and
 /// the zstd filter's is 32015 from the earlier registered-filter range.
 const FILTER_ZSTD: u16 = 32015;
 
 /// Bytes fletcher32 appends to a chunk (`FLETCHER_LEN` in libhdf5).
 const FLETCHER32_LEN: usize = 4;
+
+/// Client data values the szip filter carries (`H5Z_SZIP_TOTAL_NPARMS`).
+const SZIP_CD_VALUES: usize = 4;
+
+/// Bytes of the uncompressed-size prefix libhdf5 writes in front of every
+/// szip stream (`UINT32ENCODE` in `H5Zszip.c`, so little-endian).
+const SZIP_PREFIX_LEN: usize = 4;
 
 /// Upper bound on filters in one pipeline — guards a corrupt count.
 const MAX_FILTERS: usize = 32;
@@ -152,12 +166,16 @@ impl FilterPipeline {
     /// opposite of write order; a filter whose bit is set in `filter_mask` was
     /// skipped on write for this chunk, so it is skipped on read too.
     /// `element_size` is the dataset's element width, used by shuffle when the
-    /// filter itself doesn't carry it.
+    /// filter itself doesn't carry it. `expected_len` is the chunk's length
+    /// before any filter ran, which szip checks its size prefix against when
+    /// it can (see [`Self::length_before`]). The caller still checks the
+    /// result's length: deflate and zstd are bounded by a ceiling only.
     pub fn reverse(
         &self,
         mut data: Vec<u8>,
         filter_mask: u32,
         element_size: usize,
+        expected_len: usize,
     ) -> Result<Vec<u8>, FieldglassError> {
         for (index, filter) in self.filters.iter().enumerate().rev() {
             if filter_mask & (1u32 << index) != 0 {
@@ -176,15 +194,129 @@ impl FilterPipeline {
                 }
                 FILTER_FLETCHER32 => verify_fletcher32(&data)?,
                 FILTER_ZSTD => unzstd(&data)?,
+                FILTER_SZIP => unszip(
+                    &data,
+                    &filter.client_data,
+                    self.length_before(index, filter_mask, expected_len),
+                    MAX_DECOMPRESSED_CHUNK,
+                )?,
                 other => {
                     return Err(FieldglassError::UnsupportedSection(format!(
                         "HDF5 filter id {other} is not supported (only deflate, \
-                         shuffle, fletcher32, and zstd are decoded)"
+                         shuffle, fletcher32, zstd, and szip are decoded)"
                     )));
                 }
             };
         }
         Ok(data)
+    }
+
+    /// The exact length filter `index` was handed on write, when it is known:
+    /// `expected_len` if every filter before it that ran on this chunk keeps
+    /// the length, and `None` otherwise.
+    ///
+    /// Only shuffle keeps the length. deflate and zstd produce a stream of
+    /// any length, and fletcher32 adds four bytes. When one of them ran before
+    /// szip, szip's size prefix is that filter's output length, which nothing
+    /// outside the stream records, so the prefix is bounded by the ceiling
+    /// alone and the caller's check of the final length does the rest.
+    /// libhdf5 writes and reads such pipelines, so they are decoded rather
+    /// than refused.
+    fn length_before(&self, index: usize, filter_mask: u32, expected_len: usize) -> Option<usize> {
+        self.filters[..index]
+            .iter()
+            .enumerate()
+            .all(|(i, f)| filter_mask & (1u32 << i) != 0 || f.id == FILTER_SHUFFLE)
+            .then_some(expected_len)
+    }
+}
+
+/// Undo the HDF5 szip filter (id 4) on one chunk.
+///
+/// The chunk is a 4-byte little-endian uncompressed size, then an szip stream
+/// (`H5Zszip.c`). `cd_values` are in libhdf5's order, `(mask, pixels per
+/// block, bits per pixel, pixels per scanline)` (`H5Zpublic.h`), which is
+/// **not** [`SzParams`]' libsz order `(mask, bits per pixel, pixels per block,
+/// pixels per scanline)`. Passing them through positionally swaps the middle
+/// two, and most swaps are still valid parameters that decode to garbage.
+///
+/// The prefix is checked before anything is allocated for it. It must be:
+///
+/// - at most `limit` bytes ([`MAX_DECOMPRESSED_CHUNK`] outside tests);
+/// - equal to `exact`, when that is known ([`FilterPipeline::length_before`]);
+/// - a whole number of szip pixels. The pixel is the width bits per pixel
+///   rounds up to (1, 2, 4 or 8 bytes), not the dataset's element: libhdf5
+///   codes a 16-bit-precision `int32` at 16 bits per pixel, and the chunk is
+///   still a whole number of those (ADR-0012 decision D2).
+///
+/// Parameters `fieldglass_aec` does not accept are
+/// [`FieldglassError::UnsupportedSection`]; a stream that does not decode to
+/// exactly the prefix's length is [`FieldglassError::Parse`].
+fn unszip(
+    data: &[u8],
+    cd_values: &[u32],
+    exact: Option<usize>,
+    limit: usize,
+) -> Result<Vec<u8>, FieldglassError> {
+    let &[mask, ppb, bpp, pps] = cd_values else {
+        return Err(FieldglassError::Parse(format!(
+            "szip filter carries {} client data values, expected {SZIP_CD_VALUES} \
+             (mask, pixels per block, bits per pixel, pixels per scanline)",
+            cd_values.len()
+        )));
+    };
+    // The swap: HDF5 stores (mask, ppb, bpp, pps), libsz takes (mask, bpp, ppb, pps).
+    let params = SzParams::new(mask, bpp, ppb, pps).map_err(szip_error)?;
+
+    let (prefix, stream) = data.split_first_chunk::<SZIP_PREFIX_LEN>().ok_or_else(|| {
+        FieldglassError::Parse(format!(
+            "szip chunk of {} bytes is too short for its {SZIP_PREFIX_LEN}-byte size prefix",
+            data.len()
+        ))
+    })?;
+    // A `u32` fits a `usize` on every target this builds for (64-bit hosts and
+    // wasm32); saturating would only matter on a 16-bit one.
+    let len = usize::try_from(u32::from_le_bytes(*prefix)).unwrap_or(usize::MAX);
+    if len > limit {
+        return Err(FieldglassError::Parse(format!(
+            "szip chunk declares {len} bytes, past the {limit}-byte ceiling"
+        )));
+    }
+    if let Some(expected) = exact
+        && len != expected
+    {
+        return Err(FieldglassError::Parse(format!(
+            "szip chunk declares {len} bytes, but the chunk is {expected} bytes"
+        )));
+    }
+    let pixel = params.bytes_per_pixel();
+    if !len.is_multiple_of(pixel) {
+        return Err(FieldglassError::Parse(format!(
+            "szip chunk declares {len} bytes, not a whole number of {pixel}-byte pixels \
+             at {bpp} bits per pixel"
+        )));
+    }
+
+    let mut out = vec![0u8; len];
+    sz::decompress(stream, &params, &mut out).map_err(szip_error)?;
+    Ok(out)
+}
+
+/// Map a codec error onto the reader's: a parameter set the codec does not
+/// take is an unsupported file, anything else is a corrupt one.
+fn szip_error(e: AecError) -> FieldglassError {
+    match e {
+        AecError::BitsPerPixel(_)
+        | AecError::PixelsPerBlock(_)
+        | AecError::PixelsPerScanline(_)
+        | AecError::BitsPerSample(_)
+        | AecError::BlockSize(_)
+        | AecError::Rsi(_)
+        | AecError::Restricted(_)
+        | AecError::OutputTooLarge { .. } => {
+            FieldglassError::UnsupportedSection(format!("HDF5 szip filter: {e}"))
+        }
+        _ => FieldglassError::Parse(format!("szip decompress failed: {e}")),
     }
 }
 
@@ -365,7 +497,7 @@ mod tests {
             0x04, 0x08, 0x03, 0x07, 0x02, 0x06, 0x01, 0x05, 0xE0, 0xE1, 0xE2,
         ];
         assert_eq!(
-            pipeline.reverse(chunk, 0, 4).unwrap(),
+            pipeline.reverse(chunk, 0, 4, 11).unwrap(),
             vec![
                 0x04, 0x03, 0x02, 0x01, 0x08, 0x07, 0x06, 0x05, 0xE0, 0xE1, 0xE2
             ]
@@ -398,7 +530,7 @@ mod tests {
                 },
             ],
         };
-        let recovered = pipeline.reverse(compressed, 0, 4).unwrap();
+        let recovered = pipeline.reverse(compressed, 0, 4, original.len()).unwrap();
         assert_eq!(recovered, original);
     }
 
@@ -413,7 +545,7 @@ mod tests {
             }],
         };
         let raw = vec![1u8, 2, 3, 4];
-        let out = pipeline.reverse(raw.clone(), 0b1, 4).unwrap();
+        let out = pipeline.reverse(raw.clone(), 0b1, 4, raw.len()).unwrap();
         assert_eq!(out, raw);
     }
 
@@ -476,7 +608,7 @@ mod tests {
         };
         // Bit 1 = the second filter (fletcher32) was not applied to this chunk,
         // so the bytes are the deflate stream with nothing appended.
-        let out = pipeline.reverse(compressed, 0b10, 1).unwrap();
+        let out = pipeline.reverse(compressed, 0b10, 1, body.len()).unwrap();
         assert_eq!(out, body);
     }
 
@@ -491,7 +623,7 @@ mod tests {
                 client_data: vec![],
             }],
         };
-        assert_eq!(pipeline.reverse(chunk, 0, 1).unwrap(), body);
+        assert_eq!(pipeline.reverse(chunk, 0, 1, body.len()).unwrap(), body);
     }
 
     #[test]
@@ -506,7 +638,7 @@ mod tests {
                 client_data: vec![],
             }],
         };
-        let err = pipeline.reverse(chunk, 0, 1).unwrap_err();
+        let err = pipeline.reverse(chunk, 0, 1, body.len()).unwrap_err();
         assert!(
             matches!(&err, FieldglassError::Parse(m) if m.contains("fletcher32 checksum mismatch")),
             "expected a checksum mismatch, got {err:?}"
@@ -533,7 +665,7 @@ mod tests {
                 client_data: vec![],
             }],
         };
-        assert_eq!(pipeline.reverse(chunk, 0, 1).unwrap(), body);
+        assert_eq!(pipeline.reverse(chunk, 0, 1, body.len()).unwrap(), body);
     }
 
     #[test]
@@ -545,7 +677,7 @@ mod tests {
             }],
         };
         // Three bytes cannot carry a four-byte checksum; this must not panic.
-        let err = pipeline.reverse(vec![1, 2, 3], 0, 1).unwrap_err();
+        let err = pipeline.reverse(vec![1, 2, 3], 0, 1, 0).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)), "got {err:?}");
     }
 
@@ -579,7 +711,9 @@ mod tests {
             ],
         };
         assert_eq!(
-            pipeline.reverse(compressed, 0, elem).unwrap(),
+            pipeline
+                .reverse(compressed, 0, elem, original.len())
+                .unwrap(),
             original,
             "zstd must be undone before shuffle"
         );
@@ -679,7 +813,7 @@ mod tests {
             }],
         };
         // No zstd magic: must be a clean error, not a panic.
-        let err = pipeline.reverse(vec![0u8; 32], 0, 4).unwrap_err();
+        let err = pipeline.reverse(vec![0u8; 32], 0, 4, 32).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)), "got {err:?}");
     }
 
@@ -687,13 +821,220 @@ mod tests {
     fn rejects_unknown_filter() {
         let pipeline = FilterPipeline {
             filters: vec![Filter {
-                id: 4, // szip
+                id: 5, // nbit
                 client_data: vec![],
             }],
         };
         assert!(matches!(
-            pipeline.reverse(vec![0; 8], 0, 4),
+            pipeline.reverse(vec![0; 8], 0, 4, 8),
             Err(FieldglassError::UnsupportedSection(_))
         ));
+    }
+
+    /// An szip stream from `fieldglass_aec::sz`'s own documentation: 8-bit
+    /// pixels, blocks of 2, one pixel per scanline, so each scanline is a
+    /// block of the pixel and one pad. It decodes to `[7, 8, 9]`.
+    const SZ_STREAM: [u8; 8] = [0xE0, 0xE0, 0x1C, 0x20, 0x03, 0x84, 0x80, 0x00];
+    const SZ_PIXELS: [u8; 3] = [7, 8, 9];
+    /// The same parameters in HDF5's `cd_values` order: mask, pixels per
+    /// block, bits per pixel, pixels per scanline.
+    const SZ_CD: [u32; 4] = [0, 2, 8, 1];
+
+    /// A chunk as libhdf5 stores it: the size prefix, then the stream.
+    fn szip_chunk(prefix: u32) -> Vec<u8> {
+        let mut chunk = prefix.to_le_bytes().to_vec();
+        chunk.extend_from_slice(&SZ_STREAM);
+        chunk
+    }
+
+    fn szip_pipeline(before: &[u16], cd: &[u32]) -> FilterPipeline {
+        let mut filters: Vec<Filter> = before
+            .iter()
+            .map(|&id| Filter {
+                id,
+                client_data: vec![1],
+            })
+            .collect();
+        filters.push(Filter {
+            id: FILTER_SZIP,
+            client_data: cd.to_vec(),
+        });
+        FilterPipeline { filters }
+    }
+
+    fn parse_message(r: Result<Vec<u8>, FieldglassError>) -> String {
+        match r {
+            Err(FieldglassError::Parse(m)) => m,
+            other => panic!("expected a Parse error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn szip_decodes_a_chunk_through_the_pipeline() {
+        let pipeline = szip_pipeline(&[], &SZ_CD);
+        assert_eq!(pipeline.reverse(szip_chunk(3), 0, 1, 3).unwrap(), SZ_PIXELS);
+    }
+
+    /// HDF5 stores `(mask, ppb, bpp, pps)`; libsz takes `(mask, bpp, ppb,
+    /// pps)`. Here ppb is 2 and bpp is 8, so passing `cd_values` through
+    /// positionally would ask for 2-bit pixels in blocks of 8: still valid
+    /// parameters, and not these pixels.
+    #[test]
+    fn szip_reads_cd_values_in_hdf5_order() {
+        let [mask, ppb, bpp, pps] = SZ_CD;
+        let swapped = [mask, bpp, ppb, pps];
+        assert!(
+            SzParams::new(mask, ppb, bpp, pps).is_ok(),
+            "the swapped set must be valid, or this test proves nothing"
+        );
+        assert_ne!(
+            unszip(&szip_chunk(3), &swapped, Some(3), MAX_DECOMPRESSED_CHUNK).ok(),
+            Some(SZ_PIXELS.to_vec())
+        );
+        assert_eq!(
+            unszip(&szip_chunk(3), &SZ_CD, Some(3), MAX_DECOMPRESSED_CHUNK).unwrap(),
+            SZ_PIXELS
+        );
+    }
+
+    #[test]
+    fn szip_needs_exactly_four_cd_values() {
+        for cd in [&SZ_CD[..3], &[0, 2, 8, 1, 0][..], &[][..]] {
+            let m = parse_message(unszip(&szip_chunk(3), cd, Some(3), MAX_DECOMPRESSED_CHUNK));
+            assert!(m.contains("client data values"), "{cd:?}: {m}");
+        }
+    }
+
+    /// A parameter set the codec does not take is an unsupported file, not a
+    /// corrupt one: 7 pixels per block is odd, 48 bits per pixel is neither
+    /// 1–32 nor 64.
+    #[test]
+    fn szip_parameters_outside_the_codec_are_unsupported() {
+        for cd in [[0, 7, 8, 1], [0, 2, 48, 1], [0, 2, 8, 0], [0, 2, 8, 5000]] {
+            let r = unszip(&szip_chunk(3), &cd, Some(3), MAX_DECOMPRESSED_CHUNK);
+            assert!(
+                matches!(r, Err(FieldglassError::UnsupportedSection(_))),
+                "{cd:?}: {r:?}"
+            );
+        }
+    }
+
+    /// The prefix must equal the chunk's length when every filter before szip
+    /// keeps the length. The chunk is valid apart from the prefix: one byte
+    /// either side of the right length is refused, the right one decodes.
+    #[test]
+    fn szip_prefix_must_equal_the_expected_length() {
+        let pipeline = szip_pipeline(&[FILTER_SHUFFLE], &SZ_CD);
+        for prefix in [2, 4] {
+            let m = parse_message(pipeline.reverse(szip_chunk(prefix), 0, 1, 3));
+            assert!(
+                m.contains(&format!("declares {prefix} bytes, but the chunk is 3")),
+                "{m}"
+            );
+        }
+        assert_eq!(pipeline.reverse(szip_chunk(3), 0, 1, 3).unwrap(), SZ_PIXELS);
+    }
+
+    /// The ceiling is checked before the prefix is allocated, with the real
+    /// constant, on a chunk that is valid apart from its prefix, and with no
+    /// expected length to catch it first.
+    #[test]
+    fn szip_prefix_past_the_ceiling_is_refused_before_allocating() {
+        let over = u32::try_from(MAX_DECOMPRESSED_CHUNK + 1).unwrap();
+        let m = parse_message(unszip(
+            &szip_chunk(over),
+            &SZ_CD,
+            None,
+            MAX_DECOMPRESSED_CHUNK,
+        ));
+        assert!(m.contains("ceiling"), "{m}");
+
+        // The bound is exact: a limit of the chunk's own length passes, one
+        // byte less does not.
+        assert_eq!(unszip(&szip_chunk(3), &SZ_CD, None, 3).unwrap(), SZ_PIXELS);
+        let m = parse_message(unszip(&szip_chunk(3), &SZ_CD, None, 2));
+        assert!(m.contains("ceiling"), "{m}");
+    }
+
+    /// Which filters let szip know its length. Shuffle keeps it; deflate,
+    /// zstd and fletcher32 do not, unless the chunk's mask says they did not
+    /// run. Filters after szip never matter.
+    #[test]
+    fn szip_knows_its_length_only_behind_length_preserving_filters() {
+        let cases: [(&[u16], u32, Option<usize>); 7] = [
+            (&[], 0, Some(64)),
+            (&[FILTER_SHUFFLE], 0, Some(64)),
+            (&[FILTER_DEFLATE], 0, None),
+            (&[FILTER_ZSTD], 0, None),
+            (&[FILTER_FLETCHER32], 0, None),
+            (&[FILTER_SHUFFLE, FILTER_DEFLATE], 0, None),
+            // Bit 1: deflate was skipped for this chunk.
+            (&[FILTER_SHUFFLE, FILTER_DEFLATE], 0b10, Some(64)),
+        ];
+        for (before, mask, want) in cases {
+            let pipeline = szip_pipeline(before, &SZ_CD);
+            assert_eq!(
+                pipeline.length_before(before.len(), mask, 64),
+                want,
+                "{before:?} mask {mask:#b}"
+            );
+        }
+        let mut after = szip_pipeline(&[], &SZ_CD);
+        after.filters.push(Filter {
+            id: FILTER_DEFLATE,
+            client_data: vec![4],
+        });
+        assert_eq!(after.length_before(0, 0, 64), Some(64));
+    }
+
+    /// Behind a length-changing filter the prefix is bounded by the ceiling
+    /// alone: a prefix that is not the chunk's length still decodes, and what
+    /// comes out is handed to the filter before szip.
+    #[test]
+    fn szip_behind_a_length_changing_filter_is_decoded_not_refused() {
+        // fletcher32 ran before szip, so the chunk's length (64) is not what
+        // szip was handed and is not checked against the prefix (3). szip
+        // decodes, and the error that follows is fletcher32's, on szip's
+        // 3-byte output. `hdf5_szip_hand.h5`'s `deflate_szip` is the same rule
+        // end to end, on a pipeline libhdf5 reads.
+        let pipeline = szip_pipeline(&[FILTER_FLETCHER32], &SZ_CD);
+        let m = parse_message(pipeline.reverse(szip_chunk(3), 0, 1, 64));
+        assert!(
+            m.contains("too short to carry a fletcher32 checksum"),
+            "{m}"
+        );
+    }
+
+    /// D2: the pixel is set by bits per pixel, not by the element. A length
+    /// that is not a whole number of pixels is refused before decoding.
+    #[test]
+    fn szip_length_must_be_a_whole_number_of_pixels() {
+        // 16 bits per pixel: 3 bytes is a pixel and a half.
+        let m = parse_message(unszip(
+            &szip_chunk(3),
+            &[0, 2, 16, 1],
+            None,
+            MAX_DECOMPRESSED_CHUNK,
+        ));
+        assert!(m.contains("whole number of 2-byte pixels"), "{m}");
+        // 64 bits per pixel: 12 bytes is a pixel and a half, though a whole
+        // number of 4-byte elements.
+        let m = parse_message(unszip(
+            &szip_chunk(12),
+            &[0, 2, 64, 1],
+            None,
+            MAX_DECOMPRESSED_CHUNK,
+        ));
+        assert!(m.contains("whole number of 8-byte pixels"), "{m}");
+    }
+
+    #[test]
+    fn szip_refuses_a_truncated_or_prefixless_chunk() {
+        // One pixel more than the stream holds.
+        let m = parse_message(unszip(&szip_chunk(4), &SZ_CD, None, MAX_DECOMPRESSED_CHUNK));
+        assert!(m.contains("szip decompress failed"), "{m}");
+        // Shorter than the prefix itself.
+        let m = parse_message(unszip(&[3, 0, 0], &SZ_CD, None, MAX_DECOMPRESSED_CHUNK));
+        assert!(m.contains("size prefix"), "{m}");
     }
 }

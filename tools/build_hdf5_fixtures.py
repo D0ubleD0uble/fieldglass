@@ -794,6 +794,272 @@ def build_zstd(name: str) -> None:
           f"shuffle_zstd pipeline {ids}]")
 
 
+def _bundled_lib(stem: str) -> str:
+    """Path of a shared library the h5py wheel bundles (``h5py.libs/``)."""
+    import glob
+    import os
+
+    libdir = Path(h5py.__file__).parent.parent / "h5py.libs"
+    found = sorted(glob.glob(os.fspath(libdir / f"{stem}-*.so*")))
+    if not found:
+        raise SystemExit(f"no bundled {stem} under {libdir}: this h5py wheel has no szip")
+    return found[0]
+
+
+def bundled_libaec_version() -> str:
+    """The libaec release the h5py wheel's libsz is built from.
+
+    The wheel does not export a version call, so read it from the source path
+    compiled into the library (``/tmp/libaec-v1.1.4/src/vector.c``)."""
+    import re
+
+    raw = Path(_bundled_lib("libaec")).read_bytes()
+    m = re.search(rb"libaec-v(\d+\.\d+\.\d+)", raw)
+    if not m:
+        raise SystemExit("cannot find the libaec version in the bundled library")
+    return m.group(1).decode()
+
+
+def szip_compress(raw: bytes, mask: int, bpp: int, ppb: int, pps: int) -> bytes:
+    """One chunk as libhdf5's szip filter stores it: a 4-byte little-endian
+    uncompressed size, then the stream from the wheel's own libsz
+    (``SZ_BufftoBuffCompress``, the call ``H5Zszip.c`` makes)."""
+    import ctypes
+    import struct
+
+    class SzCom(ctypes.Structure):
+        _fields_ = [("options_mask", ctypes.c_int), ("bits_per_pixel", ctypes.c_int),
+                    ("pixels_per_block", ctypes.c_int), ("pixels_per_scanline", ctypes.c_int)]
+
+    libsz = ctypes.CDLL(_bundled_lib("libsz"))
+    params = SzCom(mask, bpp, ppb, pps)
+    cap = ctypes.c_size_t(len(raw) * 4 + 1024)
+    dst = ctypes.create_string_buffer(cap.value)
+    rc = libsz.SZ_BufftoBuffCompress(dst, ctypes.byref(cap), raw, ctypes.c_size_t(len(raw)),
+                                     ctypes.byref(params))
+    if rc != 0:
+        raise SystemExit(f"SZ_BufftoBuffCompress failed ({rc}) for {(mask, bpp, ppb, pps)}")
+    return struct.pack("<I", len(raw)) + dst.raw[:cap.value]
+
+
+def szip_oracle(d: h5py.Dataset) -> dict:
+    """Full read-back of one dataset through libhdf5, plus the pipeline and
+    per-chunk filter masks the file really carries, so the Rust test compares
+    every value and can tell which datasets exercise what."""
+    plist = d.id.get_create_plist()
+    filters = [plist.get_filter(i) for i in range(plist.get_nfilters())]
+    chunks = [d.id.get_chunk_info(i) for i in range(d.id.get_num_chunks())]
+    szip = next(cd for fid, _, cd, _ in filters if fid == 4)
+    mask, ppb, bpp, pps = szip
+    values = np.asarray(d[()]).reshape(-1)
+    return {
+        "dtype": d.dtype.str,
+        "precision_bits": d.id.get_type().get_precision(),
+        "shape": list(d.shape),
+        "chunks": list(d.chunks),
+        "pipeline": [{"id": fid, "cd_values": list(cd)} for fid, _, cd, _ in filters],
+        "szip": {"options_mask": mask, "pixels_per_block": ppb, "bits_per_pixel": bpp,
+                 "pixels_per_scanline": pps, "rsi": -(-pps // ppb),
+                 "padded": pps % ppb != 0},
+        "chunk_filter_masks": [c.filter_mask for c in chunks],
+        # Where each stored chunk starts, so a test can alter one in place.
+        "chunk_byte_offsets": [c.byte_offset for c in chunks],
+        "chunk_stored_sizes": [c.size for c in chunks],
+        "values": [v.item() for v in values],
+    }
+
+
+def write_szip_oracle(path: Path, note: str, extra: dict | None = None) -> dict:
+    with h5py.File(path, "r") as f:
+        objects = {n: szip_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)}
+    oracle = {
+        "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}, "
+                  f"libaec {bundled_libaec_version()} as bundled libsz)",
+        "note": note,
+        **(extra or {}),
+        "objects": objects,
+    }
+    (FIXturesDir / f"{path.name}.oracle.json").write_text(
+        json.dumps(oracle, indent=1) + "\n", encoding="utf-8")
+    return objects
+
+
+def build_szip(name: str) -> None:
+    """Datasets compressed with the **szip** filter (id 4, #421), as libhdf5
+    writes them.
+
+    libhdf5 2.0 in the h5py wheel writes szip itself: the wheel bundles libaec's
+    libsz. ``compression_opts=(coding, pixels_per_block)`` is all a writer
+    chooses; libhdf5's ``set_local`` fills in the rest of ``cd_values``, which
+    it stores as ``(mask, pixels_per_block, bits_per_pixel,
+    pixels_per_scanline)``: bits per pixel from the datatype's precision, and
+    pixels per scanline from the chunk's fastest dimension, capped at 128
+    blocks, or the whole chunk when that dimension is shorter than a block.
+
+    Each dataset covers one row of the issue's matrix. The oracle is the h5py
+    read-back of every value, and the builder refuses to write a fixture whose
+    parameters are not the ones its name promises.
+    """
+    path = FIXturesDir / name
+    rng = np.random.default_rng(421)
+
+    def ramp(n, dtype, scale=1.0, offset=0.0):
+        # Smooth with a little noise, so every coding option turns up.
+        x = np.arange(n) * scale + offset + rng.integers(-3, 4, n)
+        return x.astype(dtype)
+
+    # name: (data, chunks, coding, ppb, extra kwargs, expected cd_values)
+    specs = {
+        "i2_ppb16": (ramp(512, "<i2", 5, -900).reshape(16, 32), (8, 32), "nn", 16, {},
+                     (169, 16, 16, 32)),
+        "i2_ppb10": (ramp(240, "<i2", 3, -300).reshape(6, 40), (6, 40), "nn", 10, {},
+                     (169, 10, 16, 40)),
+        "i4be_ppb32": (ramp(512, ">i4", 1000, -200000).reshape(8, 64), (8, 64), "nn", 32, {},
+                       (177, 32, 32, 64)),
+        "f4_ppb18": ((np.sin(np.arange(144) / 9.0) * 300).astype("<f4").reshape(4, 36),
+                     (4, 36), "nn", 18, {}, (169, 18, 32, 36)),
+        "f8_ppb8": ((np.cos(np.arange(128) / 7.0) * 1e5).astype("<f8").reshape(8, 16),
+                    (4, 16), "nn", 8, {}, (169, 8, 64, 16)),
+        "f8_ppb18": ((np.arange(100) * 0.125 - 3.0).astype("<f8").reshape(5, 20),
+                     (5, 20), "nn", 18, {}, (169, 18, 64, 20)),
+        "u1_ppb8": ((np.arange(256) // 3 % 200).astype("u1").reshape(8, 32), (8, 32), "nn", 8,
+                    {}, (169, 8, 8, 32)),
+        "shuffle_szip": (ramp(256, "<i4", 17, 5000).reshape(8, 32), (8, 32), "nn", 16,
+                         {"shuffle": True}, (169, 16, 32, 32)),
+        # 25 is not a multiple of 16: every scanline carries 7 pad pixels.
+        "pps_not_multiple": (ramp(100, "<i2", 11, 40).reshape(4, 25), (4, 25), "ec", 16, {},
+                             (141, 16, 16, 25)),
+        # 1,500 > 8 × 128, so a scanline is 1,024 pixels and the chunk's 3,000
+        # end part-way through the third.
+        "partial_scanline": (ramp(3000, "<i2", 1, -1500).reshape(2, 1500), (2, 1500), "nn", 8,
+                             {}, (169, 8, 16, 1024)),
+        # Random bytes do not compress, so libhdf5 stores the chunk as it is
+        # and sets bit 0 of its filter mask (szip is an optional filter).
+        "incompressible": (rng.integers(0, 256, 64, dtype="u1").reshape(8, 8), (8, 8), "ec", 8,
+                           {}, (141, 8, 8, 8)),
+    }
+
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass szip fixture")
+        for nm, (data, chunks, coding, ppb, kw, _) in specs.items():
+            f.create_dataset(nm, data=data, dtype=data.dtype, chunks=chunks, compression="szip",
+                             compression_opts=(coding, ppb), track_times=False, **kw)
+        # A 16-bit integer in a 4-byte container: libhdf5 codes it with 16 bits
+        # per pixel, so the szip pixel is half the element (decision D2).
+        # Non-negative values only: the reader does not apply a fixed-point
+        # precision yet, and this dataset is about the filter.
+        t = h5py.h5t.STD_I32LE.copy()
+        t.set_precision(16)
+        p16 = f.create_dataset("i4_precision16", shape=(8, 16), dtype=h5py.Datatype(t),
+                               chunks=(8, 16), compression="szip", compression_opts=("nn", 8),
+                               track_times=False)
+        p16[...] = (np.arange(128) * 211 % 30000).reshape(8, 16)
+    specs["i4_precision16"] = (None, None, None, None, None, (169, 8, 16, 16))
+
+    # Refuse a fixture that does not test what its name says.
+    with h5py.File(path, "r") as f:
+        for nm, spec in specs.items():
+            plist = f[nm].id.get_create_plist()
+            filters = [plist.get_filter(i) for i in range(plist.get_nfilters())]
+            cd = next((cd for fid, _, cd, _ in filters if fid == 4), None)
+            if cd != spec[-1]:
+                raise SystemExit(f"{nm}: szip cd_values {cd}, expected {spec[-1]}")
+            masks = [f[nm].id.get_chunk_info(i).filter_mask
+                     for i in range(f[nm].id.get_num_chunks())]
+            want = 1 if nm == "incompressible" else 0
+            if set(masks) != {want}:
+                raise SystemExit(f"{nm}: chunk filter masks {masks}, expected all {want}")
+        if [f["shuffle_szip"].id.get_create_plist().get_filter(i)[0] for i in range(2)] != [2, 4]:
+            raise SystemExit("shuffle_szip: expected the pipeline [shuffle, szip]")
+
+    objects = write_szip_oracle(
+        path, "szip filter (id 4) as libhdf5 writes it; `values` is the h5py read-back "
+              "of every element (#421)")
+    print(f"wrote {path} ({path.stat().st_size} B) + oracle [{len(objects)} szip datasets]")
+
+
+def build_szip_hand(name: str) -> None:
+    """szip chunks libhdf5 reads but its writer never produces (#421).
+
+    Each chunk is compressed by the wheel's own libsz (``szip_compress``) and
+    stored with ``write_direct_chunk``; libhdf5 then reads every one back, and
+    that read-back is the oracle.
+
+      * ``rsi1_i2`` and ``rsi1_f4``: fewer pixels per scanline than per block,
+        so every scanline is one block (RSI 1) that is mostly padding. libhdf5's
+        ``set_local`` never picks such a scanline (it falls back to the whole
+        chunk), so the builder writes the dataset with a legal one and then
+        patches ``pixels_per_scanline`` in the stored ``cd_values``. The file is
+        ``libver='earliest'`` for that reason: version-1 object headers carry
+        no checksum, so the patched message stays valid. ``rsi1_f4`` is one
+        pixel per scanline at 32 pixels per block, the case where libsz
+        decodes into a padded copy 32 times the output.
+      * ``deflate_szip``: szip applied *after* deflate, a length-changing
+        filter, so the prefix is the deflate stream's length, not the chunk's.
+        libhdf5 writes this pipeline, but szip never shrinks a deflate stream,
+        so as an optional filter it is skipped on every chunk. The chunks are
+        compressed here instead, with filter mask 0.
+    """
+    import struct
+    import zlib
+
+    path = FIXturesDir / name
+    rsi1_i2 = (np.arange(40, dtype="<i2") * 7 - 50).reshape(8, 5)
+    rsi1_f4 = (np.arange(64, dtype="<f4") * 0.75 - 4.0).reshape(4, 16)
+    deflate_szip = (np.arange(128) // 3).astype("u1")
+
+    with h5py.File(path, "w", libver="earliest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass hand-built szip fixture")
+        f.create_dataset("rsi1_i2", data=rsi1_i2, chunks=(8, 5), compression="szip",
+                         compression_opts=("nn", 16), track_times=False)
+        f.create_dataset("rsi1_f4", data=rsi1_f4, chunks=(4, 16), compression="szip",
+                         compression_opts=("nn", 32), track_times=False)
+        dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
+        dcpl.set_chunk((64,))
+        dcpl.set_deflate(4)
+        dcpl.set_szip(h5py.h5z.SZIP_NN_OPTION_MASK, 8)
+        dcpl.set_obj_track_times(False)
+        h5py.h5d.create(f.id, b"deflate_szip", h5py.h5t.STD_U8LE,
+                        h5py.h5s.create_simple((128,)), dcpl=dcpl)
+        written = {nm: f[nm].id.get_create_plist().get_filter(0 if nm != "deflate_szip" else 1)[2]
+                   for nm in ("rsi1_i2", "rsi1_f4", "deflate_szip")}
+
+    # Patch pixels_per_scanline below pixels_per_block.
+    patches = {"rsi1_i2": 5, "rsi1_f4": 1}
+    raw = bytearray(path.read_bytes())
+    for nm, pps in patches.items():
+        old = struct.pack("<4I", *written[nm])
+        if raw.count(old) != 1:
+            raise SystemExit(f"{nm}: cd_values {written[nm]} not unique in the file")
+        at = raw.index(old)
+        raw[at:at + 16] = struct.pack("<4I", *written[nm][:3], pps)
+    path.write_bytes(bytes(raw))
+
+    with h5py.File(path, "r+") as f:
+        for nm, data in (("rsi1_i2", rsi1_i2), ("rsi1_f4", rsi1_f4)):
+            mask, ppb, bpp, pps = f[nm].id.get_create_plist().get_filter(0)[2]
+            if pps != patches[nm] or pps >= ppb:
+                raise SystemExit(f"{nm}: patch did not land, cd_values {(mask, ppb, bpp, pps)}")
+            f[nm].id.write_direct_chunk((0, 0), szip_compress(data.tobytes(), mask, bpp, ppb, pps), 0)
+        mask, ppb, bpp, pps = written["deflate_szip"]
+        for i in range(2):
+            part = deflate_szip[i * 64:(i + 1) * 64].tobytes()
+            f["deflate_szip"].id.write_direct_chunk(
+                (i * 64,), szip_compress(zlib.compress(part, 4), mask, bpp, ppb, pps), 0)
+
+    with h5py.File(path, "r") as f:
+        for nm, data in (("rsi1_i2", rsi1_i2), ("rsi1_f4", rsi1_f4),
+                         ("deflate_szip", deflate_szip)):
+            if not np.array_equal(f[nm][()], data):
+                raise SystemExit(f"{nm}: libhdf5 does not read back what was written")
+
+    objects = write_szip_oracle(
+        path, "szip chunks compressed with the wheel's libsz and stored with "
+              "write_direct_chunk: scanlines shorter than a block (cd_values patched) "
+              "and szip after deflate; `values` is the h5py read-back (#421)")
+    print(f"wrote {path} ({path.stat().st_size} B) + oracle [{len(objects)} hand-built szip datasets]")
+
+
 def _find_all(raw: bytes, sig: bytes) -> list[int]:
     out, i = [], 0
     while (i := raw.find(sig, i)) >= 0:
@@ -881,6 +1147,10 @@ def main() -> int:
     build_fletcher32("hdf5_fletcher32.h5")
     # zstd filter (id 32015). Needs `hdf5plugin`, unlike every other builder here.
     build_zstd("hdf5_zstd.h5")
+    # szip filter (id 4): libhdf5 in the h5py wheel writes it with its bundled
+    # libaec. The second file holds chunks its writer never produces.
+    build_szip("hdf5_szip.h5")
+    build_szip_hand("hdf5_szip_hand.h5")
     # Scale-less datasets: every axis is an invented anonymous dimension (#533).
     build_phony_dims("hdf5_phony_dims.h5")
     return 0
