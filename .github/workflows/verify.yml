@@ -8,22 +8,38 @@ name: Verify
 # that a failure always means a real regression rather than a toolchain
 # hiccup, this reports without gating merges — see docs/verification.md.
 
-# The path filter tracks what the proofs actually cover. Today they cover only
-# code inside `crates/fieldglass-verify`, so that is the filter. The moment a
-# proof references shipped code — which is what #199 decides — this filter must
-# widen to include that crate, or verification silently stops guarding the thing
-# it exists to guard while continuing to report green. Widen it in the same PR
-# that moves the first proof onto shipped code.
+# The path filter tracks what the proofs actually cover: the verification crate,
+# and every production *kernel file* it includes by `#[path]` and proves in
+# place (#199). A kernel file missing here is edited without Verus ever running,
+# and this job keeps reporting green while guarding nothing, so
+# `tools/check_verified_kernels.py` (pre-commit) fails when a file that carries
+# `verus_spec` is not listed under both triggers. So are the core files the
+# verification crate's build of a kernel reads, which the checker also
+# requires (its `SUPPORT` list): `bits.rs`, whose `BitReader` the trusted
+# specification in `crates/fieldglass-verify/src/bits_model.rs` names by
+# signature; `error.rs`, for `FieldglassError`; and core's `lib.rs` and
+# `Cargo.toml`, which decide what the `default-features = false` build of core
+# that the verification crate takes compiles.
 on:
   push:
     branches: [master]
     paths:
       - 'crates/fieldglass-verify/**'
+      - 'crates/fieldglass-core/src/scaling.rs'
+      - 'crates/fieldglass-core/src/bits.rs'
+      - 'crates/fieldglass-core/src/error.rs'
+      - 'crates/fieldglass-core/src/lib.rs'
+      - 'crates/fieldglass-core/Cargo.toml'
       - 'scripts/verify.sh'
       - '.github/workflows/verify.yml'
   pull_request:
     paths:
       - 'crates/fieldglass-verify/**'
+      - 'crates/fieldglass-core/src/scaling.rs'
+      - 'crates/fieldglass-core/src/bits.rs'
+      - 'crates/fieldglass-core/src/error.rs'
+      - 'crates/fieldglass-core/src/lib.rs'
+      - 'crates/fieldglass-core/Cargo.toml'
       - 'scripts/verify.sh'
       - '.github/workflows/verify.yml'
 

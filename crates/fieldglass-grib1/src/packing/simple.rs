@@ -5,14 +5,13 @@
 //! reference value, `E` the binary scale factor, `D` the PDS decimal scale,
 //! and `X` the packed integer. `bits_per_value == 0` is the constant-field
 //! special case: every present point equals `R / 10^D`.
-//!
-//! This is the only packing supported today.
 
+use fieldglass_core::scaling::unpack_simple;
 use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::{BDS_DATA_OFFSET, BdsHeader};
 
-use super::{Grib1Packing, interleave_with_bitmap, present_count, unpack_simple_values};
+use super::{Grib1Packing, interleave_with_bitmap, message_scaling, present_count};
 
 #[derive(Debug)]
 /// The [`Grib1Packing`] decoder for simple packing (`grid_simple`).
@@ -38,14 +37,15 @@ impl Grib1Packing for SimplePacking {
             )));
         }
 
-        let d_scale = 10f64.powi(-(decimal_scale as i32));
-        let r = header.reference_value;
-        let two_pow_e = 2f64.powi(header.binary_scale_factor as i32);
+        let scaling = message_scaling(header, decimal_scale);
 
         // Constant field: every present grid point equals R / 10^D.
         if header.bits_per_value == 0 {
-            let constant = r * d_scale;
-            return Ok(materialise_constant(constant, bitmap, expected_count));
+            return Ok(materialise_constant(
+                scaling.constant(),
+                bitmap,
+                expected_count,
+            ));
         }
 
         if header.bits_per_value > 32 {
@@ -70,7 +70,7 @@ impl Grib1Packing for SimplePacking {
         }
 
         let packed = &bds[BDS_DATA_OFFSET..header.section_len as usize];
-        let decoded = unpack_simple_values(packed, n, r, two_pow_e, d_scale, present)?;
+        let decoded = unpack_simple(packed, n, &scaling, present)?;
         Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
     }
 }

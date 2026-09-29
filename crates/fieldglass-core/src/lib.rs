@@ -8,7 +8,9 @@
 //! <!-- parsing-surface: the set of core modules the three format crate
 //!      libraries name, checked by tools/check_parsing_surface.py. The README
 //!      states it again; both regions have to match the code. -->
-//! [`error`], [`bits`], [`bytes`], [`cct_tables`] (both GRIB editions share the
+//! [`error`], [`bits`], [`bytes`], [`scaling`] (the GRIB `(R + X·2^E)·10^-D`
+//! transform both editions unpack values with, carrying a Verus proof),
+//! [`cct_tables`] (both GRIB editions share the
 //! WMO sub-centre lookup), [`projection`] (GRIB1's GDS uses the projectors to
 //! recover grid corners), [`scan`] (the storage orders a decoder regularises),
 //! [`lead_time`] (the forecast-lead rules the two editions share), the three
@@ -99,6 +101,7 @@ pub mod matrix;
 #[cfg(feature = "render")]
 pub mod overlay;
 pub mod projection;
+pub mod scaling;
 pub mod scan;
 pub mod sht;
 pub mod spatial_index;

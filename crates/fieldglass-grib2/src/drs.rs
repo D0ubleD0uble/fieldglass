@@ -27,6 +27,7 @@
 //! 5.50 / 5.51 / 5.61 / 5.200 (plus local 5.40000 / 5.40010 / 5.50001 / 5.50002).
 
 use crate::section::{SectionHeader, parse_section_header};
+use fieldglass_core::scaling::{Scaling, red_scale};
 use fieldglass_core::{
     FieldglassError,
     bits::{BitReader, bits_to_bytes, sign_magnitude_i16, sign_magnitude_to_i64},
@@ -953,20 +954,20 @@ fn parse_packing_header(payload: &[u8]) -> (f32, i16, i16) {
     (reference_value, binary_scale_factor, decimal_scale_factor)
 }
 
-/// The `(R, 2^E, 10^-D)` triple the §5 `R` / `E` / `D` transform scales by: an
-/// integer `X` read from §7 unpacks to the value `(R + X·2^E)·10^-D`. The
-/// simple, complex, second-order, spectral, and matrix decoders all apply this,
-/// so the exponent computation lives here once (drift here is a decode bug
-/// everywhere).
-pub(crate) fn red_scale(
+/// The factors the §5 `R` / `E` / `D` transform scales by: an integer `X` read
+/// from §7 unpacks to the value `(R + X·2^E)·10^-D`. Every §5 template that
+/// packs integers applies it, through `fieldglass_core::scaling`, which both
+/// GRIB editions share and which carries a Verus proof of the factor
+/// directions. §5 stores `R` as an IEEE-32 float; this widens it.
+pub(crate) fn packing_scaling(
     reference_value: f32,
     binary_scale_factor: i16,
     decimal_scale_factor: i16,
-) -> (f64, f64, f64) {
-    (
-        reference_value as f64,
-        2f64.powi(binary_scale_factor as i32),
-        10f64.powi(-(decimal_scale_factor as i32)),
+) -> Scaling {
+    red_scale(
+        f64::from(reference_value),
+        binary_scale_factor,
+        decimal_scale_factor,
     )
 }
 

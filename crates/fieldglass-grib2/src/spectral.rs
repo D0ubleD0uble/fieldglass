@@ -21,9 +21,10 @@
 
 use crate::drs::{
     BiFourierPackingTemplate, SpectralComplexPackingTemplate, SpectralSimplePackingTemplate,
-    red_scale,
+    packing_scaling,
 };
 use crate::gds::BiFourierTemplate;
+use fieldglass_core::scaling::{decimal_factor, unpack_simple_into};
 use fieldglass_core::{FieldglassError, bits::BitReader};
 
 /// The decoded spherical-harmonic coefficients of one message.
@@ -115,7 +116,7 @@ pub fn decode_spectral_simple(
         }
     }
 
-    let (r, two_pow_e, d_inv) = red_scale(
+    let scaling = packing_scaling(
         t.reference_value,
         t.binary_scale_factor,
         t.decimal_scale_factor,
@@ -129,7 +130,7 @@ pub fn decode_spectral_simple(
     // `triangular_value_count` bounds this allocation, since an empty §7 gives
     // no bit budget to check against.
     if t.bits_per_value == 0 {
-        out.resize(n_values, r * d_inv);
+        out.resize(n_values, scaling.constant());
         return Ok(SpectralCoefficients {
             j,
             k,
@@ -138,11 +139,7 @@ pub fn decode_spectral_simple(
         });
     }
 
-    let mut reader = BitReader::new(ds_payload);
-    for _ in 0..n_packed {
-        let x = reader.read_bits(t.bits_per_value)? as f64;
-        out.push((r + x * two_pow_e) * d_inv);
-    }
+    unpack_simple_into(ds_payload, t.bits_per_value, &scaling, n_packed, &mut out)?;
 
     Ok(SpectralCoefficients {
         j,
@@ -241,7 +238,7 @@ pub fn decode_spectral_complex(
     let n_values = triangular_value_count(j)?;
     let unpacked_values = triangular_value_count(ks)?; // (KS+1)(KS+2)
     let unpacked_bytes = unpacked_values.saturating_mul(4); // IEEE 32-bit
-    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let d_inv = decimal_factor(t.decimal_scale_factor);
 
     // Edge case: the sub-truncation is the whole field — everything is unpacked
     // and multiplied by the decimal scale (eccodes' `pen_j == sub_j` branch).
@@ -279,8 +276,11 @@ pub fn decode_spectral_complex(
     }
     let packed_bytes = &ds_payload[unpacked_bytes..];
 
-    let s = 2f64.powi(t.binary_scale_factor as i32);
-    let reference = t.reference_value as f64;
+    let scaling = packing_scaling(
+        t.reference_value,
+        t.binary_scale_factor,
+        t.decimal_scale_factor,
+    );
     let p = t.laplacian_scaling_factor as f64 / 1e6;
 
     // Laplacian de-scaling factors `1/(n·(n+1))^P`; degree 0 has none. Sized by
@@ -320,9 +320,8 @@ pub fn decode_spectral_complex(
             // `lup` stays in `0..=J` per the traversal note above, and `scals`
             // was sized `J + 1`, so this index fits `usize` on any target.
             let scale = scals[lup as usize];
-            let re = d_inv * ((packed.read_bits(t.bits_per_value)? as f64) * s + reference) * scale;
-            let mut im =
-                d_inv * ((packed.read_bits(t.bits_per_value)? as f64) * s + reference) * scale;
+            let re = scaling.apply(packed.read_bits(t.bits_per_value)? as f64) * scale;
+            let mut im = scaling.apply(packed.read_bits(t.bits_per_value)? as f64) * scale;
             // Zonal wavenumber 0 has no imaginary part; it is packed anyway, so
             // force it back to zero, matching eccodes.
             if mmax == 0 {
@@ -598,9 +597,11 @@ pub fn decode_bifourier(
         ));
     }
 
-    let s = 2f64.powi(t.binary_scale_factor as i32);
-    let r = t.reference_value as f64;
-    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let scaling = packing_scaling(
+        t.reference_value,
+        t.binary_scale_factor,
+        t.decimal_scale_factor,
+    );
     let p = t.laplacian_scaling_factor as f64 / 1e6;
 
     // Two cursors: `hpos` walks the unpacked IEEE block at the payload start;
@@ -635,7 +636,7 @@ pub fn decode_bifourier(
                 }
                 for _ in 0..4 {
                     let dec = packed.read_bits(t.bits_per_value)? as f64;
-                    out.push(((dec * s + r) * d_inv) / scale);
+                    out.push(scaling.apply(dec) / scale);
                 }
             }
         }

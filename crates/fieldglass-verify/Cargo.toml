@@ -24,6 +24,7 @@ description = "Formal verification of the fieldglass decode kernel (Verus). Not 
 # `scripts/verify.sh`: vstd is versioned by release date and is only guaranteed
 # to work with a matching verus. Bump both together, never one alone.
 vstd = "=0.0.0-2026-08-09-0044"
+fieldglass-core = { path = "../fieldglass-core", default-features = false }
 
 [package.metadata.verus]
 verify = true
@@ -32,4 +33,4 @@ verify = true
 # Verus sets `--cfg verus_only` while verifying, so ghost-only imports can be
 # gated to keep a stock `cargo build` compiling. Declaring the cfg here stops
 # rustc warning about it being unknown.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_only)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_only)', 'cfg(verus_keep_ghost)'] }

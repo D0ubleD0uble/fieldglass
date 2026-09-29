@@ -110,6 +110,13 @@ unreachable_pub = "warn"
 # error path. Cheap to derive, and impossible to add later without a breaking
 # change for a type a downstream `#[derive(Debug)]` wants to contain.
 missing_debug_implementations = "warn"
+# Verus sets `verus_keep_ghost` when it compiles a verified kernel file — one
+# that `crates/fieldglass-verify` includes by `#[path]` (#199, see
+# docs/verification.md). The shipped crate compiles the same file with the cfg
+# off, so the specs in its `cfg_attr(verus_keep_ghost, verus_spec(...))`
+# attributes vanish. Declaring the cfg keeps rustc from warning that it is
+# unknown; it is never set for a build that ships.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_keep_ghost)'] }
 
 [workspace.lints.rustdoc]
 # Deny the whole group, the same way `clippy::all` is denied below, and for the

@@ -387,13 +387,16 @@ painter's table rather than implementing a second colour path. See
 ## Verification (milestone 7)
 
 Not a runtime seam, but a boundary worth drawing: which functions carry a
-Verus proof. The proofs live in `fieldglass-verify`, outside the workspace,
-and restate the kernel functions with pre/post-conditions.
+Verus proof. `fieldglass-verify`, outside the workspace, includes each kernel
+file of the shipped crates by `#[path]` and proves it in place; the specs sit
+in `cfg_attr(verus_keep_ghost, ...)` attributes a normal build never expands
+(#199, [`../../verification.md`](../../verification.md)). The GRIB scaling
+kernel, which both editions share, is proved; the rest is planned.
 
 ```mermaid
 flowchart LR
     subgraph kernel["decode kernel (~600 LOC)"]
-        t1a["grib1::unpack_simple_values #199"]
+        t1a["core::scaling red_scale, unpack_simple #199"]
         t1b["apply_spd_inverse / decode_complex_spatial_diff #200"]
         t1c["grib2::decode_complex_groups #201"]
         t2a["decode_inline_bitmap / parse_bitmap #202"]
@@ -402,5 +405,5 @@ flowchart LR
     end
     verify["fieldglass-verify #205"] -. proves .-> kernel
     classDef planned stroke-dasharray: 6 4
-    class t1a,t1b,t1c,t2a,t2b,t3,verify planned
+    class t1b,t1c,t2a,t2b,t3 planned
 ```

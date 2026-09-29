@@ -12,9 +12,10 @@ use crate::drs::{
     CcsdsPackingTemplate, ComplexPackingTemplate, ComplexSpatialDiffTemplate,
     DataRepresentationTemplate, IeeePackingTemplate, Jpeg2000PackingTemplate,
     LogPreprocessingPackingTemplate, PngPackingTemplate, RunLengthPackingTemplate,
-    SecondOrderPackingTemplate, SimplePackingTemplate, red_scale,
+    SecondOrderPackingTemplate, SimplePackingTemplate, packing_scaling,
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
+use fieldglass_core::scaling::{decimal_factor, unpack_simple};
 use fieldglass_core::{
     FieldglassError, StoredRuns,
     bits::{BitReader, apply_spd_inverse, expand_second_order_groups, sign_magnitude_to_i64},
@@ -166,7 +167,7 @@ fn decode_simple_packing(
         None => expected_count,
     };
 
-    let (r, two_pow_e, d_inv) = red_scale(
+    let scaling = packing_scaling(
         t.reference_value,
         t.binary_scale_factor,
         t.decimal_scale_factor,
@@ -174,7 +175,7 @@ fn decode_simple_packing(
 
     // Constant field: every present point equals R · 10^-D.
     if t.bits_per_value == 0 {
-        let constant = r * d_inv;
+        let constant = scaling.constant();
         return Ok(materialise_constant(constant, bitmap, expected_count));
     }
 
@@ -193,13 +194,7 @@ fn decode_simple_packing(
         )));
     }
 
-    let mut reader = BitReader::new(ds_payload);
-    let mut decoded = Vec::with_capacity(present_count);
-    for _ in 0..present_count {
-        let x = reader.read_bits(t.bits_per_value)?;
-        decoded.push((r + x as f64 * two_pow_e) * d_inv);
-    }
-
+    let decoded = unpack_simple(ds_payload, t.bits_per_value, &scaling, present_count)?;
     Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
 }
 
@@ -294,14 +289,14 @@ fn complex_scaled_to_values(
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Vec<Option<f64>> {
-    let (r, two_pow_e, d_inv) = red_scale(
+    let scaling = packing_scaling(
         t.reference_value,
         t.binary_scale_factor,
         t.decimal_scale_factor,
     );
     let decoded = scaled
         .into_iter()
-        .map(|s| s.map(|s| (r + s as f64 * two_pow_e) * d_inv));
+        .map(|s| s.map(|s| scaling.apply(s as f64)));
     interleave_present_points(decoded, bitmap, expected_count)
 }
 
@@ -700,7 +695,7 @@ fn decode_png_packing(
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let present_count = check_bitmap_present_count(bitmap, expected_count)?;
 
-    let (r, two_pow_e, d_inv) = red_scale(
+    let scaling = packing_scaling(
         t.reference_value,
         t.binary_scale_factor,
         t.decimal_scale_factor,
@@ -708,7 +703,7 @@ fn decode_png_packing(
 
     // Constant field: no PNG stream is written; every present point is R·10^-D.
     if t.bits_per_value == 0 {
-        let constant = r * d_inv;
+        let constant = scaling.constant();
         return Ok(materialise_constant(constant, bitmap, expected_count));
     }
     if t.bits_per_value > 32 {
@@ -765,7 +760,7 @@ fn decode_png_packing(
         for &b in chunk {
             x = (x << 8) | b as u64;
         }
-        decoded.push((r + x as f64 * two_pow_e) * d_inv);
+        decoded.push(scaling.apply(x as f64));
     }
 
     Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
@@ -800,7 +795,7 @@ fn decode_ccsds_packing(
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let present_count = check_bitmap_present_count(bitmap, expected_count)?;
 
-    let (r, two_pow_e, d_inv) = red_scale(
+    let scaling = packing_scaling(
         t.reference_value,
         t.binary_scale_factor,
         t.decimal_scale_factor,
@@ -813,7 +808,11 @@ fn decode_ccsds_packing(
     // already-scaled physical value in `R`. The two agree whenever D == 0,
     // which is the case for essentially every constant field.
     if t.bits_per_value == 0 {
-        return Ok(materialise_constant(r, bitmap, expected_count));
+        return Ok(materialise_constant(
+            scaling.reference,
+            bitmap,
+            expected_count,
+        ));
     }
     if t.bits_per_value > 32 {
         return Err(FieldglassError::Parse(format!(
@@ -862,7 +861,7 @@ fn decode_ccsds_packing(
         for &b in chunk {
             x = (x << 8) | b as u64;
         }
-        decoded.push((r + x as f64 * two_pow_e) * d_inv);
+        decoded.push(scaling.apply(x as f64));
     }
 
     Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
@@ -894,7 +893,7 @@ fn decode_jpeg2000_packing(
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let present_count = check_bitmap_present_count(bitmap, expected_count)?;
 
-    let (r, two_pow_e, d_inv) = red_scale(
+    let scaling = packing_scaling(
         t.reference_value,
         t.binary_scale_factor,
         t.decimal_scale_factor,
@@ -904,7 +903,11 @@ fn decode_jpeg2000_packing(
     // point equals the reference value verbatim, matching eccodes' `grid_jpeg`
     // unpack (which returns `R` directly, without the 10^-D factor).
     if t.bits_per_value == 0 {
-        return Ok(materialise_constant(r, bitmap, expected_count));
+        return Ok(materialise_constant(
+            scaling.reference,
+            bitmap,
+            expected_count,
+        ));
     }
     if t.bits_per_value > 32 {
         return Err(FieldglassError::Parse(format!(
@@ -965,7 +968,7 @@ fn decode_jpeg2000_packing(
     // into `[0, 2^bits-1]`). Read them as such, mirroring eccodes.
     let mut decoded = Vec::with_capacity(present_count);
     for &x in &component.samples {
-        decoded.push((r + x as f64 * two_pow_e) * d_inv);
+        decoded.push(scaling.apply(x as f64));
     }
 
     Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
@@ -1008,7 +1011,7 @@ pub(crate) fn decode_jpeg2000_reduced(
             ))
         })?;
 
-    let (r, two_pow_e, d_inv) = red_scale(
+    let scaling = packing_scaling(
         t.reference_value,
         t.binary_scale_factor,
         t.decimal_scale_factor,
@@ -1018,7 +1021,11 @@ pub(crate) fn decode_jpeg2000_reduced(
     // point is the reference value, so the coarse raster is too. The value is
     // `R` verbatim, matching the full-resolution path above and eccodes.
     if t.bits_per_value == 0 {
-        return Ok(materialise_constant(r, None, expected_count));
+        return Ok(materialise_constant(
+            scaling.reference,
+            None,
+            expected_count,
+        ));
     }
     if t.bits_per_value > 32 {
         return Err(FieldglassError::Parse(format!(
@@ -1086,7 +1093,7 @@ pub(crate) fn decode_jpeg2000_reduced(
     Ok(component
         .samples
         .iter()
-        .map(|&x| Some((r + x as f64 * two_pow_e) * d_inv))
+        .map(|&x| Some(scaling.apply(x as f64)))
         .collect())
 }
 
@@ -1154,7 +1161,7 @@ fn decode_run_length_packing(
     let range = span - max;
 
     // levels[0] = missing; levels[v] = table[v - 1] · 10^-D for v in 1..=MVL.
-    let scale = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let scale = decimal_factor(t.decimal_scale_factor);
     let mut levels: Vec<Option<f64>> = Vec::with_capacity(t.level_values.len() + 1);
     levels.push(None);
     levels.extend(t.level_values.iter().map(|&lv| Some(lv as f64 * scale)));
@@ -1252,7 +1259,12 @@ fn decode_second_order(
     // point is the reference value scaled by 10^-D — the same degenerate
     // convention simple packing uses for bits_per_value == 0.
     if t.num_groups == 0 {
-        let constant = t.reference_value as f64 * 10f64.powi(-(t.decimal_scale_factor as i32));
+        let constant = packing_scaling(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+        )
+        .constant();
         return Ok(materialise_constant(constant, bitmap, expected_count));
     }
 
@@ -1359,12 +1371,12 @@ fn decode_second_order(
     apply_spd_inverse(&mut x, t.order_of_spd, t.spd_bias)?;
 
     // Apply the R / E / D transform and spread across the grid per the bitmap.
-    let (r, two_pow_e, d_inv) = red_scale(
+    let scaling = packing_scaling(
         t.reference_value,
         t.binary_scale_factor,
         t.decimal_scale_factor,
     );
-    let decoded = x.into_iter().map(|v| (r + v as f64 * two_pow_e) * d_inv);
+    let decoded = x.into_iter().map(|v| scaling.apply(v as f64));
     Ok(interleave_present_points(
         decoded.map(Some),
         bitmap,
