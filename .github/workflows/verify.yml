@@ -13,10 +13,13 @@ name: Verify
 # place (#199). A kernel file missing here is edited without Verus ever running,
 # and this job keeps reporting green while guarding nothing, so
 # `tools/check_verified_kernels.py` (pre-commit) fails when a file that carries
-# `verus_spec` is not listed under both triggers. `bits.rs` is here too: the
-# kernels call its `BitReader`, and the trusted specification of that reader in
-# `crates/fieldglass-verify/src/bits_model.rs` names its methods by signature,
-# so a change there can break the verification build.
+# `verus_spec` is not listed under both triggers. So are the core files the
+# verification crate's build of a kernel reads, which the checker also
+# requires (its `SUPPORT` list): `bits.rs`, whose `BitReader` the trusted
+# specification in `crates/fieldglass-verify/src/bits_model.rs` names by
+# signature; `error.rs`, for `FieldglassError`; and core's `lib.rs` and
+# `Cargo.toml`, which decide what the `default-features = false` build of core
+# that the verification crate takes compiles.
 on:
   push:
     branches: [master]
@@ -24,6 +27,9 @@ on:
       - 'crates/fieldglass-verify/**'
       - 'crates/fieldglass-core/src/scaling.rs'
       - 'crates/fieldglass-core/src/bits.rs'
+      - 'crates/fieldglass-core/src/error.rs'
+      - 'crates/fieldglass-core/src/lib.rs'
+      - 'crates/fieldglass-core/Cargo.toml'
       - 'scripts/verify.sh'
       - '.github/workflows/verify.yml'
   pull_request:
@@ -31,6 +37,9 @@ on:
       - 'crates/fieldglass-verify/**'
       - 'crates/fieldglass-core/src/scaling.rs'
       - 'crates/fieldglass-core/src/bits.rs'
+      - 'crates/fieldglass-core/src/error.rs'
+      - 'crates/fieldglass-core/src/lib.rs'
+      - 'crates/fieldglass-core/Cargo.toml'
       - 'scripts/verify.sh'
       - '.github/workflows/verify.yml'
 

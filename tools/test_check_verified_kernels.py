@@ -27,6 +27,7 @@ _spec.loader.exec_module(chk)
 KERNEL = "crates/fieldglass-core/src/scaling.rs"
 PROOF = "#[cfg_attr(verus_keep_ghost, verus_spec(r => ensures true))]\nfn f() {}\n"
 INCLUDE = '#[path = "../../fieldglass-core/src/scaling.rs"]\npub mod scaling;\n'
+WITHOUT_KERNEL = ["crates/fieldglass-verify/**", *(p.as_posix() for p in chk.SUPPORT)]
 
 
 def workflow(push: list[str], pull_request: list[str]) -> str:
@@ -61,7 +62,7 @@ def tree(
     pull_request: list[str] | None = None,
 ) -> Path:
     """A repository with one kernel file, the verification crate, and verify.yml."""
-    covered = ["crates/fieldglass-verify/**", KERNEL]
+    covered = ["crates/fieldglass-verify/**", KERNEL, *(p.as_posix() for p in chk.SUPPORT)]
     (root / "crates/fieldglass-core/src").mkdir(parents=True)
     (root / "crates/fieldglass-core/src/lib.rs").write_text("pub mod scaling;\n", encoding="utf-8")
     if kernel is not None:
@@ -101,13 +102,13 @@ class Catches(unittest.TestCase):
 
     def test_a_kernel_missing_from_the_push_trigger(self):
         with tempfile.TemporaryDirectory() as tmp:
-            problems = chk.check(tree(Path(tmp), push=["crates/fieldglass-verify/**"]))
+            problems = chk.check(tree(Path(tmp), push=WITHOUT_KERNEL))
             self.assertEqual(len(problems), 1)
             self.assertIn("`push`", problems[0])
 
     def test_a_kernel_missing_from_the_pull_request_trigger(self):
         with tempfile.TemporaryDirectory() as tmp:
-            problems = chk.check(tree(Path(tmp), pull_request=["crates/fieldglass-verify/**"]))
+            problems = chk.check(tree(Path(tmp), pull_request=WITHOUT_KERNEL))
             self.assertEqual(len(problems), 1)
             self.assertIn("`pull_request`", problems[0])
 
@@ -135,6 +136,82 @@ class Catches(unittest.TestCase):
         self.assertTrue(chk.glob_matches("crates/fieldglass-core/src/*.rs", KERNEL))
 
 
+class DisabledIncludes(unittest.TestCase):
+    """An include that is present in the text but not live must not count.
+
+    Each of these leaves `verify.sh` green over the remaining proofs while the
+    kernel goes unverified, which is the drift this checker exists to catch.
+    """
+
+    def assert_kernel_unverified(self, include: str) -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            problems = chk.check(tree(Path(tmp), include=include))
+            self.assertTrue(
+                any(KERNEL in p and "never checked" in p for p in problems), problems
+            )
+            return problems
+
+    def test_a_line_commented_include(self):
+        self.assert_kernel_unverified(
+            '// #[path = "../../fieldglass-core/src/scaling.rs"]\n// pub mod scaling;\n'
+        )
+
+    def test_a_line_commented_mod_under_a_live_path(self):
+        problems = self.assert_kernel_unverified(
+            '#[path = "../../fieldglass-core/src/scaling.rs"]\n// pub mod scaling;\n'
+        )
+        self.assertTrue(any("not on a `mod NAME;`" in p for p in problems), problems)
+
+    def test_a_block_commented_include(self):
+        self.assert_kernel_unverified("/*\n" + INCLUDE + "*/\n")
+
+    def test_a_nested_block_comment_around_the_include(self):
+        self.assert_kernel_unverified("/* outer /* inner */\n" + INCLUDE + "*/\n")
+
+    def test_a_cfg_disabled_include(self):
+        problems = self.assert_kernel_unverified("#[cfg(any())]\n" + INCLUDE)
+        self.assertTrue(any("carries a cfg" in p for p in problems), problems)
+
+    def test_a_cfg_after_the_path_attribute(self):
+        problems = self.assert_kernel_unverified(
+            '#[path = "../../fieldglass-core/src/scaling.rs"]\n#[cfg(any())]\npub mod scaling;\n'
+        )
+        self.assertTrue(any("carries a cfg" in p for p in problems), problems)
+
+    def test_a_cfg_attr_on_the_include(self):
+        self.assert_kernel_unverified("#[cfg_attr(any(), ignore)]\n" + INCLUDE)
+
+    def test_a_path_behind_cfg_attr_is_not_an_include(self):
+        self.assert_kernel_unverified(
+            '#[cfg_attr(any(), path = "../../fieldglass-core/src/scaling.rs")]\npub mod scaling;\n'
+        )
+
+    def test_an_include_nested_in_a_disabled_module(self):
+        problems = self.assert_kernel_unverified(
+            "#[cfg(any())]\nmod off {\n" + INCLUDE + "}\n"
+        )
+        self.assertTrue(any("nested inside a block" in p for p in problems), problems)
+
+    def test_a_path_on_an_inline_module_includes_nothing(self):
+        problems = self.assert_kernel_unverified(
+            '#[path = "../../fieldglass-core/src/scaling.rs"]\npub mod scaling {}\n'
+        )
+        self.assertTrue(any("not on a `mod NAME;`" in p for p in problems), problems)
+
+
+class SupportFiles(unittest.TestCase):
+    def test_a_support_file_missing_from_the_workflow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            globs = ["crates/fieldglass-verify/**", KERNEL, "crates/fieldglass-core/src/bits.rs"]
+            problems = chk.check(tree(Path(tmp), push=globs, pull_request=globs))
+            for name in ("error.rs", "lib.rs", "Cargo.toml"):
+                for trigger in ("`push`", "`pull_request`"):
+                    self.assertTrue(
+                        any(name in p and trigger in p for p in problems),
+                        (name, trigger, problems),
+                    )
+
+
 def root_with_globs(root: Path, globs: list[str]) -> Path:
     (root / ".github/workflows/verify.yml").write_text(workflow(globs, globs), encoding="utf-8")
     return root
@@ -144,6 +221,16 @@ class LetsThrough(unittest.TestCase):
     def test_an_included_and_covered_kernel(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(chk.check(tree(Path(tmp))), [])
+
+    def test_attributes_and_visibility_around_a_live_include(self):
+        # `pub(crate)`, a lint allow and a doc comment are not a cfg, and a
+        # `//` inside the path string is not a comment.
+        with tempfile.TemporaryDirectory() as tmp:
+            include = (
+                "/// The kernel.\n#[allow(dead_code)]\n"
+                '#[path = "../..//fieldglass-core/src/scaling.rs"]\npub(crate) mod scaling;\n'
+            )
+            self.assertEqual(chk.check(tree(Path(tmp), include=include)), [])
 
     def test_a_directory_glob_covers_the_kernel(self):
         with tempfile.TemporaryDirectory() as tmp:
