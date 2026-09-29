@@ -14,6 +14,11 @@ committed fixture byte-for-byte against the eccodes oracle with no C dependency 
 [#116](https://github.com/D0ubleD0uble/fieldglass/issues/116) shipped on the same pure-Rust
 basis as 5.41 / 5.42. See the 5.40 section below.
 
+**Amended (2026-09-29):** [ADR-0012](0012-own-the-aec-decoder.md) replaces `rust-aec`
+with `fieldglass-aec`, a CCSDS 121.0 decoder this project owns and checks against libaec
+1.1.7, so the same coder can also decode HDF5 szip. The 5.42 row and section below describe
+`rust-aec` until [#762](https://github.com/D0ubleD0uble/fieldglass/issues/762) makes the swap.
+
 ## Context
 
 GRIB2 data-representation templates **5.40 (JPEG 2000)**, **5.41 (PNG)**, and
