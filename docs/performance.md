@@ -214,14 +214,14 @@ lost to the next regression.
 | `grib2-5.41-S/decode` | 16,380 | 4 | 23,501 | 23,669 | 1 | 25 | 511,568 | 3,139,708 | 4,564,723 | 2,293,760 | 2,293,760 |
 | `grib2-5.41-S/place` | 0 | — | 0 | 755 | 0 | 4 | 70 | 16,029 | 30,004 | — | — |
 | `grib2-5.41-S/codec` | 16,380 | — | — | — | — | 9 | 118,400 | 1,603,368 | 2,181,786 | — | — |
-| `grib2-5.42-L/open` | 0 | — | 403 | 759 | 7 | 3 | 2,048 | 77,216 | 121,992 | 1,835,008 | 1,835,008 |
-| `grib2-5.42-L/decode` | 65,160 | 4 | 80,767 | 80,939 | 1 | 2,054 | 1,889,658 | 30,573,243 | 40,857,618 | 3,801,088 | 3,801,088 |
-| `grib2-5.42-L/place` | 0 | — | 0 | 759 | 0 | 4 | 70 | 15,875 | 29,811 | — | — |
-| `grib2-5.42-L/codec` | 65,160 | — | — | — | — | 2,038 | 130,448 | 23,764,511 | 30,369,943 | — | — |
-| `grib2-5.42-S/open` | 0 | — | 403 | 759 | 7 | 3 | 2,048 | 76,909 | 121,483 | 1,638,400 | 1,638,400 |
-| `grib2-5.42-S/decode` | 16,380 | 4 | 22,449 | 22,621 | 1 | 529 | 475,038 | 8,053,498 | 10,694,423 | 2,162,688 | 2,162,688 |
-| `grib2-5.42-S/place` | 0 | — | 0 | 759 | 0 | 4 | 70 | 16,212 | 30,333 | — | — |
-| `grib2-5.42-S/codec` | 16,380 | — | — | — | — | 513 | 32,888 | 6,303,697 | 8,045,086 | — | — |
+| `grib2-5.42-L/open` | 0 | — | 403 | 759 | 7 | 3 | 2,048 | 77,217 | 121,907 | 1,835,008 | 1,835,008 |
+| `grib2-5.42-L/decode` | 65,160 | 4 | 80,767 | 80,939 | 1 | 16 | 1,889,658 | 9,788,554 | 13,750,782 | 3,670,016 | 3,670,016 |
+| `grib2-5.42-L/place` | 0 | — | 0 | 759 | 0 | 4 | 70 | 15,874 | 29,636 | — | — |
+| `grib2-5.42-L/codec` | 65,160 | — | — | — | — | 1 | 130,320 | 5,249,124 | 6,370,045 | — | — |
+| `grib2-5.42-S/open` | 0 | — | 403 | 759 | 7 | 3 | 2,048 | 76,910 | 121,308 | 1,638,400 | 1,638,400 |
+| `grib2-5.42-S/decode` | 16,380 | 4 | 22,449 | 22,621 | 1 | 16 | 475,038 | 2,529,047 | 3,497,190 | 2,097,152 | 2,097,152 |
+| `grib2-5.42-S/place` | 0 | — | 0 | 759 | 0 | 4 | 70 | 16,211 | 30,170 | — | — |
+| `grib2-5.42-S/codec` | 16,380 | — | — | — | — | 1 | 32,760 | 1,381,452 | 1,692,730 | — | — |
 | `netcdf-classic-D/open` | 0 | — | 2,098,344 | 1,704 | 1 | 102 | 4,966 | 37,125 | 65,271 | 5,898,240 | 5,898,240 |
 | `netcdf-classic-D/variables` | 0 | — | 2,098,344 | 1,704 | 1 | 41 | 1,290 | 26,770 | 40,660 | 5,898,240 | 5,898,240 |
 | `netcdf-classic-D/slice` | 16,380 | 4 | 2,098,344 | 67,224 | 1 | 119 | 8,649,499 | 20,429,855 | 32,351,036 | 14,286,848 | 14,286,848 |
@@ -393,9 +393,9 @@ that the count does not change.
 | `grib2-5.41/place` | 4 | 4 | holds |
 | `grib2-5.41/codec` | 9 | 9 | holds |
 | `grib2-5.42/open` | 3 | 3 | holds |
-| `grib2-5.42/decode` | 529 | 2,054 | grows +1,525 |
+| `grib2-5.42/decode` | 16 | 16 | holds |
 | `grib2-5.42/place` | 4 | 4 | holds |
-| `grib2-5.42/codec` | 513 | 2,038 | grows +1,525 |
+| `grib2-5.42/codec` | 1 | 1 | holds |
 | `netcdf-classic/open` | 102 | 102 | holds |
 | `netcdf-classic/variables` | 41 | 41 | holds |
 | `netcdf-classic/slice` | 119 | 119 | holds |
@@ -504,8 +504,8 @@ Instructions at `L` over `S`. Proportional work is a ratio of about 4
 | `grib2-5.40/codec` | 33,115,057 | 108,724,191 | 3.28 |
 | `grib2-5.41/decode` | 3,139,708 | 11,589,889 | 3.69 |
 | `grib2-5.41/codec` | 1,603,368 | 5,479,054 | 3.42 |
-| `grib2-5.42/decode` | 8,053,498 | 30,573,243 | 3.80 |
-| `grib2-5.42/codec` | 6,303,697 | 23,764,511 | 3.77 |
+| `grib2-5.42/decode` | 2,529,047 | 9,788,554 | 3.87 |
+| `grib2-5.42/codec` | 1,381,452 | 5,249,124 | 3.80 |
 | `netcdf-classic/slice` | 6,276,125 | 24,495,869 | 3.90 |
 | `netcdf-classic/scrub` | 49,370,773 | 195,094,357 | 3.95 |
 | `netcdf4-zlib/slice` | 47,220,551 | 180,863,766 | 3.83 |
@@ -534,8 +534,8 @@ the same bytes. What is left once the codec's ceiling is taken out.
 | `grib2-5.40-S` | 34,512,426 | 33,115,057 | 4% |
 | `grib2-5.41-L` | 11,589,889 | 5,479,054 | 53% |
 | `grib2-5.41-S` | 3,139,708 | 1,603,368 | 49% |
-| `grib2-5.42-L` | 30,573,243 | 23,764,511 | 22% |
-| `grib2-5.42-S` | 8,053,498 | 6,303,697 | 22% |
+| `grib2-5.42-L` | 9,788,554 | 5,249,124 | 46% |
+| `grib2-5.42-S` | 2,529,047 | 1,381,452 | 45% |
 | `netcdf4-zlib-D` | 183,714,510 | 1,246,633 | 99% |
 | `netcdf4-zlib-L` | 180,863,766 | 3,995,726 | 98% |
 | `netcdf4-zlib-S` | 47,220,551 | 1,240,053 | 97% |
@@ -686,8 +686,14 @@ bound violation is its own issue.
    `Vec<Option<f64>>` (16 B), `pack_values` copies into a `Vec<f64>` (8 B) and
    the mask (1 B), then `Dtype::Auto` narrows to `f32` (4 B) while all three are
    alive. Zarr slices hold 45 B per cell against a floor of 9.
-3. **The AEC decoder allocates per block.** 5.42 decodes allocate 529 times at
-   `S` and 2,054 at `L`; `rust_aec` alone accounts for 513 and 2,038.
+3. **The AEC decoder allocated per block. Resolved (#762).** 5.42 decodes
+   allocated 529 times at `S` and 2,054 at `L`, and the external decoder alone
+   accounted for 513 and 2,038. On `fieldglass-aec` (ADR-0012) a codec call
+   allocates once at both sizes (its output buffer) and a decode 16 times at
+   both, so the allocation bound holds. The codec runs 22% of the old
+   instructions at `L` (5,249,124 against 23,764,511) and the whole decode 32%
+   (9,788,554 against 30,573,243), because samples now scale straight into the
+   output instead of passing through a byte buffer.
 4. **JPEG 2000's cost is the codec's.** 95–96% of a 5.40 decode's instructions
    are in `rust_j2k`, which also allocates more as the grid grows (413 → 551).
    It is 3.7× eccodes (OpenJPEG) at 1°. This answers the issue's question: the
