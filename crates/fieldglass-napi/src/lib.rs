@@ -346,8 +346,12 @@ pub struct MessageMeta {
     /// label (e.g. "Second-order (SPD-2)", "Simple grid-point"). `None` when
     /// the section can't be parsed.
     pub packing: Option<String>,
-    /// Whether this message's grid can be reprojected (the render panel's
-    /// non-source projection targets). The grid's own answer, not this crate's:
+    /// Whether the grid this message's **values** land on can be reprojected
+    /// (the render panel's non-source projection targets) — for a GRIB message,
+    /// `fieldglass::MessageInfo::reprojectable`, so a spectral or HEALPix
+    /// message, whose values are synthesised onto a global lat/lon grid,
+    /// answers `true` although the grid it declares does not reproject (#776).
+    /// The grid's own answer, not this crate's:
     /// only lat/lon, rotated lat/lon, Gaussian, Mercator, curvilinear and the
     /// planar families (Lambert, polar stereographic, transverse Mercator,
     /// Lambert azimuthal, space view) reproject; the corner-pinned ones need a
@@ -360,6 +364,26 @@ pub struct MessageMeta {
     /// the same question gets the same answer. The webview hides the
     /// reprojection options when this is `false`.
     pub reprojectable: bool,
+    /// Whether this message's values can be placed on the Earth, and why not
+    /// (#776): `"placed"`, `"no_raster"`, `"unplaceable"`, `"unsupported"` or
+    /// `"predefined_unresolved"` — `fieldglass::Placement`'s wire spelling.
+    ///
+    /// What a message list reads to decide whether it can draw a message at
+    /// all: `"placed"` and `"unplaceable"` both have a raster to paint (the
+    /// second only in its own grid coordinates). The other three do not: there
+    /// is nothing to place, the grid's template is one this build does not
+    /// model, or the predefined grid is one it does not know. About
+    /// the values, like `reprojectable`, so a spectral message is `"placed"`
+    /// and a bi-Fourier one is `"no_raster"` — which is how the two are told
+    /// apart without a list of family names in the host.
+    ///
+    /// Declared to TypeScript as the literal union rather than `string`, so a
+    /// misspelt comparison in a host fails to compile. A test in this crate
+    /// holds the union to `fieldglass::Placement`'s full vocabulary.
+    #[napi(
+        ts_type = "\"placed\" | \"no_raster\" | \"unplaceable\" | \"unsupported\" | \"predefined_unresolved\""
+    )]
+    pub placement: String,
     /// Whether the grid's rows scan south→north (GRIB `jScansPositively`).
     /// The source projection paints grid row 0 at the top of the canvas, so a
     /// south→north grid renders upside-down unless flipped; the source render
@@ -392,7 +416,23 @@ pub struct MessageMeta {
 /// close; the field is still the answer this API gives, and a wrong one is what
 /// the panel would inherit the day it starts reading it.
 fn gate_reprojection(mut meta: MessageMeta, scan: Scan) -> MessageMeta {
-    meta.reprojectable = meta_geometry(&meta).reprojectable(scan);
+    let geometry = meta_geometry(&meta);
+    meta.reprojectable = geometry.reprojectable(scan);
+    // Asked of the same geometry, so the two answers cannot describe different
+    // grids (#776). A slice with no coordinates maps to a geometry with no grid
+    // points, and it still has the raster `grid_ni` × `grid_nj` that renders in
+    // grid coordinates: that is a raster nothing places, not no raster, so the
+    // meta's own dimensions stand in for the ones the geometry lacks.
+    let raster = match (meta.grid_ni, meta.grid_nj) {
+        (Some(ni), Some(nj)) => u32::try_from(ni).ok().zip(u32::try_from(nj).ok()),
+        _ => None,
+    };
+    meta.placement = fieldglass::Placement::from_extent(
+        geometry.dims().or(raster),
+        geometry.lonlat_bbox().is_some(),
+    )
+    .as_str()
+    .to_string();
     meta
 }
 
@@ -1993,6 +2033,8 @@ pub(crate) fn message_info_with(overrides: serde_json::Value) -> fieldglass::Mes
         "forecast": "",
         "packing": "",
         "originatingCentre": "",
+        "placement": "no_raster",
+        "reprojectable": false,
     });
     if let (Some(base), Some(extra)) = (base.as_object_mut(), overrides.as_object()) {
         for (k, v) in extra {
@@ -2009,11 +2051,13 @@ pub(crate) fn message_info_with(overrides: serde_json::Value) -> fieldglass::Mes
 pub(crate) fn synthesised_meta(grid: fieldglass_core::GlobalGrid) -> MessageMeta {
     let geometry = GridGeometry::LatLon(grid.into());
     let placed = fieldglass::Georef::from_declared(&geometry, Scan::north_down(), geometry.label());
-    session_meta::meta_from_session(
-        &message_info_with(serde_json::json!({})),
-        Some(&placed),
-        "grib2",
-    )
+    // The message's answers are the placed grid's, as `Session::message`
+    // reports them for a synthesised family.
+    let info = message_info_with(serde_json::json!({
+        "placement": placed.placement.as_str(),
+        "reprojectable": placed.reprojectable,
+    }));
+    session_meta::meta_from_session(&info, Some(&placed), "grib2")
 }
 
 // ---------------------------------------------------------------------------
@@ -2687,14 +2731,16 @@ impl NetcdfHandle {
         // Resolved through the same cache the render path uses, so a slice that
         // reports `"curvilinear"` here is one the warp can always place.
         if let Some(geometry) = self.curvilinear_index(var, y_dim, x_dim)? {
+            // Walked once: the extent is also what the placement asks about,
+            // and over a global ocean mesh the walk is the expensive part.
+            let bbox = geometry.lonlat_bbox();
+            let placement = fieldglass::Placement::from_extent(geometry.dims(), bbox.is_some());
             let LonLatBox {
                 lat_min,
                 lat_max,
                 lon_min,
                 lon_max,
-            } = geometry
-                .lonlat_bbox()
-                .unwrap_or(LonLatBox::new(-90.0, 90.0, -180.0, 180.0));
+            } = bbox.unwrap_or(LonLatBox::new(-90.0, 90.0, -180.0, 180.0));
             return Ok(MessageMeta {
                 grid_type: Some("curvilinear".to_string()),
                 grid_ni: Some(ni as i32),
@@ -2714,6 +2760,7 @@ impl NetcdfHandle {
                 // their own positions has no scan direction to be wrong about
                 // (#445), so it reads neither the index nor the scan.
                 reprojectable: geometry.reprojectable(Scan::north_down()),
+                placement: placement.as_str().to_string(),
                 // A lookup grid has no latitude axis to read an ordering from,
                 // so the rows are compared directly: mean latitude of the first
                 // row against the last. A mean rather than one column because
@@ -2851,6 +2898,9 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
         geos_dy_rad: None,
         packing: None,
         reprojectable: false,
+        // Answered from the geometry by `gate_reprojection`, beside
+        // `reprojectable`.
+        placement: String::new(),
         j_scans_positive: None,
     }
 }
@@ -4662,6 +4712,7 @@ mod meta_geometry_tests {
             geos_dy_rad: None,
             packing: None,
             reprojectable: true,
+            placement: String::new(),
             j_scans_positive: None,
         }
     }
@@ -5306,6 +5357,7 @@ mod overlay_projection_tests {
             geos_dy_rad: None,
             packing: None,
             reprojectable: true,
+            placement: String::new(),
             j_scans_positive: None,
         }
     }
@@ -7179,6 +7231,7 @@ mod space_view_geos_tests {
             geos_dy_rad: Some(g.dy_rad),
             packing: None,
             reprojectable: true,
+            placement: String::new(),
             j_scans_positive: None,
         }
     }
@@ -9182,5 +9235,204 @@ mod sized_output_raster_tests {
                 err.reason
             );
         }
+    }
+}
+
+/// `MessageMeta::placement` and `reprojectable` through the real handles, over
+/// the committed fixtures (#776).
+///
+/// These two are what the extension's Render button and projection picker read
+/// instead of naming the synthesised families in TypeScript, so what is pinned
+/// is the handle's answer for each placement value — and that a spectral
+/// message and a bi-Fourier one, both of which declare a grid with no points,
+/// answer differently.
+#[cfg(test)]
+mod placement_tests {
+    use super::{Grib1Handle, Grib2Handle, MessageMeta};
+
+    fn grib2(bytes: &[u8]) -> MessageMeta {
+        Grib2Handle::from_vec(bytes.to_vec())
+            .expect("the fixture opens")
+            .messages()
+            .swap_remove(0)
+    }
+
+    fn grib1(bytes: &[u8]) -> MessageMeta {
+        Grib1Handle::from_vec(bytes.to_vec())
+            .expect("the fixture opens")
+            .messages()
+            .swap_remove(0)
+    }
+
+    #[test]
+    fn a_regular_grid_is_placed() {
+        let meta = grib2(include_bytes!(
+            "../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2"
+        ));
+        assert_eq!(meta.placement, "placed");
+        assert!(meta.reprojectable);
+    }
+
+    /// The declared grid has no points and names itself; the values it
+    /// synthesises onto are placed and reproject. Both editions.
+    #[test]
+    fn a_spectral_message_is_placed_because_its_values_are() {
+        for meta in [
+            grib1(include_bytes!(
+                "../../fieldglass-grib1/tests/fixtures/spectral_simple_t63.grib1"
+            )),
+            grib2(include_bytes!(
+                "../../fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2"
+            )),
+        ] {
+            assert_eq!(meta.grid_type.as_deref(), Some("spherical_harmonic"));
+            assert_eq!(meta.grid_ni, None, "the declared grid has no raster");
+            assert_eq!(meta.placement, "placed");
+            assert!(meta.reprojectable);
+        }
+    }
+
+    /// No grid points and no synthesis: nothing to draw. The answer the host's
+    /// family list used to give by leaving `bifourier` off it.
+    #[test]
+    fn a_bifourier_message_has_no_raster() {
+        let meta = grib2(include_bytes!(
+            "../../fieldglass-grib2/tests/fixtures/bifourier_ellipse_keepaxes.grib2"
+        ));
+        assert_eq!(meta.placement, "no_raster");
+        assert!(!meta.reprojectable);
+    }
+
+    /// A raster the projection cannot place: still drawn in grid coordinates,
+    /// so it keeps its dimensions, and offers no map target.
+    #[test]
+    fn a_zero_step_polar_grid_is_unplaceable() {
+        let meta = grib2(include_bytes!(
+            "../../fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2"
+        ));
+        assert_eq!(meta.placement, "unplaceable");
+        assert!(meta.grid_ni.is_some());
+        assert!(!meta.reprojectable);
+    }
+
+    /// A GRIB1 message with no grid description naming predefined grid 7, which
+    /// this build's catalogue does not hold. Hand-built: no committed producer
+    /// writes one; the shape is `fieldglass-grib1/tests/predefined_grid.rs`'s.
+    #[test]
+    fn a_grib1_message_naming_an_unknown_predefined_grid() {
+        const BDS_LEN: usize = 12;
+        let total_len = 8 + 28 + BDS_LEN + 4;
+        let mut msg = b"GRIB".to_vec();
+        msg.extend_from_slice(&[0, 0, total_len as u8, 1]);
+        let mut pds = [0u8; 28];
+        pds[2] = 28; // section length
+        pds[6] = 7; // octet 7: predefined grid number
+        pds[7] = 0x00; // octet 8: no GDS, no BMS
+        msg.extend_from_slice(&pds);
+        msg.extend_from_slice(&[0u8; BDS_LEN]);
+        msg.extend_from_slice(b"7777");
+
+        let meta = grib1(&msg);
+        assert_eq!(meta.grid_type, None);
+        assert_eq!(meta.placement, "predefined_unresolved");
+        assert!(!meta.reprojectable);
+    }
+}
+
+/// A NetCDF-4 / HDF5 slice with no coordinate arrays, through the real
+/// `NetcdfHandle`: its meta names a 10×10 raster that renders in grid
+/// coordinates and that nothing places, so `unplaceable`, not `no_raster`
+/// (#776).
+#[cfg(test)]
+mod coordinate_less_slice_placement_tests {
+    use super::{NetcdfHandle, NetcdfReader};
+    use std::sync::Mutex;
+
+    #[test]
+    fn a_coordinate_less_slice_is_unplaceable() {
+        let bytes = include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_v2_linkinfo.h5");
+        let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("opens");
+        let view = reader.view().expect("a view");
+        let handle = NetcdfHandle {
+            reader,
+            view,
+            decoded: Mutex::new(std::collections::HashMap::new()),
+            curvilinear: Mutex::new(std::collections::HashMap::new()),
+        };
+        let index = handle
+            .variables()
+            .into_iter()
+            .find(|v| v.name.trim_start_matches('/') == "chunked")
+            .expect("the fixture holds `chunked`")
+            .variable_index;
+        let var = handle
+            .renderable(u32::try_from(index).expect("an index"))
+            .expect("renderable");
+        let rank = var.dims.len();
+        let meta = handle
+            .slice_meta(&var, rank - 2, rank - 1)
+            .expect("a slice meta");
+        assert_eq!((meta.grid_ni, meta.grid_nj), (Some(10), Some(10)));
+        assert_eq!(meta.lat_first, None, "no coordinates to place it by");
+        assert_eq!(meta.placement, "unplaceable");
+        assert!(!meta.reprojectable);
+    }
+}
+
+/// A §3 template this build does not model, through the real `Grib2Handle`:
+/// `unsupported`, which the extension does not offer to render (#776).
+/// Hand-built from the committed lat/lon fixture with its template renumbered
+/// to 3.4; no committed producer writes one.
+#[cfg(test)]
+mod unsupported_template_placement_tests {
+    use super::Grib2Handle;
+
+    #[test]
+    fn an_unmodelled_grib2_template_is_unsupported() {
+        let mut bytes =
+            include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2")
+                .to_vec();
+        let mut at = 16; // past §0
+        loop {
+            let len = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+                as usize;
+            if bytes[at + 4] == 3 {
+                bytes[at + 12..at + 14].copy_from_slice(&4u16.to_be_bytes());
+                break;
+            }
+            at += len;
+        }
+        let meta = Grib2Handle::from_vec(bytes)
+            .expect("opens")
+            .messages()
+            .swap_remove(0);
+        assert_eq!(meta.placement, "unsupported");
+        assert!(!meta.reprojectable);
+    }
+}
+
+/// `MessageMeta::placement`'s TypeScript union is written by hand in a
+/// `ts_type` attribute; this holds it to `fieldglass::Placement::ALL`, so a
+/// value added to the vocabulary cannot be missing from the declaration (#776).
+#[cfg(test)]
+mod placement_ts_type_tests {
+    #[test]
+    fn placement_ts_type_is_the_vocabulary() {
+        let source = include_str!("lib.rs");
+        let line = source
+            .lines()
+            .find(|l| l.trim_start().starts_with("ts_type = \"\\\"placed"))
+            .expect("the placement field's ts_type");
+        let declared: Vec<String> = line
+            .split("\\\"")
+            .skip(1)
+            .step_by(2)
+            .map(str::to_string)
+            .collect();
+        let vocabulary: Vec<String> = fieldglass::Placement::ALL
+            .iter()
+            .map(|p| p.as_str().to_string())
+            .collect();
+        assert_eq!(declared, vocabulary);
     }
 }

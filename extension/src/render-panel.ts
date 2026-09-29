@@ -230,33 +230,6 @@ export function sanitizePngName(name: string): string {
   return `${(cleaned || "render").toLowerCase()}.png`;
 }
 
-/** Whether the panel should offer the reprojection targets.
- *
- *  `meta.reprojectable` describes the message's *own* grid. A spherical-harmonic
- *  message has no grid, so it arrives false — but `renderGrid` synthesizes a
- *  regular lat/lon grid via the inverse transform and paints that, and a
- *  synthesized grid reprojects like any other (#303). Mirrors the same
- *  special case `messageIsRenderable` makes in `provider.ts`.
- *
- *  A HEALPix (§3.150) message is the same case: it is a list of pixels with no
- *  raster shape, and `renderGrid` resamples it onto a lat/lon grid, which
- *  reprojects like any other (#443).
- *
- *  Deliberately keyed on those two names, not on "has no grid": bi-Fourier
- *  messages (`gridType === "bifourier"`) also lack a grid, but they decode only
- *  to coefficients and do not render at all, so they must keep the source-only
- *  picker and its note. */
-function metaIsReprojectable(meta: {
-  reprojectable: boolean;
-  gridType: string | null;
-}): boolean {
-  return (
-    meta.reprojectable ||
-    meta.gridType === "spherical_harmonic" ||
-    meta.gridType === "healpix"
-  );
-}
-
 /** Width of the exported PNG (#243).
  *
  *  The image has two things to fit: the map block (raster + colorbar + its
@@ -2868,7 +2841,7 @@ ${slice
       <label>Projection
         <select id="picker-projection">
           <option value="source" selected>Source projection</option>
-${metaIsReprojectable(meta)
+${meta.reprojectable
           ? `          <option value="equirectangular">Equirectangular</option>
           <option value="web_mercator">Web Mercator</option>
           <option value="orthographic">Orthographic</option>
@@ -2878,7 +2851,7 @@ ${metaIsReprojectable(meta)
           <option value="equal_earth">Equal Earth</option>`
           : ""}
         </select>
-${metaIsReprojectable(meta)
+${meta.reprojectable
         ? ""
         : `        <span class="picker-note">Reprojection isn't available for ${escapeHtml(meta.gridType ?? "this")} grids yet.</span>`}
       </label>

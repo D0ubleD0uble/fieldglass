@@ -380,6 +380,8 @@ mod tests {
             forecast: "analysis".into(),
             packing: "grid_simple".into(),
             grid: None,
+            placement: crate::api::Placement::NoRaster,
+            reprojectable: false,
             size_label: None,
             // Identification this helper's caller does not look at: these tests
             // are about matching a sidecar's promise against a decoded

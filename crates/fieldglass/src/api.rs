@@ -234,6 +234,71 @@ api_type! {
         Metres,
     }
 
+    /// Whether a grid can be placed on the Earth, and why not when it cannot
+    /// (#776).
+    ///
+    /// The reason [`Georef::corners`] alone does not give: a `null` corner pair
+    /// can mean there is nothing to place, or that there is a raster and the
+    /// projection cannot place it, and a host acts differently on the two. The
+    /// first has nothing to draw. The second still draws in its own grid
+    /// coordinates and only the map is missing.
+    ///
+    /// A sibling of the value rather than a wrapper around it (#574's decision):
+    /// the corners stay a plain `[f64; 4] | null`, and this says which absence
+    /// a `null` is.
+    #[derive(Copy, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Placement {
+        /// The grid has a raster and its projection places at least part of it:
+        /// [`Georef::bounds_lonlat`] is present.
+        ///
+        /// Not a promise that every cell has a position. A full-disc satellite
+        /// image is placed, and its corner pixels look past the Earth, so its
+        /// [`Georef::corners`] is `null` while the disc itself is on the map.
+        Placed,
+        /// There is genuinely nothing to place: the family carries no grid
+        /// points of its own (spectral coefficients, HEALPix pixels, bi-Fourier
+        /// coefficients), the grid declares zero columns or rows, or the
+        /// message states no grid at all (GRIB1 predefined grid 255).
+        ///
+        /// Not "this build cannot read the grid": a template this build does not
+        /// model is [`Unsupported`](Self::Unsupported), and a raster with no
+        /// usable projection is [`Unplaceable`](Self::Unplaceable). Those two
+        /// have grid points; this one has none.
+        ///
+        /// On a [`MessageInfo`] this is about where the *values* land, so a
+        /// spectral or HEALPix message is [`Placed`](Self::Placed) there: its
+        /// values are synthesised onto a global lat/lon raster, even though the
+        /// grid it declares is `no_raster`.
+        NoRaster,
+        /// There is a raster, and nothing places any of it on the Earth: a
+        /// polar stereographic grid stating a zero grid step, a Lambert cone
+        /// whose standard parallels are both on the equator, a first point the
+        /// forward map sends to infinity, a §3.90 camera that sees no Earth, or
+        /// a NetCDF, HDF5 or Zarr slice with no coordinates to place it by. The
+        /// grid still renders in its own grid coordinates; it has no position on
+        /// a map.
+        Unplaceable,
+        /// The message declares a grid in a template this build does not model
+        /// (a GRIB2 §3 template such as 3.4 or 3.101, a GRIB1 data
+        /// representation type such as 90), so the grid has points and this
+        /// build knows neither their shape nor where they are.
+        ///
+        /// Kept apart from [`NoRaster`](Self::NoRaster) because the reasons
+        /// differ and so does what fixes them: nothing makes a spectral field a
+        /// raster, and support for the template would make this one placeable.
+        /// Nothing decodes it today, so a host offers no render.
+        Unsupported,
+        /// A GRIB1 message with no grid description, identified only by a
+        /// predefined grid number (WMO ON388 Table B) this build does not have
+        /// in its catalogue. The message names a grid; this build cannot say
+        /// which.
+        ///
+        /// Only [`MessageInfo::placement`] reports this. A [`Georef`] exists
+        /// only once a grid is known, so its placement is never this one.
+        PredefinedUnresolved,
+    }
+
     /// Where a decoded field sits on the Earth, flattened to scalars.
     ///
     /// A browser map library needs two things and this carries both: a CRS it
@@ -304,7 +369,33 @@ api_type! {
         /// name states. `None` when the family has no raster, or when the
         /// projection cannot place its far corner — reported absent rather than
         /// clamped, so a host shows nothing instead of a plausible fiction.
+        /// [`placement`](Self::placement) says which of the two it is.
+        ///
+        /// Where the container states its corners they are reported as stated
+        /// (see [`Georef::from_declared_corners`]), so a grid can carry a
+        /// corner pair and still be [`Placement::Unplaceable`]: the file wrote
+        /// the numbers down, and the projection it describes cannot use them.
         pub corners: Option<[f64; 4]>,
+        /// Whether this grid can be placed on the Earth, and why not — the
+        /// reason a `null` [`corners`](Self::corners) or
+        /// [`bounds_lonlat`](Self::bounds_lonlat) is `null` (#776).
+        ///
+        /// Computed from [`geometry`](Self::geometry), the same geometry that
+        /// fills `bounds_lonlat`, and never from the corners a container
+        /// reports. Never [`Placement::PredefinedUnresolved`].
+        pub placement: Placement,
+        /// Whether the grid can be reprojected: a host may offer map targets
+        /// other than the grid's own coordinates, and the warp will place it.
+        ///
+        /// `core`'s `GridGeometry::reprojectable`, asked with
+        /// [`scan`](Self::scan). **Its own field because it is not derivable
+        /// from [`placement`](Self::placement) and [`kind`](Self::kind)**
+        /// (#776). A placed grid can still decline: a lat/lon, Gaussian,
+        /// Mercator or rotated grid scanned east to west, because their inverse
+        /// maps assume columns run west to east, and a planar grid whose cell is
+        /// larger than the Earth radius the message declares. Deriving it in a
+        /// host would mean a family list and the scan rule in every host.
+        pub reprojectable: bool,
         /// Points per row for a **reduced** grid — `PL`, the number of values
         /// each row really holds — and `None` for every other family (#244).
         ///
@@ -509,10 +600,42 @@ api_type! {
         /// describes where the values are. [`size_label`](Self::size_label)
         /// names the native shape beside it.
         ///
-        /// `None` only for a GRIB1 message that carries no §2 at all: its grid
-        /// is whatever `pds.grid_number` predefines, which this call does not
-        /// resolve.
+        /// `None` only for a GRIB1 message that carries no §2 at all and whose
+        /// `pds.grid_number` is not a predefined grid this build's catalogue
+        /// resolves — either 255, "no predefined grid", or a number outside the
+        /// catalogue. [`placement`](Self::placement) tells the two apart.
         pub grid: Option<Georef>,
+        /// Whether this message's **values** can be placed on the Earth, and
+        /// why not (#776) — the answer a message list reads to decide whether
+        /// it can draw the message at all.
+        ///
+        /// Where the values land rather than what the file declares, which is
+        /// the difference from `grid.placement`. The two differ only for the
+        /// families whose values are synthesised onto a raster: a spectral or
+        /// HEALPix message declares a `no_raster` grid, and its values land on
+        /// a global lat/lon one, so this is [`Placement::Placed`]. Always the
+        /// [`Georef::placement`] [`crate::Session::place_message`] reports when
+        /// that call succeeds; `place_message_agrees_with_decode.rs` holds the
+        /// two together over the corpus.
+        ///
+        /// With no `grid`, this is [`Placement::PredefinedUnresolved`] when the
+        /// message names a predefined grid this build cannot resolve, and
+        /// [`Placement::NoRaster`] when it names none (grid number 255).
+        ///
+        /// Placed is not decodable: a GRIB1 matrix-of-values or GRIB2
+        /// bi-Fourier message is refused by [`crate::Session::decode`]
+        /// whatever this says, and the refusal names the call that reads it.
+        pub placement: Placement,
+        /// Whether the grid this message's values land on can be reprojected —
+        /// the answer a projection picker reads, and
+        /// [`Georef::reprojectable`] of the same grid
+        /// [`placement`](Self::placement) describes. `false` when there is no
+        /// grid.
+        ///
+        /// Like `placement`, it is about the values: a spectral message's
+        /// declared grid does not reproject and its synthesised lat/lon field
+        /// does, so this is `true`.
+        pub reprojectable: bool,
         /// How the file names its own grid where `Ni × Nj` is not how it is
         /// described — `N32`, `O1280`, `T639`.
         pub size_label: Option<String>,
@@ -719,6 +842,64 @@ impl Values {
     }
 }
 
+impl Placement {
+    /// Every value, in declaration order: the vocabulary a host that declares
+    /// the field by hand (the napi binding's TypeScript union) is held to.
+    pub const ALL: [Self; 5] = [
+        Self::Placed,
+        Self::NoRaster,
+        Self::Unplaceable,
+        Self::Unsupported,
+        Self::PredefinedUnresolved,
+    ];
+
+    /// Whether `geom` can be placed, and why not — what
+    /// [`Georef::placement`] reports for it.
+    ///
+    /// For a host that holds a geometry without a [`Georef`] around it. Where
+    /// there is one, read its field: this walks the grid's perimeter, which
+    /// building the `Georef` has already done.
+    pub fn of(geom: &GridGeometry) -> Self {
+        Self::from_extent(geom.dims(), geom.lonlat_bbox().is_some())
+    }
+
+    /// The rule itself, over the two answers it reads — for a caller that
+    /// already holds both and should not walk the grid a second time to ask
+    /// [`of`](Self::of).
+    ///
+    /// `placed` is whether `GridGeometry::lonlat_bbox` answered, which is the
+    /// projection-can-place-something question: it is `None` exactly when no
+    /// part of the grid's perimeter lands on the Earth, and it keeps a full disc
+    /// whose perimeter is all limb (the geostationary fallback) placed. The far
+    /// corner is deliberately *not* the test: that disc's corners are in space.
+    pub fn from_extent(dims: Option<(u32, u32)>, placed: bool) -> Self {
+        match dims {
+            // A zero-width grid is declared, and it is no raster: nothing to
+            // paint, and a corner at index `ni - 1` does not exist.
+            // `None` is a geometry with no grid points. Where the container
+            // knows better — an unmodelled template, a slice with no
+            // coordinates — the caller says so instead of asking this.
+            None | Some((0, _) | (_, 0)) => Self::NoRaster,
+            Some(_) if placed => Self::Placed,
+            Some(_) => Self::Unplaceable,
+        }
+    }
+
+    /// The wire spelling, for a host that maps this into a DTO of its own
+    /// rather than serialising it: `"placed"`, `"no_raster"`, `"unplaceable"`,
+    /// `"unsupported"` or `"predefined_unresolved"`. A test holds it to the
+    /// serde tag.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Placed => "placed",
+            Self::NoRaster => "no_raster",
+            Self::Unplaceable => "unplaceable",
+            Self::Unsupported => "unsupported",
+            Self::PredefinedUnresolved => "predefined_unresolved",
+        }
+    }
+}
+
 impl Georef {
     /// Flatten a [`GridGeometry`] and the message's scan flags into the
     /// scalar form a host consumes.
@@ -771,13 +952,34 @@ impl Georef {
     /// [`corners`](Self::corners) therefore means "the corner pair this
     /// container reports", and falls back to the geometry only for a container
     /// that reports none.
+    ///
+    /// A geometry with no grid points is reported [`Placement::NoRaster`], as
+    /// [`from_declared`](Self::from_declared) reports it; `Session`, which
+    /// reads the container, says `unsupported` or `unplaceable` where the
+    /// container knows which.
     pub fn from_declared_corners(
         geom: &GridGeometry,
         scan: Scan,
         declared: &str,
         corners: Option<CornerPair>,
     ) -> Self {
-        let computed = Self::from_declared(geom, scan, declared);
+        Self::from_container(geom, scan, declared, corners, Placement::NoRaster)
+    }
+
+    /// [`from_declared_corners`](Self::from_declared_corners) with the
+    /// placement to report when the geometry has no grid points, which only
+    /// the container can say: [`Placement::Unsupported`] for a template this
+    /// build does not model, [`Placement::Unplaceable`] for a raster the
+    /// container declares and nothing places, [`Placement::NoRaster`] when
+    /// there really are no points.
+    pub(crate) fn from_container(
+        geom: &GridGeometry,
+        scan: Scan,
+        declared: &str,
+        corners: Option<CornerPair>,
+        without_geometry: Placement,
+    ) -> Self {
+        let computed = Self::build(geom, scan, declared, without_geometry);
         Self {
             // `.or`, not a plain assignment: naming the field in a struct
             // update replaces what `from_declared` computed, so a container
@@ -808,7 +1010,20 @@ impl Georef {
     /// `fieldglass_grib1::gds::GridDescription::grid_type_name`,
     /// `fieldglass_grib2::gds::GridDefinitionSection::template_name` — read
     /// rather than re-derived, the way `raster_bounds` is (#543).
+    ///
+    /// A geometry with no grid points is reported [`Placement::NoRaster`]; see
+    /// [`from_declared_corners`](Self::from_declared_corners).
     pub fn from_declared(geom: &GridGeometry, scan: Scan, declared: &str) -> Self {
+        Self::build(geom, scan, declared, Placement::NoRaster)
+    }
+
+    /// The one constructor body. `without_geometry` is what a geometry with no
+    /// grid points reports; see [`from_container`](Self::from_container).
+    fn build(geom: &GridGeometry, scan: Scan, declared: &str, without_geometry: Placement) -> Self {
+        debug_assert!(
+            without_geometry != Placement::Placed,
+            "a grid with no geometry cannot be placed"
+        );
         let (ni, nj) = geom.dims().unwrap_or((0, 0));
         // One question, asked of `core`: a family that has a plane reports its
         // origin and step in that plane's own units, and one that has none (a
@@ -822,16 +1037,24 @@ impl Georef {
         };
         let (x0, y0) = (affine.map(|a| a.x0), affine.map(|a| a.y0));
         let (dx, dy) = (affine.and_then(|a| a.dx), affine.and_then(|a| a.dy));
+        // Walked once and read twice: the extent is what `placement` asks
+        // about, and the perimeter walk is the expensive half of this call.
+        let bbox = geom.lonlat_bbox();
         Self {
             geometry: geom.clone(),
             kind: geom.kind().to_string(),
             label: declared.to_string(),
             ni,
             nj,
-            bounds_lonlat: geom.lonlat_bbox().map(LonLatBox::to_array),
+            bounds_lonlat: bbox.map(LonLatBox::to_array),
             corners: geom
                 .corner_pair()
                 .map(|c| [c.lat_first, c.lon_first, c.lat_last, c.lon_last]),
+            placement: match geom.dims() {
+                None => without_geometry,
+                dims => Placement::from_extent(dims, bbox.is_some()),
+            },
+            reprojectable: geom.reprojectable(scan),
             points_per_row: None,
             proj4: geom.proj4(),
             axis_units,
@@ -885,7 +1108,8 @@ fn scan_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
 mod tests {
     use super::*;
     use fieldglass_core::{
-        LambertParams, LambertProjector, LatLonParams, PlanarGridProjector, RotatedLatLonParams,
+        GeostationaryParams, LambertParams, LambertProjector, LatLonParams, PlanarGridProjector,
+        RotatedLatLonParams,
     };
 
     /// [`scan_schema`] restates `Scan`'s three properties by hand, because
@@ -1091,5 +1315,105 @@ mod tests {
         let g = Georef::from_geometry(&geom, scan());
         assert!(g.dx.is_some());
         assert_eq!(g.dy, None);
+    }
+
+    /// The wire spelling a napi host maps through [`Placement::as_str`] is the
+    /// serde tag every other host reads, for every variant.
+    #[test]
+    fn placement_as_str_is_the_serde_tag() {
+        for p in Placement::ALL {
+            // Exhaustive, so a variant added without joining `ALL` fails to
+            // compile here rather than going missing from a host's union.
+            match p {
+                Placement::Placed
+                | Placement::NoRaster
+                | Placement::Unplaceable
+                | Placement::Unsupported
+                | Placement::PredefinedUnresolved => {}
+            }
+            assert_eq!(
+                serde_json::to_value(p).expect("serialises"),
+                serde_json::Value::String(p.as_str().to_string()),
+            );
+        }
+    }
+
+    /// A GOES-East-like full disc: the raster's corner pixels look past the
+    /// Earth, so there is no corner pair to report, and the disc is still on
+    /// the map. That is the case the rule keys on the extent rather than on the
+    /// far corner for: a `null` corner is not by itself "unplaceable".
+    #[test]
+    fn a_full_disc_is_placed_although_its_corners_are_space() {
+        let p = GeostationaryParams {
+            ni: 21,
+            nj: 21,
+            h_metres: 42_164_160.0,
+            r_eq: 6_378_137.0,
+            r_pol: 6_356_752.314_14,
+            sub_lon_deg: -75.0,
+            sweep_x: true,
+            x0: -0.151844,
+            dx_rad: 0.0151844,
+            y0: 0.151844,
+            dy_rad: -0.0151844,
+        };
+        let g = Georef::from_geometry(&GridGeometry::Geostationary(p), scan());
+        assert_eq!(g.corners, None, "the corner pixels are off the disc");
+        assert!(g.bounds_lonlat.is_some());
+        assert_eq!(g.placement, Placement::Placed);
+        assert!(g.reprojectable);
+
+        // The same grid seen from inside the Earth has no line of sight to it,
+        // so nothing of it can be placed: a raster, and no position for it.
+        let blind = GridGeometry::Geostationary(GeostationaryParams {
+            h_metres: p.r_eq / 2.0,
+            ..p
+        });
+        let g = Georef::from_geometry(&blind, scan());
+        assert_eq!(g.placement, Placement::Unplaceable);
+        assert_eq!(Placement::of(&blind), Placement::Unplaceable);
+        assert!(!g.reprojectable);
+    }
+
+    /// A family with no grid points, and a grid declaring none, are both
+    /// "nothing to place" rather than "cannot place".
+    #[test]
+    fn no_grid_points_is_no_raster() {
+        let unmodelled = GridGeometry::Unsupported {
+            label: "spherical_harmonic".to_string(),
+        };
+        assert_eq!(
+            Georef::from_geometry(&unmodelled, scan()).placement,
+            Placement::NoRaster
+        );
+        let empty = GridGeometry::LatLon(LatLonParams {
+            ni: 0,
+            nj: 181,
+            lat_first: 90.0,
+            lon_first: 0.0,
+            lat_last: -90.0,
+            lon_last: 359.0,
+        });
+        assert_eq!(Placement::of(&empty), Placement::NoRaster);
+    }
+
+    /// A placed grid that still declines to reproject: the reason
+    /// `reprojectable` is a field of its own rather than derived from
+    /// `placement` and `kind` (#776).
+    #[test]
+    fn a_placed_grid_scanned_east_to_west_does_not_reproject() {
+        let geom = GridGeometry::LatLon(LatLonParams {
+            ni: 360,
+            nj: 181,
+            lat_first: 90.0,
+            lon_first: 359.0,
+            lat_last: -90.0,
+            lon_last: 0.0,
+        });
+        let east_to_west = Scan::new(true, false, false);
+        let g = Georef::from_geometry(&geom, east_to_west);
+        assert_eq!(g.placement, Placement::Placed);
+        assert!(!g.reprojectable);
+        assert!(Georef::from_geometry(&geom, scan()).reprojectable);
     }
 }

@@ -2014,6 +2014,8 @@ export function syntheticNetcdfMeta(
     gaussianNParallels: null,
     packing: null,
     reprojectable: true,
+    // A stub like `reprojectable` above, for the same reason: see #574.
+    placement: "placed",
     jScansPositive: null,
   };
 }
@@ -2176,25 +2178,17 @@ function renderDatasetBody(
   return sections.join("\n");
 }
 
-/** A message is renderable if it declares grid dimensions, or is one of the
- *  two families that has no grid of its own but is put on one at decode:
- *  spherical-harmonic (spectral) fields, synthesized via the inverse transform
- *  (#303), and HEALPix (§3.150) fields, resampled onto a lat/lon grid (#443).
+/** A message is renderable when its values land on a raster: `"placed"`, or
+ *  `"unplaceable"`, which still paints in its own grid coordinates.
  *
- *  Keyed on the two names rather than on "has no grid", for the reason
- *  `metaIsReprojectable` records: bi-Fourier messages also lack a grid and
- *  decode only to coefficients, so they must stay unrenderable. */
-function messageIsRenderable(m: {
-  gridNi: number | null;
-  gridNj: number | null;
-  gridSizeLabel: string | null;
-  gridType: string | null;
-}): boolean {
-  return (
-    (m.gridNi != null && m.gridNj != null) ||
-    m.gridType === "spherical_harmonic" ||
-    m.gridType === "healpix"
-  );
+ *  The answer is Rust's (`MessageMeta.placement`, #776), and it is about the
+ *  values rather than the declared grid, so a spectral or HEALPix message —
+ *  whose values are synthesised onto a lat/lon grid — is `"placed"`, and a
+ *  bi-Fourier one, which has no raster at all, is `"no_raster"`. A template
+ *  this build does not model (`"unsupported"`) is not offered either: nothing
+ *  decodes it. This used to be a list of family names here. */
+function messageIsRenderable(m: Pick<MessageMeta, "placement">): boolean {
+  return m.placement === "placed" || m.placement === "unplaceable";
 }
 
 /** Exported for tests: the P1 edit path is dormant (`editable` is false at the
