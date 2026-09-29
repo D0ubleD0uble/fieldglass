@@ -20,19 +20,19 @@
 //! - `Session::place_message(i)` — where its values land, which for a
 //!   synthesised family is the global lat/lon raster it is transformed onto.
 //!
-//! `session_parity.rs` holds this to the two builders it replaces, field by
-//! field, over every message of every GRIB fixture. It reproduces them on every
-//! field but five, and those five are recorded there as `KNOWN_GAPS` with what
-//! closing them needs.
+//! Two fields are the message's rather than the grid's and read the same
+//! whichever `Georef` is passed: `placement` and `reprojectable`, which are
+//! [`MessageInfo`]'s answers about where the values land (#776). A declared
+//! spectral meta is therefore `placed` and reprojectable, because a message
+//! list and a projection picker are asking about the field they will draw.
 //!
-//! **Nothing calls this yet**, which is why it is test-gated: it is written and
-//! proven first, and wiring it up is the handle migration. A builder shipped
-//! unused would be dead code in a `.node`.
+//! Every GRIB handle's `messages()`, and every display entry point through
+//! `MessageStream::resolved`, builds its meta here.
 
 use fieldglass::{Georef, MessageInfo};
 use fieldglass_core::GridGeometry;
 
-use crate::{MessageMeta, friendly_packing, gate_reprojection};
+use crate::{MessageMeta, friendly_packing};
 
 /// The `MessageMeta` a host shows for one message.
 ///
@@ -76,6 +76,15 @@ pub(crate) fn meta_from_session(
         packing: Some(friendly_packing(&info.packing)),
         // Named by the grid, below, and absent when there is none.
         grid_size_label: info.size_label.clone(),
+        // The message's own answers, about where its values land, whichever
+        // grid the caller passes below (#776). A declared spectral meta is
+        // therefore `placed` and reprojectable, because its values are: that
+        // is what the message list's Render button and the render panel's
+        // projection picker ask, and asking it here is what lets both stop
+        // naming the synthesised families. `Session::message` holds them to
+        // `place_message`'s answer over the corpus.
+        placement: info.placement.as_str().to_string(),
+        reprojectable: info.reprojectable,
         ..MessageMeta::default()
     };
     let Some(georef) = grid else {
@@ -106,7 +115,7 @@ pub(crate) fn meta_from_session(
         lon_last: corners.map(|c| c[3]),
         ..base
     };
-    let meta = match &georef.geometry {
+    match &georef.geometry {
         GridGeometry::Gaussian(g) => MessageMeta {
             gaussian_n_parallels: Some(i32::try_from(g.n_parallels).unwrap_or(i32::MAX)),
             ..named
@@ -181,6 +190,5 @@ pub(crate) fn meta_from_session(
         // The lat/lon and Mercator arms were separate until the corner pair
         // moved into `named`; with that gone they said nothing this does.
         _ => named,
-    };
-    gate_reprojection(meta, georef.scan)
+    }
 }

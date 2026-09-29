@@ -11,7 +11,9 @@
 //! So the agreement is **asserted over the corpus** rather than argued for. For
 //! every message of every committed GRIB fixture, the `Georef` `place_message`
 //! returns must equal the one `decode` puts on the field: geometry, family,
-//! dimensions, scan and bounds.
+//! dimensions, scan, bounds, placement and reprojectability — and the
+//! placement and reprojectability `Session::message` reports must be
+//! `place_message`'s (#776).
 //!
 //! The spectral and HEALPix fixtures are the cases that matter. For an ordinary
 //! grid both routes read the same GDS and agreeing proves little; for a
@@ -132,6 +134,30 @@ fn the_placement_is_the_georef_decode_puts_on_the_field() {
         };
         files += 1;
         for i in 0..session.count() {
+            // The message list's two answers are about where the values land,
+            // so they are `place_message`'s whenever it answers (#776). Asked
+            // here, over every message, because `Session::message` computes
+            // them by its own route rather than by calling it.
+            let info = session.message(i).expect("a message inside count");
+            match session.place_message(i) {
+                Ok(placed) => {
+                    if (info.placement, info.reprojectable)
+                        != (placed.placement, placed.reprojectable)
+                    {
+                        wrong.push(format!(
+                            "  {label}#{i} message says {:?}/{} but place_message says {:?}/{}",
+                            info.placement,
+                            info.reprojectable,
+                            placed.placement,
+                            placed.reprojectable
+                        ));
+                    }
+                }
+                Err(_) if info.grid.is_none() => {}
+                Err(e) => wrong.push(format!(
+                    "  {label}#{i} declares a grid that place_message refuses: {e:?}"
+                )),
+            }
             let placed = session.place_message(i);
             let decoded = session.decode(i, &DecodeOptions::default());
             match (placed, decoded) {
@@ -149,7 +175,7 @@ fn the_placement_is_the_georef_decode_puts_on_the_field() {
                     {
                         synthesised += 1;
                     }
-                    let pairs: [(&str, String, String); 5] = [
+                    let pairs: [(&str, String, String); 7] = [
                         (
                             "geometry",
                             format!("{:?}", placed.geometry),
@@ -170,6 +196,16 @@ fn the_placement_is_the_georef_decode_puts_on_the_field() {
                             "boundsLonlat",
                             format!("{:?}", placed.bounds_lonlat),
                             format!("{:?}", field.georef.bounds_lonlat),
+                        ),
+                        (
+                            "placement",
+                            format!("{:?}", placed.placement),
+                            format!("{:?}", field.georef.placement),
+                        ),
+                        (
+                            "reprojectable",
+                            placed.reprojectable.to_string(),
+                            field.georef.reprojectable.to_string(),
                         ),
                     ];
                     for (what, a, b) in pairs {

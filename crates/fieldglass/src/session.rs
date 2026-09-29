@@ -51,6 +51,9 @@ use crate::api::{
 // (#171), so the import is gated the way its readers are.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 use crate::api::AxisValues;
+// A message's placement is a GRIB question: an array container places slices.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+use crate::api::Placement;
 #[cfg(feature = "analysis")]
 use crate::combine::CombineOp;
 use crate::error::Error;
@@ -1827,19 +1830,7 @@ impl Session {
                 }
             };
             if let Some(grid) = synthesis {
-                // The same three the synthesised arm of `decode` builds: nothing
-                // of the source layout survives an inverse transform, so the
-                // scan is north-down and the family is the geometry's own.
-                let geometry = GridGeometry::LatLon(grid.into());
-                let declared = geometry.label().to_string();
-                // A synthesised raster is built here rather than stated by the
-                // file, so its corners are the geometry's — there is no
-                // container value to prefer.
-                return Ok(Georef::from_declared(
-                    &geometry,
-                    Scan::north_down(),
-                    &declared,
-                ));
+                return Ok(synthesised_georef(grid));
             }
             match &self.reader {
                 #[cfg(feature = "grib1")]
@@ -2260,6 +2251,43 @@ fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String, Str
     }
 }
 
+/// Where a synthesised family's values land, as
+/// [`Session::place_message`] reports it and [`MessageInfo::placement`] reads
+/// it.
+///
+/// The same three the synthesised arm of `decode` builds: nothing of the source
+/// layout survives an inverse transform, so the scan is north-down and the
+/// family is the geometry's own. A synthesised raster is built here rather than
+/// stated by the file, so its corners are the geometry's — there is no
+/// container value to prefer.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn synthesised_georef(grid: fieldglass_core::GlobalGrid) -> Georef {
+    let geometry = GridGeometry::LatLon(grid.into());
+    let declared = geometry.label().to_string();
+    Georef::from_declared(&geometry, Scan::north_down(), &declared)
+}
+
+/// `(placement, reprojectable)` of the grid a message's values land on — the
+/// two [`MessageInfo`] answers a message list reads (#776).
+///
+/// The synthesis grid when the family has one, the declared grid otherwise, and
+/// `without_grid` with no grid at all. The declared grid is the right answer for
+/// every message that is not synthesised: [`Session::place_message`] builds the
+/// same geometry from the same section and differs only in which corner pair it
+/// reports, which neither answer reads.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn landing(
+    synthesis: Option<fieldglass_core::GlobalGrid>,
+    declared: Option<&Georef>,
+    without_grid: Placement,
+) -> (Placement, bool) {
+    if let Some(grid) = synthesis {
+        let placed = synthesised_georef(grid);
+        return (placed.placement, placed.reprojectable);
+    }
+    declared.map_or((without_grid, false), |g| (g.placement, g.reprojectable))
+}
+
 #[cfg(feature = "grib1")]
 fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -> MessageInfo {
     let msg = &reader.messages[index];
@@ -2275,6 +2303,16 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         .with_points_per_row(gds.points_per_row())
     });
     let (abbreviation, parameter, units) = grib1_parameter(msg);
+    // No grid description and no catalogue entry: the message either names a
+    // predefined grid this build does not have (ON388 Table B), or names none —
+    // 255 is Table B's "no predefined grid".
+    let without_grid = if msg.pds.grid_number == 255 {
+        Placement::NoRaster
+    } else {
+        Placement::PredefinedUnresolved
+    };
+    let (placement, reprojectable) =
+        landing(reader.synthesis_grid(index), grid.as_ref(), without_grid);
     MessageInfo {
         // Round-trips the `u32` handle `Session::message` was given and
         // `check_index` widened, so it cannot be a narrowing in practice.
@@ -2290,6 +2328,8 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         packing: reader.packing_label(index).unwrap_or("unknown").to_string(),
         size_label: msg.gds.as_ref().and_then(|g| g.size_label()),
         grid,
+        placement,
+        reprojectable,
         forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds),
         // Time range 10 spends `P1` as the high octet of a two-octet value, so
         // reporting it as a lead time there would be reporting half a number.
@@ -2365,6 +2405,20 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         ),
         None => ("—".to_string(), "—".to_string()),
     };
+    let grid = Georef::from_declared_corners(
+        &GridGeometry::from(&msg.gds),
+        grib2_scan(msg),
+        &msg.gds.template_name(),
+        msg.gds.bounds(),
+    )
+    .with_points_per_row(msg.gds.points_per_row());
+    // Every GRIB2 message carries a §3, so the no-grid answer is unreachable;
+    // `NoRaster` is what it would be.
+    let (placement, reprojectable) = landing(
+        reader.synthesis_grid(index),
+        Some(&grid),
+        Placement::NoRaster,
+    );
     MessageInfo {
         // Round-trips the `u32` handle `Session::message` was given and
         // `check_index` widened, so it cannot be a narrowing in practice.
@@ -2380,15 +2434,9 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
             .map(fieldglass_grib2::forecast_display)
             .unwrap_or_else(|| "—".to_string()),
         packing: msg.drs.template_name(),
-        grid: Some(
-            Georef::from_declared_corners(
-                &GridGeometry::from(&msg.gds),
-                grib2_scan(msg),
-                &msg.gds.template_name(),
-                msg.gds.bounds(),
-            )
-            .with_points_per_row(msg.gds.points_per_row()),
-        ),
+        grid: Some(grid),
+        placement,
+        reprojectable,
         size_label: msg.gds.size_label(),
         forecast_hours: common.and_then(fieldglass_grib2::forecast_hours),
         // A GRIB1 octet, and edition 2 does not have it.

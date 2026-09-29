@@ -224,6 +224,7 @@ suite("Render pipeline", () => {
       gaussianNParallels: null,
       packing: null,
       reprojectable: true,
+      placement: "placed",
       jScansPositive: null,
     };
     const options = defaultRenderOptions();
@@ -976,6 +977,7 @@ suite("render-panel HTML", () => {
       gaussianNParallels: null,
       packing: null,
       reprojectable: true,
+      placement: "placed",
       jScansPositive: null,
     };
   }
@@ -1042,59 +1044,106 @@ suite("render-panel HTML", () => {
     }
   });
 
-  test("a spectral message is offered the reprojection targets (#303)", () => {
-    // A spherical-harmonic message has no grid of its own, so `reprojectable`
-    // arrives false — but `renderGrid` synthesizes a regular lat/lon grid and
-    // paints that, and it reprojects like any other. Gating the picker on the
-    // raw flag left the flagship spectral render stuck on "Source projection"
-    // under a note claiming reprojection wasn't available, while the engine
-    // rendered every target fine.
-    const spectral = { ...fakeMeta(), gridType: "spherical_harmonic", reprojectable: false };
+  /** The first message's meta, as the real addon reports it. These tests are
+   *  about what Rust answers for a family, so a hand-written meta would test
+   *  only what the test author believed it answers. */
+  function nativeMeta(file: string): MessageMeta {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(file);
+    const handle = file.endsWith(".grib1")
+      ? native.Grib1Handle.fromBytes(bytes)
+      : native.Grib2Handle.fromBytes(bytes);
+    return handle.messages()[0];
+  }
+
+  /** A committed GRIB2 fixture the extension's own corpus does not copy. */
+  function crateGrib2Fixture(name: string): string {
+    const ext = vscode.extensions.getExtension(EXT_ID);
+    assert.ok(ext, `extension ${EXT_ID} not found`);
+    return path.join(ext.extensionPath, "..", "crates", "fieldglass-grib2", "tests", "fixtures", name);
+  }
+
+  function offeredProjections(meta: MessageMeta): { offered: string[]; html: string } {
     const html = renderImagePanelHtml(
       { cspSource: "" } as unknown as vscode.Webview,
-      spectral,
+      meta,
       "summary",
       registry(),
       combineOps(),
     );
     const select = /<select id="picker-projection">([\s\S]*?)<\/select>/.exec(html);
     assert.ok(select, "the projection picker must be in the panel HTML");
-    const offered = [...select[1].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
-    assert.ok(
-      offered.includes("mollweide") && offered.includes("equirectangular"),
-      `a spectral message must offer the reprojection targets, got ${offered.join(", ")}`,
-    );
-    assert.ok(
-      !/Reprojection isn't available/.test(html),
-      "the source-only note must not appear for a spectral message",
-    );
+    return { offered: [...select[1].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]), html };
+  }
+
+  test("a spectral message is offered the reprojection targets (#303, #776)", () => {
+    // A spherical-harmonic message declares a grid with no points, but
+    // `renderGrid` synthesises a regular lat/lon grid and paints that, and it
+    // reprojects like any other. The addon answers for the values, so the meta
+    // it hands the panel says so; the panel used to rescue it by family name.
+    for (const fixture of ["spectral_simple_t63.grib1", "spectral_simple_t63.grib2"]) {
+      const meta = nativeMeta(fixturePath(fixture));
+      assert.strictEqual(meta.gridType, "spherical_harmonic", fixture);
+      assert.strictEqual(meta.placement, "placed", fixture);
+      const { offered, html } = offeredProjections(meta);
+      assert.ok(
+        offered.includes("mollweide") && offered.includes("equirectangular"),
+        `${fixture}: a spectral message must offer the reprojection targets, got ${offered.join(", ")}`,
+      );
+      assert.ok(
+        !/Reprojection isn't available/.test(html),
+        `${fixture}: the source-only note must not appear for a spectral message`,
+      );
+    }
   });
 
-  test("a bi-Fourier message keeps the source-only picker (#304)", () => {
-    // The other grid-less packing, and the reason the fix keys on
-    // `spherical_harmonic` rather than "has no grid": bi-Fourier decodes only
-    // to coefficients and does not render at all, so it must keep the
-    // source-only picker and its note.
-    const bifourier = { ...fakeMeta(), gridType: "bifourier", reprojectable: false };
-    const html = renderImagePanelHtml(
-      { cspSource: "" } as unknown as vscode.Webview,
-      bifourier,
-      "summary",
-      registry(),
-      combineOps(),
-    );
-    const select = /<select id="picker-projection">([\s\S]*?)<\/select>/.exec(html);
-    assert.ok(select, "the projection picker must be in the panel HTML");
-    const offered = [...select[1].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
-    assert.deepStrictEqual(
-      offered,
-      ["source"],
-      `bi-Fourier must stay source-only, got ${offered.join(", ")}`,
-    );
-    assert.ok(
-      /Reprojection isn't available for bifourier grids yet\./.test(html),
-      "bi-Fourier must keep the source-only note",
-    );
+  test("a bi-Fourier message has no raster and keeps the source-only picker (#304, #776)", () => {
+    // The other grid-less packing: bi-Fourier decodes only to coefficients and
+    // does not render at all. The addon says `no_raster`, which is what keeps
+    // its Render button off and its picker source-only, with no family name
+    // spelled out in TypeScript.
+    const meta = nativeMeta(crateGrib2Fixture("bifourier_ellipse_keepaxes.grib2"));
+    assert.strictEqual(meta.placement, "no_raster");
+    assert.strictEqual(meta.reprojectable, false);
+    const { offered, html } = offeredProjections(meta);
+    assert.deepStrictEqual(offered, ["source"], `bi-Fourier must stay source-only, got ${offered.join(", ")}`);
+    assert.ok(/Reprojection isn't available/.test(html), "bi-Fourier must keep the source-only note");
+  });
+
+  test("the message table offers Render exactly where Rust places the values (#776)", () => {
+    // One file per placement the table can meet. `unplaceable` still renders,
+    // in its own grid coordinates; `no_raster` has nothing to paint.
+    const cases: Array<[string, string, boolean]> = [
+      [fixturePath("regular_latlon_surface.grib2"), "placed", true],
+      [fixturePath("spectral_simple_t63.grib2"), "placed", true],
+      [fixturePath("healpix_n4_ring.grib2"), "placed", true],
+      [crateGrib2Fixture("polar_stereographic_surface.grib2"), "unplaceable", true],
+      [crateGrib2Fixture("bifourier_ellipse_keepaxes.grib2"), "no_raster", false],
+    ];
+    for (const [file, placement, renders] of cases) {
+      const meta = nativeMeta(file);
+      const name = path.basename(file);
+      assert.strictEqual(meta.placement, placement, name);
+      const html = renderHtml(
+        { cspSource: "" } as unknown as vscode.Webview,
+        "grib2",
+        file,
+        [meta],
+        undefined,
+        undefined,
+        false,
+      );
+      assert.strictEqual(html.includes('class="render-btn"'), renders, `${name}: Render button`);
+      assert.strictEqual(html.includes("Render not available"), !renders, `${name}: unrenderable note`);
+    }
+  });
+
+  test("an unplaceable grid renders but offers no map target (#776)", () => {
+    const meta = nativeMeta(crateGrib2Fixture("polar_stereographic_surface.grib2"));
+    assert.strictEqual(meta.placement, "unplaceable");
+    const { offered } = offeredProjections(meta);
+    assert.deepStrictEqual(offered, ["source"], `got ${offered.join(", ")}`);
   });
 
   test("the colormap picker offers the whole Rust registry and defaults to viridis", () => {
@@ -2104,6 +2153,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       gaussianNParallels: null,
       packing: null,
       reprojectable: true,
+      placement: "placed",
       jScansPositive: null,
     };
   }

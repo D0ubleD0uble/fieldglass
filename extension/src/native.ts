@@ -69,11 +69,18 @@ export interface MessageMeta {
   /** Human-readable data-packing method (GRIB1 BDS packing / GRIB2 §5
    *  data-representation template), e.g. "Second-order (SPD-2)". */
   packing: string | null;
-  /** Whether this grid supports reprojection (the non-source projection
-   *  targets). False for grid types without a warp yet (e.g. an unsupported
-   *  GDS template) or with a degenerate Dx/Dy; the panel hides those options
-   *  when false. */
+  /** Whether the grid this message's values land on supports reprojection
+   *  (the non-source projection targets). True for a spectral or HEALPix
+   *  message, whose values are synthesised onto a lat/lon grid; false for grid
+   *  types without a warp yet (e.g. an unsupported GDS template) or with a
+   *  degenerate Dx/Dy. The panel hides those options when false. */
   reprojectable: boolean;
+  /** Whether this message's values can be placed on the Earth, and why not
+   *  (#776): `"placed"`, `"no_raster"`, `"unplaceable"` (a raster that still
+   *  paints in grid coordinates) or `"predefined_unresolved"`. About the
+   *  values, so a spectral message is `"placed"` and a bi-Fourier one is
+   *  `"no_raster"`. */
+  placement: string;
   /** Whether the grid's rows scan south→north (GRIB `jScansPositively`). The
    *  source projection orients the raster from this so it isn't upside-down;
    *  null for grids with no scan flag (predefined GRIB1 grids, NetCDF). */

@@ -65,7 +65,7 @@ handle.message(0);                 // one message's metadata, built on demand
 const field = handle.decode(0, {});           // { dtype?: 'auto' | 'f32' | 'f64' }
 field.values();                    // Float32Array or Float64Array — see `dtype()`
 field.mask();                      // Uint8Array, 1 present / 0 absent
-field.grid();                      // kind, boundsLonlat, proj4, x0/y0/dx/dy, scan
+field.grid();                      // kind, boundsLonlat, placement, proj4, x0/y0/dx/dy, scan
 
 const palette = handle.palette(field, {});    // { lut, t0, t1, span, scale, maskedRgba }
 handle.shaderValues(field, {});    // Float32Array: transformed and rebased by t0
@@ -236,12 +236,16 @@ everywhere else. Unlike the growth above, this is data rather than code, and it
 is the one change here a browser host might reasonably want to opt out of; the
 format crate has no feature to do that with today.
 
+Saying why a grid can or can't be placed (#776) added 1,813 raw bytes and 1,233
+gzipped, 0.2%: the `Placement` vocabulary and two more fields on every `Georef`
+and `MessageInfo` the browser hands back.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,511,226 | 571,572 |
-| `+simd128` | 1,495,711 | 567,330 |
+| baseline | 1,513,039 | 572,805 |
+| `+simd128` | 1,497,520 | 568,139 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

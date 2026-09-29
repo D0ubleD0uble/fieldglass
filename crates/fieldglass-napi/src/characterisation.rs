@@ -822,8 +822,8 @@ fn meta_row(subject: &Subject<'_>) -> Row {
         geos_dy_rad,
         j_scans_positive,
         // Not folded: the metadata a difference map holds constant, plus the
-        // three that are derived from the geometry above rather than part of
-        // it. `reprojectable` is a pure function of it; `grid_size_label`
+        // ones derived from the geometry above rather than part of it.
+        // `reprojectable` and `placement` are pure functions of it; `grid_size_label`
         // states the *native* size of a grid-less message, which is not the
         // synthesised raster this row describes; the rest are indices,
         // parameter, level, time, format and packing.
@@ -849,6 +849,7 @@ fn meta_row(subject: &Subject<'_>) -> Row {
         data_type: _,
         packing: _,
         reprojectable: _,
+        placement: _,
     } = &meta;
     mix_opt_str(&mut h, grid_type.as_deref());
     mix_opt_i32(&mut h, *grid_ni);
