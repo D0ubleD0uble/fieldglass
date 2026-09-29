@@ -234,7 +234,9 @@ repos:
         #
         # Manifests only — an edge that arrives transitively through `fieldglass`
         # is what the rule wants, and is indistinguishable in the resolved graph.
-        files: ^(crates/[^/]+/Cargo\.toml|tools/check_host_dependencies\.py)$
+        # The root manifest is watched too: the set of workspace crates comes
+        # from `cargo metadata`, so adding a member can create a violation.
+        files: ^(Cargo\.toml|crates/[^/]+/Cargo\.toml|tools/check_host_dependencies\.py)$
         entry: python3 tools/check_host_dependencies.py
         pass_filenames: false
 
