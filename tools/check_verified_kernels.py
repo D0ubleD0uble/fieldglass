@@ -55,10 +55,11 @@ MARKER = "verus_spec"
 
 # Files outside the kernels that the verification crate's build of them reads,
 # so an edit to one can break verification without touching a kernel. A kernel
-# names `crate::FieldglassError` (error.rs) and `crate::bits::BitReader`
-# (bits.rs, whose methods the trusted spec names by signature), and the
-# verification crate builds `fieldglass-core` as a dependency with
-# `default-features = false`, which its lib.rs and Cargo.toml decide.
+# names `crate::FieldglassError` (error.rs), which the verification crate
+# re-exports from `fieldglass-core`; that crate is built as a dependency with
+# `default-features = false`, which its lib.rs and Cargo.toml decide, and
+# bits.rs is where core declares the bit reader's kernel file and re-exports
+# `BitReader`, the path the verification crate mirrors.
 SUPPORT = (
     Path("crates/fieldglass-core/src/bits.rs"),
     Path("crates/fieldglass-core/src/error.rs"),

@@ -6,7 +6,11 @@
 //! lets each format crate reach for the same utilities without re-deriving
 //! them.
 
-use crate::FieldglassError;
+// The bit reader is a verified kernel (#771), so it sits in a file of its own
+// that the verification crate includes; see `docs/verification.md`.
+mod reader;
+
+pub use reader::BitReader;
 
 /// 16-bit sign-magnitude integer used by GRIB for binary scale factors.
 /// High bit is sign, low 15 bits are magnitude. Negative zero collapses
@@ -52,96 +56,6 @@ pub fn ibm_float_to_f64(raw: u32) -> f64 {
     let characteristic = ((raw >> 24) & 0x7F) as i32;
     let fraction = (raw & 0x00FF_FFFF) as f64 / (1u32 << 24) as f64;
     sign * fraction * 16f64.powi(characteristic - 64)
-}
-
-/// MSB-first bit reader for packed integer streams up to 32 bits per value.
-/// Used by GRIB BDS / DRS decoders and any future format that packs values
-/// at non-byte-aligned widths.
-// `Clone` but deliberately not `Copy` (#556), though both fields are `Copy`
-// and it would compile. A bit cursor that copies implicitly reads from the
-// copy and leaves the original's position behind, at a call site that looks
-// like it advanced it — the reason `std::slice::Iter` is `Clone` and not
-// `Copy` either. Saving a position is then an explicit `.clone()`.
-#[derive(Debug, Clone)]
-pub struct BitReader<'a> {
-    bytes: &'a [u8],
-    bit_offset: usize,
-}
-
-impl<'a> BitReader<'a> {
-    /// A reader positioned at the first bit of `bytes`.
-    pub fn new(bytes: &'a [u8]) -> Self {
-        Self {
-            bytes,
-            bit_offset: 0,
-        }
-    }
-
-    /// Advance the cursor to the next byte boundary, discarding any unused
-    /// bits in the current byte. A no-op when already byte-aligned. GRIB2
-    /// complex packing (§7) stores the group reference / width / length / data
-    /// sub-blocks each starting on an octet boundary, so decoders pad to the
-    /// next byte between them.
-    pub fn align_to_byte(&mut self) {
-        let rem = self.bit_offset % 8;
-        if rem != 0 {
-            self.bit_offset += 8 - rem;
-        }
-    }
-
-    /// Read the next `n` bits (MSB-first) as an unsigned integer.
-    ///
-    /// `n` must be in `0..=32`: the value is returned as a `u32`, so a wider
-    /// request can't be represented and is rejected. Without this guard a
-    /// request for `n > 32` would accumulate into the internal `u64` and then
-    /// silently truncate its top bits on the `as u32` return. Callers bound the
-    /// stored field width to 32; enforcing it here makes the contract explicit
-    /// and turns a would-be silent wrong result into a clean error on malformed
-    /// input (e.g. a per-group residual width read from an untrusted GRIB
-    /// stream).
-    pub fn read_bits(&mut self, n: u8) -> Result<u32, FieldglassError> {
-        if n == 0 {
-            return Ok(0);
-        }
-        if n > 32 {
-            return Err(FieldglassError::Parse(format!(
-                "bit reader asked for {n} bits, but read_bits returns a u32 (max 32)"
-            )));
-        }
-        // checked: bit_offset near usize::MAX would wrap past the bounds check.
-        let end_bit = self
-            .bit_offset
-            .checked_add(n as usize)
-            .ok_or_else(|| FieldglassError::Parse("bit reader offset overflow".into()))?;
-        let total_bits = self
-            .bytes
-            .len()
-            .checked_mul(8)
-            .ok_or_else(|| FieldglassError::Parse("bit reader length overflow".into()))?;
-        if end_bit > total_bits {
-            return Err(FieldglassError::Parse(format!(
-                "bit reader exhausted at offset {} reading {n} bits",
-                self.bit_offset
-            )));
-        }
-
-        let mut value: u64 = 0;
-        let mut bits_collected = 0u8;
-        let mut bit = self.bit_offset;
-        while bits_collected < n {
-            let byte_idx = bit / 8;
-            let bit_in_byte = bit % 8;
-            let take = (8 - bit_in_byte).min((n - bits_collected) as usize) as u8;
-            let shift = 8 - bit_in_byte - take as usize;
-            let mask = ((1u16 << take) - 1) as u8;
-            let chunk = (self.bytes[byte_idx] >> shift) & mask;
-            value = (value << take) | chunk as u64;
-            bits_collected += take;
-            bit += take as usize;
-        }
-        self.bit_offset = end_bit;
-        Ok(value as u32)
-    }
 }
 
 #[cfg(test)]
@@ -206,76 +120,5 @@ mod tests {
     #[test]
     fn bits_to_bytes_overflow_returns_none() {
         assert_eq!(bits_to_bytes(usize::MAX, 2), None);
-    }
-
-    #[test]
-    fn bit_reader_byte_aligned() {
-        let mut r = BitReader::new(&[0xAB, 0xCD]);
-        assert_eq!(r.read_bits(8).unwrap(), 0xAB);
-        assert_eq!(r.read_bits(8).unwrap(), 0xCD);
-    }
-
-    #[test]
-    fn bit_reader_unaligned() {
-        // 0b1010_0101_1100_0011 — read as 3,5,8 bits MSB-first.
-        let mut r = BitReader::new(&[0b1010_0101, 0b1100_0011]);
-        assert_eq!(r.read_bits(3).unwrap(), 0b101);
-        assert_eq!(r.read_bits(5).unwrap(), 0b00101);
-        assert_eq!(r.read_bits(8).unwrap(), 0b1100_0011);
-    }
-
-    #[test]
-    fn bit_reader_crosses_byte_boundary() {
-        let mut r = BitReader::new(&[0xFF, 0x00]);
-        assert_eq!(r.read_bits(12).unwrap(), 0xFF0);
-    }
-
-    #[test]
-    fn bit_reader_align_to_byte() {
-        let mut r = BitReader::new(&[0b1010_1111, 0b0011_0000]);
-        assert_eq!(r.read_bits(3).unwrap(), 0b101);
-        r.align_to_byte(); // skip the remaining 5 bits of byte 0
-        assert_eq!(r.read_bits(4).unwrap(), 0b0011);
-        // Already aligned here (4 bits into byte 1 is not, but align skips to byte 2).
-        r.align_to_byte();
-        assert!(r.read_bits(1).is_err(), "only 2 bytes of input");
-    }
-
-    #[test]
-    fn bit_reader_align_is_noop_when_aligned() {
-        let mut r = BitReader::new(&[0xAB, 0xCD]);
-        assert_eq!(r.read_bits(8).unwrap(), 0xAB);
-        r.align_to_byte(); // already on byte boundary — no-op
-        assert_eq!(r.read_bits(8).unwrap(), 0xCD);
-    }
-
-    #[test]
-    fn bit_reader_exhaustion() {
-        let mut r = BitReader::new(&[0x00]);
-        assert!(r.read_bits(9).is_err());
-    }
-
-    #[test]
-    fn bit_reader_reads_full_32_bits() {
-        // The boundary of the contract: 32 bits round-trips losslessly.
-        let mut r = BitReader::new(&[0xFF, 0xFF, 0xFF, 0xFF]);
-        assert_eq!(r.read_bits(32).unwrap(), 0xFFFF_FFFF);
-        let mut r = BitReader::new(&[0x12, 0x34, 0x56, 0x78]);
-        assert_eq!(r.read_bits(32).unwrap(), 0x1234_5678);
-    }
-
-    #[test]
-    fn bit_reader_rejects_more_than_32_bits() {
-        // n > 32 can't fit in the returned u32. It must error rather than read
-        // the bits and silently truncate the top ones via `as u32`. The buffer
-        // is deliberately long enough that the request would otherwise succeed.
-        let bytes = [0xAAu8; 8];
-        let mut r = BitReader::new(&bytes);
-        assert!(r.read_bits(33).is_err());
-        assert!(r.read_bits(40).is_err());
-        // A rejected read must not advance the cursor.
-        assert_eq!(r.bit_offset, 0);
-        // A valid read right afterwards still works.
-        assert_eq!(r.read_bits(8).unwrap(), 0xAA);
     }
 }

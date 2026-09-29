@@ -8,8 +8,10 @@
 //! <!-- parsing-surface: the set of core modules the three format crate
 //!      libraries name, checked by tools/check_parsing_surface.py. The README
 //!      states it again; both regions have to match the code. -->
-//! [`error`], [`bits`], [`bytes`], [`scaling`] (the GRIB `(R + X·2^E)·10^-D`
-//! transform both editions unpack values with, carrying a Verus proof),
+//! [`error`], [`bits`] (whose MSB-first bit reader every packed integer is
+//! read through, carrying a Verus proof), [`bytes`], [`scaling`] (the GRIB
+//! `(R + X·2^E)·10^-D` transform both editions unpack values with, also
+//! proved),
 //! [`groups`] (the group expansion of GRIB second-order and complex packing,
 //! also proved),
 //! [`spatial_diff`] (the inverse spatial differencing both editions rebuild

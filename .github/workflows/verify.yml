@@ -15,16 +15,17 @@ name: Verify
 # `tools/check_verified_kernels.py` (pre-commit) fails when a file that carries
 # `verus_spec` is not listed under both triggers. So are the core files the
 # verification crate's build of a kernel reads, which the checker also
-# requires (its `SUPPORT` list): `bits.rs`, whose `BitReader` the trusted
-# specification in `crates/fieldglass-verify/src/bits_model.rs` names by
-# signature; `error.rs`, for `FieldglassError`; and core's `lib.rs` and
-# `Cargo.toml`, which decide what the `default-features = false` build of core
-# that the verification crate takes compiles.
+# requires (its `SUPPORT` list): `bits.rs`, which declares the bit reader's
+# kernel file and re-exports `BitReader` from it; `error.rs`, for
+# `FieldglassError`; and core's `lib.rs` and `Cargo.toml`, which decide what
+# the `default-features = false` build of core that the verification crate
+# takes compiles.
 on:
   push:
     branches: [master]
     paths:
       - 'crates/fieldglass-verify/**'
+      - 'crates/fieldglass-core/src/bits/reader.rs'
       - 'crates/fieldglass-core/src/scaling.rs'
       - 'crates/fieldglass-core/src/groups.rs'
       - 'crates/fieldglass-core/src/shuffle.rs'
@@ -38,6 +39,7 @@ on:
   pull_request:
     paths:
       - 'crates/fieldglass-verify/**'
+      - 'crates/fieldglass-core/src/bits/reader.rs'
       - 'crates/fieldglass-core/src/scaling.rs'
       - 'crates/fieldglass-core/src/groups.rs'
       - 'crates/fieldglass-core/src/shuffle.rs'

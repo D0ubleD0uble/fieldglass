@@ -108,9 +108,13 @@ A kernel file follows three rules, because two crates compile it:
 
 - it names only items both crates provide. Today those are
   `crate::FieldglassError`, `crate::bits::BitReader`, and, under Verus only,
-  `crate::bits_model`, the trusted specifications below. The verification crate
-  re-exports the first two from `fieldglass-core` so the paths resolve the same
-  way in both;
+  `crate::bits_model`, the specifications and trusted statements below. The
+  verification crate re-exports `FieldglassError` from `fieldglass-core`.
+  `BitReader` is itself a kernel: core ships `bits/reader.rs` as the private
+  module `bits::reader` and re-exports the type from `bits`, and the
+  verification crate includes the same file and re-exports it from a `bits`
+  module of its own, so every kernel's `crate::bits::BitReader` is the proved
+  reader;
 - its docs use plain backticks, not intra-doc links, which would resolve in only
   one of the two crates;
 - ghost code in a function body, where a proof needs a hint, is a
@@ -123,7 +127,13 @@ A few things the pinned Verus does not accept in a kernel, each found by
 writing one:
 
 - `verus_spec` behind `cfg_attr` on an associated function without a
-  receiver; write a free function instead (`red_scale`, not `Scaling::new`);
+  receiver; write a free function instead (`red_scale`, not `Scaling::new`).
+  Where the function has to stay associated, as `BitReader::new` does, add
+  `#[cfg_attr(verus_keep_ghost, allow(unused, verus_impl_method_marker))]`
+  to it. That is the marker Verus's own `verus_verify` puts on an impl's
+  methods, which tells `verus_spec` the function is not a free one;
+  `verus_verify` on the impl block would do the same but cannot see a
+  `verus_spec` behind `cfg_attr` and adds a second one;
 - a destructuring assignment such as `(a, b) = (b, a)`; assign one at a time;
 - a `const` declared outside `verus!`; write the literal;
 - `format!`, so a function that builds an error message is marked
@@ -134,6 +144,15 @@ writing one:
 
 A `while` loop takes its invariant and `decreases` the same way a `for` loop
 does, as a `verus_spec(...)` attribute on the statement.
+
+A type can carry an invariant the proofs keep. `BitReader`'s is that its
+cursor, rounded up to the next octet, fits a `usize`. The struct is marked
+`#[cfg_attr(verus_keep_ghost, verus_verify(external_derive))]`, the invariant
+is a `#[verifier::type_invariant]` spec function in a second `impl` block
+inside the file's `verus!` section, and a method that needs it starts with
+`#[cfg(verus_keep_ghost)] proof! { use_type_invariant(&*self); }`. The
+`external_derive` leaves derived impls to Rust: Verus checks a derived `Clone`
+against the invariant and cannot specify it for a type that is not `Copy`.
 
 Two habits the shuffle kernel needed. A loop invariant starts from nothing but
 itself, so a fact the body relies on and that was known before the loop, such
@@ -155,6 +174,40 @@ core files a kernel's build in the verification crate reads (`bits.rs`,
 `error.rs`, and core's `lib.rs` and `Cargo.toml`).
 
 ### What is proved, and what is trusted
+
+**`crates/fieldglass-core/src/bits/reader.rs`**, the MSB-first bit reader that
+every packed integer in GRIB1 and GRIB2 is read through. The kernels below
+state their results with its model, `msb_bits(bytes, start, width)`: the
+`width` bits of `bytes` from bit `start`, most significant first.
+
+- `BitReader::new(bytes)` reads `bytes` from bit 0.
+- `read_bits(n)` returns `Ok` exactly when `n ≤ 32` and either `n` is 0 or
+  the `n` bits end inside the buffer (whose bit length the reader computes in
+  a `usize`, so a slice longer than `usize::MAX / 8` bytes fails every
+  non-empty read). On `Ok` the value is `msb_bits(bytes, pos, n)` and the
+  cursor moves by `n`; on `Err` the cursor does not move. It has no
+  precondition: no request or cursor position overflows, indexes out of
+  bounds or panics.
+- `align_to_byte()` moves the cursor to the next multiple of 8, or leaves it
+  where it is if it is on one, and cannot overflow. That rests on the type
+  invariant above, which `new` establishes and `read_bits` keeps: a
+  successful read leaves the cursor inside a buffer whose bit length is a
+  multiple of 8 that fits a `usize`.
+
+These are exactly the statements the proofs below took on trust until #771,
+and no proof that uses them changed.
+
+Each claim was checked by breaking it: taking a byte's bits from the low end,
+putting each new chunk above the bits already read (both LSB-first orders),
+dropping the bounds check, loosening it by a byte, rejecting a read that ends
+on the last bit, accepting up to 64 bits, moving the cursor on the exhaustion
+error or before the `n > 32` rejection, not moving it on success, moving it
+on a zero-bit read, starting `new` at bit 1, a mask one bit too wide, taking
+one bit too many from a byte, aligning one bit short, aligning down, moving
+an aligned cursor a byte on, dropping the type invariant from
+`align_to_byte`, and weakening the invariant to `true` each make Verus reject
+the proof. Taking one bit fewer from a byte than it could still reads the
+right value, and Verus accepts it.
 
 **`crates/fieldglass-core/src/scaling.rs`**, the GRIB `(R + X·2^E)·10^-D`
 transform every GRIB1 and GRIB2 integer packing unpacks values with:
@@ -312,18 +365,16 @@ second-order point; filling a zero-width second-order group with 0; using group
 0's reference for every group; ignoring the length increment; unchecked length
 arithmetic; and a model of `align_to_byte` that rounds down.
 
-**Trusted, not proved.** The proofs rest on four statements in
+**Trusted, not proved.** The proofs rest on two statements in
 `crates/fieldglass-verify/src/bits_model.rs` and its `axioms.rs`, each short
 enough to check by reading, on allocation succeeding, and on the error-message
 constructors returning:
 
 | Assumption | Why it is assumed | What would remove it |
 |---|---|---|
-| `BitReader::new` and `read_bits` behave as the MSB-first model `msb_bits` says, stated with `assume_specification` | `read_bits` is Tier 0 and not yet proved | a proof of `read_bits`, which would make `bits.rs` a kernel file |
-| `BitReader::align_to_byte` rounds the cursor up to the next multiple of 8 and does not panic | same; it cannot overflow because the cursor never passes the buffer's bit length, a multiple of 8 that fits a `usize` | the same Tier-0 proof |
 | `f64::powi(b, n)` is some fixed function `powi_spec(b, n)`, and nothing more | Verus has no specification for `powi`; the proofs only need to know *which* base and exponent each factor uses | not needed: the claim is about direction, not about `powi`'s accuracy |
 | Allocation succeeds: `Vec::with_capacity` and `push` in the kernels do not panic or abort on a huge count | Verus models `Vec` without an allocator, so a capacity overflow or running out of memory is outside the proof, as it is for any Rust function that allocates | not planned: callers bound every count by the grid or message size before calling, and `expand_complex_groups` checks `NG ≤ present_count` and the length sum before it allocates |
-| The error constructors in `groups.rs` return a `FieldglassError` | they build their message with `format!`, which Verus has no specification for, so they are `external_body`; each only formats its arguments | a `vstd` that specifies `format!` |
+| The error constructors in `groups.rs` and `bits/reader.rs` return a `FieldglassError` | they build their message with `format!`, which Verus has no specification for, so they are `external_body`; each only formats its arguments | a `vstd` that specifies `format!` |
 | `f64` `+` and `*` never panic and are deterministic, and `u32 as f64` is exact | the pinned `vstd` requires an `add_req` / `mul_req` of `f64` arithmetic and defines neither, so no `f64` expression verifies without this | a `vstd` that specifies `f64` arithmetic |
 
 Beyond those, the spatial-differencing proof trusts only `vstd`'s own
@@ -335,10 +386,10 @@ a parameter but not for a value read from a struct field. So the arithmetic
 sits in private functions that take the factors as parameters, and `Scaling`'s
 methods call them.
 
-The model of `read_bits` is exact about its failures, including the one no real
-buffer reaches: the reader computes the buffer's bit length in a `usize`, so a
-slice longer than `usize::MAX / 8` bytes fails. The `Ok` condition of
-`unpack_simple` carries that clause rather than assuming it away.
+The specification of `read_bits` is exact about its failures, including the
+one no real buffer reaches: the reader computes the buffer's bit length in a
+`usize`, so a slice longer than `usize::MAX / 8` bytes fails. The `Ok`
+condition of `unpack_simple` carries that clause rather than assuming it away.
 
 ### Pinning
 
@@ -407,7 +458,7 @@ Ordered by blast radius, from the milestone:
 
 | Tier | Target | Issue |
 |---|---|---|
-| 0 | `BitReader::read_bits` (trusted today, see above) | not yet filed |
+| 0 | `BitReader::read_bits`, `new` and `align_to_byte` (done) | [#771](https://github.com/D0ubleD0uble/fieldglass/issues/771) |
 | 1 | GRIB simple-packing scaling arithmetic, both editions (done) | [#199](https://github.com/D0ubleD0uble/fieldglass/issues/199) |
 | 1 | Inverse spatial differencing, both editions (done) | [#200](https://github.com/D0ubleD0uble/fieldglass/issues/200) |
 | 1 | GRIB group expansion: complex packing and both editions' second-order (done) | [#201](https://github.com/D0ubleD0uble/fieldglass/issues/201) |
