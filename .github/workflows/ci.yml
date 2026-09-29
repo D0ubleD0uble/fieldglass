@@ -57,11 +57,16 @@ jobs:
       # catches the manifest regressions early: a missing `description`, a
       # `readme` that points at nothing, a file the package would omit.
       #
-      # Only `fieldglass-core` can be checked this way today. The format crates
-      # pin it with `=`, so cargo cannot resolve them for packaging until core
-      # is on crates.io; once it is, they can be added here.
+      # Only `fieldglass-core` and `fieldglass-aec` can be checked this way
+      # today. The format crates pin core with `=`, so cargo cannot resolve them
+      # for packaging until core is on crates.io; once it is, they can be added
+      # here. `fieldglass-aec` depends on no workspace crate, and its first
+      # publish is by hand (ADR-0012 decision 10), so this is the only check its
+      # manifest gets before then.
       - name: Check the published crate manifest
-        run: cargo publish --dry-run -p fieldglass-core
+        run: |
+          cargo publish --dry-run -p fieldglass-core
+          cargo publish --dry-run -p fieldglass-aec
 
   wasm:
     name: wasm32 build, bundle size, decode benchmark
@@ -131,13 +136,14 @@ jobs:
       # fetched, and the plan that said which bytes to fetch — and neither is
       # reachable from `fieldglass-wasm` yet, so nothing else here compiles them
       # for wasm32. They do build for it today; without this line the first
-      # commit that broke one would merge green.
+      # commit that broke one would merge green. `fieldglass-aec` is here for the
+      # same reason until `fieldglass-grib2` depends on it (ADR-0012).
       - name: cargo check --target wasm32-unknown-unknown
         run: |
           cargo check --target wasm32-unknown-unknown \
             -p fieldglass-core -p fieldglass-grib1 -p fieldglass-grib2 \
             -p fieldglass-netcdf -p fieldglass-zarr -p fieldglass-fetchplan \
-            -p fieldglass-wasm
+            -p fieldglass-aec -p fieldglass-wasm
 
       # The umbrella with its *own* defaults, which the step above never sees:
       # there it arrives only as `fieldglass-wasm`'s dependency, taken with
@@ -187,6 +193,7 @@ jobs:
           cargo test --target wasm32-wasip1 \
             -p fieldglass-core -p fieldglass-grib1 -p fieldglass-grib2 \
             -p fieldglass-netcdf -p fieldglass -p fieldglass-fetchplan \
+            -p fieldglass-aec \
             -- --skip detect::fs_tests \
                --skip probing_an_empty_raster_answers_rather_than_panicking
 

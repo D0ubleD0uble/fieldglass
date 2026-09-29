@@ -1,6 +1,6 @@
 # Architecture — Level 1: crates
 
-Nine crates in the workspace, one flow: a format crate parses its container and hands `core` the
+Ten crates in the workspace, one flow: a format crate parses its container and hands `core` the
 same decoded field (`Vec<Option<f64>>` + grid geometry); `core` projects, warps,
 and renders it; a host binds the result to its language. `fieldglass-core` owns
 the shared traits and geometry and depends on nothing else in the workspace.
@@ -25,6 +25,7 @@ flowchart TD
     core["fieldglass-core<br/><i>traits, GridGeometry, projection, warp, overlay, Palette</i>"]
     fetchplan["fieldglass-fetchplan<br/><i>manifests in, chunk plan out; no I/O, no clock</i>"]
     zarr["fieldglass-zarr<br/><i>array metadata + chunk codecs, decode only, no I/O</i>"]
+    aec["fieldglass-aec<br/><i>CCSDS 121.0 (AEC / szip) parameters; no workspace dependencies</i>"]
 
     wasm --> fieldglass
     fieldglass --> grib1
@@ -197,6 +198,14 @@ rules that list the variables and place a slice are `fieldglass-core`'s
 (`core::cf`). Neither host takes `zarr` yet — both use
 `default-features = false` — so the edge costs no bundle until one opens a
 store (#659).
+
+**`fieldglass-aec` has no edges yet.** It is a codec crate, not a reader, and
+depends on no workspace crate
+([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). Today it carries the
+parameter surface and a conformance corpus from a pinned libaec; the decoder
+follows. `fieldglass-grib2` takes it in place of `rust-aec` for template 5.42
+(#762) and `fieldglass-netcdf` takes it for the HDF5 szip filter (#421). Until
+then neither format crate's tree changes.
 
 **`fetchplan --> zarr` is the one edge that looks like a rule being broken and
 is not.** `fieldglass-fetchplan` says it depends on no format crate, and it now

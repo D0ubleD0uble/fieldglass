@@ -44,6 +44,11 @@ extension/README.md
 extension/CHANGELOG.md
 extension/*.vsix
 
+# libaec's decoded bytes, written by `tools/build_aec_fixtures.py
+# --dump-expected` for reading a failing conformance case by eye. The corpus
+# commits only their digests.
+/crates/fieldglass-aec/tests/expected/
+
 # Python bytecode cache from tools/ scripts
 __pycache__/
 *.pyc

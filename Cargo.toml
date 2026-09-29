@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/fieldglass",
+    "crates/fieldglass-aec",
     "crates/fieldglass-core",
     "crates/fieldglass-fetchplan",
     "crates/fieldglass-grib1",
@@ -46,6 +47,10 @@ schemars = "1"
 # lets another user plant a symlink and have the test write through it. This
 # gives a random name, `O_EXCL` creation and 0600, and removes the file on drop.
 tempfile = "3"
+# SHA-256 for `fieldglass-aec`'s conformance corpus, a dev-dependency only: the
+# manifest pins every stream and every libaec output by digest, so the corpus is
+# small and the oracle's output never has to be committed (ADR-0012 decision 8).
+sha2 = "0.11"
 # Pure-Rust PNG codec for GRIB2 DRS template 5.41 decode (no C deps; MIT/Apache,
 # cross-compiles to every release target). See crates/fieldglass-grib2.
 png = "0.18"

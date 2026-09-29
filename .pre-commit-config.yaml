@@ -619,13 +619,17 @@ repos:
       # newline to a `.zarray` would also make every regeneration a 61-file
       # diff. NOTICE.md itself is hand-written, so it stays in scope.
       #
+      # The AEC corpus is the same case: libaec wrote every stream, and the
+      # manifest pins each one by SHA-256, so a hook that appended a newline to
+      # a stream that happens to look like text would fail the corpus test.
+      #
       # A fuzz seed corpus is the same argument without the provenance: a seed
       # is an input libFuzzer mutates, and one the hooks have "fixed" is no
       # longer the input that was chosen. It went unnoticed while every corpus
       # held only binary — a `.grib2`, a `.nc` — which these hooks skip anyway;
       # the Zarr and fetchplan seeds include JSON documents, which they do not.
       - id: end-of-file-fixer
-        exclude: &bytes-under-test ^(crates/fieldglass-zarr/tests/fixtures/(?!NOTICE\.md$)|crates/fieldglass-[a-z0-9]+/fuzz/corpus/)
+        exclude: &bytes-under-test ^(crates/fieldglass-(zarr|aec)/tests/fixtures/(?!NOTICE\.md$)|crates/fieldglass-[a-z0-9]+/fuzz/corpus/)
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
         exclude: *bytes-under-test
