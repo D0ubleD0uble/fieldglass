@@ -1,4 +1,5 @@
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bitmap::{bitmap_bit_len, unpack_bitmap};
 
 /// Parsed Bit Map Section. The bitmap has one boolean per grid point in
 /// scan order: `true` means the corresponding value is present in the BDS,
@@ -9,14 +10,16 @@ pub struct Bitmap {
     pub section_len: u32,
     /// Predefined bitmap indicator (0 = bitmap follows in this section).
     pub predefined_indicator: u16,
-    /// One flag per grid point in scan order, truncated to the GDS point
-    /// count: `true` when the BDS carries a value for that point.
+    /// One flag per grid point in scan order, exactly the GDS point count:
+    /// `true` when the BDS carries a value for that point.
     pub bits: Vec<bool>,
 }
 
 /// Parse a Bit Map Section. `bytes` must begin at the BMS length octets.
 /// `expected_count` is the total number of grid points (from the GDS); the
-/// returned `bits` is truncated to that length.
+/// returned `bits` has exactly that length. A bitmap holding fewer bits than
+/// that, after the unused trailing bits octet 4 declares, is an error; bits
+/// past the last point are ignored.
 pub fn parse_bitmap(bytes: &[u8], expected_count: usize) -> Result<Bitmap, FieldglassError> {
     if bytes.len() < 6 {
         return Err(FieldglassError::Parse(format!(
@@ -53,25 +56,30 @@ pub fn parse_bitmap(bytes: &[u8], expected_count: usize) -> Result<Bitmap, Field
     }
 
     let bitmap_bytes = &bytes[6..section_len as usize];
-    // checked: empty body + unused_trailing>0 would underflow len*8.
-    let total_bits = bitmap_bytes
-        .len()
-        .checked_mul(8)
-        .and_then(|t| t.checked_sub(unused_trailing as usize))
-        .ok_or_else(|| {
-            FieldglassError::Parse(format!(
-                "BMS unused_trailing {unused_trailing} exceeds bitmap body of {} bytes",
-                bitmap_bytes.len()
-            ))
-        })?;
-    let take = total_bits.min(expected_count);
-
-    let mut bits = Vec::with_capacity(take);
-    for i in 0..take {
-        let byte = bitmap_bytes[i / 8];
-        let mask = 0x80u8 >> (i % 8);
-        bits.push(byte & mask != 0);
+    // An empty body with unused_trailing > 0 would underflow `len * 8 - unused`;
+    // `bitmap_bit_len` is proved to return `None` there instead.
+    let total_bits = bitmap_bit_len(bitmap_bytes.len(), unused_trailing).ok_or_else(|| {
+        FieldglassError::Parse(format!(
+            "BMS unused_trailing {unused_trailing} exceeds bitmap body of {} bytes",
+            bitmap_bytes.len()
+        ))
+    })?;
+    // One bit per grid point (Section 3, octet 7 onwards: "contiguous bits with
+    // a bit to data point correspondence"). A bitmap with fewer bits cannot say
+    // which points are present. More is fine: sections are padded to an even
+    // length, and not every encoder counts that padding in octet 4.
+    if total_bits < expected_count {
+        return Err(FieldglassError::Parse(format!(
+            "BMS holds {total_bits} bits but the grid has {expected_count} points"
+        )));
     }
+    // `total_bits` is at most the body's bit length, so this is `Some`.
+    let bits = unpack_bitmap(bitmap_bytes, expected_count).ok_or_else(|| {
+        FieldglassError::Parse(format!(
+            "BMS body of {} bytes is short of {expected_count} bits",
+            bitmap_bytes.len()
+        ))
+    })?;
 
     Ok(Bitmap {
         section_len,
@@ -160,15 +168,24 @@ mod tests {
     }
 
     #[test]
-    fn expected_count_larger_than_bitmap_takes_what_is_available() {
-        // 8 bits of data, but caller claims 16 grid points. Implementation
-        // takes the minimum so we never index past the buffer; downstream
-        // decode_grid relies on this to surface the discrepancy as a length
-        // mismatch rather than as a panic.
+    fn expected_count_larger_than_bitmap_is_an_error() {
+        // 8 bits of data, but the grid has 16 points. This used to return the
+        // 8 flags there were, on the expectation that a later length check
+        // would catch it; none did, and the reader returned a short field.
         let bms = build_bms(0, &[0xFF]);
-        let bm = parse_bitmap(&bms, 16).unwrap();
-        assert_eq!(bm.bits.len(), 8, "should clamp to available bitmap bits");
-        assert!(bm.bits.iter().all(|b| *b));
+        let err = parse_bitmap(&bms, 16).unwrap_err();
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m.contains("holds 8 bits")),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn unused_trailing_bits_count_against_the_grid() {
+        // 16 bits, the last 2 unused, leaves 14: one short of 15 points.
+        let bms = build_bms(2, &[0xFF, 0xFC]);
+        assert!(parse_bitmap(&bms, 14).is_ok());
+        assert!(parse_bitmap(&bms, 15).is_err());
     }
 
     #[test]

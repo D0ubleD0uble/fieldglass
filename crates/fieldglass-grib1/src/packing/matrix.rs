@@ -43,8 +43,9 @@
 //!   path ([`MatrixPacking::decode`]) rejects it since it isn't one value per
 //!   point.
 
+use fieldglass_core::bitmap::{count_present, unpack_bitmap};
 use fieldglass_core::scaling::unpack_simple;
-use fieldglass_core::{FieldglassError, StoredRuns, bits::BitReader};
+use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::BdsHeader;
 
@@ -358,14 +359,14 @@ pub(crate) fn decode_matrix_of_values(
             "grid_simple_matrix secondary bitmaps ({sec_bytes} bytes) overrun the section"
         )));
     }
-    let mut reader = BitReader::new(&bds[matrix.data_offset..sec_end]);
-    let mut secondary = Vec::with_capacity(sec_count);
-    for _ in 0..sec_count {
-        secondary.push(reader.read_bits(1)? != 0);
-    }
+    let secondary = unpack_bitmap(&bds[matrix.data_offset..sec_end], sec_count).ok_or_else(|| {
+        FieldglassError::Parse(format!(
+            "grid_simple_matrix secondary bitmaps: {sec_bytes} bytes hold fewer than {sec_count} bits"
+        ))
+    })?;
 
     // Coded values: one simple-packed value per set secondary bit.
-    let coded_count = secondary.iter().filter(|b| **b).count();
+    let coded_count = count_present(&secondary);
     let coded = unpack_simple(
         &bds[sec_end..section_len],
         header.bits_per_value,

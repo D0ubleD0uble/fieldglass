@@ -9,9 +9,10 @@
 //!      libraries name, checked by tools/check_parsing_surface.py. The README
 //!      states it again; both regions have to match the code. -->
 //! [`error`], [`bits`] (whose MSB-first bit reader every packed integer is
-//! read through, carrying a Verus proof), [`bytes`], [`scaling`] (the GRIB
-//! `(R + X·2^E)·10^-D` transform both editions unpack values with, also
-//! proved),
+//! read through, carrying a Verus proof), [`bytes`], [`bitmap`] (the
+//! MSB-first presence bitmaps both GRIB editions mark missing points with,
+//! also proved), [`scaling`] (the GRIB `(R + X·2^E)·10^-D` transform both
+//! editions unpack values with, also proved),
 //! [`groups`] (the group expansion of GRIB second-order and complex packing,
 //! also proved),
 //! [`spatial_diff`] (the inverse spatial differencing both editions rebuild
@@ -79,6 +80,7 @@
 // free — pure integer arithmetic — so a consumer that takes one format crate
 // links nothing new because of it.
 pub mod array;
+pub mod bitmap;
 pub mod bits;
 pub mod bytes;
 pub mod cct_tables;
