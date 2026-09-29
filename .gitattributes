@@ -1,0 +1,4 @@
+# The AEC conformance streams are bytes libaec wrote, pinned by SHA-256 in
+# the manifest. Some contain LF bytes, so no line-ending conversion may touch
+# them.
+crates/fieldglass-aec/tests/fixtures/streams/*.rz binary
