@@ -63,7 +63,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # Directories that are never a package of ours.
-PRUNED = {"target", "node_modules", ".git", ".venv", "out", "dist"}
+PRUNED = {"target", "node_modules", ".git", ".venv", "out", "dist", ".claude"}
 
 # The dependency tables cargo compiles. `build-dependencies` is included
 # because `build.rs` is source like any other, and `fieldglass-napi`'s names

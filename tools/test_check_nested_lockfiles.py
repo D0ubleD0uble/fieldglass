@@ -222,6 +222,16 @@ class LetsThrough(unittest.TestCase):
             found = [str(d.relative_to(root)) for d in chk.nested_workspaces(root)]
             self.assertEqual(found, ["crates/fieldglass-verify"])
 
+    def test_an_agent_worktree_is_not_walked(self):
+        # `Agent(isolation: "worktree")` checks the whole repository out again
+        # under `.claude/worktrees/`, so every nested workspace appears twice.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = repo(Path(tmp))
+            crate(root, "crates/fieldglass-verify")
+            crate(root, ".claude/worktrees/agent-1/crates/fieldglass-verify")
+            found = [str(d.relative_to(root)) for d in chk.nested_workspaces(root)]
+            self.assertEqual(found, ["crates/fieldglass-verify"])
+
 
 class TheRepoItselfPasses(unittest.TestCase):
     """The real check, against the real tree, with the real cargo."""
