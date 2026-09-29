@@ -43,11 +43,12 @@
 //!   path ([`MatrixPacking::decode`]) rejects it since it isn't one value per
 //!   point.
 
+use fieldglass_core::scaling::unpack_simple;
 use fieldglass_core::{FieldglassError, StoredRuns, bits::BitReader};
 
 use crate::bds::BdsHeader;
 
-use super::{Grib1Packing, interleave_with_bitmap, present_count, unpack_simple_values};
+use super::{Grib1Packing, interleave_with_bitmap, message_scaling, present_count};
 
 /// `matrixOfValues` — bit `1 << 3` of the matrix-context `extendedFlag`.
 const MATRIX_OF_VALUES: u8 = 0x08;
@@ -171,14 +172,11 @@ impl Grib1Packing for MatrixPacking {
 
         // matrixOfValues = 0: the body is plain simple packing behind the
         // matrix header. Constant field (bits_per_value == 0) still applies.
-        let d_scale = 10f64.powi(-(decimal_scale as i32));
-        let r = header.reference_value;
-        let two_pow_e = 2f64.powi(header.binary_scale_factor as i32);
+        let scaling = message_scaling(header, decimal_scale);
         let present = present_count(bitmap, expected_count);
 
         if header.bits_per_value == 0 {
-            let constant = r * d_scale;
-            let decoded = vec![constant; present];
+            let decoded = vec![scaling.constant(); present];
             return Ok(interleave_with_bitmap(decoded, bitmap, expected_count));
         }
         if header.bits_per_value > 32 {
@@ -196,14 +194,7 @@ impl Grib1Packing for MatrixPacking {
             )));
         }
 
-        let decoded = unpack_simple_values(
-            packed,
-            header.bits_per_value,
-            r,
-            two_pow_e,
-            d_scale,
-            present,
-        )?;
+        let decoded = unpack_simple(packed, header.bits_per_value, &scaling, present)?;
         Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
     }
 }
@@ -375,14 +366,10 @@ pub(crate) fn decode_matrix_of_values(
 
     // Coded values: one simple-packed value per set secondary bit.
     let coded_count = secondary.iter().filter(|b| **b).count();
-    let two_pow_e = 2f64.powi(header.binary_scale_factor as i32);
-    let d_scale = 10f64.powi(-(decimal_scale as i32));
-    let coded = unpack_simple_values(
+    let coded = unpack_simple(
         &bds[sec_end..section_len],
         header.bits_per_value,
-        header.reference_value,
-        two_pow_e,
-        d_scale,
+        &message_scaling(header, decimal_scale),
         coded_count,
     )?;
 

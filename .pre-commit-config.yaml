@@ -318,6 +318,19 @@ repos:
         entry: python3 tools/check_nested_lockfiles.py
         pass_filenames: false
 
+      - id: verified-kernels
+        name: every verified kernel file is still verified
+        language: system
+        # A kernel file is production source carrying Verus proofs, which
+        # `crates/fieldglass-verify` includes by `#[path]` and verifies in place
+        # (#199). Deleting or mis-pointing that include leaves the specs looking
+        # like proofs while nothing checks them, and a kernel missing from
+        # `verify.yml`'s path filter is edited without Verus ever running. Both
+        # fail silently, so both are checked here.
+        files: ^(crates/.*\.rs|\.github/workflows/verify\.yml|tools/check_verified_kernels\.py)$
+        entry: python3 tools/check_verified_kernels.py
+        pass_filenames: false
+
       # ── Pre-push (slower) hooks
       - id: architecture-diagrams-selftest
         name: architecture diagram checker self-test
@@ -446,6 +459,16 @@ repos:
         stages: [pre-push]
         files: ^(tools/(test_)?fetch_perf_data\.py|crates/fieldglass-perf/manifests/era5\.json)$
         entry: python3 tools/test_fetch_perf_data.py
+        pass_filenames: false
+
+      - id: verified-kernels-selftest
+        name: verified-kernel checker self-test
+        stages: [pre-push]
+        language: system
+        # The kernel files and the workflow are in the pattern because one test
+        # pins the set of kernel files by path, and another runs the real check.
+        files: ^(tools/(check_verified_kernels|test_check_verified_kernels)\.py|crates/.*\.rs|\.github/workflows/verify\.yml)$
+        entry: python3 tools/test_check_verified_kernels.py
         pass_filenames: false
 
       - id: nested-lockfiles-selftest

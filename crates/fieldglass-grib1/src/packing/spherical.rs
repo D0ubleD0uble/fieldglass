@@ -27,13 +27,14 @@
 //! validated against its output on a real T63 message.
 
 use fieldglass_core::bits::{BitReader, ibm_float_to_f64};
+use fieldglass_core::scaling::unpack_simple_into;
 use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::{
     BdsHeader, SPECTRAL_COMPLEX_DATA_OFFSET, SPECTRAL_SIMPLE_DATA_OFFSET, SphericalExtendedHeader,
 };
 
-use super::Grib1Packing;
+use super::{Grib1Packing, message_scaling};
 
 /// Bit width of one unpacked sub-truncation coefficient part: a 4-byte IBM
 /// float. eccodes hard-codes the same 32 when it inverts the value count.
@@ -202,21 +203,22 @@ fn decode_simple(
         (n_values - 1).saturating_mul(usize::from(header.bits_per_value)),
         t,
     )?;
-    let s = binary_scale(header.binary_scale_factor);
-    let d = decimal_scale_factor(decimal_scale);
+    let scaling = message_scaling(header, decimal_scale);
 
     let mut out = Vec::with_capacity(n_values);
     out.push(real_part);
     if header.bits_per_value == 0 {
         // A zero width means every coded value is the reference value.
-        out.resize(n_values, header.reference_value * d);
+        out.resize(n_values, scaling.constant());
         return Ok(out);
     }
-    let mut reader = BitReader::new(data);
-    for _ in 1..n_values {
-        let raw = f64::from(reader.read_bits(header.bits_per_value)?);
-        out.push((raw * s + header.reference_value) * d);
-    }
+    unpack_simple_into(
+        data,
+        header.bits_per_value,
+        &scaling,
+        n_values - 1,
+        &mut out,
+    )?;
     Ok(out)
 }
 
@@ -291,8 +293,7 @@ fn decode_complex(
         })
         .collect();
 
-    let s = binary_scale(header.binary_scale_factor);
-    let d = decimal_scale_factor(decimal_scale);
+    let scaling = message_scaling(header, decimal_scale);
     let bits = header.bits_per_value;
 
     let mut unpacked = BitReader::new(data);
@@ -333,24 +334,14 @@ fn decode_complex(
                 )
             };
             let scale = scals[usize::from(degree)];
-            out.push(d * (raw_re * s + header.reference_value) * scale);
+            out.push(scaling.apply(raw_re) * scale);
             // Zonal wavenumber 0 has no imaginary part. It is stored anyway, so
             // it decodes to quantisation noise; eccodes forces it to zero, and so
             // must we, or a real field comes back faintly complex.
-            let im = d * (raw_im * s + header.reference_value) * scale;
+            let im = scaling.apply(raw_im) * scale;
             out.push(if zonal == 0 { 0.0 } else { im });
             degree += 1;
         }
     }
     Ok(out)
-}
-
-/// `2^E` — the binary scale factor.
-fn binary_scale(e: i16) -> f64 {
-    2f64.powi(i32::from(e))
-}
-
-/// `10^-D` — the decimal scale factor.
-fn decimal_scale_factor(d: i16) -> f64 {
-    10f64.powi(-i32::from(d))
 }

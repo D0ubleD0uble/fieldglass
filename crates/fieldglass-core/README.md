@@ -9,8 +9,9 @@ every format shares:
 <!-- parsing-surface: the set of core modules the three format crate libraries
      name, checked by tools/check_parsing_surface.py. The crate documentation
      states it again; both regions have to match the code. -->
-`error`, `bits` and `bytes` (bit reading and byte access), `cct_tables` (the WMO
-centre tables), `scan` (storage orders), `projection` (map projections and grid
+`error`, `bits` and `bytes` (bit reading and byte access), `scaling` (the GRIB
+`(R + X·2^E)·10^-D` transform both editions unpack values with), `cct_tables`
+(the WMO centre tables), `scan` (storage orders), `projection` (map projections and grid
 geometry), `lead_time` (the forecast-lead rules both GRIB editions share), and
 the three grids that arrive as something other than a rectangle of values —
 `sht`, `matrix` and `healpix` — with `global_grid`, the lat/lon grid the first

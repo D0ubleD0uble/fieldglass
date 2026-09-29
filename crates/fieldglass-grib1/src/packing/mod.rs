@@ -18,7 +18,8 @@
 //! `Grib1Packing::decode`, and route it from `decoder_for`. No other crates
 //! need to change.
 
-use fieldglass_core::{FieldglassError, StoredRuns, bits::BitReader};
+use fieldglass_core::scaling::{Scaling, red_scale};
+use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::BdsHeader;
 
@@ -90,27 +91,15 @@ pub fn decoder_for(header: &BdsHeader) -> Box<dyn Grib1Packing> {
     Box::new(simple::SimplePacking)
 }
 
-/// Read `count` simple-packed integers of `bits_per_value` bits (MSB-first)
-/// from `packed`, scaling each by `(R + X·2^E) / 10^D`. Shared by
-/// [`simple::SimplePacking`] and the matrix-of-values body decoder — both lay
-/// their values out as plain simple packing, differing only in where the data
-/// slice begins. `bits_per_value` must be in `1..=32`; the caller handles the
-/// `bits_per_value == 0` constant-field case before calling.
-pub(crate) fn unpack_simple_values(
-    packed: &[u8],
-    bits_per_value: u8,
-    reference: f64,
-    two_pow_e: f64,
-    d_scale: f64,
-    count: usize,
-) -> Result<Vec<f64>, FieldglassError> {
-    let mut reader = BitReader::new(packed);
-    let mut decoded = Vec::with_capacity(count);
-    for _ in 0..count {
-        let x = reader.read_bits(bits_per_value)?;
-        decoded.push((reference + x as f64 * two_pow_e) * d_scale);
-    }
-    Ok(decoded)
+/// The `R` / `E` / `D` factors of a GRIB1 message: the BDS reference value and
+/// binary scale factor, and the PDS decimal scale factor. Every GRIB1 packing
+/// that stores integers scales them with this.
+pub(crate) fn message_scaling(header: &BdsHeader, decimal_scale: i16) -> Scaling {
+    red_scale(
+        header.reference_value,
+        header.binary_scale_factor,
+        decimal_scale,
+    )
 }
 
 /// Interleave `None` at bitmap-masked points: walk the per-point `bitmap`,
@@ -206,14 +195,8 @@ pub(crate) fn finalize_stored_order(
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    let two_pow_e = 2f64.powi(header.binary_scale_factor as i32);
-    let d_scale = 10f64.powi(-(decimal_scale as i32));
-    let r = header.reference_value;
-
-    let mut scaled: Vec<f64> = x
-        .iter()
-        .map(|v| (r + (*v as f64) * two_pow_e) * d_scale)
-        .collect();
+    let scaling = message_scaling(header, decimal_scale);
+    let mut scaled: Vec<f64> = x.iter().map(|v| scaling.apply(*v as f64)).collect();
 
     if let Some(runs) = undo {
         fieldglass_core::reverse_alternate_runs(&mut scaled, runs);

@@ -14,7 +14,8 @@
 //! (`Grib2Reader::decode_matrix_message`) and the scalar `decode_message_values`
 //! path rejects it — mirroring the GRIB1 matrix path.
 
-use crate::drs::{MatrixSimplePackingTemplate, red_scale};
+use crate::drs::{MatrixSimplePackingTemplate, packing_scaling};
+use fieldglass_core::scaling::unpack_simple;
 use fieldglass_core::{FieldglassError, bits::BitReader};
 
 /// Upper bound on the total matrix-cell count (`Ni·Nj·NR·NC`) the decoder will
@@ -110,7 +111,7 @@ pub fn decode_matrix_of_values(
 
     // One simple-packed value per set secondary bit: `(R + X·2^E)·10^-D`.
     let coded_bytes = &ds_payload[sec_bytes..];
-    let (r, two_pow_e, d_inv) = red_scale(
+    let scaling = packing_scaling(
         t.reference_value,
         t.binary_scale_factor,
         t.decimal_scale_factor,
@@ -122,12 +123,7 @@ pub fn decode_matrix_of_values(
             "grid_simple_matrix needs {required_bits} coded bits but §7 holds only {available_bits}"
         )));
     }
-    let mut cr = BitReader::new(coded_bytes);
-    let mut coded = Vec::with_capacity(coded_count);
-    for _ in 0..coded_count {
-        let x = cr.read_bits(t.bits_per_value)? as f64;
-        coded.push((r + x * two_pow_e) * d_inv);
-    }
+    let coded = unpack_simple(coded_bytes, t.bits_per_value, &scaling, coded_count)?;
 
     fieldglass_core::matrix::expand_matrix(&secondary, coded, bitmap, expected_count, datum)
 }

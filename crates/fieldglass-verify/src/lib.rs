@@ -8,21 +8,24 @@
 //!
 //! # What this crate is
 //!
-//! A **bootstrap**: the toolchain wiring plus one trivial proof, so that later
-//! issues (#199–#204) add proofs rather than infrastructure. It is not on the
-//! path of any build that ships. See `docs/verification.md` for how to run it
-//! and for the policy on what must stay verified.
+//! The proofs, and the only crate that depends on `vstd`. It is not on the path
+//! of any build that ships. See `docs/verification.md` for how to run it and
+//! for the policy on what must stay verified.
 //!
-//! # The open question this bootstrap does *not* settle
+//! Two kinds of proof live here:
 //!
-//! The functions proved here are currently written here. Proving the *shipped*
-//! `fieldglass-core` functions instead means either giving that crate a `vstd`
-//! dependency — transparent to a stock build and to the six-target
-//! cross-compile, both measured, but a date-stamped pre-1.0 dependency on a
-//! published crate — or moving the kernel itself into a crate like this one and
-//! having core depend on it. That is a real design decision with a cost either
-//! way, and #199 makes it with a real proof in hand rather than being
-//! pre-empted here.
+//! - functions written here, such as the `bits_to_bytes` smoke test below;
+//! - **kernel files** of shipped crates, included below with `#[path]`. Their
+//!   specs sit in `cfg_attr(verus_keep_ghost, ...)` attributes, so the crate
+//!   that ships the file compiles it as plain Rust, and this crate proves the
+//!   same text. `bits_model` holds what those proofs trust rather than prove.
+//!
+//! `proc_macro_hygiene` is the nightly feature a kernel's loop invariant needs
+//! here: Verus rewrites the `verus_spec` attribute on a `for` loop into one on
+//! an expression (E0658 without it). Verus's toolchain allows the feature, and
+//! the `cfg_attr` keeps it out of a stock build. The shipped crate never needs
+//! it, because there the attribute is never expanded.
+#![cfg_attr(verus_keep_ghost, feature(proc_macro_hygiene))]
 use vstd::prelude::*;
 
 verus! {
@@ -46,3 +49,14 @@ pub fn bits_to_bytes(bits: usize) -> (out: usize)
 }
 
 } // verus!
+// The proofs over shipped code (#199). Each kernel file is the production
+// source itself, included by path, so there is one copy to keep verified.
+// Those files name `crate::FieldglassError` and `crate::bits::BitReader`, which
+// these re-exports provide here exactly as `fieldglass-core` does, and
+// `crate::bits_model`, the trusted specifications of what they call.
+pub use fieldglass_core::{bits, FieldglassError};
+
+pub mod bits_model;
+
+#[path = "../../fieldglass-core/src/scaling.rs"]
+pub mod scaling;
