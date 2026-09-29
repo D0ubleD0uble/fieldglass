@@ -1,0 +1,31 @@
+[package]
+name = "fieldglass-aec-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+fieldglass-aec = { path = ".." }
+
+[[bin]]
+name = "decode"
+path = "fuzz_targets/decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "differential"
+path = "fuzz_targets/differential.rs"
+test = false
+doc = false
+bench = false
+
+# Keep this crate out of the parent workspace so the standard gates
+# (`cargo build/clippy/test --workspace`) — which run on stable — never
+# try to compile the nightly-only libFuzzer target.
+[workspace]

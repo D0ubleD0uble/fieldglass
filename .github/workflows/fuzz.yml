@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
     paths:
+      - 'crates/fieldglass-aec/**'
       - 'crates/fieldglass-grib1/**'
       - 'crates/fieldglass-grib2/**'
       - 'crates/fieldglass-netcdf/**'
@@ -12,6 +13,7 @@ on:
       - '.github/workflows/fuzz.yml'
   pull_request:
     paths:
+      - 'crates/fieldglass-aec/**'
       - 'crates/fieldglass-grib1/**'
       - 'crates/fieldglass-grib2/**'
       - 'crates/fieldglass-netcdf/**'
@@ -70,6 +72,50 @@ jobs:
       # build, so stable is still enough.
       - name: Nested-lockfile checker self-test
         run: python3 tools/test_check_nested_lockfiles.py
+
+  aec-decode:
+    name: AEC decode (cargo-fuzz, time-boxed)
+    needs: lockfiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # cargo-fuzz needs the nightly libFuzzer sanitizer runtime; the normal
+      # gates stay on stable — the fuzz crate is excluded from the workspace so
+      # they never touch it.
+      - name: Set up Rust nightly
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: nightly
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: crates/fieldglass-aec/fuzz
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@dfae9bf3d6f6c6f20ef4ebb3486c01a51341ff12 # v2.87.18
+        with:
+          tool: cargo-fuzz
+
+      # Time-boxed runs seeded by the committed corpus (a small subset of the
+      # conformance streams, each behind a parameter header). Not the normal
+      # `cargo test` gate — this is a bounded smoke fuzz. `decode` asserts the
+      # decoder never panics and never hands the sink more than it was asked
+      # for; `differential` asserts `decode` and `decode_to_bytes` agree.
+      #
+      # `--target` is pinned to the gnu host: left to its default, cargo-fuzz
+      # selects the musl target on the hosted runner, which can't link the
+      # ASan runtime against a static libc.
+      - name: Fuzz the AEC decoder
+        run: cargo fuzz run decode --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
+        working-directory: crates/fieldglass-aec/fuzz
+
+      - name: Fuzz decode against decode_to_bytes
+        run: cargo fuzz run differential --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
+        working-directory: crates/fieldglass-aec/fuzz
 
   grib1-decode:
     name: GRIB1 decode (cargo-fuzz, time-boxed)
