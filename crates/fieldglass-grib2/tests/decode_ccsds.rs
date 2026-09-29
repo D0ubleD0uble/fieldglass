@@ -147,3 +147,108 @@ fn ccsds_decodes_24bit_id_len_5() {
 fn ecmwf_open_data_ccsds_decodes() {
     assert_decode_matches_oracle("ecmwf_ccsds_latlon.grib2");
 }
+
+// ---------------------------------------------------------------------------
+// ccsdsFlags pins (#756).
+//
+// eccodes hands libaec the unsigned reference-subtracted value as an n-bit
+// pattern and libaec's default build never writes RSI padding, so a 5.42
+// message re-flagged SIGNED (13) or PAD_RSI (36) still holds an unsigned,
+// unpadded stream. We decode it to the source field; eccodes 2.34.1 does not
+// (max 2234.68 and 2251.58 against a source max of 314.675). The value oracle
+// for each fixture is therefore its *source's* eccodes values, copied into
+// `<fixture>_expected.json`, never eccodes' decode of the re-flagged file.
+// Provenance and the divergence are in fixtures/NOTICE.md.
+// ---------------------------------------------------------------------------
+
+/// Every flag fixture and the committed fixture it was re-flagged from.
+const FLAG_FIXTURES: [(&str, &str); 4] = [
+    ("ccsds_flags13_12bit.grib2", "ecmwf_ccsds_latlon.grib2"),
+    (
+        "ccsds_flags13_24bit.grib2",
+        "ccsds_regular_latlon_24bit.grib2",
+    ),
+    ("ccsds_flags36_12bit.grib2", "ecmwf_ccsds_latlon.grib2"),
+    ("ccsds_flags46_12bit.grib2", "ecmwf_ccsds_latlon.grib2"),
+];
+
+/// A missing fixture fails here rather than skipping in the tests below.
+#[test]
+fn ccsds_flag_fixtures_are_all_present() {
+    for (fixture, source) in FLAG_FIXTURES {
+        for name in [fixture, source] {
+            assert!(
+                Path::new("tests/fixtures").join(name).is_file(),
+                "missing fixture {name}"
+            );
+        }
+    }
+    let found = std::fs::read_dir("tests/fixtures")
+        .expect("read fixtures dir")
+        .filter_map(|e| {
+            let name = e.ok()?.file_name().to_string_lossy().into_owned();
+            (name.starts_with("ccsds_flags") && name.ends_with(".grib2")).then_some(name)
+        })
+        .count();
+    assert_eq!(
+        found,
+        FLAG_FIXTURES.len(),
+        "ccsds_flags*.grib2 fixture count"
+    );
+}
+
+/// The re-flagged file decodes to the same values, bit for bit, as the
+/// fixture it came from, and to that fixture's eccodes oracle.
+fn assert_flags_decode_to_source(fixture: &str, source: &str, flags: u8) {
+    assert_decode_matches_oracle(fixture);
+    let read = |name: &str| {
+        Grib2Reader::from_bytes(std::fs::read(Path::new("tests/fixtures").join(name)).unwrap())
+            .unwrap_or_else(|e| panic!("{name}: parse: {e:?}"))
+    };
+    let (new, old) = (read(fixture), read(source));
+    let t = new.messages[0].drs.ccsds().expect("5.42");
+    assert_eq!(t.ccsds_flags, flags, "{fixture}: ccsdsFlags");
+    assert_ne!(
+        t.ccsds_flags,
+        old.messages[0].drs.ccsds().unwrap().ccsds_flags,
+        "{fixture}: must differ from its source's flags"
+    );
+    let got = new.decode_message_values(0).expect("flagged decode");
+    let want = old.decode_message_values(0).expect("source decode");
+    assert!(got == want, "{fixture}: values differ from {source}");
+}
+
+#[test]
+fn ccsds_flags13_signed_12bit_decodes_to_source() {
+    assert_flags_decode_to_source("ccsds_flags13_12bit.grib2", "ecmwf_ccsds_latlon.grib2", 13);
+}
+
+#[test]
+fn ccsds_flags13_signed_24bit_decodes_to_source() {
+    // 24-bit clears 3BYTE (13 = SIGNED + PP + MSB): the four-byte sample path.
+    assert_flags_decode_to_source(
+        "ccsds_flags13_24bit.grib2",
+        "ccsds_regular_latlon_24bit.grib2",
+        13,
+    );
+}
+
+#[test]
+fn ccsds_flags36_pad_rsi_decodes_to_source() {
+    assert_flags_decode_to_source("ccsds_flags36_12bit.grib2", "ecmwf_ccsds_latlon.grib2", 36);
+}
+
+#[test]
+fn ccsds_flags46_pad_rsi_preprocess_is_unsupported_today() {
+    // PAD_RSI + PP + 3BYTE + MSB: eccodes itself fails (AEC_DATA_ERROR) and so
+    // do we. Issue #762 clears PAD_RSI before decoding (decision D1), which
+    // turns this into an exact decode; update this test then.
+    let bytes = std::fs::read("tests/fixtures/ccsds_flags46_12bit.grib2").expect("read fixture");
+    let reader = Grib2Reader::from_bytes(bytes).expect("fixture parses");
+    assert_eq!(reader.messages[0].drs.ccsds().unwrap().ccsds_flags, 46);
+    let err = reader.decode_message_values(0).expect_err("flag 46 fails");
+    assert!(
+        matches!(err, fieldglass_core::FieldglassError::UnsupportedSection(_)),
+        "expected UnsupportedSection, got {err:?}"
+    );
+}

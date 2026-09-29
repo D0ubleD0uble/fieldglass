@@ -875,3 +875,45 @@ one-bit edit applied in memory rather than a second committed file, the same way
   `reduced_gaussian_pressure_level.grib2` and `octahedral_gaussian_o32.grib2` is
   byte-identical with and without the bit set, so the pin's reduced geoiterator
   ignores it and the decoder leaves such a grid alone.
+
+## CCSDS `ccsdsFlags` fixtures (#756)
+
+Four 5.42 fixtures re-flag a committed CCSDS fixture with the pinned eccodes
+2.34.1 CLI, rebuilt by `tools/build_grib2_ccsds_flag_fixtures.py`:
+
+```sh
+grib_set -r -s ccsdsFlags=13 ecmwf_ccsds_latlon.grib2         ccsds_flags13_12bit.grib2
+grib_set -r -s ccsdsFlags=13 ccsds_regular_latlon_24bit.grib2 ccsds_flags13_24bit.grib2
+grib_set -r -s ccsdsFlags=36 ecmwf_ccsds_latlon.grib2         ccsds_flags36_12bit.grib2
+grib_set -r -s ccsdsFlags=46 ecmwf_ccsds_latlon.grib2         ccsds_flags46_12bit.grib2
+```
+
+| Fixture | Source | Flags | Meaning |
+|---|---|---|---|
+| `ccsds_flags13_12bit.grib2` | `ecmwf_ccsds_latlon.grib2` | 13 | SIGNED + PP + MSB |
+| `ccsds_flags13_24bit.grib2` | `ccsds_regular_latlon_24bit.grib2` | 13 | SIGNED + PP + MSB (3BYTE cleared, 4-byte samples) |
+| `ccsds_flags36_12bit.grib2` | `ecmwf_ccsds_latlon.grib2` | 36 | PAD_RSI + MSB |
+| `ccsds_flags46_12bit.grib2` | `ecmwf_ccsds_latlon.grib2` | 46 | PAD_RSI + PP + 3BYTE + MSB |
+
+**Oracle caveat:** eccodes hands libaec the unsigned reference-subtracted value
+as an n-bit pattern, and libaec's default build never writes RSI padding
+(`encode.c`, `#ifdef ENABLE_RSI_PADDING`). So these files hold an unsigned,
+unpadded stream whatever the flags say. fieldglass decodes flags 13 and 36 to the
+source field exactly; the pinned eccodes 2.34.1 does not, so its decode of the
+new file is not the value oracle (the same situation as ECC-2095 above):
+
+| Fixture | eccodes 2.34.1 decode | Source field |
+|---|---|---|
+| `ccsds_flags13_12bit.grib2` | max 2234.68 | max 314.675 |
+| `ccsds_flags13_24bit.grib2` | max 16631.1 | max 311.099 |
+| `ccsds_flags36_12bit.grib2` | max 2251.58 | max 314.675 |
+| `ccsds_flags46_12bit.grib2` | `AEC_DATA_ERROR` (snapshot: all zeros) | max 314.675 |
+
+The `<fixture>_expected.json` value oracles for the flag 13 and 36 fixtures are
+therefore copies of the source fixture's own eccodes oracle, with only
+`ccsdsFlags` and the `source` note changed. Flag 46 has none: fieldglass returns
+`UnsupportedSection` for it until #762 clears PAD_RSI before decoding. The
+`.eccodes.ref.json` snapshots are 2.34.1 as usual and record eccodes' wrong
+statistics, which is why the four are listed in `NO_VALUE_CHECK` in
+`eccodes_reference.rs`. `decode_ccsds.rs` also checks each decode equals the
+source fixture's decode value for value.
