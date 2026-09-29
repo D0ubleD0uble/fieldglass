@@ -1,4 +1,6 @@
-//! A decode allocates nothing (ADR-0012 decision 2).
+//! A decode allocates nothing (ADR-0012 decision 2), and neither does an szip
+//! decompression, where libsz allocates a padded copy of up to 32 times the
+//! output and a second copy to deinterleave byte planes.
 //!
 //! A counting global allocator counts only while this thread has armed it,
 //! so tests running on other threads cannot add to a count. The stream is
@@ -10,7 +12,8 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::hint::black_box;
 
-use common::Bits;
+use common::{Bits, FIXTURES, SZ_CASES, manifest, rows, text, uint};
+use fieldglass_aec::sz::{self, SzParams};
 use fieldglass_aec::{AecError, Flags, Params, Sink, decode, decode_to_bytes};
 
 struct Counting;
@@ -193,4 +196,59 @@ fn an_error_allocates_nothing() {
     let (count, result) = allocations_in(|| decode_to_bytes(cut, &params, &mut out));
     assert!(matches!(result, Err(AecError::Truncated { .. })));
     assert_eq!(count, 0);
+}
+
+/// One pixel per scanline in blocks of 32, libsz's 32x worst case: 64 Ki
+/// 8-bit pixels, each the reference sample of a zero block that covers its
+/// 31 pads. libsz would allocate 2 MiB to decode this into 64 KiB.
+#[test]
+fn szip_at_one_pixel_per_scanline_allocates_nothing() {
+    const PIXELS: u64 = 1 << 16;
+    let params = SzParams::new(sz::NN_OPTION_MASK, 8, 32, 1).unwrap();
+    let mut bits = Bits::default();
+    for i in 0..PIXELS {
+        // A zero block (id 0b000, then 0), the reference sample, one block.
+        bits.put(0, 3).put(0, 1).put(i & 0xFF, 8).fs(0);
+    }
+    let stream = bits.done();
+    let mut out = vec![0u8; 1 << 16];
+    let (count, result) = allocations_in(|| sz::decompress(&stream, &params, &mut out));
+    result.unwrap();
+    assert_eq!(count, 0);
+    assert!(
+        out.iter()
+            .enumerate()
+            .all(|(i, &b)| usize::from(b) == i & 0xFF)
+    );
+}
+
+/// Every szip case in the corpus, byte planes and padded scanlines included,
+/// whole and cut short.
+#[test]
+fn szip_corpus_decodes_allocate_nothing() {
+    let manifest = manifest();
+    let mut checked = 0;
+    for row in rows(&manifest, "sz_cases", SZ_CASES) {
+        let name = text(row, "name");
+        let field = |key| u32::try_from(uint(row, key)).unwrap();
+        let params = SzParams::new(
+            field("options_mask"),
+            field("bits_per_pixel"),
+            field("pixels_per_block"),
+            field("pixels_per_scanline"),
+        )
+        .unwrap();
+        let stream = std::fs::read(format!("{FIXTURES}/{}", text(row, "stream"))).unwrap();
+        let mut out = vec![0u8; usize::try_from(uint(row, "dest_len")).unwrap()];
+        let (count, result) = allocations_in(|| sz::decompress(&stream, &params, &mut out));
+        result.unwrap();
+        assert_eq!(count, 0, "{name}");
+
+        let cut = &stream[..stream.len() / 2];
+        let (count, result) = allocations_in(|| sz::decompress(cut, &params, &mut out));
+        assert!(matches!(result, Err(AecError::Truncated { .. })), "{name}");
+        assert_eq!(count, 0, "{name} cut");
+        checked += 1;
+    }
+    assert_eq!(checked, SZ_CASES);
 }

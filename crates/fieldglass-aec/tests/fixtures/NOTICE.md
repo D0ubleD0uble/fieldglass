@@ -166,6 +166,24 @@ provenance.
   `total_out` equal to the requested length is not evidence the output is
   complete.
 
+## What libsz does that `sz::decompress` refuses
+
+Found while writing `fieldglass_aec::sz` (#761), from libsz 1.1.7 built as
+above. Both are in ADR-0012's table of divergences, and `tests/sz_corpus.rs`
+pins each.
+
+- **Short output is success.** When the stream runs out, libsz returns
+  `SZ_OK` and lowers `destLen` (`sz_compat.c:302-303`). Every `sz_*` stream
+  cut in half, or asked for one scanline more than it holds, shows it.
+  `sz::decompress` returns `AecError::Truncated`.
+- **A 32- or 64-bit output that is not a whole number of pixels is
+  scrambled.** libsz deinterleaves with planes of `destLen / w` bytes, rounded
+  down (`sz_compat.c:84-93, 305-306`). Decoding `sz_b32_plane_edge_mid_scanline`
+  with its own parameters (mask 40, 32 bits, 16 per block, 64 per scanline)
+  into 599 bytes instead of 600 returns `SZ_OK` with `destLen` 599, 168 of
+  those bytes differ from the 600-byte decode, and the last 3 are never
+  written. `sz::decompress` returns `AecError::OutputLength`.
+
 ## Why the CCSDS sample data is not here
 
 libaec's tarball ships the CCSDS 121.0-B-2 sample data (`data/121B2TestData`).

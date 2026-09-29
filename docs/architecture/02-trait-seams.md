@@ -288,10 +288,12 @@ block or one run of zero blocks per call, so a consumer converts them straight
 into its own output instead of re-parsing a byte buffer
 ([ADR-0012](../decisions/0012-own-the-aec-decoder.md) decision 7). The seam is
 `&mut dyn Sink`, so the wasm bundle carries one copy of the kernel. There are
-two implementers. The crate's own `ByteSink`, behind `decode_to_bytes`, writes
-libaec's byte layout. `fieldglass-grib2`'s `ScaleSink` takes each sample as its
-n-bit pattern and scales it straight into the `Vec<f64>` a 5.42 decode returns
-(ADR-0012 decision 5). The szip index-mapping sink (#761) joins them.
+three implementers. The crate's own `ByteSink`, behind `decode_to_bytes`, writes
+libaec's byte layout. Its `SzSink`, behind `sz::decompress`, drops szip pad
+samples and scatters byte planes by index (and hands the rest to a
+`ByteSink`). `fieldglass-grib2`'s `ScaleSink` takes each sample as its n-bit
+pattern and scales it straight into the `Vec<f64>` a 5.42 decode returns
+(ADR-0012 decision 5).
 
 ```mermaid
 classDiagram
@@ -302,6 +304,7 @@ classDiagram
     }
     Sink <|.. ByteSink
     Sink <|.. ScaleSink
+    Sink <|.. SzSink
 ```
 
 ## Projection and warp

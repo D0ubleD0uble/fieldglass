@@ -66,8 +66,15 @@
 //! # Ok::<(), AecError>(())
 //! ```
 //!
-//! `fieldglass-grib2` decodes GRIB2 template 5.42 with this crate. The
-//! libsz-compatible szip layer follows.
+//! # szip
+//!
+//! [`sz::decompress`] is libsz's `SZ_BufftoBuffDecompress`, the call behind
+//! the HDF5 szip filter: scanline padding, byte planes for 32- and 64-bit
+//! pixels, and the option mask, over the same kernel and without libsz's
+//! padded copy. See the [`sz`] module for how it differs from libsz.
+//!
+//! `fieldglass-grib2` decodes GRIB2 template 5.42 with this crate. No reader
+//! uses the szip layer yet.
 //!
 //! Reference: CCSDS 121.0-B-3, *Lossless Data Compression* (2020); behaviour
 //! checked against libaec 1.1.7 (`decode.c`).
@@ -81,6 +88,7 @@ mod decode;
 mod error;
 mod params;
 mod sink;
+pub mod sz;
 
 pub use decode::{decode, decode_to_bytes};
 pub use error::AecError;
