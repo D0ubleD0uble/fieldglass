@@ -167,6 +167,11 @@ grib1/spectral_complex_t63.grib1#00	combine/a_minus_b/render/source/nearest	ok w
 grib1/spectral_complex_t63.grib1#00	meta	family=latlon ni=720 nj=361 reprojectable=true	7a6418b9d0ba6b00
 grib1/spectral_complex_t63.grib1#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	50c7e83021fbebb6
 grib1/spectral_complex_t63.grib1#00	render/source/nearest	ok w=720 h=361 opaque=259920	5e79355754c16ad8
+grib1/spectral_simple_t383.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
+grib1/spectral_simple_t383.grib1#00	combine/a_minus_b/render/source/nearest	ok w=720 h=361 opaque=259920	8a66709fd9ea99c9
+grib1/spectral_simple_t383.grib1#00	meta	family=latlon ni=720 nj=361 reprojectable=true	7a6418b9d0ba6b00
+grib1/spectral_simple_t383.grib1#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	e0b1bf7df6a84dfa
+grib1/spectral_simple_t383.grib1#00	render/source/nearest	ok w=720 h=361 opaque=259920	1304dbec473d9464
 grib1/spectral_simple_t63.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
 grib1/spectral_simple_t63.grib1#00	combine/a_minus_b/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
 grib1/spectral_simple_t63.grib1#00	combine/a_minus_b/probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes	f3d35d3ce56c5a7b
@@ -1037,6 +1042,11 @@ grib2/spectral_complex_t63.grib2#00	combine/a_minus_b/render/source/nearest	ok w
 grib2/spectral_complex_t63.grib2#00	meta	family=latlon ni=720 nj=361 reprojectable=true	7a6418b9d0ba6b00
 grib2/spectral_complex_t63.grib2#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	2b86a10b209e2d2a
 grib2/spectral_complex_t63.grib2#00	render/source/nearest	ok w=720 h=361 opaque=259920	40919148c95bdf94
+grib2/spectral_simple_t383.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
+grib2/spectral_simple_t383.grib2#00	combine/a_minus_b/render/source/nearest	ok w=720 h=361 opaque=259920	8a66709fd9ea99c9
+grib2/spectral_simple_t383.grib2#00	meta	family=latlon ni=720 nj=361 reprojectable=true	7a6418b9d0ba6b00
+grib2/spectral_simple_t383.grib2#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	e0b1bf7df6a84dfa
+grib2/spectral_simple_t383.grib2#00	render/source/nearest	ok w=720 h=361 opaque=259920	1304dbec473d9464
 grib2/spectral_simple_t63.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/spectral_simple_t63.grib2#00	combine/a_minus_b/render/source/nearest	ok w=720 h=361 opaque=259920	8a66709fd9ea99c9
 grib2/spectral_simple_t63.grib2#00	meta	family=latlon ni=720 nj=361 reprojectable=true	7a6418b9d0ba6b00
