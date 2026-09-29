@@ -112,18 +112,10 @@ fn corpus() -> Vec<(String, std::path::PathBuf)> {
 /// places but does not decode as a single 2-D field. See the module docs.
 const MULTI_VALUE_PACKINGS: [&str; 2] = ["grid_simple_matrix", "bifourier_complex"];
 
-/// Fixtures that place but do not decode today, by corpus label, because the
-/// decoder refuses their packing rather than because they are not one field.
-/// `ccsds_flags46_12bit` sets PAD_RSI, which the AEC decoder cannot read from
-/// an eccodes-written stream; #762 clears the flag before decoding. When it
-/// lands, the count check below fails and this entry is deleted.
-const KNOWN_DECODE_REFUSALS: [&str; 1] = ["grib2/ccsds_flags46_12bit.grib2"];
-
 #[test]
 fn the_placement_is_the_georef_decode_puts_on_the_field() {
     let mut wrong: Vec<String> = Vec::new();
     let (mut files, mut messages, mut synthesised, mut carved_out) = (0, 0, 0, 0);
-    let mut known_refusals = 0;
 
     for (label, path) in corpus() {
         let bytes = std::fs::read(&path).expect("fixture bytes");
@@ -229,8 +221,6 @@ fn the_placement_is_the_georef_decode_puts_on_the_field() {
                     let packing = session.message(i).map(|m| m.packing).unwrap_or_default();
                     if MULTI_VALUE_PACKINGS.contains(&packing.as_str()) {
                         carved_out += 1;
-                    } else if KNOWN_DECODE_REFUSALS.contains(&label.as_str()) {
-                        known_refusals += 1;
                     } else {
                         wrong.push(format!(
                             "  {label}#{i} placed {} ({packing}) but decode refused: {d:?}",
@@ -257,12 +247,6 @@ fn the_placement_is_the_georef_decode_puts_on_the_field() {
         "{} disagreement(s) between placing and decoding:\n{}",
         wrong.len(),
         wrong.join("\n")
-    );
-    assert_eq!(
-        known_refusals,
-        KNOWN_DECODE_REFUSALS.len(),
-        "KNOWN_DECODE_REFUSALS lists a fixture that now decodes or is gone; \
-         delete the entry"
     );
     // A ratchet in the other direction: if the corpus stopped holding a
     // multi-value packing, the carve-out above would be excusing nothing and

@@ -66,8 +66,8 @@
 //! # Ok::<(), AecError>(())
 //! ```
 //!
-//! The libsz-compatible szip layer follows; no reader depends on this crate
-//! yet.
+//! `fieldglass-grib2` decodes GRIB2 template 5.42 with this crate. The
+//! libsz-compatible szip layer follows.
 //!
 //! Reference: CCSDS 121.0-B-3, *Lossless Data Compression* (2020); behaviour
 //! checked against libaec 1.1.7 (`decode.c`).

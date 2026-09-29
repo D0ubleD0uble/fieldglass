@@ -13,10 +13,10 @@
 //!
 //! Each ships a sibling `*_expected.json` produced by eccodes `grib_get_data` /
 //! `grib_get` (count, min/max/mean, anchored samples, and the full §5 CCSDS
-//! parameters). The AEC stream is decoded by the pure-Rust `rust_aec` crate
-//! (see ADR-0001); these tests are the byte-for-byte cross-check against the
-//! eccodes oracle that gates that dependency. Provenance in
-//! `tests/fixtures/NOTICE.md`.
+//! parameters). The AEC stream is decoded by this workspace's own
+//! `fieldglass_aec` (see ADR-0012), which is checked against libaec in its own
+//! crate; these tests are the GRIB2 backstop, the whole reader against the
+//! eccodes oracle. Provenance in `tests/fixtures/NOTICE.md`.
 
 use fieldglass_grib2::Grib2Reader;
 use serde_json::Value;
@@ -153,9 +153,10 @@ fn ecmwf_open_data_ccsds_decodes() {
 //
 // eccodes hands libaec the unsigned reference-subtracted value as an n-bit
 // pattern and libaec's default build never writes RSI padding, so a 5.42
-// message re-flagged SIGNED (13) or PAD_RSI (36) still holds an unsigned,
-// unpadded stream. We decode it to the source field; eccodes 2.34.1 does not
-// (max 2234.68 and 2251.58 against a source max of 314.675). The value oracle
+// message re-flagged SIGNED (13) or PAD_RSI (36, 46) still holds an unsigned,
+// unpadded stream. We decode it to the source field (ADR-0012 decision 5);
+// eccodes 2.34.1 does not (max 2234.68 and 2251.58 against a source max of
+// 314.675, and AEC_DATA_ERROR on flag 46). The value oracle
 // for each fixture is therefore its *source's* eccodes values, copied into
 // `<fixture>_expected.json`, never eccodes' decode of the re-flagged file.
 // Provenance and the divergence are in fixtures/NOTICE.md.
@@ -239,16 +240,51 @@ fn ccsds_flags36_pad_rsi_decodes_to_source() {
 }
 
 #[test]
-fn ccsds_flags46_pad_rsi_preprocess_is_unsupported_today() {
-    // PAD_RSI + PP + 3BYTE + MSB: eccodes itself fails (AEC_DATA_ERROR) and so
-    // do we. Issue #762 clears PAD_RSI before decoding (decision D1), which
-    // turns this into an exact decode; update this test then.
+fn ccsds_flags46_pad_rsi_preprocess_decodes_to_source() {
+    // PAD_RSI + PP + 3BYTE + MSB. eccodes itself fails here (AEC_DATA_ERROR),
+    // as does a decoder that honours PAD_RSI: the stream has no padding. The
+    // reader clears the flag before decoding (ADR-0012 decision 5, D1), which
+    // makes this an exact decode.
+    assert_flags_decode_to_source("ccsds_flags46_12bit.grib2", "ecmwf_ccsds_latlon.grib2", 46);
+}
+
+/// The PAD_RSI rule is what makes flag 46 decode, not something incidental:
+/// the codec itself, asked to honour the flag, refuses this stream, and with
+/// the flag cleared it gives the source's integers.
+#[test]
+fn ccsds_flags46_decodes_only_because_pad_rsi_is_cleared() {
+    use fieldglass_aec::{Flags, Params, decode_to_bytes};
+
     let bytes = std::fs::read("tests/fixtures/ccsds_flags46_12bit.grib2").expect("read fixture");
-    let reader = Grib2Reader::from_bytes(bytes).expect("fixture parses");
-    assert_eq!(reader.messages[0].drs.ccsds().unwrap().ccsds_flags, 46);
-    let err = reader.decode_message_values(0).expect_err("flag 46 fails");
+    let reader = Grib2Reader::from_bytes(bytes.clone()).expect("fixture parses");
+    let msg = &reader.messages[0];
+    let t = msg.drs.ccsds().expect("5.42");
+    // §7 less its five-byte header.
+    let start = usize::try_from(msg.ds_range.start).unwrap() + 5;
+    let end = usize::try_from(msg.ds_range.start + msg.ds_range.len).unwrap();
+    let payload = &bytes[start..end];
+    let count = msg.drs.num_data_points as usize;
+
+    let params = |flags: Flags| {
+        Params::new(
+            t.bits_per_value,
+            u16::from(t.block_size),
+            t.reference_sample_interval,
+            flags,
+        )
+        .expect("valid parameters")
+    };
+    let as_stored = Flags::from_bits_truncate(t.ccsds_flags);
+    assert!(as_stored.contains(Flags::PAD_RSI));
+    let mut out = vec![0; count * 2];
     assert!(
-        matches!(err, fieldglass_core::FieldglassError::UnsupportedSection(_)),
-        "expected UnsupportedSection, got {err:?}"
+        decode_to_bytes(payload, &params(as_stored), &mut out).is_err(),
+        "honouring PAD_RSI must fail on this unpadded stream, or the rule is untested"
     );
+    decode_to_bytes(
+        payload,
+        &params(as_stored.difference(Flags::PAD_RSI)),
+        &mut out,
+    )
+    .expect("decodes with PAD_RSI cleared");
 }

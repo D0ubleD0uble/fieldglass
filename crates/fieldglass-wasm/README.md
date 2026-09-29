@@ -241,12 +241,18 @@ gzipped, 0.1%, against the figures recorded before it: the `Placement`
 vocabulary and two more fields on every `Georef` and `MessageInfo` the browser
 hands back.
 
+Decoding GRIB2 5.42 with `fieldglass-aec` instead of an external crate (#762)
+added 692 raw bytes and 1,384 gzipped (0.2%), measured against a build of the
+commit before it on the same machine. The new decoder is about the same size as
+the old one; the sink that scales samples straight into the field replaces the
+byte buffer and re-parse.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,512,613 | 572,382 |
-| `+simd128` | 1,497,070 | 567,961 |
+| baseline | 1,513,401 | 573,824 |
+| `+simd128` | 1,497,820 | 568,562 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

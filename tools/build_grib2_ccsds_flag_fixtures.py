@@ -19,9 +19,10 @@ Each output is the source fixture re-flagged with the pinned eccodes CLI
 Flag values: SIGNED = 1, 3BYTE = 2, MSB = 4, PREPROCESS = 8, PAD_RSI = 32.
 
 The value oracle is the SOURCE fixture's ``*_expected.json``, not eccodes'
-decode of the new file: for the flag-13 and flag-36 outputs this script copies
-the source oracle to ``<output>_expected.json`` with only ``ccsdsFlags`` and
-the ``source`` note changed. (flag 46 has no oracle: it is expected to fail.)
+decode of the new file: for every output this script copies the source oracle
+to ``<output>_expected.json`` with only ``ccsdsFlags`` and the ``source`` note
+changed. (eccodes 2.34.1 fails flag 46 outright, with AEC_DATA_ERROR; fieldglass
+clears PAD_RSI before decoding, ADR-0012 decision 5, and decodes it exactly.)
 The ``.eccodes.ref.json`` metadata snapshots are written by
 ``tools/regenerate-eccodes-snapshots.py``. See
 ``crates/fieldglass-grib2/tests/fixtures/NOTICE.md``.
@@ -76,10 +77,13 @@ def write_oracle(src: str, dst: str, flags: int) -> None:
         (FIXTURES / src.replace(".grib2", "_expected.json")).read_text(encoding="utf-8")
     )
     oracle["section5"]["ccsdsFlags"] = flags
+    # eccodes 2.34.1 returns wrong values for 13 and 36, and AEC_DATA_ERROR for 46.
+    how = "fails to decode" if flags == 46 else "decodes"
+    tail = "" if flags == 46 else " wrongly"
     oracle["source"] = (
         f"Value oracle copied from {src}'s eccodes 2.34.1 oracle, NOT from "
-        f"eccodes' decode of {dst} (eccodes 2.34.1 decodes ccsdsFlags={flags} "
-        "wrongly). Provenance in NOTICE.md."
+        f"eccodes' decode of {dst} (eccodes 2.34.1 {how} ccsdsFlags={flags}"
+        f"{tail}). Provenance in NOTICE.md."
     )
     out = FIXTURES / dst.replace(".grib2", "_expected.json")
     out.write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
@@ -107,8 +111,7 @@ def main() -> int:
             check=True,
         )
         print(f"wrote {dst} (ccsdsFlags={flags}) from {src}")
-        if flags != 46:
-            write_oracle(src, dst, flags)
+        write_oracle(src, dst, flags)
     return 0
 
 

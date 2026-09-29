@@ -451,7 +451,7 @@ On a bump, re-check the `verus_impl_method_marker` workaround on
 associated function with no receiver, and a release that fixes that makes it
 removable (or one that changes the marker breaks it).
 
-Verus is a bus-factor concern in the same sense as `rust-aec` and `rust-j2k`
+Verus is a bus-factor concern in the same sense as `rust-j2k`
 under ADR-0001, but with an important difference: nothing that ships depends on
 it, so an upstream that stalls costs us proofs, never releases.
 

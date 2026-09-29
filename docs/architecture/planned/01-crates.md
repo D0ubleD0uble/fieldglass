@@ -72,8 +72,8 @@ beside `core` and depends on neither
 ([ADR-0012](../../decisions/0012-own-the-aec-decoder.md)). Only the two readers
 whose containers use the coder take it, `grib2` for template 5.42 and `netcdf`
 for the HDF5 szip filter, so a GRIB1 or Zarr consumer never links it and no
-reader depends on another to reach it. For `grib2` it replaces the external
-`rust-aec`, so what a GRIB2-only consumer links does not grow.
+reader depends on another to reach it. For `grib2` it replaced an external
+decoder (#762), so what a GRIB2-only consumer links did not grow.
 
 **What each layer is, and what changes in it**
 
@@ -84,7 +84,7 @@ reader depends on another to reach it. For `grib2` it replaces the external
 | Storage seam | `fieldglass-core` | #680, #681 | `ObjectSource` (get by key, list by prefix, prefetch) beside `ByteSource`; `ByteSource` gains `identity()`. Both shipped. |
 | Container reader | `fieldglass-zarr` | #686, #658 | One parser of `.zarray` / `zarr.json` producing the model plus the codec chain; codecs behind a default-on `codecs` feature; the store walker over `ObjectSource`, presenting `ArraySource` (#658); `Session` reaches it through one `Reader::Arrays` arm since #704. |
 | Container reader | `fieldglass-netcdf` | #684, #682 | `DatasetView` built on the model, and the HDF5 reader reading through `ByteSource` like classic does. Both shipped. |
-| Codec | `fieldglass-aec` | #758, #759, #761, #762, #421 | New. Below the format crates, beside `core`, depends on neither: a CCSDS 121.0 decoder, correct per the standard and checked against libaec 1.1.7, and libsz szip semantics in `fieldglass_aec::sz`. `grib2` swaps `rust-aec` for it (#762); `netcdf` gains it for szip and keeps the HDF5 framing (#421). |
+| Codec | `fieldglass-aec` | #758, #759, #761, #762, #421 | New. Below the format crates, beside `core`, depends on neither: a CCSDS 121.0 decoder, correct per the standard and checked against libaec 1.1.7, and libsz szip semantics in `fieldglass_aec::sz`. `grib2` decodes 5.42 with it (#762); `netcdf` gains it for szip and keeps the HDF5 framing (#421). |
 | Manifests | `fieldglass-fetchplan` | #685, #687 | A `PlanItem` says which chunk or message it is; `Manifest` loses `key()`, the GRIB query moves to `MessageManifest`, `KerchunkRefs` implements `Manifest`; the umbrella re-exports the kerchunk and chunk-grid surface. |
 | Umbrella | `fieldglass` | #679 | The Variables addressing mode is under conformance. |
 | Hosts | `fieldglass-napi` | #659 | Opens a Zarr store by filling an `ObjectSource` from a directory and handing it to the walker. |

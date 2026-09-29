@@ -54,12 +54,6 @@ sha2 = "0.11"
 # Pure-Rust PNG codec for GRIB2 DRS template 5.41 decode (no C deps; MIT/Apache,
 # cross-compiles to every release target). See crates/fieldglass-grib2.
 png = "0.18"
-# Pure-Rust CCSDS/AEC (libaec-compatible) codec for GRIB2 DRS template 5.42
-# decode. Purpose-built for GRIB2 5.42 and validated byte-for-byte against the
-# eccodes oracle; no C deps, so it preserves the six-target cross-compile.
-# Pinned exactly (bus-factor 1 upstream): review the diff on every bump and rely
-# on `cargo deny check` for advisory / licence drift. See ADR-0001.
-rust-aec = "=0.1.1"
 # Pure-Rust JPEG 2000 codec for GRIB2 DRS template 5.40 (grid_jpeg) decode.
 # Purpose-built GRIB2-decode-first and validated against the eccodes oracle; no C
 # deps, so it preserves the six-target cross-compile that ADR-0001 protects.
@@ -73,7 +67,7 @@ miniz_oxide = "0.9"
 # Pure-Rust zstd decoder for the HDF5 zstd filter (id 32015), netcdf-c >= 4.9's
 # recommended compressor for new climate archives. MIT, no C deps and no build
 # script, so it preserves the six-target cross-compile ADR-0001 protects. A
-# caret range rather than an exact pin: unlike `rust-aec` / `rust-j2k` this is a
+# caret range rather than an exact pin: unlike `rust-j2k` this is a
 # widely-used general-purpose crate, in the same class as `png` and
 # `miniz_oxide`. Decode only — we never write zstd.
 ruzstd = "0.9"

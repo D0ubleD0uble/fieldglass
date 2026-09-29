@@ -145,7 +145,7 @@ def grib_message(sample: str, packing: str, ni: int, nj: int, *, grib2: bool) ->
             "data_length": eccodes.codes_get(h, f"section{section}Length"),
         }
         if packing == "grid_ccsds":
-            # What the codec-alone scenario hands `rust_aec`, read from §5 by
+            # What the codec-alone scenario hands `fieldglass_aec`, read from §5 by
             # the writer rather than parsed back out by the reader.
             facts["aec"] = {
                 "bits_per_sample": eccodes.codes_get(h, "bitsPerValue"),

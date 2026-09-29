@@ -9,6 +9,13 @@ oracle, not the goal (decision 3); decision 4 lists every known divergence with
 its evidence; and SIGNED output is sign-extended only with PREPROCESS
 (decisions 3 and 7).
 
+**Amended** (2026-09-29, #762): GRIB2 5.42 now decodes through this crate
+under decision 5's rules, so the "fieldglass today" column of the table below
+is the state before #762. Flag 46 now decodes to the source field. Its
+eccodes snapshot still records eccodes' failure, so it stays exempt from the
+snapshot value check beside flags 13 and 36, with the source fixture's values
+as its oracle.
+
 ## Context
 
 GRIB2 template 5.42 and the HDF5 szip filter (id 4) use the same entropy coder,

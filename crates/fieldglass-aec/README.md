@@ -14,8 +14,8 @@ the standard, or accepts a stream no valid encoder writes, the crate follows
 the standard (see below). It depends on nothing but `thiserror`, contains no
 `unsafe`, and allocates nothing while decoding.
 
-**Status:** the decoder is here. The libsz-compatible szip layer follows, and no
-reader uses the crate yet. It is not on crates.io yet.
+**Status:** the decoder is here, and `fieldglass-grib2` decodes GRIB2 template
+5.42 with it. The libsz-compatible szip layer follows.
 
 ```rust
 use fieldglass_aec::{AecError, Flags, Params, decode_to_bytes};

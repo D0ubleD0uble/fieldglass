@@ -181,8 +181,10 @@ Filed under
 `fieldglass-wasm` had something to bind, then fixed against a second real
 consumer by [#464](https://github.com/D0ubleD0uble/fieldglass/issues/464),
 which moved the render orchestration out of `fieldglass-napi`. Not on crates.io
-yet: the release process is written around the four library crates, and adding
-a fifth is its own piece of work. NetCDF landed in #662 and reduced-resolution
+yet: the release loop publishes the five library crates (`fieldglass-aec`,
+`-core`, `-grib1`, `-grib2`, `-netcdf`), and adding this one, with the
+`fieldglass-zarr` and `fieldglass-fetchplan` crates behind its optional features, is its own
+piece of work. NetCDF landed in #662 and reduced-resolution
 decode (#463) arrives with its own issue; caller-sized output landed in #465, so `warp` and
 the two lat/lon-box render targets take a `width`/`height` pair — a window at a
 pixel size, in place of whatever raster the source grid implies.

@@ -57,6 +57,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fieldglass-aec"
+version = "0.5.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "fieldglass-core"
 version = "0.5.0"
 dependencies = [
@@ -67,9 +74,9 @@ dependencies = [
 name = "fieldglass-grib2"
 version = "0.5.0"
 dependencies = [
+ "fieldglass-aec",
  "fieldglass-core",
  "png",
- "rust-aec",
  "rust-j2k",
 ]
 
@@ -181,15 +188,6 @@ name = "r-efi"
 version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
-
-[[package]]
-name = "rust-aec"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9053fe9dc492823823e21aa267e48dbbe3e6cbc7b1557f95979c04af11aad0f"
-dependencies = [
- "bitflags",
-]
 
 [[package]]
 name = "rust-j2k"

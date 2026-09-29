@@ -279,11 +279,15 @@ jobs:
             grep -q "\"vers\":\"${want}\"" <<<"$body"
           }
 
-          # `fieldglass-core` first: the format crates pin it with `=`, so they
-          # cannot even be packaged until it is in the index. `cargo publish`
-          # waits for each upload to propagate before returning, so the next
-          # crate in the list resolves the one before it.
-          for crate in fieldglass-core fieldglass-grib1 fieldglass-grib2 fieldglass-netcdf; do
+          # `fieldglass-aec` first, then `fieldglass-core`: every format crate
+          # pins core with `=`, and `fieldglass-grib2` also pins aec, so they
+          # cannot even be packaged until those are in the index. `cargo publish` waits for each upload to propagate before
+          # returning, so the next crate in the list resolves the one before it.
+          # `fieldglass-aec` leads for a second reason: its Trusted Publishing is
+          # configured by hand after its first, manual publish (ADR-0012
+          # decision 10), so if that was missed it fails here, before anything
+          # else goes out.
+          for crate in fieldglass-aec fieldglass-core fieldglass-grib1 fieldglass-grib2 fieldglass-netcdf; do
             if published "$crate" "$version"; then
               echo "${crate} ${version} is already on crates.io — skipping"
               continue
