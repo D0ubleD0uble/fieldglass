@@ -198,7 +198,7 @@ fn decode_simple_packing(
     }
 
     let decoded = unpack_simple(ds_payload, t.bits_per_value, &scaling, present_count)?;
-    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+    interleave_with_bitmap(decoded, bitmap)
 }
 
 /// Decode simple packing with logarithmic pre-processing (template 5.61). §7 is
@@ -267,7 +267,7 @@ fn decode_complex_packing(
     let mut reader = BitReader::new(ds_payload);
     let scaled = decode_complex_groups(&mut reader, t, present_count)?;
 
-    Ok(complex_scaled_to_values(t, scaled, bitmap, expected_count))
+    complex_scaled_to_values(t, scaled, bitmap)
 }
 
 /// The `NG == 0` constant-field rule shared by 5.2 and 5.3 (eccodes
@@ -290,8 +290,7 @@ fn complex_scaled_to_values(
     t: &ComplexPackingTemplate,
     scaled: Vec<Option<i64>>,
     bitmap: Option<&[bool]>,
-    expected_count: usize,
-) -> Vec<Option<f64>> {
+) -> Result<Vec<Option<f64>>, FieldglassError> {
     let scaling = packing_scaling(
         t.reference_value,
         t.binary_scale_factor,
@@ -299,8 +298,9 @@ fn complex_scaled_to_values(
     );
     let decoded = scaled
         .into_iter()
-        .map(|s| s.map(|s| scaling.apply(s as f64)));
-    interleave_present_points(decoded, bitmap, expected_count)
+        .map(|s| s.map(|s| scaling.apply(s as f64)))
+        .collect();
+    interleave_optional(decoded, bitmap)
 }
 
 /// Decode complex packing with spatial differencing (template 5.3). The packed
@@ -389,12 +389,7 @@ fn decode_complex_spatial_diff(
     let seeds = [ival1, ival2];
     apply_spd_inverse_skipping_missing(&mut vals, &seeds[..order as usize], bias)?;
 
-    Ok(complex_scaled_to_values(
-        &t.complex,
-        vals,
-        bitmap,
-        expected_count,
-    ))
+    complex_scaled_to_values(&t.complex, vals, bitmap)
 }
 
 /// Validate the §6 bitmap against the grid-point count and return the number
@@ -529,7 +524,7 @@ fn decode_ieee_packing(
         decoded.push(value);
     }
 
-    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+    interleave_with_bitmap(decoded, bitmap)
 }
 
 /// Decode PNG packing (template 5.41). §7 carries a complete PNG image whose
@@ -619,7 +614,7 @@ fn decode_png_packing(
         decoded.push(scaling.apply(x as f64));
     }
 
-    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+    interleave_with_bitmap(decoded, bitmap)
 }
 
 /// Decode CCSDS / AEC packing (template 5.42). §7 carries a CCSDS-121.0-B
@@ -716,7 +711,7 @@ fn decode_ccsds_packing(
         )));
     }
 
-    Ok(interleave_with_bitmap(sink.out, bitmap, expected_count))
+    interleave_with_bitmap(sink.out, bitmap)
 }
 
 /// The low `bits` bits set, `mask(n)` in ADR-0012 decision 5, for `bits` from 1
@@ -865,7 +860,7 @@ fn decode_jpeg2000_packing(
         decoded.push(scaling.apply(x as f64));
     }
 
-    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+    interleave_with_bitmap(decoded, bitmap)
 }
 
 /// Decode JPEG 2000 packing (template 5.40) at level `reduction` of the
@@ -1112,11 +1107,7 @@ fn decode_run_length_packing(
         )));
     }
 
-    Ok(interleave_present_points(
-        decoded.into_iter(),
-        bitmap,
-        expected_count,
-    ))
+    interleave_optional(decoded, bitmap)
 }
 
 /// Decode second-order (general-extended) packing (templates 5.50001 and
@@ -1258,12 +1249,8 @@ fn decode_second_order(
         t.binary_scale_factor,
         t.decimal_scale_factor,
     );
-    let decoded = x.into_iter().map(|v| scaling.apply(v as f64));
-    Ok(interleave_present_points(
-        decoded.map(Some),
-        bitmap,
-        expected_count,
-    ))
+    let decoded = x.into_iter().map(|v| scaling.apply(v as f64)).collect();
+    interleave_with_bitmap(decoded, bitmap)
 }
 
 /// Undo the template-5.50002 boustrophedonic row ordering in place, once the
@@ -1285,7 +1272,7 @@ fn decode_second_order(
 /// that layering. Crucially, `template.7.50002.def` applies `data_apply_bitmap`
 /// *before* `data_apply_boustrophedonic`, so the reversal is meant to run on the
 /// full grid *after* the §6 bitmap has spread the present points into place.
-/// `decode_second_order` does exactly that ordering (`interleave_present_points`,
+/// `decode_second_order` does exactly that ordering (`interleave_with_bitmap`,
 /// then this reversal on the length-`expected_count` output), so the row
 /// reversal is correct whether or not a bitmap is present.
 pub fn undo_second_order_boustrophedonic(
@@ -1302,36 +1289,44 @@ pub fn undo_second_order_boustrophedonic(
     fieldglass_core::reverse_alternate_runs(values, runs);
 }
 
-/// Spread `present` into the full grid using `bitmap` — `Some(value)` for
-/// flagged points, `None` for unflagged. Asserts shape internally; callers
-/// pre-check lengths.
+/// Spread the decoded values of the present points over the grid: with no §6
+/// bitmap every value is `Some`; with one, the `k`-th present point takes the
+/// `k`-th value and absent points are `None`
+/// (`fieldglass_core::bitmap::interleave_with_bitmap`, which is proved). §7
+/// holds one value per present point, so any other count is an error.
 fn interleave_with_bitmap(
     present: Vec<f64>,
     bitmap: Option<&[bool]>,
-    expected_count: usize,
-) -> Vec<Option<f64>> {
-    interleave_present_points(present.into_iter().map(Some), bitmap, expected_count)
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    match bitmap {
+        None => Ok(present.into_iter().map(Some).collect()),
+        Some(b) => fieldglass_core::bitmap::interleave_with_bitmap(&present, b)
+            .ok_or_else(|| value_count_mismatch(present.len(), b)),
+    }
 }
 
-/// Iterator-based body shared by [`interleave_with_bitmap`] and the complex
-/// packing decoders (whose present-point values may already be `None` from
-/// inline missing-value management; those pass through as missing alongside
-/// the bitmap's).
-fn interleave_present_points(
-    mut present: impl Iterator<Item = Option<f64>>,
+/// [`interleave_with_bitmap`] for the decoders whose present points can
+/// already be missing: complex packing's inline missing-value management and
+/// run-length packing's level 0. Those stay `None`, beside the bitmap's.
+fn interleave_optional(
+    present: Vec<Option<f64>>,
     bitmap: Option<&[bool]>,
-    expected_count: usize,
-) -> Vec<Option<f64>> {
+) -> Result<Vec<Option<f64>>, FieldglassError> {
     match bitmap {
-        None => present.collect(),
+        None => Ok(present),
         Some(b) => {
-            let mut out = Vec::with_capacity(expected_count);
-            for &flag in b {
-                out.push(if flag { present.next().flatten() } else { None });
-            }
-            out
+            let spread = fieldglass_core::bitmap::interleave_with_bitmap(&present, b)
+                .ok_or_else(|| value_count_mismatch(present.len(), b))?;
+            Ok(spread.into_iter().map(Option::flatten).collect())
         }
     }
+}
+
+fn value_count_mismatch(values: usize, bitmap: &[bool]) -> FieldglassError {
+    FieldglassError::Parse(format!(
+        "§7 decoded {values} values but the §6 bitmap marks {} points present",
+        count_present(bitmap)
+    ))
 }
 
 /// Constant-field special case (`bits_per_value == 0`): every present point
@@ -1343,10 +1338,7 @@ fn materialise_constant(
 ) -> Vec<Option<f64>> {
     match bitmap {
         None => vec![Some(value); expected_count],
-        Some(b) => b
-            .iter()
-            .map(|&flag| if flag { Some(value) } else { None })
-            .collect(),
+        Some(b) => fieldglass_core::bitmap::fill_present(value, b),
     }
 }
 

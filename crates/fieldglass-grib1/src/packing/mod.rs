@@ -102,25 +102,38 @@ pub(crate) fn message_scaling(header: &BdsHeader, decimal_scale: i16) -> Scaling
     )
 }
 
-/// Interleave `None` at bitmap-masked points: walk the per-point `bitmap`,
-/// pulling the next decoded value where the bit is set and emitting `None`
-/// where it is clear. With no bitmap every decoded value is `Some`. Shared by
-/// the simple, IEEE, and matrix decoders.
+/// Spread the decoded values over the grid: with no bitmap every value is
+/// `Some`; with one, the `k`-th present point takes the `k`-th value and absent
+/// points are `None` (`fieldglass_core::bitmap::interleave_with_bitmap`, which
+/// is proved). The BDS holds one value per present point (FM 92, Section 4), so
+/// any other count is an error. Shared by the simple, IEEE, matrix and
+/// second-order decoders.
 pub(crate) fn interleave_with_bitmap(
     decoded: Vec<f64>,
+    bitmap: Option<&[bool]>,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    match bitmap {
+        None => Ok(decoded.into_iter().map(Some).collect()),
+        Some(b) => fieldglass_core::bitmap::interleave_with_bitmap(&decoded, b).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "BDS decoded {} values but the bit-map marks {} points present",
+                decoded.len(),
+                fieldglass_core::bitmap::count_present(b)
+            ))
+        }),
+    }
+}
+
+/// A constant field (`bits_per_value == 0`): every present point equals
+/// `value`, and bitmap-masked points are `None`.
+pub(crate) fn materialise_constant(
+    value: f64,
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Vec<Option<f64>> {
     match bitmap {
-        None => decoded.into_iter().map(Some).collect(),
-        Some(b) => {
-            let mut out = Vec::with_capacity(expected_count);
-            let mut iter = decoded.into_iter();
-            for present in b.iter().take(expected_count) {
-                out.push(if *present { iter.next() } else { None });
-            }
-            out
-        }
+        Some(b) => fieldglass_core::bitmap::fill_present(value, b),
+        None => vec![Some(value); expected_count],
     }
 }
 
@@ -202,24 +215,12 @@ pub(crate) fn finalize_stored_order(
         fieldglass_core::reverse_alternate_runs(&mut scaled, runs);
     }
 
-    match bitmap {
-        None => {
-            if scaled.len() != expected_count {
-                return Err(FieldglassError::Parse(format!(
-                    "second-order decoded {} values but {} expected",
-                    scaled.len(),
-                    expected_count
-                )));
-            }
-            Ok(scaled.into_iter().map(Some).collect())
-        }
-        Some(b) => {
-            let mut out = Vec::with_capacity(expected_count);
-            let mut iter = scaled.into_iter();
-            for present in b.iter().take(expected_count) {
-                out.push(if *present { iter.next() } else { None });
-            }
-            Ok(out)
-        }
+    if bitmap.is_none() && scaled.len() != expected_count {
+        return Err(FieldglassError::Parse(format!(
+            "second-order decoded {} values but {} expected",
+            scaled.len(),
+            expected_count
+        )));
     }
+    interleave_with_bitmap(scaled, bitmap)
 }

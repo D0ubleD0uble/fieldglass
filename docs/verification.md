@@ -371,7 +371,8 @@ arithmetic; and a model of `align_to_byte` that rounds down.
 point, MSB-first, a set bit meaning present. The GRIB1 Bit Map Section, the
 GRIB2 Bit-Map Section, the secondary bitmaps of matrix-of-values packing in
 both editions, and the secondary bitmap of GRIB1 second-order packing
-(`constant_width`, `general_grib1`) are all unpacked by it.
+(`constant_width`, `general_grib1`) are all unpacked by it, and every
+decoder of both editions spreads its values back over the bitmap with it.
 
 - `unpack_bitmap(bytes, count)` returns `Some` exactly when `bytes` holds at
   least `count` bits; then the result has `count` entries and entry `i` is
@@ -386,13 +387,36 @@ both editions, and the secondary bitmap of GRIB1 second-order packing
   For an unpacked bitmap that is the number of set bits among the first
   `count` (`lemma_present_is_popcount`). Every decoder that counts present
   points calls it.
-- None of the three has a precondition.
+- `interleave_with_bitmap(values, bits)` returns `Some` exactly when
+  `values` has `count_present(bits)` entries; then the result has one entry
+  per bit, and entry `i` is `Some(values[k])` with `k` the number of set bits
+  before `i` when bit `i` is set, and `None` when it is clear. Every GRIB1
+  and GRIB2 decoder that stores one value per present point (simple, IEEE,
+  PNG, JPEG 2000, CCSDS, complex, run-length and both editions' second-order
+  packing) spreads its values with it, and so does the matrix-of-values
+  reshape, over one bitmap of cells built from the primary and secondary
+  bitmaps.
+- `fill_present(value, bits)` has one entry per bit, `Some(value)` where the
+  bit is set and `None` where it is clear: the field of a constant packing,
+  which stores no values.
+- None of the five has a precondition.
 
 Before the kernel, a GRIB1 bitmap with fewer bits than the grid has points
 decoded to a field that many points short, with no error. A bitmap has one
 bit per grid point (FM 92 GRIB edition 1, Section 3, octet 7 onwards), so it is
 now an error, as it already was in GRIB2. eccodes 2.34.1 also returns the
 short field, and its geoiterator then refuses the message.
+
+Before `interleave_with_bitmap` (#785), three copies spread values over a
+bitmap, and none checked the count: a stream short of the present points
+padded the last ones with `None`, and a long one lost its extra values. No
+decoder passed them a wrong count, because each decodes exactly
+`count_present` values first, so no decoded field changes. A data section
+holds one value for each point the bitmap marks present (FM 92 GRIB edition 1,
+Section 4; GRIB edition 2, Section 7, and Section 5 octets 6 to 9), so any
+other count is now an error. The matrix reshape errored on a short coded
+stream and dropped a long one; it now rejects both, and a secondary bitmap
+that is not `datum` bits per present point as well.
 
 Each claim was checked by breaking it (17 planted bugs, each rejected):
 reading LSB-first, inverting the bit, reading the next byte, masking the
@@ -401,7 +425,13 @@ off-by-one length check, skipping point 0, returning `None` for an empty
 bitmap, a saturating or missing padding subtraction, seven bits per octet,
 counting the absent entries, starting the count at 1, skipping the last
 entry, stating the popcount one bit long, and reading the one-bit field one
-bit on.
+bit on. The spreading was checked the same way (14 planted bugs, each
+rejected): starting `k` at 1, reading `values[k + 1]`, never advancing `k`,
+advancing it on an absent point, skipping the first point, skipping the last
+point, accepting a long stream, accepting a short one, dropping the count check,
+giving an absent point a value, a specification that counts bit `i` itself,
+`fill_present` inverting the bit or skipping the last point, and a prefix bound
+stated strictly.
 
 **`crates/fieldglass-netcdf/src/classic/layout.rs`**, where the NetCDF classic
 reader (CDF-1, CDF-2 and CDF-5) finds each variable's data. Every number it
@@ -554,6 +584,7 @@ Ordered by blast radius, from the milestone:
 | 1 | Inverse spatial differencing, both editions (done) | [#200](https://github.com/D0ubleD0uble/fieldglass/issues/200) |
 | 1 | GRIB group expansion: complex packing and both editions' second-order (done) | [#201](https://github.com/D0ubleD0uble/fieldglass/issues/201) |
 | 2 | Presence bitmaps, both editions (done) | [#202](https://github.com/D0ubleD0uble/fieldglass/issues/202) |
+| 2 | Spreading values over a presence bitmap, both editions (done) | [#785](https://github.com/D0ubleD0uble/fieldglass/issues/785) |
 | 2 | Byte shuffle, HDF5 and Zarr (done) | [#203](https://github.com/D0ubleD0uble/fieldglass/issues/203) |
 | 3 | NetCDF classic length/offset arithmetic (done) | [#204](https://github.com/D0ubleD0uble/fieldglass/issues/204) |
 
