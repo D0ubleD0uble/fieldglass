@@ -56,7 +56,8 @@
 
 use fieldglass_core::{
     FieldglassError, StoredRuns,
-    bits::{BitReader, bits_to_bytes, expand_second_order_groups, sign_magnitude_to_i64},
+    bits::{BitReader, bits_to_bytes, sign_magnitude_to_i64},
+    groups::{expand_groups_into, read_group_widths},
     spatial_diff::apply_spd_inverse,
 };
 
@@ -215,13 +216,14 @@ pub fn decode(
             "BDS too short for groupWidths section".into(),
         ));
     }
-    let mut group_widths: Vec<u8> = Vec::with_capacity(num_groups);
-    {
-        let mut r = BitReader::new(&bds[byte_cursor..byte_cursor + widths_bytes]);
-        for _ in 0..num_groups {
-            group_widths.push(r.read_bits(width_of_widths)? as u8);
-        }
-    }
+    // Each stored width is checked whole before it is kept as a byte: cutting
+    // it to a `u8` first, as this decoder once did, turned a `width_of_widths`
+    // over 8 holding 256 into a zero-width group.
+    let group_widths = read_group_widths(
+        &mut BitReader::new(&bds[byte_cursor..byte_cursor + widths_bytes]),
+        num_groups,
+        width_of_widths,
+    )?;
     byte_cursor += widths_bytes;
 
     let lengths_bytes = bits_to_bytes(num_groups, width_of_lengths as usize).ok_or_else(|| {
@@ -280,25 +282,19 @@ pub fn decode(
             "BDS group lengths sum {total_decoded} exceeds grid size {expected_count}"
         )));
     }
-    // SPD slots [0..order_of_spd] are planted below; second-order fills the
-    // rest via the shared group-reconstruction loop.
-    let mut x: Vec<i64> = vec![0; total_decoded];
-    expand_second_order_groups(
+    // The SPD seeds first, then the second-order groups through the shared
+    // group expansion, which appends exactly the sum of the group lengths
+    // (proved), so `x` ends up `total_decoded` long.
+    let mut x: Vec<i64> = Vec::with_capacity(total_decoded);
+    x.extend_from_slice(&spd_seeds);
+    expand_groups_into(
         &mut so_reader,
+        &group_widths,
+        &group_lengths,
+        &first_order,
         &mut x,
-        order_of_spd as usize,
-        (0..num_groups).map(|g| {
-            (
-                group_widths[g] as u32,
-                group_lengths[g] as usize,
-                first_order[g] as i64,
-            )
-        }),
     )?;
 
-    for (i, &seed) in spd_seeds.iter().enumerate() {
-        x[i] = seed;
-    }
     apply_spd_inverse(&mut x, order_of_spd, bias)?;
 
     // Scale (R + u·2^E) / 10^D, undo boustrophedonic ordering, interleave the
@@ -377,6 +373,36 @@ mod tests {
         let present: Vec<f64> = out.into_iter().map(|v| v.expect("no missing")).collect();
         let want: Vec<f64> = (0..=count).map(f64::from).collect();
         assert_eq!(present, want);
+    }
+
+    /// A stored group width wider than a byte is kept whole. It used to be cut
+    /// to a `u8`, so a `widthOfWidths` of 16 holding 256 decoded as a zero-width
+    /// group: the plausible ramp below, from a malformed section. It is now an
+    /// error, as any width over 32 is.
+    #[test]
+    fn a_stored_group_width_of_256_is_an_error_not_a_zero_width_group() {
+        const SECTION_LEN: usize = 33;
+        let (mut bds, mut header) = zero_width_spd1_bds(7, 34);
+        bds.resize(SECTION_LEN, 0);
+        bds[21] = 16; // widthOfWidths
+        bds[28..30].copy_from_slice(&256u16.to_be_bytes()); // groupWidths[0]
+        bds[30..32].copy_from_slice(&7u16.to_be_bytes()); // groupLengths[0]
+        bds[32] = 1; // firstOrderValues[0]
+        header.section_len = SECTION_LEN as u32;
+        header.complex_extended.as_mut().unwrap().n1 = 33;
+
+        let err = decode(&bds, &header, 0, None, 8, StoredRuns::Uniform(8))
+            .expect_err("a group width of 256 must not wrap to 0");
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m.contains("group 0 width 256 exceeds 32")),
+            "{err:?}"
+        );
+
+        // The same section with the width in range still decodes.
+        bds[28..30].copy_from_slice(&0u16.to_be_bytes());
+        let out = decode(&bds, &header, 0, None, 8, StoredRuns::Uniform(8))
+            .expect("a zero-width group decodes");
+        assert_eq!(out.len(), 8);
     }
 
     #[test]

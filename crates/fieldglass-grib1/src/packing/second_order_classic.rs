@@ -56,6 +56,7 @@
 use fieldglass_core::{
     FieldglassError, StoredRuns,
     bits::{BitReader, bits_to_bytes},
+    groups::expand_group_into,
 };
 
 use crate::bds::BdsHeader;
@@ -184,27 +185,6 @@ fn read_group_widths<'a>(
     Ok((widths, end))
 }
 
-/// Expand one group into `x`: a zero-width group is a run of `len` copies of
-/// its first-order reference; otherwise read `len` residuals at `width` bits
-/// from `so` and add the reference to each (the WMO run-length scheme).
-fn expand_group(
-    x: &mut Vec<i64>,
-    so: &mut BitReader,
-    width: u8,
-    len: usize,
-    ref_val: i64,
-) -> Result<(), FieldglassError> {
-    if width == 0 {
-        x.resize(x.len() + len, ref_val);
-    } else {
-        for _ in 0..len {
-            let raw = so.read_bits(width)? as i64;
-            x.push(ref_val.wrapping_add(raw));
-        }
-    }
-    Ok(())
-}
-
 /// `grid_second_order_row_by_row` (implied secondary bitmap: one group per
 /// row, `numberOfGroups == numberOfRows`; per-group widths). No SPD, no stored
 /// secondary bitmap.
@@ -251,7 +231,9 @@ pub fn decode_row_by_row(
     let mut so = BitReader::new(&bds[x_start..]);
     let mut x: Vec<i64> = Vec::with_capacity(expected_count);
     for ((&w, &ref_raw), len) in group_widths.iter().zip(&first_order).zip(row_lengths) {
-        expand_group(&mut x, &mut so, w, len, ref_raw as i64)?;
+        // A zero-width group is a run of its first-order reference; otherwise
+        // each point is the reference plus a residual at the group's width.
+        expand_group_into(&mut so, w, len, ref_raw, &mut x)?;
     }
 
     super::finalize_stored_order(x, header, decimal_scale, None, bitmap, expected_count)
@@ -438,7 +420,7 @@ pub fn decode_general(
     for (g, &start) in starts.iter().enumerate() {
         let end = starts.get(g + 1).copied().unwrap_or(p2);
         let len = end - start;
-        expand_group(&mut x, &mut so, group_widths[g], len, first_order[g] as i64)?;
+        expand_group_into(&mut so, group_widths[g], len, first_order[g], &mut x)?;
     }
 
     super::finalize_second_order(x, header, decimal_scale, runs, bitmap, expected_count)

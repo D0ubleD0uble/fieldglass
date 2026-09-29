@@ -1,12 +1,14 @@
 //! The trust boundary for the proofs over shipped code: what the verified
 //! kernels may assume about the code they call but that is not itself verified.
 //!
-//! Everything here is **trusted**, not proved. It is kept to three statements,
+//! Everything here is **trusted**, not proved. It is kept to four statements,
 //! each small enough to check by reading, and `docs/verification.md` lists them:
 //!
 //! - `BitReader::new` and `BitReader::read_bits` (`fieldglass-core/src/bits.rs`)
 //!   behave as `msb_bits` says, stated with `assume_specification`. A Tier-0
 //!   proof of `read_bits` would replace the assumption with a theorem.
+//! - `BitReader::align_to_byte` rounds the cursor up to the next octet
+//!   (`align8`), which the group expansion of complex packing relies on.
 //! - `f64::powi` computes *some* fixed function of its base and exponent,
 //!   `powi_spec`. Nothing more is assumed about it, so what the proofs establish
 //!   is which base and which exponent sign each factor is computed with.
@@ -61,6 +63,24 @@ pub assume_specification<'a>[ BitReader::<'a>::new ](bytes: &'a [u8]) -> (r: Bit
     ensures
         reader_bytes(r) == bytes@,
         reader_pos(r) == 0,
+;
+
+/// `pos` rounded up to the next multiple of 8: the start of the next octet.
+pub open spec fn align8(pos: int) -> int {
+    if pos % 8 == 0 {
+        pos
+    } else {
+        pos + (8 - pos % 8)
+    }
+}
+
+// Total: the cursor never passes the buffer's bit length, a multiple of 8 that
+// fits a `usize` whenever a read has moved the cursor, so rounding it up to
+// the next octet cannot overflow.
+pub assume_specification<'a>[ BitReader::<'a>::align_to_byte ](r: &mut BitReader<'a>)
+    ensures
+        reader_bytes(*final(r)) == reader_bytes(*old(r)),
+        reader_pos(*final(r)) == align8(reader_pos(*old(r))),
 ;
 
 pub assume_specification<'a>[ BitReader::<'a>::read_bits ](r: &mut BitReader<'a>, n: u8) -> (out:

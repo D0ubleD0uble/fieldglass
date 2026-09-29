@@ -18,7 +18,8 @@ use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::scaling::{decimal_factor, unpack_simple};
 use fieldglass_core::{
     FieldglassError, StoredRuns,
-    bits::{BitReader, expand_second_order_groups, sign_magnitude_to_i64},
+    bits::{BitReader, sign_magnitude_to_i64},
+    groups::{ComplexGroupLayout, expand_complex_groups, expand_groups_into, read_group_widths},
     spatial_diff::{apply_spd_inverse, apply_spd_inverse_skipping_missing},
 };
 
@@ -433,6 +434,12 @@ fn check_bitmap_present_count(
 /// [`FieldglassError::UnsupportedSection`]. Callers must intercept
 /// `NG == 0` (the ECC-2095 constant-field case) before calling; it is an
 /// error here.
+///
+/// The expansion itself is [`expand_complex_groups`], a Verus-proved kernel in
+/// `fieldglass-core`: on success the group lengths sum to `present_count`,
+/// every group is at most 32 bits wide, and each point is its group's
+/// reference plus its own offset. This wrapper rejects the Code Table values
+/// the kernel does not interpret.
 fn decode_complex_groups(
     reader: &mut BitReader,
     t: &ComplexPackingTemplate,
@@ -452,144 +459,18 @@ fn decode_complex_groups(
             t.missing_value_management
         )));
     }
-    // The bit-width fields feed `BitReader::read_bits`, whose contract tops
-    // out at 32 bits; a wider field is malformed (and would silently truncate).
-    for (label, bits) in [
-        ("group reference", t.bits_per_value),
-        ("group width", t.group_width_bits),
-        ("group length", t.group_length_bits),
-    ] {
-        if bits > 32 {
-            return Err(FieldglassError::Parse(format!(
-                "complex packing: {label} field width {bits} exceeds 32 bits"
-            )));
-        }
-    }
-
-    let num_groups = t.num_groups as usize;
-    // NG == 0 is the constant-field case (ECC-2095) and both callers
-    // intercept it before any §7 read; reaching here with 0 groups is a
-    // caller bug, kept as an error so the `last_mut` below can't panic.
-    if num_groups == 0 {
-        return Err(FieldglassError::Parse(
-            "complex packing: group expansion invoked with 0 groups".into(),
-        ));
-    }
-    // Every group covers at least one point, so NG can't legitimately exceed
-    // the number of present points — this bounds the per-group allocations
-    // below against a malformed huge NG.
-    if num_groups > present_count {
-        return Err(FieldglassError::Parse(format!(
-            "complex packing declares {num_groups} groups but only {present_count} \
-             values are present"
-        )));
-    }
-
-    // The four §7 sub-blocks (group references, widths, lengths, then the data
-    // values) each begin on an octet boundary, so we realign after every one.
-    // eccodes does the same: each `buf_*` pointer is advanced by the previous
-    // block's *byte* size, `ceil(bits / 8)` (DataG22OrderPacking::unpack).
-    // Without this, a block whose bit length isn't a multiple of 8 leaves the
-    // cursor mid-byte and every following block is misread.
-
-    // Block 1: group reference values.
-    let mut group_refs = Vec::with_capacity(num_groups);
-    for _ in 0..num_groups {
-        group_refs.push(reader.read_bits(t.bits_per_value)?);
-    }
-    reader.align_to_byte();
-
-    // Block 2: group widths (stored value offset by the width reference).
-    // Computed in u64 so the reference + a 32-bit stored value can't overflow
-    // before the `> 32` range check in the data loop sees it.
-    let mut group_widths: Vec<u64> = Vec::with_capacity(num_groups);
-    for _ in 0..num_groups {
-        let stored = reader.read_bits(t.group_width_bits)?;
-        group_widths.push(t.group_width_reference as u64 + stored as u64);
-    }
-    reader.align_to_byte();
-
-    // Block 3: group lengths. The stored value for every group is read (so
-    // the bit cursor reaches the data block correctly), then the last group's
-    // length is overridden by the explicit `group_length_last` field.
-    let mut group_lengths = Vec::with_capacity(num_groups);
-    for _ in 0..num_groups {
-        let stored = reader.read_bits(t.group_length_bits)? as usize;
-        let len = stored
-            .checked_mul(t.group_length_increment as usize)
-            .and_then(|scaled| scaled.checked_add(t.group_length_reference as usize))
-            .ok_or_else(|| {
-                FieldglassError::Parse("complex packing: group length overflows usize".into())
-            })?;
-        group_lengths.push(len);
-    }
-    // num_groups >= 1 here, so the last element exists.
-    *group_lengths.last_mut().expect("num_groups >= 1") = t.group_length_last as usize;
-
-    // The group lengths must account for exactly the present points; validate
-    // before allocating so a malformed length can't drive a huge allocation.
-    let mut total = 0usize;
-    for &len in &group_lengths {
-        total = total.checked_add(len).ok_or_else(|| {
-            FieldglassError::Parse("complex packing: group lengths sum overflows usize".into())
-        })?;
-    }
-    if total != present_count {
-        return Err(FieldglassError::Parse(format!(
-            "complex packing: group lengths sum to {total} but {present_count} values are required"
-        )));
-    }
-
-    // Block 4: the per-point offsets, decoded group by group. Starts on the
-    // octet boundary after the group-length block.
-    reader.align_to_byte();
-
-    // Missing-value classification per Code Table 5.5 (eccodes
-    // `DataG22OrderPacking::unpack`): the all-ones value at the given field
-    // width is the primary substitute; management 2 adds all-ones − 1 as the
-    // secondary. Both decode to missing. `field_bits <= 32` at every call
-    // site, so the u64 shift can't overflow.
-    let mvm = t.missing_value_management;
-    let is_missing = |raw: i64, field_bits: u8| {
-        let sentinel = ((1u64 << field_bits) - 1) as i64;
-        match mvm {
-            1 => raw == sentinel,
-            2 => raw == sentinel || raw == sentinel - 1,
-            _ => false,
-        }
+    let layout = ComplexGroupLayout {
+        num_groups: t.num_groups,
+        reference_bits: t.bits_per_value,
+        width_bits: t.group_width_bits,
+        width_reference: t.group_width_reference,
+        length_bits: t.group_length_bits,
+        length_reference: t.group_length_reference,
+        length_increment: t.group_length_increment,
+        length_last: t.group_length_last,
+        missing_value_management: t.missing_value_management,
     };
-
-    let mut scaled = Vec::with_capacity(present_count);
-    for g in 0..num_groups {
-        let width = group_widths[g];
-        let group_ref = group_refs[g] as i64;
-        if width == 0 {
-            // Zero-width group: no per-point offsets are stored. Every point
-            // equals the group reference — unless the reference is the
-            // missing sentinel at `bits_per_value`, which marks the whole
-            // group missing.
-            let value = (!is_missing(group_ref, t.bits_per_value)).then_some(group_ref);
-            for _ in 0..group_lengths[g] {
-                scaled.push(value);
-            }
-        } else {
-            if width > 32 {
-                // The actual width is `group_width_reference + stored`, which
-                // can exceed 32 even when each field is individually in range;
-                // `read_bits` only honours up to 32 bits per value.
-                return Err(FieldglassError::Parse(format!(
-                    "complex packing: group {g} width {width} exceeds 32 bits"
-                )));
-            }
-            for _ in 0..group_lengths[g] {
-                let x = reader.read_bits(width as u8)? as i64;
-                let value = (!is_missing(x, width as u8)).then_some(group_ref + x);
-                scaled.push(value);
-            }
-        }
-    }
-
-    Ok(scaled)
+    expand_complex_groups(reader, &layout, present_count)
 }
 
 /// Decode IEEE floating-point packing (template 5.4). Each present grid point
@@ -1278,14 +1159,9 @@ fn decode_second_order(
     // starts on a byte boundary.
     let mut reader = BitReader::new(ds_payload);
 
-    // Block 1: group widths. Read into u32 (not u8) so a width_of_widths > 8
-    // can't silently truncate a stored value past the 32-bit ceiling checked in
-    // the decode loop below — matching how group lengths and first-order values
-    // are read.
-    let mut group_widths: Vec<u32> = Vec::with_capacity(num_groups);
-    for _ in 0..num_groups {
-        group_widths.push(reader.read_bits(t.width_of_widths)?);
-    }
+    // Block 1: group widths, each checked against the 32-bit ceiling as it is
+    // read, so a width_of_widths > 8 can't silently truncate a stored value.
+    let group_widths = read_group_widths(&mut reader, num_groups, t.width_of_widths)?;
     reader.align_to_byte();
 
     // Block 2: group lengths.
@@ -1320,28 +1196,21 @@ fn decode_second_order(
         )));
     }
 
-    // Block 4: second-order packed offsets, group by group. Slots [0..order]
-    // hold the SPD seeds; each group's points start at its first-order
-    // reference plus the packed offset (wrapping matches eccodes' implicit
-    // two's-complement C).
-    let mut x: Vec<i64> = vec![0; total_decoded];
-    expand_second_order_groups(
+    // Block 4: second-order packed offsets, group by group, after the SPD
+    // seeds: each group's points are its first-order reference plus the
+    // packed offset. `expand_groups_into` appends exactly the sum of the group
+    // lengths (proved), so `x` ends up `total_decoded` long.
+    let mut x: Vec<i64> = Vec::with_capacity(total_decoded);
+    x.extend_from_slice(&t.spd_seeds);
+    expand_groups_into(
         &mut reader,
+        &group_widths,
+        &group_lengths,
+        &first_order,
         &mut x,
-        order_of_spd,
-        (0..num_groups).map(|g| {
-            (
-                group_widths[g],
-                group_lengths[g] as usize,
-                first_order[g] as i64,
-            )
-        }),
     )?;
 
-    // Plant the SPD seeds and reverse the spatial differencing.
-    for (i, &seed) in t.spd_seeds.iter().enumerate() {
-        x[i] = seed;
-    }
+    // Reverse the spatial differencing.
     apply_spd_inverse(&mut x, t.order_of_spd, t.spd_bias)?;
 
     // Apply the R / E / D transform and spread across the grid per the bitmap.
