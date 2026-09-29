@@ -47,7 +47,7 @@ is small enough that whole-crate verification takes well under a second once
 cd crates/fieldglass-verify && cargo verus verify
 ```
 
-### Why the proofs live in their own crate
+### Why the verification crate stands apart
 
 `crates/fieldglass-verify` is **not** a member of the root workspace. Like each
 `fuzz/` crate it declares an empty `[workspace]` table and carries its own
@@ -66,34 +66,108 @@ The macro really is transparent to a normal build.
 The reason to isolate anyway is different: `fieldglass-core` is published to
 crates.io, and `vstd` is a date-stamped pre-1.0 crate that tracks Verus's
 release cadence. Giving a published crate that dependency puts every downstream
-consumer on Verus's schedule, for a benefit none of them asked for.
+consumer on Verus's schedule, for a benefit none of them asked for. The proofs
+of shipped code keep that property: they are in the shipped source, but `vstd`
+is not in its dependency graph (see below).
 
 The CI job asserts the isolation rather than trusting it: no `vstd`,
 `verus_builtin`, or `verus_builtin_macros` may appear in the workspace
 dependency graph.
 
-### The open question this bootstrap does not settle
+### How a proof binds to shipped code
 
-The function proved today is *written* in the verification crate. Proving the
-shipped `fieldglass-core` functions instead needs one of:
+*Decided in [#199](https://github.com/D0ubleD0uble/fieldglass/issues/199).*
 
-- **`vstd` in `fieldglass-core`**, gated or not. Transparent to the build and
-  the cross-compile, as measured above; the cost is the published-crate
-  dependency.
-- **Moving the kernel into a crate like this one** and having `fieldglass-core`
-  depend on *it*. Keeps the dependency one level down, at the cost of moving
-  shipped code.
+A proved function lives in a **kernel file**: an ordinary source file of the
+crate that ships it, whose specs are written as
+`#[cfg_attr(verus_keep_ghost, verus_spec(...))]` attributes. The file is
+compiled twice:
 
-[#199](https://github.com/D0ubleD0uble/fieldglass/issues/199) makes that call
-with a real proof in hand. Deciding it here, before anything non-trivial has
-been proved, would be guessing.
+- the shipped crate compiles it as plain Rust. `verus_keep_ghost` is never set
+  for that build, so the attributes vanish, and the crate gains no dependency,
+  no lockfile entry and no runtime cost;
+- `crates/fieldglass-verify` includes the same file with
+  `#[path = "..."] mod ...;` and Verus proves it there.
 
-**Whichever way it goes, widen the CI path filter in the same PR.** The Verify
-workflow only runs on changes under `crates/fieldglass-verify/`, which is
-correct while that is all the proofs cover. The moment a proof references
-shipped code, a change to that code will not trigger verification — and the job
-will keep reporting green while guarding nothing. That is the failure mode this
-whole setup is meant to avoid, so it is called out in the workflow itself too.
+There is one copy of the code, so nothing can drift between a proof and the
+function it is about. `vstd` appears in no published manifest and in no lockfile
+but the verification crate's own. The workspace declares the cfg in
+`[workspace.lints.rust]` (`unexpected_cfgs`) so rustc does not warn about it.
+
+The other layouts were measured before this one was chosen. A restated copy in
+the verification crate needs a checker to keep the copy honest. `vstd` as a
+dependency of the shipped crate, even gated on `cfg(verus_keep_ghost)`, still
+lands in `Cargo.lock` and in the packaged manifest, so every downstream lockfile
+and `cargo deny` run sees it.
+
+A kernel file follows three rules, because two crates compile it:
+
+- it names only items both crates provide. Today those are
+  `crate::FieldglassError`, `crate::bits::BitReader`, and, under Verus only,
+  `crate::bits_model`, the trusted specifications below. The verification crate
+  re-exports the first two from `fieldglass-core` so the paths resolve the same
+  way in both;
+- its docs use plain backticks, not intra-doc links, which would resolve in only
+  one of the two crates;
+- ghost code in a function body, where a proof needs a hint, is a
+  `#[cfg(verus_keep_ghost)] proof! { ... }` statement, which a plain build
+  drops. A loop invariant is a `verus_spec(it => invariant ...)` attribute on
+  the `for` statement; the verification crate enables `proc_macro_hygiene`
+  for it, since Verus expands that attribute onto an expression.
+
+Two things keep the arrangement from failing silently, and
+`tools/check_verified_kernels.py` (pre-commit) checks both: every file under
+`crates/` that carries `verus_spec` must be `#[path]`-included by the
+verification crate, and must be listed in the `push` and `pull_request` path
+filters of `.github/workflows/verify.yml`. Without the first, a deleted include
+leaves specs that look like proofs and are never checked; without the second, an
+edit to a kernel never runs Verus and the job stays green.
+
+### What is proved, and what is trusted
+
+**`crates/fieldglass-core/src/scaling.rs`**, the GRIB `(R + X·2^E)·10^-D`
+transform every GRIB1 and GRIB2 integer packing unpacks values with:
+
+- `binary_factor(E)` is `powi(2, E)` and `decimal_factor(D)` is `powi(10, -D)`,
+  and `red_scale` builds its `Scaling` from exactly those. This is the headline:
+  it rules out `2^-E`, `10^D` and a swapped base, the bugs a test with `D = 0`
+  never sees.
+- `Scaling::apply(x)` is `(R + x·2^E)·10^-D`, evaluated in that order, and
+  `Scaling::constant()` is `R·10^-D`.
+- `unpack_simple(packed, width, scaling, count)` returns `Ok` exactly when the
+  fields fit (none are read, or `width` is 0, or `width ≤ 32` and `packed` holds
+  `count · width` bits); an `Ok` result has `count` values; and value `i` is
+  `scaling.apply` of the `i`-th `width`-bit field of `packed`, read MSB-first.
+  It has no precondition, so there is none for a caller to break.
+  `unpack_simple_into`, which appends to a vector the caller already holds, is
+  proved the same way and also keeps what the vector held.
+
+Each claim was checked by breaking it: flipping either exponent's sign, swapping
+the bases, swapping the factors in `apply` or in `red_scale`, scaling the
+reference, reading one field too few or one bit too narrow, swallowing a read
+error, overwriting what the appended-to vector held, dropping any clause of the
+`Ok` condition, and removing the `u32 as f64` axiom each make Verus reject the
+proof.
+
+**Trusted, not proved.** The proofs rest on three statements in
+`crates/fieldglass-verify/src/bits_model.rs` and its `axioms.rs`, each short
+enough to check by reading:
+
+| Assumption | Why it is assumed | What would remove it |
+|---|---|---|
+| `BitReader::new` and `read_bits` behave as the MSB-first model `msb_bits` says, stated with `assume_specification` | `read_bits` is Tier 0 and not yet proved | a proof of `read_bits`, which would make `bits.rs` a kernel file |
+| `f64::powi(b, n)` is some fixed function `powi_spec(b, n)`, and nothing more | Verus has no specification for `powi`; the proofs only need to know *which* base and exponent each factor uses | not needed: the claim is about direction, not about `powi`'s accuracy |
+| `f64` `+` and `*` never panic and are deterministic, and `u32 as f64` is exact | the pinned `vstd` requires an `add_req` / `mul_req` of `f64` arithmetic and defines neither, so no `f64` expression verifies without this | a `vstd` that specifies `f64` arithmetic |
+
+The `f64` axiom is a `broadcast` lemma, and under the pinned Verus it fires for
+a parameter but not for a value read from a struct field. So the arithmetic
+sits in private functions that take the factors as parameters, and `Scaling`'s
+methods call them.
+
+The model of `read_bits` is exact about its failures, including the one no real
+buffer reaches: the reader computes the buffer's bit length in a `usize`, so a
+slice longer than `usize::MAX / 8` bytes fails. The `Ok` condition of
+`unpack_simple` carries that clause rather than assuming it away.
 
 ### Pinning
 
@@ -162,7 +236,8 @@ Ordered by blast radius, from the milestone:
 
 | Tier | Target | Issue |
 |---|---|---|
-| 1 | GRIB1 simple-packing scaling arithmetic | [#199](https://github.com/D0ubleD0uble/fieldglass/issues/199) |
+| 0 | `BitReader::read_bits` (trusted today, see above) | not yet filed |
+| 1 | GRIB simple-packing scaling arithmetic, both editions (done) | [#199](https://github.com/D0ubleD0uble/fieldglass/issues/199) |
 | 1 | Inverse spatial differencing (GRIB1 + GRIB2) | [#200](https://github.com/D0ubleD0uble/fieldglass/issues/200) |
 | 1 | GRIB2 complex-packing group expansion | [#201](https://github.com/D0ubleD0uble/fieldglass/issues/201) |
 | 2 | Bitmap decoders | [#202](https://github.com/D0ubleD0uble/fieldglass/issues/202) |
