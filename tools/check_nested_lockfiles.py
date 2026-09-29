@@ -67,7 +67,7 @@ REPO = Path(__file__).resolve().parent.parent
 # walking. Deliberately the same set as `tools/check_unused_dependencies.py`,
 # which walks this tree for the neighbouring reason — two prune lists over one
 # tree drift, and a divergence between them is a difference nobody chose.
-PRUNED = {"target", "node_modules", ".git", ".venv", "out", "dist"}
+PRUNED = {"target", "node_modules", ".git", ".venv", "out", "dist", ".claude"}
 
 # How to read a non-zero `cargo metadata --locked`. Only the first of these is
 # the drift this checker is named for.

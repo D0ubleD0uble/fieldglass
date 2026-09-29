@@ -155,6 +155,15 @@ class WhereItLooks(unittest.TestCase):
         fx.write("fuzz/fuzz_targets/f.rs", "fn main() {}\n")
         self.assertEqual(fx.run(), 1)
 
+    def test_an_agent_worktree_is_not_walked(self):
+        # `Agent(isolation: "worktree")` checks the whole repository out again
+        # under `.claude/worktrees/`; its copy of a package is not one of ours.
+        fx = Fixture(**{"src__lib.rs": "use serde::Serialize;\n"})
+        self.addCleanup(fx.close)
+        fx.write(".claude/worktrees/agent-1/Cargo.toml", '[package]\nname = "a"\n\n[dependencies]\nunused = "1"\n')
+        fx.write(".claude/worktrees/agent-1/src/lib.rs", "")
+        self.assertEqual(chk.package_dirs(fx.root), [fx.root])
+
 
 class NamingIsNotUsing(unittest.TestCase):
     """A dependency mentioned in prose or in a literal is still unused."""
