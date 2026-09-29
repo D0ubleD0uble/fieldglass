@@ -1,6 +1,6 @@
 # Planned — Level 1: crates
 
-After milestones 7, 11, and 12. Compare with [`../01-crates.md`](../01-crates.md).
+After milestones 7, 11, 12, and 13. Compare with [`../01-crates.md`](../01-crates.md).
 
 The workspace is described as layers rather than as a list of crates
 ([ADR-0010](../../decisions/0010-a-common-array-model-and-containers-as-drivers.md)):
@@ -34,6 +34,7 @@ flowchart TB
         zarr["fieldglass-zarr #658 #686<br/><i>store walker, one metadata parser, codecs behind a feature</i>"]
     end
     fetchplan["fieldglass-fetchplan #685<br/><i>manifests in, chunk plan out; no I/O</i>"]
+    aec["fieldglass-aec #758 #759 #761<br/><i>CCSDS 121.0 decoder + libsz szip; no workspace dependencies</i>"]
     core["fieldglass-core #677 #678 #680<br/><i>array model, GridGeometry, projection, ByteSource + ObjectSource, warp, Palette</i>"]
     verify["fieldglass-verify #205<br/><i>Verus proofs; own workspace, never shipped</i>"]
 
@@ -46,13 +47,15 @@ flowchart TB
     fetchplan --> core
     fetchplan -. "#686: metadata parser only, default-features = false" .-> zarr
     containers --> core
+    grib2 -- "#762" --> aec
+    netcdf -- "#421" --> aec
     verify -. proves the decode kernel .-> containers
     verify -. proves .-> core
 
     classDef planned stroke-dasharray: 6 4
     classDef external fill:none,stroke-dasharray: 2 3
     classDef group fill:none
-    class zarr,fetchplan,core,verify planned
+    class zarr,fetchplan,core,verify,aec planned
     class app,ext external
     class consumers,hosts,containers group
 ```
@@ -64,6 +67,14 @@ only. The one edge that is new in kind is `fetchplan` → `zarr`: it exists for
 the metadata parser and takes the crate with its codecs off, which is the same
 arrangement as `fieldglass` → `core`.
 
+`fieldglass-aec` is a codec crate, not a reader: it sits below the format crates
+beside `core` and depends on neither
+([ADR-0012](../../decisions/0012-own-the-aec-decoder.md)). Only the two readers
+whose containers use the coder take it, `grib2` for template 5.42 and `netcdf`
+for the HDF5 szip filter, so a GRIB1 or Zarr consumer never links it and no
+reader depends on another to reach it. For `grib2` it replaces the external
+`rust-aec`, so what a GRIB2-only consumer links does not grow.
+
 **What each layer is, and what changes in it**
 
 | Layer | Crate | Issue | What changes |
@@ -73,6 +84,7 @@ arrangement as `fieldglass` → `core`.
 | Storage seam | `fieldglass-core` | #680, #681 | `ObjectSource` (get by key, list by prefix, prefetch) beside `ByteSource`; `ByteSource` gains `identity()`. Both shipped. |
 | Container reader | `fieldglass-zarr` | #686, #658 | One parser of `.zarray` / `zarr.json` producing the model plus the codec chain; codecs behind a default-on `codecs` feature; the store walker over `ObjectSource`, presenting `ArraySource` (#658); `Session` reaches it through one `Reader::Arrays` arm since #704. |
 | Container reader | `fieldglass-netcdf` | #684, #682 | `DatasetView` built on the model, and the HDF5 reader reading through `ByteSource` like classic does. Both shipped. |
+| Codec | `fieldglass-aec` | #758, #759, #761, #762, #421 | New. Below the format crates, beside `core`, depends on neither: a CCSDS 121.0 decoder byte-exact with libaec 1.1.7, and libsz szip semantics in `fieldglass_aec::sz`. `grib2` swaps `rust-aec` for it (#762); `netcdf` gains it for szip and keeps the HDF5 framing (#421). |
 | Manifests | `fieldglass-fetchplan` | #685, #687 | A `PlanItem` says which chunk or message it is; `Manifest` loses `key()`, the GRIB query moves to `MessageManifest`, `KerchunkRefs` implements `Manifest`; the umbrella re-exports the kerchunk and chunk-grid surface. |
 | Umbrella | `fieldglass` | #679 | The Variables addressing mode is under conformance. |
 | Hosts | `fieldglass-napi` | #659 | Opens a Zarr store by filling an `ObjectSource` from a directory and handing it to the walker. |
