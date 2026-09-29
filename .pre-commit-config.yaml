@@ -218,13 +218,14 @@ repos:
         pass_filenames: false
 
       - id: host-dependencies
-        name: no host crate names a format crate
+        name: no host crate names a workspace crate but the umbrella
         language: system
         # ADR-0006 decision 1: a host is a binding over `fieldglass`, so the
         # umbrella is what decides the surface a host may use. A host that also
-        # depends on a decoder directly has two routes to one reader, and the two
-        # hosts drift — which is what #662 found, with the browser bundle reaching
-        # NetCDF through `fieldglass` and the addon reaching it twice over.
+        # depends on a crate below it has two routes to the same code, and the
+        # two hosts drift — which is what #662 found, with the browser bundle
+        # reaching NetCDF through `fieldglass` and the addon reaching it twice
+        # over. Every workspace crate counts, `fieldglass-core` included (#574).
         #
         # A **ratchet**: the remaining edges are listed in the checker with a
         # reason each, and it fails both when a host gains an unlisted edge and
