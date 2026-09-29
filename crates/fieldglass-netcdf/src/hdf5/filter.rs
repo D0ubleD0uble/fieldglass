@@ -21,6 +21,10 @@
 
 use super::object_header::{read_uint_le, read_usize_le};
 use fieldglass_core::FieldglassError;
+// The shuffle filter's inverse is the byte transpose blosc and Zarr use too, so
+// it lives once in core, which proves it (#203). A chunk that is not a whole
+// number of elements keeps its trailing bytes in place, as libhdf5 does.
+use fieldglass_core::shuffle::unshuffle;
 
 /// HDF5 reserved filter identifiers we know how to reverse.
 const FILTER_DEFLATE: u16 = 1;
@@ -302,24 +306,6 @@ fn unzstd_bounded(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError>
     Ok(out)
 }
 
-/// Undo the shuffle filter: bytes were grouped by position-within-element (all
-/// byte 0s, then all byte 1s, …); regroup them back into consecutive elements.
-fn unshuffle(data: &[u8], element_size: usize) -> Vec<u8> {
-    // A trailing partial element (or element_size <= 1) means nothing to undo.
-    if element_size <= 1 || !data.len().is_multiple_of(element_size) {
-        return data.to_vec();
-    }
-    let count = data.len() / element_size;
-    let mut out = vec![0u8; data.len()];
-    for byte_pos in 0..element_size {
-        let base = byte_pos * count;
-        for elem in 0..count {
-            out[elem * element_size + byte_pos] = data[base + elem];
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,6 +345,30 @@ mod tests {
         assert_eq!(
             restored,
             vec![0x04, 0x03, 0x02, 0x01, 0x08, 0x07, 0x06, 0x05]
+        );
+    }
+
+    /// A chunk that is not a whole number of elements is unshuffled the way
+    /// libhdf5 does it (`H5Z__filter_shuffle`): the whole elements are
+    /// transposed and the trailing bytes stay where they are. Before the
+    /// transform moved to core (#203) such a chunk came back still shuffled.
+    #[test]
+    fn reverse_unshuffles_the_whole_elements_of_a_ragged_chunk() {
+        let pipeline = FilterPipeline {
+            filters: vec![Filter {
+                id: FILTER_SHUFFLE,
+                client_data: vec![4],
+            }],
+        };
+        // Two shuffled 4-byte elements, then three bytes past the last one.
+        let chunk = vec![
+            0x04, 0x08, 0x03, 0x07, 0x02, 0x06, 0x01, 0x05, 0xE0, 0xE1, 0xE2,
+        ];
+        assert_eq!(
+            pipeline.reverse(chunk, 0, 4).unwrap(),
+            vec![
+                0x04, 0x03, 0x02, 0x01, 0x08, 0x07, 0x06, 0x05, 0xE0, 0xE1, 0xE2
+            ]
         );
     }
 

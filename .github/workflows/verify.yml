@@ -26,6 +26,7 @@ on:
     paths:
       - 'crates/fieldglass-verify/**'
       - 'crates/fieldglass-core/src/scaling.rs'
+      - 'crates/fieldglass-core/src/shuffle.rs'
       - 'crates/fieldglass-core/src/spatial_diff.rs'
       - 'crates/fieldglass-core/src/bits.rs'
       - 'crates/fieldglass-core/src/error.rs'
@@ -37,6 +38,7 @@ on:
     paths:
       - 'crates/fieldglass-verify/**'
       - 'crates/fieldglass-core/src/scaling.rs'
+      - 'crates/fieldglass-core/src/shuffle.rs'
       - 'crates/fieldglass-core/src/spatial_diff.rs'
       - 'crates/fieldglass-core/src/bits.rs'
       - 'crates/fieldglass-core/src/error.rs'

@@ -63,3 +63,8 @@ pub mod scaling;
 
 #[path = "../../fieldglass-core/src/spatial_diff.rs"]
 pub mod spatial_diff;
+
+// The byte shuffle of HDF5 and blosc / Zarr (#203). It names nothing from
+// either crate, so it needs no re-export.
+#[path = "../../fieldglass-core/src/shuffle.rs"]
+pub mod shuffle;
