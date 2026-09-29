@@ -6,8 +6,8 @@
     python3 tools/build_aec_fixtures.py --dump-expected DIR  # plus libaec's output
     python3 tools/build_aec_fixtures.py --full DIR           # the large matrix
 
-`fieldglass-aec` is checked byte for byte against libaec 1.1.7 (ADR-0012
-decision 8). This script is the only place that oracle is run. It downloads the
+`fieldglass-aec` is checked against libaec 1.1.7 wherever libaec is correct
+(ADR-0012 decisions 3, 4 and 8). This script is the only place that oracle is run. It downloads the
 libaec v1.1.7 tag tarball, checks its SHA-256, builds it twice with cmake in a
 temporary directory, and drives the built libraries through `ctypes`:
 
