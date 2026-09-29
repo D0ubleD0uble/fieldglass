@@ -418,6 +418,13 @@ other count is now an error. The matrix reshape errored on a short coded
 stream and dropped a long one; it now rejects both, and a secondary bitmap
 that is not `datum` bits per present point as well.
 
+eccodes (the templated unpack in `DataApplyBitmap.cc`) agrees on the short
+case, which fails with `GRIB_ARRAY_TOO_SMALL`, but ignores the extra values of a
+long stream and reads an empty one as every point missing. Fieldglass never
+meets the long case from a real message: it decodes the count the bitmap
+implies rather than the one in §5 `numberOfValues`, so it asks the packing for
+exactly the present points.
+
 Each claim was checked by breaking it (17 planted bugs, each rejected):
 reading LSB-first, inverting the bit, reading the next byte, masking the
 wrong bit, not rounding the byte count up or always rounding it up, an
