@@ -168,7 +168,7 @@ impl FilterPipeline {
     /// `element_size` is the dataset's element width, used by shuffle when the
     /// filter itself doesn't carry it. `expected_len` is the chunk's length
     /// before any filter ran, which szip checks its size prefix against when
-    /// it can (see [`Self::length_before`]). The caller still checks the
+    /// every filter before it keeps the length. The caller still checks the
     /// result's length: deflate and zstd are bounded by a ceiling only.
     pub fn reverse(
         &self,
