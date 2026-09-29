@@ -44,34 +44,34 @@ use vstd::prelude::*;
 ///
 /// A width above 32 is an error whatever `len` is: the bit reader returns a
 /// `u32`, so such a group is malformed. `reference` and each field are
-/// unsigned 32-bit values, so their sum always fits an `i64`.
+/// unsigned 32-bit values, so their sum always fits an `i64`. On an error `out`
+/// may hold placeholder values; every caller discards it.
 ///
-/// Proved (see the module docs): `Ok` exactly when the width is at most 32 and
-/// the reader holds the group's fields; then `out` keeps what it held, gains
-/// `len` values, the `k`-th being `reference + X_k`, and the reader has moved
-/// past exactly `len · width` bits.
+/// Proved (see the module docs): `Ok` exactly when the width is at most 32, the
+/// reader holds the group's fields and `out` has room for `len` more; then
+/// `out` keeps what it held, gains `len` values, the `k`-th being
+/// `reference + X_k`, and the reader has moved past exactly `len · width` bits.
 #[cfg_attr(verus_keep_ghost, verus_spec(r =>
     ensures
         reader_bytes(*final(reader)) == reader_bytes(*old(reader)),
-        r is Ok <==> group_fits(
+        r is Ok <==> width <= 32 && group_fits(
             reader_bytes(*old(reader)).len() as int,
             reader_pos(*old(reader)),
             width as int,
             len as int,
+        ) && old(out)@.len() + len <= usize::MAX,
+        r is Ok ==> group_appended(
+            reader_bytes(*old(reader)),
+            reader_pos(*old(reader)),
+            reader_pos(*final(reader)),
+            width as int,
+            len as int,
+            reference as int,
+            old(out)@,
+            final(out)@,
         ),
-        r is Ok ==> reader_pos(*final(reader)) == reader_pos(*old(reader)) + len * width,
-        r is Ok ==> final(out)@.len() == old(out)@.len() + len,
-        r is Ok ==> forall|i: int|
-            0 <= i < old(out)@.len() ==> #[trigger] final(out)@[i] == old(out)@[i],
-        r is Ok ==> forall|k: int|
-            0 <= k < len ==> #[trigger] final(out)@[old(out)@.len() + k] == group_point(
-                reader_bytes(*old(reader)),
-                reader_pos(*old(reader)),
-                width as int,
-                reference as int,
-                k,
-            ),
 ))]
+#[inline]
 pub fn expand_group_into(
     reader: &mut BitReader,
     width: u8,
@@ -82,46 +82,145 @@ pub fn expand_group_into(
     if width > 32 {
         return Err(group_too_wide(width));
     }
+    fill_group(reader, width, len, reference, out)
+}
+
+/// `expand_group_into` once the width is known to be at most 32: the one
+/// place the per-group checks and the per-point loop live, so a caller that
+/// checks the width itself (to name the group in its error) checks it once.
+///
+/// The group is written in place after a `resize`, through a slice, rather
+/// than pushed point by point: a push keeps the vector's length in memory
+/// across every `read_bits` call, which cost the second-order decode about 2%
+/// more instructions.
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    requires
+        width <= 32,
+    ensures
+        reader_bytes(*final(reader)) == reader_bytes(*old(reader)),
+        r is Ok <==> group_fits(
+            reader_bytes(*old(reader)).len() as int,
+            reader_pos(*old(reader)),
+            width as int,
+            len as int,
+        ) && old(out)@.len() + len <= usize::MAX,
+        r is Ok ==> group_appended(
+            reader_bytes(*old(reader)),
+            reader_pos(*old(reader)),
+            reader_pos(*final(reader)),
+            width as int,
+            len as int,
+            reference as int,
+            old(out)@,
+            final(out)@,
+        ),
+))]
+#[inline]
+fn fill_group(
+    reader: &mut BitReader,
+    width: u8,
+    len: usize,
+    reference: u32,
+    out: &mut Vec<i64>,
+) -> Result<(), FieldglassError> {
+    let base = out.len();
+    let end = match base.checked_add(len) {
+        Some(end) => end,
+        None => return Err(parse_error("grouped packing: group length overflows usize")),
+    };
     let reference = reference as i64;
     if width == 0 {
-        #[cfg_attr(verus_keep_ghost, verus_spec(it =>
-            invariant
-                out@.len() == old(out)@.len() + it.index@,
-                forall|i: int| 0 <= i < old(out)@.len() ==> #[trigger] out@[i] == old(out)@[i],
-                forall|k: int| 0 <= k < it.index@ ==> #[trigger] out@[old(out)@.len() + k] == reference,
-        ))]
-        for _ in 0..len {
-            out.push(reference);
+        out.resize(end, reference);
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert forall|i: int| 0 <= i < base implies #[trigger] out@[i] == old(out)@[i] by {
+                assert(out@.subrange(0, base as int)[i] == out@[i]);
+            }
         }
     } else {
-        #[cfg_attr(verus_keep_ghost, verus_spec(it =>
-            invariant
-                1 <= width <= 32,
-                0 <= reference <= u32::MAX,
-                reader_bytes(*reader) == reader_bytes(*old(reader)),
-                reader_pos(*reader) == reader_pos(*old(reader)) + it.index@ * width,
-                group_fits(
-                    reader_bytes(*old(reader)).len() as int,
-                    reader_pos(*old(reader)),
-                    width as int,
-                    it.index@ as int,
-                ),
-                out@.len() == old(out)@.len() + it.index@,
-                forall|i: int| 0 <= i < old(out)@.len() ==> #[trigger] out@[i] == old(out)@[i],
-                forall|k: int| 0 <= k < it.index@ ==> #[trigger] out@[old(out)@.len() + k] == group_point(
-                    reader_bytes(*old(reader)),
-                    reader_pos(*old(reader)),
-                    width as int,
-                    reference as int,
-                    k,
-                ),
-        ))]
-        for _ in 0..len {
-            #[cfg(verus_keep_ghost)]
-            proof! { lemma_next_field(out@.len() - old(out)@.len(), len as int, width as int); }
-            let raw = reader.read_bits(width)? as i64;
-            out.push(reference + raw);
+        out.resize(end, 0);
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert forall|i: int| 0 <= i < base implies #[trigger] out@[i] == old(out)@[i] by {
+                assert(out@.subrange(0, base as int)[i] == out@[i]);
+            }
         }
+        fill_offsets(reader, out.as_mut_slice(), base, width, reference)?;
+    }
+    Ok(())
+}
+
+/// Overwrite every slot of `dst` from `start` on with `reference` plus the
+/// next `width`-bit field of `reader`, in order: the per-point loop of
+/// `fill_group`. Writing through a slice keeps its length in a register across
+/// the `read_bits` calls, which a `Vec` index or `push` does not.
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    requires
+        1 <= width <= 32,
+        0 <= reference <= u32::MAX,
+        start <= old(dst)@.len(),
+    ensures
+        reader_bytes(*final(reader)) == reader_bytes(*old(reader)),
+        final(dst)@.len() == old(dst)@.len(),
+        forall|j: int| 0 <= j < start ==> #[trigger] final(dst)@[j] == old(dst)@[j],
+        r is Ok <==> group_fits(
+            reader_bytes(*old(reader)).len() as int,
+            reader_pos(*old(reader)),
+            width as int,
+            old(dst)@.len() - start,
+        ),
+        r is Ok ==> reader_pos(*final(reader)) == reader_pos(*old(reader)) + (old(dst)@.len()
+            - start) * width,
+        r is Ok ==> forall|k: int|
+            0 <= k < old(dst)@.len() - start ==> #[trigger] final(dst)@[start + k] == group_point(
+                reader_bytes(*old(reader)),
+                reader_pos(*old(reader)),
+                width as int,
+                reference as int,
+                k,
+            ),
+))]
+#[inline]
+fn fill_offsets(
+    reader: &mut BitReader,
+    dst: &mut [i64],
+    start: usize,
+    width: u8,
+    reference: i64,
+) -> Result<(), FieldglassError> {
+    let n = dst.len();
+    let mut i = start;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            1 <= width <= 32,
+            0 <= reference <= u32::MAX,
+            start <= i <= n,
+            n == old(dst)@.len(),
+            dst@.len() == n,
+            reader_bytes(*reader) == reader_bytes(*old(reader)),
+            reader_pos(*reader) == reader_pos(*old(reader)) + (i - start) * width,
+            group_fits(
+                reader_bytes(*old(reader)).len() as int,
+                reader_pos(*old(reader)),
+                width as int,
+                (i - start) as int,
+            ),
+            forall|j: int| 0 <= j < start ==> #[trigger] dst@[j] == old(dst)@[j],
+            forall|k: int| 0 <= k < i - start ==> #[trigger] dst@[start + k] == group_point(
+                reader_bytes(*old(reader)),
+                reader_pos(*old(reader)),
+                width as int,
+                reference as int,
+                k,
+            ),
+        decreases n - i,
+    ))]
+    while i < n {
+        #[cfg(verus_keep_ghost)]
+        proof! { lemma_next_field((i - start) as int, (n - start) as int, width as int); }
+        let raw = reader.read_bits(width)? as i64;
+        dst[i] = reference + raw;
+        i += 1;
     }
     Ok(())
 }
@@ -262,12 +361,12 @@ pub fn expand_groups_into(
     while g < num_groups {
         #[cfg(verus_keep_ghost)]
         proof_decl! { let ghost before = out@; }
-        // `expand_group_into` rejects a wide group too; checking here first
-        // lets the error name the group.
+        // Checked here rather than in `expand_group_into` so the error names
+        // the group; `fill_group` then does the rest without checking again.
         if widths[g] > 32 {
             return Err(second_order_group_too_wide(g, widths[g] as u64));
         }
-        expand_group_into(reader, widths[g], lengths[g] as usize, references[g], out)?;
+        fill_group(reader, widths[g], lengths[g] as usize, references[g], out)?;
         #[cfg(verus_keep_ghost)]
         proof! {
             let lens = u32_seq(lengths@);
@@ -940,6 +1039,32 @@ pub proof fn lemma_msb_bits_bound(bytes: Seq<u8>, start: int, width: int)
     }
 }
 
+/// What an `Ok` from appending one group guarantees: the reader moved past the
+/// group's `len · width` bits, and `after` is `before` followed by the group's
+/// `len` points.
+pub open spec fn group_appended(
+    bytes: Seq<u8>,
+    pos0: int,
+    pos1: int,
+    width: int,
+    len: int,
+    reference: int,
+    before: Seq<i64>,
+    after: Seq<i64>,
+) -> bool {
+    &&& pos1 == pos0 + len * width
+    &&& after.len() == before.len() + len
+    &&& forall|i: int| 0 <= i < before.len() ==> #[trigger] after[i] == before[i]
+    &&& forall|k: int|
+        0 <= k < len ==> #[trigger] after[before.len() + k] == group_point(
+            bytes,
+            pos0,
+            width,
+            reference,
+            k,
+        )
+}
+
 /// Whether a group of `len` fields of `width` bits can be read from bit `pos`
 /// of a `blen`-byte buffer: the width is at most 32, and either no bit is read
 /// or every field ends inside the buffer.
@@ -1369,11 +1494,17 @@ mod tests {
         let mut reader = BitReader::new(&TABLE);
         let v = expand_complex_groups(&mut reader, &layout(1), 5).unwrap();
         assert_eq!(v, [Some(6), None, None, None, None]);
-        // Management 2 also treats all ones minus one as missing: offset 2 at
-        // width 2. Group 0's offsets are 1 and 3, so nothing more goes missing.
-        let mut reader = BitReader::new(&TABLE);
+        // Management 2 also treats all ones minus one as missing. With group
+        // 0's offsets 1 and 2, offset 2 at width 2 is that secondary value: it
+        // is missing under management 2 and present under management 1.
+        let mut secondary = TABLE;
+        secondary[3] = 0b0110_0000;
+        let mut reader = BitReader::new(&secondary);
         let v = expand_complex_groups(&mut reader, &layout(2), 5).unwrap();
         assert_eq!(v, [Some(6), None, None, None, None]);
+        let mut reader = BitReader::new(&secondary);
+        let v = expand_complex_groups(&mut reader, &layout(1), 5).unwrap();
+        assert_eq!(v, [Some(6), Some(7), None, None, None]);
         // Management 0 marks nothing.
         assert!(is_missing(1, 3, 2) && is_missing(2, 2, 2) && !is_missing(0, 3, 2));
         assert!(is_missing(1, i64::from(u32::MAX), 32));

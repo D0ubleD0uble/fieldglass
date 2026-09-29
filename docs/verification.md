@@ -265,11 +265,14 @@ second-order (the extended SPD layout and the classic `row_by_row` and
 `general_grib1`) all call it.
 
 - `expand_group_into(reader, width, len, reference, out)` returns `Ok` exactly
-  when `width ≤ 32` and the reader holds the group's `len · width` bits; then
-  `out` keeps what it held and gains `len` values, the `k`-th being `reference`
-  plus the `k`-th `width`-bit field (0 at width 0), and the reader has moved
-  exactly `len · width` bits. The sum cannot overflow: `reference` and the
-  field are both `u32`.
+  when `width ≤ 32`, the reader holds the group's `len · width` bits and `out`
+  has room for `len` more; then `out` keeps what it held and gains `len`
+  values, the `k`-th being `reference` plus the `k`-th `width`-bit field (0 at
+  width 0), and the reader has moved exactly `len · width` bits. The sum
+  cannot overflow: `reference` and the field are both `u32`. The group is
+  written in place after a `resize` rather than pushed, which the
+  second-order decode's instruction count needs; `fill_group` and
+  `fill_offsets`, the two private steps that do it, carry the same proof.
 - `read_group_widths(reader, count, bits)`, the second-order width block:
   on `Ok`, width `g` is the `g`-th `bits`-bit field and at most 32. A width is
   checked whole before it is kept as a byte.
@@ -296,17 +299,18 @@ The three expansion loops place a group the same way, so that step is one lemma,
 `lemma_place_group`, proved once over any element type and used by both the
 dense second-order output and complex packing's `Option` output.
 
-Each claim was checked by breaking it (20 planted bugs, each rejected): dropping
+Each claim was checked by breaking it (22 planted bugs, each rejected): dropping
 the last-length override, the `sum == present_count` check, the `width > 32`
 check on a complex group, on a second-order group or on a stored width as it is
 read (the byte cut GRIB1 used to make), the `NG == 0` or `NG > present_count`
-check; reading a zero-width group one point short; skipping the octet
-realignment before the width block or the data block; a sentinel of `2^w` instead of `2^w − 1`; accepting the secondary
-sentinel under management 1; losing the group reference from a complex point,
-the width reference from a width, or the reference from a second-order point;
-pushing 0 for a zero-width second-order group; using group 0's reference for
-every group; ignoring the length increment; unchecked length arithmetic; and a
-model of `align_to_byte` that rounds down.
+check; reading a zero-width group one point short; starting a group's offsets
+one slot late; skipping any of the three octet realignments, before the width,
+length or data block; a sentinel of `2^w` instead of `2^w − 1`; accepting the
+secondary sentinel under management 1; losing the group reference from a
+complex point, the width reference from a width, or the reference from a
+second-order point; filling a zero-width second-order group with 0; using group
+0's reference for every group; ignoring the length increment; unchecked length
+arithmetic; and a model of `align_to_byte` that rounds down.
 
 **Trusted, not proved.** The proofs rest on four statements in
 `crates/fieldglass-verify/src/bits_model.rs` and its `axioms.rs`, each short
