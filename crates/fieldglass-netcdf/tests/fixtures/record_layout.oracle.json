@@ -1,0 +1,121 @@
+{
+  "source": "netCDF4 1.7.4 (libnetcdf 4.9.3). NetCDF classic record layout oracle. Self-generated; provenance in NOTICE.md.",
+  "files": {
+    "record_single_short_cdf1.nc": {
+      "s": {
+        "shape": [
+          3,
+          3
+        ],
+        "values": [
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0
+        ]
+      }
+    },
+    "record_single_short_cdf2.nc": {
+      "s": {
+        "shape": [
+          3,
+          3
+        ],
+        "values": [
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0
+        ]
+      }
+    },
+    "record_single_short_cdf5.nc": {
+      "s": {
+        "shape": [
+          3,
+          3
+        ],
+        "values": [
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0
+        ]
+      }
+    },
+    "record_single_ubyte_cdf5.nc": {
+      "s": {
+        "shape": [
+          3,
+          3
+        ],
+        "values": [
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0
+        ]
+      }
+    },
+    "record_mixed_cdf1.nc": {
+      "f": {
+        "shape": [
+          3
+        ],
+        "values": [
+          0.5,
+          1.5,
+          2.5
+        ]
+      },
+      "a": {
+        "shape": [
+          3,
+          3
+        ],
+        "values": [
+          -4.0,
+          -3.0,
+          -2.0,
+          -1.0,
+          0.0,
+          1.0,
+          2.0,
+          3.0,
+          4.0
+        ]
+      },
+      "b": {
+        "shape": [
+          3,
+          1
+        ],
+        "values": [
+          -300.0,
+          301.0,
+          302.0
+        ]
+      }
+    }
+  }
+}

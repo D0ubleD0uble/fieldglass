@@ -13,10 +13,16 @@
 //!
 //! All multi-byte integers are big-endian. Strings are UTF-8. Everything is
 //! padded to 4-byte boundaries — including odd-length strings, attribute
-//! values, and the implicit "fill to next word" after each variable record.
+//! values, and the implicit "fill to next word" after each variable record —
+//! with one exception: the records of a file's only record variable are not
+//! padded. Where each variable's data lies is the `layout` kernel's to say.
 
 use fieldglass_core::bytes::{checked_usize, read_exact};
 use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
+
+// The length and offset arithmetic of the data section, proved with Verus
+// (#204): see its own docs and `docs/verification.md`.
+mod layout;
 
 /// Three on-disk variants of NetCDF classic. They differ in the width of size
 /// and offset fields and (for CDF-5) the set of supported numeric types.
@@ -251,7 +257,11 @@ pub struct Variable {
     /// Every attribute on the variable, in header order.
     pub attributes: Vec<Attribute>,
     /// On-disk size in bytes of the variable's data, padded to a 4-byte
-    /// boundary — for a record variable, of one record's slab.
+    /// boundary — for a record variable, of one record's slab. As the header
+    /// states it: the spec calls the field redundant, a lone record variable's
+    /// records are not padded although this is, and CDF-1 and CDF-2 store
+    /// `2^32 - 1` for a variable too large for the field. So value decode
+    /// computes every size from the shape and type and does not read this.
     pub vsize: u64,
     /// Byte offset of the variable's data from the start of the file.
     pub begin: u64,
@@ -437,6 +447,30 @@ pub fn decode_variable_raw_from<S: ByteSource>(
         return Ok(Vec::new());
     }
 
+    // Every slab the plan names lies inside the file, checked against the
+    // source's size before anything is fetched: a header that points past the
+    // end is a malformed file, and a remote source should not be asked for
+    // bytes that are not there.
+    let slabs = &layout.slabs;
+    if !layout::slabs_within(
+        slabs.begin,
+        slabs.stride,
+        slabs.records,
+        slabs.len,
+        source.size(),
+    ) {
+        return Err(FieldglassError::Parse(format!(
+            "variable {:?}: {} slab(s) of {} bytes from offset {} at stride {} \
+             exceeds source size {}",
+            var.name,
+            slabs.records,
+            slabs.len,
+            slabs.begin,
+            slabs.stride,
+            source.size()
+        )));
+    }
+
     // One resolve for the whole variable, before any of it is read. A remote
     // source turns this into its requests; `Vec<u8>` ignores it.
     source.prefetch(&layout.ranges)?;
@@ -476,13 +510,25 @@ pub fn decode_variable_raw_from<S: ByteSource>(
 struct VariableLayout {
     ranges: Vec<ByteRange>,
     total: usize,
+    slabs: Slabs,
+}
+
+/// The slabs a variable occupies, as the formula that places them: `records`
+/// slabs of `len` bytes, slab `r` at `begin + r * stride`. `ranges` is this
+/// written out; the decode checks this form against the file's size.
+struct Slabs {
+    begin: u64,
+    stride: u64,
+    records: usize,
+    len: u64,
 }
 
 /// Resolve a variable's fetch plan and element count without reading any data.
 ///
 /// Split out of the decode so the plan can be asked for on its own — a remote
 /// transport wants the ranges without the values, and the test that the two
-/// agree needs both from one place.
+/// agree needs both from one place. The arithmetic is the `layout` kernel's,
+/// proved not to overflow and to compute the spec's offsets.
 fn variable_layout(
     header: &ClassicHeader,
     var_index: usize,
@@ -499,19 +545,10 @@ fn variable_layout(
         )));
     }
 
-    let elem = var.nc_type.element_size();
-    let numrecs = header.numrecs.unwrap_or(0);
-
     // The unlimited dimension, when present, must be the most significant
     // (first) axis — NetCDF classic stores records by interleaving each record
     // variable's per-record slab, so a record dim anywhere else is malformed.
-    let is_record_var = match var.dim_ids.first() {
-        Some(&first) => header
-            .dimensions
-            .get(first as usize)
-            .is_some_and(|d| d.is_record),
-        None => false,
-    };
+    let is_record_var = is_record_variable(header, var);
     for (axis, &dim_id) in var.dim_ids.iter().enumerate() {
         let is_record = header
             .dimensions
@@ -527,15 +564,12 @@ fn variable_layout(
     }
 
     let shape = variable_shape(header, var_index)?;
-    let total_u64 = shape
-        .iter()
-        .try_fold(1u64, |acc, &d| acc.checked_mul(d))
-        .ok_or_else(|| {
-            FieldglassError::Parse(format!(
-                "variable {:?} shape {shape:?} overflows the element count",
-                var.name
-            ))
-        })?;
+    let total_u64 = layout::element_count(&shape).ok_or_else(|| {
+        FieldglassError::Parse(format!(
+            "variable {:?} shape {shape:?} overflows the element count",
+            var.name
+        ))
+    })?;
     let total = checked_usize(total_u64, "NetCDF variable element count")?;
     if total > MAX_VAR_ELEMENTS {
         return Err(FieldglassError::Parse(format!(
@@ -549,68 +583,115 @@ fn variable_layout(
             VariableLayout {
                 ranges: Vec::new(),
                 total: 0,
+                slabs: Slabs {
+                    begin: var.begin,
+                    stride: 0,
+                    records: 0,
+                    len: 0,
+                },
             },
         ));
     }
 
-    let begin = checked_usize(var.begin, "NetCDF variable begin")?;
-    let span = |count: usize| -> Result<u64, FieldglassError> {
-        count
-            .checked_mul(elem)
-            .map(|bytes| bytes as u64)
-            .ok_or_else(|| FieldglassError::Parse("variable slab size overflows usize".to_string()))
-    };
-
-    let ranges = if is_record_var {
-        // Record variable: `numrecs` records laid `recsize` bytes apart, where
-        // `recsize` is the sum of every record variable's per-record `vsize`.
-        // One range per record, because the records are not contiguous.
-        let numrecs = checked_usize(numrecs, "NetCDF numrecs")?;
-        let per_record = total / numrecs; // shape[0] == numrecs, so this is exact
-        let recsize = record_size(header)?;
-        let len = span(per_record)?;
-        (0..numrecs)
-            .map(|r| {
-                let start = r
-                    .checked_mul(recsize)
-                    .and_then(|o| begin.checked_add(o))
-                    .ok_or_else(|| {
-                        FieldglassError::Parse(format!(
-                            "variable {:?} record {r} offset overflows usize",
-                            var.name
-                        ))
-                    })?;
-                Ok(ByteRange::new(start as u64, len))
-            })
-            .collect::<Result<Vec<_>, FieldglassError>>()?
+    // A fixed variable is one contiguous slab at `begin`. A record variable is
+    // `numrecs` slabs of one record's worth, `recsize` apart, because classic
+    // interleaves the record variables record by record.
+    let (count, records, stride) = if is_record_var {
+        let numrecs = checked_usize(header.numrecs.unwrap_or(0), "NetCDF numrecs")?;
+        // `shape[0]` is `numrecs`; the rest is one record's slab.
+        let per_record =
+            layout::element_count(shape.get(1..).unwrap_or_default()).ok_or_else(|| {
+                FieldglassError::Parse(format!(
+                    "variable {:?} record slab overflows the element count",
+                    var.name
+                ))
+            })?;
+        (per_record, numrecs, record_size(header)?)
     } else {
-        // Fixed (non-record) variable: one contiguous slab at `begin`.
-        vec![ByteRange::new(begin as u64, span(total)?)]
+        (total_u64, 1, 0)
     };
+    let elem = var.nc_type.element_size() as u64;
+    let len = layout::slab_bytes(count, elem)
+        .ok_or_else(|| FieldglassError::Parse("variable slab size overflows u64".to_string()))?;
+    let slabs = Slabs {
+        begin: var.begin,
+        stride,
+        records,
+        len,
+    };
+    let ranges = layout::slab_ranges(slabs.begin, slabs.stride, slabs.records, slabs.len)
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "variable {:?} has a slab whose end overflows u64 \
+                 ({records} slab(s) of {len} bytes from {} at stride {stride})",
+                var.name, var.begin
+            ))
+        })?
+        // `(u64, u64)` and `ByteRange` have one size and alignment, so this
+        // collects in place, into the allocation the kernel made.
+        .into_iter()
+        .map(|(start, len)| ByteRange::new(start, len))
+        .collect();
 
-    Ok((var, VariableLayout { ranges, total }))
+    Ok((
+        var,
+        VariableLayout {
+            ranges,
+            total,
+            slabs,
+        },
+    ))
 }
 
-/// Sum of every record variable's per-record `vsize` — the byte stride from
-/// one record to the next. The single-record-variable special case (where the
-/// writer drops 4-byte record padding) falls out for free: with one record
-/// variable the sum is just that variable's unpadded `vsize`.
-fn record_size(header: &ClassicHeader) -> Result<usize, FieldglassError> {
-    let mut total = 0usize;
-    for v in &header.variables {
-        let is_record = v
-            .dim_ids
-            .first()
-            .and_then(|&d| header.dimensions.get(d as usize))
-            .is_some_and(|d| d.is_record);
-        if is_record {
-            let vsize = checked_usize(v.vsize, "NetCDF vsize")?;
-            total = total.checked_add(vsize).ok_or_else(|| {
-                FieldglassError::Parse("record size sum overflows usize".to_string())
+/// Whether `var` is a record variable: its first dimension is the unlimited
+/// one.
+fn is_record_variable(header: &ClassicHeader, var: &Variable) -> bool {
+    var.dim_ids
+        .first()
+        .and_then(|&d| header.dimensions.get(d as usize))
+        .is_some_and(|d| d.is_record)
+}
+
+/// `recsize`, the byte stride from one record to the next.
+///
+/// Computed from each record variable's shape and type, never from its
+/// `vsize`: with exactly one record variable the spec has writers store the
+/// padded size in `vsize` but lay the records out unpadded, and tells readers
+/// to ignore `vsize` (#204). The rule itself is the `layout` kernel's
+/// `record_size`.
+fn record_size(header: &ClassicHeader) -> Result<u64, FieldglassError> {
+    let numrecs = header.numrecs.unwrap_or(0);
+    let mut slabs = Vec::new();
+    for v in header
+        .variables
+        .iter()
+        .filter(|v| is_record_variable(header, v))
+    {
+        // The dimensions after the record one. A second unlimited dimension is
+        // malformed, and counts as `numrecs` as it does in `variable_shape`.
+        let mut rest = Vec::with_capacity(v.dim_ids.len().saturating_sub(1));
+        for &dim_id in v.dim_ids.iter().skip(1) {
+            let dim = header.dimensions.get(dim_id as usize).ok_or_else(|| {
+                FieldglassError::Parse(format!(
+                    "variable {:?} references dim id {dim_id} but only {} dimensions exist",
+                    v.name,
+                    header.dimensions.len()
+                ))
             })?;
+            rest.push(if dim.is_record { numrecs } else { dim.length });
         }
+        let slab = layout::element_count(&rest)
+            .and_then(|count| layout::slab_bytes(count, v.nc_type.element_size() as u64))
+            .ok_or_else(|| {
+                FieldglassError::Parse(format!(
+                    "record variable {:?} has a record slab that overflows u64",
+                    v.name
+                ))
+            })?;
+        slabs.push(slab);
     }
-    Ok(total)
+    layout::record_size(&slabs)
+        .ok_or_else(|| FieldglassError::Parse("record size sum overflows u64".to_string()))
 }
 
 /// Decode a fetched slab: every whole element in `bytes`, widened to `f64`,
@@ -1552,5 +1633,144 @@ mod tests {
         // Declares 4 doubles at offset 8 but the buffer is far too short.
         let err = decode_variable_raw(&header, &[0u8; 16], 0).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)));
+    }
+
+    // #204: the record stride comes from shapes and types, never from `vsize`.
+
+    fn record_dims(x: u64) -> Vec<Dimension> {
+        vec![
+            Dimension {
+                name: "time".to_string(),
+                length: 0,
+                is_record: true,
+            },
+            Dimension {
+                name: "x".to_string(),
+                length: x,
+                is_record: false,
+            },
+        ]
+    }
+
+    fn record_header(numrecs: u64, x: u64, variables: Vec<Variable>) -> ClassicHeader {
+        ClassicHeader {
+            version: ClassicVersion::Cdf1,
+            numrecs: Some(numrecs),
+            dimensions: record_dims(x),
+            global_attributes: Vec::new(),
+            variables,
+        }
+    }
+
+    #[test]
+    fn a_lone_record_variable_ignores_its_padded_vsize() {
+        // One `short` per record. The spec has the writer store `vsize = 4`,
+        // the padded size, and lay the records 2 bytes apart; reading them 4
+        // apart ran off the end of the file.
+        let header = record_header(3, 1, vec![var("s", vec![0], NcType::Short, 4, 0)]);
+        let mut data = Vec::new();
+        for s in [7i16, -8, 9] {
+            data.extend_from_slice(&s.to_be_bytes());
+        }
+        let out = decode_variable_raw(&header, &data, 0).unwrap();
+        assert_eq!(out, vec![Some(7.0), Some(-8.0), Some(9.0)]);
+    }
+
+    #[test]
+    fn a_wrong_vsize_does_not_move_the_records() {
+        // `vsize` is redundant; CDF-1 and CDF-2 even store 2^32 - 1 in it for
+        // a variable too large for the field. Two record variables of 1 and 2
+        // doubles are 24 bytes a record whatever their `vsize` says.
+        let header = record_header(
+            2,
+            2,
+            vec![
+                var("a", vec![0], NcType::Double, 0xFFFF_FFFF, 0),
+                var("b", vec![0, 1], NcType::Double, 0, 8),
+            ],
+        );
+        let mut data = Vec::new();
+        for v in [1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0] {
+            data.extend_from_slice(&v.to_be_bytes());
+        }
+        assert_eq!(
+            decode_variable_raw(&header, &data, 0).unwrap(),
+            vec![Some(1.0), Some(4.0)]
+        );
+        assert_eq!(
+            decode_variable_raw(&header, &data, 1).unwrap(),
+            vec![Some(2.0), Some(3.0), Some(5.0), Some(6.0)]
+        );
+    }
+
+    #[test]
+    fn a_slab_whose_end_overflows_is_an_error() {
+        let header = ClassicHeader {
+            version: ClassicVersion::Cdf5,
+            numrecs: Some(0),
+            dimensions: record_dims(1)[1..].to_vec(),
+            global_attributes: Vec::new(),
+            variables: vec![var("z", vec![0], NcType::Double, 8, u64::MAX - 3)],
+        };
+        let err = variable_plan(&header, 0).unwrap_err();
+        assert!(format!("{err}").contains("overflows u64"), "{err}");
+    }
+
+    #[test]
+    fn a_record_offset_that_overflows_is_an_error() {
+        // The second record variable is 2^62 bytes a record, so record 4 of
+        // the first starts past `u64::MAX`.
+        let mut dims = record_dims(1);
+        dims.push(Dimension {
+            name: "huge".to_string(),
+            length: 1 << 59,
+            is_record: false,
+        });
+        let header = ClassicHeader {
+            version: ClassicVersion::Cdf5,
+            numrecs: Some(5),
+            dimensions: dims,
+            global_attributes: Vec::new(),
+            variables: vec![
+                var("a", vec![0], NcType::Double, 8, 0),
+                var("big", vec![0, 2], NcType::Double, 0, 8),
+            ],
+        };
+        let err = variable_plan(&header, 0).unwrap_err();
+        assert!(format!("{err}").contains("overflows u64"), "{err}");
+    }
+
+    #[test]
+    fn a_record_slab_that_overflows_fails_the_stride() {
+        // Another record variable's shape overflows, so no record stride
+        // exists and no record variable can be placed.
+        let mut dims = record_dims(1);
+        dims.push(Dimension {
+            name: "huge".to_string(),
+            length: u64::MAX / 2,
+            is_record: false,
+        });
+        let header = ClassicHeader {
+            version: ClassicVersion::Cdf5,
+            numrecs: Some(1),
+            dimensions: dims,
+            global_attributes: Vec::new(),
+            variables: vec![
+                var("a", vec![0], NcType::Double, 8, 0),
+                var("big", vec![0, 2, 2], NcType::Double, 0, 8),
+            ],
+        };
+        let err = variable_plan(&header, 0).unwrap_err();
+        assert!(format!("{err}").contains("record slab"), "{err}");
+    }
+
+    #[test]
+    fn a_plan_past_the_end_of_the_source_fails_before_any_read() {
+        // Three records of one double, 8 bytes apart, from offset 8: the file
+        // needs 32 bytes and has 31.
+        let header = record_header(3, 1, vec![var("a", vec![0], NcType::Double, 8, 8)]);
+        let err = decode_variable_raw(&header, &[0u8; 31], 0).unwrap_err();
+        assert!(format!("{err}").contains("exceeds source size 31"), "{err}");
+        assert!(decode_variable_raw(&header, &[0u8; 32], 0).is_ok());
     }
 }

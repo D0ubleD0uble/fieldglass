@@ -403,6 +403,53 @@ counting the absent entries, starting the count at 1, skipping the last
 entry, stating the popcount one bit long, and reading the one-bit field one
 bit on.
 
+**`crates/fieldglass-netcdf/src/classic/layout.rs`**, where the NetCDF classic
+reader (CDF-1, CDF-2 and CDF-5) finds each variable's data. Every number it
+works from is in the header, so every product and sum is checked. It is the
+first kernel outside `fieldglass-core`; it names nothing from either crate, so
+the verification crate includes it without depending on `fieldglass-netcdf`.
+
+- `element_count(shape)` is the exact product of the dimension lengths, 0
+  when any is 0 even if the others would overflow, and `None` exactly when
+  the product does not fit a `u64`.
+- `record_size(slabs)` is `recsize`: with exactly one record variable, its
+  per-record slab unpadded; otherwise the sum of every record variable's
+  slab, each rounded up to a multiple of 4. `None` exactly when that does not
+  fit a `u64`. The slabs come from each variable's shape and type, never from
+  `vsize` (see below). A lemma shows the lone-variable rule changes nothing
+  for 4- and 8-byte types, so it agrees with the specification's sentence,
+  which names only `char`, `byte` and `short`.
+- `slab_ranges(begin, stride, records, len)` returns `records` ranges, the
+  `r`-th starting at `begin + r * stride` and `len` bytes long, each with an
+  end that fits a `u64`; `None` exactly when some slab's end does not. A fixed
+  variable is one slab, a record variable one per record with `recsize` as
+  the stride.
+- `slabs_within(..., size)` holds exactly when every one of those slabs ends
+  within a file of `size` bytes. It checks only the last slab, and the proof
+  is that the last one ends last. The decode calls it against the source's
+  size before it fetches anything.
+- None has a precondition: no header makes any of them overflow or panic.
+
+Writing this kernel against the specification found a defect in the code it
+replaced. The reader took `recsize` as the sum of the header's `vsize` fields,
+but the specification has a writer store the padded size in `vsize` while
+laying a lone record variable's records out unpadded, and says readers "should
+ignore vsize and assume no padding". So a file whose only record variable was a
+`byte` or `short` read the wrong bytes, and failed when that variable ended the
+file. libnetcdf-written fixtures of the case, in all three versions, are in
+`tests/classic_record_layout.rs`.
+
+Each claim was checked by breaking it (17 planted bugs, each rejected):
+dropping the lone-variable case, padding the lone variable, rounding up by the
+remainder instead of to the next multiple, padding an exact multiple, summing
+unpadded slabs, starting slab `r` at `(r + 1) * stride`, leaving out `begin`,
+dropping the end-overflow check, checking the first slab against the file
+instead of the last, a strict `<` against the size, ignoring the slab length
+in that check, skipping the zero-dimension scan, starting the product at 0,
+leaving out the last dimension, adding instead of multiplying the slab bytes,
+giving a zero-length dimension one element, and padding the lone variable in
+the specification rather than the code.
+
 **Trusted, not proved.** The proofs rest on two statements in
 `crates/fieldglass-verify/src/bits_model.rs` and its `axioms.rs`, each short
 enough to check by reading, on allocation succeeding, and on the error-message
@@ -508,7 +555,7 @@ Ordered by blast radius, from the milestone:
 | 1 | GRIB group expansion: complex packing and both editions' second-order (done) | [#201](https://github.com/D0ubleD0uble/fieldglass/issues/201) |
 | 2 | Presence bitmaps, both editions (done) | [#202](https://github.com/D0ubleD0uble/fieldglass/issues/202) |
 | 2 | Byte shuffle, HDF5 and Zarr (done) | [#203](https://github.com/D0ubleD0uble/fieldglass/issues/203) |
-| 3 | NetCDF classic length/offset arithmetic | [#204](https://github.com/D0ubleD0uble/fieldglass/issues/204) |
+| 3 | NetCDF classic length/offset arithmetic (done) | [#204](https://github.com/D0ubleD0uble/fieldglass/issues/204) |
 
 The groundwork has already paid once: it surfaced and fixed a `read_bits`
 truncation defect (#198, shipped in #233) before any proof was written.
