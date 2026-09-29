@@ -166,23 +166,43 @@ provenance.
   `total_out` equal to the requested length is not evidence the output is
   complete.
 
-## What libsz does that `sz::decompress` refuses
+## Where libsz and `sz::decompress` part
 
 Found while writing `fieldglass_aec::sz` (#761), from libsz 1.1.7 built as
-above. Both are in ADR-0012's table of divergences, and `tests/sz_corpus.rs`
-pins each.
+above and called through `ctypes`. All three are in ADR-0012's table of
+divergences, and `tests/sz_corpus.rs` pins each.
 
-- **Short output is success.** When the stream runs out, libsz returns
-  `SZ_OK` and lowers `destLen` (`sz_compat.c:302-303`). Every `sz_*` stream
-  cut in half, or asked for one scanline more than it holds, shows it.
-  `sz::decompress` returns `AecError::Truncated`.
-- **A 32- or 64-bit output that is not a whole number of pixels is
-  scrambled.** libsz deinterleaves with planes of `destLen / w` bytes, rounded
+- **A stream that runs out is success, in two ways.** `sz::decompress`
+  returns `AecError::Truncated` for both.
+  - Unpadded scanlines (`pps` a multiple of `ppb`): libsz returns `SZ_OK` and
+    lowers `destLen` to what it decoded (`sz_compat.c:302-303`). All 39
+    unpadded `sz_*` streams, cut in half, do this; `sz_b16_ppb16_exact` gives
+    192 of 384 bytes.
+  - Padded scanlines: libsz sets the length to `scanlines × pps` pixels
+    (`sz_compat.c:295`), never lowers `destLen`, and returns `SZ_OK` at full
+    length. The bytes past what it decoded are copied from its padded buffer,
+    which `malloc` left uninitialised, so they vary from run to run. All 39
+    padded `sz_*` streams, cut in half, do this; `sz_b16_ppb10_padded` cut to
+    115 bytes gives `SZ_OK` with `destLen` 306 of 306.
+  - HDF5 checks the length only with `assert(size_out == nalloc)`
+    (`H5Zszip.c:300` on HDF5's `develop` branch), which a release build
+    compiles out, and returns `size_out` as the chunk size (`:309`). So a
+    release HDF5 passes either result on.
+- **A 32- or 64-bit output that is not a whole number of pixels comes back
+  misplaced.** libsz deinterleaves with planes of `destLen / w` bytes, rounded
   down (`sz_compat.c:84-93, 305-306`). Decoding `sz_b32_plane_edge_mid_scanline`
   with its own parameters (mask 40, 32 bits, 16 per block, 64 per scanline)
-  into 599 bytes instead of 600 returns `SZ_OK` with `destLen` 599, 168 of
-  those bytes differ from the 600-byte decode, and the last 3 are never
-  written. `sz::decompress` returns `AecError::OutputLength`.
+  into 599 bytes instead of 600 returns `SZ_OK` with `destLen` 599: 165 bytes
+  are misplaced and the last 3 are never written (168 differ from the
+  600-byte decode). This only happens at a length that is not whole pixels;
+  HDF5 never asks for one. `sz::decompress` returns `AecError::OutputLength`.
+- **libsz reads past the last pixel.** With padded scanlines it decodes every
+  scanline whole, so a bad code in a block after the last requested pixel
+  fails the call. `sz::decompress` stops at the last pixel and returns `Ok`
+  with the same bytes. The test `a_bad_code_after_the_last_pixel_is_never_read`
+  builds such a stream by hand (8 bits, 2 per block, 5 per scanline, a
+  zero-block run past the end of the second scanline's interval): libsz
+  returns -3 (`AEC_DATA_ERROR`) for a 6-byte output and `SZ_OK` for 5 bytes.
 
 ## Why the CCSDS sample data is not here
 

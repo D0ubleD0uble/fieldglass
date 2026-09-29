@@ -92,7 +92,10 @@ The complement of libaec 1.1.7's `aec_decode_init` refusals:
 - Decoding stops at the requested count, so trailing fill that libaec misreads
   after the last sample is never an error.
 - An szip stream that runs out before the output is full is an error. libsz
-  returns success with a shorter length.
+  returns success, with a shorter length or, when scanlines are padded, the
+  full length and uninitialised bytes in the part it could not decode.
+- szip decoding stops at the last pixel asked for, so a bad code after it is
+  never read. libsz decodes whole scanlines and fails on one.
 - An szip output of 32- or 64-bit pixels that is not a whole number of pixels
   is an error. libsz returns success with the bytes out of place and the last
   few unwritten.

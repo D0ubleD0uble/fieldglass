@@ -33,19 +33,27 @@
 //! skipped as they arrive, and byte planes are scattered straight to their
 //! place in `out`. It allocates nothing.
 //!
-//! It also refuses two things libsz returns `SZ_OK` for (ADR-0012 decision 4):
+//! It differs from libsz in three more ways (ADR-0012 decision 4):
 //!
-//! - **Short output.** When the stream ends early, libsz shrinks `destLen`
-//!   and returns success (`sz_compat.c:302-303`). Here it is
-//!   [`AecError::Truncated`]: the caller knows the exact length (HDF5 stores
-//!   it in each chunk), so a short result is lost data.
-//! - **A 32- or 64-bit output that is not a whole number of pixels.** libsz
-//!   deinterleaves with `P = destLen / w` rounded down (`sz_compat.c:81-92,
-//!   305-306`), so every byte lands in the wrong place and the last
-//!   `destLen mod w` bytes are never written, and still returns `SZ_OK`. Here
-//!   it is [`AecError::OutputLength`], as is any length that is not a whole
-//!   number of pixels at other widths (where libsz reports an error or short
-//!   output).
+//! - **A stream that runs out is an error**, [`AecError::Truncated`]. libsz
+//!   returns `SZ_OK` either way. With unpadded scanlines it lowers `destLen`
+//!   to what it decoded (`sz_compat.c:302-303`). With padded scanlines it
+//!   reports the full length, `scanlines × pps` pixels (`sz_compat.c:295`),
+//!   and the bytes past what it decoded come from an uninitialised buffer.
+//!   HDF5 checks the length only in a debug-build `assert` (`H5Zszip.c:300`),
+//!   so a release build passes either result on as the chunk.
+//! - **A 32- or 64-bit output that is not a whole number of pixels is an
+//!   error**, [`AecError::OutputLength`], as is a partial pixel at any
+//!   width. At 32 and 64 bits libsz returns `SZ_OK` with the bytes out of
+//!   place: it deinterleaves with `P = destLen / w` rounded down
+//!   (`sz_compat.c:84-93, 305-306`), so a length one byte short of whole
+//!   pixels moves bytes and leaves the last `destLen mod w` unwritten.
+//! - **Decoding stops at the last output pixel.** libsz decodes every
+//!   scanline whole when scanlines are padded, including the blocks after
+//!   the last pixel of a partial last scanline, and fails if one of them
+//!   holds a bad code. Those blocks describe samples nobody asked for, so
+//!   here they are never read and the result is `Ok`, with the bytes libsz
+//!   would have written.
 //!
 //! Parameter validation is libsz's (`sz_compat.c:229-235`) plus the one check
 //! libaec's decoder adds behind it: at most 256 pixels per block. See
@@ -232,7 +240,8 @@ impl SzParams {
 /// - [`AecError::OutputLength`] when `out.len()` is not a whole number of
 ///   pixels. `bytes_per_sample` in the error is the pixel width.
 /// - [`AecError::Truncated`] when the stream ends before `out` is full, where
-///   libsz returns success with a smaller `destLen`. Its counts are in
+///   libsz returns `SZ_OK` (with a smaller `destLen`, or with unwritten
+///   bytes when scanlines are padded). Its counts are in
 ///   decoded samples with pads dropped: pixels, or bytes for 32- and 64-bit
 ///   pixels.
 /// - [`AecError::InvalidCode`] for a code no valid encoder writes. Its
@@ -449,15 +458,24 @@ impl<'a> Planes<'a> {
 
     #[inline]
     fn put(&mut self, value: u32) {
-        // A byte past the end is dropped: the kernel never delivers one.
-        if let Some(dst) = self.out.get_mut(self.at) {
-            *dst = value.to_le_bytes()[0];
-        }
+        // Once every plane is full `at` is parked at `out.len()`, so a byte
+        // past the end is dropped rather than written over the first plane.
+        // The kernel never delivers one; the test below holds the guard.
+        let Some(dst) = self.out.get_mut(self.at) else {
+            return;
+        };
+        *dst = value.to_le_bytes()[0];
         self.pixel += 1;
         if self.pixel == self.pixels {
-            // The next plane starts at the next byte of the first pixel.
+            // The next plane starts at the next byte of the first pixel,
+            // unless that was the last plane.
             self.pixel = 0;
-            self.at = self.at + self.width - self.out.len() + 1;
+            let next = self.at + self.width - self.out.len() + 1;
+            self.at = if next == self.width {
+                self.out.len()
+            } else {
+                next
+            };
         } else {
             self.at += self.width;
         }
@@ -525,11 +543,19 @@ mod tests {
 
     #[test]
     fn a_byte_past_the_planes_is_dropped() {
-        let mut out = [0u8; 4];
-        let mut planes = Planes::new(&mut out, 4);
-        for v in 1..=6 {
-            planes.put(v);
+        // One pixel, and several: after the last plane the next index would
+        // be `w`, which is inside `out` whenever there is more than one pixel.
+        for (n, w) in [(4, 4), (8, 4), (24, 8)] {
+            let mut out = vec![0u8; n];
+            let mut planes = Planes::new(&mut out, w);
+            for v in 0..n + 2 * w {
+                planes.put(u32::try_from(v).unwrap());
+            }
+            let pixels = n / w;
+            let want: Vec<u8> = (0..n)
+                .map(|k| u8::try_from((k % w) * pixels + k / w).unwrap())
+                .collect();
+            assert_eq!(out, want, "n {n} w {w}");
         }
-        assert_eq!(out, [1, 2, 3, 4]);
     }
 }

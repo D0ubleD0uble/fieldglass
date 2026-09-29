@@ -8,8 +8,9 @@
 //!
 //! The rest of the file holds the edges libsz is not the oracle for: short
 //! output and partial pixels, where this crate refuses what libsz returns
-//! `SZ_OK` for (ADR-0012 decision 4), and the parameter checks, which mirror
-//! `sz_compat.c:229-235`.
+//! `SZ_OK` for, and bad codes after the last pixel, which this crate never
+//! reads and libsz fails on (all in ADR-0012 decision 4); and the parameter
+//! checks, which mirror `sz_compat.c:229-235`.
 
 mod common;
 
@@ -174,8 +175,14 @@ fn the_other_option_bits_change_nothing() {
     assert_eq!(case("sz_b16_ignored_options").params.options_mask(), 171);
 }
 
-/// libsz returns `SZ_OK` with a smaller `destLen` when the stream runs out
-/// (`sz_compat.c:302-303`); this is an error, never a shorter success.
+/// A stream that runs out is an error here, never a shorter success.
+///
+/// libsz returns `SZ_OK` for both halves of this test, in two ways. With
+/// unpadded scanlines it lowers `destLen` (`sz_compat.c:302-303`): the 39
+/// unpadded cases. With padded scanlines it reports the full length
+/// (`sz_compat.c:295`) with the undecoded tail taken from an uninitialised
+/// buffer: all 39 padded cases, cut in half, return `SZ_OK` at their full
+/// `destLen` from libsz 1.1.7.
 #[test]
 fn a_stream_that_decodes_short_is_an_error() {
     for case in cases() {
@@ -230,10 +237,11 @@ fn a_length_that_is_not_a_whole_number_of_pixels_is_an_error() {
 }
 
 /// libsz 1.1.7 decodes this case into a 599-byte buffer with `SZ_OK`: it
-/// deinterleaves with planes of `599 / 4 = 149` bytes, so 168 of the 599
-/// bytes differ from the 600-byte decode and the last three are never written
-/// (`sz_compat.c:84-93, 305-306`; reproduction in `tests/fixtures/NOTICE.md`).
-/// That is not a result anyone can use, so it is an error here.
+/// deinterleaves with planes of `599 / 4 = 149` bytes instead of 150, so 165
+/// bytes are misplaced and the last three are never written (168 differ from
+/// the 600-byte decode; `sz_compat.c:84-93, 305-306`; reproduction in
+/// `tests/fixtures/NOTICE.md`). That only happens at a length that is not
+/// whole pixels, and it is an error here.
 #[test]
 fn a_partial_32_bit_pixel_is_an_error_where_libsz_scrambles_it() {
     let case = case("sz_b32_plane_edge_mid_scanline");
@@ -377,4 +385,40 @@ fn a_zero_run_across_pads_repeats_the_last_pixel() {
     let mut out = [0u8; 12];
     sz::decompress(&stream, &params, &mut out).unwrap();
     assert_eq!(out, [0x12, 0x34].repeat(6)[..]);
+}
+
+/// libsz decodes padded scanlines whole, so it reads the blocks after the
+/// last pixel of a partial last scanline and fails on a bad code there. This
+/// crate stops at the last pixel and never reads them (ADR-0012 decision 4).
+///
+/// 8-bit pixels, blocks of 2, 5 pixels per scanline (3 blocks, padded to 6
+/// samples). The first scanline is three uncompressed blocks: 1 2, 3 4, 5
+/// and a pad. The second is uncompressed 6 7, uncompressed 8 9, then a zero
+/// block of two blocks where one is left in the interval, a run past its end.
+/// A 6-pixel output ends at the second scanline's first sample.
+///
+/// libsz 1.1.7, `SZ_BufftoBuffDecompress` with mask 0, 8 bits, 2 per block,
+/// 5 per scanline: `destLen` 6 gives -3 (`AEC_DATA_ERROR`, `decode.c:529-541`)
+/// and 11 gives -3; `destLen` 5, a whole first scanline, gives `SZ_OK` and
+/// 1 2 3 4 5.
+#[test]
+fn a_bad_code_after_the_last_pixel_is_never_read() {
+    let params = SzParams::new(0, 8, 2, 5).unwrap();
+    let mut bits = Bits::default();
+    for (a, b) in [(1, 2), (3, 4), (5, 0), (6, 7), (8, 9)] {
+        bits.put(0b111, 3).put(a, 8).put(b, 8);
+    }
+    bits.put(0b000, 3).put(0, 1).fs(1);
+    let stream = bits.done();
+
+    let mut out = [0u8; 6];
+    sz::decompress(&stream, &params, &mut out).unwrap();
+    assert_eq!(out, [1, 2, 3, 4, 5, 6]);
+
+    // Asking for the pixels that run covers reaches the bad code.
+    let mut out = [0u8; 10];
+    assert!(matches!(
+        sz::decompress(&stream, &params, &mut out),
+        Err(AecError::InvalidCode { sample: 9, .. })
+    ));
 }
