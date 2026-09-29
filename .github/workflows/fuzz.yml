@@ -117,6 +117,39 @@ jobs:
         run: cargo fuzz run differential --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
         working-directory: crates/fieldglass-aec/fuzz
 
+  aec-sz:
+    name: szip decompress (cargo-fuzz, time-boxed)
+    needs: lockfiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Rust nightly
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: nightly
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: crates/fieldglass-aec/fuzz
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@dfae9bf3d6f6c6f20ef4ebb3486c01a51341ff12 # v2.87.18
+        with:
+          tool: cargo-fuzz
+
+      # Seeded by every szip case in the corpus, each behind its parameter
+      # header. `sz` holds `sz::decompress` against libsz's way of doing it
+      # (decode the padded stream, drop the pads, deinterleave), written out
+      # in the target. Its own job, so the AEC job's four minutes stay as
+      # they were.
+      - name: Fuzz szip decompression
+        run: cargo fuzz run sz --target x86_64-unknown-linux-gnu -- -max_total_time=240 -timeout=10
+        working-directory: crates/fieldglass-aec/fuzz
+
   grib1-decode:
     name: GRIB1 decode (cargo-fuzz, time-boxed)
     needs: lockfiles

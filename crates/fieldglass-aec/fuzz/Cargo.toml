@@ -25,6 +25,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "sz"
+path = "fuzz_targets/sz.rs"
+test = false
+doc = false
+bench = false
+
 # Keep this crate out of the parent workspace so the standard gates
 # (`cargo build/clippy/test --workspace`) — which run on stable — never
 # try to compile the nightly-only libFuzzer target.
