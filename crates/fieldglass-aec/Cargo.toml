@@ -1,0 +1,32 @@
+[package]
+name        = "fieldglass-aec"
+description = "CCSDS 121.0-B Adaptive Entropy Coding (AEC / szip) decoder in pure Rust, checked byte for byte against libaec"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+readme      = "README.md"
+keywords    = ["aec", "ccsds", "szip", "grib2", "hdf5"]
+categories  = ["compression", "science", "parser-implementations"]
+# Not in `release.yml`'s publish loop yet, and not depended on by any published
+# crate: the first publish is by hand, at the first release in which
+# `fieldglass-grib2` depends on this crate (ADR-0012 decision 10). It is left
+# publishable so `cargo publish --dry-run` keeps the manifest honest until then.
+
+[dependencies]
+# The one dependency (ADR-0012 decision 1). It is already in every consumer's
+# tree through `fieldglass-core`, so a format crate that takes this one links
+# nothing new. No workspace crate: a codec that returned `FieldglassError`
+# would drag `core` into a consumer that wants only the codec.
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# The conformance manifest is JSON, written by tools/build_aec_fixtures.py.
+serde_json = { workspace = true }
+# The manifest pins every stream and every libaec output by SHA-256.
+sha2 = { workspace = true }
+
+[lints]
+workspace = true
