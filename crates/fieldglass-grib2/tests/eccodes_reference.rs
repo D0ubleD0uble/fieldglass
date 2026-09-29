@@ -649,6 +649,22 @@ fn the_cross_check_compares_every_key_it_ships() {
 /// which re-derives each claim rather than trusting the comment.
 const NO_VALUE_CHECK: &[(&str, &str)] = &[
     (
+        "ccsds_flags13_12bit.grib2",
+        "eccodes 2.34.1 mis-decodes a 5.42 message re-flagged `ccsdsFlags = 13` (SIGNED): it reports a maximum of 2234.68 against a source maximum of 314.675, while the field is the source fixture's. The value oracle is the source fixture's eccodes values, copied to `<fixture>_expected.json` and checked in `decode_ccsds.rs` (#756); see NOTICE.md.",
+    ),
+    (
+        "ccsds_flags13_24bit.grib2",
+        "eccodes 2.34.1 mis-decodes a 5.42 message re-flagged `ccsdsFlags = 13` (SIGNED): it reports a maximum of 16631.1 against a source maximum of 311.099, while the field is the source fixture's. The value oracle is the source fixture's eccodes values, copied to `<fixture>_expected.json` and checked in `decode_ccsds.rs` (#756); see NOTICE.md.",
+    ),
+    (
+        "ccsds_flags36_12bit.grib2",
+        "eccodes 2.34.1 mis-decodes a 5.42 message re-flagged `ccsdsFlags = 36` (PAD_RSI): it reports a maximum of 2251.58 against a source maximum of 314.675, while the field is the source fixture's. The value oracle is the source fixture's eccodes values, copied to `<fixture>_expected.json` and checked in `decode_ccsds.rs` (#756); see NOTICE.md.",
+    ),
+    (
+        "ccsds_flags46_12bit.grib2",
+        "eccodes 2.34.1 fails this 5.42 message (`ccsdsFlags = 46`, PAD_RSI + PP + 3BYTE + MSB) with AEC_DATA_ERROR, and its snapshot records all zeros. fieldglass returns UnsupportedSection until #762 clears PAD_RSI; `decode_ccsds.rs` pins that (#756).",
+    ),
+    (
         "matrix_reshape_16x31.grib2",
         "eccodes does not decode the true matrix form (`matrixBitmapsPresent = 1`) \
          — it reports 496 zeros for a field that is nothing of the kind, so there \

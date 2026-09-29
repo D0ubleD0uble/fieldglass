@@ -1,0 +1,123 @@
+{
+  "messages": [
+    {
+      "discipline": 0,
+      "editionNumber": 2,
+      "totalLength": 1610,
+      "centre": 98,
+      "subCentre": 0,
+      "significanceOfReferenceTime": 1,
+      "dataDate": 20080206,
+      "dataTime": 1200,
+      "productionStatusOfProcessedData": 0,
+      "typeOfProcessedData": 255,
+      "gridDefinitionTemplateNumber": 0,
+      "shapeOfTheEarth": 6,
+      "numberOfDataPoints": 496,
+      "Ni": 16,
+      "Nj": 31,
+      "latitudeOfFirstGridPointInDegrees": 60,
+      "longitudeOfFirstGridPointInDegrees": 0,
+      "latitudeOfLastGridPointInDegrees": 0,
+      "longitudeOfLastGridPointInDegrees": 30,
+      "iDirectionIncrementInDegrees": 2,
+      "jDirectionIncrementInDegrees": 2,
+      "jPointsAreConsecutive": 0,
+      "alternativeRowScanning": 0,
+      "productDefinitionTemplateNumber": 0,
+      "parameterCategory": 0,
+      "parameterNumber": 0,
+      "typeOfGeneratingProcess": 0,
+      "indicatorOfUnitOfTimeRange": 1,
+      "forecastTime": 0,
+      "typeOfFirstFixedSurface": 103,
+      "scaleFactorOfFirstFixedSurface": 0,
+      "scaledValueOfFirstFixedSurface": 2,
+      "dataRepresentationTemplateNumber": 42,
+      "referenceValue": 270.467,
+      "binaryScaleFactor": -18,
+      "decimalScaleFactor": 0,
+      "bitsPerValue": 24,
+      "bitMapIndicator": 255
+    }
+  ],
+  "values": [
+    {
+      "count": 496,
+      "numberOfMissing": 0,
+      "minimum": 270.467,
+      "maximum": 16631.1,
+      "average": 3417.39,
+      "sample": [
+        [
+          0,
+          279
+        ],
+        [
+          31,
+          273.806
+        ],
+        [
+          62,
+          274.925
+        ],
+        [
+          93,
+          278.432
+        ],
+        [
+          124,
+          283.302
+        ],
+        [
+          155,
+          284.62
+        ],
+        [
+          186,
+          287.403
+        ],
+        [
+          217,
+          288.991
+        ],
+        [
+          248,
+          289.165
+        ],
+        [
+          279,
+          290.133
+        ],
+        [
+          310,
+          293.581
+        ],
+        [
+          341,
+          295.13
+        ],
+        [
+          372,
+          302.147
+        ],
+        [
+          403,
+          16629.9
+        ],
+        [
+          434,
+          300.312
+        ],
+        [
+          465,
+          300.914
+        ],
+        [
+          495,
+          300.882
+        ]
+      ]
+    }
+  ]
+}

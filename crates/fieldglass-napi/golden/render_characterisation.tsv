@@ -315,6 +315,26 @@ grib2/bifourier_rectangle_keepaxes.grib2#00	combine/a_minus_b/render/source/near
 grib2/bifourier_rectangle_keepaxes.grib2#00	meta	family=unresolved err: grid has no declared dimensions	3bfbf8e313925536
 grib2/bifourier_rectangle_keepaxes.grib2#00	render/equirectangular/nearest	err: unsupported section: message holds bi-Fourier spectral coefficients (§#.#/#/#), which are not values on a grid — decode them with `Grib#Reader::decode_bifourier_message`	675a58ae95e9b7bd
 grib2/bifourier_rectangle_keepaxes.grib2#00	render/source/nearest	err: unsupported section: message holds bi-Fourier spectral coefficients (§#.#/#/#), which are not values on a grid — decode them with `Grib#Reader::decode_bifourier_message`	675a58ae95e9b7bd
+grib2/ccsds_flags13_12bit.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
+grib2/ccsds_flags13_12bit.grib2#00	combine/a_minus_b/render/source/nearest	ok w=1440 h=721 opaque=1038240	e43f1da252bd7484
+grib2/ccsds_flags13_12bit.grib2#00	meta	family=latlon ni=1440 nj=721 reprojectable=true	ae4175e94e49e670
+grib2/ccsds_flags13_12bit.grib2#00	render/equirectangular/nearest	ok w=1440 h=721 opaque=1038240	3192496ead9ed9e5
+grib2/ccsds_flags13_12bit.grib2#00	render/source/nearest	ok w=1440 h=721 opaque=1038240	44febd1c998fcb7d
+grib2/ccsds_flags13_24bit.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
+grib2/ccsds_flags13_24bit.grib2#00	combine/a_minus_b/render/source/nearest	ok w=16 h=31 opaque=496	2c0028f7bc050a3a
+grib2/ccsds_flags13_24bit.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	354f2f0825e2fb25
+grib2/ccsds_flags13_24bit.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/ccsds_flags13_24bit.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/ccsds_flags36_12bit.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
+grib2/ccsds_flags36_12bit.grib2#00	combine/a_minus_b/render/source/nearest	ok w=1440 h=721 opaque=1038240	e43f1da252bd7484
+grib2/ccsds_flags36_12bit.grib2#00	meta	family=latlon ni=1440 nj=721 reprojectable=true	ae4175e94e49e670
+grib2/ccsds_flags36_12bit.grib2#00	render/equirectangular/nearest	ok w=1440 h=721 opaque=1038240	3192496ead9ed9e5
+grib2/ccsds_flags36_12bit.grib2#00	render/source/nearest	ok w=1440 h=721 opaque=1038240	44febd1c998fcb7d
+grib2/ccsds_flags46_12bit.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
+grib2/ccsds_flags46_12bit.grib2#00	combine/a_minus_b/render/source/nearest	err: unsupported section: CCSDS packing: AEC decode failed: unexpected end of input at bit # (wrote # samples)	336f1776f6a2aebc
+grib2/ccsds_flags46_12bit.grib2#00	meta	family=latlon ni=1440 nj=721 reprojectable=true	ae4175e94e49e670
+grib2/ccsds_flags46_12bit.grib2#00	render/equirectangular/nearest	err: unsupported section: CCSDS packing: AEC decode failed: unexpected end of input at bit # (wrote # samples)	336f1776f6a2aebc
+grib2/ccsds_flags46_12bit.grib2#00	render/source/nearest	err: unsupported section: CCSDS packing: AEC decode failed: unexpected end of input at bit # (wrote # samples)	336f1776f6a2aebc
 grib2/ccsds_regular_latlon.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/ccsds_regular_latlon.grib2#00	combine/a_minus_b/render/source/nearest	ok w=16 h=31 opaque=496	2c0028f7bc050a3a
 grib2/ccsds_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	354f2f0825e2fb25

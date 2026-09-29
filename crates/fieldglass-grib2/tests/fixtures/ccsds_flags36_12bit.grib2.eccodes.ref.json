@@ -1,0 +1,123 @@
+{
+  "messages": [
+    {
+      "discipline": 0,
+      "editionNumber": 2,
+      "totalLength": 1560322,
+      "centre": 98,
+      "subCentre": 0,
+      "significanceOfReferenceTime": 1,
+      "dataDate": 20260630,
+      "dataTime": 0,
+      "productionStatusOfProcessedData": 0,
+      "typeOfProcessedData": 1,
+      "gridDefinitionTemplateNumber": 0,
+      "shapeOfTheEarth": 6,
+      "numberOfDataPoints": 1038240,
+      "Ni": 1440,
+      "Nj": 721,
+      "latitudeOfFirstGridPointInDegrees": 90,
+      "longitudeOfFirstGridPointInDegrees": 180,
+      "latitudeOfLastGridPointInDegrees": -90,
+      "longitudeOfLastGridPointInDegrees": 179.75,
+      "iDirectionIncrementInDegrees": 0.25,
+      "jDirectionIncrementInDegrees": 0.25,
+      "jPointsAreConsecutive": 0,
+      "alternativeRowScanning": 0,
+      "productDefinitionTemplateNumber": 0,
+      "parameterCategory": 0,
+      "parameterNumber": 0,
+      "typeOfGeneratingProcess": 2,
+      "indicatorOfUnitOfTimeRange": 1,
+      "forecastTime": 0,
+      "typeOfFirstFixedSurface": 103,
+      "scaleFactorOfFirstFixedSurface": 0,
+      "scaledValueOfFirstFixedSurface": 2,
+      "dataRepresentationTemplateNumber": 42,
+      "referenceValue": 203.613,
+      "binaryScaleFactor": -5,
+      "decimalScaleFactor": 0,
+      "bitsPerValue": 12,
+      "bitMapIndicator": 255
+    }
+  ],
+  "values": [
+    {
+      "count": 1038240,
+      "numberOfMissing": 0,
+      "minimum": 203.613,
+      "maximum": 2251.58,
+      "average": 282.926,
+      "sample": [
+        [
+          0,
+          273.144
+        ],
+        [
+          64890,
+          273.144
+        ],
+        [
+          129780,
+          291.988
+        ],
+        [
+          194670,
+          300.269
+        ],
+        [
+          259560,
+          302.394
+        ],
+        [
+          324450,
+          298.269
+        ],
+        [
+          389340,
+          298.988
+        ],
+        [
+          454230,
+          299.644
+        ],
+        [
+          519120,
+          296.269
+        ],
+        [
+          584010,
+          288.082
+        ],
+        [
+          648900,
+          286.457
+        ],
+        [
+          713790,
+          288.988
+        ],
+        [
+          778680,
+          283.082
+        ],
+        [
+          843570,
+          272.957
+        ],
+        [
+          908460,
+          237.925
+        ],
+        [
+          973350,
+          442.707
+        ],
+        [
+          1038239,
+          211.082
+        ]
+      ]
+    }
+  ]
+}
