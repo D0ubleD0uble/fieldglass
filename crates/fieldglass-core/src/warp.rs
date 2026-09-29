@@ -1531,8 +1531,8 @@ mod tests {
     /// inverse closure captures `p` by move, then `Box::leak` extends
     /// its lifetime to `'static` — leaks one closure per call (a few
     /// dozen bytes) which the process reclaims on exit. Acceptable for
-    /// test helpers; production callers (`napi/src/lib.rs`) build the
-    /// closure on the stack and never leak.
+    /// test helpers; production callers (`fieldglass`'s `render.rs` and
+    /// `session.rs`) build the closure on the stack and never leak.
     fn make_source<'a, F: Fn(usize, usize) -> Option<f64> + Sync + 'a>(
         p: &'a LatLonParams,
         sample: &'a F,

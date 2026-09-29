@@ -750,9 +750,9 @@ fn axis_position(first: f64, last: f64, n: u32, k: u32) -> f64 {
 ///
 /// This is the lid on [`LatLonParams`] and friends. Before it, a consumer
 /// carried every family's parameters side by side behind a `grid_type` string
-/// and re-derived the dispatch itself, which is what
-/// `fieldglass-napi`'s 51-field `MessageMeta` view still does; nothing stopped
-/// a caller reading `latin1` off a Gaussian grid. A variant carries only the
+/// and re-derived the dispatch itself, as `fieldglass-napi` did from its
+/// 51-field `MessageMeta` view until #574; nothing stopped a caller reading
+/// `latin1` off a Gaussian grid. A variant carries only the
 /// parameters its own family defines, so that read does not compile.
 ///
 /// Every method answers `None` rather than guessing when the family cannot be
@@ -2186,6 +2186,7 @@ fn metres_apart(lat_a: f64, lon_a: f64, lat_b: f64, lon_b: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rotated_latlon::{rotate_latlon, unrotate_latlon};
 
     /// The sign of each increment is the scan direction. Moved here from
     /// `fieldglass-napi`, which tested this function for as long as it rebuilt
@@ -2213,7 +2214,6 @@ mod tests {
             (5000.0, 5000.0)
         );
     }
-    use rotated_latlon::{rotate_latlon, unrotate_latlon};
 
     /// The conversion the corner form and the box form differ by, on the two
     /// cases that motivated naming them (#553): the ordinary north-down grid,

@@ -6,9 +6,9 @@
 `fieldglass-core` serves two audiences behind one API. The format crates
 (`fieldglass-grib1`, `-grib2`, `-netcdf`) take it with `default-features = false`
 and consume only its *parsing* surface; the umbrella takes the viewer and
-analysis surfaces on top, and both hosts reach them through it. The crate documentation names that
-parsing surface, module by module, and the `fieldglass-core` README says the same
-thing again for a crates.io reader.
+analysis surfaces on top, and both hosts reach them through it. The crate
+documentation names that parsing surface, module by module, and the
+`fieldglass-core` README says the same thing again for a crates.io reader.
 
 **Neither statement was checked, and both had drifted.** The pre-commit hook
 `cargo-clippy-format-crates-parsing-only` (#551) proves the three libraries use
