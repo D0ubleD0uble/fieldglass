@@ -12,9 +12,12 @@ keywords    = ["grib", "grib2", "meteorology", "weather", "gis"]
 categories  = ["science", "parser-implementations"]
 
 [dependencies]
+# The CCSDS 121.0 (AEC) decoder for template 5.42 (ADR-0012). It depends on
+# nothing but `thiserror`, which `fieldglass-core` already brings, so it adds
+# one crate to this reader's tree and nothing else.
+fieldglass-aec = { path = "../fieldglass-aec", version = "=0.5.0" }
 fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false }
 png = { workspace = true }
-rust-aec = { workspace = true }
 rust-j2k = { workspace = true }
 
 [dev-dependencies]

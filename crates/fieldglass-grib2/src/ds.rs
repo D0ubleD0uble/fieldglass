@@ -16,7 +16,7 @@ use crate::drs::{
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::bitmap::count_present;
-use fieldglass_core::scaling::{decimal_factor, unpack_simple};
+use fieldglass_core::scaling::{Scaling, decimal_factor, unpack_simple};
 use fieldglass_core::{
     FieldglassError, StoredRuns,
     bits::{BitReader, sign_magnitude_to_i64},
@@ -627,22 +627,31 @@ fn decode_png_packing(
 /// are the packed integers `X`; after decompression the value transform is the
 /// simple-packing formula `value = (R + X · 2^E) · 10^-D`.
 ///
-/// The AEC codec is the pure-Rust [`rust_aec`] crate (no C dependency, so the
-/// six-target `.vsix` cross-compile is preserved); see ADR-0001. Any decoder
-/// error — a malformed stream, or a flag/parameter combination `rust_aec`
-/// doesn't cover — is surfaced as [`FieldglassError::UnsupportedSection`] so an
-/// untrusted file degrades gracefully (the message is reported undecodable)
-/// rather than crashing the addon.
+/// The AEC codec is this workspace's own [`fieldglass_aec`] (pure Rust, so the
+/// six-target `.vsix` cross-compile is preserved); see ADR-0012. Samples go
+/// from the decoder straight into the output values through [`ScaleSink`],
+/// with no intermediate byte buffer. Any decoder error (a malformed or
+/// truncated stream, or a parameter set the codec refuses) is surfaced as
+/// [`FieldglassError::UnsupportedSection`] so an untrusted file degrades
+/// gracefully (the message is reported undecodable) rather than crashing the
+/// addon.
 ///
-/// Flag handling mirrors eccodes' `grid_ccsds` (`modify_aec_flags`): the `MSB`
-/// and `DATA_3BYTE` flags only govern how `rust_aec` serialises decoded
-/// samples to bytes, not the entropy-decoded integer `X`. We pin them — force
-/// `MSB` on (samples big-endian) and `DATA_3BYTE` off (17–24-bit samples in 4
-/// bytes) — so a fixed `ceil(bits/8)`-byte big-endian read recovers `X`
-/// regardless of the file's stored byte-order bit. The `PREPROCESS` /
-/// `SIGNED` / `RESTRICTED` / `PAD_RSI` flags, which do drive the decode, are
-/// honoured as stored. Like eccodes, the decoded samples are read as unsigned
-/// offsets from `R`.
+/// The `ccsdsFlags` octet is libaec's flag byte, and two of its bits are read
+/// by GRIB2's rules rather than libaec's (ADR-0012 decision 5), because that is
+/// what eccodes' encoder wrote: it hands libaec the unsigned `X` as an n-bit
+/// pattern, and libaec's default build never writes RSI padding.
+///
+/// - **`SIGNED`:** a sample is taken as its n-bit pattern, `X = sample &
+///   mask(n)` (decision Q5). With `PREPROCESS` the codec sign-extends the
+///   sample and the mask undoes it; without it the codec already hands over the
+///   pattern and the mask changes nothing.
+/// - **`PAD_RSI`:** cleared before decoding (decision D1), so flag-36 and
+///   flag-46 files decode to the field eccodes encoded. eccodes' own decode of
+///   them is wrong, and fails outright on flag 46; `tests/decode_ccsds.rs` pins
+///   both against the source field.
+///
+/// `MSB` and `3BYTE` choose libaec's output byte layout, which a sink never
+/// sees, so they need no handling here.
 fn decode_ccsds_packing(
     ds_payload: &[u8],
     t: &CcsdsPackingTemplate,
@@ -676,51 +685,80 @@ fn decode_ccsds_packing(
             t.bits_per_value
         )));
     }
-    // Output sample width with `DATA_3BYTE` forced off: 17–24-bit samples
-    // occupy 4 bytes, matching `rust_aec`'s serialisation under the pinned
-    // flags below. (`present_count * bytes_per_value` can't overflow:
-    // present_count is capped upstream and bytes_per_value ≤ 4.)
-    let bytes_per_value: usize = match t.bits_per_value {
-        1..=8 => 1,
-        9..=16 => 2,
-        _ => 4,
-    };
-
-    let mut flags = rust_aec::flags_from_grib2_ccsds_flags(t.ccsds_flags);
-    flags.insert(rust_aec::AecFlags::MSB);
-    flags.remove(rust_aec::AecFlags::DATA_3BYTE);
-    let params = rust_aec::AecParams::new(
-        t.bits_per_value,
-        t.block_size as u32,
-        t.reference_sample_interval as u32,
-        flags,
-    );
-
-    let data = rust_aec::decode(ds_payload, params, present_count).map_err(|e| {
+    let aec_error = |e: fieldglass_aec::AecError| {
         FieldglassError::UnsupportedSection(format!("CCSDS packing: AEC decode failed: {e}"))
-    })?;
+    };
+    let flags = fieldglass_aec::Flags::from_bits_truncate(t.ccsds_flags)
+        .difference(fieldglass_aec::Flags::PAD_RSI);
+    let params = fieldglass_aec::Params::new(
+        t.bits_per_value,
+        u16::from(t.block_size),
+        t.reference_sample_interval,
+        flags,
+    )
+    .map_err(aec_error)?;
 
-    // `rust_aec` returns exactly `present_count * bytes_per_value` bytes under
-    // the pinned flags; verify before slicing so a contract change surfaces as
-    // a clean error rather than a panic.
-    if data.len() != present_count * bytes_per_value {
+    // `present_count` is capped upstream (`MAX_FIELD_POINTS`), so this
+    // allocation is bounded by the grid, not by anything §7 says.
+    let mut sink = ScaleSink {
+        out: Vec::with_capacity(present_count),
+        room: present_count,
+        mask: sample_mask(t.bits_per_value),
+        scaling,
+    };
+    fieldglass_aec::decode(ds_payload, &params, present_count, &mut sink).map_err(aec_error)?;
+    // The codec delivers exactly the requested count on success. Check rather
+    // than trust it, so a contract change is a clean error, not a short field.
+    if sink.out.len() != present_count {
         return Err(FieldglassError::Parse(format!(
-            "CCSDS packing: decoded {} bytes for {present_count} values at {bytes_per_value} \
-             bytes each",
-            data.len()
+            "CCSDS packing: decoded {} of {present_count} values",
+            sink.out.len()
         )));
     }
 
-    let mut decoded = Vec::with_capacity(present_count);
-    for chunk in data.chunks_exact(bytes_per_value) {
-        let mut x: u64 = 0;
-        for &b in chunk {
-            x = (x << 8) | b as u64;
-        }
-        decoded.push(scaling.apply(x as f64));
+    Ok(interleave_with_bitmap(sink.out, bitmap, expected_count))
+}
+
+/// The low `bits` bits set, `mask(n)` in ADR-0012 decision 5, for `bits` from 1
+/// to 32 (the caller has already refused anything wider).
+fn sample_mask(bits: u8) -> u32 {
+    u32::MAX >> (32 - u32::from(bits.clamp(1, 32)))
+}
+
+/// Scales decoded AEC samples straight into the output values: the GRIB2 half
+/// of [`decode_ccsds_packing`], which the codec calls once per block or run.
+#[derive(Debug)]
+struct ScaleSink {
+    out: Vec<f64>,
+    /// Values still wanted. The codec never sends more than it was asked for;
+    /// this makes that hold even if it did, so a run can never grow the output
+    /// past the grid.
+    room: usize,
+    /// `mask(n)`: takes a SIGNED sample as its n-bit pattern (ADR-0012
+    /// decision 5). Unsigned samples are already below `2^n`, where the codec
+    /// refuses anything wider, so it leaves them alone.
+    mask: u32,
+    scaling: Scaling,
+}
+
+impl fieldglass_aec::Sink for ScaleSink {
+    fn samples(&mut self, block: &[u32]) {
+        let take = block.len().min(self.room);
+        let (mask, scaling) = (self.mask, self.scaling);
+        self.out.extend(
+            block[..take]
+                .iter()
+                .map(|&s| scaling.apply(f64::from(s & mask))),
+        );
+        self.room -= take;
     }
 
-    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+    fn repeat(&mut self, value: u32, count: usize) {
+        let take = count.min(self.room);
+        let v = self.scaling.apply(f64::from(value & self.mask));
+        self.out.extend(std::iter::repeat_n(v, take));
+        self.room -= take;
+    }
 }
 
 /// Decode JPEG 2000 packing (template 5.40). §7 carries a JPEG 2000 codestream
@@ -2535,12 +2573,204 @@ mod tests {
     // -----------------------------------------------------------------
     // CCSDS / AEC packing (template 5.42)
     //
-    // `rust_aec` has no encoder, so a valid AEC stream can't be synthesised
-    // in-crate. The happy-path decode is cross-checked against the committed
-    // eccodes oracle in `tests/decode_ccsds.rs`; these unit tests cover the
-    // branches that don't need a real stream — the constant-field shortcut,
-    // input validation, and the graceful-degradation guardrail.
+    // The whole-message decode is cross-checked against the committed eccodes
+    // oracle in `tests/decode_ccsds.rs`. These unit tests use short streams
+    // from `fieldglass-aec`'s conformance corpus (written by libaec's encoder,
+    // with libaec's decoded output pinned by SHA-256 in its manifest) to pin
+    // the GRIB2 rules on their own: the scaling, SIGNED masking, PAD_RSI
+    // clearing, and the error mapping. The expected integers are libaec's
+    // output for each stream, read from the bytes the manifest digests.
     // -----------------------------------------------------------------
+
+    /// `opt_b16_pp_msb_u_split_k2` from `fieldglass-aec`'s corpus: 16 bits,
+    /// block 16, RSI 2, flags 12 (PREPROCESS | MSB), 73 samples. libaec's
+    /// output digests to `54999c93…dcdc197`: the pattern 1, 0, 7, 0 repeated.
+    const AEC_U16: [u8; 46] = [
+        0x30, 0x00, 0x1a, 0x3a, 0x3a, 0x3a, 0x2e, 0xae, 0xae, 0xae, 0x9e, 0x8e, 0x8e, 0x8e, 0x8a,
+        0xea, 0xea, 0xea, 0xe9, 0x80, 0x00, 0xd1, 0xd1, 0xd1, 0xd1, 0x75, 0x75, 0x75, 0x74, 0xf4,
+        0x74, 0x74, 0x74, 0x57, 0x57, 0x57, 0x57, 0x48, 0x00, 0x06, 0x20, 0x71, 0x03, 0xff, 0xfe,
+        0x00,
+    ];
+
+    fn aec_u16_samples() -> Vec<f64> {
+        (0..73).map(|i| [1.0, 0.0, 7.0, 0.0][i % 4]).collect()
+    }
+
+    /// `opt_b16_pp_msb_s_split_k1`: 16 bits, block 16, RSI 2, flags 13
+    /// (SIGNED | PREPROCESS | MSB), 73 samples. libaec's 16-bit output
+    /// (`70720af0…dcbeb9a6`) is 0x8000, 0x8000, 0x8003, 0x8000 repeated: the
+    /// signed samples -32768 and -32765, whose n-bit patterns are 32768 and
+    /// 32771. The codec hands them over sign-extended to 32 bits.
+    const AEC_S16: [u8; 34] = [
+        0x28, 0x00, 0x0a, 0x74, 0xe9, 0xd2, 0xcc, 0xcc, 0xb4, 0xe9, 0xd3, 0xa4, 0xcc, 0xcc, 0xa0,
+        0x00, 0x29, 0xd3, 0xa7, 0x4b, 0x33, 0x32, 0xd3, 0xa7, 0x4e, 0x93, 0x33, 0x31, 0x80, 0x00,
+        0x88, 0x38, 0x83, 0xfe,
+    ];
+
+    fn aec_template(flags: u8, block: u8, rsi: u16, r: f32, e: i16) -> DataRepresentationTemplate {
+        DataRepresentationTemplate::Ccsds(CcsdsPackingTemplate {
+            reference_value: r,
+            binary_scale_factor: e,
+            decimal_scale_factor: 0,
+            bits_per_value: 16,
+            original_field_type: 0,
+            ccsds_flags: flags,
+            block_size: block,
+            reference_sample_interval: rsi,
+        })
+    }
+
+    fn present(values: Vec<Option<f64>>) -> Vec<f64> {
+        values.into_iter().map(|v| v.expect("present")).collect()
+    }
+
+    #[test]
+    fn ccsds_packing_decodes_a_libaec_stream_and_scales_it() {
+        let decoded =
+            decode_values(&AEC_U16, aec_template(12, 16, 2, 0.0, 0), None, 73).expect("decode");
+        assert_eq!(present(decoded), aec_u16_samples());
+
+        // (R + X·2^E)·10^-D with R = 10, E = 1: every value is 10 + 2X.
+        let decoded =
+            decode_values(&AEC_U16, aec_template(12, 16, 2, 10.0, 1), None, 73).expect("decode");
+        let want: Vec<f64> = aec_u16_samples().iter().map(|x| 10.0 + 2.0 * x).collect();
+        assert_eq!(present(decoded), want);
+    }
+
+    #[test]
+    fn ccsds_packing_takes_a_signed_sample_as_its_n_bit_pattern() {
+        // ADR-0012 decision 5 (Q5): X = sample & mask(n). Without the mask the
+        // sign-extended -32768 would scale as 4,294,934,528.
+        let decoded =
+            decode_values(&AEC_S16, aec_template(13, 16, 2, 0.0, 0), None, 73).expect("decode");
+        let want: Vec<f64> = (0..73)
+            .map(|i| [32768.0, 32768.0, 32771.0, 32768.0][i % 4])
+            .collect();
+        assert_eq!(present(decoded), want);
+    }
+
+    #[test]
+    fn ccsds_packing_clears_pad_rsi_before_decoding() {
+        // ADR-0012 decision 5 (D1). The stream has no RSI padding and spans
+        // five intervals, so honouring the flag reads the wrong bits: the codec
+        // on its own must disagree, or this test would not be testing the rule.
+        let honoured = fieldglass_aec::Params::new(
+            16,
+            16,
+            2,
+            fieldglass_aec::Flags::from_bits_truncate(12 | 32),
+        )
+        .expect("valid parameters");
+        let mut out = [0u8; 146];
+        let codec = fieldglass_aec::decode_to_bytes(&AEC_U16, &honoured, &mut out);
+        let want: Vec<u8> = aec_u16_samples()
+            .iter()
+            .flat_map(|&x| (x as u16).to_be_bytes())
+            .collect();
+        assert!(
+            codec.is_err() || out[..] != want[..],
+            "PAD_RSI changed nothing"
+        );
+
+        let decoded = decode_values(&AEC_U16, aec_template(12 | 32, 16, 2, 0.0, 0), None, 73)
+            .expect("decode");
+        assert_eq!(present(decoded), aec_u16_samples());
+    }
+
+    #[test]
+    fn ccsds_packing_ignores_the_byte_layout_flags() {
+        // MSB and 3BYTE only choose libaec's output bytes, which the reader
+        // never sees: clearing MSB, or setting 3BYTE, decodes the same values.
+        for flags in [8, 12 | 2, 8 | 2] {
+            let decoded = decode_values(&AEC_U16, aec_template(flags, 16, 2, 0.0, 0), None, 73)
+                .unwrap_or_else(|e| panic!("flags {flags}: {e}"));
+            assert_eq!(present(decoded), aec_u16_samples(), "flags {flags}");
+        }
+    }
+
+    #[test]
+    fn ccsds_packing_honours_bitmap() {
+        // 73 present values across a 74-point grid, the second point missing.
+        let mut bitmap = vec![true; 74];
+        bitmap[1] = false;
+        let decoded = decode_values(&AEC_U16, aec_template(12, 16, 2, 0.0, 0), Some(&bitmap), 74)
+            .expect("decode");
+        let mut want: Vec<Option<f64>> = aec_u16_samples().into_iter().map(Some).collect();
+        want.insert(1, None);
+        assert_eq!(decoded, want);
+    }
+
+    #[test]
+    fn ccsds_packing_asks_for_the_present_count_only() {
+        // The first 40 samples of the stream are a valid field of 40: the
+        // codec stops at the count and never reads the rest.
+        let decoded =
+            decode_values(&AEC_U16, aec_template(12, 16, 2, 0.0, 0), None, 40).expect("decode");
+        assert_eq!(present(decoded), aec_u16_samples()[..40]);
+    }
+
+    #[test]
+    fn ccsds_packing_refuses_a_truncated_stream() {
+        // Never a zero-filled tail (ADR-0012 decision 4, Q4).
+        let err = decode_values(&AEC_U16[..20], aec_template(12, 16, 2, 0.0, 0), None, 73)
+            .expect_err("must reject");
+        assert!(
+            matches!(err, FieldglassError::UnsupportedSection(_)),
+            "expected UnsupportedSection, got: {err:?}"
+        );
+        assert!(err.to_string().contains("CCSDS packing"), "got: {err}");
+    }
+
+    #[test]
+    fn ccsds_packing_maps_a_refused_parameter_set_to_unsupported() {
+        // An odd block size, an RSI above libaec's 4096, and the restricted set
+        // at 6 bits: each an `AecError` from `Params::new`, and each surfaced as
+        // an undecodable message rather than a panic.
+        let odd_block = aec_template(12, 7, 2, 0.0, 0);
+        let long_rsi = aec_template(12, 16, 4097, 0.0, 0);
+        let restricted = DataRepresentationTemplate::Ccsds(CcsdsPackingTemplate {
+            reference_value: 0.0,
+            binary_scale_factor: 0,
+            decimal_scale_factor: 0,
+            bits_per_value: 6,
+            original_field_type: 0,
+            ccsds_flags: 16,
+            block_size: 16,
+            reference_sample_interval: 2,
+        });
+        for template in [odd_block, long_rsi, restricted] {
+            let err = decode_values(&AEC_U16, template, None, 73).expect_err("must reject");
+            assert!(
+                matches!(err, FieldglassError::UnsupportedSection(_)),
+                "expected UnsupportedSection, got: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ccsds_scale_sink_masks_runs_and_never_outgrows_the_grid() {
+        use fieldglass_aec::Sink;
+        let mut sink = ScaleSink {
+            out: Vec::new(),
+            room: 5,
+            mask: sample_mask(16),
+            scaling: packing_scaling(0.0, 0, 0),
+        };
+        // A run of a sign-extended -32768, then more than the grid holds.
+        sink.repeat(0xFFFF_8000, 2);
+        sink.samples(&[1, 0xFFFF_FFFF, 3, 4]);
+        sink.repeat(9, usize::MAX);
+        assert_eq!(sink.out, [32768.0, 32768.0, 1.0, 65535.0, 3.0]);
+        assert_eq!(sink.room, 0);
+    }
+
+    #[test]
+    fn ccsds_sample_mask_covers_every_width() {
+        assert_eq!(sample_mask(1), 1);
+        assert_eq!(sample_mask(12), 0x0FFF);
+        assert_eq!(sample_mask(24), 0x00FF_FFFF);
+        assert_eq!(sample_mask(32), u32::MAX);
+    }
 
     fn ccsds_template(r: f32, e: i16, d: i16, bits: u8) -> DataRepresentationTemplate {
         DataRepresentationTemplate::Ccsds(CcsdsPackingTemplate {
@@ -2580,10 +2810,17 @@ mod tests {
 
     #[test]
     fn ccsds_packing_degrades_on_malformed_stream() {
-        // A non-AEC payload must surface as a recoverable UnsupportedSection
-        // error (graceful degradation), never a panic.
-        let err = decode_values(b"not an aec stream", ccsds_template(0.0, 0, 0, 16), None, 8)
-            .expect_err("must reject");
+        // A payload that ends before the field does must surface as a
+        // recoverable UnsupportedSection error (graceful degradation), never a
+        // panic. (Arbitrary bytes are not enough: the codec stops at the count,
+        // and 17 bytes of text can hold 8 valid-looking samples.)
+        let err = decode_values(
+            b"not an aec stream",
+            ccsds_template(0.0, 0, 0, 16),
+            None,
+            4096,
+        )
+        .expect_err("must reject");
         assert!(
             matches!(err, FieldglassError::UnsupportedSection(_)),
             "expected UnsupportedSection, got: {err:?}"

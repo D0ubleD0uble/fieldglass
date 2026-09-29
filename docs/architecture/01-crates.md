@@ -41,6 +41,7 @@ flowchart TD
     zarr --> core
     grib1 --> core
     grib2 --> core
+    grib2 --> aec
     netcdf --> core
 ```
 
@@ -199,13 +200,14 @@ rules that list the variables and place a slice are `fieldglass-core`'s
 `default-features = false` — so the edge costs no bundle until one opens a
 store (#659).
 
-**`fieldglass-aec` has no edges yet.** It is a codec crate, not a reader, and
-depends on no workspace crate
-([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). Today it carries the
+**`grib2 --> aec` is a codec edge, not a format crate depending on another.**
+`fieldglass-aec` is a codec crate, not a reader, and depends on no workspace
+crate ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). It carries the
 decoder and a conformance corpus from a pinned libaec; the szip layer follows.
-`fieldglass-grib2` takes it in place of `rust-aec` for template 5.42
-(#762) and `fieldglass-netcdf` takes it for the HDF5 szip filter (#421). Until
-then neither format crate's tree changes.
+`fieldglass-grib2` decodes template 5.42 with it (#762), and its only
+dependency, `thiserror`, already reaches the reader through `core`, so a
+GRIB2-only consumer links one crate more and nothing else.
+`fieldglass-netcdf` takes it for the HDF5 szip filter (#421).
 
 **`fetchplan --> zarr` is the one edge that looks like a rule being broken and
 is not.** `fieldglass-fetchplan` says it depends on no format crate, and it now

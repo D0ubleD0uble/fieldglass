@@ -79,7 +79,7 @@ pub enum Op {
 pub enum Codec {
     /// `rust_j2k`, over GRIB2 §7 of a 5.40 message.
     Jpeg2000,
-    /// `rust_aec`, over GRIB2 §7 of a 5.42 message.
+    /// `fieldglass_aec`, over GRIB2 §7 of a 5.42 message.
     Aec,
     /// `png`, over GRIB2 §7 of a 5.41 message.
     Png,
@@ -548,11 +548,18 @@ fn run_codec(
         }
         Codec::Aec => {
             let [bits, block, rsi, grib_flags] = aec.expect("aec parameters");
-            let mut flags = rust_aec::flags_from_grib2_ccsds_flags(grib_flags as u8);
-            flags.insert(rust_aec::AecFlags::MSB);
-            flags.remove(rust_aec::AecFlags::DATA_3BYTE);
-            let params = rust_aec::AecParams::new(bits as u8, block, rsi, flags);
-            rust_aec::decode(bytes, params, cells).expect("a generated AEC stream decodes")
+            use fieldglass_aec::{Flags, Params, decode_to_bytes};
+            // The flags the reader passes (PAD_RSI cleared, ADR-0012 decision
+            // 5), in the byte layout this row wrote before #762 (MSB
+            // first, four bytes above 16 bits), so the output is the same size.
+            let mut flags = Flags::from_bits_truncate(grib_flags as u8);
+            flags.insert(Flags::MSB);
+            flags.remove(Flags::THREE_BYTE | Flags::PAD_RSI);
+            let params = Params::new(bits as u8, block as u16, rsi as u16, flags)
+                .expect("generated AEC parameters are valid");
+            let mut out = vec![0; cells * params.bytes_per_sample()];
+            decode_to_bytes(bytes, &params, &mut out).expect("a generated AEC stream decodes");
+            out
         }
         Codec::Png => {
             let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))

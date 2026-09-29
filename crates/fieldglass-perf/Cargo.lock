@@ -140,6 +140,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fieldglass-aec"
+version = "0.5.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "fieldglass-core"
 version = "0.5.0"
 dependencies = [
@@ -158,9 +165,9 @@ dependencies = [
 name = "fieldglass-grib2"
 version = "0.5.0"
 dependencies = [
+ "fieldglass-aec",
  "fieldglass-core",
  "png",
- "rust-aec",
  "rust-j2k",
 ]
 
@@ -179,12 +186,12 @@ version = "0.0.0"
 dependencies = [
  "dhat",
  "fieldglass",
+ "fieldglass-aec",
  "fieldglass-core",
  "fieldglass-zarr",
  "gungraun",
  "miniz_oxide 0.9.1",
  "png",
- "rust-aec",
  "rust-j2k",
  "ruzstd",
  "serde_json",
@@ -435,15 +442,6 @@ name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
-dependencies = [
- "bitflags",
-]
-
-[[package]]
-name = "rust-aec"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9053fe9dc492823823e21aa267e48dbbe3e6cbc7b1557f95979c04af11aad0f"
 dependencies = [
  "bitflags",
 ]

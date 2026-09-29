@@ -331,10 +331,10 @@ grib2/ccsds_flags36_12bit.grib2#00	meta	family=latlon ni=1440 nj=721 reprojectab
 grib2/ccsds_flags36_12bit.grib2#00	render/equirectangular/nearest	ok w=1440 h=721 opaque=1038240	3192496ead9ed9e5
 grib2/ccsds_flags36_12bit.grib2#00	render/source/nearest	ok w=1440 h=721 opaque=1038240	44febd1c998fcb7d
 grib2/ccsds_flags46_12bit.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
-grib2/ccsds_flags46_12bit.grib2#00	combine/a_minus_b/render/source/nearest	err: unsupported section: CCSDS packing: AEC decode failed: unexpected end of input at bit # (wrote # samples)	336f1776f6a2aebc
+grib2/ccsds_flags46_12bit.grib2#00	combine/a_minus_b/render/source/nearest	ok w=1440 h=721 opaque=1038240	e43f1da252bd7484
 grib2/ccsds_flags46_12bit.grib2#00	meta	family=latlon ni=1440 nj=721 reprojectable=true	ae4175e94e49e670
-grib2/ccsds_flags46_12bit.grib2#00	render/equirectangular/nearest	err: unsupported section: CCSDS packing: AEC decode failed: unexpected end of input at bit # (wrote # samples)	336f1776f6a2aebc
-grib2/ccsds_flags46_12bit.grib2#00	render/source/nearest	err: unsupported section: CCSDS packing: AEC decode failed: unexpected end of input at bit # (wrote # samples)	336f1776f6a2aebc
+grib2/ccsds_flags46_12bit.grib2#00	render/equirectangular/nearest	ok w=1440 h=721 opaque=1038240	3192496ead9ed9e5
+grib2/ccsds_flags46_12bit.grib2#00	render/source/nearest	ok w=1440 h=721 opaque=1038240	44febd1c998fcb7d
 grib2/ccsds_regular_latlon.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/ccsds_regular_latlon.grib2#00	combine/a_minus_b/render/source/nearest	ok w=16 h=31 opaque=496	2c0028f7bc050a3a
 grib2/ccsds_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	354f2f0825e2fb25

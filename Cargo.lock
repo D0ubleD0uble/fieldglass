@@ -193,10 +193,10 @@ dependencies = [
 name = "fieldglass-grib2"
 version = "0.5.0"
 dependencies = [
+ "fieldglass-aec",
  "fieldglass-core",
  "fieldglass-grib1",
  "png",
- "rust-aec",
  "rust-j2k",
  "serde_json",
 ]
@@ -557,15 +557,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
-]
-
-[[package]]
-name = "rust-aec"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9053fe9dc492823823e21aa267e48dbbe3e6cbc7b1557f95979c04af11aad0f"
-dependencies = [
- "bitflags",
 ]
 
 [[package]]

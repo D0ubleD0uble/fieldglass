@@ -898,8 +898,9 @@ grib_set -r -s ccsdsFlags=46 ecmwf_ccsds_latlon.grib2         ccsds_flags46_12bi
 **Oracle caveat:** eccodes hands libaec the unsigned reference-subtracted value
 as an n-bit pattern, and libaec's default build never writes RSI padding
 (`encode.c`, `#ifdef ENABLE_RSI_PADDING`). So these files hold an unsigned,
-unpadded stream whatever the flags say. fieldglass decodes flags 13 and 36 to the
-source field exactly; the pinned eccodes 2.34.1 does not, so its decode of the
+unpadded stream whatever the flags say. fieldglass decodes all four to the source
+field exactly (ADR-0012 decision 5: a SIGNED sample is taken as its n-bit
+pattern, and PAD_RSI is cleared before decoding, #762); the pinned eccodes 2.34.1 does not, so its decode of the
 new file is not the value oracle (the same situation as ECC-2095 above):
 
 | Fixture | eccodes 2.34.1 decode | Source field |
@@ -909,10 +910,11 @@ new file is not the value oracle (the same situation as ECC-2095 above):
 | `ccsds_flags36_12bit.grib2` | max 2251.58 | max 314.675 |
 | `ccsds_flags46_12bit.grib2` | `AEC_DATA_ERROR` (snapshot: all zeros) | max 314.675 |
 
-The `<fixture>_expected.json` value oracles for the flag 13 and 36 fixtures are
-therefore copies of the source fixture's own eccodes oracle, with only
-`ccsdsFlags` and the `source` note changed. Flag 46 has none: fieldglass returns
-`UnsupportedSection` for it until #762 clears PAD_RSI before decoding. The
+The `<fixture>_expected.json` value oracles for the four fixtures are therefore
+copies of the source fixture's own eccodes oracle, with only `ccsdsFlags` and
+the `source` note changed. (Flag 46 had none until #762: fieldglass returned
+`UnsupportedSection` for it, as eccodes and a decoder that honours PAD_RSI
+still do.) The
 `.eccodes.ref.json` snapshots are 2.34.1 as usual and record eccodes' wrong
 statistics, which is why the four are listed in `NO_VALUE_CHECK` in
 `eccodes_reference.rs`. `decode_ccsds.rs` also checks each decode equals the

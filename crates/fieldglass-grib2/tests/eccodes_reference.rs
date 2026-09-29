@@ -662,7 +662,7 @@ const NO_VALUE_CHECK: &[(&str, &str)] = &[
     ),
     (
         "ccsds_flags46_12bit.grib2",
-        "eccodes 2.34.1 fails this 5.42 message (`ccsdsFlags = 46`, PAD_RSI + PP + 3BYTE + MSB) with AEC_DATA_ERROR, and its snapshot records all zeros. fieldglass returns UnsupportedSection until #762 clears PAD_RSI; `decode_ccsds.rs` pins that (#756).",
+        "eccodes 2.34.1 fails this 5.42 message (`ccsdsFlags = 46`, PAD_RSI + PP + 3BYTE + MSB) with AEC_DATA_ERROR, and its snapshot records all zeros, while the field is the source fixture's. fieldglass clears PAD_RSI before decoding (ADR-0012 decision 5). The value oracle is the source fixture's eccodes values, copied to `<fixture>_expected.json` and checked in `decode_ccsds.rs` (#756, #762); see NOTICE.md.",
     ),
     (
         "matrix_reshape_16x31.grib2",
