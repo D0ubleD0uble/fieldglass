@@ -147,11 +147,13 @@ defect, and the issue should name the command.
 
 ## Correctness comes first; reference libraries are oracles
 The goal is to decode correctly per the format's specification (WMO FM 92 /
-ON388, CCSDS 121.0-B, the HDF5 and NetCDF format documents). eccodes, libaec
+ON388, CCSDS 121.0-B, the HDF5 and NetCDF format documents), wherever one
+defines the behaviour. eccodes, libaec
 and libhdf5 are oracles for checking that, not the definition of correct.
 Matching one of them everywhere assumes it has no bugs, and each has shown
 some: libaec's encoder writes second-extension codes its own decoder rejects
-(#759), and eccodes 2.34.1 mis-decodes SIGNED and PAD_RSI CCSDS streams (#756).
+(#759), and eccodes 2.34.1 writes SIGNED and PAD_RSI flags on CCSDS streams that
+are neither, then decodes them wrongly (#756).
 
 - Where a reference agrees with the spec, match it exactly and test against it.
 - Where it disagrees, follow the spec. Record the evidence (the spec clause and
