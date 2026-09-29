@@ -119,6 +119,22 @@ A kernel file follows three rules, because two crates compile it:
   the `for` statement; the verification crate enables `proc_macro_hygiene`
   for it, since Verus expands that attribute onto an expression.
 
+A few things the pinned Verus does not accept in a kernel, each found by
+writing one:
+
+- `verus_spec` behind `cfg_attr` on an associated function without a
+  receiver; write a free function instead (`red_scale`, not `Scaling::new`);
+- a destructuring assignment such as `(a, b) = (b, a)`; assign one at a time;
+- a `const` declared outside `verus!`; write the literal;
+- `format!`, so a function that builds an error message is marked
+  `#[cfg_attr(verus_keep_ghost, verus_verify(external_body))]`, and the proof
+  takes its body on trust;
+- a `let ghost` outside `verus!`. A ghost snapshot of a value mid-loop is
+  `#[cfg(verus_keep_ghost)] proof_decl! { let ghost before = v@; }`.
+
+A `while` loop takes its invariant and `decreases` the same way a `for` loop
+does, as a `verus_spec(...)` attribute on the statement.
+
 Two things keep the arrangement from failing silently, and
 `tools/check_verified_kernels.py` (pre-commit) checks both: every file under
 `crates/` that carries `verus_spec` must be `#[path]`-included by the
@@ -157,6 +173,46 @@ error, overwriting what the appended-to vector held, dropping any clause of the
 `Ok` condition, and removing the `u32 as f64` axiom each make Verus reject the
 proof.
 
+**`crates/fieldglass-core/src/spatial_diff.rs`**, the inverse spatial
+differencing of GRIB1 second-order packing, the GRIB2 second-order templates
+5.50001 and 5.50002, and GRIB2 complex packing with spatial differencing
+(5.3). The recurrence is stated once, in `next_value_spec`, with the wrapping
+operations themselves: order 1 is `d + g[i-1] + bias`, order 2
+`d + 2·g[i-1] − g[i-2] + bias`, order 3 `d + 3·g[i-1] − 3·g[i-2] + g[i-3] + bias`,
+each `+`, `−` and `·` wrapping. Over unbounded integers the claim would be
+false whenever an intermediate overflows, and eccodes' answer is the wrapped
+one.
+
+- `apply_spd_inverse(x, order, bias)` returns `Ok` exactly when `order ≤ 3`,
+  and leaves `x` untouched otherwise. On `Ok`, the first `order` slots (the
+  seeds) are unchanged, and every later slot is the recurrence over its stored
+  difference and the rebuilt values before it. Order 0 changes nothing.
+- `apply_spd_inverse_skipping_missing(vals, seeds, bias)` returns `Ok`
+  exactly when there are at most 3 seeds. On `Ok`, a point is present
+  afterwards exactly when it was before, and the present values, read in
+  order, are the seeds followed by the recurrence over each stored difference
+  and the present values rebuilt before it. Missing points take no part, as
+  in eccodes' `DataG22OrderPacking`.
+- Neither has a precondition. No run length, order, seed count or pattern of
+  missing points makes either index out of bounds, overflow or panic. That
+  covers a run shorter than its order, including an empty one, which the code
+  before the kernel did not: its order-1 branch read `x[0]` of an empty run.
+
+eccodes writes the GRIB1 reconstruction with running accumulators and the
+GRIB2 one in the value form above, and they are the same function in wrapping
+arithmetic. The kernel uses the value form for both. That the switch changed
+no GRIB1 output is checked at runtime rather than proved: a unit test compares
+the old accumulator code with the kernel over thousands of runs, overflow
+included, and every GRIB1 and GRIB2 fixture decodes as before.
+
+Each claim was checked by breaking it: starting one slot before or after the
+seeds, a plain `+` or `*` in place of a wrapping one, swapping the order-1 and
+order-2 formulas, dropping the bias, dispatching on the wrong order, reading
+`g[i-2]` for order 1, removing either order-0 guard, taking the wrong seed or
+one seed too many, not shifting the history of present values, treating a
+missing point as a zero difference, and rejecting order 3 each make Verus
+reject the proof.
+
 **Trusted, not proved.** The proofs rest on three statements in
 `crates/fieldglass-verify/src/bits_model.rs` and its `axioms.rs`, each short
 enough to check by reading, and on allocation succeeding:
@@ -167,6 +223,10 @@ enough to check by reading, and on allocation succeeding:
 | `f64::powi(b, n)` is some fixed function `powi_spec(b, n)`, and nothing more | Verus has no specification for `powi`; the proofs only need to know *which* base and exponent each factor uses | not needed: the claim is about direction, not about `powi`'s accuracy |
 | Allocation succeeds: `Vec::with_capacity(count)` and `push` in `unpack_simple` do not panic or abort on a huge `count` | Verus models `Vec` without an allocator, so a capacity overflow or running out of memory is outside the proof, as it is for any Rust function that allocates | not planned: callers bound `count` by the grid or message size before calling |
 | `f64` `+` and `*` never panic and are deterministic, and `u32 as f64` is exact | the pinned `vstd` requires an `add_req` / `mul_req` of `f64` arithmetic and defines neither, so no `f64` expression verifies without this | a `vstd` that specifies `f64` arithmetic |
+
+Beyond those, the spatial-differencing proof trusts only `vstd`'s own
+specifications of `i64::wrapping_add`, `wrapping_sub` and `wrapping_mul`, and
+the one-line function that formats the error for an order above 3.
 
 The `f64` axiom is a `broadcast` lemma, and under the pinned Verus it fires for
 a parameter but not for a value read from a struct field. So the arithmetic
@@ -247,7 +307,7 @@ Ordered by blast radius, from the milestone:
 |---|---|---|
 | 0 | `BitReader::read_bits` (trusted today, see above) | not yet filed |
 | 1 | GRIB simple-packing scaling arithmetic, both editions (done) | [#199](https://github.com/D0ubleD0uble/fieldglass/issues/199) |
-| 1 | Inverse spatial differencing (GRIB1 + GRIB2) | [#200](https://github.com/D0ubleD0uble/fieldglass/issues/200) |
+| 1 | Inverse spatial differencing, both editions (done) | [#200](https://github.com/D0ubleD0uble/fieldglass/issues/200) |
 | 1 | GRIB2 complex-packing group expansion | [#201](https://github.com/D0ubleD0uble/fieldglass/issues/201) |
 | 2 | Bitmap decoders | [#202](https://github.com/D0ubleD0uble/fieldglass/issues/202) |
 | 2 | HDF5 unshuffle filter | [#203](https://github.com/D0ubleD0uble/fieldglass/issues/203) |

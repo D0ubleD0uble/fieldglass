@@ -391,13 +391,14 @@ Verus proof. `fieldglass-verify`, outside the workspace, includes each kernel
 file of the shipped crates by `#[path]` and proves it in place; the specs sit
 in `cfg_attr(verus_keep_ghost, ...)` attributes a normal build never expands
 (#199, [`../../verification.md`](../../verification.md)). The GRIB scaling
-kernel, which both editions share, is proved; the rest is planned.
+kernel and the inverse spatial differencing, both shared by the two editions,
+are proved; the rest is planned.
 
 ```mermaid
 flowchart LR
     subgraph kernel["decode kernel (~600 LOC)"]
         t1a["core::scaling red_scale, unpack_simple #199"]
-        t1b["apply_spd_inverse / decode_complex_spatial_diff #200"]
+        t1b["core::spatial_diff apply_spd_inverse #200"]
         t1c["grib2::decode_complex_groups #201"]
         t2a["decode_inline_bitmap / parse_bitmap #202"]
         t2b["hdf5 unshuffle #203"]
@@ -405,5 +406,5 @@ flowchart LR
     end
     verify["fieldglass-verify #205"] -. proves .-> kernel
     classDef planned stroke-dasharray: 6 4
-    class t1b,t1c,t2a,t2b,t3 planned
+    class t1c,t2a,t2b,t3 planned
 ```

@@ -347,7 +347,7 @@ class TheRepoItselfPasses(unittest.TestCase):
     def test_the_documented_surface_is_the_one_in_use(self):
         self.assertEqual(chk.check(), [])
 
-    def test_the_surface_is_the_fourteen_modules_measured(self):
+    def test_the_surface_is_the_fifteen_modules_measured(self):
         # Pinned so that widening the surface comes past a reviewer here as well
         # as in the two doc regions.
         lib = (chk.CORE / "src" / "lib.rs").read_text(encoding="utf-8")
@@ -370,6 +370,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "scaling",
                 "scan",
                 "sht",
+                "spatial_diff",
             ],
         )
 

@@ -10,6 +10,8 @@
 //!      states it again; both regions have to match the code. -->
 //! [`error`], [`bits`], [`bytes`], [`scaling`] (the GRIB `(R + X·2^E)·10^-D`
 //! transform both editions unpack values with, carrying a Verus proof),
+//! [`spatial_diff`] (the inverse spatial differencing both editions rebuild
+//! differenced values with, also proved),
 //! [`cct_tables`] (both GRIB editions share the
 //! WMO sub-centre lookup), [`projection`] (GRIB1's GDS uses the projectors to
 //! recover grid corners), [`scan`] (the storage orders a decoder regularises),
@@ -104,6 +106,7 @@ pub mod projection;
 pub mod scaling;
 pub mod scan;
 pub mod sht;
+pub mod spatial_diff;
 pub mod spatial_index;
 // Deliberately **not** part of the parsing surface, and gated so it is linked
 // by nothing a consumer builds: sources that behave the way a transport does,
