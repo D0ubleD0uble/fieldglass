@@ -128,7 +128,7 @@ pub(crate) fn interleave_with_bitmap(
 /// bitmap, otherwise the count of set bits.
 pub(crate) fn present_count(bitmap: Option<&[bool]>, expected_count: usize) -> usize {
     match bitmap {
-        Some(b) => b.iter().filter(|p| **p).count(),
+        Some(b) => fieldglass_core::bitmap::count_present(b),
         None => expected_count,
     }
 }

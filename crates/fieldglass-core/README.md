@@ -9,7 +9,8 @@ every format shares:
 <!-- parsing-surface: the set of core modules the three format crate libraries
      name, checked by tools/check_parsing_surface.py. The crate documentation
      states it again; both regions have to match the code. -->
-`error`, `bits` and `bytes` (bit reading and byte access), `scaling` (the GRIB
+`error`, `bits` and `bytes` (bit reading and byte access), `bitmap` (the
+presence bitmaps both GRIB editions mark missing points with), `scaling` (the GRIB
 `(R + X·2^E)·10^-D` transform both editions unpack values with), `groups` (the
 group expansion of GRIB second-order and complex packing), `spatial_diff`
 (the inverse spatial differencing both editions rebuild differenced values

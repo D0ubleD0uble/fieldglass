@@ -49,7 +49,7 @@ pub fn bits_to_bytes(bits: usize) -> (out: usize)
 }
 
 } // verus!
-// The proofs over shipped code (#199: `scaling`; #201: `groups`). Each kernel file is the production
+// The proofs over shipped code (#199: `scaling`; #201: `groups`; #202: `bitmap`). Each kernel file is the production
 // source itself, included by path, so there is one copy to keep verified.
 // Those files name `crate::FieldglassError`, which this re-export provides
 // here exactly as `fieldglass-core` does, `crate::bits::BitReader`, and
@@ -85,3 +85,8 @@ pub mod shuffle;
 // The group expansion of GRIB complex and second-order packing (#201).
 #[path = "../../fieldglass-core/src/groups.rs"]
 pub mod groups;
+
+// The presence bitmaps of both GRIB editions (#202). It names only
+// `bits_model`, under Verus.
+#[path = "../../fieldglass-core/src/bitmap.rs"]
+pub mod bitmap;

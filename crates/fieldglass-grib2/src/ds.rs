@@ -15,6 +15,7 @@ use crate::drs::{
     SecondOrderPackingTemplate, SimplePackingTemplate, packing_scaling,
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
+use fieldglass_core::bitmap::count_present;
 use fieldglass_core::scaling::{decimal_factor, unpack_simple};
 use fieldglass_core::{
     FieldglassError, StoredRuns,
@@ -165,7 +166,7 @@ fn decode_simple_packing(
     }
 
     let present_count = match bitmap {
-        Some(b) => b.iter().filter(|p| **p).count(),
+        Some(b) => count_present(b),
         None => expected_count,
     };
 
@@ -408,7 +409,7 @@ fn check_bitmap_present_count(
             "bitmap length {} != grid-point count {expected_count}",
             b.len()
         ))),
-        Some(b) => Ok(b.iter().filter(|p| **p).count()),
+        Some(b) => Ok(count_present(b)),
         None => Ok(expected_count),
     }
 }
@@ -506,7 +507,7 @@ fn decode_ieee_packing(
     };
 
     let present_count = match bitmap {
-        Some(b) => b.iter().filter(|p| **p).count(),
+        Some(b) => count_present(b),
         None => expected_count,
     };
 

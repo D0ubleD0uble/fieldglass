@@ -256,6 +256,7 @@ class TheRepoItselfPasses(unittest.TestCase):
         self.assertEqual(
             found,
             [
+                "crates/fieldglass-core/src/bitmap.rs",
                 "crates/fieldglass-core/src/bits/reader.rs",
                 "crates/fieldglass-core/src/groups.rs",
                 KERNEL,

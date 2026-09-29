@@ -15,8 +15,9 @@
 //! path rejects it — mirroring the GRIB1 matrix path.
 
 use crate::drs::{MatrixSimplePackingTemplate, packing_scaling};
+use fieldglass_core::FieldglassError;
+use fieldglass_core::bitmap::{count_present, unpack_bitmap};
 use fieldglass_core::scaling::unpack_simple;
-use fieldglass_core::{FieldglassError, bits::BitReader};
 
 /// Upper bound on the total matrix-cell count (`Ni·Nj·NR·NC`) the decoder will
 /// allocate. `NR`/`NC` are attacker-controlled `u16`s, and a §6 bitmap can drop
@@ -77,7 +78,7 @@ pub fn decode_matrix_of_values(
 
     // Present grid points drive the secondary-bitmap length.
     let present = match bitmap {
-        Some(b) => b.iter().filter(|p| **p).count(),
+        Some(b) => count_present(b),
         None => expected_count,
     };
     let sec_count = present.checked_mul(datum).ok_or_else(|| {
@@ -92,12 +93,12 @@ pub fn decode_matrix_of_values(
     }
 
     // Secondary bitmaps: N·datum bits, then the coded values start byte-aligned.
-    let mut reader = BitReader::new(&ds_payload[..sec_bytes]);
-    let mut secondary = Vec::with_capacity(sec_count);
-    for _ in 0..sec_count {
-        secondary.push(reader.read_bits(1)? != 0);
-    }
-    let coded_count = secondary.iter().filter(|b| **b).count();
+    let secondary = unpack_bitmap(&ds_payload[..sec_bytes], sec_count).ok_or_else(|| {
+        FieldglassError::Parse(format!(
+            "grid_simple_matrix secondary bitmaps: {sec_bytes} bytes hold fewer than {sec_count} bits"
+        ))
+    })?;
+    let coded_count = count_present(&secondary);
     // §5.1 declares numberOfCodedValues — the §7 packed count. It must equal the
     // set-bit total, or the header and the secondary bitmaps disagree. (GRIB1
     // makes the analogous cross-check of its redundant present-point count.)

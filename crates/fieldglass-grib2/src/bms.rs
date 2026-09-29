@@ -16,6 +16,7 @@
 
 use crate::section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bitmap::unpack_bitmap;
 
 /// Section number for the Bit-Map Section.
 pub const BMS_SECTION_NUMBER: u8 = 6;
@@ -124,23 +125,19 @@ pub fn parse_bit_map_with_header(
     })
 }
 
-/// Unpack the MSB-first inline bitmap bytes into one `bool` per grid point.
-/// Errors when the byte slice is shorter than `ceil(grid_points / 8)`.
+/// Unpack the MSB-first inline bitmap bytes into one `bool` per grid point,
+/// with the proved `fieldglass_core::bitmap::unpack_bitmap`. Errors when the
+/// byte slice is shorter than `ceil(grid_points / 8)`: the bitmap has one bit
+/// per grid point (Section 6, octet 7 onwards), so a shorter one cannot say
+/// which points are present.
 fn decode_inline_bitmap(bytes: &[u8], grid_points: usize) -> Result<Vec<bool>, FieldglassError> {
-    let needed_bytes = grid_points.div_ceil(8);
-    if bytes.len() < needed_bytes {
-        return Err(FieldglassError::Parse(format!(
-            "BMS bitmap needs {needed_bytes} bytes for {grid_points} points, got {}",
+    unpack_bitmap(bytes, grid_points).ok_or_else(|| {
+        FieldglassError::Parse(format!(
+            "BMS bitmap needs {} bytes for {grid_points} points, got {}",
+            grid_points.div_ceil(8),
             bytes.len()
-        )));
-    }
-    let mut bits = Vec::with_capacity(grid_points);
-    for i in 0..grid_points {
-        let byte = bytes[i / 8];
-        let bit = (byte >> (7 - (i % 8))) & 1;
-        bits.push(bit != 0);
-    }
-    Ok(bits)
+        ))
+    })
 }
 
 #[cfg(test)]

@@ -55,6 +55,7 @@
 
 use fieldglass_core::{
     FieldglassError, StoredRuns,
+    bitmap::unpack_bitmap,
     bits::{BitReader, bits_to_bytes},
     groups::expand_group_into,
 };
@@ -161,6 +162,27 @@ fn read_block(
         out.push(reader.read_bits(width)?);
     }
     Ok((out, end))
+}
+
+/// Read the `count`-bit secondary bitmap at `bds[start..]`, a byte-aligned
+/// block of one bit per point, returning the flags and the byte offset just
+/// past it. The bits are unpacked by the proved
+/// `fieldglass_core::bitmap::unpack_bitmap`.
+fn read_bitmap_block(
+    bds: &[u8],
+    start: usize,
+    count: usize,
+) -> Result<(Vec<bool>, usize), FieldglassError> {
+    let end = start.checked_add(count.div_ceil(8)).ok_or_else(|| {
+        FieldglassError::Parse("BDS secondaryBitmap offset overflows usize".into())
+    })?;
+    let bits = bds
+        .get(start..end)
+        .and_then(|slot| unpack_bitmap(slot, count))
+        .ok_or_else(|| {
+            FieldglassError::Parse("BDS too short for secondaryBitmap section".into())
+        })?;
+    Ok((bits, end))
 }
 
 /// Read the `numberOfGroups` per-group width octets at [`GROUP_DESCRIPTORS_START`]
@@ -311,7 +333,7 @@ pub fn decode_constant_width(
     // then first-order values, then a flat second-order residual stream (one
     // residual per point, since the width is constant — no per-group lengths).
     let data_start = GROUP_DESCRIPTORS_START + 1;
-    let (sec_bitmap, after_sec) = read_block(bds, data_start, p2, 1, "secondaryBitmap")?;
+    let (sec_bitmap, after_sec) = read_bitmap_block(bds, data_start, p2)?;
     let (first_order, after_fo) = read_block(
         bds,
         after_sec,
@@ -333,8 +355,7 @@ pub fn decode_constant_width(
     let mut x: Vec<i64> = Vec::with_capacity(p2);
     let mut group: isize = -1;
     for (n, &bit) in sec_bitmap.iter().enumerate() {
-        // `sec_bitmap` holds one-bit values, so the widening is exact.
-        group += bit as isize;
+        group += isize::from(bit);
         let ref_val = usize::try_from(group)
             .ok()
             .and_then(|g| first_order.get(g))
@@ -386,7 +407,7 @@ pub fn decode_general(
 
     // offsetBeforeData = 21 + numberOfGroups: secondary bitmap, first-order
     // values, then the per-group residual stream.
-    let (sec_bitmap, after_sec) = read_block(bds, off, p2, 1, "secondaryBitmap")?;
+    let (sec_bitmap, after_sec) = read_bitmap_block(bds, off, p2)?;
     let (first_order, x_start) = read_block(
         bds,
         after_sec,
@@ -401,7 +422,7 @@ pub fn decode_general(
     let starts: Vec<usize> = sec_bitmap
         .iter()
         .enumerate()
-        .filter_map(|(n, &b)| (b == 1).then_some(n))
+        .filter_map(|(n, &b)| b.then_some(n))
         .collect();
     if starts.len() != num_groups {
         return Err(FieldglassError::Parse(format!(

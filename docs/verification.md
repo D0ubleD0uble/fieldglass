@@ -160,6 +160,8 @@ as a slice's length fitting a `usize` or a bound a lemma proved, has to be
 restated in the invariant of every loop that uses it, inner loops included.
 And the pinned `vstd` specifies `Vec::with_capacity` and `extend_from_slice`
 but not `<[T]>::to_vec`, so a kernel copies a slice with the first two.
+Likewise it specifies `is_multiple_of` but not `div_ceil`, so the bitmap
+kernel rounds up with the first (clippy rejects the hand-written forms).
 
 Two things keep the arrangement from failing silently, and
 `tools/check_verified_kernels.py` (pre-commit) checks both: every file under
@@ -365,6 +367,42 @@ second-order point; filling a zero-width second-order group with 0; using group
 0's reference for every group; ignoring the length increment; unchecked length
 arithmetic; and a model of `align_to_byte` that rounds down.
 
+**`crates/fieldglass-core/src/bitmap.rs`**, the presence bitmaps: one bit per
+point, MSB-first, a set bit meaning present. The GRIB1 Bit Map Section, the
+GRIB2 Bit-Map Section, the secondary bitmaps of matrix-of-values packing in
+both editions, and the secondary bitmap of GRIB1 second-order packing
+(`constant_width`, `general_grib1`) are all unpacked by it.
+
+- `unpack_bitmap(bytes, count)` returns `Some` exactly when `bytes` holds at
+  least `count` bits; then the result has `count` entries and entry `i` is
+  bit `i` of `bytes`, read MSB-first. "Bit `i`" is the proved bit reader's
+  own `bit`, and `lemma_one_bit_read` shows it is what `read_bits(1)` returns
+  there, so the matrix and second-order bitmaps, which were read that way,
+  read the same bits.
+- `bitmap_bit_len(body_len, unused)`, GRIB1's `8 · body_len − unused`, is
+  `Some` exactly when the padding fits the body and the bit length fits a
+  `usize`, and is then exact.
+- `count_present(bits)` is the number of `true` entries and cannot overflow.
+  For an unpacked bitmap that is the number of set bits among the first
+  `count` (`lemma_present_is_popcount`). Every decoder that counts present
+  points calls it.
+- None of the three has a precondition.
+
+Before the kernel, a GRIB1 bitmap with fewer bits than the grid has points
+decoded to a field that many points short, with no error. A bitmap has one
+bit per grid point (FM 92 GRIB edition 1, Section 3, octet 7 onwards), so it is
+now an error, as it already was in GRIB2. eccodes 2.34.1 also returns the
+short field, and its geoiterator then refuses the message.
+
+Each claim was checked by breaking it (17 planted bugs, each rejected):
+reading LSB-first, inverting the bit, reading the next byte, masking the
+wrong bit, not rounding the byte count up or always rounding it up, an
+off-by-one length check, skipping point 0, returning `None` for an empty
+bitmap, a saturating or missing padding subtraction, seven bits per octet,
+counting the absent entries, starting the count at 1, skipping the last
+entry, stating the popcount one bit long, and reading the one-bit field one
+bit on.
+
 **Trusted, not proved.** The proofs rest on two statements in
 `crates/fieldglass-verify/src/bits_model.rs` and its `axioms.rs`, each short
 enough to check by reading, on allocation succeeding, and on the error-message
@@ -375,6 +413,7 @@ constructors returning:
 | `f64::powi(b, n)` is some fixed function `powi_spec(b, n)`, and nothing more | Verus has no specification for `powi`; the proofs only need to know *which* base and exponent each factor uses | not needed: the claim is about direction, not about `powi`'s accuracy |
 | Allocation succeeds: `Vec::with_capacity` and `push` in the kernels do not panic or abort on a huge count | Verus models `Vec` without an allocator, so a capacity overflow or running out of memory is outside the proof, as it is for any Rust function that allocates | not planned: callers bound every count by the grid or message size before calling, and `expand_complex_groups` checks `NG ≤ present_count` and the length sum before it allocates |
 | The error constructors in `groups.rs` and `bits/reader.rs` return a `FieldglassError` | they build their message with `format!`, which Verus has no specification for, so they are `external_body`; each only formats its arguments | a `vstd` that specifies `format!` |
+| `BitReader`'s derived `Debug` and `Clone` behave as Rust derives them | the type is marked `external_derive`, so Verus does not check the derives: the pinned Verus cannot specify a derived `Clone` of a type that is not `Copy`, and no kernel calls either | a Verus that specifies derived `Clone` for non-`Copy` types |
 | `f64` `+` and `*` never panic and are deterministic, and `u32 as f64` is exact | the pinned `vstd` requires an `add_req` / `mul_req` of `f64` arithmetic and defines neither, so no `f64` expression verifies without this | a `vstd` that specifies `f64` arithmetic |
 
 Beyond those, the spatial-differencing proof trusts only `vstd`'s own
@@ -406,6 +445,11 @@ together:
 with a matching Verus, so bumping one alone will fail in confusing ways. Take
 the toolchain requirement from the release's own `version.json` — the Verus
 docs and most search results still name an older one.
+
+On a bump, re-check the `verus_impl_method_marker` workaround on
+`BitReader::new` in `bits/reader.rs`: it is what lets `verus_spec` see an
+associated function with no receiver, and a release that fixes that makes it
+removable (or one that changes the marker breaks it).
 
 Verus is a bus-factor concern in the same sense as `rust-aec` and `rust-j2k`
 under ADR-0001, but with an important difference: nothing that ships depends on
@@ -462,7 +506,7 @@ Ordered by blast radius, from the milestone:
 | 1 | GRIB simple-packing scaling arithmetic, both editions (done) | [#199](https://github.com/D0ubleD0uble/fieldglass/issues/199) |
 | 1 | Inverse spatial differencing, both editions (done) | [#200](https://github.com/D0ubleD0uble/fieldglass/issues/200) |
 | 1 | GRIB group expansion: complex packing and both editions' second-order (done) | [#201](https://github.com/D0ubleD0uble/fieldglass/issues/201) |
-| 2 | Bitmap decoders | [#202](https://github.com/D0ubleD0uble/fieldglass/issues/202) |
+| 2 | Presence bitmaps, both editions (done) | [#202](https://github.com/D0ubleD0uble/fieldglass/issues/202) |
 | 2 | Byte shuffle, HDF5 and Zarr (done) | [#203](https://github.com/D0ubleD0uble/fieldglass/issues/203) |
 | 3 | NetCDF classic length/offset arithmetic | [#204](https://github.com/D0ubleD0uble/fieldglass/issues/204) |
 
