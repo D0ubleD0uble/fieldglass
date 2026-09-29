@@ -391,21 +391,21 @@ Verus proof. `fieldglass-verify`, outside the workspace, includes each kernel
 file of the shipped crates by `#[path]` and proves it in place; the specs sit
 in `cfg_attr(verus_keep_ghost, ...)` attributes a normal build never expands
 (#199, [`../../verification.md`](../../verification.md)). The GRIB scaling
-kernel and the inverse spatial differencing, both shared by the two editions,
-are proved, and so is the byte shuffle the HDF5 and Zarr readers share; the
-rest is planned.
+kernel, the inverse spatial differencing (#200) and the group expansion
+(#201), all shared by the two editions, are proved, and so is the byte shuffle
+the HDF5 and Zarr readers share; the rest is planned.
 
 ```mermaid
 flowchart LR
     subgraph kernel["decode kernel (~600 LOC)"]
         t1a["core::scaling red_scale, unpack_simple #199"]
         t1b["core::spatial_diff apply_spd_inverse #200"]
-        t1c["grib2::decode_complex_groups #201"]
+        t1c["core::groups expand_complex_groups, expand_groups_into #201"]
         t2a["decode_inline_bitmap / parse_bitmap #202"]
         t2b["core::shuffle unshuffle, shuffle #203"]
         t3["classic read_slab / record_size #204"]
     end
     verify["fieldglass-verify #205"] -. proves .-> kernel
     classDef planned stroke-dasharray: 6 4
-    class t1c,t2a,t3 planned
+    class t2a,t3 planned
 ```
