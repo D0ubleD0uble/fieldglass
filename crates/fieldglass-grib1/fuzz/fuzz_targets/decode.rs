@@ -64,9 +64,13 @@ fuzz_target!(|data: &[u8]| {
             // sub-truncation weave are all exercised at small `J`.
             if !declares_a_large_truncation(&reader, i) {
                 let _ = reader.decode_spectral_message(i);
+                // The probe's exact evaluation (#637): the full sum at one
+                // point, `(J+1)(J+2)/2` terms, behind the same bound.
+                let _ = reader.evaluate_spectral_point(i, 60.0, 120.0);
             }
             // Total by construction, so the assertion is that it stays total.
             let _ = reader.synthesis_grid(i);
+            let _ = reader.synthesis_truncation(i);
         }
     }
 });

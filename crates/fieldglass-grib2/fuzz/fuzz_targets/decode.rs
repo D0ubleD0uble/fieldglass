@@ -23,7 +23,8 @@
 //!   Laplacian-rescaled simple-packed remainder.
 //! * `decode_bifourier_message` — §5.53, four coefficients per wavenumber pair
 //!   over a rectangle / ellipse / diamond truncation.
-//! * `synthesize_spectral_message` — the inverse spherical-harmonic transform,
+//! * `synthesize_spectral_message` and `evaluate_spectral_point` — the inverse
+//!   spherical-harmonic transform on a grid and at one point,
 //!   whose cost is driven by the truncation the *file* declares.
 
 #![no_main]
@@ -54,13 +55,15 @@ fuzz_target!(|data: &[u8]| {
             // nothing, so it is total by construction and the assertion is that
             // it stays total on a template whose fields are arbitrary.
             let _ = reader.synthesis_grid(i);
+            let _ = reader.synthesis_truncation(i);
             // Its expensive half, on the one family whose cost is bounded by
             // the grid rather than by the file. A HEALPix resample is capped at
             // 720x361 by `healpix_render_dims` and its pixel count by
             // `MAX_GRID_POINTS`; the spherical-harmonic arm is excluded for the
-            // reason `PROBE_LATS` exists, since it would evaluate the full
-            // 720x361 grid and turn a legitimate high-truncation input into a
-            // timeout.
+            // reason `PROBE_LATS` exists. Since #637 its map is band-limited to
+            // T359 whatever the file declares, so its cost is bounded too, but
+            // that bound is 1.4e8 terms over the full 720x361 grid: a timeout
+            // per exec rather than a finding.
             if reader
                 .messages
                 .get(i)
@@ -73,6 +76,9 @@ fuzz_target!(|data: &[u8]| {
             // re-run of the decode error above.
             if reader.decode_spectral_message(i).is_ok() {
                 let _ = reader.synthesize_spectral_message(i, &PROBE_LATS, &PROBE_LONS);
+                // The probe's exact evaluation (#637): the full sum at one
+                // point, with extended-range arithmetic past T1927.
+                let _ = reader.evaluate_spectral_point(i, 60.0, 120.0);
             }
         }
     }

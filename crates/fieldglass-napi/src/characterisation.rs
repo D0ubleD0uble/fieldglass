@@ -853,6 +853,10 @@ fn meta_row(subject: &Subject<'_>) -> Row {
         packing: _,
         reprojectable: _,
         placement: _,
+        // The band-limit label (#637): absent for every message in the corpus,
+        // whose spectral fields are T63, and pinned by `lib.rs` tests on T383.
+        truncated_to: _,
+        declared_truncation: _,
     } = &meta;
     mix_opt_str(&mut h, grid_type.as_deref());
     mix_opt_i32(&mut h, *grid_ni);

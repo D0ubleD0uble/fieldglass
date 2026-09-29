@@ -85,3 +85,11 @@ open in the editor without crashing (the #288 class, where a napi `Option` field
 JS sees as `undefined` reaches an `undefined.toFixed()`), and — unlike
 bi-Fourier — must offer a Render button, because #443 resamples it onto a
 lat/lon grid at decode.
+
+## `spectral_simple_t383.grib2`
+
+A spectral field declaring T383, past the T359 the 0.5° synthesis grid carries,
+so its map is band-limited and labelled and its probe reads the full sum
+(#637). Built by `tools/build_spectral_truncation_oracle.py` from
+`spectral_simple_t63.grib2` with synthetic coefficients; canonical copy and
+provenance: `crates/fieldglass-grib2/tests/fixtures/NOTICE.md`.

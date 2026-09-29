@@ -92,6 +92,14 @@ export interface MessageMeta {
    *  `"predefined_unresolved"`: a GRIB1 predefined grid this build does not
    *  know. About the values, so a spectral message is `"placed"`. */
   placement: "placed" | "no_raster" | "unplaceable" | "unsupported" | "predefined_unresolved";
+  /** Set, with `declaredTruncation`, when a spectral message's map is
+   *  band-limited below the truncation it declares (#637): the 0.5° grid
+   *  carries T359, so a T7999 field is drawn at T359. The panel says so
+   *  ("shown at T359 of T7999"). Absent for every other message. */
+  truncatedTo?: number;
+  /** The truncation the message declares, when its map is band-limited below
+   *  it — see `truncatedTo`. */
+  declaredTruncation?: number;
   /** Whether the grid's rows scan south→north (GRIB `jScansPositively`). The
    *  source projection orients the raster from this so it isn't upside-down;
    *  null for grids with no scan flag (predefined GRIB1 grids, NetCDF). */

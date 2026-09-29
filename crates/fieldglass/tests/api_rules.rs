@@ -36,8 +36,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use fieldglass::{
     Addressing, AxisUnits, AxisValues, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype, Error,
     Field, Georef, Isoline, LeftOutArray, Line, MessageInfo, PaletteOptions, PixelProbe, Placement,
-    Probe, Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat, Stats, TargetKind,
-    Values, VariableInfo, VectorOptions, WarpOptions, WarpTarget, Warped,
+    Probe, Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat, SpectralTruncation,
+    Stats, TargetKind, Values, VariableInfo, VectorOptions, WarpOptions, WarpTarget, Warped,
 };
 
 // ---------------------------------------------------------------------------
@@ -90,6 +90,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("AxisUnits", Class::Wire, ""),
     // Why a grid can or cannot be placed, beside the corners it explains (#776).
     ("Placement", Class::Wire, ""),
+    // That a spectral field's map is band-limited below what it declares (#637).
+    ("SpectralTruncation", Class::Wire, ""),
     ("Georef", Class::Wire, ""),
     ("Values", Class::Wire, ""),
     ("Stats", Class::Wire, ""),
@@ -334,6 +336,7 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<Dtype>();
     is_wire_shaped::<AxisUnits>();
     is_wire_shaped::<Placement>();
+    is_wire_shaped::<SpectralTruncation>();
     is_wire_shaped::<Georef>();
     is_wire_shaped::<Values>();
     is_wire_shaped::<Stats>();
@@ -416,6 +419,10 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<Dtype>("Dtype", r#""auto""#);
     round_trip::<AxisUnits>("AxisUnits", r#""metres""#);
     round_trip::<Placement>("Placement", r#""predefined_unresolved""#);
+    round_trip::<SpectralTruncation>(
+        "SpectralTruncation",
+        r#"{"declared":7999,"truncatedTo":359}"#,
+    );
     round_trip::<Values>("Values", r#"{"dtype":"f32","data":[1.0,2.0]}"#);
     round_trip::<Stats>("Stats", r#"{"min":1.0,"max":2.0,"validCount":2}"#);
     round_trip::<Probe>(
@@ -480,11 +487,11 @@ const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever
 
 /// A `Field`, with the smallest raster that still has a mask and statistics.
 const LINE_JSON: &str = r#"{"values":{"dtype":"f64","data":[6.0,18.0]},"mask":[1,1],"stats":{"min":6.0,"max":18.0,"validCount":2},"variable":"temperature","units":"K","dimension":"time","coordinates":[0.0,6.0],"coordinateUnits":"hours since 2020-01-01 00:00:00"}"#;
-const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"stats":{"min":1.0,"max":3.0,"validCount":3},"parameter":"Temperature","units":"K"}"#;
+const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"truncation":{"declared":7999,"truncatedTo":359},"stats":{"min":1.0,"max":3.0,"validCount":3},"parameter":"Temperature","units":"K"}"#;
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
-const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"sizeLabel":"N32","forecastHours":6,"p1Octet":null,"originatingCentre":"Centre 98","subCentre":null,"edition":2,"discipline":"Meteorological products","totalLengthBytes":1234,"productionStatus":"Operational products","dataType":"Analysis and forecast products","uvRelativeToGrid":null}"#;
+const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"forecastHours":6,"p1Octet":null,"originatingCentre":"Centre 98","subCentre":null,"edition":2,"discipline":"Meteorological products","totalLengthBytes":1234,"productionStatus":"Operational products","dataType":"Analysis and forecast products","uvRelativeToGrid":null}"#;
 
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a
@@ -498,6 +505,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "Dtype",
     "AxisUnits",
     "Placement",
+    "SpectralTruncation",
     "Values",
     "Stats",
     "Probe",
@@ -1310,6 +1318,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<Dtype>("Dtype");
     check_schema::<AxisUnits>("AxisUnits");
     check_schema::<Placement>("Placement");
+    check_schema::<SpectralTruncation>("SpectralTruncation");
     check_schema::<Addressing>("Addressing");
     check_schema::<DimensionInfo>("DimensionInfo");
     check_schema::<VariableInfo>("VariableInfo");
@@ -1345,6 +1354,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "Dtype",
     "AxisUnits",
     "Placement",
+    "SpectralTruncation",
     "Addressing",
     "DimensionInfo",
     "VariableInfo",

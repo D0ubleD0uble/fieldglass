@@ -493,6 +493,44 @@ and the `.eccodes.ref.json` snapshot is 2.34.1. The §7 has two parts — an
 unpacked IEEE-float sub-truncation and a Laplacian-rescaled simple-packed
 remainder — so this fixture exercises the whole `decode_spectral_complex` path.
 
+### `spectral_simple_t383.grib2` and its truncation oracle (#637)
+
+A spectral field past what the 0.5° synthesis grid can carry (T359), for the
+band-limited map and the exact probe. Built by
+`tools/build_spectral_truncation_oracle.py`:
+
+- **Encoded** with the eccodes **Python wheel** (libeccodes **2.48.0**) from
+  `spectral_simple_t63.grib2` above: `J = K = M = 383`, `bitsPerValue = 8`,
+  and 147,840 synthetic coefficients (seeded normal draws, `σ = 0.1`, a flat
+  spectrum so the band truncation removes carries about an eighth of the
+  variance; `(0,0)` = 280; the `m = 0` imaginary parts zero). Only the wheel's
+  `codes_set_values` can install a coefficient array. The sample it starts from
+  is ECMWF's, under the Apache License 2.0.
+- **Oracle input** is the coefficients as the **pinned CLI eccodes 2.34.1**
+  decodes them (`grib_get_data`), not the values written, so the oracle starts
+  from the same quantised numbers the Rust decoder reads. The coefficient text
+  itself is not committed; the script regenerates it.
+- **Oracle** `spectral_simple_t383.truncation.oracle.json` is an independent
+  **pyshtools 4.14.1** synthesis (`MakeGridPoint`, orthonormal, no
+  Condon-Shortley phase) after mapping ECMWF's complex coefficients to real
+  ones: `C_{n,0} = √(4π)·X_{n,0}`, and for `m > 0`
+  `C_{n,m} = √2·√(4π)·Re X_{n,m}`, `S_{n,m} = −√2·√(4π)·Im X_{n,m}`. The script
+  checks that mapping against `spectral_render_t63.oracle.txt` (the ECMWF
+  formula evaluated directly) and refuses to write if they disagree by more
+  than 1e-6; they agree to 5e-8, the print precision of that file. It holds
+  the field band-limited to `n ≤ 359` on the 5° grid (every point a node of the
+  0.5° map) and, at twelve points on and off that grid, both the full `n ≤ 383`
+  sum and the `n ≤ 359` one.
+
+Its `.eccodes.ref.json` metadata snapshot is the pinned 2.34.1, written by
+`tools/regenerate-eccodes-snapshots.py` like every other fixture's.
+
+`tests/spectral_truncation.rs` reads the map against the first and
+`evaluate_spectral_point` against the second; both agree to under 2e-8 on
+values of ~110 to ~500, while the removed band moves the field by 5 to 18.
+The T63 render oracle above stays valid: T63 is below the limit, so its map is
+the full sum, unchanged.
+
 ## Bi-Fourier packing fixtures (#304)
 
 `bifourier_ellipse_keepaxes.grib2`, `bifourier_diamond_no_axes.grib2`,

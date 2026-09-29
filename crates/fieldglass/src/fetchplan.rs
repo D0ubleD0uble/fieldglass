@@ -383,6 +383,7 @@ mod tests {
             placement: crate::api::Placement::NoRaster,
             reprojectable: false,
             size_label: None,
+            truncation: None,
             // Identification this helper's caller does not look at: these tests
             // are about matching a sidecar's promise against a decoded
             // message's parameter and level, which is the whole of

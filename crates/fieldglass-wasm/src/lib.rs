@@ -369,6 +369,23 @@ impl Handle {
         }
     }
 
+    /// Probe message `index` at one geographic point, reading **the file's own
+    /// value** there (#637). `undefined` off the grid.
+    ///
+    /// For almost every message this is [`Handle::probe`] of its decoded field,
+    /// and costs a decode — probe the field you hold instead. The exception is
+    /// a spectral message whose field reports a `truncation()`: its values are
+    /// the field band-limited to what the 0.5° grid carries, so a value read
+    /// off them is the smoothed field's. This evaluates the full sum at the
+    /// same cell, which is what a readout should show. About a second at T7999.
+    #[wasm_bindgen(js_name = probeMessage)]
+    pub fn probe_message(&self, index: u32, lat: f64, lon: f64) -> Result<JsValue, JsValue> {
+        match self.session.probe_message(index, lat, lon).map_err(throw)? {
+            Some(p) => to_js(&p),
+            None => Ok(JsValue::UNDEFINED),
+        }
+    }
+
     /// Combine two aligned fields element by element — the difference map and
     /// its siblings (#579).
     ///
@@ -521,5 +538,17 @@ impl WasmField {
     /// `"K"`. Empty when the parameter did not resolve, or is dimensionless.
     pub fn units(&self) -> String {
         self.field.units.clone()
+    }
+
+    /// `{ declared, truncatedTo }` when the values are a spectral field
+    /// band-limited to what the grid carries, below the truncation the message
+    /// declares (#637); `undefined` otherwise. Show it beside the field —
+    /// "shown at T359 of T7999" — since the map is smoother than the file, and
+    /// read a point's own value with `Handle.probeMessage`.
+    pub fn truncation(&self) -> Result<JsValue, JsValue> {
+        match &self.field.truncation {
+            Some(t) => to_js(t),
+            None => Ok(JsValue::UNDEFINED),
+        }
     }
 }

@@ -473,6 +473,19 @@ export function composeTitleLine(meta: MessageMeta): string {
     + (meta.parameterUnits ? ` (${meta.parameterUnits})` : "");
 }
 
+/** The band-limit note for a spectral map drawn below the truncation its
+ *  message declares (#637): `"shown at T359 of T7999"`, or `null` when the map
+ *  carries every wavenumber the file holds. Goes in the subtitle, which the PNG
+ *  export also draws, so the note travels with the picture. The numbers are
+ *  Rust's (`MessageMeta.truncatedTo` / `declaredTruncation`). */
+export function composeTruncationNote(
+  meta: Pick<MessageMeta, "truncatedTo" | "declaredTruncation">
+): string | null {
+  return meta.truncatedTo != null && meta.declaredTruncation != null
+    ? `shown at T${meta.truncatedTo} of T${meta.declaredTruncation}`
+    : null;
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: MessageMeta,
@@ -502,7 +515,12 @@ export function renderImagePanelHtml(
   const levelDescription = meta.level && meta.level !== "—" && meta.level !== meta.levelType
     ? [meta.level, meta.levelType].filter((s) => !!s).join(" ")
     : meta.levelType;
-  const subLine = [levelDescription, meta.referenceTime, meta.forecastDisplay]
+  const subLine = [
+    levelDescription,
+    meta.referenceTime,
+    meta.forecastDisplay,
+    composeTruncationNote(meta),
+  ]
     .filter((s) => !!s).join(" · ");
   // A sensible default filename for the PNG export (#243), from the parameter
   // and message index; the provider sanitises it again before writing.

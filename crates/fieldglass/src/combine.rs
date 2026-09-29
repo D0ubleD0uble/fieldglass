@@ -34,7 +34,7 @@
 //!   grid in different orders (one column-major, which the reader transposes)
 //!   compare equal: their values line up (#792).
 
-use fieldglass_core::{combine_cell, combine_fields};
+use fieldglass_core::combine_fields;
 
 use crate::api::{CombineOpInfo, Field, Stats, Values};
 use crate::error::Error;
@@ -48,6 +48,12 @@ pub use crate::align::aligned;
 /// Compare picker builds it from [`combine_ops`] rather than restating the
 /// five tags (#342).
 pub use fieldglass_core::CombineOp;
+
+/// One cell of a combine: `op` over two values, absent when either is. A host
+/// that combines values it read itself — a probe that swaps a band-limited
+/// map's value for the file's full-detail one (#637) — applies the same rule
+/// [`combine_values`] applies to every cell.
+pub use fieldglass_core::combine_cell;
 
 /// Every field-combine operation, in menu order, as a host's picker wants it.
 ///
@@ -180,6 +186,13 @@ pub(crate) fn combine_api_fields(a: &Field, b: &Field, op: CombineOp) -> Result<
         ni: a.ni,
         nj: a.nj,
         georef: a.georef.clone(),
+        // Either operand band-limited makes the result band-limited, so it
+        // carries a label whenever one does: the one that removed more, since
+        // that is the one a host has to warn about (#637).
+        truncation: match (a.truncation.clone(), b.truncation.clone()) {
+            (Some(x), Some(y)) => Some(if y.declared > x.declared { y } else { x }),
+            (x, y) => x.or(y),
+        },
         stats: Stats {
             min: (valid_count > 0).then_some(min),
             max: (valid_count > 0).then_some(max),
@@ -248,6 +261,7 @@ mod tests {
             ni: 8,
             nj: 4,
             georef,
+            truncation: None,
             stats: crate::api::Stats {
                 min: Some(0.0),
                 max: Some(0.0),
@@ -295,6 +309,7 @@ mod tests {
             ni,
             nj,
             georef: Georef::from_geometry(g, Scan::north_down()),
+            truncation: None,
             stats: Stats {
                 min: present.iter().copied().reduce(f64::min),
                 max: present.iter().copied().reduce(f64::max),

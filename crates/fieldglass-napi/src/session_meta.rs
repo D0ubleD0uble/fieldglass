@@ -85,6 +85,11 @@ pub(crate) fn meta_from_session(
         // `place_message`'s answer over the corpus.
         placement: info.placement.as_str().to_string(),
         reprojectable: info.reprojectable,
+        // The map of a spectral message past what the 0.5° grid carries is
+        // band-limited, and the panel says so (#637). The message's answer, like
+        // the two above, whichever grid is passed below.
+        truncated_to: info.truncation.as_ref().map(|t| t.truncated_to),
+        declared_truncation: info.truncation.as_ref().map(|t| t.declared),
         ..MessageMeta::default()
     };
     let Some(georef) = grid else {
