@@ -203,7 +203,8 @@ store (#659).
 **`grib2 --> aec` is a codec edge, not a format crate depending on another.**
 `fieldglass-aec` is a codec crate, not a reader, and depends on no workspace
 crate ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). It carries the
-decoder and a conformance corpus from a pinned libaec; the szip layer follows.
+decoder, the libsz-compatible szip layer (`sz`) and a conformance corpus from a
+pinned libaec.
 `fieldglass-grib2` decodes template 5.42 with it (#762), and its only
 dependency, `thiserror`, already reaches the reader through `core`, so a
 GRIB2-only consumer links one crate more and nothing else.

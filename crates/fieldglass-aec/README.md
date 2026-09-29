@@ -14,8 +14,9 @@ the standard, or accepts a stream no valid encoder writes, the crate follows
 the standard (see below). It depends on nothing but `thiserror`, contains no
 `unsafe`, and allocates nothing while decoding.
 
-**Status:** the decoder is here, and `fieldglass-grib2` decodes GRIB2 template
-5.42 with it. The libsz-compatible szip layer follows.
+**Status:** the decoder and the libsz-compatible szip layer are here.
+`fieldglass-grib2` decodes GRIB2 template 5.42 with the decoder; the NetCDF
+reader does not use the szip layer yet.
 
 ```rust
 use fieldglass_aec::{AecError, Flags, Params, decode_to_bytes};
@@ -40,6 +41,33 @@ assert_eq!(out, [1, 2, 3, 4]);
 `decode` hands samples to a `Sink` instead, one block or one run of zero blocks
 at a time, so a consumer can convert them straight into its own output.
 
+## szip
+
+`sz::decompress` does what libsz's `SZ_BufftoBuffDecompress` does, the call
+behind the HDF5 szip filter: scanlines padded to whole blocks, 32- and 64-bit
+pixels coded as byte planes, and the option mask, of which only `NN` and `MSB`
+change a decode. libsz decodes into a padded copy of up to 32 times the output
+and copies it again to reorder byte planes. This crate skips pad samples as
+they arrive and writes each byte straight to its place, so it allocates
+nothing here either.
+
+```rust
+use fieldglass_aec::sz::{self, NN_OPTION_MASK, SzParams};
+
+// SzParams is in libsz's SZ_com_t order: mask, bits per pixel, pixels per
+// block, pixels per scanline. HDF5's cd_values swap the middle two.
+let params = SzParams::new(NN_OPTION_MASK, 16, 32, 20)?;
+assert_eq!(params.bytes_per_pixel(), 2);
+
+// The output length is the uncompressed size, and must be filled exactly.
+let mut out = [0u8; 4];
+assert!(sz::decompress(&[], &params, &mut out).is_err());
+# Ok::<(), fieldglass_aec::AecError>(())
+```
+
+Parameters are checked as libsz checks them: 1 to 32 or 64 bits per pixel, an
+even number of pixels per block up to 256, and 1 to 4096 pixels per scanline.
+
 ## What it accepts
 
 The complement of libaec 1.1.7's `aec_decode_init` refusals:
@@ -63,6 +91,14 @@ The complement of libaec 1.1.7's `aec_decode_init` refusals:
   run codes ends there. libaec accepts any length that fits the interval.
 - Decoding stops at the requested count, so trailing fill that libaec misreads
   after the last sample is never an error.
+- An szip stream that runs out before the output is full is an error. libsz
+  returns success, with a shorter length or, when scanlines are padded, the
+  full length and uninitialised bytes in the part it could not decode.
+- szip decoding stops at the last pixel asked for, so a bad code after it is
+  never read. libsz decodes whole scanlines and fails on one.
+- An szip output of 32- or 64-bit pixels that is not a whole number of pixels
+  is an error. libsz returns success with the bytes out of place and the last
+  few unwritten.
 
 ADR-0012 in the repository gives the evidence for each.
 

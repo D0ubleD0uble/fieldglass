@@ -2,8 +2,8 @@
 
 /// Why a parameter set or a stream was refused.
 ///
-/// `#[non_exhaustive]`: a later release may add a reason (the szip layer
-/// will), so a `match` on it needs a wildcard arm.
+/// `#[non_exhaustive]`: a later release may add a reason, as the szip layer
+/// did, so a `match` on it needs a wildcard arm.
 ///
 /// Named `AecError` rather than `Error` so it cannot be confused with
 /// `fieldglass::Error` in a consumer that uses both (ADR-0012 decision 1).
@@ -64,11 +64,38 @@ pub enum AecError {
     },
 
     /// An output buffer whose length is not a whole number of samples.
+    ///
+    /// From [`sz::decompress`](crate::sz::decompress), `bytes_per_sample` is
+    /// the pixel width, [`SzParams::bytes_per_pixel`](crate::sz::SzParams::bytes_per_pixel).
     #[error("an output of {len} bytes is not a whole number of {bytes_per_sample}-byte samples")]
     OutputLength {
         /// The buffer's length in bytes.
         len: usize,
         /// Bytes per sample for the parameter set.
         bytes_per_sample: usize,
+    },
+
+    /// szip bits per pixel outside 1 to 32 and not 64 (`sz_compat.c:233-235`).
+    #[error("szip bits per pixel must be 1 to 32 or 64, got {0}")]
+    BitsPerPixel(u32),
+
+    /// szip pixels per block that is zero, odd, or above 256.
+    ///
+    /// libsz checks for zero and odd (`sz_compat.c:231-232`); libaec's decoder
+    /// refuses a block above 256 behind it.
+    #[error("szip pixels per block must be an even number from 2 to 256, got {0}")]
+    PixelsPerBlock(u32),
+
+    /// szip pixels per scanline outside 1 to 4096 (`sz_compat.c:229-230`).
+    #[error("szip pixels per scanline must be 1 to 4096, got {0}")]
+    PixelsPerScanline(u32),
+
+    /// An szip output whose padded stream has more samples than `usize` can
+    /// count. Only a 32-bit target can reach it: one pixel per scanline in
+    /// blocks of 256 decodes 256 stream samples per pixel.
+    #[error("an szip output of {len} bytes needs more padded samples than this target can count")]
+    OutputTooLarge {
+        /// The buffer's length in bytes.
+        len: usize,
     },
 }

@@ -13,10 +13,21 @@ attacker-controlled bytes, so the decoder is fuzzed before either reader uses it
   asserts they agree on the verdict and, on success, on every byte. The byte
   layout it compares against is written out in the target, not taken from the
   crate.
+- `sz` runs `sz::decompress` on arbitrary bytes under arbitrary valid szip
+  parameters and output lengths, against a reference written in the target the
+  way libsz does it: decode the padded stream into a buffer, drop each
+  scanline's pads, then deinterleave byte planes. It asserts the two agree on
+  the verdict and, on success, on every byte, and that a length that is not a
+  whole number of pixels is refused by name. The one difference it allows is
+  the one ADR-0012 records: the reference, like libsz, decodes padded
+  scanlines whole, so it can fail after the last pixel where the crate
+  returns `Ok`.
 
 Each input is a 7-byte header, then the stream. The header maps to a parameter
 set the crate accepts (bits per sample, block size, reference sample interval,
-flags, sample count); `fuzz_targets/common.rs` has the layout.
+flags, sample count); `fuzz_targets/common.rs` has the layout. The `sz`
+target reads an 8-byte szip header instead (mask, bits per pixel, pixels per
+block and per scanline, output length); `fuzz_targets/sz.rs` has that layout.
 
 This crate is intentionally **not** a member of the workspace, so the standard
 stable-toolchain gates never try to build the nightly-only libFuzzer targets.
@@ -27,9 +38,11 @@ stable-toolchain gates never try to build the nightly-only libFuzzer targets.
 # from crates/fieldglass-aec/fuzz
 cargo +nightly fuzz run decode
 cargo +nightly fuzz run differential
+cargo +nightly fuzz run sz
 ```
 
 The seed corpus under `corpus/` is a small subset of the conformance streams in
-`../tests/fixtures/`, each behind its parameter header. Regenerate it with
-`python3 tools/build_aec_fuzz_seeds.py`. CI runs both targets time-boxed on pull
-requests that touch the crate; see `.github/workflows/fuzz.yml`.
+`../tests/fixtures/`, each behind its parameter header, and every szip stream
+for `sz`. Regenerate it with `python3 tools/build_aec_fuzz_seeds.py`. CI runs
+every target time-boxed on pull requests that touch the crate; see
+`.github/workflows/fuzz.yml`.
