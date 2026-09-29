@@ -198,7 +198,7 @@ fn decode_simple_packing(
     }
 
     let decoded = unpack_simple(ds_payload, t.bits_per_value, &scaling, present_count)?;
-    interleave_with_bitmap(decoded, bitmap)
+    interleave_with_bitmap(decoded, bitmap, expected_count)
 }
 
 /// Decode simple packing with logarithmic pre-processing (template 5.61). §7 is
@@ -267,7 +267,7 @@ fn decode_complex_packing(
     let mut reader = BitReader::new(ds_payload);
     let scaled = decode_complex_groups(&mut reader, t, present_count)?;
 
-    complex_scaled_to_values(t, scaled, bitmap)
+    complex_scaled_to_values(t, scaled, bitmap, expected_count)
 }
 
 /// The `NG == 0` constant-field rule shared by 5.2 and 5.3 (eccodes
@@ -290,6 +290,7 @@ fn complex_scaled_to_values(
     t: &ComplexPackingTemplate,
     scaled: Vec<Option<i64>>,
     bitmap: Option<&[bool]>,
+    expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let scaling = packing_scaling(
         t.reference_value,
@@ -300,7 +301,7 @@ fn complex_scaled_to_values(
         .into_iter()
         .map(|s| s.map(|s| scaling.apply(s as f64)))
         .collect();
-    interleave_optional(decoded, bitmap)
+    interleave_optional(decoded, bitmap, expected_count)
 }
 
 /// Decode complex packing with spatial differencing (template 5.3). The packed
@@ -389,7 +390,7 @@ fn decode_complex_spatial_diff(
     let seeds = [ival1, ival2];
     apply_spd_inverse_skipping_missing(&mut vals, &seeds[..order as usize], bias)?;
 
-    complex_scaled_to_values(&t.complex, vals, bitmap)
+    complex_scaled_to_values(&t.complex, vals, bitmap, expected_count)
 }
 
 /// Validate the §6 bitmap against the grid-point count and return the number
@@ -524,7 +525,7 @@ fn decode_ieee_packing(
         decoded.push(value);
     }
 
-    interleave_with_bitmap(decoded, bitmap)
+    interleave_with_bitmap(decoded, bitmap, expected_count)
 }
 
 /// Decode PNG packing (template 5.41). §7 carries a complete PNG image whose
@@ -614,7 +615,7 @@ fn decode_png_packing(
         decoded.push(scaling.apply(x as f64));
     }
 
-    interleave_with_bitmap(decoded, bitmap)
+    interleave_with_bitmap(decoded, bitmap, expected_count)
 }
 
 /// Decode CCSDS / AEC packing (template 5.42). §7 carries a CCSDS-121.0-B
@@ -711,7 +712,7 @@ fn decode_ccsds_packing(
         )));
     }
 
-    interleave_with_bitmap(sink.out, bitmap)
+    interleave_with_bitmap(sink.out, bitmap, expected_count)
 }
 
 /// The low `bits` bits set, `mask(n)` in ADR-0012 decision 5, for `bits` from 1
@@ -860,7 +861,7 @@ fn decode_jpeg2000_packing(
         decoded.push(scaling.apply(x as f64));
     }
 
-    interleave_with_bitmap(decoded, bitmap)
+    interleave_with_bitmap(decoded, bitmap, expected_count)
 }
 
 /// Decode JPEG 2000 packing (template 5.40) at level `reduction` of the
@@ -1107,7 +1108,7 @@ fn decode_run_length_packing(
         )));
     }
 
-    interleave_optional(decoded, bitmap)
+    interleave_optional(decoded, bitmap, expected_count)
 }
 
 /// Decode second-order (general-extended) packing (templates 5.50001 and
@@ -1250,7 +1251,7 @@ fn decode_second_order(
         t.decimal_scale_factor,
     );
     let decoded = x.into_iter().map(|v| scaling.apply(v as f64)).collect();
-    interleave_with_bitmap(decoded, bitmap)
+    interleave_with_bitmap(decoded, bitmap, expected_count)
 }
 
 /// Undo the template-5.50002 boustrophedonic row ordering in place, once the
@@ -1293,12 +1294,17 @@ pub fn undo_second_order_boustrophedonic(
 /// bitmap every value is `Some`; with one, the `k`-th present point takes the
 /// `k`-th value and absent points are `None`
 /// (`fieldglass_core::bitmap::interleave_with_bitmap`, which is proved). §7
-/// holds one value per present point, so any other count is an error.
+/// holds one value per present point, which with no bitmap is every one of the
+/// `expected_count` points, so any other count is an error.
 fn interleave_with_bitmap(
     present: Vec<f64>,
     bitmap: Option<&[bool]>,
+    expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     match bitmap {
+        None if present.len() != expected_count => {
+            Err(grid_count_mismatch(present.len(), expected_count))
+        }
         None => Ok(present.into_iter().map(Some).collect()),
         Some(b) => fieldglass_core::bitmap::interleave_with_bitmap(&present, b)
             .ok_or_else(|| value_count_mismatch(present.len(), b)),
@@ -1311,8 +1317,12 @@ fn interleave_with_bitmap(
 fn interleave_optional(
     present: Vec<Option<f64>>,
     bitmap: Option<&[bool]>,
+    expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     match bitmap {
+        None if present.len() != expected_count => {
+            Err(grid_count_mismatch(present.len(), expected_count))
+        }
         None => Ok(present),
         Some(b) => {
             let spread = fieldglass_core::bitmap::interleave_with_bitmap(&present, b)
@@ -1320,6 +1330,12 @@ fn interleave_optional(
             Ok(spread.into_iter().map(Option::flatten).collect())
         }
     }
+}
+
+fn grid_count_mismatch(values: usize, expected_count: usize) -> FieldglassError {
+    FieldglassError::Parse(format!(
+        "§7 decoded {values} values but the grid has {expected_count} points"
+    ))
 }
 
 fn value_count_mismatch(values: usize, bitmap: &[bool]) -> FieldglassError {
@@ -1538,6 +1554,42 @@ mod tests {
         let bitmap = [true, false, true];
         let decoded = decode_values(&packed, template, Some(&bitmap), 3).expect("decode");
         assert_eq!(decoded, vec![Some(10.0), None, Some(20.0)]);
+    }
+
+    /// What `interleave_optional` is for: a §6 bitmap over present points that
+    /// can already be missing. Level 0 is run-length packing's missing value,
+    /// so the second present point stays `None` beside the bitmap's own.
+    #[test]
+    fn run_length_missing_level_under_a_bitmap() {
+        let template = run_length_template(8, 3, vec![10, 20, 30], 0);
+        let packed = rle_codes(&[(1, 1), (0, 1), (2, 1)], 8, 3);
+        let bitmap = [true, false, true, true];
+        let decoded = decode_values(&packed, template, Some(&bitmap), 4).expect("decode");
+        assert_eq!(decoded, vec![Some(10.0), None, None, Some(20.0)]);
+    }
+
+    /// One value per present point, or per grid point with no bitmap (FM 92,
+    /// §7): any other count is a parse error, never padding or truncation.
+    #[test]
+    fn interleave_wrappers_refuse_a_wrong_value_count() {
+        let bitmap = [true, false, true];
+        for result in [
+            interleave_with_bitmap(vec![1.0], Some(&bitmap), 3),
+            interleave_with_bitmap(vec![1.0, 2.0, 3.0], Some(&bitmap), 3),
+            interleave_with_bitmap(vec![1.0, 2.0], None, 3),
+            interleave_optional(vec![Some(1.0)], Some(&bitmap), 3),
+            interleave_optional(vec![None, Some(1.0), None], Some(&bitmap), 3),
+            interleave_optional(vec![Some(1.0), None], None, 3),
+        ] {
+            assert!(
+                matches!(result, Err(FieldglassError::Parse(_))),
+                "got {result:?}"
+            );
+        }
+        assert_eq!(
+            interleave_optional(vec![None, Some(2.0)], Some(&bitmap), 3).unwrap(),
+            vec![None, None, Some(2.0)]
+        );
     }
 
     #[test]

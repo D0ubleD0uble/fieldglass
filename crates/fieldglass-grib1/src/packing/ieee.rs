@@ -81,6 +81,6 @@ impl Grib1Packing for IeeePacking {
             decoded.push(value);
         }
 
-        interleave_with_bitmap(decoded, bitmap)
+        interleave_with_bitmap(decoded, bitmap, expected_count)
     }
 }

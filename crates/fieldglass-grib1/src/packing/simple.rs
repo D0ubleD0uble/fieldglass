@@ -73,6 +73,6 @@ impl Grib1Packing for SimplePacking {
 
         let packed = &bds[BDS_DATA_OFFSET..header.section_len as usize];
         let decoded = unpack_simple(packed, n, &scaling, present)?;
-        interleave_with_bitmap(decoded, bitmap)
+        interleave_with_bitmap(decoded, bitmap, expected_count)
     }
 }

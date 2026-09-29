@@ -201,7 +201,7 @@ impl Grib1Packing for MatrixPacking {
         }
 
         let decoded = unpack_simple(packed, header.bits_per_value, &scaling, present)?;
-        interleave_with_bitmap(decoded, bitmap)
+        interleave_with_bitmap(decoded, bitmap, expected_count)
     }
 }
 
