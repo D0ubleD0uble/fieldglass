@@ -12,10 +12,12 @@
 //!
 //! Two things, and only two:
 //!
-//! * **Building the geometry.** A host reads its own wire fields, so the
-//!   messages naming those fields ("missing `latFirst`") stay with the code that
-//!   knows the names. [`Source::geometry`] carries either the geometry or the
-//!   refusal.
+//! * **Handing over the geometry.** A host passes the grid the readers built —
+//!   a [`Georef`](crate::Georef)'s, or a slice placement's — rather than one of
+//!   its own making; since #574 neither host rebuilds a geometry out of wire
+//!   fields. A grid that places no point still has a geometry, and the
+//!   operations below that need a position refuse it in words every host
+//!   shares.
 //! * **Paint and packaging.** `project` (behind the `render` feature) returns
 //!   values, a mask and the raster shape; painting them into RGBA and handing
 //!   that across a language boundary is the binding's job.
@@ -52,7 +54,7 @@ use fieldglass_core::{
 use fieldglass_core::{
     ForwardAt, GeostationaryProjector, LambertAzimuthalProjector, LambertProjector,
     PlanarGridProjector, PolarStereoProjector, TransverseMercatorProjector, normalise_lon,
-    projection::planar_grid_is_placeable,
+    plane_spans_a_grid_cell, projection::planar_grid_is_placeable,
 };
 #[cfg(all(feature = "render", feature = "analysis"))]
 use fieldglass_core::{
@@ -240,15 +242,15 @@ impl Default for RenderOptions {
 /// The grid a display operation reads, as the host resolved it.
 ///
 /// [`geometry`](Self::geometry) is a `Result` rather than a [`GridGeometry`],
-/// and that is the point of the type. A host builds one out of its own wire
-/// fields, and a message can name a family and then fail to supply the numbers
-/// for it — a §3.20 grid stating `Dx = 0`, a corner that is `NaN`. Raising that
-/// at the call would refuse the operations that never place a point: the source
-/// projection paints the array as stored, and a probe on it still reports the
-/// value under the pixel with no coordinate to go with it. So the refusal
-/// travels *with* the source and each operation decides whether it needs a
-/// geometry — which is what these operations did when they read the host's DTO
-/// slot by slot.
+/// so a host that cannot state a grid at all can say why, and the refusal
+/// travels *with* the source: each operation decides whether it needs a
+/// geometry. Raising it at the call would refuse the operations that never
+/// place a point — the source projection paints the array as stored, and a
+/// probe on it still reports the value under the pixel with no coordinate.
+///
+/// Both hosts hand over `Ok` since #574, with the geometry the readers built. A
+/// grid whose numbers place nothing — a §3.20 stating `Dx = 0` — is `Ok` too,
+/// and the operations that need a position refuse it themselves.
 #[derive(Debug, Clone)]
 pub struct Source<'a> {
     /// The grid, or why the host could not state one.
@@ -268,7 +270,9 @@ pub struct Source<'a> {
     /// grid is a [`GridGeometry::Lookup`], so `geometry.label()` would name a
     /// different family than the message declares. It is also what a refusal
     /// quotes, so `reprojection not yet supported for grid type "healpix"` says
-    /// the grid the file named.
+    /// the grid the file named — unless the geometry is one this build does not
+    /// place, whose own label is quoted instead, since a host may caption such a
+    /// raster with a family name the refusal would contradict.
     pub family: &'a str,
     /// Points per row for a **reduced** grid, whose raster arrived widened to
     /// its widest row; `None` for every other family (#244).
@@ -291,6 +295,25 @@ impl Source<'_> {
     /// `[`Source::geometry`]` in this module as a link to a private item.
     fn placed(&self) -> Result<&GridGeometry, Error> {
         self.geometry.clone()
+    }
+
+    /// The family a refusal names: the geometry's own label for a grid this
+    /// build does not place, and [`family`](Self::family) otherwise.
+    ///
+    /// The two differ only where a host captions a raster nothing places with
+    /// a name of its own. The addon calls a NetCDF slice with no coordinate
+    /// arrays `latlon`, which is what its source view has always been captioned
+    /// — and a refusal quoting that would say a lat/lon grid cannot be
+    /// reprojected, which is the opposite of the reason. The geometry's label
+    /// is what [`GridGeometry::label`] says a refusal should read: the file's
+    /// own name for an unmodelled template, `source` for a raster no
+    /// coordinates place. Every other host already passes that label as the
+    /// family, so for them this changes nothing (#574).
+    fn refused_as(&self) -> &str {
+        match self.geometry {
+            Ok(GridGeometry::Unsupported { label }) => label,
+            _ => self.family,
+        }
     }
 }
 
@@ -1103,18 +1126,22 @@ fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Er
     };
     match geometry {
         GridGeometry::Lambert(p) => {
+            require_declared_radius(geometry, p.earth_radius_m, p.dx_metres, p.dy_metres)?;
             let proj = LambertProjector::new(*p);
             placeable(proj.is_well_defined(), &proj)
         }
         GridGeometry::PolarStereo(p) => {
+            require_declared_radius(geometry, p.earth_radius_m, p.dx_metres, p.dy_metres)?;
             let proj = PolarStereoProjector::new(*p);
             placeable(proj.is_well_defined(), &proj)
         }
         GridGeometry::TransverseMercator(p) => {
+            require_declared_radius(geometry, p.semi_major_m, p.dx_metres, p.dy_metres)?;
             let proj = TransverseMercatorProjector::new(*p);
             placeable(proj.is_well_defined(), &proj)
         }
         GridGeometry::LambertAzimuthal(p) => {
+            require_declared_radius(geometry, p.semi_major_m, p.dx_metres, p.dy_metres)?;
             let proj = LambertAzimuthalProjector::new(*p);
             placeable(proj.is_well_defined(), &proj)
         }
@@ -1142,6 +1169,43 @@ fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Er
         }),
         _ => Ok(()),
     }
+}
+
+/// Refuse a planar grid whose declared Earth radius (the sphere's radius, or a
+/// spheroid's semi-major axis) is no sphere at all or is too small to hold one
+/// cell of the grid, and say which radius (#610).
+///
+/// Both fail quietly otherwise: a zero radius keeps the projection constants
+/// finite and inverts every point to the pole, and a 1e-6 m sphere puts every
+/// point on Earth in one cell. The engine would refuse either as "degenerate
+/// projection parameters", which does not tell the user which number is wrong;
+/// the Geostationary arm names its axes for the same reason. The cell floor is
+/// [`plane_spans_a_grid_cell`], which passes a grid with no spacing vacuously,
+/// so a zero step still gets the generic refusal below.
+#[cfg(any(feature = "render", feature = "analysis"))]
+fn require_declared_radius(
+    geometry: &GridGeometry,
+    radius_m: f64,
+    dx_metres: f64,
+    dy_metres: f64,
+) -> Result<(), Error> {
+    let detail = if !(radius_m.is_finite() && radius_m > 0.0) {
+        format!(
+            "grid type {:?} declares an Earth radius of {radius_m} m, which describes no \
+             sphere to place its grid points on",
+            geometry.kind()
+        )
+    } else if !plane_spans_a_grid_cell(radius_m, dx_metres, dy_metres) {
+        format!(
+            "grid type {:?} declares an Earth radius of {radius_m} m, smaller than one \
+             {dx_metres} × {dy_metres} m cell of its own grid, so no grid point has a \
+             distinguishable position",
+            geometry.kind()
+        )
+    } else {
+        return Ok(());
+    };
+    Err(Error::Unsupported { detail })
 }
 
 /// The render window a warp target frames a grid with, from `core`.
@@ -1205,7 +1269,7 @@ fn source_projection_summary(source: &Source<'_>) -> String {
 
 /// Project a decoded field into the target `options` names.
 ///
-/// The dispatch the napi host's `render_with_options` used to make inline: the
+/// The dispatch the napi host used to make inline before #572: the
 /// `"source"` target paints the array as stored, everything else inverse-warps
 /// through the geometry. Painting the result is the caller's — the values and
 /// the mask come back so a GPU host never pays for a CPU paint it discards.
@@ -1272,7 +1336,7 @@ fn warp_field(
     resolved: &ResolvedOptions,
 ) -> Result<Projected, Error> {
     let geometry = source.placed()?;
-    require_reprojectable(geometry, source.family)?;
+    require_reprojectable(geometry, source.refused_as())?;
     let (ni, nj) = (source.ni, source.nj);
 
     let sample = |i: usize, j: usize| -> Option<f64> {
@@ -1346,7 +1410,7 @@ pub fn overlay_polylines(
 ) -> Result<ProjectedPolylines, Error> {
     let resolved = ResolvedOptions::parse(options)?;
     let geometry = source.placed()?;
-    require_reprojectable(geometry, source.family)?;
+    require_reprojectable(geometry, source.refused_as())?;
     let inverse = geometry.inverse_at();
     let (ni, nj) = (source.ni, source.nj);
     match resolved.target {
@@ -1588,7 +1652,7 @@ fn require_forward_geolocation<'a>(
 ) -> Result<ForwardAt<'a>, Error> {
     let geometry = source.placed()?;
     let map = forward_geolocation(geometry).ok_or_else(|| Error::Unsupported {
-        detail: unsupported(source.family),
+        detail: unsupported(source.refused_as()),
     })?;
     // The family gate first, the grid's own constants second, and the order is
     // load-bearing: a space view is refused for what its *family* cannot do
@@ -1600,7 +1664,7 @@ fn require_forward_geolocation<'a>(
     // of an unplaceable planar grid comes back `None` from the map above, so a
     // contour pass would draw nothing and a long CSV would write a header and
     // no rows, with nothing said about why (#603, #610).
-    require_reprojectable(geometry, source.family)?;
+    require_reprojectable(geometry, source.refused_as())?;
     Ok(map)
 }
 
@@ -2205,7 +2269,7 @@ pub fn probe_pixel(
         }
         TargetKind::Warp(target) => {
             let geometry = source.placed()?;
-            require_reprojectable(geometry, source.family)?;
+            require_reprojectable(geometry, source.refused_as())?;
             let (built, _) = build_warp_target(target, ni, nj, geometry, &resolved)?;
             let (w, h) = built.dims();
             if px >= w || py >= h {
@@ -2303,7 +2367,7 @@ pub fn zonal_mean(
                     "a zonal mean needs rows that are circles of latitude, which grid type \
                      {:?} does not have (only regular lat/lon, Gaussian, Mercator and their \
                      reduced forms)",
-                    source.family
+                    source.refused_as()
                 ),
             });
         }

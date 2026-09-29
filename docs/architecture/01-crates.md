@@ -5,12 +5,14 @@ same decoded field (`Vec<Option<f64>>` + grid geometry); `core` projects, warps,
 and renders it; a host binds the result to its language. `fieldglass-core` owns
 the shared traits and geometry and depends on nothing else in the workspace.
 
-Both hosts bind `fieldglass`, the host-neutral umbrella, and neither names a
-format crate. `fieldglass-wasm` never did. `fieldglass-napi` did until #726: #572
-moved its display half — warp, probe, contours, overlays and CSV — onto
-`fieldglass`, #662 its NetCDF path, and #726 the GRIB handles, which now hold a
-`Session` rather than a reader and build the `MessageMeta` DTO the VS Code
-extension reads out of the umbrella's own types. That is
+Both hosts bind `fieldglass`, the host-neutral umbrella, and neither names any
+other workspace crate. `fieldglass-wasm` never did. `fieldglass-napi` named the
+format crates until #726: #572 moved its display half — warp, probe, contours,
+overlays and CSV — onto `fieldglass`, #662 its NetCDF path, and #726 the GRIB
+handles, which now hold a `Session` rather than a reader and build the
+`MessageMeta` DTO the VS Code extension reads out of the umbrella's own types.
+It named `fieldglass-core` until #574, which has it render on the geometry the
+umbrella placed rather than one rebuilt from that DTO. That is
 [ADR-0006](../decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)
 decision 1 met rather than approached.
 
@@ -35,7 +37,6 @@ flowchart TD
     fieldglass --> core
     fieldglass --> fetchplan
     napi --> fieldglass
-    napi --> core
     fetchplan --> core
     fetchplan --> zarr
     zarr --> core
@@ -45,15 +46,17 @@ flowchart TD
     netcdf --> core
 ```
 
-**No host has an edge to a decoder.** A host is a binding over `fieldglass`
-(ADR-0006 decision 1), so the umbrella is what decides the surface a host may
-use. `fieldglass-napi` had three such edges and reached NetCDF twice over — once
-through the umbrella and once directly, the divergence #662 named. What a host
+**No host has an edge to any crate but the umbrella.** A host is a binding
+over `fieldglass` (ADR-0006 decision 1), so the umbrella is what decides the
+surface a host may use. `fieldglass-napi` had three edges to decoders and
+reached NetCDF twice over — once through the umbrella and once directly, the
+divergence #662 named — and kept one to `fieldglass-core` until #574. What a host
 needs beyond `Session` now comes through the umbrella too: `fieldglass::netcdf`
 for a file's own metadata, `fieldglass::grib1` for the one edit a read-only
-session has no shape for. `tools/check_host_dependencies.py` holds this at zero
-and fails for any unlisted edge, dev-dependencies included, so this drawing
-cannot drift from the manifests.
+session has no shape for, and the geometry types, format detection and unit
+typesetting it re-exports at its root. `tools/check_host_dependencies.py` holds
+this at zero over the whole workspace set and fails for any unlisted edge,
+dev-dependencies included, so this drawing cannot drift from the manifests.
 
 **Why it stays decoupled:** no format crate depends on another, and nothing
 below a host depends on a host. A new decode path lands inside one format crate

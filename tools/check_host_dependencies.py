@@ -1,20 +1,31 @@
 #!/usr/bin/env python3
-"""Fail when a host crate names a format crate in its manifest.
+"""Fail when a host crate names any workspace crate other than the umbrella.
 
     python3 tools/check_host_dependencies.py
 
 A host is a binding over `fieldglass` ([ADR-0006] decision 1): the napi addon and
 the browser bundle. The umbrella is what decides the surface a host may use, so a
-host that *also* depends on a decoder directly has two routes to the same reader
-and the two hosts drift apart — which is exactly what #662 found. The browser
-bundle took `fieldglass` and could open a NetCDF file only because the umbrella
-reached the reader; the addon reached it twice over, and built its NetCDF path
-against the reader rather than against `Session`.
+host that *also* depends on a crate below it has two routes to the same code and
+the two hosts drift apart — which is exactly what #662 found. The browser bundle
+took `fieldglass` and could open a NetCDF file only because the umbrella reached
+the reader; the addon reached it twice over, and built its NetCDF path against
+the reader rather than against `Session`.
 
-**This is a ratchet, not a wall.** The transition is not finished — `fieldglass-napi`
-still names both GRIB crates — so the remaining edges are listed in
-`ALLOWED_DIRECT` with the reason each survives. The check fails in *both*
-directions:
+**Every workspace crate counts, not only the decoders.** Until #574 this check
+listed the four format crates, and `fieldglass-core` sat outside the list: the
+addon named it directly for its geometry types, format detection and unit
+typesetting, 24 uses the browser bundle reached through the umbrella instead.
+#574 read "napi depends on `fieldglass` only" strictly, so the rule is now the
+manifest's whole workspace set minus the umbrella — a crate added to the
+workspace later is covered the day it lands, rather than when someone remembers
+to add it to a list here. What a host needs from below the umbrella, the
+umbrella re-exports as part of its host surface.
+
+Dev-dependencies and build-dependencies count alike: a test that reaches past
+the umbrella proves something about a route the shipped host does not take.
+
+**This is a ratchet, not a wall.** An exception is argued for in
+`ALLOWED_DIRECT`, with its reason, and the check fails in *both* directions:
 
 * a host gaining an edge that is not listed, which is the rule; and
 * a listed edge that is no longer there, which means the transition moved and the
@@ -36,17 +47,12 @@ import sys
 # to one runtime, so it is the one place this rule is about.
 HOSTS = {"fieldglass-napi", "fieldglass-wasm"}
 
-# The decoders. A host should reach these only through `fieldglass`.
-FORMAT_CRATES = {
-    "fieldglass-grib1",
-    "fieldglass-grib2",
-    "fieldglass-netcdf",
-    "fieldglass-zarr",
-}
+# The one workspace crate a host may name.
+UMBRELLA = "fieldglass"
 
-# Host -> the format crates it still names, and why. Empty since #726: every
-# host reaches the decoders through `fieldglass` alone, which is ADR-0006
-# decision 1 met rather than approached.
+# Host -> the workspace crates it still names besides the umbrella, and why.
+# Empty since #574: `fieldglass-napi` dropped `fieldglass-core`, the last edge
+# (#726 had removed the format crates).
 #
 # Kept as a structure rather than deleted, because an entry is how an exception
 # would have to be argued for — added here with its reason, in the same commit
@@ -55,12 +61,13 @@ FORMAT_CRATES = {
 ALLOWED_DIRECT: dict[str, dict[str, str]] = {}
 
 
-def direct_format_dependencies() -> dict[str, set[str]]:
-    """Each host's direct dependencies that are format crates.
+def cargo_metadata_packages() -> list[dict]:
+    """The workspace members, from `cargo metadata --no-deps`.
 
-    From `cargo metadata --no-deps`, so it reads the manifests rather than the
-    resolved graph: an edge that arrives transitively through `fieldglass` is
-    exactly what this rule *wants*, and would be indistinguishable in the graph.
+    `--no-deps` so this reads the manifests rather than the resolved graph: an
+    edge that arrives transitively through `fieldglass` is exactly what this
+    rule *wants*, and would be indistinguishable in the graph. It also makes
+    `packages` the workspace set, which is what the rule is stated over.
     """
     out = subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],
@@ -69,20 +76,33 @@ def direct_format_dependencies() -> dict[str, set[str]]:
         encoding="utf-8",
         check=True,
     ).stdout
-    packages = json.loads(out)["packages"]
+    return json.loads(out)["packages"]
+
+
+def direct_workspace_dependencies(packages: list[dict]) -> dict[str, set[str]]:
+    """Each host's direct dependencies that are workspace crates, bar the umbrella.
+
+    Every dependency kind — normal, dev and build — because the manifest lists
+    them all under `dependencies` with a `kind` beside each.
+    """
+    workspace = {package["name"] for package in packages}
     found: dict[str, set[str]] = {}
     for package in packages:
         if package["name"] not in HOSTS:
             continue
         found[package["name"]] = {
-            dep["name"] for dep in package["dependencies"] if dep["name"] in FORMAT_CRATES
+            dep["name"]
+            for dep in package["dependencies"]
+            if dep["name"] in workspace and dep["name"] != UMBRELLA
         }
     return found
 
 
-def check() -> list[str]:
+def check(packages: list[dict] | None = None) -> list[str]:
     problems: list[str] = []
-    found = direct_format_dependencies()
+    if packages is None:
+        packages = cargo_metadata_packages()
+    found = direct_workspace_dependencies(packages)
 
     missing_hosts = HOSTS - found.keys()
     if missing_hosts:
@@ -92,16 +112,24 @@ def check() -> list[str]:
             f"these host crates were not found by `cargo metadata`: "
             f"{', '.join(sorted(missing_hosts))} — was one renamed?"
         )
+    if UMBRELLA not in {package["name"] for package in packages}:
+        # Likewise the umbrella: renamed, every host edge to it would start
+        # counting as a violation — or, worse, a new name would be exempt.
+        problems.append(
+            f"the umbrella crate `{UMBRELLA}` was not found by `cargo metadata` — "
+            f"was it renamed?"
+        )
 
     for host in sorted(found):
         allowed = ALLOWED_DIRECT.get(host, {})
         for crate in sorted(found[host] - allowed.keys()):
             problems.append(
-                f"{host} depends on {crate} directly. A host reaches a decoder "
-                f"through `fieldglass` (ADR-0006 decision 1) — add what it needs "
-                f"to the umbrella's surface, as `fieldglass::netcdf` does (#662). "
-                f"If the edge really has to stay, add it to ALLOWED_DIRECT in "
-                f"tools/check_host_dependencies.py with the reason."
+                f"{host} depends on {crate} directly. A host names no workspace "
+                f"crate but `{UMBRELLA}` (ADR-0006 decision 1, #574) — have the "
+                f"umbrella re-export what the host needs as part of its host "
+                f"surface, as `fieldglass::netcdf` does (#662) and the geometry "
+                f"re-exports do (#574). If the edge really has to stay, add it to "
+                f"ALLOWED_DIRECT in tools/check_host_dependencies.py with the reason."
             )
         for crate in sorted(allowed.keys() - found[host]):
             problems.append(
@@ -121,8 +149,8 @@ def main() -> int:
         return 1
     remaining = sum(len(v) for v in ALLOWED_DIRECT.values())
     print(
-        f"host dependencies OK — every host reaches its decoders through "
-        f"`fieldglass`, with {remaining} edge(s) still to move."
+        f"host dependencies OK — every host names `{UMBRELLA}` and no other "
+        f"workspace crate, with {remaining} edge(s) still to move."
     )
     return 0
 

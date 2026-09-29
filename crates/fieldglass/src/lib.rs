@@ -138,6 +138,34 @@ pub use api::{CombineOpInfo, Isoline};
 #[cfg(feature = "analysis")]
 pub use combine::{CombineOp, aligned, combine_ops, combine_values, op_from_wire};
 pub use error::Error;
+/// Pixel-space runs, which `render::overlay_polylines` and
+/// `render::contour_polylines` return — named so a host can take the return
+/// value apart. Named in prose: the first is behind `render`, the second behind
+/// `render` and `analysis`.
+#[cfg(feature = "render")]
+pub use fieldglass_core::ProjectedPolylines;
+/// The cell-centre index a lookup [`GridGeometry`] wraps.
+///
+/// Re-exported so depending on `fieldglass` alone is enough to hold one (#574):
+/// a host keeps a placement between calls, and the addon caches a curvilinear
+/// slice's lookup geometry per coordinate pair and asks the index which way its
+/// rows run. Ungated, because [`Georef`] is.
+pub use fieldglass_core::SpatialIndex;
+/// The finite range of a field's present cells, which a host painting a
+/// `render::project` result on the CPU needs for the palette domain when the
+/// caller named no range — the same rule `render::contour_polylines` spaces its
+/// levels over, so the isolines line up with the colours.
+#[cfg(feature = "render")]
+pub use fieldglass_core::colormap::min_max_ignoring_mask;
+/// The grid a [`Source`] and a [`Georef`] carry, so a host can hold one (#574).
+pub use fieldglass_core::projection::GridGeometry;
+/// A unit string typeset for display (ADR-0007). [`Session`] reports a file's
+/// units as the file spells them; a host that shows them typesets them with
+/// this, so two hosts cannot typeset one unit two ways.
+pub use fieldglass_core::units::normalize_units;
+/// Which container a buffer holds, from its leading bytes — what a host asks
+/// before choosing which handle to open, and what [`Session::open`] asks too.
+pub use fieldglass_core::{Format, detect_from_bytes};
 // The placement a host paints with (#659), beside the `Session` that hands it
 // over. Not in `api`: it carries a `GridGeometry`, which is the engine's own
 // shape rather than anything a host serialises.
