@@ -49,7 +49,7 @@ pub fn bits_to_bytes(bits: usize) -> (out: usize)
 }
 
 } // verus!
-// The proofs over shipped code (#199). Each kernel file is the production
+// The proofs over shipped code (#199: `scaling`; #201: `groups`). Each kernel file is the production
 // source itself, included by path, so there is one copy to keep verified.
 // Those files name `crate::FieldglassError` and `crate::bits::BitReader`, which
 // these re-exports provide here exactly as `fieldglass-core` does, and
@@ -68,3 +68,7 @@ pub mod spatial_diff;
 // either crate, so it needs no re-export.
 #[path = "../../fieldglass-core/src/shuffle.rs"]
 pub mod shuffle;
+
+// The group expansion of GRIB complex and second-order packing (#201).
+#[path = "../../fieldglass-core/src/groups.rs"]
+pub mod groups;

@@ -42,64 +42,6 @@ pub fn bits_to_bytes(count: usize, bits_per_value: usize) -> Option<usize> {
         .map(|bits| bits.div_ceil(8))
 }
 
-/// Expand the second-order group structure into the scaled-integer grid `x`,
-/// filling from index `start` onward (`x[0..start]` holds the SPD seeds the
-/// caller plants). `groups` yields one `(width, count, reference)` per group, in
-/// order. Each group contributes `count` points: `reference` for a zero-width
-/// group, else `reference + read_bits(width)` (wrapping, to match eccodes'
-/// implicit two's-complement C). A width above 32 is a parse error — the bit
-/// reader returns a `u32`.
-///
-/// This is the group-reconstruction inner loop the GRIB1
-/// `grid_second_order_*` decoder and the GRIB2 second-order templates
-/// (5.50001 / 5.50002) share; the SPD seed-planting and the R/E/D scaling that
-/// bracket it stay in each edition's decoder, since they differ (boustrophedonic
-/// row order, the scaling entry point).
-pub fn expand_second_order_groups(
-    reader: &mut BitReader,
-    x: &mut [i64],
-    start: usize,
-    groups: impl Iterator<Item = (u32, usize, i64)>,
-) -> Result<(), FieldglassError> {
-    let mut n = start;
-    // `x` is sized by the caller from the same group lengths, so an overrun
-    // means those two disagree. Reporting it beats indexing past the end: the
-    // bound is checked here, where the write happens, rather than resting on
-    // each caller having summed the lengths the same way. A `debug_assert`
-    // would say nothing in the release build a user runs.
-    let overrun = || {
-        FieldglassError::Parse(
-            "second-order packing: group lengths reconstruct more values than the grid holds"
-                .to_string(),
-        )
-    };
-    for (g, (width, count, reference)) in groups.enumerate() {
-        if width > 32 {
-            return Err(FieldglassError::Parse(format!(
-                "second-order packing: group {g} width {width} exceeds 32 bits"
-            )));
-        }
-        if width == 0 {
-            for _ in 0..count {
-                *x.get_mut(n).ok_or_else(overrun)? = reference;
-                n += 1;
-            }
-        } else {
-            for _ in 0..count {
-                let raw = reader.read_bits(width as u8)? as i64;
-                *x.get_mut(n).ok_or_else(overrun)? = reference.wrapping_add(raw);
-                n += 1;
-            }
-        }
-    }
-    debug_assert_eq!(
-        n,
-        x.len(),
-        "group lengths must fill x exactly past the SPD seeds"
-    );
-    Ok(())
-}
-
 /// IBM System/360 single-precision float → `f64`.
 /// Layout: sign (1) | characteristic (7, excess-64) | fraction (24), base 16.
 pub fn ibm_float_to_f64(raw: u32) -> f64 {
@@ -335,39 +277,5 @@ mod tests {
         assert_eq!(r.bit_offset, 0);
         // A valid read right afterwards still works.
         assert_eq!(r.read_bits(8).unwrap(), 0xAA);
-    }
-
-    /// `x` is sized by the caller from the same group lengths this walks, so
-    /// the two can only disagree if the caller summed them differently. That
-    /// used to run off the end of `x`; it reports instead.
-    #[test]
-    fn group_lengths_that_overrun_the_grid_are_reported_not_panicked_on() {
-        let packed = [0u8; 8];
-
-        // Three points asked for, two slots to put them in.
-        let mut reader = BitReader::new(&packed);
-        let mut x = vec![0i64; 2];
-        let err =
-            expand_second_order_groups(&mut reader, &mut x, 0, [(0u32, 3usize, 7i64)].into_iter())
-                .expect_err("an overrun is an error");
-        assert!(
-            matches!(&err, FieldglassError::Parse(m) if m.contains("more values than the grid holds")),
-            "{err:?}"
-        );
-
-        // The same overrun on the width > 0 path, which reads bits first.
-        let mut reader = BitReader::new(&packed);
-        let mut x = vec![0i64; 2];
-        assert!(
-            expand_second_order_groups(&mut reader, &mut x, 0, [(4u32, 3usize, 0i64)].into_iter())
-                .is_err()
-        );
-
-        // Exactly filling `x` past the seeds still succeeds.
-        let mut reader = BitReader::new(&packed);
-        let mut x = vec![0i64; 3];
-        expand_second_order_groups(&mut reader, &mut x, 1, [(0u32, 2usize, 7i64)].into_iter())
-            .expect("group lengths that fit");
-        assert_eq!(x, vec![0, 7, 7]);
     }
 }

@@ -10,6 +10,8 @@
 //!      states it again; both regions have to match the code. -->
 //! [`error`], [`bits`], [`bytes`], [`scaling`] (the GRIB `(R + X·2^E)·10^-D`
 //! transform both editions unpack values with, carrying a Verus proof),
+//! [`groups`] (the group expansion of GRIB second-order and complex packing,
+//! also proved),
 //! [`spatial_diff`] (the inverse spatial differencing both editions rebuild
 //! differenced values with, also proved),
 //! [`cct_tables`] (both GRIB editions share the
@@ -100,6 +102,7 @@ pub mod detect;
 /// The crate's one error type.
 pub mod error;
 pub mod global_grid;
+pub mod groups;
 pub mod healpix;
 pub mod lead_time;
 pub mod matrix;

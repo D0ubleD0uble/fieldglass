@@ -257,15 +257,73 @@ the proof. So do dropping the tail clause from the specification and stating
 the same transpose for both directions. The proof trusts only `vstd`'s
 specifications of `Vec` and slice indexing, and allocation succeeding.
 
-**Trusted, not proved.** The proofs rest on three statements in
+**`crates/fieldglass-core/src/groups.rs`**, the group expansion of every grouped
+GRIB packing: a group is a reference plus one offset per point at the group's
+own width, and a zero-width group is a run of its reference. GRIB2 complex
+packing (5.2, 5.3), GRIB2 second-order (5.50001, 5.50002), and GRIB1
+second-order (the extended SPD layout and the classic `row_by_row` and
+`general_grib1`) all call it.
+
+- `expand_group_into(reader, width, len, reference, out)` returns `Ok` exactly
+  when `width ≤ 32`, the reader holds the group's `len · width` bits and `out`
+  has room for `len` more; then `out` keeps what it held and gains `len`
+  values, the `k`-th being `reference` plus the `k`-th `width`-bit field (0 at
+  width 0), and the reader has moved exactly `len · width` bits. The sum
+  cannot overflow: `reference` and the field are both `u32`. The group is
+  written in place after a `resize` rather than pushed, which the
+  second-order decode's instruction count needs; `fill_group` and
+  `fill_offsets`, the two private steps that do it, carry the same proof.
+- `read_group_widths(reader, count, bits)`, the second-order width block:
+  on `Ok`, width `g` is the `g`-th `bits`-bit field and at most 32. A width is
+  checked whole before it is kept as a byte.
+- `expand_groups_into(reader, widths, lengths, references, out)`, the
+  second-order loop, appends exactly `lengths[0] + … + lengths[NG − 1]` values
+  on `Ok`, every width is at most 32, and point `k` of group `g` sits at
+  `lengths[0] + … + lengths[g − 1] + k` past what `out` held, with its offset
+  read where the previous group's end.
+- `expand_complex_groups(reader, layout, present_count)`, the whole of complex
+  packing's §7 group structure. On `Ok`: `1 ≤ NG ≤ present_count`; the group
+  lengths, with the last one overridden by `length_last`, sum to exactly
+  `present_count`, and the result has that many values; every group width
+  (`width_reference` plus the stored width) is at most 32, so no read is
+  truncated; and point `k` of group `g` is at `len[0] + … + len[g − 1] + k`
+  and equals the value the layout defines: the four blocks each start on the
+  next octet, the point is `None` when its offset (or, in a zero-width group,
+  the reference) is all ones at its width, or all ones minus one under
+  management 2, and `group_ref[g] + X` otherwise. Length scaling
+  (`stored · increment + reference`) is checked, and on `Ok` it is the exact
+  integer. None of the four has a precondition, so there is no hostile `NG`,
+  width or length that panics, overflows or indexes out of bounds.
+
+The three expansion loops place a group the same way, so that step is one lemma,
+`lemma_place_group`, proved once over any element type and used by both the
+dense second-order output and complex packing's `Option` output.
+
+Each claim was checked by breaking it (22 planted bugs, each rejected): dropping
+the last-length override, the `sum == present_count` check, the `width > 32`
+check on a complex group, on a second-order group or on a stored width as it is
+read (the byte cut GRIB1 used to make), the `NG == 0` or `NG > present_count`
+check; reading a zero-width group one point short; starting a group's offsets
+one slot late; skipping any of the three octet realignments, before the width,
+length or data block; a sentinel of `2^w` instead of `2^w − 1`; accepting the
+secondary sentinel under management 1; losing the group reference from a
+complex point, the width reference from a width, or the reference from a
+second-order point; filling a zero-width second-order group with 0; using group
+0's reference for every group; ignoring the length increment; unchecked length
+arithmetic; and a model of `align_to_byte` that rounds down.
+
+**Trusted, not proved.** The proofs rest on four statements in
 `crates/fieldglass-verify/src/bits_model.rs` and its `axioms.rs`, each short
-enough to check by reading, and on allocation succeeding:
+enough to check by reading, on allocation succeeding, and on the error-message
+constructors returning:
 
 | Assumption | Why it is assumed | What would remove it |
 |---|---|---|
 | `BitReader::new` and `read_bits` behave as the MSB-first model `msb_bits` says, stated with `assume_specification` | `read_bits` is Tier 0 and not yet proved | a proof of `read_bits`, which would make `bits.rs` a kernel file |
+| `BitReader::align_to_byte` rounds the cursor up to the next multiple of 8 and does not panic | same; it cannot overflow because the cursor never passes the buffer's bit length, a multiple of 8 that fits a `usize` | the same Tier-0 proof |
 | `f64::powi(b, n)` is some fixed function `powi_spec(b, n)`, and nothing more | Verus has no specification for `powi`; the proofs only need to know *which* base and exponent each factor uses | not needed: the claim is about direction, not about `powi`'s accuracy |
-| Allocation succeeds: `Vec::with_capacity(count)` and `push` in `unpack_simple` do not panic or abort on a huge `count` | Verus models `Vec` without an allocator, so a capacity overflow or running out of memory is outside the proof, as it is for any Rust function that allocates | not planned: callers bound `count` by the grid or message size before calling |
+| Allocation succeeds: `Vec::with_capacity` and `push` in the kernels do not panic or abort on a huge count | Verus models `Vec` without an allocator, so a capacity overflow or running out of memory is outside the proof, as it is for any Rust function that allocates | not planned: callers bound every count by the grid or message size before calling, and `expand_complex_groups` checks `NG ≤ present_count` and the length sum before it allocates |
+| The error constructors in `groups.rs` return a `FieldglassError` | they build their message with `format!`, which Verus has no specification for, so they are `external_body`; each only formats its arguments | a `vstd` that specifies `format!` |
 | `f64` `+` and `*` never panic and are deterministic, and `u32 as f64` is exact | the pinned `vstd` requires an `add_req` / `mul_req` of `f64` arithmetic and defines neither, so no `f64` expression verifies without this | a `vstd` that specifies `f64` arithmetic |
 
 Beyond those, the spatial-differencing proof trusts only `vstd`'s own
@@ -352,7 +410,7 @@ Ordered by blast radius, from the milestone:
 | 0 | `BitReader::read_bits` (trusted today, see above) | not yet filed |
 | 1 | GRIB simple-packing scaling arithmetic, both editions (done) | [#199](https://github.com/D0ubleD0uble/fieldglass/issues/199) |
 | 1 | Inverse spatial differencing, both editions (done) | [#200](https://github.com/D0ubleD0uble/fieldglass/issues/200) |
-| 1 | GRIB2 complex-packing group expansion | [#201](https://github.com/D0ubleD0uble/fieldglass/issues/201) |
+| 1 | GRIB group expansion: complex packing and both editions' second-order (done) | [#201](https://github.com/D0ubleD0uble/fieldglass/issues/201) |
 | 2 | Bitmap decoders | [#202](https://github.com/D0ubleD0uble/fieldglass/issues/202) |
 | 2 | Byte shuffle, HDF5 and Zarr (done) | [#203](https://github.com/D0ubleD0uble/fieldglass/issues/203) |
 | 3 | NetCDF classic length/offset arithmetic | [#204](https://github.com/D0ubleD0uble/fieldglass/issues/204) |
