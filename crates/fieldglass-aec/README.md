@@ -115,6 +115,11 @@ the encoder was given. The tests need none of that: the manifest records each
 stream's parameters, libaec's status and the SHA-256 of its output. See
 `tests/fixtures/NOTICE.md` for the provenance.
 
+A CI job rebuilds libaec, regenerates the corpus and fails if it differs from
+the committed one. It also decodes a 4,819-case matrix too large to commit and
+the 66 CCSDS 121.0-B-2 sample streams shipped with libaec, and fails on any
+result that is neither libaec's nor one of the differences listed above.
+
 ## Licence
 
 MIT OR Apache-2.0, like the rest of Fieldglass. The corpus inputs are ported

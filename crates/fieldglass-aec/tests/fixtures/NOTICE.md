@@ -15,7 +15,9 @@ python3 tools/build_aec_fixtures.py
 
 It needs cmake 3.26 or newer, a C compiler and network access (or
 `--tarball PATH` with a local copy of the tarball below). Running it twice gives
-a byte-identical tree. A CI job regenerates the corpus and diffs it (#763).
+a byte-identical tree. The `AEC oracle` CI job (`.github/workflows/aec-oracle.yml`,
+#763) regenerates the corpus and fails on any diff; `python3 tools/aec_oracle.py`
+runs the same job locally.
 
 ## The oracle
 
@@ -209,7 +211,8 @@ divergences, and `tests/sz_corpus.rs` pins each.
 libaec's tarball ships the CCSDS 121.0-B-2 sample data (`data/121B2TestData`).
 Permission to distribute it was given to libaec (its `THANKS` file thanks Aaron
 Kiely "to let us distribute BB121B2 test data with libaec"), not to us. The CI
-oracle job reads it from the pinned tarball instead (#763).
+oracle job reads it from the pinned tarball instead (#763), and decodes the
+66 streams libaec's `tests/sampledata.sh` names, with that script's parameters.
 
 ## Licence of the ported inputs
 
