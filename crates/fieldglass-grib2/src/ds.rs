@@ -18,7 +18,8 @@ use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::scaling::{decimal_factor, unpack_simple};
 use fieldglass_core::{
     FieldglassError, StoredRuns,
-    bits::{BitReader, apply_spd_inverse, expand_second_order_groups, sign_magnitude_to_i64},
+    bits::{BitReader, expand_second_order_groups, sign_magnitude_to_i64},
+    spatial_diff::{apply_spd_inverse, apply_spd_inverse_skipping_missing},
 };
 
 /// Section number for the Data Section.
@@ -377,41 +378,14 @@ fn decode_complex_spatial_diff(
 
     let mut vals = decode_complex_groups(&mut reader, &t.complex, present_count)?;
 
-    // Reverse the differencing in wide wrapping arithmetic — a malformed
-    // descriptor could otherwise overflow the accumulation and panic in debug.
-    // Missing slots are skipped: the seeds land on the first `order`
-    // non-missing slots and the recurrence tracks the nearest previous
-    // non-missing values, mirroring eccodes' post-process. A field with fewer
-    // non-missing points than `order` just seeds what exists.
-    match order {
-        1 => {
-            let mut last: Option<i64> = None;
-            for slot in vals.iter_mut() {
-                let Some(d) = slot.as_mut() else { continue };
-                *d = match last {
-                    None => ival1,
-                    Some(prev) => d.wrapping_add(prev).wrapping_add(bias),
-                };
-                last = Some(*d);
-            }
-        }
-        // order == 2 (the only other value past the guard above).
-        _ => {
-            let (mut penultimate, mut last): (Option<i64>, Option<i64>) = (None, None);
-            for slot in vals.iter_mut() {
-                let Some(d) = slot.as_mut() else { continue };
-                *d = match (last, penultimate) {
-                    (None, _) => ival1,
-                    (Some(_), None) => ival2,
-                    (Some(l), Some(p)) => d
-                        .wrapping_add(l.wrapping_mul(2))
-                        .wrapping_sub(p)
-                        .wrapping_add(bias),
-                };
-                (penultimate, last) = (last, Some(*d));
-            }
-        }
-    }
+    // Reverse the differencing. Missing slots take no part: the seeds land on
+    // the first `order` present slots and each later present value recurses on
+    // the nearest present values before it, mirroring eccodes' post-process. A
+    // field with fewer present points than `order` just seeds what exists. The
+    // arithmetic wraps, as eccodes' does, so a malformed descriptor cannot
+    // overflow and panic.
+    let seeds = [ival1, ival2];
+    apply_spd_inverse_skipping_missing(&mut vals, &seeds[..order as usize], bias)?;
 
     Ok(complex_scaled_to_values(
         &t.complex,

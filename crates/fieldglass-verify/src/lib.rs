@@ -60,3 +60,6 @@ pub mod bits_model;
 
 #[path = "../../fieldglass-core/src/scaling.rs"]
 pub mod scaling;
+
+#[path = "../../fieldglass-core/src/spatial_diff.rs"]
+pub mod spatial_diff;

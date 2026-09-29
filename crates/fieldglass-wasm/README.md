@@ -240,8 +240,8 @@ format crate has no feature to do that with today.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,511,341 | 572,799 |
-| `+simd128` | 1,495,844 | 567,352 |
+| baseline | 1,511,226 | 571,572 |
+| `+simd128` | 1,495,711 | 567,330 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

@@ -44,8 +44,10 @@
 //!    group's first-order reference to each; if `groupWidth == 0` write
 //!    `groupLength` copies of the first-order reference.
 //! 3. Plant the seeds: `X[0..orderOfSPD] = SPD[0..orderOfSPD]`.
-//! 4. Apply the inverse spatial differencing using two/three running
-//!    accumulators with `bias` added at each step (see `apply_spd_inverse`).
+//! 4. Apply the inverse spatial differencing, with `bias` added at each step
+//!    (see `fieldglass_core::spatial_diff`). eccodes writes it with two or
+//!    three running accumulators; the shared value form is the same function
+//!    in wrapping arithmetic.
 //! 5. Multiply by `2^E`, add `R`, divide by `10^D` to get final values.
 //! 6. If a BMS bitmap is present, interleave `None` at masked positions.
 //! 7. If boustrophedonicOrdering is set, reverse alternate stored runs (the
@@ -54,10 +56,8 @@
 
 use fieldglass_core::{
     FieldglassError, StoredRuns,
-    bits::{
-        BitReader, apply_spd_inverse, bits_to_bytes, expand_second_order_groups,
-        sign_magnitude_to_i64,
-    },
+    bits::{BitReader, bits_to_bytes, expand_second_order_groups, sign_magnitude_to_i64},
+    spatial_diff::apply_spd_inverse,
 };
 
 use crate::bds::BdsHeader;

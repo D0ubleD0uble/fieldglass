@@ -10,7 +10,9 @@ every format shares:
      name, checked by tools/check_parsing_surface.py. The crate documentation
      states it again; both regions have to match the code. -->
 `error`, `bits` and `bytes` (bit reading and byte access), `scaling` (the GRIB
-`(R + X·2^E)·10^-D` transform both editions unpack values with), `cct_tables`
+`(R + X·2^E)·10^-D` transform both editions unpack values with), `spatial_diff`
+(the inverse spatial differencing both editions rebuild differenced values
+with), `cct_tables`
 (the WMO centre tables), `scan` (storage orders), `projection` (map projections and grid
 geometry), `lead_time` (the forecast-lead rules both GRIB editions share), and
 the three grids that arrive as something other than a rectangle of values —
