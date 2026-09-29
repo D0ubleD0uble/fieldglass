@@ -120,7 +120,7 @@ published crate that is a statement about what it needs, made to the reader who
 audits and vendors it, and it widens the advisory and licence surface
 `cargo deny` holds the project to for nothing.
 `tools/check_unused_dependencies.py` (pre-commit) asserts that every dependency
-key of every package — including the five `fuzz/` crates, `fieldglass-verify`
+key of every package — including the six `fuzz/` crates, `fieldglass-verify`
 and `fieldglass-perf`, which are their own workspaces and which no `--workspace`
 command ever sees — is spelled as an identifier in that package's own `.rs`
 files, with comments and string literals stripped first, because this repo
