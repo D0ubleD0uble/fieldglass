@@ -15,8 +15,8 @@ the standard (see below). It depends on nothing but `thiserror`, contains no
 `unsafe`, and allocates nothing while decoding.
 
 **Status:** the decoder and the libsz-compatible szip layer are here.
-`fieldglass-grib2` decodes GRIB2 template 5.42 with the decoder; the NetCDF
-reader does not use the szip layer yet.
+`fieldglass-grib2` decodes GRIB2 template 5.42 with the decoder, and
+`fieldglass-netcdf` decodes the HDF5 szip filter with the szip layer.
 
 ```rust
 use fieldglass_aec::{AecError, Flags, Params, decode_to_bytes};

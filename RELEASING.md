@@ -41,7 +41,7 @@ Bump versions in lockstep:
 | File | What |
 |---|---|
 | `Cargo.toml` (workspace) | `[workspace.package].version` → new version |
-| `crates/fieldglass-{grib1,grib2,napi,netcdf}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match (`-grib2` pins `fieldglass-aec` as well as `fieldglass-core`) |
+| `crates/fieldglass-{grib1,grib2,napi,netcdf}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match (`-grib2` and `-netcdf` pin `fieldglass-aec` as well as `fieldglass-core`) |
 | `extension/package.json` | `version` field |
 | `Cargo.lock` | `cargo check --workspace` to refresh |
 | `crates/fieldglass-{aec,grib1,grib2,netcdf,zarr,fetchplan}/fuzz/Cargo.lock` | refresh each of the six — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet each lock still records the resolved `fieldglass-*` version. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. Forgetting is caught by the `nested-lockfiles` pre-commit hook, which refuses the bump commit itself; if hooks are bypassed it fails the **Nested lockfiles in sync** job and blocks the fuzz jobs until fixed. |
@@ -172,7 +172,7 @@ a library anyone should depend on.
 this job — the dry run remains free of side effects.
 
 **Every stable release publishes all five crates, whether or not they changed.**
-The format crates pin core (and `-grib2` pins `fieldglass-aec`) with `=`, so their manifests change with every
+The format crates pin core (and `-grib2` and `-netcdf` pin `fieldglass-aec`) with `=`, so their manifests change with every
 version bump by construction. That lockstep is deliberate while the API is
 pre-1.0; it is not worth the bookkeeping to publish them independently.
 
