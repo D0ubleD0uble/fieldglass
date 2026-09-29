@@ -22,6 +22,9 @@
 //! structure — dimensions, attributes, array descriptions — `fieldglass-netcdf`
 //! describes a file in (#684), and [`cf`], the CF conventions read over that
 //! structure: which arrays render, and where a slice of one is placed (#704).
+//! `fieldglass-netcdf` also takes [`shuffle`], the byte transpose HDF5's
+//! shuffle filter applies, which Zarr's reader shares and which carries a
+//! Verus proof.
 //! <!-- /parsing-surface -->
 //!
 //! What those modules have in common is that none of them is behind a feature,
@@ -106,6 +109,7 @@ pub mod projection;
 pub mod scaling;
 pub mod scan;
 pub mod sht;
+pub mod shuffle;
 pub mod spatial_diff;
 pub mod spatial_index;
 // Deliberately **not** part of the parsing surface, and gated so it is linked

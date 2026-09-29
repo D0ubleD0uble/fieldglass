@@ -20,7 +20,9 @@ the three grids that arrive as something other than a rectangle of values —
 and last of those are synthesized onto, `array`, the dataset structure
 (dimensions, attributes, array descriptions) `fieldglass-netcdf` describes a
 file in, and `cf`, the CF conventions read over that structure: which arrays
-render, and where a slice of one is placed.
+render, and where a slice of one is placed. `fieldglass-netcdf` also takes
+`shuffle`, the byte transpose HDF5's shuffle filter applies, which Zarr's
+reader shares.
 <!-- /parsing-surface -->
 
 On top of that sits an optional viewer layer (warp, overlay, colormap) used by

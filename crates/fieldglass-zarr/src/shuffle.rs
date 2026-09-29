@@ -17,9 +17,10 @@
 //!   untouched, and so must anything that reverses it.
 //!
 //! Both are their own inverse only for a square matrix, so both directions are
-//! written out: the forward ones are `#[cfg(test)]`, because nothing in this
-//! crate encodes, but a round-trip test is the only check that does not
-//! restate the inverse it is testing.
+//! written out: the forward ones are for tests, because nothing in this crate
+//! encodes, but a round-trip test is the only check that does not restate the
+//! inverse it is testing. The byte shuffle's two directions live in
+//! `fieldglass_core::shuffle`, shared with the HDF5 reader and proved there.
 
 /// Undo the byte shuffle: bytes were grouped by position-within-element, so
 /// regroup them into consecutive elements.
@@ -29,20 +30,14 @@
 /// `unshuffle_generic_inline` in c-blosc does with the same input — the
 /// transpose covers `len / element_size` whole elements and the remaining
 /// `len % element_size` bytes are moved across untouched.
+///
+/// The transform is the one HDF5's shuffle filter applies, so both readers
+/// call [`fieldglass_core::shuffle::unshuffle`], which carries a Verus proof
+/// that it indexes in bounds for every input and puts every byte where this
+/// describes (#203).
 #[must_use]
 pub fn unshuffle(data: &[u8], element_size: usize) -> Vec<u8> {
-    if element_size <= 1 {
-        return data.to_vec();
-    }
-    let count = data.len() / element_size;
-    let mut out = data.to_vec();
-    for byte_pos in 0..element_size {
-        let base = byte_pos * count;
-        for elem in 0..count {
-            out[elem * element_size + byte_pos] = data[base + elem];
-        }
-    }
-    out
+    fieldglass_core::shuffle::unshuffle(data, element_size)
 }
 
 /// Undo the bit shuffle over a block of `element_size`-byte elements.
@@ -98,20 +93,9 @@ const fn transposable_elements(len: usize, element_size: usize) -> Option<usize>
     Some(count)
 }
 
+// The forward byte shuffle is core's, proved together with its inverse.
 #[cfg(test)]
-pub(crate) fn shuffle(data: &[u8], element_size: usize) -> Vec<u8> {
-    if element_size <= 1 {
-        return data.to_vec();
-    }
-    let count = data.len() / element_size;
-    let mut out = data.to_vec();
-    for elem in 0..count {
-        for byte_pos in 0..element_size {
-            out[byte_pos * count + elem] = data[elem * element_size + byte_pos];
-        }
-    }
-    out
-}
+pub(crate) use fieldglass_core::shuffle::shuffle;
 
 #[cfg(test)]
 pub(crate) fn bitshuffle(data: &[u8], element_size: usize) -> Vec<u8> {

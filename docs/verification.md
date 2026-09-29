@@ -135,6 +135,13 @@ writing one:
 A `while` loop takes its invariant and `decreases` the same way a `for` loop
 does, as a `verus_spec(...)` attribute on the statement.
 
+Two habits the shuffle kernel needed. A loop invariant starts from nothing but
+itself, so a fact the body relies on and that was known before the loop, such
+as a slice's length fitting a `usize` or a bound a lemma proved, has to be
+restated in the invariant of every loop that uses it, inner loops included.
+And the pinned `vstd` specifies `Vec::with_capacity` and `extend_from_slice`
+but not `<[T]>::to_vec`, so a kernel copies a slice with the first two.
+
 Two things keep the arrangement from failing silently, and
 `tools/check_verified_kernels.py` (pre-commit) checks both: every file under
 `crates/` that carries `verus_spec` must be `#[path]`-included by the
@@ -212,6 +219,43 @@ order-2 formulas, dropping the bias, dispatching on the wrong order, reading
 one seed too many, not shifting the history of present values, treating a
 missing point as a zero difference, and rejecting order 3 each make Verus
 reject the proof.
+
+**`crates/fieldglass-core/src/shuffle.rs`**, the byte shuffle. It is the
+transform of HDF5's shuffle filter, of Zarr's standalone `shuffle` filter and
+of blosc's byte shuffle, so the NetCDF-4 and Zarr readers both call it. Read as
+matrices, the stored bytes are an `element_size × count` matrix and the
+elements its transpose.
+
+- `unshuffle(data, element_size)` returns a buffer of `data`'s length in
+  which byte `b` of element `e` is `data[b·count + e]`, for every whole
+  element (`count = len / element_size`) and every `b < element_size`. The
+  trailing `len % element_size` bytes are unchanged, and for an element size
+  of 0 or 1 nothing moves. That tail rule is libhdf5's (`H5Z__filter_shuffle`)
+  and c-blosc's (`unshuffle_generic_inline`).
+- `shuffle(data, element_size)` is the transpose the other way, with the same
+  tail rule.
+- Neither has a precondition. No length or element size, including a length
+  that is not a multiple of the element size, makes an index go out of bounds,
+  an index computation overflow, or either function panic.
+- Each undoes the other, and each specification determines its output
+  completely, so the `ensures` is the function's whole behaviour. These are
+  lemmas over the two specifications (`lemma_shuffle_undoes_unshuffle`,
+  `lemma_unshuffle_undoes_shuffle`, `lemma_unshuffle_is_determined`,
+  `lemma_shuffle_is_determined`).
+
+Before the kernel, the NetCDF-4 reader returned a chunk that was not a whole
+number of elements still shuffled, which is not what libhdf5 does. No
+libhdf5-written chunk has that shape, since a chunk holds whole elements of
+the dataset's type, so no fixture changed.
+
+Each claim was checked by breaking it: transposing the wrong way, counting one
+element too many, skipping the last byte plane, treating an element size of 2
+as nothing to do, reading one byte further on, leaving a ragged buffer
+untouched, swapping row and column in the write, and in `shuffle` writing to
+the element position or striding elements by the count each make Verus reject
+the proof. So do dropping the tail clause from the specification and stating
+the same transpose for both directions. The proof trusts only `vstd`'s
+specifications of `Vec` and slice indexing, and allocation succeeding.
 
 **Trusted, not proved.** The proofs rest on three statements in
 `crates/fieldglass-verify/src/bits_model.rs` and its `axioms.rs`, each short
@@ -310,7 +354,7 @@ Ordered by blast radius, from the milestone:
 | 1 | Inverse spatial differencing, both editions (done) | [#200](https://github.com/D0ubleD0uble/fieldglass/issues/200) |
 | 1 | GRIB2 complex-packing group expansion | [#201](https://github.com/D0ubleD0uble/fieldglass/issues/201) |
 | 2 | Bitmap decoders | [#202](https://github.com/D0ubleD0uble/fieldglass/issues/202) |
-| 2 | HDF5 unshuffle filter | [#203](https://github.com/D0ubleD0uble/fieldglass/issues/203) |
+| 2 | Byte shuffle, HDF5 and Zarr (done) | [#203](https://github.com/D0ubleD0uble/fieldglass/issues/203) |
 | 3 | NetCDF classic length/offset arithmetic | [#204](https://github.com/D0ubleD0uble/fieldglass/issues/204) |
 
 The groundwork has already paid once: it surfaced and fixed a `read_bits`
