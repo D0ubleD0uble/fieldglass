@@ -1475,6 +1475,35 @@ netcdf/oisst_avhrr_v2.nc#sst	combine/a_minus_b/render/source/nearest	ok w=32 h=3
 netcdf/oisst_avhrr_v2.nc#sst	meta	family=latlon ni=32 nj=32 reprojectable=true	62561fa0d1147dda
 netcdf/oisst_avhrr_v2.nc#sst	render/equirectangular/nearest	ok w=720 h=720 opaque=342692	bf4577d7cd7aa9e0
 netcdf/oisst_avhrr_v2.nc#sst	render/source/nearest	ok w=32 h=32 opaque=680	f63b59fd4bd53523
+netcdf/record_mixed_cdf1.nc	file	parsed=true fields=2	fc2e429795c3205d
+netcdf/record_mixed_cdf1.nc#a	combine/a_minus_b/render/source/nearest	ok w=3 h=3 opaque=9	38817a96a47616fa
+netcdf/record_mixed_cdf1.nc#a	meta	family=latlon ni=3 nj=3 reprojectable=false	9d2d72aba95b854a
+netcdf/record_mixed_cdf1.nc#a	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/record_mixed_cdf1.nc#a	render/source/nearest	ok w=3 h=3 opaque=9	808ba440ad01e7ad
+netcdf/record_mixed_cdf1.nc#b	combine/a_minus_b/render/source/nearest	ok w=1 h=3 opaque=3	6c2e8325a00fbe86
+netcdf/record_mixed_cdf1.nc#b	meta	family=latlon ni=1 nj=3 reprojectable=false	af72589696e86134
+netcdf/record_mixed_cdf1.nc#b	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/record_mixed_cdf1.nc#b	render/source/nearest	ok w=1 h=3 opaque=3	d9caf73993dbc346
+netcdf/record_single_short_cdf1.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/record_single_short_cdf1.nc#s	combine/a_minus_b/render/source/nearest	ok w=3 h=3 opaque=9	38817a96a47616fa
+netcdf/record_single_short_cdf1.nc#s	meta	family=latlon ni=3 nj=3 reprojectable=false	9d2d72aba95b854a
+netcdf/record_single_short_cdf1.nc#s	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/record_single_short_cdf1.nc#s	render/source/nearest	ok w=3 h=3 opaque=9	4cfb2d13d7ee38f8
+netcdf/record_single_short_cdf2.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/record_single_short_cdf2.nc#s	combine/a_minus_b/render/source/nearest	ok w=3 h=3 opaque=9	38817a96a47616fa
+netcdf/record_single_short_cdf2.nc#s	meta	family=latlon ni=3 nj=3 reprojectable=false	9d2d72aba95b854a
+netcdf/record_single_short_cdf2.nc#s	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/record_single_short_cdf2.nc#s	render/source/nearest	ok w=3 h=3 opaque=9	4cfb2d13d7ee38f8
+netcdf/record_single_short_cdf5.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/record_single_short_cdf5.nc#s	combine/a_minus_b/render/source/nearest	ok w=3 h=3 opaque=9	38817a96a47616fa
+netcdf/record_single_short_cdf5.nc#s	meta	family=latlon ni=3 nj=3 reprojectable=false	9d2d72aba95b854a
+netcdf/record_single_short_cdf5.nc#s	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/record_single_short_cdf5.nc#s	render/source/nearest	ok w=3 h=3 opaque=9	4cfb2d13d7ee38f8
+netcdf/record_single_ubyte_cdf5.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/record_single_ubyte_cdf5.nc#s	combine/a_minus_b/render/source/nearest	ok w=3 h=3 opaque=9	38817a96a47616fa
+netcdf/record_single_ubyte_cdf5.nc#s	meta	family=latlon ni=3 nj=3 reprojectable=false	9d2d72aba95b854a
+netcdf/record_single_ubyte_cdf5.nc#s	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/record_single_ubyte_cdf5.nc#s	render/source/nearest	ok w=3 h=3 opaque=9	4cfb2d13d7ee38f8
 netcdf/rtofs_tripolar_arctic.nc	file	parsed=true fields=3	fc2e419795c31eaa
 netcdf/rtofs_tripolar_arctic.nc#ice_coverage	combine/a_minus_b/render/source/nearest	ok w=260 h=200 opaque=52000	20da4d003c5d3bed
 netcdf/rtofs_tripolar_arctic.nc#ice_coverage	meta	family=curvilinear ni=260 nj=200 reprojectable=true	007e09d396f7f16d
