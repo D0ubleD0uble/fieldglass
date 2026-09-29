@@ -22,7 +22,8 @@
 //!
 //! Two rules follow from being compiled twice. The file names only items both
 //! crates provide: `crate::FieldglassError`, `crate::bits::BitReader`, and,
-//! under Verus only, the trusted bit-reader model `crate::bits_model`. And its
+//! under Verus only, `crate::bits_model`, the bit-reader model and the trusted
+//! `f64` statements. And its
 //! docs use plain backticks rather than intra-doc links, which would resolve in
 //! only one of the two. `tools/check_verified_kernels.py` fails if the
 //! verification crate stops including a file that carries a proof.
