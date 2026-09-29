@@ -732,69 +732,69 @@ grib2/png_local_40010.grib2#00	meta	family=lambert ni=93 nj=65 reprojectable=tru
 grib2/png_local_40010.grib2#00	render/equirectangular/nearest	ok w=720 h=503 opaque=264754	91ac07ec05e0fb64
 grib2/png_local_40010.grib2#00	render/source/nearest	ok w=93 h=65 opaque=6045	687e348609613f18
 grib2/polar_stereographic_surface.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
-grib2/polar_stereographic_surface.grib2#00	combine/a_minus_b/contours/source/auto	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	combine/a_minus_b/probe/equirectangular/359,180	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	combine/a_minus_b/contours/source/auto	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	combine/a_minus_b/probe/equirectangular/359,180	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=no value=yes	75d798f6ee0562e1
-grib2/polar_stereographic_surface.grib2#00	combine/a_minus_b/render/equirectangular/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	combine/a_minus_b/render/equirectangular/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	combine/a_minus_b/render/source/nearest	ok w=16 h=31 opaque=496	1eeb3428b25271ce
-grib2/polar_stereographic_surface.grib2#00	combine/a_plus_b/contours/source/auto	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	combine/a_plus_b/contours/source/auto	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=no value=yes	bcefbe87e96d4af0
-grib2/polar_stereographic_surface.grib2#00	combine/a_plus_b/render/equirectangular/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	combine/a_plus_b/render/equirectangular/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	combine/a_plus_b/render/source/nearest	ok w=16 h=31 opaque=496	5300de5c96e97728
-grib2/polar_stereographic_surface.grib2#00	combine/b_minus_a/contours/source/auto	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	combine/b_minus_a/probe/equirectangular/359,180	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	combine/b_minus_a/contours/source/auto	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	combine/b_minus_a/probe/equirectangular/359,180	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=no value=yes	75d798f6ee0562e1
-grib2/polar_stereographic_surface.grib2#00	combine/b_minus_a/render/equirectangular/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	combine/b_minus_a/render/equirectangular/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	combine/b_minus_a/render/source/nearest	ok w=16 h=31 opaque=496	1eeb3428b25271ce
-grib2/polar_stereographic_surface.grib2#00	combine/mean/contours/source/auto	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	combine/mean/probe/equirectangular/359,180	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	combine/mean/contours/source/auto	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	combine/mean/probe/equirectangular/359,180	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	combine/mean/probe/source/0,0	hit cell=0,0 geo=no value=yes	b9986c98f017ec20
-grib2/polar_stereographic_surface.grib2#00	combine/mean/render/equirectangular/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	combine/mean/render/equirectangular/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	combine/mean/render/source/nearest	ok w=16 h=31 opaque=496	02e1ec7ea91d69e8
-grib2/polar_stereographic_surface.grib2#00	combine/ratio/contours/source/auto	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	combine/ratio/probe/equirectangular/359,180	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	combine/ratio/contours/source/auto	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	combine/ratio/probe/equirectangular/359,180	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	combine/ratio/probe/source/0,0	hit cell=0,0 geo=no value=yes	868178aa6be0d644
-grib2/polar_stereographic_surface.grib2#00	combine/ratio/render/equirectangular/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	combine/ratio/render/equirectangular/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	combine/ratio/render/source/nearest	ok w=16 h=31 opaque=496	1b1989de4265968c
-grib2/polar_stereographic_surface.grib2#00	contours/equirectangular/auto	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	contours/mollweide/auto	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	contours/source/auto	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	csv/long	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	contours/equirectangular/auto	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	contours/mollweide/auto	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	contours/source/auto	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	csv/long	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	csv/matrix	ok lines=31	bdeac24d6363405c
 grib2/polar_stereographic_surface.grib2#00	meta	family=polar_stereo ni=16 nj=31 reprojectable=false	d9bc1a7880e82b20
-grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/0,0	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/359,180	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/7,3	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/719,719	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	probe/orthographic/0,0	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	probe/orthographic/359,180	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	probe/orthographic/7,3	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	probe/orthographic/719,719	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/0,0	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/359,180	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/7,3	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/719,719	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	probe/orthographic/0,0	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	probe/orthographic/359,180	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	probe/orthographic/7,3	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	probe/orthographic/719,719	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	probe/source/0,0	hit cell=0,0 geo=no value=yes	b9986c98f017ec20
 grib2/polar_stereographic_surface.grib2#00	probe/source/359,180	miss	c4e0642f982dc6de
 grib2/polar_stereographic_surface.grib2#00	probe/source/7,3	hit cell=7,3 geo=no value=yes	540489ca27f34bd6
 grib2/polar_stereographic_surface.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
-grib2/polar_stereographic_surface.grib2#00	render/equal_earth/bilinear	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/equal_earth/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/equirectangular/bilinear	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/equirectangular/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/equirectangular/nearest+window/afro_eurasia	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/equirectangular/nearest+window/conus	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/equirectangular/nearest+window/world	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/mollweide/bilinear	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/mollweide/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/orthographic/bilinear	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/orthographic/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/polar_stereographic/bilinear	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/polar_stereographic/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/robinson/bilinear	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/robinson/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/equal_earth/bilinear	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/equal_earth/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/equirectangular/bilinear	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/equirectangular/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/equirectangular/nearest+window/afro_eurasia	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/equirectangular/nearest+window/conus	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/equirectangular/nearest+window/world	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/mollweide/bilinear	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/mollweide/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/orthographic/bilinear	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/orthographic/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/polar_stereographic/bilinear	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/polar_stereographic/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/robinson/bilinear	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/robinson/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	render/source/bilinear	ok w=16 h=31 opaque=496	02e1ec7ea91d69e8
 grib2/polar_stereographic_surface.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	02e1ec7ea91d69e8
 grib2/polar_stereographic_surface.grib2#00	render/source/nearest+flip_y	ok w=16 h=31 opaque=496	02e1ec7ea91d69e8
-grib2/polar_stereographic_surface.grib2#00	render/web_mercator/bilinear	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
-grib2/polar_stereographic_surface.grib2#00	render/web_mercator/nearest	err: polarStereoDxMetres is zero — this grid has no spatial extent and cannot be reprojected	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/web_mercator/bilinear	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
+grib2/polar_stereographic_surface.grib2#00	render/web_mercator/nearest	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/rap_jpeg2000_lambert.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/rap_jpeg2000_lambert.grib2#00	combine/a_minus_b/render/source/nearest	ok w=451 h=337 opaque=151987	4bbb77b83b1ea223
 grib2/rap_jpeg2000_lambert.grib2#00	meta	family=lambert ni=451 nj=337 reprojectable=true	4a251ed0ff470c77
@@ -1218,114 +1218,114 @@ netcdf/hdf5_ea_filtered.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_fletcher32.h5	file	parsed=true fields=5	fc2e3b9795c31478
 netcdf/hdf5_fletcher32.h5#f32_deflate	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_fletcher32.h5#f32_deflate	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_fletcher32.h5#f32_deflate	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_fletcher32.h5#f32_deflate	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#f32_deflate	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
 netcdf/hdf5_fletcher32.h5#f32_only	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_fletcher32.h5#f32_only	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_fletcher32.h5#f32_only	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_fletcher32.h5#f32_only	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#f32_only	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
 netcdf/hdf5_fletcher32.h5#f32_shuffle	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_fletcher32.h5#f32_shuffle	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_fletcher32.h5#f32_shuffle	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_fletcher32.h5#f32_shuffle	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#f32_shuffle	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
 netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
 netcdf/hdf5_fletcher32.h5#plain_deflate	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_fletcher32.h5#plain_deflate	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_fletcher32.h5#plain_deflate	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_fletcher32.h5#plain_deflate	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#plain_deflate	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
 netcdf/hdf5_implicit_index.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_implicit_index.h5#implicit	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_implicit_index.h5#implicit	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_implicit_index.h5#implicit	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_implicit_index.h5#implicit	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_implicit_index.h5#implicit	render/source/nearest	ok w=8 h=8 opaque=64	ec0ab9fe43b0c423
 netcdf/hdf5_implicit_index.h5#implicit_partial	combine/a_minus_b/render/source/nearest	ok w=7 h=5 opaque=35	43969752d74509ea
 netcdf/hdf5_implicit_index.h5#implicit_partial	meta	family=latlon ni=7 nj=5 reprojectable=false	c05c92db70a9bcf8
-netcdf/hdf5_implicit_index.h5#implicit_partial	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_implicit_index.h5#implicit_partial	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_implicit_index.h5#implicit_partial	render/source/nearest	ok w=7 h=5 opaque=35	b9b54209042ea785
 netcdf/hdf5_phony_dims.h5	file	parsed=true fields=4	fc2e3c9795c3162b
 netcdf/hdf5_phony_dims.h5#a_8x8	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_phony_dims.h5#a_8x8	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_phony_dims.h5#a_8x8	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_phony_dims.h5#a_8x8	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_phony_dims.h5#a_8x8	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
 netcdf/hdf5_phony_dims.h5#b_8x8	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_phony_dims.h5#b_8x8	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_phony_dims.h5#b_8x8	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_phony_dims.h5#b_8x8	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_phony_dims.h5#b_8x8	render/source/nearest	ok w=8 h=8 opaque=64	ec0ab9fe43b0c423
 netcdf/hdf5_phony_dims.h5#c_4x6	combine/a_minus_b/render/source/nearest	ok w=6 h=4 opaque=24	48025f87472a1c6a
 netcdf/hdf5_phony_dims.h5#c_4x6	meta	family=latlon ni=6 nj=4 reprojectable=false	fded058774cc6a22
-netcdf/hdf5_phony_dims.h5#c_4x6	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_phony_dims.h5#c_4x6	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_phony_dims.h5#c_4x6	render/source/nearest	ok w=6 h=4 opaque=24	54c95a94d5b243a7
 netcdf/hdf5_phony_dims.h5#d_6x4	combine/a_minus_b/render/source/nearest	ok w=4 h=6 opaque=24	4b7791e59762daea
 netcdf/hdf5_phony_dims.h5#d_6x4	meta	family=latlon ni=4 nj=6 reprojectable=false	2e8aba7a750b708a
-netcdf/hdf5_phony_dims.h5#d_6x4	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_phony_dims.h5#d_6x4	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_phony_dims.h5#d_6x4	render/source/nearest	ok w=4 h=6 opaque=24	80b13c94b4c2b00b
 netcdf/hdf5_v1_symboltable.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_v1_symboltable.h5#compressed	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_v1_symboltable.h5#compressed	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_v1_symboltable.h5#compressed	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_v1_symboltable.h5#compressed	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v1_symboltable.h5#compressed	render/source/nearest	ok w=8 h=8 opaque=64	ec0ab9fe43b0c423
 netcdf/hdf5_v1_symboltable.h5#temp_i32	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	ce80d4a70900b636
 netcdf/hdf5_v1_symboltable.h5#temp_i32	meta	family=latlon ni=4 nj=3 reprojectable=false	d0c80ebdfb5e3321
-netcdf/hdf5_v1_symboltable.h5#temp_i32	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_v1_symboltable.h5#temp_i32	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v1_symboltable.h5#temp_i32	render/source/nearest	ok w=4 h=3 opaque=12	e6d916f5c02a1221
 netcdf/hdf5_v2_btree_index.h5	file	parsed=true fields=3	fc2e419795c31eaa
 netcdf/hdf5_v2_btree_index.h5#bt2	combine/a_minus_b/render/source/nearest	ok w=4 h=4 opaque=16	8e9bf9384d9fb226
 netcdf/hdf5_v2_btree_index.h5#bt2	meta	family=latlon ni=4 nj=4 reprojectable=false	0402ffcc652c5460
-netcdf/hdf5_v2_btree_index.h5#bt2	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_v2_btree_index.h5#bt2	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_btree_index.h5#bt2	render/source/nearest	ok w=4 h=4 opaque=16	c140b22da4bd7cbb
 netcdf/hdf5_v2_btree_index.h5#bt2_filtered	combine/a_minus_b/render/source/nearest	ok w=4 h=4 opaque=16	8e9bf9384d9fb226
 netcdf/hdf5_v2_btree_index.h5#bt2_filtered	meta	family=latlon ni=4 nj=4 reprojectable=false	0402ffcc652c5460
-netcdf/hdf5_v2_btree_index.h5#bt2_filtered	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_v2_btree_index.h5#bt2_filtered	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_btree_index.h5#bt2_filtered	render/source/nearest	ok w=4 h=4 opaque=16	c140b22da4bd7cbb
 netcdf/hdf5_v2_btree_index.h5#bt2_multi	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_v2_btree_index.h5#bt2_multi	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_v2_btree_index.h5#bt2_multi	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_v2_btree_index.h5#bt2_multi	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_btree_index.h5#bt2_multi	render/source/nearest	ok w=8 h=8 opaque=64	ec0ab9fe43b0c423
 netcdf/hdf5_v2_linkinfo.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_v2_linkinfo.h5#chunked	combine/a_minus_b/render/source/nearest	ok w=10 h=10 opaque=100	8169331de26faf60
 netcdf/hdf5_v2_linkinfo.h5#chunked	meta	family=latlon ni=10 nj=10 reprojectable=false	a05ae5b636302dc0
-netcdf/hdf5_v2_linkinfo.h5#chunked	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_v2_linkinfo.h5#chunked	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_linkinfo.h5#chunked	render/source/nearest	ok w=10 h=10 opaque=100	a5b0f1466391dc56
 netcdf/hdf5_v2_linkinfo.h5#temp_i32	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	ce80d4a70900b636
 netcdf/hdf5_v2_linkinfo.h5#temp_i32	meta	family=latlon ni=4 nj=3 reprojectable=false	d0c80ebdfb5e3321
-netcdf/hdf5_v2_linkinfo.h5#temp_i32	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_v2_linkinfo.h5#temp_i32	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_linkinfo.h5#temp_i32	render/source/nearest	ok w=4 h=3 opaque=12	e6d916f5c02a1221
 netcdf/hdf5_v4_chunk_index.h5	file	parsed=true fields=3	fc2e419795c31eaa
 netcdf/hdf5_v4_chunk_index.h5#fixed_array	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_v4_chunk_index.h5#fixed_array	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_v4_chunk_index.h5#fixed_array	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_v4_chunk_index.h5#fixed_array	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v4_chunk_index.h5#fixed_array	render/source/nearest	ok w=8 h=8 opaque=64	ec0ab9fe43b0c423
 netcdf/hdf5_v4_chunk_index.h5#single_chunk	combine/a_minus_b/render/source/nearest	ok w=4 h=4 opaque=16	8e9bf9384d9fb226
 netcdf/hdf5_v4_chunk_index.h5#single_chunk	meta	family=latlon ni=4 nj=4 reprojectable=false	0402ffcc652c5460
-netcdf/hdf5_v4_chunk_index.h5#single_chunk	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_v4_chunk_index.h5#single_chunk	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v4_chunk_index.h5#single_chunk	render/source/nearest	ok w=4 h=4 opaque=16	c140b22da4bd7cbb
 netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	combine/a_minus_b/render/source/nearest	ok w=4 h=4 opaque=16	8e9bf9384d9fb226
 netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	meta	family=latlon ni=4 nj=4 reprojectable=false	0402ffcc652c5460
-netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	render/source/nearest	ok w=4 h=4 opaque=16	c140b22da4bd7cbb
 netcdf/hdf5_zstd.h5	file	parsed=true fields=5	fc2e3b9795c31478
 netcdf/hdf5_zstd.h5#plain_deflate	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_zstd.h5#plain_deflate	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_zstd.h5#plain_deflate	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_zstd.h5#plain_deflate	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#plain_deflate	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
 netcdf/hdf5_zstd.h5#shuffle_zstd	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_zstd.h5#shuffle_zstd	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_zstd.h5#shuffle_zstd	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_zstd.h5#shuffle_zstd	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#shuffle_zstd	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
 netcdf/hdf5_zstd.h5#zstd	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_zstd.h5#zstd	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_zstd.h5#zstd	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_zstd.h5#zstd	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#zstd	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
 netcdf/hdf5_zstd.h5#zstd_fletcher32	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_zstd.h5#zstd_fletcher32	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_zstd.h5#zstd_fletcher32	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_zstd.h5#zstd_fletcher32	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#zstd_fletcher32	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
 netcdf/hdf5_zstd.h5#zstd_high	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_zstd.h5#zstd_high	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_zstd.h5#zstd_high	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_zstd.h5#zstd_high	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#zstd_high	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
 netcdf/mirs_swath_n21.nc	file	parsed=true fields=4	fc2e3c9795c3162b
 netcdf/mirs_swath_n21.nc#RR	combine/a_minus_b/render/source/nearest	ok w=96 h=100 opaque=0	34621fadc8b1f0d0
@@ -1406,17 +1406,17 @@ netcdf/mirs_swath_n21.nc#TSkin	render/source/nearest	ok w=96 h=100 opaque=9600	3
 netcdf/missing_value_classic.nc	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/missing_value_classic.nc#temp	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=3	a2e7fb76d6c71a52
 netcdf/missing_value_classic.nc#temp	meta	family=latlon ni=3 nj=2 reprojectable=false	154ceec2118a2a35
-netcdf/missing_value_classic.nc#temp	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/missing_value_classic.nc#temp	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/missing_value_classic.nc#temp	render/source/nearest	ok w=3 h=2 opaque=3	424d9dd191138fc3
 netcdf/missing_value_nc4.nc	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/missing_value_nc4.nc#temp	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=3	a2e7fb76d6c71a52
 netcdf/missing_value_nc4.nc#temp	meta	family=latlon ni=3 nj=2 reprojectable=false	154ceec2118a2a35
-netcdf/missing_value_nc4.nc#temp	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/missing_value_nc4.nc#temp	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/missing_value_nc4.nc#temp	render/source/nearest	ok w=3 h=2 opaque=3	424d9dd191138fc3
 netcdf/netcdf4_dimscale.nc	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/netcdf4_dimscale.nc#lat_bnds	combine/a_minus_b/render/source/nearest	ok w=2 h=3 opaque=6	2d1781b09c56586e
 netcdf/netcdf4_dimscale.nc#lat_bnds	meta	family=latlon ni=2 nj=3 reprojectable=false	e61bc1a24bd8fd0b
-netcdf/netcdf4_dimscale.nc#lat_bnds	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf4_dimscale.nc#lat_bnds	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_dimscale.nc#lat_bnds	render/source/nearest	ok w=2 h=3 opaque=6	ee746a6d1b3a31a4
 netcdf/netcdf4_dimscale.nc#temperature	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	ce80d4a70900b636
 netcdf/netcdf4_dimscale.nc#temperature	meta	family=latlon ni=4 nj=3 reprojectable=true	9e4df4c92886e30a
@@ -1425,46 +1425,46 @@ netcdf/netcdf4_dimscale.nc#temperature	render/source/nearest	ok w=4 h=3 opaque=1
 netcdf/netcdf4_grouped.nc	file	parsed=true fields=4	fc2e3c9795c3162b
 netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	ce80d4a70900b636
 netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	meta	family=latlon ni=4 nj=3 reprojectable=false	d0c80ebdfb5e3321
-netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	render/source/nearest	ok w=4 h=3 opaque=12	ac0aad0e3e08fcf4
 netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	ce80d4a70900b636
 netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	meta	family=latlon ni=4 nj=3 reprojectable=false	d0c80ebdfb5e3321
-netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	render/source/nearest	ok w=4 h=3 opaque=12	e6d916f5c02a1221
 netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	ce80d4a70900b636
 netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	meta	family=latlon ni=4 nj=3 reprojectable=false	d0c80ebdfb5e3321
-netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	render/source/nearest	ok w=4 h=3 opaque=12	8980cc09e691c7b7
 netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	ce80d4a70900b636
 netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	meta	family=latlon ni=4 nj=3 reprojectable=false	d0c80ebdfb5e3321
-netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/source/nearest	ok w=4 h=3 opaque=12	e6d916f5c02a1221
 netcdf/netcdf4_hdf5_dummy.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf4_unsupported_type.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf_classic_dummy.nc	file	parsed=true fields=6	fc2e3e9795c31991
 netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/netcdf_classic_dummy.nc#AGC_1202	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
-netcdf/netcdf_classic_dummy.nc#AGC_1202	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#AGC_1202	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#AGC_1202	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/netcdf_classic_dummy.nc#CD_310	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/netcdf_classic_dummy.nc#CD_310	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
-netcdf/netcdf_classic_dummy.nc#CD_310	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#CD_310	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#CD_310	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/netcdf_classic_dummy.nc#CS_300	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/netcdf_classic_dummy.nc#CS_300	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
-netcdf/netcdf_classic_dummy.nc#CS_300	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#CS_300	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#CS_300	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/netcdf_classic_dummy.nc#u_1205	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/netcdf_classic_dummy.nc#u_1205	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
-netcdf/netcdf_classic_dummy.nc#u_1205	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#u_1205	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#u_1205	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/netcdf_classic_dummy.nc#v_1206	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/netcdf_classic_dummy.nc#v_1206	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
-netcdf/netcdf_classic_dummy.nc#v_1206	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#v_1206	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#v_1206	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=latlon ni=8 nj=0 reprojectable=false	c73cb11c825f0780
-netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	ok w=8 h=0 opaque=0	6ff36d96788bd32b
 netcdf/oisst_avhrr_v2.nc	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/oisst_avhrr_v2.nc#ice	combine/a_minus_b/render/source/nearest	ok w=32 h=32 opaque=540	edf3a76c72bfedbc

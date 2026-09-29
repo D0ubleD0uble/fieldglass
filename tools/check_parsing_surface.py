@@ -5,8 +5,8 @@
 
 `fieldglass-core` serves two audiences behind one API. The format crates
 (`fieldglass-grib1`, `-grib2`, `-netcdf`) take it with `default-features = false`
-and consume only its *parsing* surface; `fieldglass-napi` and the umbrella take
-the viewer and analysis surfaces on top. The crate documentation names that
+and consume only its *parsing* surface; the umbrella takes the viewer and
+analysis surfaces on top, and both hosts reach them through it. The crate documentation names that
 parsing surface, module by module, and the `fieldglass-core` README says the same
 thing again for a crates.io reader.
 

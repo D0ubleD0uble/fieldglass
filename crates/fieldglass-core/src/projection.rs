@@ -2186,6 +2186,33 @@ fn metres_apart(lat_a: f64, lon_a: f64, lat_b: f64, lon_b: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The sign of each increment is the scan direction. Moved here from
+    /// `fieldglass-napi`, which tested this function for as long as it rebuilt
+    /// grids out of its own DTO (#574); it is this crate's.
+    #[test]
+    fn signed_grid_increments_encode_scan_direction() {
+        // Default scan (i: W→E, j: S→N) keeps positive magnitudes.
+        assert_eq!(
+            signed_grid_increments(5000.0, 5000.0, false, true),
+            (5000.0, 5000.0)
+        );
+        // j scans north→south ⇒ dy negative.
+        assert_eq!(
+            signed_grid_increments(5000.0, 5000.0, false, false),
+            (5000.0, -5000.0)
+        );
+        // i scans east→west ⇒ dx negative.
+        assert_eq!(
+            signed_grid_increments(5000.0, 5000.0, true, true),
+            (-5000.0, 5000.0)
+        );
+        // Operates on magnitude, so it is idempotent on already-signed input.
+        assert_eq!(
+            signed_grid_increments(-5000.0, -5000.0, false, true),
+            (5000.0, 5000.0)
+        );
+    }
     use rotated_latlon::{rotate_latlon, unrotate_latlon};
 
     /// The conversion the corner form and the box form differ by, on the two
@@ -3259,6 +3286,43 @@ mod grid_questions_tests {
             !rotated_global.contour_seam_wraps(),
             "but its geographic longitude is neither uniform nor monotonic"
         );
+    }
+
+    /// Every family whose geographic longitude is `lon_first + i·step` wraps the
+    /// seam exactly when it is periodic, so the contour tracer and the probe
+    /// cannot disagree about one grid. Guards the rotated exclusion above from
+    /// being widened into a blanket disable. Moved from `fieldglass-napi`, which
+    /// asked it of the grids it rebuilt out of its own DTO until #574.
+    #[test]
+    fn the_uniform_longitude_families_wrap_the_seam_exactly_when_periodic() {
+        for (lon_last, want) in [(315.0, true), (40.0, false)] {
+            let mercator = GridGeometry::Mercator(MercatorParams {
+                ni: 8,
+                nj: 4,
+                lat_first: 40.0,
+                lon_first: 0.0,
+                lat_last: 10.0,
+                lon_last,
+            });
+            let gaussian = GridGeometry::Gaussian(GaussianParams {
+                ni: 8,
+                nj: 4,
+                lat_first: 40.0,
+                lon_first: 0.0,
+                lat_last: 10.0,
+                lon_last,
+                n_parallels: 2,
+            });
+            for g in [latlon(8, 0.0, lon_last), mercator, gaussian] {
+                assert_eq!(g.contour_seam_wraps(), want, "{} to {lon_last}", g.kind());
+                assert_eq!(
+                    g.contour_seam_wraps(),
+                    g.is_periodic_x(),
+                    "{} to {lon_last}: the tracer and the probe must agree",
+                    g.kind()
+                );
+            }
+        }
     }
 
     /// Where the data is and what window to frame it with are two answers, and

@@ -145,14 +145,14 @@ impl Handle {
     /// the bytes declare, and report a failure rather than falling through to
     /// another reader.
     fn open(bytes: &[u8]) -> Result<(Self, &'static str), String> {
-        match fieldglass_core::detect_from_bytes(bytes) {
-            fieldglass_core::Format::Grib1 => Grib1Handle::from_bytes(bytes.to_vec().into())
+        match fieldglass::detect_from_bytes(bytes) {
+            fieldglass::Format::Grib1 => Grib1Handle::from_bytes(bytes.to_vec().into())
                 .map(|h| (Self::Grib1(h), "grib1"))
                 .map_err(|e| e.to_string()),
-            fieldglass_core::Format::Grib2 => Grib2Handle::from_bytes(bytes.to_vec().into())
+            fieldglass::Format::Grib2 => Grib2Handle::from_bytes(bytes.to_vec().into())
                 .map(|h| (Self::Grib2(h), "grib2"))
                 .map_err(|e| e.to_string()),
-            fieldglass_core::Format::NetCdf => NetcdfHandle::from_bytes(bytes.to_vec().into())
+            fieldglass::Format::NetCdf => NetcdfHandle::from_bytes(bytes.to_vec().into())
                 .map(|h| (Self::Netcdf(Box::new(h)), "netcdf"))
                 .map_err(|e| e.to_string()),
             other => Err(format!("not a container this host opens: {other:?}")),

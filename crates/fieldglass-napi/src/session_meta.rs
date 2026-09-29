@@ -29,8 +29,8 @@
 //! Every GRIB handle's `messages()`, and every display entry point through
 //! `MessageStream::resolved`, builds its meta here.
 
+use fieldglass::GridGeometry;
 use fieldglass::{Georef, MessageInfo};
-use fieldglass_core::GridGeometry;
 
 use crate::{MessageMeta, friendly_packing};
 

@@ -123,46 +123,34 @@ pub fn aligned(a: &Source<'_>, b: &Source<'_>) -> Result<(), Error> {
             &scan_label(b.scan),
         ));
     }
-    // A source whose geometry did not resolve is **not** refused out of hand.
-    // That is the point of `Source::geometry` being a `Result`: the refusal
-    // travels with the source and each operation decides whether it needs a
-    // geometry. Combine does not — it is an element-wise walk of two rasters —
-    // and the source projection paints such a raster as stored, so two of the
-    // same shape whose placement is unknown do combine, index for index, which
-    // is what a source-view difference of them means. A §3.20 stating `Dx = 0`
-    // and a NetCDF slice with no coordinate arrays are both in the corpus and
-    // both combine today.
+    // A source whose geometry did not resolve is refused, whichever side it is
+    // on and whatever the other side is. Combining is an element-wise walk that
+    // needs no geometry of its own, but "these two rasters hold their cells in
+    // the same places" is a claim about geometry, and a host that could not
+    // state one cannot make it.
     //
-    // They have to be unplaceable for the *same* reason, though: `Error` is
-    // `PartialEq`, and the refusal names the field that was missing, so a grid
-    // with no spacing and one with no first latitude are still refused against
-    // each other — as is a placeable grid against an unplaceable one.
-    //
-    // **This arm is weaker than the flat key it replaces, and knowingly so.**
-    // A refusal names the field, not its value, so two grids that fail the same
-    // check for different numbers — two §3.20 messages of one shape, both
-    // stating `Dx = 0`, one over Alaska and one over Scandinavia — read alike
-    // here, where the old key compared their declared corners and refused. It
-    // is not a shape this crate can do better with: `Source` carries no corner,
-    // and the geometry that would carry one is the thing that failed to build.
-    // Refusing every unresolved pair instead costs more than it saves — it
-    // takes the difference map away from an HDF5 or NetCDF file with no
-    // coordinate arrays at all, which is a shipped capability over ten fields
-    // of the committed corpus and the ordinary way to compare two plain arrays.
-    //
-    // The arm is also transitional. It exists because `fieldglass-napi` rebuilds
-    // a geometry out of a flat DTO and its rebuilder is stricter than
-    // `GridGeometry::from` — `Session` itself builds a `PolarStereo` for that
-    // §3.20 message and reaches the `Ok` arm. #574 deletes that DTO, and this
-    // arm's cause with it.
+    // Until #574 two unresolved sources combined when they had failed for the
+    // *same* reason. That arm existed for one host: `fieldglass-napi` rebuilt
+    // each geometry out of a flat DTO, its rebuilder refused grids
+    // `GridGeometry::from` accepts, and the characterisation golden differenced
+    // those grids. It was weaker than the key it replaced — a refusal names the
+    // field, not its value, so two §3.20 grids both stating `Dx = 0` over
+    // different places read alike. The addon now carries the geometry the
+    // readers build, so every host hands over an `Ok` here and the arm had no
+    // caller left. A raster no coordinates place is `Ok(Unsupported)`, which
+    // compares by its label and still combines with itself.
     match (&a.geometry, &b.geometry) {
-        (Ok(ga), Ok(gb)) if !same_grid(ga, gb) => {
-            Err(mismatch("grid", &describe(ga), &describe(gb)))
-        }
-        (Err(ea), Err(eb)) if ea != eb => Err(mismatch("grid", &unplaceable(ea), &unplaceable(eb))),
-        (Ok(g), Err(e)) => Err(mismatch("grid", &describe(g), &unplaceable(e))),
-        (Err(e), Ok(g)) => Err(mismatch("grid", &unplaceable(e), &describe(g))),
-        _ => Ok(()),
+        (Ok(ga), Ok(gb)) if same_grid(ga, gb) => Ok(()),
+        (Ok(ga), Ok(gb)) => Err(mismatch("grid", &describe(ga), &describe(gb))),
+        (ga, gb) => Err(mismatch("grid", &side(ga), &side(gb))),
+    }
+}
+
+/// One side of a grid mismatch, placed or not.
+fn side(geometry: &Result<&GridGeometry, Error>) -> String {
+    match geometry {
+        Ok(g) => describe(g),
+        Err(e) => unplaceable(e),
     }
 }
 
@@ -367,8 +355,8 @@ pub(crate) fn combine_api_fields(a: &Field, b: &Field, op: CombineOp) -> Result<
 /// #645 the umbrella had nothing else to offer here — `label` fell through to
 /// `kind` for every modelled family — so this read the only string there was.
 /// Now it does not, and a `Source` built here captions and refuses with the
-/// family the file declared, the way `fieldglass-napi`'s does from
-/// `MessageMeta::grid_type`.
+/// family the file declared, as `fieldglass-napi`'s does from the same
+/// `Georef::label`.
 fn source_of(f: &Field) -> Source<'_> {
     f.source()
 }
@@ -570,12 +558,11 @@ mod tests {
             e.message()
         );
 
-        // Two grids that state no usable geometry, for the same reason, still
-        // combine: neither can be placed, both are the same shape, and the
-        // source view paints each as stored. This is the arm the napi
-        // characterisation golden caught — ten of its fields are §3.20 grids
-        // with `Dx = 0` or HDF5 slices with no coordinate arrays, and all of
-        // them differenced before #579 as well as after.
+        // A source whose geometry did not resolve is refused against anything,
+        // itself included: "same cells in the same places" is a claim about
+        // geometry, and a host that could not state one cannot make it. Until
+        // #574 two refusals of the same wording combined, which read two §3.20
+        // grids stating `Dx = 0` over different places as one grid.
         let unplaceable = |detail: &str| Source {
             geometry: Err(Error::Unsupported {
                 detail: detail.to_string(),
@@ -587,20 +574,31 @@ mod tests {
             points_per_row: None,
         };
         let no_spacing = unplaceable("dx is zero");
-        assert!(aligned(&no_spacing, &unplaceable("dx is zero")).is_ok());
-
-        // But unplaceable for *different* reasons is still a mismatch, and so
-        // is a placeable grid against an unplaceable one — in both directions,
-        // because the two are separate arms and one of them could be wrong.
-        let e = aligned(&no_spacing, &unplaceable("missing latFirst"))
-            .expect_err("two different refusals");
+        let e = aligned(&no_spacing, &unplaceable("dx is zero"))
+            .expect_err("two refusals of one wording are still two unknown grids");
         assert!(
-            e.message().contains("no usable geometry"),
+            e.message().contains("no usable geometry (dx is zero)"),
             "{}",
             e.message()
         );
+        assert!(aligned(&no_spacing, &unplaceable("missing latFirst")).is_err());
+        // And a placeable grid against an unplaceable one, in both directions.
         assert!(aligned(&a, &no_spacing).is_err());
         assert!(aligned(&no_spacing, &a).is_err());
+
+        // A raster that no coordinates place is not an unresolved geometry: it
+        // is `Unsupported`, which compares by its label, so a coordinate-less
+        // slice still differences against itself.
+        let unplaced = GridGeometry::Unsupported {
+            label: "source".to_string(),
+        };
+        assert!(
+            aligned(
+                &source(&unplaced, 8, 4, scan, "latlon"),
+                &source(&unplaced.clone(), 8, 4, scan, "latlon")
+            )
+            .is_ok()
+        );
     }
 
     fn latlon_params(g: &GridGeometry) -> LatLonParams {

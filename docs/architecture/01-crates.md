@@ -35,7 +35,6 @@ flowchart TD
     fieldglass --> core
     fieldglass --> fetchplan
     napi --> fieldglass
-    napi --> core
     fetchplan --> core
     fetchplan --> zarr
     zarr --> core
@@ -45,15 +44,17 @@ flowchart TD
     netcdf --> core
 ```
 
-**No host has an edge to a decoder.** A host is a binding over `fieldglass`
-(ADR-0006 decision 1), so the umbrella is what decides the surface a host may
-use. `fieldglass-napi` had three such edges and reached NetCDF twice over — once
-through the umbrella and once directly, the divergence #662 named. What a host
+**No host has an edge to any crate but the umbrella.** A host is a binding
+over `fieldglass` (ADR-0006 decision 1), so the umbrella is what decides the
+surface a host may use. `fieldglass-napi` had three edges to decoders and
+reached NetCDF twice over — once through the umbrella and once directly, the
+divergence #662 named — and kept one to `fieldglass-core` until #574. What a host
 needs beyond `Session` now comes through the umbrella too: `fieldglass::netcdf`
 for a file's own metadata, `fieldglass::grib1` for the one edit a read-only
-session has no shape for. `tools/check_host_dependencies.py` holds this at zero
-and fails for any unlisted edge, dev-dependencies included, so this drawing
-cannot drift from the manifests.
+session has no shape for, and the geometry types, format detection and unit
+typesetting it re-exports at its root. `tools/check_host_dependencies.py` holds
+this at zero over the whole workspace set and fails for any unlisted edge,
+dev-dependencies included, so this drawing cannot drift from the manifests.
 
 **Why it stays decoupled:** no format crate depends on another, and nothing
 below a host depends on a host. A new decode path lands inside one format crate

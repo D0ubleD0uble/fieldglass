@@ -45,7 +45,8 @@
 //! # Feature flags
 //!
 //! - **`render`** *(default)* — the viewer-domain modules `warp`, `overlay`,
-//!   `colormap` and `cpt`, consumed only by `fieldglass-napi`. Depend with
+//!   `colormap` and `cpt`, consumed only by the `fieldglass` umbrella (and
+//!   through it by both hosts). Depend with
 //!   `default-features = false` to get just the parsing surface (no warp
 //!   pipeline in your API). [`projection`] stays available either way, since
 //!   decode-side consumers need it.

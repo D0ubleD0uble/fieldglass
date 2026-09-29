@@ -23,8 +23,8 @@ categories  = ["science", "parser-implementations"]
 all-features = true
 
 [features]
-# Viewer-domain code (`warp`, `overlay`, `colormap`) consumed only by
-# `fieldglass-napi`. On by default so the workspace and downstream renderers get
+# Viewer-domain code (`warp`, `overlay`, `colormap`) consumed only by the
+# `fieldglass` umbrella, and through it by both hosts. On by default so the workspace and downstream renderers get
 # it transitively; the format crates opt out with `default-features = false` to
 # keep their public API to the parsing surface. See the crate-level docs.
 default = ["render", "fs", "analysis", "serde"]

@@ -262,6 +262,34 @@ const FOREIGN_REEXPORTS: &[(&str, Class, &str)] = &[
         "what every method of both seams returns, so a host implementing one has \
          to be able to name it; `Error` is what a host *receives*",
     ),
+    // What a host names so it can depend on this crate alone (#574): the addon
+    // dropped its direct `fieldglass-core` edge, and these are the pieces of
+    // `core` it had been reaching for.
+    (
+        "GridGeometry",
+        Class::Engine,
+        "the grid `Georef::geometry` and `Source::geometry` carry; a host holds \
+         one between calls and never serialises it — placement reaches the wire \
+         as `Georef`",
+    ),
+    (
+        "SpatialIndex",
+        Class::Engine,
+        "the cell-centre index a lookup `GridGeometry` wraps; a host asks it which \
+         way a curvilinear grid's rows run, in Rust",
+    ),
+    (
+        "Format",
+        Class::Engine,
+        "which container a buffer holds, asked before a host picks a handle; a \
+         host maps it to its own string",
+    ),
+    (
+        "ProjectedPolylines",
+        Class::Engine,
+        "the pixel-space runs `render::overlay_polylines` returns; a host \
+         converts them on its way out",
+    ),
 ];
 
 // ---------------------------------------------------------------------------
