@@ -16,8 +16,14 @@ basis as 5.41 / 5.42. See the 5.40 section below.
 
 **Amended (2026-09-29):** [ADR-0012](0012-own-the-aec-decoder.md) replaces `rust-aec`
 with `fieldglass-aec`, a CCSDS 121.0 decoder this project owns and checks against libaec
-1.1.7, so the same coder can also decode HDF5 szip. The 5.42 row and section below describe
-`rust-aec` until [#762](https://github.com/D0ubleD0uble/fieldglass/issues/762) makes the swap.
+1.1.7, so the same coder can also decode HDF5 szip. [#762](https://github.com/D0ubleD0uble/fieldglass/issues/762)
+made the swap, and the 5.42 row and section below now describe `fieldglass-aec`. From #117
+to #762 the decoder was `rust-aec` 0.1.1 (MIT, pure Rust, purpose-built for GRIB2 5.42, one
+maintainer), pinned exactly with `cargo deny check` in the gate, the decode kept
+self-contained so it stayed swappable, and every decoder error surfaced as
+`UnsupportedSection`. It decoded every committed fixture to the eccodes oracle; ADR-0012
+records why it was replaced (block sizes szip needs, per-block allocation, side effects
+inside a decode, bus factor). <https://crates.io/crates/rust-aec>
 
 ## Context
 
@@ -40,7 +46,7 @@ licensing, cross-compilation, and fixture availability.
 ## What actually decides it
 
 **Not licensing.** Every candidate is already on the `deny.toml` allowlist:
-`png` (MIT/Apache), `rust-aec` (MIT), OpenJPEG (BSD-2-Clause), and libaec
+`png` (MIT/Apache), OpenJPEG (BSD-2-Clause), and libaec
 (BSD-2-Clause). Licensing rules nothing out.
 
 **Cross-compilation does.** A pure-Rust decoder cross-compiles to all six
@@ -60,7 +66,7 @@ decoder lands. (Provenance in `crates/fieldglass-grib2/tests/fixtures/NOTICE.md`
 | Template | Codec | Crate | Cross-compile | Outcome |
 | --- | --- | --- | --- | --- |
 | **5.41 PNG** | pure-Rust | [`png`](https://crates.io/crates/png) | clean, no C | **Shipped** ([#118](https://github.com/D0ubleD0uble/fieldglass/issues/118)) |
-| **5.42 CCSDS / AEC** | pure-Rust | [`rust-aec`](https://crates.io/crates/rust-aec) | clean, no C | **Shipped** ([#117](https://github.com/D0ubleD0uble/fieldglass/issues/117)) |
+| **5.42 CCSDS / AEC** | pure-Rust | `fieldglass-aec` (this workspace, [ADR-0012](0012-own-the-aec-decoder.md)) | clean, no C | **Shipped** ([#117](https://github.com/D0ubleD0uble/fieldglass/issues/117), [#762](https://github.com/D0ubleD0uble/fieldglass/issues/762)) |
 | **5.40 JPEG 2000** | pure-Rust | [`rust-j2k`](https://crates.io/crates/rust-j2k) | clean, no C | **Shipped** ([#116](https://github.com/D0ubleD0uble/fieldglass/issues/116)) |
 
 ### 5.41 PNG — done
@@ -69,7 +75,7 @@ The pure-Rust [`png`](https://crates.io/crates/png) crate decodes the PNG image
 in §7; the simple-packing `R` / `E` / `D` transform then applies. Shipped in
 #118.
 
-### 5.42 CCSDS / AEC — pure-Rust (`rust-aec`)
+### 5.42 CCSDS / AEC — pure-Rust (`fieldglass-aec`)
 
 The original spike picked [`oxiarc-szip`](https://crates.io/crates/oxiarc-szip)
 on the strength of its "libaec-compatible" claim. Implementing #117 disproved
@@ -80,24 +86,24 @@ sample. Its test suite is all self round-trips, which never exercise libaec
 compatibility. (This is exactly why the spike's "validate against the committed
 oracle" gate existed.)
 
-[`rust-aec`](https://crates.io/crates/rust-aec) (MIT) is a pure-Rust
-CCSDS-121.0-B-3 AEC decoder **purpose-built for GRIB2 template 5.42**, created
-to avoid native-libaec build friction. It decodes the committed fixture
-**byte-for-byte against the eccodes oracle** (count, min/max/mean, and anchored
-samples). Its only dependency is `bitflags` (already in the lock), and it
-cross-compiles to all six targets with no C, preserving the C-free `.vsix`.
+The decoder is `fieldglass-aec`, a pure-Rust CCSDS 121.0-B-3 decoder in this
+workspace ([ADR-0012](0012-own-the-aec-decoder.md), #762). It is checked against
+libaec 1.1.7 over a committed corpus of streams libaec's own encoder wrote, and
+follows the standard where libaec does not. Its only dependency is `thiserror`,
+already in every reader's tree through `fieldglass-core`, and it cross-compiles
+to all six targets with no C, preserving the C-free `.vsix`. The GRIB2 reader
+applies two rules of its own to the `ccsdsFlags` octet (SIGNED samples taken as
+their n-bit pattern, PAD_RSI cleared before decoding), because that is what
+eccodes' encoder wrote; ADR-0012 decision 5 has the evidence.
 
-It is young (v0.1.1, single maintainer), so #117 ships it behind three
-guardrails: the version is pinned exactly and `cargo deny check` stays in the
-gate; the AEC payload decode is kept self-contained so it stays swappable (or
-vendorable — ~1,700 LOC, MIT); and any decoder error is surfaced as
-`UnsupportedSection` so an untrusted file degrades gracefully rather than
-crashing the addon. The committed eccodes oracle test is the standing
-correctness backstop.
+The guardrails the first external decoder shipped behind still hold: the AEC
+payload decode is self-contained in `decode_ccsds_packing`, any decoder error is
+surfaced as `UnsupportedSection` so an untrusted file degrades gracefully
+rather than crashing the addon, and the committed eccodes oracle test is the
+standing GRIB2 backstop. The codec is also fuzzed in its own crate.
 
-`libaec-sys` (BSD-2, C) remains the documented fallback **only** if `rust-aec`
-later proves insufficient on other models (e.g. 24-bit/3-byte, signed, or
-non-preprocessed streams) — that would reintroduce the windows-arm64
+`libaec-sys` (BSD-2, C) remains the documented fallback **only** if the owned
+decoder cannot be kept correct — that would reintroduce the windows-arm64
 cross-compile cost, so it is a last resort, not the default.
 
 ### 5.40 JPEG 2000 — pure-Rust (`rust-j2k`)
@@ -122,7 +128,7 @@ oracle** (count, min/max/mean, and anchored samples). It has no C dependency, so
 it cross-compiles to all six targets and preserves the C-free `.vsix` this ADR
 set out to protect.
 
-Like `rust-aec`, it is young (v0.2.0, single maintainer), so #116 ships it behind
+Like the first 5.42 decoder, it is young (v0.2.0, single maintainer), so #116 ships it behind
 the same guardrails: the version is pinned exactly and `cargo deny check` stays
 in the gate; the codec call is kept self-contained in `decode_jpeg2000_packing`
 so it stays swappable; and any decoder error is surfaced as `UnsupportedSection`
@@ -150,7 +156,6 @@ cross-compile cost, so it is a last resort, not the default.
   [#45](https://github.com/D0ubleD0uble/fieldglass/issues/45) (resolved by
   hand-rolling rather than taking a C/PROJ dependency — the same instinct
   applied here).
-- `rust-aec` (adopted for 5.42): <https://crates.io/crates/rust-aec>
 - `oxiarc-szip` (rejected — not libaec-compatible, see 5.42 section):
   <https://crates.io/crates/oxiarc-szip>
 - Reference Rust GRIB crate (uses `openjpeg-sys` + `libaec-sys`): <https://docs.rs/grib/>

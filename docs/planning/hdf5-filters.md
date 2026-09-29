@@ -12,7 +12,7 @@ types plus the v1 B-tree), so filters are the gap that blocks real files.
 | 3 | fletcher32 | ~~A checksum, not compression. Its presence fails files whose compression we handle fine.~~ **Done (#412).** | Not the no-op it looks like: it *appends* 4 bytes, so reading must strip them, and libhdf5 accepts two checksum byte orders (a pre-1.6.3 bug). See below. |
 | 32015 | zstd | ~~netcdf-c ≥ 4.9; DKRZ-recommended for climate archives.~~ **Done (#413)** via `ruzstd` 0.9 (MIT, pure Rust, one transitive dep). | Cross-compile verified to `x86_64-pc-windows-msvc` and `wasm32` with no C toolchain, which is ADR-0001's actual deciding criterion. |
 | 307 | bzip2 | Rare. | Pure-Rust decoder (`bzip2-rs`). Small. |
-| 4 | szip | Common across the NASA EOS archive (AIRS, MODIS). | Same entropy coder as GRIB2 5.42, different framing, plus an upstream change. Multi-week. See below. |
+| 4 | szip | Common across the NASA EOS archive (AIRS, MODIS). | Same entropy coder as GRIB2 5.42, now `fieldglass-aec` (#762); different framing (#761, #421). See below. |
 
 Blosc/LZ4: rare in NetCDF, defer. This set would exceed default netcdf-c
 installs, which frequently lack working szip/zstd plugins at runtime.
@@ -68,28 +68,24 @@ value is rejected" will pass against the library's default and tell you nothing.
 
 ## Why szip is a project, not a quick win
 
-The entropy coder (CCSDS 121.0 extended-Rice) is shared with GRIB2 5.42, but
-`rust-aec` is an externally pinned crates.io dependency (`= 0.1.1`), not
-vendored, and it rejects the parameters HDF5 actually uses:
-
-- `validate_params` accepts `block_size` only in {8, 16, 32, 64}. HDF5's
-  `pixels_per_block` is any even value 2–32; NASA EOS commonly ships 8, 10,
-  16, 18. Real files return `Unsupported` immediately.
-- `bits_per_sample` is capped at 1..=32, so 64-bit doubles, the common NetCDF
-  case, are outside its range.
-- Our four GRIB2 fixtures all use block 32 / RSI 128. HDF5 szip RSI is
-  `ceil(pixels_per_scanline / pixels_per_block)`, typically 1–128 and often 1,
-  an untested path.
+The entropy coder (CCSDS 121.0 extended-Rice) is shared with GRIB2 5.42. The
+external decoder GRIB2 used first rejected the block sizes HDF5 writes, so the
+project now owns the coder, and szip is to decode through `fieldglass-aec` (#421,
+[ADR-0012](../decisions/0012-own-the-aec-decoder.md)), the crate GRIB2 5.42
+already decodes with (#762). It accepts every even block size from 2 to 256
+(HDF5's `pixels_per_block` is any even value 2–32; NASA EOS commonly ships 8,
+10, 16 and 18) and every RSI from 1 to 4096. HDF5 szip RSI is
+`ceil(pixels_per_scanline / pixels_per_block)`, typically 1–128 and often 1,
+which libaec's own test inputs in the crate's corpus cover.
 
 HDF5 szip framing also differs from GRIB2 §7: a 4-byte little-endian
 uncompressed-size prefix per chunk, scanline padding when
 `pixels_per_scanline % pixels_per_block != 0`, and byte-interleaving for
 32/64-bit samples (libaec decodes those as 8-bit streams and deinterleaves).
-That is roughly libaec's `sz_compat.c` reimplemented (~300 lines), plus either
-an upstream relaxation of `rust-aec`'s whitelist or a fork; ADR-0001 flags
-that crate as bus-factor-1 and pinned exactly, so a fork is a real commitment.
-It also needs its own oracle (an h5py/netCDF4 wheel built with szip;
-`tools/build_hdf5_fixtures.py` is the pattern).
+That is libaec's `sz_compat.c`, which `fieldglass_aec::sz` carries (#761); the
+HDF5 framing stays in the NetCDF reader. It also needs its own oracle (an
+h5py/netCDF4 wheel built with szip; `tools/build_hdf5_fixtures.py` is the
+pattern).
 
 ## Other NetCDF / HDF5 gaps
 

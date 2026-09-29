@@ -41,7 +41,7 @@ Bump versions in lockstep:
 | File | What |
 |---|---|
 | `Cargo.toml` (workspace) | `[workspace.package].version` → new version |
-| `crates/fieldglass-{grib1,grib2,napi,netcdf}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match |
+| `crates/fieldglass-{grib1,grib2,napi,netcdf}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match (`-grib2` pins `fieldglass-aec` as well as `fieldglass-core`) |
 | `extension/package.json` | `version` field |
 | `Cargo.lock` | `cargo check --workspace` to refresh |
 | `crates/fieldglass-{aec,grib1,grib2,netcdf,zarr,fetchplan}/fuzz/Cargo.lock` | refresh each of the six — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet each lock still records the resolved `fieldglass-*` version. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. Forgetting is caught by the `nested-lockfiles` pre-commit hook, which refuses the bump commit itself; if hooks are bypassed it fails the **Nested lockfiles in sync** job and blocks the fuzz jobs until fixed. |
@@ -163,16 +163,16 @@ The tag push triggers `release.yml`'s publish path:
 
 ### crates.io
 
-The four library crates — `fieldglass-core`, `-grib1`, `-grib2`, `-netcdf` —
-publish to crates.io from the `publish-crates` job. `fieldglass-napi` does not:
+The five library crates — `fieldglass-aec`, `fieldglass-core`, `-grib1`,
+`-grib2`, `-netcdf` — publish to crates.io from the `publish-crates` job. `fieldglass-napi` does not:
 it carries `publish = false`, since it is a build artefact of the extension, not
 a library anyone should depend on.
 
 **Every tag publishes.** A `workflow_dispatch` dry run has no tag, so it skips
 this job — the dry run remains free of side effects.
 
-**Every stable release publishes all four crates, whether or not they changed.**
-The format crates pin core with `=`, so their manifests change with every
+**Every stable release publishes all five crates, whether or not they changed.**
+The format crates pin core (and `-grib2` pins `fieldglass-aec`) with `=`, so their manifests change with every
 version bump by construction. That lockstep is deliberate while the API is
 pre-1.0; it is not worth the bookkeeping to publish them independently.
 
@@ -207,6 +207,20 @@ that the workflow takes over and the token can be revoked.
 Until that bootstrap happens, a stable tag's `publish-crates` job will fail on
 the first `cargo publish` — nothing else in the release is affected, since the
 Marketplace publish and the GitHub Release are separate jobs.
+
+**`fieldglass-aec` needs the same bootstrap once** (ADR-0012 decision 10). The
+four crates above were bootstrapped at 0.3.0. `fieldglass-aec` joined the loop
+with #762, so at the first stable tag after that merge, before or after the
+workflow first fails on it:
+
+```sh
+cargo publish -p fieldglass-aec     # with a scoped API token
+```
+
+then add its Trusted Publishing entry (repository `D0ubleD0uble/fieldglass`,
+workflow `release.yml`) and re-run the `publish-crates` job. It is first in the
+loop, so a missed bootstrap fails the job before any other crate goes out, and
+the re-run skips whatever is already published.
 
 ### npm
 

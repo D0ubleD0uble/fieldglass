@@ -10,10 +10,10 @@ repository.workspace   = true
 readme      = "README.md"
 keywords    = ["aec", "ccsds", "szip", "grib2", "hdf5"]
 categories  = ["compression", "science", "parser-implementations"]
-# Not in `release.yml`'s publish loop yet, and not depended on by any published
-# crate: the first publish is by hand, at the first release in which
-# `fieldglass-grib2` depends on this crate (ADR-0012 decision 10). It is left
-# publishable so `cargo publish --dry-run` keeps the manifest honest until then.
+# Published in lockstep, first in `release.yml`'s publish loop, because
+# `fieldglass-grib2` pins it with `=` and cannot be packaged until it is on the
+# index. The very first publish is by hand (ADR-0012 decision 10): crates.io
+# Trusted Publishing can only be configured for a crate that already exists.
 
 [dependencies]
 # The one dependency (ADR-0012 decision 1). It is already in every consumer's
