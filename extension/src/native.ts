@@ -76,11 +76,13 @@ export interface MessageMeta {
    *  degenerate Dx/Dy. The panel hides those options when false. */
   reprojectable: boolean;
   /** Whether this message's values can be placed on the Earth, and why not
-   *  (#776): `"placed"`, `"no_raster"`, `"unplaceable"` (a raster that still
-   *  paints in grid coordinates) or `"predefined_unresolved"`. About the
-   *  values, so a spectral message is `"placed"` and a bi-Fourier one is
-   *  `"no_raster"`. */
-  placement: string;
+   *  (#776). `"placed"`: on the map. `"unplaceable"`: a raster that paints in
+   *  grid coordinates only. `"no_raster"`: nothing to paint (spectral or
+   *  bi-Fourier coefficients as declared, zero rows or columns, no grid).
+   *  `"unsupported"`: a grid template this build does not model.
+   *  `"predefined_unresolved"`: a GRIB1 predefined grid this build does not
+   *  know. About the values, so a spectral message is `"placed"`. */
+  placement: "placed" | "no_raster" | "unplaceable" | "unsupported" | "predefined_unresolved";
   /** Whether the grid's rows scan south→north (GRIB `jScansPositively`). The
    *  source projection orients the raster from this so it isn't upside-down;
    *  null for grids with no scan flag (predefined GRIB1 grids, NetCDF). */

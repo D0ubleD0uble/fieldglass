@@ -188,7 +188,7 @@ suite("Render pipeline", () => {
     // removed or weakened, `constructor.name` will revert to `"Buffer"` and
     // VS Code's serializer will corrupt the payload again.
     const rgba = Buffer.from([10, 20, 30, 40, 50, 60, 70, 80]);
-    const meta = {
+    const meta: MessageMeta = {
       messageIndex: 0,
       offsetBytes: 0,
       parameterName: "",
@@ -1137,6 +1137,33 @@ suite("render-panel HTML", () => {
       assert.strictEqual(html.includes('class="render-btn"'), renders, `${name}: Render button`);
       assert.strictEqual(html.includes("Render not available"), !renders, `${name}: unrenderable note`);
     }
+  });
+
+  test("a grid template this build does not model is not offered Render (#776)", () => {
+    // The committed lat/lon fixture with its §3 template renumbered to 3.4,
+    // which this build does not parse: the addon says `unsupported`, decode
+    // would refuse, so the table must not offer a Render button.
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = Buffer.from(fs.readFileSync(fixturePath("regular_latlon_surface.grib2")));
+    let at = 16;
+    while (bytes[at + 4] !== 3) {
+      at += bytes.readUInt32BE(at);
+    }
+    bytes.writeUInt16BE(4, at + 12);
+    const meta = native.Grib2Handle.fromBytes(bytes).messages()[0];
+    assert.strictEqual(meta.placement, "unsupported");
+    const html = renderHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      "grib2",
+      "/tmp/unsupported.grib2",
+      [meta],
+      undefined,
+      undefined,
+      false,
+    );
+    assert.ok(!html.includes('class="render-btn"'), "no Render button for an unmodelled template");
+    assert.ok(html.includes("Render not available"), "the unrenderable note instead");
   });
 
   test("an unplaceable grid renders but offers no map target (#776)", () => {

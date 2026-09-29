@@ -2184,8 +2184,9 @@ function renderDatasetBody(
  *  The answer is Rust's (`MessageMeta.placement`, #776), and it is about the
  *  values rather than the declared grid, so a spectral or HEALPix message —
  *  whose values are synthesised onto a lat/lon grid — is `"placed"`, and a
- *  bi-Fourier one, which has no raster at all, is `"no_raster"`. This used to
- *  be a list of those family names here. */
+ *  bi-Fourier one, which has no raster at all, is `"no_raster"`. A template
+ *  this build does not model (`"unsupported"`) is not offered either: nothing
+ *  decodes it. This used to be a list of family names here. */
 function messageIsRenderable(m: Pick<MessageMeta, "placement">): boolean {
   return m.placement === "placed" || m.placement === "unplaceable";
 }
