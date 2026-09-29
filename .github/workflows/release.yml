@@ -279,9 +279,9 @@ jobs:
             grep -q "\"vers\":\"${want}\"" <<<"$body"
           }
 
-          # `fieldglass-aec` first, then `fieldglass-core`: the format crates pin
-          # both with `=`, so they cannot even be packaged until those are in the
-          # index. `cargo publish` waits for each upload to propagate before
+          # `fieldglass-aec` first, then `fieldglass-core`: every format crate
+          # pins core with `=`, and `fieldglass-grib2` also pins aec, so they
+          # cannot even be packaged until those are in the index. `cargo publish` waits for each upload to propagate before
           # returning, so the next crate in the list resolves the one before it.
           # `fieldglass-aec` leads for a second reason: its Trusted Publishing is
           # configured by hand after its first, manual publish (ADR-0012

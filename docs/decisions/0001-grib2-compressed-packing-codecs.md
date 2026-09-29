@@ -46,7 +46,7 @@ licensing, cross-compilation, and fixture availability.
 ## What actually decides it
 
 **Not licensing.** Every candidate is already on the `deny.toml` allowlist:
-`png` (MIT/Apache), OpenJPEG (BSD-2-Clause), and libaec
+`png` (MIT/Apache), `rust-aec` (MIT), OpenJPEG (BSD-2-Clause), and libaec
 (BSD-2-Clause). Licensing rules nothing out.
 
 **Cross-compilation does.** A pure-Rust decoder cross-compiles to all six

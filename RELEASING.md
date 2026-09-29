@@ -7,7 +7,7 @@ this doc is the *how*, not the *why*.
 
 Versioning is plain semver, and **every tag is a stable release**. Pre-1.0, a
 minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` →
-`0.3.1`) does not. The extension and the four library crates share the version.
+`0.3.1`) does not. The extension and the five library crates share the version.
 
 There is no pre-release channel. Fieldglass used one through `0.1.x` — under the
 Marketplace's odd/even-minor convention, where the minor digit encodes the
@@ -153,7 +153,7 @@ The tag push triggers `release.yml`'s publish path:
 - builds all six native targets
 - packages six platform-specific `.vsix` files
 - publishes to the VS Code Marketplace
-- publishes the four library crates to crates.io, on a **stable tag only** (see
+- publishes the five library crates to crates.io, on a **stable tag only** (see
   below)
 - publishes `@fieldglass/wasm` to npm, also tag-only (see below)
 - creates the GitHub Release with the `.vsix` files attached and the release
@@ -284,7 +284,7 @@ gh run watch
 
 - [ ] **GitHub Release created** at `https://github.com/D0ubleD0uble/fieldglass/releases/tag/vX.Y.Z` with six `.vsix` attachments.
 - [ ] **CHANGELOG link refs resolve** — `[X.Y.Z]: …/compare/v{prev}...vX.Y.Z` should be live now that the tag exists.
-- [ ] **crates.io shows the new version** for all four library crates — `cargo info fieldglass-core` should report `X.Y.Z`, and likewise for `-grib1`, `-grib2`, `-netcdf`.
+- [ ] **crates.io shows the new version** for all five library crates — `cargo info fieldglass-core` should report `X.Y.Z`, and likewise for `-grib1`, `-grib2`, `-netcdf` and `fieldglass-aec`. `cargo info fieldglass-aec` is the one that catches a missed first publish (see *crates.io → First publish* above).
 - [ ] **npm shows the new version** — `npm view @fieldglass/wasm version` should report `X.Y.Z`. If the trusted publisher is configured for staged publishing, the version sits unapproved until a maintainer approves it from the Versions tab, and `npm view` will not report it until then.
 - [ ] **Marketplace listing updated** at `https://marketplace.visualstudio.com/items?itemName=fieldglass.fieldglass` — the new version number, screenshot, and README all reflect what shipped.
 - [ ] **Install from Marketplace and round-trip** a real file from each format in a clean VS Code install. The full chain — Marketplace → `.vsix` selection by platform → activation → file open → render — is something only a real install can validate.
