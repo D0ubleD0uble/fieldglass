@@ -90,3 +90,9 @@ pub mod groups;
 // `bits_model`, under Verus.
 #[path = "../../fieldglass-core/src/bitmap.rs"]
 pub mod bitmap;
+
+// The length and offset arithmetic of the NetCDF classic data section (#204).
+// It names nothing from any crate, so `fieldglass-netcdf` need not be a
+// dependency here.
+#[path = "../../fieldglass-netcdf/src/classic/layout.rs"]
+pub mod netcdf_classic_layout;
