@@ -27,4 +27,16 @@ fuzz_target!(|data: &[u8]| {
     // contract is no panic / over-read / hang. (Returns a clean error for the
     // classic backing.)
     let _ = reader.hdf5_metadata();
+    // Value decode reads every chunk through the filter pipeline (deflate,
+    // shuffle, fletcher32, zstd, szip), which the walk above never touches.
+    // The first few variables are enough to reach it from the seeds.
+    for index in 0..MAX_DECODED_VARIABLES {
+        if reader.decode_variable_raw(index).is_err() && reader.variable_shape(index).is_err() {
+            break;
+        }
+    }
 });
+
+/// Variables decoded per input, so one input with thousands of datasets
+/// cannot turn a fuzz iteration into a long decode.
+const MAX_DECODED_VARIABLES: usize = 16;
