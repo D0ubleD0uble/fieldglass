@@ -25,7 +25,7 @@ flowchart TD
     core["fieldglass-core<br/><i>traits, GridGeometry, projection, warp, overlay, Palette</i>"]
     fetchplan["fieldglass-fetchplan<br/><i>manifests in, chunk plan out; no I/O, no clock</i>"]
     zarr["fieldglass-zarr<br/><i>array metadata + chunk codecs, decode only, no I/O</i>"]
-    aec["fieldglass-aec<br/><i>CCSDS 121.0 (AEC / szip) parameters; no workspace dependencies</i>"]
+    aec["fieldglass-aec<br/><i>CCSDS 121.0 (AEC) decoder; no workspace dependencies</i>"]
 
     wasm --> fieldglass
     fieldglass --> grib1
@@ -202,8 +202,8 @@ store (#659).
 **`fieldglass-aec` has no edges yet.** It is a codec crate, not a reader, and
 depends on no workspace crate
 ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). Today it carries the
-parameter surface and a conformance corpus from a pinned libaec; the decoder
-follows. `fieldglass-grib2` takes it in place of `rust-aec` for template 5.42
+decoder and a conformance corpus from a pinned libaec; the szip layer follows.
+`fieldglass-grib2` takes it in place of `rust-aec` for template 5.42
 (#762) and `fieldglass-netcdf` takes it for the HDF5 szip filter (#421). Until
 then neither format crate's tree changes.
 

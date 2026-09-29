@@ -281,6 +281,27 @@ classDiagram
     Grib1Packing <|.. SphericalPacking
 ```
 
+## AEC sample sink
+
+`fieldglass_aec::decode` hands decoded CCSDS 121.0 samples to a `Sink`, one
+block or one run of zero blocks per call, so a consumer converts them straight
+into its own output instead of re-parsing a byte buffer
+([ADR-0012](../decisions/0012-own-the-aec-decoder.md) decision 7). The seam is
+`&mut dyn Sink`, so the wasm bundle carries one copy of the kernel. The one
+implementer so far is the crate's own `ByteSink`, behind `decode_to_bytes`,
+which writes libaec's byte layout; the GRIB2 reader's scaling sink (#762) and
+the szip index-mapping sink (#761) join it.
+
+```mermaid
+classDiagram
+    class Sink {
+        <<trait>>
+        samples(block)
+        repeat(value, count)
+    }
+    Sink <|.. ByteSink
+```
+
 ## Projection and warp
 
 `warp` reprojects a decoded field onto an output raster. Each `TargetProjection`

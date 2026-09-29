@@ -4,18 +4,21 @@ A pure-Rust decoder for CCSDS 121.0-B Adaptive Entropy Coding (AEC), the
 lossless coder behind GRIB2 template 5.42 (CCSDS packing) and the HDF5 szip
 filter.
 
-The reference is [libaec](https://github.com/MathisRosenhauer/libaec) 1.1.7.
-The crate accepts exactly the parameter sets libaec's decoder accepts, and is
-checked against libaec's own output byte for byte over a committed corpus of
-streams that libaec's encoder wrote. It depends on nothing but `thiserror` and
-contains no `unsafe`.
+The goal is to decode correctly per the standard, CCSDS 121.0-B-3.
+[libaec](https://github.com/MathisRosenhauer/libaec) 1.1.7 is the reference it
+is checked against: the crate accepts exactly the parameter sets libaec's
+decoder accepts, and its output matches libaec's byte for byte wherever libaec
+is correct, over a committed corpus of streams that libaec's encoder wrote.
+Where libaec disagrees with
+the standard, or accepts a stream no valid encoder writes, the crate follows
+the standard (see below). It depends on nothing but `thiserror`, contains no
+`unsafe`, and allocates nothing while decoding.
 
-**Status:** this release carries the parameter surface (`Params`, `Flags`) and
-the error type (`AecError`). The decoder and the libsz-compatible szip layer
-follow. The crate is not on crates.io yet.
+**Status:** the decoder is here. The libsz-compatible szip layer follows, and no
+reader uses the crate yet. It is not on crates.io yet.
 
 ```rust
-use fieldglass_aec::{AecError, Flags, Params};
+use fieldglass_aec::{AecError, Flags, Params, decode_to_bytes};
 
 // A GRIB2 5.42 message's `ccsdsFlags` octet maps straight onto `Flags`.
 let params = Params::new(16, 32, 128, Flags::from_bits_truncate(14))?;
@@ -24,8 +27,18 @@ assert_eq!(params.bytes_per_sample(), 2);
 // HDF5 writes block sizes the standard does not name, and libaec decodes them.
 assert!(Params::new(16, 10, 64, Flags::PREPROCESS).is_ok());
 assert_eq!(Params::new(16, 7, 64, Flags::empty()), Err(AecError::BlockSize(7)));
+
+// Decode into a caller-owned buffer: 2 bytes per sample here.
+let stream: &[u8] = &[0b1111_0000, 0x10, 0x20, 0x30, 0x40];
+let params = Params::new(16, 2, 1, Flags::MSB)?;
+let mut out = [0u8; 4];
+decode_to_bytes(stream, &params, &mut out)?;
+assert_eq!(out, [1, 2, 3, 4]);
 # Ok::<(), AecError>(())
 ```
+
+`decode` hands samples to a `Sink` instead, one block or one run of zero blocks
+at a time, so a consumer can convert them straight into its own output.
 
 ## What it accepts
 
@@ -37,6 +50,22 @@ The complement of libaec 1.1.7's `aec_decode_init` refusals:
 - the restricted code option set up to 4 bits per sample. It is refused from 5
   to 8 bits and ignored above 8, as libaec does.
 
+## Where it differs from libaec
+
+- Second-extension codewords with a pair sum above 12 are decoded. libaec's
+  decoder refuses them, though its encoder writes them; the standard sets no
+  bound.
+- Truncated input is an error. libaec returns success with short output.
+- A value of 2^n or more before postprocessing is an error. libaec wraps it.
+- A second-extension pair beside a reference sample must start with the 0 the
+  standard puts there. libaec ignores that value.
+- A zero-block run longer than 63 blocks is an error: the standard's table of
+  run codes ends there. libaec accepts any length that fits the interval.
+- Decoding stops at the requested count, so trailing fill that libaec misreads
+  after the last sample is never an error.
+
+ADR-0012 in the repository gives the evidence for each.
+
 ## How it is checked
 
 `tests/fixtures/` holds the conformance corpus. `tools/build_aec_fixtures.py`
@@ -44,9 +73,11 @@ in the repository downloads the libaec v1.1.7 tag tarball, checks its SHA-256,
 builds it twice with cmake (the default build, and one with
 `ENABLE_RSI_PADDING`, the only build whose encoder writes RSI padding), and
 drives it through `ctypes`. Every stream in the corpus comes from libaec's
-encoder, and libaec's decoder produced every expected output. The tests need
-none of that: the manifest records each stream's parameters, libaec's status and
-the SHA-256 of its output. See `tests/fixtures/NOTICE.md` for the provenance.
+encoder, and libaec's decoder produced every expected output, except where
+libaec's decoder refuses a valid stream: there the expected output is the field
+the encoder was given. The tests need none of that: the manifest records each
+stream's parameters, libaec's status and the SHA-256 of its output. See
+`tests/fixtures/NOTICE.md` for the provenance.
 
 ## Licence
 

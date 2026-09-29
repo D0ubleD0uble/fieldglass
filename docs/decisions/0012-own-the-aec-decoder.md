@@ -4,6 +4,11 @@
 milestone 13, "Own the AEC decoder (CCSDS 121.0 / szip)": #756, #758–#764, and
 the szip half of #421.
 
+**Amended** (2026-09-29, #759): the standard defines correct and libaec is the
+oracle, not the goal (decision 3); decision 4 lists every known divergence with
+its evidence; and SIGNED output is sign-extended only with PREPROCESS
+(decisions 3 and 7).
+
 ## Context
 
 GRIB2 template 5.42 and the HDF5 szip filter (id 4) use the same entropy coder,
@@ -110,7 +115,15 @@ are the precedent for a codec written here with its own reader.
 - `#![forbid(unsafe_code)]`, no panics on any input, and fuzzed before either
   reader switches to it (#760).
 
-### 3. The reference is libaec 1.1.7
+### 3. Correct per CCSDS 121.0-B-3, with libaec 1.1.7 as the oracle
+
+The standard, CCSDS 121.0-B-3, defines what a stream means. libaec 1.1.7 is
+the reference oracle: `fieldglass-aec` matches it wherever libaec is correct,
+and where libaec disagrees with the standard or accepts a stream no valid
+encoder writes, it follows the standard. Matching libaec is how correctness is
+checked, not the goal (maintainer, on #759, 2026-09-29). Each divergence is
+listed in decision 4 with the clause of the standard and a case that
+reproduces it.
 
 **Parameter acceptance** is exactly the complement of `aec_decode_init`'s
 `AEC_CONF_ERROR` in libaec 1.1.7:
@@ -122,30 +135,47 @@ are the precedent for a codec written here with its own reader.
   (`decode.c:740-754`);
 - `NOT_ENFORCE` has no effect on decoding.
 
-**Output.** `decode_to_bytes` reproduces libaec's output byte for byte on every
-stream libaec decodes completely: 1, 2, 3 or 4 bytes per sample, MSB or LSB,
-and sign extension for SIGNED data (`decode.c:55-175`).
+**Output.** `decode_to_bytes` writes libaec's output layout, and equals
+libaec's output byte for byte on every stream libaec decodes correctly: 1, 2, 3
+or 4 bytes per sample, MSB or LSB. SIGNED samples are sign-extended only with
+PREPROCESS, where the postprocessor sign-extends the reference sample and so
+every sample after it. Without PREPROCESS libaec writes the raw n-bit pattern,
+zero-extended (the `FLUSH` macro, `decode.c:55-127`), and so does this crate;
+the `signed_nopp_*` corpus cases pin it. The standard defines samples, not a
+byte layout, so this is libaec's convention, kept for the oracle.
 
-### 4. Where it is stricter than libaec
+### 4. Known divergences from libaec
 
-Each of these is a case where libaec returns success with output nobody asked
-for (Q4):
+Each row is a stream on which libaec's decoder and the standard disagree, or
+on which libaec returns success with output nobody asked for (Q4). Each has
+the clause of CCSDS 121.0-B-3 that decides it, or says plainly that it is an
+API choice with no clause, and a case that reproduces it.
 
-| Case | libaec 1.1.7 | `fieldglass-aec` |
-| --- | --- | --- |
-| Truncated input | `AEC_OK` with short output (`decode.c:833-849`; a stream cut in half gave 3,520 of 8,192 bytes) | `AecError`, with the count of samples decoded. Never zero-filled. |
-| A value of 2^n or more before postprocessing | wraps silently | `AecError`. No valid encoder emits one; the corpus test asserts no libaec-encoded case hits it. |
-| szip output shorter than asked | `SZ_OK` with a smaller `destLen` (`sz_compat.c:302-303`) | `AecError`. The output must fill exactly. |
+| Case | libaec 1.1.7 | `fieldglass-aec` | Evidence |
+| --- | --- | --- | --- |
+| A second-extension pair sum above 12 | `AEC_DATA_ERROR` part-way: its table stops at codeword 90 (`create_se_table`, `decode.c:674-685`; `SE_TABLE_SIZE`, `decode.h:53`), though its own encoder writes such streams (`assess_se_option`, `encode.c:396-416`) | Decoded as the standard defines | §3.4.2 extends the codewords "in the obvious manner" with no bound. Corpus case `se_pair_sum_over_12_b03_j256_r3_pp`: libaec gives 2,047 of 2,050 samples, this crate gives the encoder's input (`source_sha256`). Maintainer decision on #759. |
+| A second-extension pair beside a reference sample whose first value is not 0 | Ignores the first value and keeps the second (`decode.c:570-575, 604-607`) | `AecError` | §3.4.1 and §5.2.6: with a reference sample, a 0 goes in front of the J - 1 mapped errors, so the first pair is (0, δ2). libaec's encoder writes that 0 (`encode.c:236, 272`), so no corpus stream has another value; a unit test in `tests/decode.rs` does. |
+| A zero-block fundamental sequence longer than 63 zeros | Accepted as that many blocks, if the run fits the RSI (`decode.c:527-541`) | `AecError` | Table 3-2 ends at "63 … (63 0s and a 1)", one whole segment. No libaec-encoded corpus stream has one; unit tests in `src/decode.rs` and `tests/decode.rs` do. |
+| Truncated input | `AEC_OK` with short output (`decode.c:833-849`) | `AecError`, with the count of samples decoded. Never zero-filled. | No clause: an API choice (Q4), so a short input is never mistaken for a short field. Corpus cases `truncated_half_b16` (libaec gives 4,098 of 8,192 bytes) and `truncated_one_byte_b16`. |
+| A value of 2^n or more before postprocessing | Wraps silently | `AecError` | §4.4 maps every prediction error into `0..2^n`, so no valid encoder emits one. The corpus test asserts no libaec-encoded case hits it; unit tests build each kind (split high part, split with k above n, second extension). |
+| szip output shorter than asked | `SZ_OK` with a smaller `destLen` (`sz_compat.c:302-303`) | `AecError`. The output must fill exactly. | No clause: szip framing is libsz's contract, not CCSDS 121.0. An API choice (Q4): the caller knows the exact length (HDF5 stores it in the chunk's size prefix), so a short result is lost data. #761. |
+| Trailing fill after the last sample | Can return `AEC_DATA_ERROR` *after* producing every sample, when the fill parses as a zero block that overruns the RSI (`decode.c:529-541` is checked before `avail_out`) | Stops at the requested count and never reads the fill, so the same bytes with `Ok` | §5.3.1: "Fill bits of zero value may be needed to force the packet to end on a byte boundary", so bits after the last CDS are fill, not codes. Corpus case `trailing_zero_block_overrun_b08`. |
 
-One case goes the other way. The decoder stops as soon as it has produced the
-requested count, and ignores trailing bytes, as libaec does. libaec can return
-`AEC_DATA_ERROR` *after* producing all the output, when trailing fill parses as
-a zero block that overruns the RSI (`decode.c:529-541` is checked before
-`avail_out`). `fieldglass-aec` never reads that fill, so it returns the same
-bytes with `Ok`. The corpus records one such case.
+One leniency is deliberate and matches libaec: a zero-block run other than ROS
+may cross a 64-block segment boundary. B-3 lists "specifies the size of a
+segment as 64 blocks" among its changes affecting backward compatibility, so an
+encoder written to the earlier issue can place runs that way, and refusing them
+would reject streams that decode unambiguously. `zero_run_blocks` in
+`src/decode.rs` records the same reasoning, and a unit test pins it.
 
-GRIB2 already errors on truncation today, where eccodes zero-fills, so the first
-row changes nothing a user sees.
+The planning spike's example of the last row (3 bits, block 256, RSI 3, 2,050
+samples) was really the first: `total_out` reports the full room after an
+error (`decode.c:824` runs before the return at `:830`), which made a rejection
+look like complete output. The behaviour in the last row is real, and is what
+`trailing_zero_block_overrun_b08` pins.
+
+GRIB2 already errors on truncation today, where eccodes zero-fills, so the
+truncation row changes nothing a user sees.
 
 ### 5. GRIB2 rules, which are not libaec's
 
@@ -166,7 +196,7 @@ two rules that match what eccodes' encoder wrote:
 
 These live in `fieldglass-grib2`, in the flags it passes and the sink it
 decodes into, not in the codec crate. The codec
-matches libaec; the consumer decides what a GRIB2 message meant. #756's fixtures
+decodes what the standard says; the consumer decides what a GRIB2 message meant. #756's fixtures
 pin both rules, and #762 must keep them green.
 
 ### 6. szip: libsz in the codec crate, HDF5 in the reader
@@ -207,9 +237,10 @@ pub fn decode_to_bytes(input: &[u8], params: &Params, out: &mut [u8])
     -> Result<(), AecError>;
 ```
 
-Names are provisional; #758 and #759 fix them. The kernel hands each decoded
+These are the names #759 shipped. The kernel hands each decoded
 block, or each zero-block run, to a sink, one `u32` per sample as libaec's
-postprocessor leaves it (sign-extended for SIGNED data). The GRIB2 reader's
+postprocessor leaves it: sign-extended for SIGNED data with PREPROCESS, and the
+raw n-bit pattern without it (decision 3). The GRIB2 reader's
 sink scales integers straight into its `Vec<f64>`, which drops today's byte
 buffer and re-parse. The szip sink drops pad samples and scatters byte planes by index.
 `decode_to_bytes` is one more sink, and it is what the oracle compares.

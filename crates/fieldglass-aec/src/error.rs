@@ -2,8 +2,8 @@
 
 /// Why a parameter set or a stream was refused.
 ///
-/// `#[non_exhaustive]`: the decoder adds the stream errors (truncated input,
-/// an invalid code) to this same enum, so a `match` on it needs a wildcard arm.
+/// `#[non_exhaustive]`: a later release may add a reason (the szip layer
+/// will), so a `match` on it needs a wildcard arm.
 ///
 /// Named `AecError` rather than `Error` so it cannot be confused with
 /// `fieldglass::Error` in a consumer that uses both (ADR-0012 decision 1).
@@ -29,4 +29,46 @@ pub enum AecError {
     /// [`Params::new`](crate::Params::new).
     #[error("the restricted code option set is defined up to 4 bits per sample, got {0}")]
     Restricted(u8),
+
+    /// The input ended before `requested` samples were decoded.
+    ///
+    /// `decoded` samples had already reached the sink. libaec returns success
+    /// with short output here; this crate never pads the rest with zeros.
+    #[error("the input ended after {decoded} of {requested} samples")]
+    Truncated {
+        /// Samples handed to the sink before the input ran out.
+        decoded: usize,
+        /// Samples the caller asked for.
+        requested: usize,
+    },
+
+    /// A code no valid stream contains, in the block that starts at sample
+    /// `sample`.
+    ///
+    /// One of:
+    ///
+    /// - a value of 2^n or more before postprocessing, which CCSDS 121.0-B-3
+    ///   rules out and libaec silently wraps;
+    /// - a second-extension pair beside a reference sample whose first value
+    ///   is not the 0 the standard puts there, which libaec ignores;
+    /// - a zero-block run longer than the 63 blocks of CCSDS 121.0-B-3
+    ///   Table 3-2, which libaec accepts if it fits the interval;
+    /// - a zero-block run that passes the end of its reference sample
+    ///   interval, which libaec also refuses.
+    #[error("invalid code in the block starting at sample {sample}: {reason}")]
+    InvalidCode {
+        /// Index of the first sample of the block holding the code.
+        sample: usize,
+        /// What was wrong with it.
+        reason: &'static str,
+    },
+
+    /// An output buffer whose length is not a whole number of samples.
+    #[error("an output of {len} bytes is not a whole number of {bytes_per_sample}-byte samples")]
+    OutputLength {
+        /// The buffer's length in bytes.
+        len: usize,
+        /// Bytes per sample for the parameter set.
+        bytes_per_sample: usize,
+    },
 }

@@ -116,7 +116,9 @@ and RSI ends.
   before it checks for room (`decode.c:529-541`). This is the case ADR-0012
   decision 4 describes: `fieldglass-aec` stops at the requested count and
   returns the same bytes with `Ok`.
-- `se_pair_sum_over_12_b03_j256_r3_pp`: see below.
+- `se_pair_sum_over_12_b03_j256_r3_pp`: a stream libaec's decoder refuses and
+  the standard reads, so `fieldglass-aec` must decode it to `source_sha256`
+  (ADR-0012 decision 4); see below.
 
 **szip (`sz_*`, 78).** libsz's `SZ_BufftoBuffCompress` output, decoded with
 `SZ_BufftoBuffDecompress`: bits per pixel 8, 12, 16, 24, 32 and 64 against
@@ -127,10 +129,11 @@ and a 64-bit chunk whose byte-plane edge falls mid-scanline; and the option
 bits libsz ignores (K13, CHIP, RAW). `NN` and `EC`, `MSB` and `LSB` rotate
 through the grid.
 
-## What libaec does that the ADR does not say
+## What libaec does that the ADR did not say
 
-Found while building this corpus, and recorded here so the decoder issue does
-not rediscover them.
+Found while building this corpus. ADR-0012 now records the first two
+(decisions 3 and 4, amended in #759); they stay here as the corpus's own
+provenance.
 
 - **SIGNED without preprocessing is not sign-extended.** Sign extension happens
   in the postprocessor (`decode.c:55-127`); without `PREPROCESS` libaec copies
