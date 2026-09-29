@@ -84,3 +84,37 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
         .map(|b| format!("{b:02x}"))
         .collect()
 }
+
+/// Writes a stream most significant bit first.
+#[derive(Default)]
+pub(crate) struct Bits {
+    bytes: Vec<u8>,
+    used: u64,
+}
+
+impl Bits {
+    pub(crate) fn put(&mut self, value: u64, n: u32) -> &mut Self {
+        for i in (0..n).rev() {
+            if self.used.is_multiple_of(8) {
+                self.bytes.push(0);
+            }
+            let bit = u8::from((value >> i) & 1 == 1);
+            *self.bytes.last_mut().unwrap() |= bit << (7 - self.used % 8);
+            self.used += 1;
+        }
+        self
+    }
+
+    /// A fundamental sequence: `count` zeros, then a one.
+    pub(crate) fn fs(&mut self, count: u64) -> &mut Self {
+        for _ in 0..count {
+            self.put(0, 1);
+        }
+        self.put(1, 1)
+    }
+
+    pub(crate) fn done(&mut self) -> Vec<u8> {
+        self.used = 0;
+        std::mem::take(&mut self.bytes)
+    }
+}

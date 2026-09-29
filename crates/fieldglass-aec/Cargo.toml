@@ -1,6 +1,6 @@
 [package]
 name        = "fieldglass-aec"
-description = "CCSDS 121.0-B Adaptive Entropy Coding (AEC / szip) decoder in pure Rust, checked byte for byte against libaec"
+description = "CCSDS 121.0-B Adaptive Entropy Coding (AEC / szip) decoder in pure Rust, checked against libaec"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
