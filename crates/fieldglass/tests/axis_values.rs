@@ -104,3 +104,73 @@ fn every_axis_answers_without_decoding_first() {
         .expect("decodes");
     assert!(field.values.len() > 1000, "the field is the big read");
 }
+
+/// A coordinate value that is not a finite number is a hole, the same as a
+/// missing one, so the axis reports no coordinates at all (#574).
+///
+/// Two reasons, and the second is why this is decided here rather than left to
+/// each host. A `NaN` or infinite position has nowhere to be plotted, which is
+/// the rule an absent value already follows. And the two hosts cannot carry it
+/// alike: the Node addon hands a DTO over through `serde_json`, which writes a
+/// non-finite float as `null`, while the browser binding passes `NaN` through,
+/// so one file would read `[0, null]` in one host and `[0, NaN]` in the other,
+/// under a declaration saying `number[]` in both. Refusing the array here means
+/// no non-finite coordinate reaches either wire.
+///
+/// Built in memory: a Zarr v2 store whose time coordinate holds a non-finite
+/// value with no `fill_value` to mark it missing, which is what a writer that
+/// did not declare one produces.
+#[test]
+fn a_non_finite_coordinate_is_a_hole() {
+    let f64s = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let array = |shape: &str| {
+        format!(
+            r#"{{"zarr_format":2,"shape":{shape},"chunks":{shape},"dtype":"<f8","compressor":null,"fill_value":null,"order":"C","filters":null}}"#
+        )
+        .into_bytes()
+    };
+    let store = |time: &[f64]| {
+        fieldglass::MemoryObjects::from_iter(vec![
+            (".zgroup".to_string(), br#"{"zarr_format":2}"#.to_vec()),
+            ("time/.zarray".to_string(), array("[2]")),
+            (
+                "time/.zattrs".to_string(),
+                br#"{"_ARRAY_DIMENSIONS":["time"],"units":"hours since 2020-01-01"}"#.to_vec(),
+            ),
+            ("time/0".to_string(), f64s(time)),
+            ("t/.zarray".to_string(), array("[2,2,2]")),
+            (
+                "t/.zattrs".to_string(),
+                br#"{"_ARRAY_DIMENSIONS":["time","y","x"],"units":"K"}"#.to_vec(),
+            ),
+            ("t/0.0.0".to_string(), f64s(&[1.0; 8])),
+        ])
+    };
+
+    // The control: the same store with a finite time axis reports it, so the
+    // store is readable and the refusal below is about the value alone.
+    let finite = Session::open_store(store(&[0.0, 6.0])).expect("opens");
+    let t = variable(&finite, "t");
+    assert_eq!(
+        finite.axis_values(t, 0).expect("time").coordinates,
+        Some(vec![0.0, 6.0])
+    );
+
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let session = Session::open_store(store(&[0.0, bad])).expect("opens");
+        let t = variable(&session, "t");
+        let axis = session.axis_values(t, 0).expect("time");
+        assert_eq!(
+            axis.coordinates, None,
+            "{bad}: a non-finite value is a hole"
+        );
+        assert_eq!(axis.units, "", "{bad}: no coordinates, so no units either");
+        // A line along the same axis reads the same coordinates, so it falls
+        // back to indices too.
+        let line = session
+            .decode_line(t, 0, &[0, 0, 0], &DecodeOptions::default())
+            .expect("a line");
+        assert_eq!(line.coordinates, None, "{bad}: the line's axis");
+        assert_eq!(line.coordinate_units, None, "{bad}");
+    }
+}

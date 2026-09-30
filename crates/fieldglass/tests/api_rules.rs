@@ -644,6 +644,8 @@ struct Decl {
     attrs: Vec<String>,
     /// The field and variant types inside the braces, as written.
     field_types: Vec<String>,
+    /// The attributes on its fields and variants, as written.
+    inner_attrs: Vec<String>,
 }
 
 /// The API modules, by name and source.
@@ -768,6 +770,7 @@ fn declarations(source: &str) -> Vec<Decl> {
             generic,
             attrs,
             field_types: field_types(&lines, i),
+            inner_attrs: inner_attrs(&lines, i),
         });
     }
     out
@@ -810,6 +813,35 @@ fn field_types(lines: &[&str], start: usize) -> Vec<String> {
             }
         }
         // A unit or tuple struct never opens a brace and ends at its `;`.
+        if (opened && depth <= 0) || (!opened && t.ends_with(';')) {
+            break;
+        }
+    }
+    out
+}
+
+/// The attributes written on a declaration's fields and variants, read the way
+/// [`field_types`] reads their types: from the declaration line to the brace
+/// that closes it.
+fn inner_attrs(lines: &[&str], start: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut opened = false;
+    for line in lines.iter().skip(start) {
+        let t = line.trim();
+        if opened && t.starts_with("#[") {
+            out.push(t.to_string());
+        }
+        for c in line.chars() {
+            match c {
+                '{' => {
+                    depth += 1;
+                    opened = true;
+                }
+                '}' => depth -= 1,
+                _ => {}
+            }
+        }
         if (opened && depth <= 0) || (!opened && t.ends_with(';')) {
             break;
         }
@@ -899,6 +931,24 @@ fn check(decl: &Decl, class: Class) -> Violations {
         if !decl.attrs.iter().any(|a| a.contains("rename_all")) {
             out.push(format!(
                 "{name}: states no serde rename_all, so its wire casing is accidental"
+            ));
+        }
+        // The wire contract is that every key of a returned object is present,
+        // with `null` for a `None` (#574, decided 2026-09-29). A
+        // `skip_serializing_if`, on the type or on one field, drops the key
+        // instead, so the field reads `undefined` in JavaScript while the
+        // declaration generated from the schema still says `T | null`: the
+        // #288 shape, where a `!== null` guard fails open. Nothing else in the
+        // pipeline would notice, because the schema does not record the skip.
+        if decl
+            .attrs
+            .iter()
+            .chain(&decl.inner_attrs)
+            .any(|a| a.contains("skip_serializing"))
+        {
+            out.push(format!(
+                "{name}: uses serde skip_serializing, which leaves a key out of the \
+                 wire object instead of writing null (#574)"
             ));
         }
     }
@@ -1137,6 +1187,17 @@ pub struct AfterThem {
     pub values: Vec<f64>,
 }
 
+/// Leaves a key out of the wire object when it has nothing to say, so the
+/// field is `undefined` in JavaScript under a declaration saying `T | null`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct SkippingDto {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
 /// Borrows, so a host has to write the struct literal — and `#[non_exhaustive]`
 /// is exactly what stops it.
 #[derive(Debug, Clone)]
@@ -1167,6 +1228,7 @@ fn the_scanner_rejects_a_non_conforming_type() {
             "Cells",
             "OneLiner",
             "AfterThem",
+            "SkippingDto",
         ]),
         "the scanner did not find every type in the non-conforming module"
     );
@@ -1228,6 +1290,10 @@ pub struct GoodDto {
     let optional = report("OptionalCellsDto");
     assert_eq!(optional.len(), 1, "{optional:?}");
     assert!(optional[0].contains("Vec<Option<"));
+
+    let skipping = report("SkippingDto");
+    assert_eq!(skipping.len(), 1, "{skipping:?}");
+    assert!(skipping[0].contains("skip_serializing"), "{skipping:?}");
 
     let borrowing = report("BorrowingDto");
     assert_eq!(borrowing.len(), 2, "{borrowing:?}");

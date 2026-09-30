@@ -1061,6 +1061,29 @@ impl Georef {
         Self::from_container(geom, scan, declared, corners, Placement::NoRaster)
     }
 
+    /// The placement of a raster whose shape the **caller** states: a slice of
+    /// an array, `ni` columns by `nj` rows, on `geom`.
+    ///
+    /// Where a geometry places nothing — a NetCDF, HDF5 or Zarr slice with no
+    /// coordinate arrays, which the resolvers answer with a source-only
+    /// geometry — the slice still has cells and still renders in grid
+    /// coordinates, so it is [`Placement::Unplaceable`]; only a slice with no
+    /// cells at all is [`Placement::NoRaster`] (#776).
+    ///
+    /// One rule for every caller: [`Session::decode_slice`] puts this on the
+    /// field it returns, and a host that places a slice itself, without
+    /// decoding it, reports the same answer to its picker (#574).
+    ///
+    /// [`Session::decode_slice`]: crate::Session::decode_slice
+    pub fn from_slice(geom: &GridGeometry, scan: Scan, declared: &str, ni: u32, nj: u32) -> Self {
+        let without_geometry = if ni > 0 && nj > 0 {
+            Placement::Unplaceable
+        } else {
+            Placement::NoRaster
+        };
+        Self::from_container(geom, scan, declared, None, without_geometry)
+    }
+
     /// [`from_declared_corners`](Self::from_declared_corners) with the
     /// placement to report when the geometry has no grid points, which only
     /// the container can say: [`Placement::Unsupported`] for a template this
