@@ -82,27 +82,42 @@ function real(v) {
   return Number.isFinite(v) ? v : 'nonFinite';
 }
 
-/** `undefined` is how napi and serde-wasm-bindgen both spell Rust's `None`;
- *  the recording spells it `null`. Normalise so a missing key and an absent
- *  value stay distinguishable from each other.
+/** Every place a returned object held `undefined`, by path. */
+const undefinedValues = [];
+
+/** The wire contract, checked on everything this host returns (#574): a Rust
+ *  `None` crosses as `null` under its own key, never as `undefined` and never
+ *  as a missing key. `compare` catches a missing key, because the recording
+ *  writes every one; this catches the other half, which a comparison alone
+ *  cannot, since `undefined` and `null` both mean "nothing" to a lenient reader
+ *  and it was exactly that leniency that let #288 through.
+ *
+ *  An `undefined` is recorded as a failure and read as `null`, so the case's
+ *  own comparison still runs and reports anything else it finds.
  *
  *  Only plain objects and arrays are walked. A `Map` — what serde-wasm-bindgen
  *  gives a Rust map by default — comes back untouched, and `compare` then
  *  reports every key as missing, which is a loud failure rather than a silent
  *  pass. No DTO holds a map today; if one does, this is where to teach it. */
-function nulled(v) {
-  if (v === undefined) return null;
-  if (Array.isArray(v)) return v.map(nulled);
+function wire(v, where) {
+  if (v === undefined) {
+    undefinedValues.push(where);
+    return null;
+  }
+  if (Array.isArray(v)) return v.map((x, i) => wire(x, `${where}[${i}]`));
   if (v && typeof v === 'object' && v.constructor === Object) {
-    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, nulled(x)]));
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, wire(x, `${where}.${k}`)]));
   }
   return v;
 }
 
+/** The case being observed, for the paths `wire` records. */
+let current = '';
+
 /** A `Georef` as the suite records one: everything but `geometry`, which is
  *  `core`'s tagged enum and deliberately outside the host contract. */
 function georef(grid) {
-  const { geometry, ...rest } = nulled(grid);
+  const { geometry, ...rest } = wire(grid, `${current}: grid`);
   void geometry;
   return rest;
 }
@@ -126,7 +141,8 @@ function decodeOptions(args) {
  *  `fieldglass::conformance::line_value` (#172). Every point, not a sample: a
  *  line is one axis long. A plain object rather than a class, so its `mask` may
  *  arrive as an array or a typed array; `Array.from` reads either. */
-function lineObservation(line) {
+function lineObservation(returned) {
+  const line = wire(returned, `${current}: line`);
   const values = Array.from(line.values.data);
   const mask = Array.from(line.mask);
   return {
@@ -138,8 +154,8 @@ function lineObservation(line) {
     units: line.units,
     dimension: line.dimension,
     coordinates: line.coordinates ? Array.from(line.coordinates).map(real) : null,
-    coordinateUnits: line.coordinateUnits ?? null,
-    stats: nulled(line.stats),
+    coordinateUnits: line.coordinateUnits,
+    stats: line.stats,
     points: values.map((v, i) => (mask[i] === 1 ? real(v) : null)),
   };
 }
@@ -159,7 +175,7 @@ function fieldObservation(field) {
     nj: field.nj(),
     parameter: field.parameter(),
     units: field.units(),
-    stats: nulled(field.stats()),
+    stats: wire(field.stats(), `${current}: stats`),
     georef: georef(field.grid()),
     samples: sampleIndices(values.length).map((i) => ({
       i,
@@ -232,14 +248,14 @@ function withHandle(caseSpec, handle) {
     return { format: handle.format(), count: handle.count(), addressing: handle.addressing() };
   }
   if (op === 'message') {
-    const info = nulled(handle.message(args.index));
+    const info = wire(handle.message(args.index), `${current}: message`);
     if (info.grid) info.grid = georef(info.grid);
     return info;
   }
   // The variable addressing mode (#679): a listing, and a slice of a variable
   // rather than a message decoded by index.
-  if (op === 'variables') return nulled(handle.variables());
-  if (op === 'dimensions') return nulled(handle.dimensions());
+  if (op === 'variables') return wire(handle.variables(), `${current}: variables`);
+  if (op === 'dimensions') return wire(handle.dimensions(), `${current}: dimensions`);
   if (op === 'decodeSlice') {
     const slice = handle.decodeSlice(
       args.variable,
@@ -340,7 +356,9 @@ function withHandle(caseSpec, handle) {
       }
       case 'probe': {
         const p = handle.probe(field, args.lat ?? 0, args.lon ?? 0);
-        return p === undefined ? null : nulled(p);
+        // `null` off the grid, like every absent value here: an `undefined`
+        // is recorded as a failure by `wire`.
+        return wire(p, `${current}: probe`);
       }
       case 'contours': {
         const lines = handle.contours(field, new Float64Array(args.levels ?? []));
@@ -425,6 +443,7 @@ for (const entry of suite.cases) {
     notComparable += 1;
     continue;
   }
+  current = caseSpec.id;
   const observed = observe(caseSpec);
   if (observed && observed.error && typeof observed.error.code === 'string') {
     codesSeen.add(observed.error.code);
@@ -447,6 +466,48 @@ const missingCodes = suite.errorCodes.filter(
 if (missingCodes.length) {
   failures += 1;
   console.error(`FAIL error codes never reached through this binding: ${missingCodes.join(', ')}`);
+}
+
+// The message that crashed the editor in #288, through this host: GRIB1
+// spectral coefficients on a declared grid nothing places a point on, with none
+// of GRIB2's identification. It is not a suite subject, so it is asked here by
+// name — the fields that are `None` for it are the ones a `!== null` guard
+// once let through as `undefined`.
+{
+  const bytes = readFileSync(
+    join(repoRoot, 'crates/fieldglass-grib1/tests/fixtures/spectral_simple_t63.grib1'),
+  );
+  const handle = wasm.open(new Uint8Array(bytes));
+  try {
+    const info = handle.message(0);
+    const wanted = [
+      [info, 'discipline'],
+      [info, 'productionStatus'],
+      [info, 'dataType'],
+      [info.grid, 'boundsLonlat'],
+      [info.grid, 'corners'],
+      [info.grid, 'x0'],
+    ];
+    for (const [object, key] of wanted) {
+      if (!(key in object) || object[key] !== null) {
+        failures += 1;
+        console.error(
+          `FAIL spectral_simple_t63.grib1: ${key} is ${key in object ? String(object[key]) : 'missing'}, not a present null (#574)`,
+        );
+      }
+    }
+  } finally {
+    handle.free();
+  }
+}
+
+if (undefinedValues.length) {
+  failures += 1;
+  console.error(
+    `FAIL ${undefinedValues.length} value(s) crossed as undefined where the wire contract says null (#574):`,
+  );
+  for (const where of undefinedValues.slice(0, 12)) console.error(`       ${where}`);
+  if (undefinedValues.length > 12) console.error(`       … and ${undefinedValues.length - 12} more`);
 }
 
 const label =

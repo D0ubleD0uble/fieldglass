@@ -28,13 +28,32 @@
 //! the CPU painter stays the oracle the shader is checked against rather than a
 //! second colour implementation.
 //!
+//! # Absent values are `null`
+//!
+//! Every object this façade returns carries all of its keys, and a field with
+//! nothing to report is `null` — never missing and never `undefined` (#574,
+//! decided 2026-09-29, the same wire form the VS Code addon hands over). The
+//! declarations for those objects are generated from the API's JSON schema into
+//! `src/api.generated.d.ts` and embedded in this package's `.d.ts`, so a
+//! `MessageInfo` field reads `T | null` there and a `=== null` guard is the
+//! right one.
+//!
 //! # Panics
 //!
 //! Built with `panic = "abort"`: a decoder panic kills the Worker. The fuzz
 //! targets make that rare; treat the Worker as disposable and restart it.
 
 use fieldglass::{DecodeOptions, Field, Isoline, PaletteOptions, Session, WarpOptions};
+use serde::Serialize;
 use wasm_bindgen::prelude::*;
+
+/// The API's wire types as TypeScript, generated from
+/// `crates/fieldglass/schema/api.schema.json` by `tools/gen_api_declarations.py`
+/// and checked against it in CI. wasm-bindgen copies this into the package's
+/// `.d.ts`, which is what lets the methods below name `MessageInfo` rather than
+/// `any`.
+#[wasm_bindgen(typescript_custom_section)]
+const API_DECLARATIONS: &str = include_str!("api.generated.d.ts");
 
 /// The shader snippet a GPU host pastes into its own fragment program.
 ///
@@ -60,8 +79,19 @@ fn throw(e: fieldglass::Error) -> JsValue {
     err.into()
 }
 
-fn to_js<T: serde::Serialize>(value: &T) -> Result<JsValue, JsValue> {
-    serde_wasm_bindgen::to_value(value).map_err(|e| js_sys::Error::new(&e.to_string()).into())
+/// How every returned object is serialised: a Rust `None` becomes `null`, with
+/// its key kept.
+///
+/// serde-wasm-bindgen's default writes `undefined` instead, which is a third
+/// spelling beside napi's and the recorded suite's, and the one a strict
+/// `=== null` guard lets through (#288, #574).
+const WIRE: serde_wasm_bindgen::Serializer =
+    serde_wasm_bindgen::Serializer::new().serialize_missing_as_null(true);
+
+fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
+    value
+        .serialize(&WIRE)
+        .map_err(|e| js_sys::Error::new(&e.to_string()).into())
 }
 
 fn from_js<T: serde::de::DeserializeOwned + Default>(value: JsValue) -> Result<T, JsValue> {
@@ -78,7 +108,7 @@ fn from_js<T: serde::de::DeserializeOwned + Default>(value: JsValue) -> Result<T
 /// [`fieldglass::combine_ops`]'s, so this host and the VS Code one offer the
 /// same operations under the same tags (#342) — and `value` is exactly what
 /// [`Handle::combine`] takes back.
-#[wasm_bindgen(js_name = combineOps)]
+#[wasm_bindgen(js_name = combineOps, unchecked_return_type = "CombineOpInfo[]")]
 pub fn combine_ops() -> Result<JsValue, JsValue> {
     to_js(&fieldglass::combine_ops())
 }
@@ -103,6 +133,7 @@ pub fn open(bytes: &[u8]) -> Result<Handle, JsValue> {
 #[wasm_bindgen]
 impl Handle {
     /// `"grib1"`, `"grib2"` or `"netcdf"`.
+    #[wasm_bindgen(unchecked_return_type = "SourceFormat")]
     pub fn format(&self) -> Result<JsValue, JsValue> {
         to_js(&self.session.format())
     }
@@ -119,6 +150,7 @@ impl Handle {
     /// question of the other throws `wrong_addressing` naming the call to make
     /// instead, rather than an index error that would blame the number when the
     /// question was wrong.
+    #[wasm_bindgen(unchecked_return_type = "Addressing")]
     pub fn addressing(&self) -> Result<JsValue, JsValue> {
         to_js(&self.session.addressing())
     }
@@ -133,6 +165,7 @@ impl Handle {
     /// Shared is the point: two variables naming the same dimension are on the
     /// same axis, so a page offers one time slider for a file rather than one
     /// per variable. Empty for a message container.
+    #[wasm_bindgen(unchecked_return_type = "DimensionInfo[]")]
     pub fn dimensions(&self) -> Result<JsValue, JsValue> {
         to_js(&self.session.dimensions())
     }
@@ -142,6 +175,7 @@ impl Handle {
     /// Renderable ones only — a variable of fewer than two dimensions has no
     /// raster to put on a map. Each carries the `index` [`decodeSlice`](Handle::decode_slice)
     /// takes. Empty for a message container.
+    #[wasm_bindgen(unchecked_return_type = "VariableInfo[]")]
     pub fn variables(&self) -> Result<JsValue, JsValue> {
         to_js(&self.session.variables())
     }
@@ -167,7 +201,7 @@ impl Handle {
         y_dim: u32,
         x_dim: u32,
         slice_indices: &[u32],
-        options: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "DecodeOptions | null | undefined")] options: JsValue,
     ) -> Result<WasmField, JsValue> {
         let options: DecodeOptions = from_js(options)?;
         let field = self
@@ -195,13 +229,13 @@ impl Handle {
     /// Throws `wrong_addressing` for a message stream, `no_such_message` for a
     /// variable past the list, and `invalid_option` for an axis the variable does
     /// not have, a `sliceIndices` of the wrong length, or an index past its axis.
-    #[wasm_bindgen(js_name = decodeLine)]
+    #[wasm_bindgen(js_name = decodeLine, unchecked_return_type = "Line")]
     pub fn decode_line(
         &self,
         variable: u32,
         along_dim: u32,
         slice_indices: &[u32],
-        options: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "DecodeOptions | null | undefined")] options: JsValue,
     ) -> Result<JsValue, JsValue> {
         let options: DecodeOptions = from_js(options)?;
         let line = self
@@ -215,6 +249,7 @@ impl Handle {
     ///
     /// Lazy on purpose: a thousand-message file should not serialise a thousand
     /// of these to open. Ask for the ones you are going to show.
+    #[wasm_bindgen(unchecked_return_type = "MessageInfo")]
     pub fn message(&self, index: u32) -> Result<JsValue, JsValue> {
         let info = self.session.message(index).map_err(throw)?;
         to_js(&info)
@@ -223,7 +258,11 @@ impl Handle {
     /// Decode one message. `options` is `{ dtype?: "auto" | "f32" | "f64" }`.
     ///
     /// The returned field is yours; free it when you are done.
-    pub fn decode(&self, index: u32, options: JsValue) -> Result<WasmField, JsValue> {
+    pub fn decode(
+        &self,
+        index: u32,
+        #[wasm_bindgen(unchecked_param_type = "DecodeOptions | null | undefined")] options: JsValue,
+    ) -> Result<WasmField, JsValue> {
         let options: DecodeOptions = from_js(options)?;
         let field = self.session.decode(index, &options).map_err(throw)?;
         Ok(WasmField { field })
@@ -236,7 +275,14 @@ impl Handle {
     /// which is what a map view asks for (#465). Send `width` and `height`
     /// together or not at all; one alone throws `invalid_option`, as does a
     /// zero. With neither, the output is the source `ni × nj`, as before.
-    pub fn warp(&self, field: &WasmField, options: JsValue) -> Result<JsValue, JsValue> {
+    #[wasm_bindgen(
+        unchecked_return_type = "{ values: Float32Array; mask: Uint8Array; width: number; height: number; bounds: [number, number, number, number] }"
+    )]
+    pub fn warp(
+        &self,
+        field: &WasmField,
+        #[wasm_bindgen(unchecked_param_type = "WarpOptions | null | undefined")] options: JsValue,
+    ) -> Result<JsValue, JsValue> {
         let options: WarpOptions = from_js(options)?;
         let out = self.session.warp(&field.field, &options).map_err(throw)?;
         let object = js_sys::Object::new();
@@ -257,7 +303,15 @@ impl Handle {
     /// `lut` is 256 RGBA entries with any reversal already applied — the CPU
     /// painter's own table. Upload it as a 256 × 1 `RGBA8` texture sampled
     /// `NEAREST` and pair it with [`glsl_snippet`].
-    pub fn palette(&self, field: &WasmField, options: JsValue) -> Result<JsValue, JsValue> {
+    #[wasm_bindgen(
+        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: string; maskedRgba: Uint8Array }"
+    )]
+    pub fn palette(
+        &self,
+        field: &WasmField,
+        #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
+        options: JsValue,
+    ) -> Result<JsValue, JsValue> {
         let options: PaletteOptions = from_js(options)?;
         let palette = self
             .session
@@ -292,6 +346,7 @@ impl Handle {
     pub fn render(
         &self,
         field: &WasmField,
+        #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
         options: JsValue,
         flip_y: bool,
     ) -> Result<js_sys::Uint8Array, JsValue> {
@@ -303,12 +358,14 @@ impl Handle {
         Ok(js_sys::Uint8Array::from(&raster.rgba[..]))
     }
 
-    /// Sample one geographic point. `undefined` when the point is off the grid
-    /// or the family cannot place it.
+    /// Sample one geographic point. `null` when the point is off the grid or
+    /// the family cannot place it — `null` rather than `undefined` for the
+    /// reason every absent value on this surface is (#574).
+    #[wasm_bindgen(unchecked_return_type = "Probe | null")]
     pub fn probe(&self, field: &WasmField, lat: f64, lon: f64) -> Result<JsValue, JsValue> {
         match self.session.probe(&field.field, lat, lon) {
             Some(p) => to_js(&p),
-            None => Ok(JsValue::UNDEFINED),
+            None => Ok(JsValue::NULL),
         }
     }
 
@@ -333,6 +390,7 @@ impl Handle {
 
     /// Isolines in fractional grid coordinates. An empty `levels` asks for a
     /// nice set spanning the field's own range.
+    #[wasm_bindgen(unchecked_return_type = "Isoline[]")]
     pub fn contours(&self, field: &WasmField, levels: &[f64]) -> Result<JsValue, JsValue> {
         let out: Vec<Isoline> = self.session.contours(&field.field, levels).map_err(throw)?;
         to_js(&out)
@@ -349,6 +407,7 @@ impl Handle {
     pub fn shader_values(
         &self,
         field: &WasmField,
+        #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
         options: JsValue,
     ) -> Result<js_sys::Float32Array, JsValue> {
         let options: PaletteOptions = from_js(options)?;
@@ -368,6 +427,7 @@ impl Handle {
     pub fn shader_mask(
         &self,
         field: &WasmField,
+        #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
         options: JsValue,
     ) -> Result<js_sys::Uint8Array, JsValue> {
         let options: PaletteOptions = from_js(options)?;
@@ -397,6 +457,7 @@ impl WasmField {
     /// The values, as a `Float32Array` or a `Float64Array` depending on what
     /// the source supports — see the `dtype` accessor. A copy: the array does
     /// not alias linear memory.
+    #[wasm_bindgen(unchecked_return_type = "Float32Array | Float64Array")]
     pub fn values(&self) -> JsValue {
         match self.field.values.as_f32() {
             Some(v) => js_sys::Float32Array::from(v).into(),
@@ -435,11 +496,13 @@ impl WasmField {
 
     /// Where the field sits on the Earth: `kind`, `boundsLonlat`, `proj4`,
     /// `x0`, `y0`, `dx`, `dy`, `periodicX`, `scan`.
+    #[wasm_bindgen(unchecked_return_type = "Georef")]
     pub fn grid(&self) -> Result<JsValue, JsValue> {
         to_js(&self.field.georef)
     }
 
     /// `{ min, max, validCount }` over the present cells.
+    #[wasm_bindgen(unchecked_return_type = "Stats")]
     pub fn stats(&self) -> Result<JsValue, JsValue> {
         to_js(&self.field.stats)
     }

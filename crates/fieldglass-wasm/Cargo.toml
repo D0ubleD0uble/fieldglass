@@ -13,9 +13,11 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# `default-features = false`: the umbrella's `schema` feature exists so a host
-# can generate declarations from a JSON schema. wasm-bindgen emits the `.d.ts`
-# for this host, so schemars would be bundle weight with no consumer.
+# `default-features = false`: the umbrella's `schema` feature exists to record
+# the JSON schema the declarations are generated from, and that happens in a
+# test, not here. This host embeds the generated declarations
+# (`src/api.generated.d.ts`), so schemars would be bundle weight with no
+# consumer.
 #
 # The four named features were unconditional in the umbrella until #552 made
 # them features, so naming them here holds this host's bundle exactly where it
