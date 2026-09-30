@@ -16,6 +16,9 @@ eccodes snapshot still records eccodes' failure, so it stays exempt from the
 snapshot value check beside flags 13 and 36, with the source fixture's values
 as its oracle.
 
+**Amended** (2026-09-29, #763): decision 8's full matrix is 4,819 cases, not
+the planning estimate of about 5,300, and the CI job pins that count.
+
 ## Context
 
 GRIB2 template 5.42 and the HDF5 szip filter (id 4) use the same entropy coder,
@@ -282,9 +285,11 @@ signature.
   so an empty or partial corpus fails.
 - **Regenerated and diffed in CI** (#763). A path-filtered job rebuilds libaec,
   regenerates the committed corpus and fails on any diff, so a hand-edited
-  manifest is caught. It also runs the full matrix (about 5,300 cases) and the
-  66 CCSDS 121.0-B-2 sample files from the tarball, neither of which is
-  committed.
+  manifest is caught. It also runs the full matrix (4,819 cases, a count the
+  job pins with `AEC_ORACLE_EXPECT_AEC=4819`) and the 66 CCSDS 121.0-B-2
+  sample files from the tarball, neither of which is committed. The job is
+  `.github/workflows/aec-oracle.yml`, and `tools/aec_oracle.py` runs it
+  locally.
 - **No differential testing against rust-aec.** It diverges from libaec in two
   places (see Context), and on random bytes both decoders mostly error, so the
   comparison says nothing. Fuzzing covers panics, hangs and exact output length.

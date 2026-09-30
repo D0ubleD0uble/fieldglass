@@ -1,0 +1,61 @@
+name: AEC oracle
+
+# fieldglass-aec against libaec itself (#763, ADR-0012 decision 8).
+#
+# `cargo test` checks the decoder against the committed manifest, so a
+# manifest edited by hand would pass it. This job rebuilds the pinned libaec
+# 1.1.7 (the default build and the ENABLE_RSI_PADDING one), regenerates the
+# committed corpus and fails on any diff, then compares the decoder with
+# libaec over the full matrix and over the CCSDS 121.0-B-2 sample data in the
+# libaec tarball. Neither of those is committed: one is too large, the other
+# is not ours to distribute. `tools/aec_oracle.py` holds every step, so the
+# job runs the same way locally.
+#
+# Not a pre-commit or pre-push hook: it needs cmake, a C compiler and the
+# network. Path-filtered, because nothing outside these paths can change
+# either side of the comparison.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'crates/fieldglass-aec/**'
+      - 'tools/build_aec_fixtures.py'
+      - 'tools/aec_oracle.py'
+      - '.github/workflows/aec-oracle.yml'
+  pull_request:
+    paths:
+      - 'crates/fieldglass-aec/**'
+      - 'tools/build_aec_fixtures.py'
+      - 'tools/aec_oracle.py'
+      - '.github/workflows/aec-oracle.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  oracle:
+    name: libaec regenerated and compared
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # The generator is seeded and must write a byte-identical corpus, so the
+      # interpreter is pinned rather than whatever the image ships. cmake and
+      # a C compiler come with the runner image.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Regenerate, diff, and compare with libaec
+        run: python3 tools/aec_oracle.py

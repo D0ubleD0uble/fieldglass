@@ -40,15 +40,15 @@ What it writes, under `crates/fieldglass-aec/tests/fixtures` unless `--out`:
 
 Running it twice gives a byte-identical tree. Every field comes from a seeded
 generator, and `streams/` is emptied first so a dropped case leaves no file
-behind. Never edit `manifest.json` by hand: a CI job regenerates it and diffs
-(#763). Every case must round-trip (libaec's output equals the field the
+behind. Never edit `manifest.json` by hand: `tools/aec_oracle.py`, run in CI,
+regenerates it and diffs (#763). Every case must round-trip (libaec's output equals the field the
 encoder was given) unless its kind says otherwise, so a case libaec cannot
 decode never enters the corpus by accident.
 
 `--dump-expected crates/fieldglass-aec/tests/expected` writes libaec's decoded
 bytes where git ignores them, for reading a failing case by eye. `--full DIR`
-writes the large matrix (several thousand cases, not committed) in the same
-format, for the CI oracle job.
+writes the large matrix (4,819 cases, not committed) in the same format, for
+the CI oracle job.
 
 Needs cmake 3.26 or newer, a C compiler and network access (or `--tarball`),
 only to regenerate. The Rust tests need none of them.
@@ -493,10 +493,28 @@ def emitted_id(stream: bytes, bits: int) -> int:
 UNFORCEABLE = {("fs", 1), ("fs", 2)}
 
 
-def check_option(aec: Libaec, inp: OptionInput, bps: int, flags: int, block: int, rsi: int, n: int) -> bytes:
-    """Encode, assert the id the way check_block_sizes() does, and round-trip."""
+def option_field(inp: OptionInput, bps: int, flags: int, n: int) -> tuple[bytes, bytes]:
+    """The encoder's input for `inp`, and what libaec's decoder must give back."""
     values = fill(inp.pattern, n)
-    data = pack(values, bps, flags)
+    return pack(values, bps, flags), decoded_layout(values, bps, flags)
+
+
+def check_option(
+    aec: Libaec,
+    inp: OptionInput,
+    bps: int,
+    flags: int,
+    block: int,
+    rsi: int,
+    n: int,
+    prepared: tuple[bytes, bytes] | None = None,
+) -> tuple[bytes, bytes]:
+    """Encode, assert the id the way check_block_sizes() does, and round-trip.
+
+    `prepared` is `option_field(inp, bps, flags, n)`, passed in by a caller that
+    checks the same field at many block sizes and RSIs, so it is built once.
+    """
+    data, expected = prepared if prepared is not None else option_field(inp, bps, flags, n)
     stream = aec.encode(data, bps, block, rsi, flags)
     got = emitted_id(stream, inp.id_bits)
     if got != inp.expected_id:
@@ -504,7 +522,6 @@ def check_option(aec: Libaec, inp: OptionInput, bps: int, flags: int, block: int
             f"check_code_options: {inp.option} at {bps} bits, flags {flags}, block {block}, "
             f"rsi {rsi} emitted id {got:#x}, expected {inp.expected_id:#x}"
         )
-    expected = decoded_layout(values, bps, flags)
     status, out = aec.decode(stream, bps, block, rsi, flags, len(expected))
     if status != AEC_OK or out != expected:
         raise SystemExit(f"check_code_options: {inp.option} at {bps}/{block}/{rsi}/{flags} does not round-trip")
@@ -531,11 +548,12 @@ def check_code_options(aec: Libaec, widths: range | tuple[int, ...], exhaustive_
             for inp in option_inputs(bps, flags):
                 if (inp.option, bps) in UNFORCEABLE:
                     continue
+                prepared = option_field(inp, bps, flags, n)
                 for block in STANDARD_BLOCKS:
                     max_rsi = min(4096, CHECK_BUF_BYTES // (block * width))
                     rsis = range(1, max_rsi + 1) if exhaustive_rsi else sorted({1, 2, max_rsi})
                     for rsi in rsis:
-                        check_option(aec, inp, bps, flags, block, rsi, n)
+                        check_option(aec, inp, bps, flags, block, rsi, n, prepared)
                         count += 1
     return count
 
