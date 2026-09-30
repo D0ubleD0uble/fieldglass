@@ -22,9 +22,12 @@ the planning estimate of about 5,300, and the CI job pins that count.
 **Amended** (2026-09-29, #421): the NetCDF reader decodes the HDF5 szip filter
 through `fieldglass_aec::sz` under decision 6's rules. Decision 6 now records
 what the reader does when a length-changing filter precedes szip (it decodes,
-bounded by the ceiling), and decision 4 gains one row, for a size prefix
-libhdf5 reads through and the reader refuses. The value oracle is the h5py
-3.16 wheel (libhdf5 2.0.0, bundled libaec 1.1.4).
+with the prefix bounded by the chunk's length plus an eighth plus 4 KiB), and
+decision 4 gains two rows: a size prefix libhdf5 reads through and the reader
+refuses, and, folded in from #794, a 32- or 64-bit szip output shorter than
+its stream, which libsz returns scrambled and `sz::decompress` now refuses.
+The value oracle is the h5py 3.16 wheel (libhdf5 2.0.0, bundled libaec
+1.1.4).
 
 ## Context
 
@@ -177,7 +180,8 @@ API choice with no clause, and a case that reproduces it.
 | A value of 2^n or more before postprocessing | Wraps silently | `AecError` | §4.4 maps every prediction error into `0..2^n`, so no valid encoder emits one. The corpus test asserts no libaec-encoded case hits it; unit tests build each kind (split high part, split with k above n, second extension). |
 | szip stream that runs out before the output is full | `SZ_OK` either way. Unpadded scanlines: a smaller `destLen` (`sz_compat.c:302-303`). Padded scanlines: the full `destLen` (`total_out = scanlines·pps·pixel_size`, `sz_compat.c:295`), with the undecoded tail copied from an uninitialised `malloc` buffer | `AecError::Truncated`. The output must fill exactly. | No clause: szip framing is libsz's contract, not CCSDS 121.0. An API choice (Q4): the caller knows the exact length (HDF5 stores it in the chunk's size prefix), so a short result is lost data, and the padded case is garbage reported as success. HDF5's only check is `assert(size_out == nalloc)` (`H5Zszip.c:300`), compiled out of release builds, so libhdf5 passes both through. All 39 unpadded and all 39 padded corpus streams cut in half show the two behaviours (`tests/fixtures/NOTICE.md`). #761. |
 | szip output of 32- or 64-bit pixels that is not a whole number of pixels | `SZ_OK`. It deinterleaves with planes of `destLen / w` bytes rounded down (`sz_compat.c:84-93, 305-306`), so bytes land in the wrong places and the last `destLen mod w` are never written | `AecError::OutputLength`, before anything is decoded | No clause: an API choice. At such a length libsz's result is not the data; HDF5 never asks for one. Corpus stream `sz_b32_plane_edge_mid_scanline` decoded into 599 bytes instead of 600: libsz 1.1.7 returns `SZ_OK` with 165 bytes misplaced and the last 3 unwritten (168 differ from the 600-byte decode). `tests/sz_corpus.rs` pins the error. #761. |
-| szip bad code after the last requested pixel | With padded scanlines it decodes every scanline whole (`sz_compat.c:264-267`), including the blocks after the last pixel of a partial last scanline, and fails on a bad code there: a zero-block run past the RSI (`decode.c:529-541`) or a second-extension codeword past its table (`decode.c:567, 600`) | Stops at the last pixel, never reads those blocks, and returns `Ok` | Not the fill of §5.3.1: these are real CDSs, but they code samples the caller did not ask for (pads, and pixels past the output), and the output is identical wherever libsz succeeds. `a_bad_code_after_the_last_pixel_is_never_read` in `tests/sz_corpus.rs`: libsz 1.1.7 returns `AEC_DATA_ERROR` for a 6-byte output, `sz::decompress` returns the 6 pixels. The `sz` fuzz target accepts exactly this difference: `Ok` here where its whole-scanline reference fails at or after the last pixel's block. #761. |
+| szip bad code after the last requested pixel | With padded scanlines it decodes every scanline whole (`sz_compat.c:264-267`), including the blocks after the last pixel of a partial last scanline, and fails on a bad code there: a zero-block run past the RSI (`decode.c:529-541`) or a second-extension codeword past its table (`decode.c:567, 600`) | Returns `Ok` with the pixels asked for. Up to 16 bits it stops at the last pixel and never reads those blocks; at 32 and 64 bits it reads them only to find the end of the stream (next row), and decodes again up to the last pixel if they are bad | Not the fill of §5.3.1: these are real CDSs, but they code samples the caller did not ask for (pads, and pixels past the output), and the output is identical wherever libsz succeeds. `a_bad_code_after_the_last_pixel_is_never_read` in `tests/sz_corpus.rs`: libsz 1.1.7 returns `AEC_DATA_ERROR` for a 6-byte output, `sz::decompress` returns the 6 pixels. The `sz` fuzz target accepts exactly this difference: `Ok` here where its whole-scanline reference fails at or after the last pixel's block. #761. |
+| szip output of 32- or 64-bit pixels that is a whole number of pixels but shorter than its stream | `SZ_OK`. It decodes `destLen` bytes and deinterleaves them with planes of `destLen / w` bytes (`sz_compat.c:84-93`), so every byte after the first plane lands in the wrong place | `AecError::TrailingInput`. For byte planes it decodes on to the end of the stream the output's length implies (the rest of the last block, and the last scanline's pads), hands nothing past the last pixel to the output, and refuses a whole byte of input left after that. A shortfall inside that last block or scanline ends the stream in the same place and cannot be seen | No clause: an API choice, as in the row above it, whose one-byte-short case is refused. The output is laid out by its own length, so a shorter one is not a prefix of the data. Measured in #794: every 32- and 64-bit corpus case decoded into half its length returns `SZ_OK`-equivalent output with 73% to 87% of the bytes wrong (`sz_b32_ppb16_exact`: 286 of 384; `sz_b64_ppb32_padded`: 1,677 of 1,928). `a_byte_plane_output_shorter_than_its_stream_is_an_error` in `tests/sz_corpus.rs` refuses all 26 at half length, still decodes each at full length, and refuses each with one byte appended. The HDF5 reader's reason to care: a chunk whose stream codes more pixels than its size prefix says passes every length rule in `hdf5/filter.rs`, and is now refused (`a_chunk_whose_stream_codes_more_pixels_is_refused` in `crates/fieldglass-netcdf/tests/hdf5_szip.rs`). Coordinator decision on #794 (option a). #421. |
 | HDF5 szip chunk whose size prefix exceeds its data (libhdf5, not libaec) | libhdf5 2.0.0 allocates the prefix, and libsz returns `SZ_OK` with the shorter length it decoded; `H5Zszip.c` checks the two only in a debug-build `assert`, so a release build reads the chunk | `FieldglassError::Parse` before allocating: the prefix must be at most `MAX_DECOMPRESSED_CHUNK` and, when only shuffle precedes szip, equal the chunk's length | No clause: the prefix is `H5Zszip.c`'s framing, written as the chunk's length, so a prefix that disagrees is a corrupt chunk (Q4). `i2_ppb16` in `hdf5_szip.h5` with its first prefix set to 256 MiB + 1 reads back correctly through h5py 3.16 after a 256 MiB allocation; the reader refuses it (`a_chunk_whose_size_prefix_is_wrong_is_refused` in `crates/fieldglass-netcdf/tests/hdf5_szip.rs`). Prefixes of 511 and 513 on that 512-byte chunk fail in libhdf5 too. #421. |
 | Trailing fill after the last sample | Can return `AEC_DATA_ERROR` *after* producing every sample, when the fill parses as a zero block that overruns the RSI (`decode.c:529-541` is checked before `avail_out`) | Stops at the requested count and never reads the fill, so the same bytes with `Ok` | §5.3.1: "Fill bits of zero value may be needed to force the packet to end on a byte boundary", so bits after the last CDS are fill, not codes. Corpus case `trailing_zero_block_overrun_b08`. |
 
@@ -244,12 +248,20 @@ SZIP (#248). So:
   element width need not equal the pixel width (D2): HDF5 writes a precision-16
   `<i4` with bpp 16, and libsz decodes it exactly.
 - **A length-changing filter before szip** (deflate, zstd or fletcher32 earlier
-  in write order, and applied to the chunk) is decoded, with the prefix bounded
-  by `MAX_DECOMPRESSED_CHUNK` only (#421). libhdf5 writes `[deflate, szip]` and
-  reads it back, so refusing it would reject valid files, and the prefix is
-  then the earlier filter's output length, which nothing outside the stream
-  records. The caller's check of the final chunk length still applies.
-  `hdf5_szip_hand.h5`'s `deflate_szip` pins it end to end.
+  in write order, and applied to the chunk) is decoded (#421). libhdf5 writes
+  `[deflate, szip]` and reads it back, so refusing it would reject valid
+  files, and the prefix is then the earlier filter's output length, which
+  nothing outside the stream records. So the prefix is bounded rather than
+  matched: at most the chunk's length plus an eighth plus 4 KiB, which covers
+  deflate's and zstd's worst-case growth and fletcher32's four bytes, and
+  keeps a tiny chunk from committing a 256 MiB buffer. The reader then
+  requires the chunk to come back exactly its own length, whatever the
+  pipeline. `hdf5_szip_hand.h5`'s `deflate_szip` pins it end to end.
+- **A stream that codes more pixels than the chunk** is refused by the codec
+  for 32- and 64-bit pixels (`AecError::TrailingInput`, decision 4, #794).
+  With no filter or only shuffle before szip and a correct prefix, it passes
+  every rule above, and libhdf5 reads it back scrambled
+  (`hdf5_szip_long_stream.h5`).
 
 ### 7. The sink API
 

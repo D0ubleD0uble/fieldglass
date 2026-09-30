@@ -94,11 +94,17 @@ The complement of libaec 1.1.7's `aec_decode_init` refusals:
 - An szip stream that runs out before the output is full is an error. libsz
   returns success, with a shorter length or, when scanlines are padded, the
   full length and uninitialised bytes in the part it could not decode.
-- szip decoding stops at the last pixel asked for, so a bad code after it is
-  never read. libsz decodes whole scanlines and fails on one.
+- A bad code after the last pixel asked for is never an szip error. libsz
+  decodes whole scanlines and fails on one.
 - An szip output of 32- or 64-bit pixels that is not a whole number of pixels
   is an error. libsz returns success with the bytes out of place and the last
   few unwritten.
+- An szip output of 32- or 64-bit pixels shorter than its stream is an error:
+  those pixels are coded as byte planes laid out by the output's length, so a
+  shorter output is not a prefix. The decoder reads to the end of the stream
+  the output's length implies and refuses a whole byte left after it. libsz
+  returns success with the bytes out of place. Below 32 bits a shorter output
+  is a valid prefix and decodes.
 
 ADR-0012 in the repository gives the evidence for each.
 

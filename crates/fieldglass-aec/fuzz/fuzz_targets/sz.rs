@@ -15,12 +15,17 @@
 //! * agree with the reference on the verdict, and on success on every byte;
 //! * on `Truncated`, report fewer samples than it was asked for.
 //!
-//! One difference is allowed, and it is the one ADR-0012 records: the crate
-//! stops at the last pixel, so where the reference fails in a block at or
-//! after the one holding the last pixel (a bad code or the end of the input
-//! in samples nobody asked for), the crate returns `Ok`. The block holding
-//! the last pixel counts because the crate reads only the part of it that
-//! the output needs.
+//! Two differences are allowed, the two ADR-0012 records:
+//!
+//! * the crate stops caring at the last pixel, so where the reference fails
+//!   in a block at or after the one holding the last pixel (a bad code or the
+//!   end of the input in samples nobody asked for), the crate returns `Ok`.
+//!   The block holding the last pixel counts because the crate reads only
+//!   the part of it that the output needs;
+//! * at 32 and 64 bits, where a whole byte of input is left after the stream
+//!   the output's length implies, the crate returns `TrailingInput` (#794)
+//!   whatever the reference does: the output is shorter than the stream, and
+//!   byte planes laid out by the shorter length are not the data.
 //!
 //! Input layout: an 8-byte header, then the stream.
 //!
@@ -184,6 +189,18 @@ fuzz_target!(|data: &[u8]| {
                 bytes_per_sample: pixel
             })
         );
+        return;
+    }
+    if let Err(AecError::TrailingInput { len: at, unread }) = got {
+        // The second recorded divergence (#794): a byte-plane output shorter
+        // than its stream. libsz's way returns whatever it returns; the crate
+        // refuses, and only ever for byte planes, with a whole byte left.
+        assert!(
+            bpp == 32 || bpp == 64,
+            "TrailingInput at {bpp} bits per pixel"
+        );
+        assert_eq!(at, len);
+        assert!(unread >= 1 && unread <= stream.len());
         return;
     }
     let (want, last_block) = reference(stream, &params, len);

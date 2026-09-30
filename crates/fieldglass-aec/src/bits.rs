@@ -118,6 +118,16 @@ impl<'a> BitReader<'a> {
         }
     }
 
+    /// Bits of the input read so far. Bits loaded into the accumulator but
+    /// not yet read do not count.
+    pub(crate) fn consumed_bits(&self) -> usize {
+        // `bits <= 64` and every counted bit came from a loaded byte, so
+        // `pos * 8 >= bits`.
+        self.pos
+            .saturating_mul(8)
+            .saturating_sub(self.bits as usize)
+    }
+
     /// Skip to the next byte boundary of the input (libaec's `AEC_PAD_RSI`).
     pub(crate) fn align_to_byte(&mut self) {
         let drop = self.bits % 8;
