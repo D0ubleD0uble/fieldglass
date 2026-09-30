@@ -1284,6 +1284,7 @@ netcdf/hdf5_btreev2_multilevel.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_child_indirect.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_ea_chunk_index.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_ea_filtered.h5	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/hdf5_fixed_point_precision.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_fletcher32.h5	file	parsed=true fields=5	fc2e3b9795c31478
 netcdf/hdf5_fletcher32.h5#f32_deflate	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_fletcher32.h5#f32_deflate	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
