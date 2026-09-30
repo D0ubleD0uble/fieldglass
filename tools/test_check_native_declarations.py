@@ -7,6 +7,8 @@ What is tested is *when it fails*, over synthetic pairs of files — a test that
 only ran the real repo would pass just as well against a checker that returned no
 problems ever. The four directions are: a missing method, a mistyped optional, a
 `| null` on something napi returns as `undefined`, and a stale allowlist entry.
+A fifth covers the API types the addon returns through serde (#574): a name a
+generated signature uses must be one the generated declarations export.
 """
 
 from __future__ import annotations
@@ -27,19 +29,39 @@ spec.loader.exec_module(chk)
 class Synthetic(unittest.TestCase):
     """Run `check` against a written pair of files."""
 
-    def run_on(self, generated: str, handwritten: str, known: set[str] | None = None):
-        real = (chk.GENERATED, chk.HANDWRITTEN, chk.KNOWN_NULLABLE, chk.IGNORED_GENERATED)
+    def run_on(
+        self,
+        generated: str,
+        handwritten: str,
+        known: set[str] | None = None,
+        api: str = "",
+    ):
+        real = (
+            chk.GENERATED,
+            chk.HANDWRITTEN,
+            chk.API_GENERATED,
+            chk.KNOWN_NULLABLE,
+            chk.IGNORED_GENERATED,
+        )
         with tempfile.TemporaryDirectory() as tmp:
             g, h = Path(tmp) / "index.d.ts", Path(tmp) / "native.ts"
+            a = Path(tmp) / "api.generated.ts"
             g.write_text(generated, encoding="utf-8")
             h.write_text(handwritten, encoding="utf-8")
+            a.write_text(api, encoding="utf-8")
             try:
-                chk.GENERATED, chk.HANDWRITTEN = g, h
+                chk.GENERATED, chk.HANDWRITTEN, chk.API_GENERATED = g, h, a
                 chk.KNOWN_NULLABLE = known if known is not None else set()
                 chk.IGNORED_GENERATED = {}
                 return chk.check()
             finally:
-                chk.GENERATED, chk.HANDWRITTEN, chk.KNOWN_NULLABLE, chk.IGNORED_GENERATED = real
+                (
+                    chk.GENERATED,
+                    chk.HANDWRITTEN,
+                    chk.API_GENERATED,
+                    chk.KNOWN_NULLABLE,
+                    chk.IGNORED_GENERATED,
+                ) = real
 
     GEN = """
 export declare class H {
@@ -131,6 +153,25 @@ export interface O {
         hand = self.HAND.replace("  a: string;", "  a: number;")
         problems = self.run_on(self.GEN, hand)
         self.assertTrue(any("declares `number`" in p for p in problems), problems)
+
+    # A method returning an API type through serde (#574): napi writes the name
+    # from `ts_return_type` and declares nothing for it.
+    SERDE_GEN = GEN.replace("  read(): number\n", "  read(): number\n  info(i: number): MessageInfo\n")
+    SERDE_HAND = HAND.replace("  read(): number;\n", "  read(): number;\n  info(i: number): MessageInfo;\n")
+
+    def test_a_serde_return_type_the_api_declares_passes(self):
+        api = "export interface MessageInfo {\n  edition: number | null;\n}\n"
+        self.assertEqual(self.run_on(self.SERDE_GEN, self.SERDE_HAND, api=api), [])
+
+    def test_a_serde_return_type_nothing_declares_is_refused(self):
+        problems = self.run_on(self.SERDE_GEN, self.SERDE_HAND, api="export interface Other {}\n")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("`MessageInfo`", problems[0])
+
+    def test_a_name_only_in_a_comment_does_not_count_as_declared(self):
+        api = "// export interface MessageInfo {}\n"
+        problems = self.run_on(self.SERDE_GEN, self.SERDE_HAND, api=api)
+        self.assertTrue(any("`MessageInfo`" in p for p in problems), problems)
 
     def test_an_unparsable_generated_file_is_refused_not_passed(self):
         problems = self.run_on("// nothing at all\n", self.HAND)
