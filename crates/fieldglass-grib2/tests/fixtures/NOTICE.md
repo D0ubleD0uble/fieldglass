@@ -496,7 +496,7 @@ remainder — so this fixture exercises the whole `decode_spectral_complex` path
 ### `spectral_simple_t383.grib2` and its truncation oracle (#637)
 
 A spectral field past what the 0.5° synthesis grid can carry (T359), for the
-band-limited map and the exact probe. Built by
+band-limited map and the full-detail probe. Built by
 `tools/build_spectral_truncation_oracle.py`:
 
 - **Encoded** with the eccodes **Python wheel** (libeccodes **2.48.0**) from

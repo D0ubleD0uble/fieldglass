@@ -768,6 +768,47 @@ api_type! {
         pub value: Option<f64>,
     }
 
+    /// A spectral message's full-detail value at a probed cell (#637): the sum
+    /// over every wavenumber the file holds, where the map shows the field
+    /// band-limited to what its grid carries.
+    ///
+    /// Carried beside the displayed value rather than instead of it, so a
+    /// readout can show both — "325.6 K at T359 (shown) · 318.4 K at T7999
+    /// (full detail)" — and neither disagrees with the colour under the cursor
+    /// without saying why.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct FullDetail {
+        /// The full sum at the cell's node.
+        pub value: f64,
+        /// The truncation `value` carries (`declared`) and the one the
+        /// displayed value carries (`truncated_to`).
+        pub truncation: SpectralTruncation,
+    }
+
+    /// One point probed out of a message by index
+    /// ([`crate::Session::probe_message`]): the value the decoded field shows,
+    /// and for a band-limited spectral message the file's full-detail value at
+    /// the same cell.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct MessageProbe {
+        /// Latitude asked for, echoed back.
+        pub lat: f64,
+        /// Longitude asked for, echoed back.
+        pub lon: f64,
+        /// Fractional column the point landed on.
+        pub i: f64,
+        /// Fractional row the point landed on.
+        pub j: f64,
+        /// The decoded field's value at the cell — what the map shows there.
+        /// `None` when the cell is masked.
+        pub value: Option<f64>,
+        /// Set only when the decoded field is band-limited
+        /// ([`Field::truncation`] is set): the full sum at the same cell.
+        pub full_detail: Option<FullDetail>,
+    }
+
     /// One entry of the field-combine vocabulary: what a host's Compare picker
     /// shows and what it sends back.
     ///

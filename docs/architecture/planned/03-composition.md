@@ -88,9 +88,11 @@ wavenumbers up to T359 (`core::sht::spectral_render_band_limit`, derived from
 to that (#637). That is the correct picture at this resolution, and a different
 field from the file's, so it is never silent: `Field::truncation` and
 `MessageInfo::truncation` carry `{ declared, truncatedTo }` to every host, and
-the one special case left downstream is the probe. `Session::probe_message`
-evaluates the full sum at the cell `probe` would read, so a value read out is
-the file's; whole-grid exports follow the map and carry the label.
+the one special case left downstream is the probe, which reports two values.
+`Session::probe_message` answers the value the map shows at the cell `probe`
+would read, and beside it `full_detail`: the full sum at that cell's node
+(`Session::probe_full_detail`), labelled with the truncation it carries.
+Whole-grid exports follow the map and carry the label.
 
 Neither variant exists yet, and #580 did not need them: it moved only where the
 *decoded field* sits, and the native size still travels as

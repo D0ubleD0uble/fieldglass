@@ -283,8 +283,8 @@ function withHandle(caseSpec, handle) {
     );
   }
 
-  // The file's own value at a point (#637): by index, with no field of the
-  // caller's to read, because a band-limited spectral field's is not it.
+  // A point by message index (#637): the value the decoded field shows, and
+  // for a band-limited spectral message the full-detail value beside it.
   if (op === 'probeMessage') {
     const p = handle.probeMessage(args.index, args.lat ?? 0, args.lon ?? 0);
     return p === undefined ? null : nulled(p);

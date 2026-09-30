@@ -319,6 +319,14 @@ export interface ProbeResult {
   value?: number;
   gridI?: number;
   gridJ?: number;
+  /** For a spectral map drawn band-limited below what its message declares
+   *  (#637): the full sum over every wavenumber the file holds at the same
+   *  cell. `value` is the map's own, matching the colour under the cursor;
+   *  the readout shows this one beside it. Absent for every other field. */
+  fullDetailValue?: number;
+  /** The truncation `fullDetailValue` carries (the message's declared T). Set
+   *  exactly when `fullDetailValue` is. */
+  fullDetailTruncation?: number;
 }
 
 /** One line through a variable — a vertical profile or a time series at a cell

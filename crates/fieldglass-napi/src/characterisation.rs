@@ -93,7 +93,7 @@
 //! fields is recorded too, with its resolved geometry, a source-projection
 //! render and an equirectangular render.
 //!
-//! [`DEEP_FIELDS`] then names 15 of them and gives each the full matrix: every
+//! [`DEEP_FIELDS`] then names 16 of them and gives each the full matrix: every
 //! target projection under both resamplings, three manual render windows, the
 //! flipped source view, probes, contours and both CSV formats. That is where
 //! the per-family warp setups actually differ. Running the matrix over all 144
@@ -102,19 +102,19 @@
 //! runs, and the extra cases differ only in the data flowing through the same
 //! code path.
 //!
-//! The 15 are one per *source path*, which is a finer partition than the render
-//! family: spectral synthesis, HEALPix resampling and two ordinary lat/lon
-//! grids all report `family=latlon`, and the fifteen entries cover twelve
-//! families. `every_grid_family_in_the_golden_has_a_deep_field` enforces the
+//! The 16 are one per *source path*, which is a finer partition than the render
+//! family: spectral synthesis (in full, and band-limited with a full-detail
+//! probe), HEALPix resampling and two ordinary lat/lon grids all report
+//! `family=latlon`, and the sixteen entries cover twelve families. `every_grid_family_in_the_golden_has_a_deep_field` enforces the
 //! coarser half — a family arriving with no representative fails rather than
 //! being covered shallowly — while the finer half is the named list itself,
 //! held in place by `every_deep_field_is_still_in_the_recording`.
 //!
-//! Two of the fifteen trace no contours at all under any target: the regular
+//! Two of the sixteen trace no contours at all under any target: the regular
 //! Gaussian and the rotated lat/lon fixtures are constant fields, so the auto
 //! levels have nothing to cross. They are each the only fixture of their family
 //! in the corpus, so there is nothing to swap them for; the tracer is covered
-//! by the other thirteen.
+//! by the other fourteen.
 //!
 //! # Re-recording
 //!
@@ -223,14 +223,14 @@ const WINDOWS: [NamedWindow; 3] = [
 ///
 /// A finer partition than the render family, and deliberately so — spectral
 /// synthesis, HEALPix resampling and two ordinary lat/lon grids all report
-/// `family=latlon`, so these fifteen cover twelve families. Chosen as the
-/// cheapest fixture in each family, plus the two source paths that synthesise a
-/// lat/lon grid instead of describing one, plus the two refusals: a §3.20 whose
+/// `family=latlon`, so these sixteen cover twelve families. Chosen as the
+/// cheapest fixture in each family, plus the three source paths that synthesise
+/// a lat/lon grid instead of describing one, plus the two refusals: a §3.20 whose
 /// stated radius places no point (#603) and a §3.51 whose geometry never
 /// resolves at all. `every_grid_family_in_the_golden_has_a_deep_field` asserts
 /// the family half of that coverage; the source-path half is this list, held in
 /// place by `every_deep_field_is_still_in_the_recording`.
-const DEEP_FIELDS: [&str; 15] = [
+const DEEP_FIELDS: [&str; 16] = [
     // A lat/lon grid whose row order is the awkward one, from GRIB1.
     "grib1/j_consecutive_latlon.grib1#00",
     // Spectral: no grid of its own, synthesised onto a global 0.5° lat/lon.
@@ -239,6 +239,9 @@ const DEEP_FIELDS: [&str; 15] = [
     // `family=unresolved` representative — what every target does with a field
     // whose geometry never arrives.
     "grib2/bifourier_ellipse_ieee32.grib2#00",
+    // Spectral past what the 0.5° grid carries (#637): the map band-limited to
+    // T359, labelled, and a probe that reads the full-detail value beside it.
+    "grib2/spectral_simple_t383.grib2#00",
     "grib2/eta_lambert_msg0.grib2#00",
     "grib2/healpix_n4_ring.grib2#00",
     "grib2/lambert_azimuthal_efas.grib2#00",
@@ -999,6 +1002,20 @@ fn probed_row(result: napi::Result<Option<ProbeResult>>) -> Row {
     mix_opt_f64(&mut h, p.value);
     mix_opt_i32(&mut h, p.grid_i);
     mix_opt_i32(&mut h, p.grid_j);
+    // The full-detail pair (#637) is mixed only where it exists, so a probe of
+    // any other field hashes exactly as it did before the pair did.
+    let full = match (p.full_detail_value, p.full_detail_truncation) {
+        (None, None) => String::new(),
+        (value, truncation) => {
+            mix_str(&mut h, "full-detail");
+            mix_opt_f64(&mut h, value);
+            mix_opt_f64(&mut h, truncation.map(f64::from));
+            format!(
+                " full=T{}",
+                truncation.map_or("-".to_string(), |t| t.to_string())
+            )
+        }
+    };
     let cell = match (p.grid_i, p.grid_j) {
         (Some(i), Some(j)) => format!("{i},{j}"),
         _ => "-".to_string(),
@@ -1012,7 +1029,7 @@ fn probed_row(result: napi::Result<Option<ProbeResult>>) -> Row {
                 "no"
             },
             if p.value.is_some() { "yes" } else { "no" },
-        ),
+        ) + &full,
         exact: h,
     }
 }

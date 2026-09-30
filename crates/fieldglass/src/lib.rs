@@ -136,9 +136,9 @@ pub use align::aligned;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{
-    Addressing, AxisUnits, AxisValues, DimensionInfo, Dtype, Field, Georef, LeftOutArray, Line,
-    MessageInfo, Placement, Probe, Scan, SourceFormat, SpectralTruncation, Stats, Values,
-    VariableInfo,
+    Addressing, AxisUnits, AxisValues, DimensionInfo, Dtype, Field, FullDetail, Georef,
+    LeftOutArray, Line, MessageInfo, MessageProbe, Placement, Probe, Scan, SourceFormat,
+    SpectralTruncation, Stats, Values, VariableInfo,
 };
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};

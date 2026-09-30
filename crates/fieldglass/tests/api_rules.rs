@@ -35,9 +35,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
     Addressing, AxisUnits, AxisValues, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype, Error,
-    Field, Georef, Isoline, LeftOutArray, Line, MessageInfo, PaletteOptions, PixelProbe, Placement,
-    Probe, Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat, SpectralTruncation,
-    Stats, TargetKind, Values, VariableInfo, VectorOptions, WarpOptions, WarpTarget, Warped,
+    Field, FullDetail, Georef, Isoline, LeftOutArray, Line, MessageInfo, MessageProbe,
+    PaletteOptions, PixelProbe, Placement, Probe, Projected, Raster, RenderOptions,
+    ResolvedOptions, SourceFormat, SpectralTruncation, Stats, TargetKind, Values, VariableInfo,
+    VectorOptions, WarpOptions, WarpTarget, Warped,
 };
 
 // ---------------------------------------------------------------------------
@@ -122,6 +123,10 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("CombineOpInfo", Class::Wire, ""),
     ("Warped", Class::Wire, ""),
     ("Probe", Class::Wire, ""),
+    // A probe by message index: the shown value and, for a band-limited
+    // spectral map, the full-detail one (#637).
+    ("FullDetail", Class::Wire, ""),
+    ("MessageProbe", Class::Wire, ""),
     ("Isoline", Class::Wire, ""),
     // --- error.rs -----------------------------------------------------------
     ("Error", Class::Wire, ""),
@@ -345,6 +350,8 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<CombineOpInfo>();
     is_wire_shaped::<Warped>();
     is_wire_shaped::<Probe>();
+    is_wire_shaped::<FullDetail>();
+    is_wire_shaped::<MessageProbe>();
     is_wire_shaped::<Isoline>();
     is_wire_shaped::<Error>();
     is_wire_shaped::<DecodeOptions>();
@@ -429,6 +436,14 @@ fn every_wire_type_round_trips_through_json() {
         "Probe",
         r#"{"lat":1.0,"lon":2.0,"i":3.5,"j":4.5,"value":null}"#,
     );
+    round_trip::<FullDetail>(
+        "FullDetail",
+        r#"{"value":318.4,"truncation":{"declared":7999,"truncatedTo":359}}"#,
+    );
+    round_trip::<MessageProbe>(
+        "MessageProbe",
+        r#"{"lat":45.5,"lon":120.0,"i":240.0,"j":89.0,"value":325.6,"fullDetail":{"value":318.4,"truncation":{"declared":7999,"truncatedTo":359}}}"#,
+    );
     round_trip::<Isoline>("Isoline", r#"{"value":1.0,"segments":[[0.0,1.0,2.0,3.0]]}"#);
     round_trip::<Warped>(
         "Warped",
@@ -509,6 +524,8 @@ const ROUND_TRIPPED: &[&str] = &[
     "Values",
     "Stats",
     "Probe",
+    "FullDetail",
+    "MessageProbe",
     "Isoline",
     "Warped",
     "Raster",
@@ -1305,6 +1322,8 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<CombineOpInfo>("CombineOpInfo");
     check_schema::<Warped>("Warped");
     check_schema::<Probe>("Probe");
+    check_schema::<FullDetail>("FullDetail");
+    check_schema::<MessageProbe>("MessageProbe");
     check_schema::<Isoline>("Isoline");
     check_schema::<Stats>("Stats");
     check_schema::<Values>("Values");
@@ -1341,6 +1360,8 @@ const SCHEMA_CHECKED: &[&str] = &[
     "CombineOpInfo",
     "Warped",
     "Probe",
+    "FullDetail",
+    "MessageProbe",
     "Isoline",
     "Stats",
     "Values",

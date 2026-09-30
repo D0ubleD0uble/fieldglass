@@ -119,8 +119,8 @@ const SKIPPED: &[(Op, &str)] = &[
     (Op::Probe, "napi probes a pixel, the suite probes a point"),
     (
         Op::ProbeMessage,
-        "napi probes a pixel, the suite probes a point; its exact spectral probe \
-         (#637) is pinned by `lib.rs` tests and the characterisation golden",
+        "napi probes a pixel, the suite probes a point; its two-value spectral probe \
+         (#637) is pinned by `lib.rs` tests and the characterisation golden's T383 rows",
     ),
     (
         Op::Contours,

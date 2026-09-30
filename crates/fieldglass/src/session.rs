@@ -44,8 +44,8 @@ use crate::api::Isoline;
 #[cfg(feature = "render")]
 use crate::api::Warped;
 use crate::api::{
-    Addressing, DimensionInfo, Dtype, Field, Georef, LeftOutArray, Line, MessageInfo, Placement,
-    Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
+    Addressing, DimensionInfo, Dtype, Field, FullDetail, Georef, LeftOutArray, Line, MessageInfo,
+    MessageProbe, Placement, Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
 };
 // The band-limit label only a spectral message carries (#637).
 #[cfg(any(feature = "grib1", feature = "grib2"))]
@@ -2001,31 +2001,80 @@ impl Session {
         })
     }
 
-    /// Probe message `index` at one geographic point, reading **the file's own
-    /// value** there (#637).
+    /// Probe message `index` at one geographic point: the value the decoded
+    /// field shows there, and — for a spectral message whose map is
+    /// band-limited — the file's full-detail value at the same cell (#637).
     ///
-    /// For almost every message this is [`probe`](Self::probe) of its decoded
-    /// field, and costs a decode; a host holding the field should probe that.
-    /// The difference is a spectral message whose map is band-limited
-    /// ([`Field::truncation`](crate::Field::truncation) is set): the decoded
-    /// field is the smoothed one, so a value read off it is not the file's.
-    /// Here, the full spherical-harmonic sum over every wavenumber the message
-    /// holds is evaluated at the same grid point [`probe`](Self::probe) would
-    /// land on, so the two report the same cell and differ only in which field
-    /// they read. Constant memory beyond the coefficients, and `(T+1)(T+2)/2`
-    /// terms: about a second at T7999.
+    /// The first is [`probe`](Self::probe) of the decoded field, so it matches
+    /// the colour under the cursor. The second is
+    /// [`probe_full_detail`](Self::probe_full_detail), set only when
+    /// [`Field::truncation`](crate::Field::truncation) is: the map then shows
+    /// the field band-limited to what its grid carries, and this is the full
+    /// sum over every wavenumber the message holds at the node the first value
+    /// was read at. For every other message the answer is the ordinary probe
+    /// with no second value.
+    ///
+    /// Decodes the message, so it costs a decode per call; a host that already
+    /// holds the field should call [`probe`](Self::probe) and
+    /// [`probe_full_detail`](Self::probe_full_detail) itself.
     ///
     /// # Errors
     ///
     /// [`Error::WrongAddressing`] for a variable container, whose question is a
     /// slice; [`Error::NoSuchMessage`] past the end; and whatever decoding the
     /// message raises.
-    pub fn probe_message(&self, index: u32, lat: f64, lon: f64) -> Result<Option<Probe>, Error> {
+    pub fn probe_message(
+        &self,
+        index: u32,
+        lat: f64,
+        lon: f64,
+    ) -> Result<Option<MessageProbe>, Error> {
+        // Asked first, so a variable container is refused by name rather than
+        // by `decode`'s own refusal, which names a different call.
+        let full_detail = self.probe_full_detail(index, lat, lon)?;
+        let field = self.decode(index, &DecodeOptions::new(Dtype::Auto))?;
+        Ok(self.probe(&field, lat, lon).map(|p| MessageProbe {
+            lat: p.lat,
+            lon: p.lon,
+            i: p.i,
+            j: p.j,
+            value: p.value,
+            full_detail,
+        }))
+    }
+
+    /// The full-detail value of message `index` at the cell a probe at
+    /// `(lat, lon)` lands on, or `None` when the message's decoded field
+    /// already holds the file's values there (#637).
+    ///
+    /// Only a spectral message whose map is band-limited
+    /// ([`Field::truncation`](crate::Field::truncation) is set) answers: its
+    /// decoded field is the smoothed one, so a value read off it is not the
+    /// file's. This evaluates the full spherical-harmonic sum over every
+    /// wavenumber the message holds, at the synthesis-grid node
+    /// [`probe`](Self::probe) would read — the cell's own point, not the raw
+    /// click, which is the rule every other field's probe follows — so the two
+    /// values describe the same cell and differ only in the detail they carry.
+    /// `None` too when the point is off the grid.
+    ///
+    /// Decodes the coefficients each call, then `(T+1)(T+2)/2` terms: about a
+    /// fifth of a second at T7999 on top of the decode.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongAddressing`] for a variable container; [`Error::NoSuchMessage`]
+    /// past the end; and whatever decoding the coefficients raises.
+    pub fn probe_full_detail(
+        &self,
+        index: u32,
+        lat: f64,
+        lon: f64,
+    ) -> Result<Option<FullDetail>, Error> {
         #[cfg(any(feature = "netcdf", feature = "zarr"))]
         if matches!(self.reader, Reader::Arrays(_)) {
             return Err(wrong_addressing(
                 Addressing::Variables,
-                "probe_message",
+                "probe_full_detail",
                 "decode_slice",
             ));
         }
@@ -2040,10 +2089,9 @@ impl Session {
                 #[cfg(any(feature = "netcdf", feature = "zarr"))]
                 Reader::Arrays(_) => None,
             };
-            let (Some(grid), Some(_)) = (grid, self.message_truncation(i)) else {
+            let (Some(grid), Some(truncation)) = (grid, self.message_truncation(i)) else {
                 // The decoded field holds the file's values already.
-                let field = self.decode(index, &DecodeOptions::new(Dtype::Auto))?;
-                return Ok(self.probe(&field, lat, lon));
+                return Ok(None);
             };
             // The cell `probe` would pick on the decoded field, by the same
             // rule, on the same geometry `decode` gave it.
@@ -2068,20 +2116,14 @@ impl Session {
                 #[cfg(any(feature = "netcdf", feature = "zarr"))]
                 Reader::Arrays(_) => return Ok(None),
             };
-            Ok(Some(Probe {
-                lat,
-                lon,
-                i: at.i,
-                j: at.j,
-                value: Some(value),
-            }))
+            Ok(Some(FullDetail { value, truncation }))
         }
         #[cfg(not(any(feature = "grib1", feature = "grib2")))]
         {
             let _ = (index, lat, lon);
             Err(wrong_addressing(
                 Addressing::Variables,
-                "probe_message",
+                "probe_full_detail",
                 "decode_slice",
             ))
         }

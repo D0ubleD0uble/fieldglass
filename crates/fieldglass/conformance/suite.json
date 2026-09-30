@@ -22732,11 +22732,18 @@
         "alongDim": null
       },
       "expect": {
+        "fullDetail": {
+          "truncation": {
+            "declared": 383,
+            "truncatedTo": 359
+          },
+          "value": 318.3964243314801
+        },
         "i": 240.0,
         "j": 89.0,
         "lat": 45.5,
         "lon": 120.0,
-        "value": 318.3964243314801
+        "value": 325.60207853042533
       }
     },
     {
@@ -22770,6 +22777,7 @@
         "alongDim": null
       },
       "expect": {
+        "fullDetail": null,
         "i": 240.0,
         "j": 89.0,
         "lat": 45.5,

@@ -129,8 +129,8 @@ pub enum Op {
     /// [`Session::probe`].
     Probe,
     /// [`Session::probe_message`], with [`Args::index`], [`Args::lat`] and
-    /// [`Args::lon`]: the file's own value at a point, which for a
-    /// band-limited spectral message is not the decoded field's (#637).
+    /// [`Args::lon`]: the decoded field's value at a point and, for a
+    /// band-limited spectral message, the full-detail value beside it (#637).
     ProbeMessage,
     /// [`Session::contours`].
     Contours,
@@ -676,11 +676,11 @@ pub fn cases() -> Vec<Case> {
     // ---- A spectral field past what the synthesis grid carries (#637) -------
     //
     // T383 against the 0.5° grid's T359: the map is band-limited and labelled,
-    // and `probe_message` reads the full sum. Four cases rather than a subject
-    // with its 23: every host binds the same routing for this fixture as for
-    // the T63 one, and what is new is only the label and the exact probe. The
-    // probed point is a node of the synthesis grid, so both hosts evaluate at
-    // the same point and the recorded value is the file's.
+    // and `probe_message` reads both the value the map shows and the full sum
+    // beside it. Four cases rather than a subject with its 23: every host binds
+    // the same routing for this fixture as for the T63 one, and what is new is
+    // only the label and the two-value probe. The probed point is a node of the
+    // synthesis grid, so both hosts evaluate at the same point.
     let truncated = format!("{G2}spectral_simple_t383.grib2");
     for (id, op, args) in [
         ("spectral_truncated/message", Op::Message, Args::default()),
@@ -710,7 +710,7 @@ pub fn cases() -> Vec<Case> {
         });
     }
     // And below the limit, where `probe_message` is `probe` of the decoded
-    // field: the same answer, through the other arm.
+    // field with no second value.
     out.push(Case {
         id: "spectral/probe_message".to_string(),
         fixture: format!("{G2}spectral_simple_t63.grib2"),
