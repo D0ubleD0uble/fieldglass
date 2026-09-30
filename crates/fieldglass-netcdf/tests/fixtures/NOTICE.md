@@ -686,6 +686,39 @@ The oracle is netCDF-C itself, read through netCDF4-python: `phony_dim_0..4` =
 `(3, 2)` and `e_1d7` on `(4)`. `tests/hdf5_phony_dims.rs` pins all of it.
 Built by `tools/build_hdf5_fixtures.py`. Part of #533.
 
+## Fixed-point precision fixture (`hdf5_fixed_point_precision.h5`)
+
+A synthetic file written by h5py 3.16.0 (libhdf5 2.0.0) with `libver='latest'`,
+holding integers that do not fill their container (#795). The HDF5 file format
+specification (version 3, IV.A.2.d, "Fixed-Point Bit Field Description" and
+"Fixed-Point Property Description") gives a fixed-point type a bit offset and a
+bit precision: the value is the `precision` bits starting `offset` bits above
+the least significant bit, the bits below and above are padding (zeros or ones
+per the lo_pad / hi_pad flags), and a signed value's sign bit is the top bit of
+the precision. libhdf5 agrees with the spec here, so h5py's read-back is the
+value oracle.
+
+h5py's high-level API cannot ask for such a type, so `build_fixed_point_precision`
+builds each one through `h5py.h5t` (copy a standard type, then `set_precision`,
+`set_offset`, `set_pad`) and writes native values through `h5d`, letting
+libhdf5 pack them. The datasets cover signed and unsigned, little- and
+big-endian, 1-, 2-, 4- and 8-byte containers, offsets 0 to 8, negative values
+down to each precision's minimum, padding written as ones, a chunked dataset
+whose unwritten chunks read as a packed Fill Value message default (-7), and a
+dataset masked by a `_FillValue` attribute of the packed type. Two root
+attributes carry packed values too. The oracle records each type's offset,
+precision, padding and sign, the values h5py reads back, and the stored bytes
+of every contiguous dataset, so the packing is visible in the fixture itself.
+
+`f32_prec24` is a 24-bit float in a 32-bit container (sign at bit 23, 7-bit
+exponent at bit 16, 16-bit mantissa, bias 63). h5py reads it back as
+[1.5, -2.25, 0.0]. The reader decodes only the IEEE binary32 / binary64
+layouts and reports this one as unsupported rather than reading its container
+as an IEEE `f32`.
+
+The build is reproducible (`track_times` off). `tests/hdf5_fixed_point_precision.rs`
+checks every dataset and attribute against the oracle. Part of #795.
+
 ## Curvilinear corpus (`rtofs_tripolar_arctic.nc`, `mirs_swath_n21.nc`)
 
 The two-dimensional-coordinate corpus for #444, built by

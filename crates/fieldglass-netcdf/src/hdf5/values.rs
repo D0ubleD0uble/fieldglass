@@ -17,7 +17,9 @@
 //!
 //! Element bytes honour the datatype's byte order — unlike classic NetCDF
 //! (always big-endian), HDF5 records it per type and NetCDF-4 writers normally
-//! pick the host's little-endian order.
+//! pick the host's little-endian order — and a fixed-point type's bit offset
+//! and precision, through [`Datatype::element_bits`](super::datatype::Datatype::element_bits)
+//! (#795).
 
 use super::datatype::DatatypeClass;
 use super::layout::{ChunkIndex, ChunkedLayout, DataLayout};

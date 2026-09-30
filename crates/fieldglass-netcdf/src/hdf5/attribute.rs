@@ -13,7 +13,7 @@
 
 use super::Hdf5Probe;
 use super::dataspace::{self, Dataspace};
-use super::datatype::{self, ByteOrder, Datatype, DatatypeClass};
+use super::datatype::{self, Datatype, DatatypeClass};
 use super::heap::{self, FractalHeap};
 use super::object_header::{self, read_uint_le};
 use super::source::{Cursor, Fields};
@@ -296,15 +296,13 @@ fn render_value(
             let raw = data.get(..total).ok_or_else(|| {
                 FieldglassError::Parse("attribute value past end of message".into())
             })?;
-            // The classic renderer reads big-endian; swap each little-endian
-            // element so it can be reused verbatim.
-            let normalized: Vec<u8> = if datatype.byte_order == Some(ByteOrder::LittleEndian) {
-                raw.chunks_exact(elem)
-                    .flat_map(|c| c.iter().rev().copied())
-                    .collect()
-            } else {
-                raw.to_vec()
-            };
+            // The classic renderer reads big-endian elements that hold just
+            // the value. Rewrite through the datatype so byte order and a
+            // fixed-point bit offset / precision are applied exactly as for
+            // dataset values (#795).
+            let normalized = datatype.to_classic_bytes(raw).ok_or_else(|| {
+                FieldglassError::Parse("attribute value is not whole elements".into())
+            })?;
             // Both from the one bounds-checked slice, so the text and the
             // numbers cannot disagree about how many elements there are.
             Ok((
@@ -384,15 +382,28 @@ mod tests {
         v
     }
 
-    /// Little-endian fixed-point datatype message (signed, given size).
-    fn dt_int(size: u32) -> Vec<u8> {
-        let mut v = vec![(1 << 4), 0x08, 0, 0]; // class 0, signed bit
+    /// Fixed-point datatype message (signed, given size and bit field),
+    /// full precision at offset 0.
+    fn dt_int_with(bit_field: u8, size: u32) -> Vec<u8> {
+        let mut v = vec![(1 << 4), bit_field, 0, 0]; // class 0
         v.extend_from_slice(&size.to_le_bytes());
+        v.extend_from_slice(&0u16.to_le_bytes()); // bit offset
+        v.extend_from_slice(&((size * 8) as u16).to_le_bytes()); // bit precision
         v
     }
+    /// Little-endian fixed-point datatype message (signed, given size).
+    fn dt_int(size: u32) -> Vec<u8> {
+        dt_int_with(0x08, size)
+    }
+    /// IEEE binary64, little-endian, with its layout properties.
     fn dt_double() -> Vec<u8> {
-        let mut v = vec![(1 << 4) | 1, 0x00, 0, 0]; // class 1, little-endian
+        // class 1; normalization "implied" (bits 4-5 = 2); sign at bit 63.
+        let mut v = vec![(1 << 4) | 1, 0x20, 63, 0];
         v.extend_from_slice(&8u32.to_le_bytes());
+        v.extend_from_slice(&0u16.to_le_bytes()); // bit offset
+        v.extend_from_slice(&64u16.to_le_bytes()); // bit precision
+        v.extend_from_slice(&[52, 11, 0, 52]); // exponent loc/size, mantissa loc/size
+        v.extend_from_slice(&1023u32.to_le_bytes()); // exponent bias
         v
     }
     fn dt_string(size: u32) -> Vec<u8> {
@@ -434,8 +445,7 @@ mod tests {
     #[test]
     fn decodes_big_endian_value() {
         // Big-endian datatype: byte-order bit set; value bytes are big-endian.
-        let mut dt = vec![(1 << 4), 0x09, 0, 0]; // class 0, signed + big-endian
-        dt.extend_from_slice(&4u32.to_le_bytes());
+        let dt = dt_int_with(0x09, 4); // signed + big-endian
         let msg = attr_v3("be", &dt, &ds_scalar(), &7i32.to_be_bytes());
         let a = parse_attribute_message(&msg, 8).unwrap();
         assert_eq!(a.value, "7");

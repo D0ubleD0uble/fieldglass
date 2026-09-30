@@ -1,0 +1,239 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='latest'",
+  "note": "fixed-point types with a non-default bit offset / precision and padding, plus one non-IEEE float (#795). `values` is what h5py reads back; `stored_hex` is the contiguous data as written.",
+  "attributes": {
+    "attr_i32_prec12_off4": [
+      -20,
+      300
+    ],
+    "attr_u32_prec12_off3": [
+      4095
+    ]
+  },
+  "objects": {
+    "f32_prec24": {
+      "class": "floating-point",
+      "size_bytes": 4,
+      "byte_order": "little-endian",
+      "bit_offset": 0,
+      "bit_precision": 24,
+      "pad": [
+        "zero",
+        "zero"
+      ],
+      "values": [
+        1.5,
+        -2.25,
+        0.0
+      ],
+      "sign_location": 23,
+      "exponent_location": 16,
+      "exponent_size": 7,
+      "mantissa_location": 0,
+      "mantissa_size": 16,
+      "exponent_bias": 63,
+      "expected": "refused: not an IEEE layout",
+      "stored_hex": "00803f000020c00000000000"
+    },
+    "i32_prec12_fill": {
+      "class": "fixed-point",
+      "size_bytes": 4,
+      "byte_order": "little-endian",
+      "bit_offset": 4,
+      "bit_precision": 12,
+      "pad": [
+        "one",
+        "one"
+      ],
+      "values": [
+        -20,
+        5,
+        -7,
+        -7,
+        -7,
+        -7
+      ],
+      "signed": true
+    },
+    "i32_prec12_masked": {
+      "class": "fixed-point",
+      "size_bytes": 4,
+      "byte_order": "little-endian",
+      "bit_offset": 4,
+      "bit_precision": 12,
+      "pad": [
+        "zero",
+        "zero"
+      ],
+      "values": [
+        -20,
+        -1,
+        5
+      ],
+      "signed": true,
+      "stored_hex": "c0fe0000f0ff000050000000",
+      "fill_value_attribute": -1
+    },
+    "i32_prec12_off4": {
+      "class": "fixed-point",
+      "size_bytes": 4,
+      "byte_order": "little-endian",
+      "bit_offset": 4,
+      "bit_precision": 12,
+      "pad": [
+        "zero",
+        "zero"
+      ],
+      "values": [
+        -20,
+        5,
+        -1,
+        300,
+        -2048,
+        2047
+      ],
+      "signed": true,
+      "stored_hex": "c0fe000050000000f0ff0000c012000000800000f07f0000"
+    },
+    "i32_prec12_off4_pad_ones": {
+      "class": "fixed-point",
+      "size_bytes": 4,
+      "byte_order": "little-endian",
+      "bit_offset": 4,
+      "bit_precision": 12,
+      "pad": [
+        "one",
+        "one"
+      ],
+      "values": [
+        -20,
+        5,
+        -1,
+        300
+      ],
+      "signed": true,
+      "stored_hex": "cffeffff5f00ffffffffffffcf12ffff"
+    },
+    "i32_prec16": {
+      "class": "fixed-point",
+      "size_bytes": 4,
+      "byte_order": "little-endian",
+      "bit_offset": 0,
+      "bit_precision": 16,
+      "pad": [
+        "zero",
+        "zero"
+      ],
+      "values": [
+        -20,
+        5,
+        -1,
+        300,
+        -32768,
+        32767
+      ],
+      "signed": true,
+      "stored_hex": "ecff000005000000ffff00002c01000000800000ff7f0000"
+    },
+    "i32be_prec12_off4": {
+      "class": "fixed-point",
+      "size_bytes": 4,
+      "byte_order": "big-endian",
+      "bit_offset": 4,
+      "bit_precision": 12,
+      "pad": [
+        "zero",
+        "zero"
+      ],
+      "values": [
+        -20,
+        5,
+        -1,
+        300,
+        -2048,
+        2047
+      ],
+      "signed": true,
+      "stored_hex": "0000fec0000000500000fff0000012c00000800000007ff0"
+    },
+    "i64_prec40_off8": {
+      "class": "fixed-point",
+      "size_bytes": 8,
+      "byte_order": "little-endian",
+      "bit_offset": 8,
+      "bit_precision": 40,
+      "pad": [
+        "zero",
+        "zero"
+      ],
+      "values": [
+        -549755813888,
+        549755813887,
+        -20,
+        0
+      ],
+      "signed": true,
+      "stored_hex": "000000000080000000ffffffff7f000000ecffffffff00000000000000000000"
+    },
+    "i8_prec5_off2": {
+      "class": "fixed-point",
+      "size_bytes": 1,
+      "byte_order": "little-endian",
+      "bit_offset": 2,
+      "bit_precision": 5,
+      "pad": [
+        "zero",
+        "zero"
+      ],
+      "values": [
+        -16,
+        -1,
+        0,
+        15,
+        7
+      ],
+      "signed": true,
+      "stored_hex": "407c003c1c"
+    },
+    "u16be_prec10_off5": {
+      "class": "fixed-point",
+      "size_bytes": 2,
+      "byte_order": "big-endian",
+      "bit_offset": 5,
+      "bit_precision": 10,
+      "pad": [
+        "zero",
+        "zero"
+      ],
+      "values": [
+        0,
+        1,
+        1023,
+        512
+      ],
+      "signed": false,
+      "stored_hex": "000000207fe04000"
+    },
+    "u32_prec12_off3": {
+      "class": "fixed-point",
+      "size_bytes": 4,
+      "byte_order": "little-endian",
+      "bit_offset": 3,
+      "bit_precision": 12,
+      "pad": [
+        "zero",
+        "zero"
+      ],
+      "values": [
+        0,
+        5,
+        4095,
+        300,
+        2048,
+        1
+      ],
+      "signed": false,
+      "stored_hex": "0000000028000000f87f0000600900000040000008000000"
+    }
+  }
+}

@@ -1173,6 +1173,175 @@ def build_phony_dims(name: str) -> None:
     print(f"wrote {path} + oracle")
 
 
+def build_fixed_point_precision(name: str) -> None:
+    """Integers that do not fill their container, and a float that is not IEEE (#795).
+
+    An HDF5 fixed-point datatype carries a bit offset and a bit precision (file
+    format spec IV.A.2.d, "Fixed-Point Property Description"): the value is the
+    ``precision`` bits starting ``offset`` bits above the least significant
+    bit, the bits below and above are padding (zeros or ones, per the lo_pad /
+    hi_pad flags), and a signed value's sign bit is the top bit of the
+    precision. h5py's high-level API cannot ask for such a type, so each one is
+    built through ``h5py.h5t``: copy a standard type, ``set_precision``,
+    ``set_offset``, ``set_pad``. libhdf5 converts the native values into it on
+    write and back on read, so what h5py reads back is the value oracle.
+
+    Integer datasets, all contiguous unless noted:
+
+      * ``i32_prec16`` — signed, 16 bits at offset 0 in a little-endian 32-bit
+        container: the issue's own case, negatives included.
+      * ``i32_prec12_off4`` / ``i32be_prec12_off4`` — signed, 12 bits at offset
+        4, little- and big-endian, down to the precision's extremes.
+      * ``u32_prec12_off3`` — unsigned, so the precision's top bit is a
+        magnitude, not a sign.
+      * ``u16be_prec10_off5`` — unsigned, big-endian, 16-bit container.
+      * ``i8_prec5_off2`` — signed, one-byte container.
+      * ``i64_prec40_off8`` — signed, 64-bit container.
+      * ``i32_prec12_off4_pad_ones`` — padding written as ones on both sides,
+        which a mask must still discard.
+      * ``i32_prec12_fill`` — chunked with only its first chunk written, so the
+        rest reads as the Fill Value message's default (-7, pad ones), which is
+        stored in the same packed form.
+      * ``i32_prec12_masked`` — carries a ``_FillValue`` attribute of the same
+        packed type (-1), so masking compares decoded values on both sides.
+
+    The root group also carries ``attr_i32_prec12_off4`` (signed, [-20, 300])
+    and ``attr_u32_prec12_off3`` (unsigned, 4095): attribute values are read by
+    the same rule.
+
+    ``f32_prec24`` is a 24-bit float in a 32-bit container (sign at bit 23,
+    7-bit exponent at 16, 16-bit mantissa at 0, bias 63). h5py reads it back;
+    a reader that took the container as an IEEE ``f32`` would return garbage,
+    so this one is expected to be refused as unsupported rather than misread.
+    """
+    from h5py import h5d, h5p, h5s, h5t  # noqa: PLC0415
+
+    path = FIXturesDir / name
+
+    def packed(base, precision, offset, pad=h5t.PAD_ZERO):
+        t = base.copy()
+        t.set_precision(precision)
+        t.set_offset(offset)
+        t.set_pad(pad, pad)
+        return t
+
+    ints = {
+        "i32_prec16": (h5t.STD_I32LE, 16, 0, h5t.PAD_ZERO, np.int32,
+                       [-20, 5, -1, 300, -32768, 32767]),
+        "i32_prec12_off4": (h5t.STD_I32LE, 12, 4, h5t.PAD_ZERO, np.int32,
+                            [-20, 5, -1, 300, -2048, 2047]),
+        "i32be_prec12_off4": (h5t.STD_I32BE, 12, 4, h5t.PAD_ZERO, np.int32,
+                              [-20, 5, -1, 300, -2048, 2047]),
+        "u32_prec12_off3": (h5t.STD_U32LE, 12, 3, h5t.PAD_ZERO, np.uint32,
+                            [0, 5, 4095, 300, 2048, 1]),
+        "u16be_prec10_off5": (h5t.STD_U16BE, 10, 5, h5t.PAD_ZERO, np.uint16,
+                              [0, 1, 1023, 512]),
+        "i8_prec5_off2": (h5t.STD_I8LE, 5, 2, h5t.PAD_ZERO, np.int8,
+                          [-16, -1, 0, 15, 7]),
+        "i64_prec40_off8": (h5t.STD_I64LE, 40, 8, h5t.PAD_ZERO, np.int64,
+                            [-(2**39), 2**39 - 1, -20, 0]),
+        "i32_prec12_off4_pad_ones": (h5t.STD_I32LE, 12, 4, h5t.PAD_ONE, np.int32,
+                                     [-20, 5, -1, 300]),
+    }
+
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass fixed-point precision fixture")
+
+        def dcpl():
+            plist = h5p.create(h5p.DATASET_CREATE)
+            plist.set_obj_track_times(False)
+            return plist
+
+        for nm, (base, prec, off, pad, native, vals) in ints.items():
+            arr = np.asarray(vals, dtype=native)
+            d = h5d.create(f.id, nm.encode(), packed(base, prec, off, pad),
+                           h5s.create_simple(arr.shape), dcpl=dcpl())
+            d.write(h5s.ALL, h5s.ALL, arr)
+
+        # Chunked, first chunk written, the rest left to the fill value.
+        plist = dcpl()
+        plist.set_chunk((2,))
+        plist.set_fill_value(np.array(-7, dtype=np.int32))
+        fill_t = packed(h5t.STD_I32LE, 12, 4, h5t.PAD_ONE)
+        h5d.create(f.id, b"i32_prec12_fill", fill_t, h5s.create_simple((6,)), dcpl=plist)
+        f["i32_prec12_fill"][0:2] = np.array([-20, 5], dtype=np.int32)
+
+        # A `_FillValue` attribute of the same packed type.
+        mask_t = packed(h5t.STD_I32LE, 12, 4)
+        arr = np.array([-20, -1, 5], dtype=np.int32)
+        d = h5d.create(f.id, b"i32_prec12_masked", mask_t, h5s.create_simple(arr.shape),
+                       dcpl=dcpl())
+        d.write(h5s.ALL, h5s.ALL, arr)
+        a = h5py.h5a.create(d, b"_FillValue", mask_t, h5s.create(h5s.SCALAR))
+        a.write(np.array(-1, dtype=np.int32))
+
+        for attr_name, t, native, vals in [
+            ("attr_i32_prec12_off4", packed(h5t.STD_I32LE, 12, 4), np.int32, [-20, 300]),
+            ("attr_u32_prec12_off3", packed(h5t.STD_U32LE, 12, 3), np.uint32, [4095]),
+        ]:
+            arr = np.asarray(vals, dtype=native)
+            a = h5py.h5a.create(f.id, attr_name.encode(), t, h5s.create_simple(arr.shape))
+            a.write(arr)
+
+        # A 24-bit float in a 32-bit container.
+        ft = h5t.IEEE_F32LE.copy()
+        ft.set_fields(23, 16, 7, 0, 16)
+        ft.set_ebias(63)
+        ft.set_precision(24)
+        arr = np.array([1.5, -2.25, 0.0], dtype=np.float32)
+        d = h5d.create(f.id, b"f32_prec24", ft, h5s.create_simple(arr.shape), dcpl=dcpl())
+        d.write(h5s.ALL, h5s.ALL, arr)
+
+    raw = path.read_bytes()
+    with h5py.File(path, "r") as f:
+        objects = {}
+        for nm in f:
+            d = f[nm]
+            t = d.id.get_type()
+            entry = {
+                "class": "floating-point" if isinstance(t, h5t.TypeFloatID) else
+                         "fixed-point",
+                "size_bytes": t.get_size(),
+                "byte_order": "big-endian" if t.get_order() == h5t.ORDER_BE
+                              else "little-endian",
+                "bit_offset": t.get_offset(),
+                "bit_precision": t.get_precision(),
+                "pad": ["one" if p == h5t.PAD_ONE else "zero" for p in t.get_pad()],
+                "values": d[()].tolist(),
+            }
+            if isinstance(t, h5t.TypeIntegerID):
+                entry["signed"] = t.get_sign() == h5t.SGN_2
+            else:
+                spos, epos, esize, mpos, msize = t.get_fields()
+                entry.update(sign_location=spos, exponent_location=epos,
+                             exponent_size=esize, mantissa_location=mpos,
+                             mantissa_size=msize, exponent_bias=t.get_ebias(),
+                             expected="refused: not an IEEE layout")
+            if d.chunks is None:
+                off = d.id.get_offset()
+                entry["stored_hex"] = raw[off:off + d.id.get_storage_size()].hex()
+            if "_FillValue" in d.attrs:
+                entry["fill_value_attribute"] = int(d.attrs["_FillValue"])
+            objects[nm] = entry
+        # The packed extremes and the padding are what the fixture exists to
+        # show: fail the build if libhdf5 wrote a plain full-width type.
+        if objects["i32_prec12_off4_pad_ones"]["stored_hex"][:8] != "cffeffff":
+            raise SystemExit("pad-ones dataset was not stored with one-padding")
+        oracle = {
+            "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), "
+                      f"libver='latest'",
+            "note": "fixed-point types with a non-default bit offset / precision and "
+                    "padding, plus one non-IEEE float (#795). `values` is what h5py "
+                    "reads back; `stored_hex` is the contiguous data as written.",
+            "attributes": {k: np.asarray(v).tolist() for k, v in f.attrs.items()
+                           if k.startswith("attr_")},
+            "objects": objects,
+        }
+    (FIXturesDir / f"{name}.oracle.json").write_text(
+        json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {path} ({path.stat().st_size} B) + oracle [fixed-point precision]")
+
+
 def main() -> int:
     if not FIXturesDir.is_dir():
         raise SystemExit("run from the repo root")
@@ -1207,6 +1376,8 @@ def main() -> int:
     build_szip_long_stream("hdf5_szip_long_stream.h5")
     # Scale-less datasets: every axis is an invented anonymous dimension (#533).
     build_phony_dims("hdf5_phony_dims.h5")
+    # Fixed-point bit offset / precision / padding, and a non-IEEE float (#795).
+    build_fixed_point_precision("hdf5_fixed_point_precision.h5")
     return 0
 
 
