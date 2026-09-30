@@ -119,7 +119,10 @@ kept by hand in `native.ts`. The wire form is the same on both hosts (#574,
 decided 2026-09-29): every key of a returned object is present and a Rust `None`
 is `null` — `serde_json` on napi, serde-wasm-bindgen with
 `serialize_missing_as_null` on wasm — so a generated declaration types an
-optional field as `T | null`.
+optional field as `T | null`. The addon's own `#[napi(object)]` types (the ones
+carrying a buffer, or answering a question only this host asks) follow the same
+rule through napi's `use_nullable`; only an object a caller sends, such as the
+render options, may leave a key out.
 
 ### 3. A conformance suite is part of the API, not of any host
 
