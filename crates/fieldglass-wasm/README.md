@@ -266,12 +266,19 @@ and 345 out of `+simd128`, measured against a build of the commit before it
 | baseline | 1,514,338 | 1,513,626 | 574,707 | 574,406 |
 | `+simd128` | 1,498,791 | 1,498,071 | 569,029 | 568,684 |
 
+Returning `null` for an absent value (#574, `serialize_missing_as_null` on every
+object the façade returns) took 397 raw bytes and 218 gzipped out of the
+baseline build, and 397 and 105 out of `+simd128`, measured against master
+after #785. The generated TypeScript declarations cost nothing here:
+wasm-bindgen moves them into the `.d.ts` and drops the custom section from the
+module.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,513,626 | 574,406 |
-| `+simd128` | 1,498,071 | 568,684 |
+| baseline | 1,513,229 | 574,188 |
+| `+simd128` | 1,497,674 | 568,579 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
