@@ -605,6 +605,8 @@ builder refuses to write a dataset whose values are not the ones listed:
 | `shuffle_szip` | `<i4` | 169, 16, 32, 32 | Pipeline `[shuffle, szip]` |
 | `pps_not_multiple` | `<i2` | 141, 16, 16, 25 | 25 pixels per scanline padded to 32; the `EC` mask |
 | `partial_scanline` | `<i2` | 169, 8, 16, 1024 | 3,000 pixels end part-way through the third 1,024-pixel scanline |
+| `f4_pps_capped` | `<f4`, 1-D | 169, 32, 32, 4096 | One 5,000-pixel chunk: libhdf5 caps a scanline at 128 blocks, so the last scanline holds 904 pixels and libsz pads it to 4,096 |
+| `f8_pps_capped` | `<f8`, 1-D | 169, 8, 64, 1024 | The same at 64 bits: 1,500 pixels, the last scanline 476 of 1,024 |
 | `incompressible` | `\|u1` | 141, 8, 8, 8 | Random bytes: szip does not shrink them, so libhdf5 stores the chunk as it is with filter-mask bit 0 set |
 
 `i4_precision16` holds only non-negative values. The reader does not apply a

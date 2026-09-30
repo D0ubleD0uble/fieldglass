@@ -34,7 +34,7 @@ const LONG_ORACLE: &str = include_str!("fixtures/hdf5_szip_long_stream.h5.oracle
 
 /// Datasets in each fixture. A regenerated fixture that lost one fails here
 /// rather than quietly testing less.
-const SZIP_DATASETS: usize = 12;
+const SZIP_DATASETS: usize = 14;
 const HAND_DATASETS: usize = 3;
 
 /// `MAX_DECOMPRESSED_CHUNK` in `hdf5/filter.rs`.
@@ -159,6 +159,27 @@ fn the_fixtures_cover_the_szip_parameter_matrix() {
             .product();
         !elems.is_multiple_of(sz(o, "pixels_per_scanline"))
     });
+    // libhdf5 caps a scanline at 128 blocks, so a long 1-D chunk of 32- or
+    // 64-bit values ends part-way through a scanline by more than a block.
+    // libsz pads that last scanline whole, and the byte-plane end-of-stream
+    // check must expect it to.
+    for bits in [32, 64] {
+        has(
+            &format!("a {bits}-bit chunk whose last scanline is short by more than a block"),
+            &|o| {
+                let elems: u64 = o["chunks"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|c| c.as_u64().unwrap())
+                    .product();
+                let pps = sz(o, "pixels_per_scanline");
+                sz(o, "bits_per_pixel") == bits
+                    && pps - elems % pps > sz(o, "pixels_per_block")
+                    && !elems.is_multiple_of(pps)
+            },
+        );
+    }
     has(
         "a chunk stored with its szip bit set in the filter mask",
         &|o| {

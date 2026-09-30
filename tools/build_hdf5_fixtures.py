@@ -933,6 +933,15 @@ def build_szip(name: str) -> None:
         # end part-way through the third.
         "partial_scanline": (ramp(3000, "<i2", 1, -1500).reshape(2, 1500), (2, 1500), "nn", 8,
                              {}, (169, 8, 16, 1024)),
+        # The same scanline cap on byte planes: 5,000 and 1,500 pixels in one
+        # chunk, capped at 4,096 and 1,024 per scanline, so the last scanline
+        # is partial by more than a block. libsz pads it to a whole scanline
+        # all the same; a decoder that expected only the last block completed
+        # refused these (#421 review).
+        "f4_pps_capped": ((np.arange(5000) % 7).astype("<f4"), (5000,), "nn", 32, {},
+                          (169, 32, 32, 4096)),
+        "f8_pps_capped": ((np.arange(1500) % 11 * 0.25).astype("<f8"), (1500,), "nn", 8, {},
+                          (169, 8, 64, 1024)),
         # Random bytes do not compress, so libhdf5 stores the chunk as it is
         # and sets bit 0 of its filter mask (szip is an optional filter).
         "incompressible": (rng.integers(0, 256, 64, dtype="u1").reshape(8, 8), (8, 8), "ec", 8,
