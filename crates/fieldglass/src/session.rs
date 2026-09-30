@@ -43,9 +43,13 @@ use fieldglass_core::{contour_segments, contour_segments_global, nice_levels};
 use crate::api::Isoline;
 #[cfg(feature = "render")]
 use crate::api::Warped;
+// Only the message streams name a placement themselves; a slice's comes from
+// `Georef::from_slice`.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+use crate::api::Placement;
 use crate::api::{
     Addressing, DimensionInfo, Dtype, Field, FullDetail, Georef, LeftOutArray, Line, MessageInfo,
-    MessageProbe, Placement, Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
+    MessageProbe, Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
 };
 // The band-limit label only a spectral message carries (#637).
 #[cfg(any(feature = "grib1", feature = "grib2"))]
@@ -491,21 +495,15 @@ fn build_field(
     options: &DecodeOptions,
 ) -> Field {
     let (values, mask, stats) = pack_values(raw, options);
-    // A field with cells and no geometry to put them anywhere is a raster
-    // nothing places — a NetCDF, HDF5 or Zarr slice with no coordinates, which
-    // `core::cf` resolves to a source-only geometry. It still renders in grid
-    // coordinates, so it is not "no raster" (#776).
-    let without_geometry = if ni > 0 && nj > 0 {
-        Placement::Unplaceable
-    } else {
-        Placement::NoRaster
-    };
     Field {
         values,
         mask,
         ni,
         nj,
-        georef: Georef::from_container(geometry, scan, declared, None, without_geometry),
+        // A field with cells and no geometry to put them anywhere is a raster
+        // nothing places, not "no raster" (#776) — `from_slice` states the rule
+        // once, for this and for a host placing a slice without decoding it.
+        georef: Georef::from_slice(geometry, scan, declared, ni, nj),
         // Set by `Session::decode` for the one family it applies to; nothing
         // else a field is built from is band-limited.
         truncation: None,
@@ -825,6 +823,12 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
 /// every position — a coordinate with a hole has no position to plot its point
 /// at, and a host is better served falling back to indices than handed a gap
 /// to invent across.
+///
+/// A value that is present but not finite (`NaN`, `±inf`) is a hole too (#574).
+/// It has no position to plot at either, and it would not reach the two hosts
+/// alike: the Node addon's `serde_json` writes it as `null` where the browser
+/// binding passes `NaN`, so a declaration saying `number[]` would be wrong in
+/// one of them. Refused here, no non-finite coordinate crosses either wire.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn axis_coordinates(source: &dyn ArraySource, dimension: &str, length: u64) -> Option<Vec<f64>> {
     let array = source.array(dimension)?;
@@ -838,7 +842,10 @@ fn axis_coordinates(source: &dyn ArraySource, dimension: &str, length: u64) -> O
         .read_region(dimension, std::slice::from_ref(&whole))
         .ok()?;
     let physical = CfUnpacking::from_attributes(&array.attributes).apply(&raw);
-    physical.into_iter().collect()
+    physical
+        .into_iter()
+        .map(|v| v.filter(|x| x.is_finite()))
+        .collect()
 }
 
 /// An array's `units`, as the container spells them, or empty.

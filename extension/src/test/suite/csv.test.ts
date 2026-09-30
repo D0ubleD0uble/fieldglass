@@ -89,8 +89,8 @@ suite("CSV export (Lambert)", () => {
   // export now carries a latitude and longitude on every row.
   test("exportCsv long geolocates a Lambert grid (#470)", () => {
     const handle = lambertHandle();
-    const meta = handle.messages()[0];
-    assert.strictEqual(meta.gridType, "lambert");
+    const meta = handle.message(0);
+    assert.strictEqual(meta.grid?.label, "lambert");
 
     const csv = handle.exportCsv(0, "long").toString("utf8");
     const lines = csv.replace(/\n$/, "").split("\n");
@@ -207,7 +207,7 @@ suite("Export CSV command (slice panel)", () => {
         handle: () => undefined,
         gone: "handle was disposed",
         exportDir: vscode.Uri.joinPath(doc.uri, ".."),
-        caption: "test",
+        container: "test",
       }, {
         variableIndex: 0,
         yDim: 0,

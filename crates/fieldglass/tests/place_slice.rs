@@ -88,10 +88,66 @@ fn the_placement_agrees_with_the_decoded_field() {
                 "{name}/{}: family disagrees",
                 var.name
             );
+            assert_answers_like_the_field(&placed, &field, &format!("{name}/{}", var.name));
             checked += 1;
         }
     }
     assert!(checked >= 3, "only {checked} slices compared");
+}
+
+/// What a picker asks of a slice it is not decoding — can it be placed, can it
+/// be reprojected — answered from the placement gives the field's own answer
+/// (#574). `Placement::of_raster` exists so a host need not build a `Georef`
+/// for it, which would copy a lookup grid's every cell centre.
+fn assert_answers_like_the_field(
+    placed: &fieldglass::PlacedSlice,
+    field: &fieldglass::Field,
+    what: &str,
+) {
+    assert_eq!(
+        fieldglass::Placement::of_raster(placed.geometry(), placed.ni(), placed.nj()),
+        field.georef.placement,
+        "{what}: placement disagrees"
+    );
+    assert_eq!(
+        placed.geometry().reprojectable(placed.scan()),
+        field.georef.reprojectable,
+        "{what}: reprojectable disagrees"
+    );
+}
+
+/// The same agreement for a slice with no coordinates at all, which is the case
+/// the rule exists for: nothing places it, and it still has cells to draw, so it
+/// is `unplaceable` rather than `no_raster` whichever way it is asked (#776).
+#[test]
+fn a_coordinate_less_slice_answers_the_same_both_ways() {
+    let session = Session::open(
+        std::fs::read("../fieldglass-netcdf/tests/fixtures/hdf5_v2_linkinfo.h5").expect("fixture"),
+    )
+    .expect("opens");
+    let var = session
+        .variables()
+        .into_iter()
+        .find(|v| v.name.trim_start_matches('/') == "chunked")
+        .expect("the fixture holds `chunked`");
+    let rank = u32::try_from(var.dims.len()).expect("a rank");
+    let (y, x) = (rank - 2, rank - 1);
+    let field = session
+        .decode_slice(
+            var.index,
+            y,
+            x,
+            &vec![0; var.dims.len()],
+            &DecodeOptions::default(),
+        )
+        .expect("decodes");
+    let placed = session.place_slice(var.index, y, x).expect("places");
+    assert_eq!(
+        field.georef.placement,
+        fieldglass::Placement::Unplaceable,
+        "the premise: a raster nothing places"
+    );
+    assert_answers_like_the_field(&placed, &field, "chunked");
 }
 
 /// The placement drives the projection pipeline, and the picture is the one the

@@ -93,8 +93,9 @@ suite("Zarr store", () => {
     assert.ok(variables.length > 0, "the store lists variables");
     const t = variables.find((v) => v.name === "t");
     assert.ok(t, "the packed array is listed");
-    // `undefined`, not `null` — napi maps Rust `None` that way, and a strict
-    // `!== null` guard on these fails *open* (#288). Nullish is the rule.
+    // Nullish checks, which see `null` and `undefined` alike: a strict
+    // `!== null` guard over a value that turns out to be `undefined` fails
+    // *open* (#288).
     assert.ok(t.detectedYDim != null, "a latitude axis was detected");
     assert.ok(t.detectedXDim != null, "a longitude axis was detected");
 

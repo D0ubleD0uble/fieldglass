@@ -215,9 +215,11 @@ turns it into `extension/src/api.generated.ts` and the browser package's
 embedded `api.generated.d.ts`. Both hosts send every key of a returned object
 and `null` for none, so the two files hold the same `T | null` declarations. wasm
 returns the API `Message` as-is, and so does napi's `message(i)` (through
-`serde_json::Value`). napi keeps `MessageMeta` only as a compatibility mapping
-from `Message` while the extension still uses its field names; it is a napi
-detail, not something `fieldglass` or `core` knows about. napi keeps its caches (the extension wiggles a picker and
+`serde_json::Value`), which is what the extension lists a file with: the
+addon's own `MessageMeta` view is gone (#574). napi's other returned objects,
+the ones carrying a buffer or answering a pixel rather than a point
+(`RenderedGrid`, `ProbeResult`, …), stay its own and follow the same contract
+through `use_nullable`. napi keeps its caches (the extension wiggles a picker and
 expects a free repaint). wasm keeps none: the host owns every field it
 decoded and passes it back for render, probe, and contours, so memory is the
 app's decision.
@@ -292,14 +294,10 @@ classDiagram
         +index(v) u8 — what the CPU painter emits
         +paint(values, mask, w, h, flip_y) RGBA
     }
-    class MessageMeta {
-        <<napi, transitional>>
-        compat view of Message for the extension's field names
-        deleted once native.ts is generated from the API schema
-    }
     class RenderedGrid {
-        <<napi, transitional>>
-        compat view of Raster, same fate as MessageMeta
+        <<napi>>
+        Raster plus the used extent, RGBA as a Buffer
+        every key present, null for none
     }
     class Raster {
         <<planned #464, crate fieldglass>>
@@ -319,9 +317,8 @@ classDiagram
     Grib2Handle ..> ConformanceSuite : passes
     WasmHandle ..> ConformanceSuite : passes
     DisplayField ..> Field : same layout, distinct type — not accepted by probe / csv / contours / stats
-    MessageMeta ..> Message : built from (napi)
     RenderedGrid ..> Raster : built from (napi)
-    Grib2Handle ..> MessageMeta
+    Grib2Handle ..> Message : message(i)
     Grib2Handle ..> RenderedGrid
     WasmHandle ..> Field : returns to the host, takes it back by reference
     WasmHandle ..> Palette : returns it, the app uploads it

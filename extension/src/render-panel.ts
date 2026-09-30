@@ -14,7 +14,34 @@ import * as vscode from "vscode";
 
 import { escapeHtml, nonce } from "./html";
 import type { PickerColormap } from "./color-tables";
-import type { CombineOpInfo, MessageMeta, NetcdfVariableMeta, ProbeResult } from "./native";
+import type {
+  CombineOpInfo,
+  Georef,
+  MessageInfo,
+  NetcdfVariableMeta,
+  ProbeResult,
+} from "./native";
+
+/** What the render panel reads of the field it draws (#574).
+ *
+ *  A GRIB message's `MessageInfo` is one as it stands. A NetCDF or Zarr slice
+ *  builds one from its variable and the handle's `sliceGrid`, so its
+ *  `reprojectable` and grid label are the slice's own answers rather than
+ *  stand-ins. `grid` is `null` for a message that declares no grid, and
+ *  `truncation` for anything but a band-limited spectral message (#637). */
+export type PanelField = Pick<
+  MessageInfo,
+  | "index"
+  | "parameter"
+  | "units"
+  | "level"
+  | "levelType"
+  | "referenceTime"
+  | "forecast"
+  | "uvRelativeToGrid"
+  | "reprojectable"
+  | "truncation"
+> & { grid: Pick<Georef, "label"> | null };
 
 /** Which 2-D plane of an N-D NetCDF variable to draw: the variable, the two
  *  image axes (positions into the variable's dimensions), and the held index
@@ -467,23 +494,20 @@ export function panMapWindow(
  *  — so `buildGridReadyMessage` sends a fresh one with every render. Composing
  *  it in one place keeps the live update from drifting out of step with the
  *  HTML the panel was first built with. */
-export function composeTitleLine(meta: MessageMeta): string {
-  return `Message ${meta.messageIndex}`
-    + (meta.parameterName ? ` — ${meta.parameterName}` : "")
-    + (meta.parameterUnits ? ` (${meta.parameterUnits})` : "");
+export function composeTitleLine(meta: Pick<PanelField, "index" | "parameter" | "units">): string {
+  return `Message ${meta.index}`
+    + (meta.parameter ? ` — ${meta.parameter}` : "")
+    + (meta.units ? ` (${meta.units})` : "");
 }
 
 /** The band-limit note for a spectral map drawn below the truncation its
  *  message declares (#637): `"shown at T359 of T7999"`, or `null` when the map
  *  carries every wavenumber the file holds. Goes in the subtitle, which the PNG
  *  export also draws, so the note travels with the picture. The numbers are
- *  Rust's (`MessageMeta.truncatedTo` / `declaredTruncation`). */
-export function composeTruncationNote(
-  meta: Pick<MessageMeta, "truncatedTo" | "declaredTruncation">
-): string | null {
-  return meta.truncatedTo != null && meta.declaredTruncation != null
-    ? `shown at T${meta.truncatedTo} of T${meta.declaredTruncation}`
-    : null;
+ *  Rust's (`MessageInfo.truncation`). */
+export function composeTruncationNote(meta: Pick<PanelField, "truncation">): string | null {
+  const t = meta.truncation;
+  return t != null ? `shown at T${t.truncatedTo} of T${t.declared}` : null;
 }
 
 /** The value part of the point-probe readout (#172): the value under the
@@ -506,7 +530,7 @@ export function composeProbeValue(
 
 export function renderImagePanelHtml(
   webview: vscode.Webview,
-  meta: MessageMeta,
+  meta: PanelField,
   projectionSummary: string,
   colormaps: PickerColormap[],
   combineOps: CombineOpInfo[],
@@ -536,14 +560,14 @@ export function renderImagePanelHtml(
   const subLine = [
     levelDescription,
     meta.referenceTime,
-    meta.forecastDisplay,
+    meta.forecast,
     composeTruncationNote(meta),
   ]
     .filter((s) => !!s).join(" · ");
   // A sensible default filename for the PNG export (#243), from the parameter
   // and message index; the provider sanitises it again before writing.
   const defaultPngName = sanitizePngName(
-    `${meta.parameterName ? meta.parameterName + "-" : ""}message-${meta.messageIndex}.png`,
+    `${meta.parameter ? meta.parameter + "-" : ""}message-${meta.index}.png`,
   );
 
   const script = `
@@ -573,7 +597,7 @@ export function renderImagePanelHtml(
         // move with the variable, so gridReady refreshes this. It used to be
         // frozen at the variable the panel opened on, which put that
         // variable's unit against another variable's numbers.
-        let UNITS = ${JSON.stringify(meta.parameterUnits || "")};
+        let UNITS = ${JSON.stringify(meta.units || "")};
         // Title / subtitle / default filename for the PNG export (#243).
         // TITLE_LINE tracks the drawn field for the same reason as UNITS.
         let TITLE_LINE = ${JSON.stringify(titleLine)};
@@ -2888,7 +2912,7 @@ ${meta.reprojectable
         </select>
 ${meta.reprojectable
         ? ""
-        : `        <span class="picker-note">Reprojection isn't available for ${escapeHtml(meta.gridType ?? "this")} grids yet.</span>`}
+        : `        <span class="picker-note">Reprojection isn't available for ${escapeHtml(meta.grid?.label ?? "this")} grids yet.</span>`}
       </label>
       <span id="preset-ortho" hidden>
         <label>Center lon

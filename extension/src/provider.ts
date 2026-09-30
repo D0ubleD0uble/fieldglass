@@ -13,15 +13,16 @@ import { escapeHtml, nonce } from "./html";
 import {
   loadNative,
   nativeBinaryName,
-  type AxisValuesResult,
+  type AxisValues,
   type CombineOp,
   type CombineOpInfo,
   type DatasetMeta,
   type Grib1Handle,
   type Grib2Handle,
-  type MessageMeta,
+  type MessageInfo,
   type NetcdfHandle,
   type NetcdfVariableMeta,
+  type SliceGrid,
   type SlicePanelHandle,
   type ZarrHandle,
   type RenderedGrid,
@@ -37,6 +38,7 @@ import {
   composeTitleLine,
   renderImagePanelHtml,
   sanitizePngName,
+  type PanelField,
   type SlicePanelData,
   type SliceSpec,
 } from "./render-panel";
@@ -47,6 +49,16 @@ const FORMAT_LABELS: Record<string, string> = {
   netcdf: "NetCDF",
   unknown: "Unknown",
 };
+
+/** Every message in a file, in file order, as the API states each one (#574).
+ *
+ *  One `message(i)` call per message, the way the browser package lists a file,
+ *  rather than a list call of the addon's own: the two hosts answer with the
+ *  same `MessageInfo`. Built on each call, so a caller that needs it repeatedly
+ *  should hold the result. */
+export function listMessages(handle: Grib1Handle | Grib2Handle): MessageInfo[] {
+  return Array.from({ length: handle.count() }, (_, i) => handle.message(i));
+}
 
 /** Narrow a handle to {@link Grib1Handle} by the `setP1` method only GRIB1
  *  exposes — a real type guard so callers don't need an `as` assertion. */
@@ -150,7 +162,8 @@ interface SlicePanelSubject {
   handle(): SlicePanelHandle | undefined;
   gone: string;
   exportDir: vscode.Uri;
-  caption: string;
+  /** The container's name, which the caption opens with: `"NetCDF"`, `"Zarr"`. */
+  container: string;
 }
 
 export class FieldglassEditorProvider
@@ -322,7 +335,7 @@ export class FieldglassEditorProvider
 
   // NetCDF reader handles per document, parallel to `_handlesByDoc` (the
   // NetCDF surface differs — `variables()` / `renderSlice()` rather than
-  // `messages()` / `renderGrid()`). Built lazily when a NetCDF file is opened
+  // `message(i)` / `renderGrid()`). Built lazily when a NetCDF file is opened
   // and dropped with the last panel (see `trackPanel`).
   private readonly _netcdfHandlesByDoc = new Map<string, NetcdfHandle>();
   /** Zarr store handles, keyed by the store directory's URI (#659).
@@ -354,7 +367,7 @@ export class FieldglassEditorProvider
     const format = native ? native.detectBytes(header) : "unknown";
 
     const handle = native ? this.openOrReuseHandle(document, format) : undefined;
-    const messages = handle?.messages();
+    const messages = handle ? listMessages(handle) : undefined;
     let dataset: DatasetMeta | undefined;
     let netcdfVariables: NetcdfVariableMeta[] | undefined;
     if (native && format === "netcdf") {
@@ -510,11 +523,9 @@ export class FieldglassEditorProvider
       });
       return;
     }
-    const messages = handle.messages();
-    // messageIndex originates from a webview-controlled message but is
-    // bounds-checked immediately below; messages is a plain Array.
-    // eslint-disable-next-line security/detect-object-injection
-    const meta = messages[messageIndex];
+    // messageIndex originates from a webview-controlled message, so it is
+    // bounds-checked against the count before the handle is asked for it.
+    const meta = messageIndex < handle.count() ? handle.message(messageIndex) : undefined;
     if (!meta) {
       panel.webview.postMessage({
         type: "gridError",
@@ -716,20 +727,20 @@ export class FieldglassEditorProvider
    * users can compare messages side-by-side.
    *
    * The panel script never decodes the values itself — every paint runs
-   * via `handle.renderGrid(meta.messageIndex, options)` on the provider
+   * via `handle.renderGrid(meta.index, options)` on the provider
    * side and ships a paint-ready RGBA Buffer over postMessage. Picker
    * changes (projection / resampling / range / flip-y) flow back as
    * `rerenderRequest` and trigger a fresh `renderGrid` call.
    */
   public openRenderPanel(
     document: FieldglassDocument,
-    meta: MessageMeta,
+    meta: MessageInfo,
   ): void {
     // The abbreviation comes from a decoded (untrusted) file. VS Code renders
     // panel titles as plain text, so there's no XSS, but strip control
     // characters and cap the length so a hostile file can't garble the tab.
-    const abbr = sanitizeTitlePart(meta.parameterAbbreviation);
-    const title = `Render: msg ${meta.messageIndex}` + (abbr ? ` — ${abbr}` : "");
+    const abbr = sanitizeTitlePart(meta.abbreviation);
+    const title = `Render: msg ${meta.index}` + (abbr ? ` — ${abbr}` : "");
     const panel = vscode.window.createWebviewPanel(
       "fieldglass.render",
       title,
@@ -738,10 +749,10 @@ export class FieldglassEditorProvider
     );
     // Every message in the file is a candidate "field B" for a difference map
     // (#239); the picker only appears when there are at least two.
-    const compareFields = this._handlesByDoc
-      .get(document.uri.toString())
-      ?.messages()
-      .map((m) => ({ index: m.messageIndex, label: gribFieldLabel(m) }));
+    const fileHandle = this._handlesByDoc.get(document.uri.toString());
+    const compareFields = fileHandle
+      ? listMessages(fileHandle).map((m) => ({ index: m.index, label: gribFieldLabel(m) }))
+      : undefined;
 
     this.trackRenderPanel(panel, () => {
       panel.webview.html = renderImagePanelHtml(
@@ -760,7 +771,7 @@ export class FieldglassEditorProvider
       if (!docHandle) {
         panel.webview.postMessage({
           type: "gridError",
-          messageIndex: meta.messageIndex,
+          messageIndex: meta.index,
           error: "reader handle was disposed",
         });
         return;
@@ -771,19 +782,19 @@ export class FieldglassEditorProvider
         // paint-ready RGBA, so the panel displays them identically.
         const rendered = compare
           ? docHandle.renderGridCombined(
-              meta.messageIndex,
+              meta.index,
               compare.messageIndexB,
               compare.op,
               options,
             )
-          : docHandle.renderGrid(meta.messageIndex, options);
+          : docHandle.renderGrid(meta.index, options);
         panel.webview.postMessage(
           buildGridReadyMessage(rendered, meta, options),
         );
       } catch (err) {
         panel.webview.postMessage({
           type: "gridError",
-          messageIndex: meta.messageIndex,
+          messageIndex: meta.index,
           error: `render failed: ${err}`,
         });
       }
@@ -801,7 +812,7 @@ export class FieldglassEditorProvider
       const layers: OverlayLayerPayload[] = [];
       const project = (name: string, geom: OverlayGeometry) => {
         const projected = docHandle.projectOverlay(
-          meta.messageIndex,
+          meta.index,
           options,
           geom.latlon,
           geom.ringLengths,
@@ -817,7 +828,7 @@ export class FieldglassEditorProvider
         if (req.graticule) project("graticule", buildGraticule(Number(req.graticuleSpacing)));
         panel.webview.postMessage({
           type: "overlayReady",
-          messageIndex: meta.messageIndex,
+          messageIndex: meta.index,
           seq: req.seq,
           layers,
         });
@@ -827,7 +838,7 @@ export class FieldglassEditorProvider
         // with an advanced `overlaySeq`/`lastOverlayKey` and a blank overlay.
         panel.webview.postMessage({
           type: "overlayError",
-          messageIndex: meta.messageIndex,
+          messageIndex: meta.index,
           seq: req.seq,
           error: `overlay projection failed: ${err}`,
         });
@@ -847,11 +858,11 @@ export class FieldglassEditorProvider
       try {
         const c = compare
           ? docHandle.projectContoursCombined(
-              meta.messageIndex, compare.messageIndexB, compare.op, options, interval)
-          : docHandle.projectContours(meta.messageIndex, options, interval);
+              meta.index, compare.messageIndexB, compare.op, options, interval)
+          : docHandle.projectContours(meta.index, options, interval);
         panel.webview.postMessage({
           type: "contourReady",
-          messageIndex: meta.messageIndex,
+          messageIndex: meta.index,
           seq: req.seq,
           xy: c.xy,
           segLengths: c.segLengths,
@@ -859,7 +870,7 @@ export class FieldglassEditorProvider
       } catch (err) {
         panel.webview.postMessage({
           type: "contourError",
-          messageIndex: meta.messageIndex,
+          messageIndex: meta.index,
           seq: req.seq,
           error: `${err}`.replace(/^Error:\s*/, ""),
         });
@@ -880,7 +891,7 @@ export class FieldglassEditorProvider
       const spacing = isNonNegativeInt(req.spacing) && req.spacing > 0 ? req.spacing : undefined;
       try {
         const arrows = docHandle.projectVectors(
-          meta.messageIndex,
+          meta.index,
           req.messageIndexV,
           options,
           spacing,
@@ -910,12 +921,12 @@ export class FieldglassEditorProvider
       const docHandle = this._handlesByDoc.get(document.uri.toString());
       if (!docHandle) return;
       try {
-        const result = docHandle.zonalMean(meta.messageIndex);
-        panel.webview.postMessage({ type: "zonalResult", messageIndex: meta.messageIndex, result, error: null });
+        const result = docHandle.zonalMean(meta.index);
+        panel.webview.postMessage({ type: "zonalResult", messageIndex: meta.index, result, error: null });
       } catch (err) {
         panel.webview.postMessage({
           type: "zonalResult",
-          messageIndex: meta.messageIndex,
+          messageIndex: meta.index,
           result: null,
           error: `${err}`.replace(/^Error:\s*/, ""),
         });
@@ -933,12 +944,12 @@ export class FieldglassEditorProvider
       try {
         const result = compare
           ? docHandle.probeCombined(
-              meta.messageIndex, compare.messageIndexB, compare.op, options, px, py)
-          : docHandle.probe(meta.messageIndex, options, px, py);
-        panel.webview.postMessage({ type: "probeResult", messageIndex: meta.messageIndex, result });
+              meta.index, compare.messageIndexB, compare.op, options, px, py)
+          : docHandle.probe(meta.index, options, px, py);
+        panel.webview.postMessage({ type: "probeResult", messageIndex: meta.index, result });
       } catch {
         // A probe never blocks the user; swallow and report nothing.
-        panel.webview.postMessage({ type: "probeResult", messageIndex: meta.messageIndex, result: null });
+        panel.webview.postMessage({ type: "probeResult", messageIndex: meta.index, result: null });
       }
     };
 
@@ -1120,19 +1131,19 @@ export class FieldglassEditorProvider
   ): void {
     const cached = this._handlesByDoc.get(document.uri.toString());
     const messages = cached
-      ? cached.messages()
+      ? listMessages(cached)
       : this.reparseAndCache(document);
     if (!messages) return;
     panel.webview.postMessage({ type: "update", messages });
   }
 
-  private reparseAndCache(document: FieldglassDocument): MessageMeta[] | undefined {
+  private reparseAndCache(document: FieldglassDocument): MessageInfo[] | undefined {
     const native = loadNative();
     if (!native) return undefined;
     try {
       const handle = native.Grib1Handle.fromBytes(document.bytes);
       this._handlesByDoc.set(document.uri.toString(), handle);
-      return handle.messages();
+      return listMessages(handle);
     } catch (err) {
       vscode.window.showErrorMessage(`Fieldglass: failed to re-parse after edit: ${err}`);
       return undefined;
@@ -1214,7 +1225,7 @@ export class FieldglassEditorProvider
         handle: () => this._netcdfHandlesByDoc.get(document.uri.toString()),
         gone: "NetCDF handle was disposed",
         exportDir: vscode.Uri.joinPath(document.uri, ".."),
-        caption: "NetCDF slice — latlon (synthesised geometry)",
+        container: "NetCDF",
       },
       handle,
       variableIndex,
@@ -1237,7 +1248,7 @@ export class FieldglassEditorProvider
         // Inside the store, not beside it: a store *is* a directory, so its own
         // folder is where a user expects an export to land.
         exportDir: storeUri,
-        caption: "Zarr slice — latlon (from the store's coordinates)",
+        container: "Zarr",
       },
       handle,
       variableIndex,
@@ -1249,7 +1260,7 @@ export class FieldglassEditorProvider
    * Both handles satisfy `SlicePanelHandle` with identical signatures, so nothing
    * below this line knows which one it has (#659). What differs is in the
    * `subject`: how to re-fetch the handle, where an export starts, and the
-   * caption.
+   * container's name.
    */
   private openSliceRenderPanel(
     subject: SlicePanelSubject,
@@ -1262,7 +1273,16 @@ export class FieldglassEditorProvider
     if (!initialVar) return;
 
     const initial = defaultSliceSpec(initialVar);
-    const meta = syntheticNetcdfMeta(initialVar);
+    // The slice's own answers — its family, and whether it can be reprojected —
+    // asked of the placement the handle renders from (#574). A slice the handle
+    // cannot place at all still opens, on the source view alone.
+    let grid: SliceGrid | null = null;
+    try {
+      grid = handle.sliceGrid(initial.variableIndex, initial.yDim, initial.xDim);
+    } catch (err) {
+      console.error("[Fieldglass] sliceGrid failed:", err);
+    }
+    const meta = sliceField(initialVar, grid);
     const title = `Render: ${sanitizeTitlePart(initialVar.name) || "variable"}`;
     const panel = vscode.window.createWebviewPanel(
       "fieldglass.render",
@@ -1275,7 +1295,7 @@ export class FieldglassEditorProvider
       panel.webview.html = renderImagePanelHtml(
         panel.webview,
         meta,
-        subject.caption,
+        sliceCaption(subject.container, grid),
         colormapRegistry(),
         combineOpRegistry(),
         slice,
@@ -1322,7 +1342,7 @@ export class FieldglassEditorProvider
               options,
             );
         panel.webview.postMessage(
-          buildGridReadyMessage(rendered, syntheticNetcdfMeta(renderedVar(spec), spec.variableIndex), options),
+          buildGridReadyMessage(rendered, sliceTitle(renderedVar(spec), spec.variableIndex), options),
         );
       } catch (err) {
         panel.webview.postMessage({
@@ -1454,7 +1474,7 @@ export class FieldglassEditorProvider
       const docHandle = subject.handle();
       if (!docHandle) return;
       const spec = req.slice ?? initial;
-      const reply = (result: AxisValuesResult | null) =>
+      const reply = (result: AxisValues | null) =>
         panel.webview.postMessage({ type: "axisResult", dim: req.dim, result });
       if (!isNonNegativeInt(req.dim)) {
         reply(null);
@@ -1574,11 +1594,11 @@ export interface GridReadyMessage {
   usedMin: number;
   usedMax: number;
   /** Equirectangular extent actually rendered, echoed so the panel can
-   *  pre-fill the manual-bounds inputs. Undefined for source projection. */
-  usedLatMin?: number;
-  usedLatMax?: number;
-  usedLonMin?: number;
-  usedLonMax?: number;
+   *  pre-fill the manual-bounds inputs. `null` for source projection. */
+  usedLatMin: number | null;
+  usedLatMax: number | null;
+  usedLonMin: number | null;
+  usedLonMax: number | null;
   projectionSummary: string;
   options: RenderOptions;
   /** The panel heading for the field actually drawn, composed by
@@ -1843,12 +1863,14 @@ export function resolveNetcdfCompare(m: unknown): NetcdfCompare | undefined {
 
 /** A concise picker label for a GRIB message: index, parameter, level, and
  *  forecast, e.g. `#3 · TMP · 500 (hPa) · +6h`. */
-export function gribFieldLabel(m: MessageMeta): string {
+export function gribFieldLabel(
+  m: Pick<MessageInfo, "index" | "abbreviation" | "parameter" | "level" | "forecast">,
+): string {
   const parts = [
-    `#${m.messageIndex}`,
-    m.parameterAbbreviation || m.parameterName,
+    `#${m.index}`,
+    m.abbreviation || m.parameter,
     m.level && m.level !== "—" ? m.level : "",
-    m.forecastDisplay,
+    m.forecast,
   ].filter((s) => !!s);
   return parts.join(" · ");
 }
@@ -1895,7 +1917,7 @@ export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions
 
 export function buildGridReadyMessage(
   rendered: RenderedGrid,
-  meta: MessageMeta,
+  meta: Pick<PanelField, "index" | "parameter" | "units">,
   options: RenderOptions,
 ): GridReadyMessage {
   const rgbaView = new Uint8Array(
@@ -1905,7 +1927,7 @@ export function buildGridReadyMessage(
   );
   return {
     type: "gridReady",
-    messageIndex: meta.messageIndex,
+    messageIndex: meta.index,
     rgba: rgbaView,
     width: rendered.width,
     height: rendered.height,
@@ -1918,7 +1940,7 @@ export function buildGridReadyMessage(
     projectionSummary: rendered.projectionSummary,
     options,
     titleLine: composeTitleLine(meta),
-    parameterUnits: meta.parameterUnits ?? "",
+    parameterUnits: meta.units ?? "",
   };
 }
 
@@ -1935,9 +1957,9 @@ function isNonNegativeInt(n: unknown): n is number {
 /// Table 1.3) so operational vs. research products are visible at a glance
 /// without adding another column.
 ///
-/// `subCentre` is a napi `Option`, which reaches JS as `undefined` rather than
-/// `null` — hence the nullish check (#288).
-function formatCentreCell(m: MessageMeta): string {
+/// `subCentre` is `null` when the file names none; the check is nullish, so it
+/// holds for `undefined` too (#288).
+function formatCentreCell(m: MessageInfo): string {
   const centre = m.subCentre != null && m.subCentre !== ""
     ? `${m.originatingCentre} (${m.subCentre})`
     : m.originatingCentre;
@@ -1962,75 +1984,71 @@ function defaultSliceSpec(v: NetcdfVariableMeta): SliceSpec {
   };
 }
 
-/** A `MessageMeta` synthesised for the NetCDF render panel's header + projection
- *  controls. The Rust side builds the authoritative per-slice geometry; this
- *  only carries what the panel HTML reads (title, units, reprojectable).
+/** What the render panel reads of a NetCDF or Zarr slice (#574): the variable's
+ *  name and units, and the slice's own answers from `sliceGrid`, so the picker
+ *  offers the reprojection targets exactly when the handle will draw them.
  *
- *  `gridType` and `reprojectable` are stubs, not answers. A WRF file's slice is
- *  Lambert or polar stereographic on the Rust side, and its `MessageMeta` there
- *  now says whether the projection places a point at all — but that meta never
- *  crosses the boundary, so the picker is offered unconditionally and a slice
- *  whose projection has collapsed reports the reason from `renderSlice` instead
- *  of having stayed source-only. Closing that means the panel reading the
- *  per-slice geometry rather than inventing one; see #574. */
-export function syntheticNetcdfMeta(
+ *  `grid` is `null` when the handle could not place the slice at all; the panel
+ *  then offers the source view alone.
+ *
+ *  The answers are the slice's the panel opened on. The picker can move onto
+ *  axes with a different answer (a level against latitude, say), and there the
+ *  map targets stay offered and the render reports why it cannot draw one. */
+export function sliceField(
   v: NetcdfVariableMeta,
-  messageIndex = v.variableIndex,
-): MessageMeta {
+  grid: SliceGrid | null,
+  index = v.variableIndex,
+): PanelField {
   return {
-    messageIndex,
-    offsetBytes: 0,
-    parameterName: v.name,
+    index,
+    parameter: v.name,
     // Typeset by the native side (ADR-0007), so a NetCDF slice's title line and
-    // probe readout carry units the way a GRIB message's do. This was the empty
-    // string until #453, which is why they carried none at all.
-    parameterUnits: v.units ?? "",
-    parameterAbbreviation: v.name,
+    // probe readout carry units the way a GRIB message's do.
+    units: v.units ?? "",
     level: "",
     levelType: "",
-    referenceTime: "",
-    forecastHours: 0,
-    p1Octet: null,
-    forecastDisplay: "",
-    originatingCentre: "",
-    gridType: "latlon",
-    gridNi: null,
-    gridNj: null,
-    gridSizeLabel: null,
-    latFirst: null,
-    lonFirst: null,
-    latLast: null,
-    lonLast: null,
-    format: "netcdf",
-    edition: null,
-    discipline: null,
-    totalLengthBytes: null,
-    productionStatus: null,
-    dataType: null,
-    lambertLad: null,
-    lambertLov: null,
-    lambertDxMetres: null,
-    lambertDyMetres: null,
-    lambertLatin1: null,
-    lambertLatin2: null,
-    gaussianNParallels: null,
-    packing: null,
-    reprojectable: true,
-    // A stub like `reprojectable` above, for the same reason: see #574.
-    placement: "placed",
-    jScansPositive: null,
+    referenceTime: null,
+    forecast: "",
+    uvRelativeToGrid: null,
+    reprojectable: grid?.reprojectable ?? false,
+    // A slice is never a band-limited spectral field (#637).
+    truncation: null,
+    grid: grid ? { label: grid.label } : null,
   };
 }
 
-function describeProjection(meta: MessageMeta): string {
-  const dims = meta.gridSizeLabel
-    ?? ((meta.gridNi != null && meta.gridNj != null) ? `${meta.gridNi}×${meta.gridNj}` : "?");
-  const type = meta.gridType ?? "unknown grid";
-  if (meta.latFirst != null && meta.lonFirst != null
-      && meta.latLast != null && meta.lonLast != null) {
+/** The heading a render of this variable is labelled with. */
+function sliceTitle(
+  v: NetcdfVariableMeta,
+  index: number,
+): Pick<PanelField, "index" | "parameter" | "units"> {
+  return { index, parameter: v.name, units: v.units ?? "" };
+}
+
+/** The slice panel's projection caption: the container and the slice's family. */
+export function sliceCaption(container: string, grid: SliceGrid | null): string {
+  return `${container} slice — ${grid?.label ?? "not placed"}`;
+}
+
+/** How a message table or a panel caption states a message's size: the size
+ *  label the file gives it where it has one (a truncation, an Nside, a reduced
+ *  Gaussian's `N32`), else the raster's `ni×nj`, else `fallback`. A grid with
+ *  no raster of its own reports `0×0`, which is not a size. */
+function messageSize(m: MessageInfo, fallback: string): string {
+  const g = m.grid;
+  return m.sizeLabel
+    ?? (g != null && g.ni > 0 && g.nj > 0 ? `${g.ni}×${g.nj}` : fallback);
+}
+
+function describeProjection(meta: MessageInfo): string {
+  const dims = messageSize(meta, "?");
+  const type = meta.grid?.label ?? "unknown grid";
+  const corners = meta.grid?.corners;
+  if (corners != null) {
     const f = (v: number) => v.toFixed(2);
-    return `${type} ${dims} — ${f(meta.latFirst)},${f(meta.lonFirst)} → `
-         + `${f(meta.latLast)},${f(meta.lonLast)} (grid coordinates)`;
+    const [latFirst, lonFirst, latLast, lonLast] = corners;
+    return `${type} ${dims} — ${f(latFirst)},${f(lonFirst)} → `
+         + `${f(latLast)},${f(lonLast)} (grid coordinates)`;
   }
   return `${type} ${dims} (grid coordinates)`;
 }
@@ -2051,7 +2069,7 @@ function renderDatasetBody(
   const sections: string[] = [];
 
   if (!d.fullyParsed && d.note) {
-    const versionLine = d.hdf5SuperblockVersion !== undefined
+    const versionLine = d.hdf5SuperblockVersion != null
       ? `<div class="status">HDF5 superblock version: ${d.hdf5SuperblockVersion}</div>`
       : "";
     sections.push(`
@@ -2183,13 +2201,24 @@ function renderDatasetBody(
 /** A message is renderable when its values land on a raster: `"placed"`, or
  *  `"unplaceable"`, which still paints in its own grid coordinates.
  *
- *  The answer is Rust's (`MessageMeta.placement`, #776), and it is about the
+ *  The answer is Rust's (`MessageInfo.placement`, #776), and it is about the
  *  values rather than the declared grid, so a spectral or HEALPix message —
  *  whose values are synthesised onto a lat/lon grid — is `"placed"`, and a
  *  bi-Fourier one, which has no raster at all, is `"no_raster"`. A template
  *  this build does not model (`"unsupported"`) is not offered either: nothing
  *  decodes it. This used to be a list of family names here. */
-function messageIsRenderable(m: Pick<MessageMeta, "placement">): boolean {
+/** What the dormant P1 edit box shows after an edit re-lists the file: the
+ *  raw octet the edit writes, or `null` to leave the box alone where a
+ *  one-octet edit means nothing. Never `forecastHours`, which is normalised:
+ *  under a 3-hourly unit it reads 12 for a P1 of 4, and saving the refreshed
+ *  box untouched tripled the lead. Serialized into the table's script
+ *  (`refreshedP1Value.toString()`), so it must not reference anything outside
+ *  itself. */
+export function refreshedP1Value(m: Pick<MessageInfo, "p1Octet">): string | null {
+  return m.p1Octet != null ? String(m.p1Octet) : null;
+}
+
+function messageIsRenderable(m: Pick<MessageInfo, "placement">): boolean {
   return m.placement === "placed" || m.placement === "unplaceable";
 }
 
@@ -2199,7 +2228,7 @@ export function renderHtml(
   webview: vscode.Webview,
   format: string,
   filePath: string,
-  messages: MessageMeta[] | undefined,
+  messages: MessageInfo[] | undefined,
   dataset: DatasetMeta | undefined,
   headerBytes: Uint8Array | undefined,
   editable: boolean,
@@ -2216,9 +2245,11 @@ export function renderHtml(
   let bodyContent = "";
 
   if (messages && messages.length > 0) {
-    // napi returns `undefined` (not `null`) for a Rust `None`, so use a nullish
-    // check — a grid-less message (e.g. GRIB1 spectral) has no bounds.
+    // A field with nothing to report is `null` (#574); the check is nullish
+    // anyway, so it holds for `undefined` too — a grid-less message (e.g.
+    // GRIB1 spectral) has no bounds.
     const fmt1 = (v: number | null | undefined) => v != null ? v.toFixed(3) : "—";
+    const native = loadNative();
     const COLSPAN = 13;
     const rows = messages.map((m) => {
       // A message with no raster shape (spectral, HEALPix) has no Ni×Nj but
@@ -2228,7 +2259,8 @@ export function renderHtml(
       // an Ni×Nj here, but it is the widest row paired with the row count, a
       // raster Fieldglass derives for rendering rather than anything the file
       // says. The file says `N32`, and so does every other tool (#500).
-      // napi `None` arrives as `undefined`, so these are nullish checks (#288).
+      // Absent values are `null`, and these are nullish checks either way
+      // (#288).
       //
       // This cell used to hold only numbers and a dash, so it was interpolated
       // raw; it now carries a string built from a decoded file, and is escaped
@@ -2236,21 +2268,21 @@ export function renderHtml(
       // Rust builds the label from integers alone, so nothing hostile can
       // reach here today — the escape is so that stays true of the *cell*
       // rather than of one `format!` in another crate.
-      const gridDims = m.gridSizeLabel
-        ?? ((m.gridNi != null && m.gridNj != null) ? `${m.gridNi}×${m.gridNj}` : "—");
-      const gridBounds = (m.latFirst != null && m.lonFirst != null)
-        ? `${fmt1(m.latFirst)},${fmt1(m.lonFirst)} → ${fmt1(m.latLast)},${fmt1(m.lonLast)}` : "—";
+      const gridDims = messageSize(m, "—");
+      const corners = m.grid?.corners;
+      const gridBounds = corners != null
+        ? `${fmt1(corners[0])},${fmt1(corners[1])} → ${fmt1(corners[2])},${fmt1(corners[3])}` : "—";
       // The edit writes the raw P1 octet, so the box has to show that octet —
       // not `forecastHours`, which is normalised (a 3-hourly unit reports 12
       // for a P1 of 4, and saving the untouched box would have tripled the
-      // lead). `p1Octet` is absent wherever a one-octet edit is meaningless,
-      // and those messages stay read-only. napi `None` arrives as `undefined`,
-      // so this must be a nullish check, not `!== null`.
+      // lead). `p1Octet` is `null` wherever a one-octet edit is meaningless,
+      // and those messages stay read-only. A nullish check, so it holds for
+      // `undefined` too.
       const fcstCell = editable && m.p1Octet != null
-        ? `<input type="number" class="p1-input" data-message-index="${m.messageIndex}" min="0" max="255" step="1" value="${m.p1Octet}" />`
-        : escapeHtml(m.forecastDisplay);
+        ? `<input type="number" class="p1-input" data-message-index="${m.index}" min="0" max="255" step="1" value="${m.p1Octet}" />`
+        : escapeHtml(m.forecast);
       const canRender = messageIsRenderable(m);
-      const idx = m.messageIndex;
+      const idx = m.index;
       const expansionInner = canRender
         ? `<button type="button" class="render-btn" data-message-index="${idx}">Render</button>
            <button type="button" class="export-csv-btn" data-message-index="${idx}">Export CSV…</button>
@@ -2264,17 +2296,17 @@ export function renderHtml(
       return `
       <tr class="msg-row" data-message-index="${idx}">
         <td>${idx}</td>
-        <td>${escapeHtml(m.parameterName)}</td>
-        <td>${escapeHtml(m.parameterAbbreviation)}</td>
-        <td>${escapeHtml(m.parameterUnits)}</td>
+        <td>${escapeHtml(m.parameter)}</td>
+        <td>${escapeHtml(m.abbreviation)}</td>
+        <td>${escapeHtml(m.units)}</td>
         <td>${escapeHtml(m.level)}</td>
         <td>${escapeHtml(m.levelType)}</td>
-        <td>${escapeHtml(m.referenceTime)}</td>
+        <td>${escapeHtml(m.referenceTime ?? "")}</td>
         <td>${fcstCell}</td>
-        <td>${escapeHtml(m.gridType ?? "—")}</td>
+        <td>${escapeHtml(m.grid?.label ?? "—")}</td>
         <td>${escapeHtml(gridDims)}</td>
         <td>${gridBounds}</td>
-        <td>${escapeHtml(m.packing ?? "—")}</td>
+        <td>${escapeHtml(native?.packingLabel(m.packing) ?? m.packing)}</td>
         <td>${escapeHtml(formatCentreCell(m))}</td>
       </tr>
       <tr class="expand-row" id="expand-${idx}" hidden>
@@ -2336,6 +2368,7 @@ export function renderHtml(
       (function () {
         const vscode = acquireVsCodeApi();
         const editable = ${editable ? "true" : "false"};
+        ${refreshedP1Value.toString()}
 
         function statusElFor(idx) { return document.getElementById('status-' + idx); }
         function expansionFor(idx) { return document.getElementById('expand-' + idx); }
@@ -2435,9 +2468,10 @@ export function renderHtml(
           }
           if (editable && msg.type === 'update' && Array.isArray(msg.messages)) {
             for (const m of msg.messages) {
-              const el = document.querySelector('input.p1-input[data-message-index="' + m.messageIndex + '"]');
-              if (el && document.activeElement !== el) {
-                el.value = String(m.forecastHours);
+              const el = document.querySelector('input.p1-input[data-message-index="' + m.index + '"]');
+              const p1 = refreshedP1Value(m);
+              if (el && document.activeElement !== el && p1 != null) {
+                el.value = p1;
               }
             }
           }

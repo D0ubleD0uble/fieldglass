@@ -11,13 +11,12 @@
 //!
 //! `fieldglass-napi` binds a *different shape* from the browser host. Its three
 //! handles decode by index and probe by pixel rather than by latitude and
-//! longitude, and the extension still lists messages through the `MessageMeta`
-//! view (until #574 retires it). So the runner takes the operations whose
-//! answers are directly comparable today:
+//! longitude. So the runner takes the operations whose answers are directly
+//! comparable:
 //!
 //! | suite op | napi call | compared |
 //! |---|---|---|
-//! | `open` | `Grib1Handle::from_bytes` / `Grib2Handle::from_bytes`, `messages()` | which format accepted the bytes, and the message count |
+//! | `open` | `Grib1Handle::from_bytes` / `Grib2Handle::from_bytes`, `count()` | which format accepted the bytes, and the message count |
 //! | `message` | `message(i)` | the whole `MessageInfo`, key for key, as the addon hands it to JavaScript (#574) |
 //! | `decode` | `decode_grid(i)` | raster shape, value count, mask sum, the sampled cells |
 //! | `render` | `render_grid(i, …)` with `projection: "source"` | raster shape, RGBA length, opaque count, the sampled pixels |
@@ -49,10 +48,10 @@
 //! the suite to pin the synthesised grid across two bindings.
 //!
 //! `message` is compared through the handles' `message(i)`, which crosses the
-//! API's own `MessageInfo` through serde rather than the extension's
-//! `MessageMeta` view (#574). So the fields a message list shows (the parameter,
-//! level, lead time, identification and grid) are held to the recording through
-//! this binding too, where before only direct host-to-host tests pinned them.
+//! API's own `MessageInfo` through serde, and is what the extension's message
+//! list reads (#574). So the fields a message list shows (the parameter, level,
+//! lead time, identification and grid) are held to the recording through this
+//! binding too, where before only direct host-to-host tests pinned them.
 //!
 //! `warp`, `palette`, `probe`, `probe_message` and `contours` are **not**
 //! compared, and each for a reason that is a task rather than an oversight:
@@ -172,8 +171,8 @@ impl Handle {
     /// answers zero, so there is no count to compare.
     fn count(&self) -> Option<usize> {
         match self {
-            Self::Grib1(h) => Some(h.messages().len()),
-            Self::Grib2(h) => Some(h.messages().len()),
+            Self::Grib1(h) => Some(h.count() as usize),
+            Self::Grib2(h) => Some(h.count() as usize),
             Self::Netcdf(_) => None,
         }
     }

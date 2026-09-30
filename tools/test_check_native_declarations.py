@@ -8,7 +8,9 @@ only ran the real repo would pass just as well against a checker that returned n
 problems ever. The four directions are: a missing method, a mistyped optional, a
 `| null` on something napi returns as `undefined`, and a stale allowlist entry.
 A fifth covers the API types the addon returns through serde (#574): a name a
-generated signature uses must be one the generated declarations export.
+generated signature uses must be one the generated declarations export. A sixth
+covers the wire contract itself (#574): an object the addon returns may not
+leave a key out, and one marked `use_nullable` must be declared `T | null`.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ class Synthetic(unittest.TestCase):
         handwritten: str,
         known: set[str] | None = None,
         api: str = "",
+        inputs: dict[str, str] | None = None,
     ):
         real = (
             chk.GENERATED,
@@ -42,6 +45,7 @@ class Synthetic(unittest.TestCase):
             chk.API_GENERATED,
             chk.KNOWN_NULLABLE,
             chk.IGNORED_GENERATED,
+            chk.INPUT_OBJECTS,
         )
         with tempfile.TemporaryDirectory() as tmp:
             g, h = Path(tmp) / "index.d.ts", Path(tmp) / "native.ts"
@@ -53,6 +57,9 @@ class Synthetic(unittest.TestCase):
                 chk.GENERATED, chk.HANDWRITTEN, chk.API_GENERATED = g, h, a
                 chk.KNOWN_NULLABLE = known if known is not None else set()
                 chk.IGNORED_GENERATED = {}
+                # `O` below has an optional field, which only an object a caller
+                # *sends* may have; the tests about returned objects pass `{}`.
+                chk.INPUT_OBJECTS = inputs if inputs is not None else {"O": "an input"}
                 return chk.check()
             finally:
                 (
@@ -61,6 +68,7 @@ class Synthetic(unittest.TestCase):
                     chk.API_GENERATED,
                     chk.KNOWN_NULLABLE,
                     chk.IGNORED_GENERATED,
+                    chk.INPUT_OBJECTS,
                 ) = real
 
     GEN = """
@@ -122,8 +130,8 @@ export interface O {
         self.assertIn("stale", problems[0])
 
     def test_a_field_missing_from_an_object_view_is_allowed(self):
-        # A hand-written object type is a *view*: `MessageMeta` has ~65 fields and
-        # the extension reads 16. Completeness is checked for methods, not fields.
+        # A hand-written object type is a *view*: a field nothing reads need not
+        # be declared. Completeness is checked for methods, not fields.
         hand = self.HAND.replace("  a: string;\n", "")
         self.assertEqual(self.run_on(self.GEN, hand), [])
 
@@ -148,6 +156,19 @@ export interface O {
         gen = self.GEN.replace("  a: string\n", "  a: string\n")
         hand = self.HAND.replace('  a: string;', '  a: "x" | "y";')
         self.assertEqual(self.run_on(gen, hand), [])
+
+    def test_a_narrowing_keeps_the_null_napi_sends(self):
+        # A nullable `string` narrowed to a literal union must stay nullable;
+        # dropping the `| null` is the #288 shape, and so is adding one.
+        gen = self.NULLABLE_GEN.replace("  a: string\n", "  a: string | null\n")
+        kept = self.NULLABLE_HAND.replace('  a: string;', '  a: "x" | "y" | null;')
+        self.assertEqual(self.run_on(gen, kept, inputs={}), [])
+        dropped = self.NULLABLE_HAND.replace('  a: string;', '  a: "x" | "y";')
+        problems = self.run_on(gen, dropped, inputs={})
+        self.assertTrue(any("O.a" in p and "string | null" in p for p in problems), problems)
+        added = self.NULLABLE_HAND.replace('  a: string;', '  a: "x" | "y" | null;')
+        problems = self.run_on(self.NULLABLE_GEN, added, inputs={})
+        self.assertTrue(any("O.a" in p for p in problems), problems)
 
     def test_a_real_type_divergence_is_refused(self):
         hand = self.HAND.replace("  a: string;", "  a: number;")
@@ -178,6 +199,37 @@ export interface O {
         problems = self.run_on(self.SERDE_GEN, self.SERDE_HAND, api=api)
         self.assertTrue(any("`MessageInfo`" in p for p in problems), problems)
 
+    # The wire contract (#574): what the addon returns carries every key.
+    NULLABLE_GEN = GEN.replace("  b?: number\n", "  b: number | null\n  c: Array<number> | null\n")
+    NULLABLE_HAND = HAND.replace("  b?: number;", "  b: number | null;\n  c: number[] | null;")
+
+    def test_a_returned_object_with_an_optional_field_is_refused(self):
+        problems = self.run_on(self.GEN, self.HAND, inputs={})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("O.b", problems[0])
+        self.assertIn("leaves the key out", problems[0])
+
+    def test_a_nullable_returned_object_declared_nullable_passes(self):
+        self.assertEqual(self.run_on(self.NULLABLE_GEN, self.NULLABLE_HAND, inputs={}), [])
+
+    def test_a_nullable_field_declared_optional_is_refused(self):
+        # The addon writes `null` under the key; `field?: T` would have a caller
+        # guard with `=== undefined` and miss it.
+        hand = self.NULLABLE_HAND.replace("  b: number | null;", "  b?: number;")
+        problems = self.run_on(self.NULLABLE_GEN, hand, inputs={})
+        self.assertTrue(any("O.b" in p and "optional" in p for p in problems), problems)
+
+    def test_a_nullable_field_declared_without_null_is_refused(self):
+        hand = self.NULLABLE_HAND.replace("  b: number | null;", "  b: number;")
+        problems = self.run_on(self.NULLABLE_GEN, hand, inputs={})
+        self.assertTrue(any("declares `number`" in p for p in problems), problems)
+
+    def test_a_stale_input_entry_is_refused(self):
+        problems = self.run_on(self.GEN, self.HAND, inputs={"O": "an input", "Gone": "x"})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("Gone", problems[0])
+        self.assertIn("stale", problems[0])
+
     def test_an_unparsable_generated_file_is_refused_not_passed(self):
         problems = self.run_on("// nothing at all\n", self.HAND)
         self.assertEqual(len(problems), 1, problems)
@@ -193,14 +245,17 @@ class TheRepoItselfPasses(unittest.TestCase):
             )
         self.assertEqual(chk.check(), [])
 
-    def test_the_known_divergences_are_the_ones_named(self):
-        # Pinned so the debt shrinks visibly. #574 deletes `MessageMeta`, which
-        # empties this set.
-        self.assertEqual(len(chk.KNOWN_NULLABLE), 23)
-        self.assertTrue(
-            all(k.startswith("MessageMeta.") for k in chk.KNOWN_NULLABLE),
-            "every known divergence should be on the type #574 removes",
-        )
+    def test_there_are_no_known_divergences(self):
+        # #574 deleted `MessageMeta`, whose 23 fields were the whole list. An
+        # entry added back is a declaration that disagrees with the runtime.
+        self.assertEqual(chk.KNOWN_NULLABLE, set())
+
+    def test_the_only_input_object_is_the_render_options(self):
+        # Pinned: an object added here is exempt from the every-key contract,
+        # which a reviewer should see happen.
+        self.assertEqual(set(chk.INPUT_OBJECTS), {"RenderOptions"})
+        for name, reason in chk.INPUT_OBJECTS.items():
+            self.assertTrue(reason.strip(), f"{name} is an input with no reason")
 
     def test_every_ignored_name_has_a_reason(self):
         for name, reason in chk.IGNORED_GENERATED.items():

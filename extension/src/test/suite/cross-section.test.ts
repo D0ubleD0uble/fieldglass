@@ -11,12 +11,13 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { loadNative, type MessageMeta, type NetcdfVariableMeta } from "../../native";
+import { loadNative, type NetcdfVariableMeta } from "../../native";
 import {
   axisTickIndices,
   formatAxisValue,
   isMapSlice,
   renderImagePanelHtml,
+  type PanelField,
   type SlicePanelData,
 } from "../../render-panel";
 
@@ -107,7 +108,7 @@ suite("Cross-sections", () => {
     const t2 = wrf.variables().find((x) => x.name === "T2");
     assert.ok(t2, "T2 is renderable");
     const wrfTime = wrf.axisValues(t2.variableIndex, 0);
-    assert.strictEqual(wrfTime.coordinates, undefined);
+    assert.strictEqual(wrfTime.coordinates, null);
     assert.strictEqual(wrfTime.length, 1);
   });
 
@@ -117,7 +118,7 @@ suite("Cross-sections", () => {
     // Time by latitude: 89 columns of latitude, one row of time.
     const plot = handle.renderSlice(v.variableIndex, 0, 2, [0, 0, 0, 0], base);
     assert.deepStrictEqual([plot.width, plot.height], [89, 1]);
-    assert.strictEqual(plot.usedLatMin, undefined, "no geographic extent");
+    assert.strictEqual(plot.usedLatMin, null, "no geographic extent");
     // And the map target refuses it rather than inventing one.
     assert.throws(
       () => handle.renderSlice(v.variableIndex, 0, 2, [0, 0, 0, 0], { ...base, projection: "equirectangular" }),
@@ -136,7 +137,7 @@ suite("Cross-sections", () => {
       variables: [v],
       initial: { variableIndex: v.variableIndex, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] },
     };
-    const meta = { gridType: "latlon", reprojectable: true } as unknown as MessageMeta;
+    const meta = { grid: { label: "latlon" }, reprojectable: true } as unknown as PanelField;
     const html = renderImagePanelHtml(
       { cspSource: "" } as unknown as vscode.Webview,
       meta,

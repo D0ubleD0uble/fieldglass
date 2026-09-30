@@ -7,104 +7,27 @@
 // `tsc` runs; locally during development it may lag).
 // `tools/check_native_declarations.py` compares the two in CI.
 //
-// The API's own wire types (`MessageInfo`, `Georef`, …) are not written here:
-// they are generated from the Rust schema into `api.generated.ts` by
-// `tools/gen_api_declarations.py` (#574). A field with nothing to report is
-// `null` there, under its own key, because that is what the addon returns for
-// them. The hand-written `#[napi(object)]` shapes below still read `undefined`
-// for a Rust `None`.
+// The API's own wire types (`MessageInfo`, `Georef`, `AxisValues`, …) are not
+// written here: they are generated from the Rust schema into `api.generated.ts`
+// by `tools/gen_api_declarations.py` (#574).
+//
+// Every object the addon returns carries every key, and a field with nothing to
+// report is `null`, never missing (#574). So an optional field below is
+// `field: T | null`, and the one `?` left is on `RenderOptions`, which the
+// extension sends rather than receives. Guard with `!= null` or `??`, which see
+// both `null` and `undefined`.
 
 import * as path from "path";
 
 import * as vscode from "vscode";
 
-import type { MessageInfo } from "./api.generated";
+import type { AxisValues, MessageInfo, Placement } from "./api.generated";
 
-export type { Georef, MessageInfo, Placement } from "./api.generated";
+export type { AxisValues, Georef, MessageInfo, Placement } from "./api.generated";
 
 // ---------------------------------------------------------------------------
-// MessageMeta + NetCDF dataset types (returned from the native module)
+// NetCDF dataset types (returned from the native module)
 // ---------------------------------------------------------------------------
-
-export interface MessageMeta {
-  messageIndex: number;
-  offsetBytes: number;
-  parameterName: string;
-  parameterUnits: string;
-  parameterAbbreviation: string;
-  level: string;
-  levelType: string;
-  referenceTime: string;
-  forecastHours: number;
-  /** Raw GRIB1 P1 octet, or absent where editing one octet would be wrong
-   *  (GRIB2/NetCDF have no P1; time-range 10 spends two octets on one value). */
-  p1Octet: number | null;
-  /** Whether this message's u/v components run along the grid's own axes rather
-   *  than east and north (#241) — GRIB's resolution flag, which HRRR and NAM
-   *  set. Undefined when the family states none, and for a NetCDF or Zarr
-   *  slice. */
-  uvRelativeToGrid?: boolean;
-  forecastDisplay: string;
-  originatingCentre: string;
-  /** Sub-centre name (WMO C-12), or absent when the field is 0 or unassigned. */
-  subCentre?: string;
-  gridType: string | null;
-  gridNi: number | null;
-  gridNj: number | null;
-  /** How the file names its own grid, where `gridNi×gridNj` is not how it is
-   *  described — a spectral truncation (`T63`), a HEALPix `Nside`, a reduced
-   *  Gaussian's `N32`/`O32`. Shown where the dimensions would go, and
-   *  preferred over them where both exist. */
-  gridSizeLabel: string | null;
-  latFirst: number | null;
-  lonFirst: number | null;
-  latLast: number | null;
-  lonLast: number | null;
-  format: string;
-  edition: number | null;
-  discipline: string | null;
-  totalLengthBytes: number | null;
-  productionStatus: string | null;
-  dataType: string | null;
-  /** Projection parameters surfaced for the render-panel reprojection
-   *  warp. Only populated for the matching grid types; null otherwise. */
-  lambertLad: number | null;
-  lambertLov: number | null;
-  lambertDxMetres: number | null;
-  lambertDyMetres: number | null;
-  lambertLatin1: number | null;
-  lambertLatin2: number | null;
-  gaussianNParallels: number | null;
-  /** Human-readable data-packing method (GRIB1 BDS packing / GRIB2 §5
-   *  data-representation template), e.g. "Second-order (SPD-2)". */
-  packing: string | null;
-  /** Whether the grid this message's values land on supports reprojection
-   *  (the non-source projection targets). True for a spectral or HEALPix
-   *  message, whose values are synthesised onto a lat/lon grid; false for grid
-   *  types without a warp yet (e.g. an unsupported GDS template) or with a
-   *  degenerate Dx/Dy. The panel hides those options when false. */
-  reprojectable: boolean;
-  /** Whether this message's values can be placed on the Earth, and why not
-   *  (#776). `"placed"`: on the map. `"unplaceable"`: a raster that paints in
-   *  grid coordinates only. `"no_raster"`: nothing to paint (spectral or
-   *  bi-Fourier coefficients as declared, zero rows or columns, no grid).
-   *  `"unsupported"`: a grid template this build does not model.
-   *  `"predefined_unresolved"`: a GRIB1 predefined grid this build does not
-   *  know. About the values, so a spectral message is `"placed"`. */
-  placement: "placed" | "no_raster" | "unplaceable" | "unsupported" | "predefined_unresolved";
-  /** Set, with `declaredTruncation`, when a spectral message's map is
-   *  band-limited below the truncation it declares (#637): the 0.5° grid
-   *  carries T359, so a T7999 field is drawn at T359. The panel says so
-   *  ("shown at T359 of T7999"). Absent for every other message. */
-  truncatedTo?: number;
-  /** The truncation the message declares, when its map is band-limited below
-   *  it — see `truncatedTo`. */
-  declaredTruncation?: number;
-  /** Whether the grid's rows scan south→north (GRIB `jScansPositively`). The
-   *  source projection orients the raster from this so it isn't upside-down;
-   *  null for grids with no scan flag (predefined GRIB1 grids, NetCDF). */
-  jScansPositive: boolean | null;
-}
 
 export interface DimensionMeta {
   name: string;
@@ -145,11 +68,14 @@ export interface DatasetMeta {
    *  {@link DatasetMeta.unsupportedVariables} — showing the rest is the point,
    *  so this must not gate the tables on it. */
   fullyParsed: boolean;
-  note?: string;
+  /** Why the metadata could not be fully resolved, when it could not; `null`
+   *  otherwise. */
+  note: string | null;
   dimensions: DimensionMeta[];
   globalAttributes: AttributeMeta[];
   variables: VariableMeta[];
-  hdf5SuperblockVersion?: number;
+  /** HDF5 superblock version; `null` for a classic file. */
+  hdf5SuperblockVersion: number | null;
   /** NetCDF-4 variables whose HDF5 datatype (compound, enum, variable-length,
    *  opaque, array) this build does not decode. Empty for classic files and for
    *  NetCDF-4 files every variable of which decoded. */
@@ -257,16 +183,6 @@ export interface ParsedColorTable {
   slices: number;
 }
 
-/** One axis of a variable with its coordinate values, for labelling the axes of
- *  a cross-section (#171). `coordinates` is undefined when the file holds no
- *  coordinate array for the axis — it is then its own index. */
-export interface AxisValuesResult {
-  dimension: string;
-  length: number;
-  coordinates?: number[];
-  units: string;
-}
-
 /** Projected vector arrows plus the speed a full-length arrow stands for
  *  (#241). The runs are the overlay's shape — five vertices per arrow. */
 export interface ProjectedVectors {
@@ -283,12 +199,12 @@ export interface RenderedGrid {
   usedMax: number;
   /** Geographic extent actually rendered (degrees), echoed back so the
    *  panel can pre-fill the manual-bounds inputs. Present for the warped
-   *  lat/lon targets (equirectangular, web_mercator); undefined for the
+   *  lat/lon targets (equirectangular, web_mercator); `null` for the
    *  source-projection target (no geographic extent). */
-  usedLatMin?: number;
-  usedLatMax?: number;
-  usedLonMin?: number;
-  usedLonMax?: number;
+  usedLatMin: number | null;
+  usedLatMax: number | null;
+  usedLonMin: number | null;
+  usedLonMax: number | null;
   projectionSummary: string;
 }
 
@@ -310,42 +226,43 @@ export interface ProjectedOverlay {
   segLengths: Uint32Array;
 }
 
-/** The field under a rendered pixel (#172). `lat`/`lon` are undefined when the
+/** The field under a rendered pixel (#172). `lat`/`lon` are `null` when the
  *  grid can't be geolocated (a source view of a grid whose forward map isn't
- *  wired); `value` is undefined off-grid or on a masked cell. */
+ *  wired); `value` is `null` off-grid or on a masked cell. */
 export interface ProbeResult {
-  lat?: number;
-  lon?: number;
-  value?: number;
-  gridI?: number;
-  gridJ?: number;
+  lat: number | null;
+  lon: number | null;
+  value: number | null;
+  gridI: number | null;
+  gridJ: number | null;
   /** For a spectral map drawn band-limited below what its message declares
    *  (#637): the full sum over every wavenumber the file holds at the same
    *  cell. `value` is the map's own, matching the colour under the cursor;
-   *  the readout shows this one beside it. Absent for every other field. */
-  fullDetailValue?: number;
+   *  the readout shows this one beside it. `null` for every other field. */
+  fullDetailValue: number | null;
   /** The truncation `fullDetailValue` carries (the message's declared T; for a
    *  combined map, the larger operand's). Set whenever the probe read a
-   *  full-detail value; `fullDetailValue` is then absent only on a combined
+   *  full-detail value; `fullDetailValue` is then `null` only on a combined
    *  cell the operation leaves empty. */
-  fullDetailTruncation?: number;
+  fullDetailTruncation: number | null;
 }
 
 /** One line through a variable — a vertical profile or a time series at a cell
- *  (#172). `values` holds `NaN` where `mask` is 0, so read `mask` first. Absent
- *  optional fields arrive as `undefined`, never `null` (#288). */
+ *  (#172). `values` holds `NaN` where `mask` is 0, so read `mask` first. A field
+ *  with nothing to report is `null` (#574). */
 export interface LineResult {
   values: number[];
   mask: number[];
-  min?: number;
-  max?: number;
+  min: number | null;
+  max: number | null;
   variable: string;
   units: string;
   dimension: string;
-  /** The axis's coordinate values, in index order; absent when the axis has no
-   *  coordinate array, or when one of its values is. Fall back to indices. */
-  coordinates?: number[];
-  coordinateUnits?: string;
+  /** The axis's coordinate values, in index order; `null` when the axis has no
+   *  coordinate array, or when one of its values is missing or not finite. Fall
+   *  back to indices. */
+  coordinates: number[] | null;
+  coordinateUnits: string | null;
 }
 
 /** Element-wise combine operation on two aligned fields (#239). `aMinusB` is
@@ -364,7 +281,9 @@ export interface CombineOpInfo {
 }
 
 export interface Grib1Handle {
-  messages(): MessageMeta[];
+  /** How many messages the file holds; `message(i)` answers for each `i` below
+   *  it. The browser package's `count()`. */
+  count(): number;
   /** One message's metadata as the fieldglass API states it, the same
    *  `MessageInfo` the browser package returns. Every key is present; a field
    *  with nothing to report is `null` (#574). */
@@ -410,7 +329,7 @@ export interface Grib1Handle {
   ): ProjectedOverlay;
   /** Arrows for a vector field built from two messages (#241): `u` eastward and
    *  `v` northward, or along the grid's own axes under `gridRelative` — which is
-   *  what `MessageMeta.uvRelativeToGrid` reports. One arrow is one run of five
+   *  what `MessageInfo.uvRelativeToGrid` reports. One arrow is one run of five
    *  vertices, in the same pixel space the coastlines come back in. Throws when
    *  the two messages are not on the same grid, as a combine would (#793). */
   projectVectors(
@@ -450,7 +369,8 @@ export interface Grib1Handle {
 }
 
 export interface Grib2Handle {
-  messages(): MessageMeta[];
+  /** Sibling to {@link Grib1Handle.count}. */
+  count(): number;
   /** Sibling to {@link Grib1Handle.message}. */
   message(messageIndex: number): MessageInfo;
   /** Sibling to {@link Grib1Handle.decodeGrid}; HEALPix resolves the same way
@@ -483,7 +403,7 @@ export interface Grib2Handle {
   ): ProjectedOverlay;
   /** Arrows for a vector field built from two messages (#241): `u` eastward and
    *  `v` northward, or along the grid's own axes under `gridRelative` — which is
-   *  what `MessageMeta.uvRelativeToGrid` reports. One arrow is one run of five
+   *  what `MessageInfo.uvRelativeToGrid` reports. One arrow is one run of five
    *  vertices, in the same pixel space the coastlines come back in. Throws when
    *  the two messages are not on the same grid, as a combine would (#793). */
   projectVectors(
@@ -543,21 +463,33 @@ export interface NetcdfAxis {
 /** A NetCDF variable the render panel can draw, with its dimensions and the
  *  CF-detected horizontal-axis positions. `detectedYDim` / `detectedXDim` are
  *  axis indices (into `dims`) the picker pre-fills the Y / X selectors with;
- *  undefined means detection found no coordinate variable and the user assigns
+ *  `null` means detection found no coordinate variable and the user assigns
  *  that axis by hand. */
 export interface NetcdfVariableMeta {
   variableIndex: number;
   name: string;
   ncType: string;
   dims: NetcdfAxis[];
-  detectedYDim?: number;
-  detectedXDim?: number;
+  detectedYDim: number | null;
+  detectedXDim: number | null;
   /** The axis index of the time dimension, which the panel animates along
-   *  (#170); undefined when the variable has none. Never an image axis. */
-  detectedTimeDim?: number;
+   *  (#170); `null` when the variable has none. Never an image axis. */
+  detectedTimeDim: number | null;
   /** The variable's CF `units`, typeset for display the way a GRIB unit is
    *  (ADR-0007). Empty string when the variable declares none. */
   units: string;
+}
+
+/** Where one slice sits, as the render panel asks it (#574): the family to
+ *  caption, whether it can be placed, and whether the reprojection targets may
+ *  be offered. The same placement the handle renders from, so the picker cannot
+ *  offer a target the render then refuses. */
+export interface SliceGrid {
+  /** `"latlon"`, `"lambert"`, `"curvilinear"`, … or `"source"` for a slice with
+   *  no coordinates to place it by. */
+  label: string;
+  placement: Placement;
+  reprojectable: boolean;
 }
 
 export interface NetcdfHandle {
@@ -636,7 +568,9 @@ export interface NetcdfHandle {
   zonalMean(variableIndex: number, yDim: number, xDim: number, sliceIndices: number[]): LineResult;
   /** The coordinate values along one axis, for labelling a cross-section
    *  (#171). Reads the coordinate array only, never the field. */
-  axisValues(variableIndex: number, dim: number): AxisValuesResult;
+  axisValues(variableIndex: number, dim: number): AxisValues;
+  /** Where the slice on these image axes sits (#574). Decodes nothing. */
+  sliceGrid(variableIndex: number, yDim: number, xDim: number): SliceGrid;
   /** Probe a NetCDF difference/sum/… map (#329): reads the combined field of
    *  slice A and slice B, so the readout matches the displayed map, not A. */
   probeSliceCombined(
@@ -729,7 +663,9 @@ export interface SlicePanelHandle {
   zonalMean(variableIndex: number, yDim: number, xDim: number, sliceIndices: number[]): LineResult;
   /** The coordinate values along one axis, for labelling a cross-section
    *  (#171). Reads the coordinate array only, never the field. */
-  axisValues(variableIndex: number, dim: number): AxisValuesResult;
+  axisValues(variableIndex: number, dim: number): AxisValues;
+  /** Where the slice on these image axes sits (#574). Decodes nothing. */
+  sliceGrid(variableIndex: number, yDim: number, xDim: number): SliceGrid;
   renderSliceCombined(
     variableIndexA: number,
     yDim: number,
@@ -807,6 +743,10 @@ export interface FieldglassNative {
   parseColorTable(text: string): ParsedColorTable;
   /** The field-combine op vocabulary, in menu order (#342). */
   combineOps(): CombineOpInfo[];
+  /** The message table's label for a `MessageInfo.packing` identifier, e.g.
+   *  `"Second-order (SPD-2)"`; an identifier with no label comes back as
+   *  itself. */
+  packingLabel(packing: string): string;
   Grib1Handle: Grib1HandleCtor;
   Grib2Handle: Grib2HandleCtor;
   NetcdfHandle: NetcdfHandleCtor;

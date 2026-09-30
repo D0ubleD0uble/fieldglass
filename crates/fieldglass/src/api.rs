@@ -958,6 +958,33 @@ impl Placement {
         Self::from_extent(geom.dims(), geom.lonlat_bbox().is_some())
     }
 
+    /// Whether a raster of `ni` × `nj` cells on `geom` can be placed, and why
+    /// not: the [`Georef::placement`] that [`Georef::from_slice`] reports for
+    /// the same arguments.
+    ///
+    /// For a host answering a picker about a slice it is not decoding, which
+    /// wants this and not a whole [`Georef`]: building one copies the geometry,
+    /// and a lookup grid's geometry is every cell centre it has (#574).
+    pub fn of_raster(geom: &GridGeometry, ni: u32, nj: u32) -> Self {
+        match geom.dims() {
+            None => Self::raster_without_geometry(ni, nj),
+            dims => Self::from_extent(dims, geom.lonlat_bbox().is_some()),
+        }
+    }
+
+    /// A raster whose geometry has no grid points: one with cells still
+    /// renders in grid coordinates, so it is [`Unplaceable`](Self::Unplaceable)
+    /// rather than [`NoRaster`](Self::NoRaster) (#776). The one statement of
+    /// that rule, for [`of_raster`](Self::of_raster) and
+    /// [`Georef::from_slice`].
+    fn raster_without_geometry(ni: u32, nj: u32) -> Self {
+        if ni > 0 && nj > 0 {
+            Self::Unplaceable
+        } else {
+            Self::NoRaster
+        }
+    }
+
     /// The rule itself, over the two answers it reads — for a caller that
     /// already holds both and should not walk the grid a second time to ask
     /// [`of`](Self::of).
@@ -1059,6 +1086,30 @@ impl Georef {
         corners: Option<CornerPair>,
     ) -> Self {
         Self::from_container(geom, scan, declared, corners, Placement::NoRaster)
+    }
+
+    /// The placement of a raster whose shape the **caller** states: a slice of
+    /// an array, `ni` columns by `nj` rows, on `geom`.
+    ///
+    /// Where a geometry places nothing — a NetCDF, HDF5 or Zarr slice with no
+    /// coordinate arrays, which the resolvers answer with a source-only
+    /// geometry — the slice still has cells and still renders in grid
+    /// coordinates, so it is [`Placement::Unplaceable`]; only a slice with no
+    /// cells at all is [`Placement::NoRaster`] (#776).
+    ///
+    /// One rule for every caller: [`Session::decode_slice`] puts this on the
+    /// field it returns, and a host that places a slice itself, without
+    /// decoding it, reports the same answer to its picker (#574).
+    ///
+    /// [`Session::decode_slice`]: crate::Session::decode_slice
+    pub fn from_slice(geom: &GridGeometry, scan: Scan, declared: &str, ni: u32, nj: u32) -> Self {
+        Self::from_container(
+            geom,
+            scan,
+            declared,
+            None,
+            Placement::raster_without_geometry(ni, nj),
+        )
     }
 
     /// [`from_declared_corners`](Self::from_declared_corners) with the

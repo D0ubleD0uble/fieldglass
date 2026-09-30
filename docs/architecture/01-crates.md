@@ -9,10 +9,10 @@ Both hosts bind `fieldglass`, the host-neutral umbrella, and neither names any
 other workspace crate. `fieldglass-wasm` never did. `fieldglass-napi` named the
 format crates until #726: #572 moved its display half — warp, probe, contours,
 overlays and CSV — onto `fieldglass`, #662 its NetCDF path, and #726 the GRIB
-handles, which now hold a `Session` rather than a reader and build the
-`MessageMeta` DTO the VS Code extension reads out of the umbrella's own types.
-It named `fieldglass-core` until #574, which has it render on the geometry the
-umbrella placed rather than one rebuilt from that DTO. That is
+handles, which now hold a `Session` rather than a reader. It named
+`fieldglass-core` until #574, which has it render on the geometry the umbrella
+placed, and has the extension list messages through the API's own `MessageInfo`
+rather than a DTO of the addon's. That is
 [ADR-0006](../decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)
 decision 1 met rather than approached.
 
@@ -173,14 +173,15 @@ wasm-bindgen's `.d.ts`. Both hosts put the same bytes on the wire: every key of
 a returned object present, `null` for a Rust `None` (serde-wasm-bindgen with
 `serialize_missing_as_null`, and napi's `serde_json::Value` conversion), so an
 optional field is declared `T | null`. The `api-declarations` pre-commit hook
-fails when either file differs from what the schema generates. The addon's
-own `#[napi(object)]` types are the exception still: napi leaves a `None` key
-out, and `tools/check_native_declarations.py` holds `native.ts` to that. Seven
-returned ones carry `Option` fields that reach JavaScript as missing keys:
-`MessageMeta`, which is deleted when the extension reads `MessageInfo`, and
-`DatasetMeta`, `AxisValuesResult`, `RenderedGrid`, `NetcdfVariableMeta`,
-`LineResult` and `ProbeResult`, which stay and move to explicit nulls in the
-same change (the last of #574's three PRs).
+fails when either file differs from what the schema generates. The addon's own
+returned `#[napi(object)]` types keep the same contract: the ones with an
+`Option` field (`DatasetMeta`, `RenderedGrid`, `NetcdfVariableMeta`,
+`LineResult`, `ProbeResult`) are marked `use_nullable = true`, so napi writes
+`null` and declares `T | null`, and `tools/check_native_declarations.py` holds
+`native.ts` to what napi generates and refuses a returned object that leaves a
+key out. Only `RenderOptions`, which the extension sends rather than receives,
+keeps optional keys. `api_rules.rs` refuses `skip_serializing` on any API type
+for the same reason (#574).
 
 **Why `fieldglass` takes `core` with `default-features = false`.** It sits
 between every host and `core`, so taking core's defaults there would re-enable

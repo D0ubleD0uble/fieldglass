@@ -14,26 +14,28 @@ Both have happened. #659 added four methods to `ZarrHandle` and declared none of
 them; the omission surfaced only because a throwaway assignability check was
 written for another reason.
 
-**Three properties, and only three.** This is a drift gate, not a TypeScript parser:
+**Four properties, and only four.** This is a drift gate, not a TypeScript parser:
 
 1. **No generated *method* is missing.** Every method on a generated class has a
    declaration, because a method the extension cannot call is a capability that
    silently is not there — #659 added four to `ZarrHandle` and declared none.
 
    **Object *fields* are deliberately partial and are not checked for
-   completeness.** `MessageMeta` has some sixty-five fields and the extension
-   reads sixteen; declaring the rest would be declaring shapes nothing uses. The
-   reverse is not checked either — `native.ts` also declares the loader, the
-   webview payloads and `SlicePanelHandle`, none of which napi generates.
+   completeness.** A hand-written object type is a view, and declaring a field
+   nothing reads is declaring a shape nothing uses. The reverse is not checked
+   either — `native.ts` also declares the loader, the webview payloads and
+   `SlicePanelHandle`, none of which napi generates.
 
-2. **Every field that *is* declared agrees, optionality included, and `| null` is
-   refused** — on a `#[napi(object)]`, which is what napi generates an
-   interface for. napi maps such an object's Rust `None` to JavaScript
-   `undefined`, so it generates `field?: T`. A hand-written
-   `field: T | null` type-checks and then fails *open* at every `!== null`
-   guard — which is how a grid-less GRIB1 spectral message crashed the editor
-   with `undefined.toFixed()` (#288, fixed in #289). That is the one bug this
-   file exists to make impossible.
+2. **Every field that *is* declared agrees, optionality and `| null`
+   included** — on a `#[napi(object)]`, which is what napi generates an
+   interface for. A plain `#[napi(object)]` maps a Rust `None` to JavaScript
+   `undefined` and generates `field?: T`; one marked `use_nullable = true`
+   writes `null` and generates `field: T | null`. A hand-written declaration
+   that says the other one type-checks and then fails *open*: a
+   `field: T | null` over an `undefined` passes every `!== null` guard, which is
+   how a grid-less GRIB1 spectral message crashed the editor with
+   `undefined.toFixed()` (#288, fixed in #289). That is the one bug this file
+   exists to make impossible.
 
    The API's own types are the other kind (#574). The addon returns them
    through serde (`#[napi(ts_return_type = "MessageInfo")]` over a
@@ -46,6 +48,15 @@ written for another reason.
    `ts_return_type` puts a name into `index.d.ts` that napi does not declare
    itself; it must be one `api.generated.ts` exports, or the method's return
    type is a name nothing defines — which `skipLibCheck` would let through.
+
+4. **No object the addon returns leaves a key out.** The wire contract is that
+   every key of a returned object is present and a field with nothing to report
+   is `null` (#574, decided 2026-09-29), on both hosts. A generated interface
+   with an optional (`?`) field is a `#[napi(object)]` without
+   `use_nullable = true`, so it breaks that contract whatever `native.ts` says.
+   The objects a caller *sends* are the exception — leaving a key out of an
+   option object means "the default" — and they are named in `INPUT_OBJECTS`,
+   each with its reason.
 
 Types beyond optionality are compared only after normalising the spellings the
 two generators legitimately differ on (`Array<T>` against `T[]`); anything else
@@ -100,44 +111,27 @@ IGNORED_GENERATED: dict[str, str] = {
     ),
 }
 
-# `MessageMeta` fields the hand-written file types `T | null` where napi generates
-# `T?`. **This is a ratchet, not an exemption**: the check fails when a field is
-# added to this list's shape without being listed, *and* when a listed field stops
-# diverging — so #574, which deletes `MessageMeta` outright, empties this list and
-# is forced to say so. That is its last PR (the extension moving onto
-# `MessageInfo`); the earlier one added `message(i)`, which returns `MessageInfo`
-# with real nulls and so needs no entry here, and left `MessageMeta` unchanged.
+# Fields the hand-written file declares differently from what napi generates,
+# knowingly. **This is a ratchet, not an exemption**: the check fails when a field
+# diverges without being listed, *and* when a listed field stops diverging, so an
+# entry cannot outlive the debt it records.
 #
-# Latent rather than live: no current guard in the extension compares any of these
-# with `!== null` (the four strict-null comparisons that exist are either on local
-# values or check `undefined` too). The risk is the next one written. Fixing the
-# declarations means changing the ~28 places that build a `MessageMeta` by hand to
-# pass `undefined`, on a type #574 removes — so the debt is recorded here instead
-# of being paid twice.
-KNOWN_NULLABLE: set[str] = {
-    "MessageMeta.dataType",
-    "MessageMeta.discipline",
-    "MessageMeta.edition",
-    "MessageMeta.gaussianNParallels",
-    "MessageMeta.gridNi",
-    "MessageMeta.gridNj",
-    "MessageMeta.gridSizeLabel",
-    "MessageMeta.gridType",
-    "MessageMeta.jScansPositive",
-    "MessageMeta.lambertDxMetres",
-    "MessageMeta.lambertDyMetres",
-    "MessageMeta.lambertLad",
-    "MessageMeta.lambertLatin1",
-    "MessageMeta.lambertLatin2",
-    "MessageMeta.lambertLov",
-    "MessageMeta.latFirst",
-    "MessageMeta.latLast",
-    "MessageMeta.lonFirst",
-    "MessageMeta.lonLast",
-    "MessageMeta.p1Octet",
-    "MessageMeta.packing",
-    "MessageMeta.productionStatus",
-    "MessageMeta.totalLengthBytes",
+# Empty since #574. It held the 23 `MessageMeta` fields typed `T | null` where
+# napi generated `T?`; `MessageMeta` is gone, the extension reads the API's
+# `MessageInfo` instead, and every object the addon returns now writes `null`.
+# Adding an entry means a declaration that disagrees with the runtime again —
+# the #288 shape — so it wants a reason as good as that one had.
+KNOWN_NULLABLE: set[str] = set()
+
+# Generated objects a caller *sends* rather than receives, which property 4
+# exempts: an option object's absent key means "use the default", so `field?: T`
+# is the right declaration for it. Each needs its reason, and an entry napi no
+# longer generates is reported as stale.
+INPUT_OBJECTS: dict[str, str] = {
+    "RenderOptions": (
+        "the picker state the panel sends to every render, overlay, contour and "
+        "probe call; an omitted field is the renderer's default"
+    ),
 }
 
 
@@ -222,10 +216,13 @@ def field_types(body: str) -> dict[str, str]:
         if not m:
             continue
         ty = m.group("type").strip().rstrip(",;")
-        # `Array<T>` and `T[]` are the same type, spelled two ways.
-        inner = re.fullmatch(r"Array<(?P<inner>.+)>", ty)
-        if inner:
-            ty = f"{inner.group('inner')}[]"
+        # `Array<T>` and `T[]` are the same type, spelled two ways — including
+        # inside a union, which is where a nullable array puts it.
+        while True:
+            spelled = re.sub(r"Array<(?P<inner>[^<>]+)>", r"\g<inner>[]", ty)
+            if spelled == ty:
+                break
+            ty = spelled
         out[m.group("name")] = ty
     return out
 
@@ -310,9 +307,25 @@ def check() -> list[str]:
                 )
 
     # --- 2. A generated object type's fields match, optionality included ------
+    for name in sorted(set(INPUT_OBJECTS) - set(gen_ifaces)):
+        problems.append(
+            f"INPUT_OBJECTS names {name}, which napi no longer generates — the entry "
+            "in tools/check_native_declarations.py is stale"
+        )
     for name, body in gen_ifaces.items():
         if name in IGNORED_GENERATED:
             continue
+        # --- 4. An object the addon returns leaves no key out -----------------
+        if name not in INPUT_OBJECTS:
+            for field, optional in members(body).items():
+                if optional:
+                    problems.append(
+                        f"{name}.{field} is optional in index.d.ts, so the addon leaves "
+                        "the key out when it has nothing to say; every object it returns "
+                        "writes `null` instead (#574). Mark the `#[napi(object)]` "
+                        "`use_nullable = true`, or name it in INPUT_OBJECTS if callers "
+                        "send it rather than receive it"
+                    )
         hand_body = hand_ifaces.get(name)
         if hand_body is None:
             problems.append(f"napi generates interface {name}, and native.ts does not declare it")
@@ -346,17 +359,25 @@ def check() -> list[str]:
                 )
             if optional and "null" in hand_ty:
                 problems.append(
-                    f"{qualified} is typed `{hand_ty}` — napi maps Rust `None` to "
-                    "`undefined`, never `null`, so a `!== null` guard on this fails "
-                    "open (#288). Use `field?: T`."
+                    f"{qualified} is typed `{hand_ty}` — this object leaves the key "
+                    "out for a Rust `None`, so the field is `undefined`, never `null`, "
+                    "and a `!== null` guard on it fails open (#288). Use `field?: T`."
                 )
             gen_ty = gen_types.get(field, "")
             # A hand-written literal union where napi says `string` is a
             # *narrowing*: the Rust side returns one of a closed set and the
             # declaration says which, which is strictly more information. Not
-            # drift, and not something to undo.
-            narrowing = gen_ty == "string" and '"' in hand_ty
-            if gen_ty and hand_ty and not narrowing and gen_ty != hand_ty.replace(" | null", ""):
+            # drift, and not something to undo. The narrowing has to keep the
+            # `| null` exactly as napi states it, though: a generated
+            # `string | null` against a hand-written `"a" | "b"` would drop the
+            # null the addon sends, and a `=== "a"`-style guard written against
+            # that declaration never sees it — the #288 shape again.
+            narrowing = (
+                gen_ty.replace(" | null", "") == "string"
+                and '"' in hand_ty
+                and ("null" in gen_ty) == ("null" in hand_ty)
+            )
+            if gen_ty and hand_ty and not narrowing and gen_ty != hand_ty:
                 problems.append(
                     f"{name}.{field}: napi generates `{gen_ty}` and native.ts declares "
                     f"`{hand_ty}`"
