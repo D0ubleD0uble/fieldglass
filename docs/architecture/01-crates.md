@@ -173,9 +173,13 @@ a returned object present, `null` for a Rust `None` (serde-wasm-bindgen with
 `serialize_missing_as_null`, and napi's `serde_json::Value` conversion), so an
 optional field is declared `T | null`. The `api-declarations` pre-commit hook
 fails when either file differs from what the schema generates. The addon's
-`#[napi(object)]` types, `MessageMeta` among them, are the exception still: napi
-leaves a `None` key out, `tools/check_native_declarations.py` holds `native.ts`
-to that, and they go when the extension reads `MessageInfo`.
+own `#[napi(object)]` types are the exception still: napi leaves a `None` key
+out, and `tools/check_native_declarations.py` holds `native.ts` to that. Seven
+returned ones carry `Option` fields that reach JavaScript as missing keys:
+`MessageMeta`, which is deleted when the extension reads `MessageInfo`, and
+`DatasetMeta`, `AxisValuesResult`, `RenderedGrid`, `NetcdfVariableMeta`,
+`LineResult` and `ProbeResult`, which stay and move to explicit nulls in the
+same change (the last of #574's three PRs).
 
 **Why `fieldglass` takes `core` with `default-features = false`.** It sits
 between every host and `core`, so taking core's defaults there would re-enable
