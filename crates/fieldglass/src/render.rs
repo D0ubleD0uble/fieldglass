@@ -260,8 +260,12 @@ pub struct Source<'a> {
     pub ni: u32,
     /// Grid rows — see [`ni`](Self::ni).
     pub nj: u32,
-    /// The scan flags the display consults, as the host read them. Only
-    /// [`Scan::flips_source_rows`] is asked of this here.
+    /// The order the values are in: the decoded raster's scan, as
+    /// `Georef::scan` reports it, not the bits a message stored. The display
+    /// asks only [`Scan::flips_source_rows`] of it. `aligned` compares all
+    /// three flags, which is right only because they describe the values being
+    /// paired (#792). (Named, not linked: `aligned` is compiled only with
+    /// `render` or `analysis`, and this type always is.)
     pub scan: Scan,
     /// What to call the family in a picker caption.
     ///
@@ -2005,9 +2009,12 @@ impl Default for VectorArrows {
 /// Arrows for a vector field, projected onto the same raster the render and the
 /// overlays use (#241).
 ///
-/// `u` and `v` are two decoded fields on one grid — eastward and northward
-/// components, or the grid's own x and y under
-/// [`VectorOptions::grid_relative`]. A cell missing in either is skipped.
+/// `u` and `v` are two decoded fields — eastward and northward components, or
+/// the grid's own x and y under [`VectorOptions::grid_relative`] — each with
+/// its own [`Source`]. Cell `k` of one is paired with cell `k` of the other, so
+/// the two must line up cell for cell, and they are checked with the same gate
+/// that combining two fields uses (`aligned`, #793). A cell missing in either
+/// is skipped. The arrows are drawn on `u`'s placement.
 ///
 /// **Each arrow is built in geographic space and projected like a coastline.**
 /// The shaft runs from the cell along the flow's own bearing, so the target
@@ -2023,18 +2030,25 @@ impl Default for VectorArrows {
 ///
 /// # Errors
 ///
-/// [`Error::Unsupported`] for a grid with no forward geolocation — the refusal
-/// names the families that have one, as the contour and CSV paths do — plus the
-/// reprojection refusals [`overlay_polylines`] reports, and
-/// [`Error::InvalidOption`] when the two fields are not the same size.
+/// [`Error::Unsupported`] when the two sources do not line up, naming the
+/// property that differs as a refused combine does, and for a grid with no
+/// forward geolocation (the refusal names the families that have one, as the
+/// contour and CSV paths do). Also the reprojection refusals
+/// [`overlay_polylines`] reports, and [`Error::InvalidOption`] when a value
+/// array is not the size its source states.
 #[cfg(feature = "render")]
 pub fn vector_polylines(
-    source: &Source<'_>,
+    u_source: &Source<'_>,
     u: &[Option<f64>],
+    v_source: &Source<'_>,
     v: &[Option<f64>],
     options: &RenderOptions,
     vectors: &VectorOptions,
 ) -> Result<VectorArrows, Error> {
+    // Before anything is projected: a u and a v that do not share cells give a
+    // vector that exists at no point, which no later check would notice.
+    crate::align::aligned(u_source, v_source)?;
+    let source = u_source;
     let forward = require_forward_geolocation(source, |gt| {
         format!(
             "vector arrows are not supported for grid type {gt:?} (only {} for now)",

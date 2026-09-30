@@ -869,7 +869,9 @@ export class FieldglassEditorProvider
     // The arrows of a u/v pair, projected onto the current raster (#241). The
     // panel's own message is the u component; the picker chooses v. A refusal
     // travels with the reply — a grid with no forward geolocation cannot place
-    // an arrow — so the panel can say why rather than drawing nothing.
+    // an arrow, and a v whose cells do not line up with u's is refused as a
+    // combine would be (#793) — so the panel can say why rather than drawing
+    // nothing.
     const projectVectors = (req: VectorRequest) => {
       const docHandle = this._handlesByDoc.get(document.uri.toString());
       if (!docHandle) return;

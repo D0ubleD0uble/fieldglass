@@ -2202,24 +2202,38 @@ fn build_palette(field: &Field, options: &PaletteOptions) -> Result<Palette, Err
 
 #[cfg(feature = "grib1")]
 fn grib1_scan(msg: &fieldglass_grib1::Grib1Message) -> Scan {
-    match &msg.gds {
-        Some(gds) => scan_of_grib1(gds).unwrap_or_else(Scan::north_down),
+    match msg.gds.as_ref().and_then(|gds| gds.scanning_mode()) {
+        Some(m) => decoded_scan(m.i_negative, m.j_positive),
         None => Scan::north_down(),
     }
-}
-
-#[cfg(feature = "grib1")]
-fn scan_of_grib1(gds: &fieldglass_grib1::GridDescription) -> Option<Scan> {
-    gds.scanning_mode()
-        .map(|m| Scan::new(m.i_negative, m.j_positive, m.j_consecutive))
 }
 
 #[cfg(feature = "grib2")]
 fn grib2_scan(msg: &fieldglass_grib2::Grib2Message) -> Scan {
     match msg.gds.scanning_mode() {
-        Some(sm) => Scan::new(sm & 0x80 != 0, sm & 0x40 != 0, sm & 0x20 != 0),
+        Some(sm) => decoded_scan(sm & 0x80 != 0, sm & 0x40 != 0),
         None => Scan::north_down(),
     }
+}
+
+/// The scan of the raster a GRIB reader's `decode_message_raster` returns,
+/// from the two direction bits the message states.
+///
+/// `j_consecutive` is always `false` because that raster is always row-major,
+/// whatever bit 3 (`0x20`) says. On a regular grid the reader transposes a
+/// column-major message (`fieldglass_core::transpose_j_consecutive`); on a
+/// quasi-regular grid it ignores the bit, as eccodes 2.34.1 does, and walks
+/// rows; and a message with no rows and columns has no raster to order. Both
+/// editions go through here so they cannot disagree.
+///
+/// Reporting the stored bit instead told a consumer to transpose values that
+/// were already row-major, and made `combine::aligned` refuse a column-major
+/// message against a row-major one on the same grid (#792). The two direction
+/// bits are kept: no reader reorders the raster to undo them, so they still
+/// describe `values`.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn decoded_scan(i_negative: bool, j_positive: bool) -> Scan {
+    Scan::new(i_negative, j_positive, false)
 }
 
 /// `(abbreviation, name, units)` for one GRIB1 message.
