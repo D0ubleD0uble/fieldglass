@@ -16,6 +16,10 @@ the nightly-only libFuzzer target.
 cargo +nightly fuzz run decode
 ```
 
-The seed corpus under `corpus/decode/` is the crate's GRIB1 test fixtures. CI
+The seed corpus under `corpus/decode/` is the crate's GRIB1 test fixtures, plus
+`hand_matrix_of_values_all_absent.grib1`: `hand_matrix_of_values.grib1` with the
+BMS body zeroed, N (BDS octets 12-13) set to 0 and NR = NC = 0xFFFF (octets
+15-18). It is the #802 message, built the same way by the
+`an_all_absent_bitmap_with_a_huge_matrix_is_refused_before_allocating` test. CI
 runs this target time-boxed on pull requests that touch the crate; see
 `.github/workflows/fuzz.yml`.
