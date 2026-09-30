@@ -358,7 +358,7 @@ pub const fn grid_band_limit(ni: usize, nj: usize) -> u32 {
 
 /// The highest total wavenumber a caller's grid resolves — [`grid_band_limit`]
 /// for axes that need not be global, regular or ordered — or `None` when
-/// neither axis has two distinct points, so neither limits anything.
+/// neither axis has three distinct points, so neither limits anything.
 ///
 /// Each axis is judged by its coarsest step `Δ` in degrees: a step of `Δ`
 /// carries wavenumbers below `180/Δ`, so the limit is `⌊180/Δ⌋ − 1`, and the
@@ -368,10 +368,14 @@ pub const fn grid_band_limit(ni: usize, nj: usize) -> u32 {
 /// and the one gap a regional grid leaves outside itself — the largest — is
 /// not a step; latitudes are read as a line.
 ///
-/// One point on an axis says nothing about resolution along it, so a single
-/// latitude or longitude leaves the other axis to decide, and a single point
-/// is evaluated in full. Non-finite coordinates are ignored here; the
-/// transform evaluates them as it evaluates any other.
+/// **An axis constrains the limit only when it has at least three distinct
+/// points.** One or two points on an axis are a handful of places, not a
+/// sampling of it: 361 latitudes at longitudes 0° and 180°, or latitudes ±45°
+/// round a whole circle of longitudes, would otherwise read as a 180° or 90°
+/// step and collapse the field to its mean. Such an axis leaves the other to
+/// decide, and when neither axis constrains anything — a single point, a 2 × 2
+/// grid — the grid is evaluated in full, as a point is. Non-finite coordinates
+/// are ignored here; the transform evaluates them as it evaluates any other.
 #[must_use]
 pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Option<u32> {
     let limit_of_step = |step: f64| -> u32 {
@@ -396,15 +400,19 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
         v.dedup();
         v
     };
+    // Fewer than this many distinct points on an axis do not sample it.
+    const MIN_POINTS: usize = 3;
     let lats = sorted(latitudes_deg, false);
-    let by_latitude = lats
-        .windows(2)
+    let by_latitude = (lats.len() >= MIN_POINTS)
+        .then_some(&lats)
+        .into_iter()
+        .flat_map(|lats| lats.windows(2))
         .map(|w| w[1] - w[0])
         .reduce(f64::max)
         .map(limit_of_step);
     let lons = sorted(longitudes_deg, true);
     let by_longitude = match (lons.first(), lons.last()) {
-        (Some(&first), Some(&last)) if lons.len() >= 2 => {
+        (Some(&first), Some(&last)) if lons.len() >= MIN_POINTS => {
             let mut gaps: Vec<f64> = lons.windows(2).map(|w| w[1] - w[0]).collect();
             gaps.push(first + 360.0 - last);
             gaps.sort_by(f64::total_cmp);
@@ -1526,7 +1534,20 @@ mod tests {
         assert_eq!(points_band_limit(&[], &[]), None);
         assert_eq!(points_band_limit(&[f64::NAN, 1.0], &[2.0, 2.0]), None);
         // A step too coarse to carry anything carries T0.
-        assert_eq!(points_band_limit(&[-90.0, 90.0], &[]), Some(0));
+        assert_eq!(points_band_limit(&[], &[0.0, 120.0, 240.0]), Some(0));
+        assert_eq!(points_band_limit(&[-90.0, 0.0, 90.0], &[]), Some(1));
+        // Two points on an axis do not sample it (#637): they leave the other
+        // axis to decide, and with neither sampled the grid is evaluated in
+        // full, as a point is.
+        assert_eq!(points_band_limit(&[-90.0, 90.0], &[]), None);
+        let global_lats = axis(-90.0, 90.0, 0.5);
+        let global_lons = axis(0.0, 359.5, 0.5);
+        assert_eq!(points_band_limit(&global_lats, &[0.0]), Some(359));
+        assert_eq!(points_band_limit(&global_lats, &[0.0, 180.0]), Some(359));
+        assert_eq!(points_band_limit(&[-45.0, 45.0], &global_lons), Some(359));
+        assert_eq!(points_band_limit(&[30.0], &global_lons), Some(359));
+        assert_eq!(points_band_limit(&[-45.0, 45.0], &[0.0, 180.0]), None);
+        assert_eq!(points_band_limit(&[30.0], &[120.0]), None);
     }
 
     /// A column whose sectoral term is in range but whose next term is not —

@@ -543,7 +543,10 @@ impl<S: ByteSource> Grib1Reader<S> {
     ///
     /// Only the wavenumbers the grid can carry are summed:
     /// [`points_band_limit`](fieldglass_core::sht::points_band_limit), from the
-    /// grid's coarsest step (a 0.25° grid carries T719, a 1° grid T179). This is
+    /// grid's coarsest step (a 0.25° grid carries T719, a 1° grid T179). An
+    /// axis counts only when it has at least three distinct points, so a
+    /// single meridian or two latitudes leave the other axis to decide, and a
+    /// grid with neither (a single point, 2 × 2) is synthesised in full. This is
     /// what ECMWF's MIR does by default before every spectral-to-grid transform
     /// (#637): past that limit a grid's points alias the rest of the field onto
     /// what they can show. A message declaring no more than the grid carries is
@@ -561,10 +564,12 @@ impl<S: ByteSource> Grib1Reader<S> {
     ///   decode ([`decode_spectral_message`](Self::decode_spectral_message)).
     /// - The band limit and the grid together cost more than
     ///   [`MAX_SYNTHESIS_WORK`](fieldglass_core::sht::MAX_SYNTHESIS_WORK) (the
-    ///   full sum at T8192 on a 720 × 361 grid, about twenty seconds), or the
-    ///   grid holds more than
+    ///   full sum at T8192 on a 720 × 361 grid, about thirty seconds), or the
+    ///   transform's tables for that grid exceed
     ///   [`MAX_SYNTHESIS_CELLS`](fieldglass_core::sht::MAX_SYNTHESIS_CELLS)
-    ///   points, one field's worth. Both are
+    ///   (the output raster plus the phase tables, `(2(L+1)+1)·nlon`, and the
+    ///   per-latitude sums; see
+    ///   [`synthesis_cells`](fieldglass_core::sht::synthesis_cells)). Both are
     ///   [`FieldglassError::Parse`], refused before anything is allocated. A
     ///   single point is never refused;
     ///   [`evaluate_spectral_point`](Self::evaluate_spectral_point) reads one.

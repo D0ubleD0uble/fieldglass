@@ -856,10 +856,10 @@ fn meta_row(subject: &Subject<'_>) -> Row {
         packing: _,
         reprojectable: _,
         placement: _,
-        // The band-limit label (#637): absent for every message in the corpus,
-        // whose spectral fields are T63, and pinned by `lib.rs` tests on T383.
-        truncated_to: _,
-        declared_truncation: _,
+        // The band-limit label (#637), set only for the T383 fixtures: mixed
+        // below only where it exists, so every other row keeps its hash.
+        truncated_to,
+        declared_truncation,
     } = &meta;
     mix_opt_str(&mut h, grid_type.as_deref());
     mix_opt_i32(&mut h, *grid_ni);
@@ -911,9 +911,22 @@ fn meta_row(subject: &Subject<'_>) -> Row {
     mix_opt_f64(&mut h, *geos_y0);
     mix_opt_f64(&mut h, *geos_dy_rad);
     mix_opt_bool(&mut h, *j_scans_positive);
+    let truncation = match (truncated_to, declared_truncation) {
+        (None, None) => String::new(),
+        (shown, declared) => {
+            mix_str(&mut h, "truncation");
+            mix_opt_f64(&mut h, shown.map(f64::from));
+            mix_opt_f64(&mut h, declared.map(f64::from));
+            format!(
+                " shown=T{} of T{}",
+                shown.map_or("-".to_string(), |t| t.to_string()),
+                declared.map_or("-".to_string(), |t| t.to_string()),
+            )
+        }
+    };
     Row {
         portable: format!(
-            "family={} ni={} nj={} reprojectable={}",
+            "family={} ni={} nj={} reprojectable={}{truncation}",
             meta.grid_type.as_deref().unwrap_or("-"),
             meta.grid_ni.unwrap_or(-1),
             meta.grid_nj.unwrap_or(-1),
