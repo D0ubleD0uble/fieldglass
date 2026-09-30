@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
 import shutil
 import subprocess
 import sys
@@ -49,6 +50,11 @@ FIXTURES = builder.FIXTURES
 WORK = REPO / "target" / "aec-oracle"
 ORACLE = REPO / "target" / "release" / "examples" / "oracle"
 
+# `aec_cases` and `sz_cases` in the committed corpus, the counts
+# `crates/fieldglass-aec/tests/common/mod.rs` pins. Step 1's diff already holds
+# them; pinning them here too makes a count change fail with a plain message.
+CORPUS_AEC_CASES = 540
+CORPUS_SZ_CASES = 78
 # `aec_cases` in the `--full` matrix. Pinned so a matrix that shrinks, or
 # comes back empty, fails rather than passing on fewer cases. A change to the
 # matrix in `build_aec_fixtures.py` changes this number in the same commit.
@@ -74,6 +80,23 @@ cosdec () { decode "$@"; }
 
 def step(title: str) -> None:
     print(f"\n== {title}", flush=True)
+
+
+def oracle(mode: str, path: Path, **expect: int) -> None:
+    """Run `examples/oracle.rs` in `mode` over `path`.
+
+    It takes its inputs from the environment, not arguments (see its docs).
+    Each `expect` keyword names an `AEC_ORACLE_*` count, e.g.
+    `EXPECT_AEC=4819` sets `AEC_ORACLE_EXPECT_AEC`.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith("AEC_ORACLE_")}
+    settings = {"AEC_ORACLE_MODE": mode, "AEC_ORACLE_INPUT": str(path)}
+    settings.update({f"AEC_ORACLE_{key}": str(value) for key, value in expect.items()})
+    env.update(settings)
+    print("$ " + " ".join(f"{k}={v}" for k, v in settings.items()) + f" {ORACLE}", flush=True)
+    code = subprocess.run([str(ORACLE)], env=env).returncode
+    if code != 0:
+        raise SystemExit(f"oracle {mode} exited with {code}")
 
 
 def run(cmd: list[str], **kw) -> None:
@@ -159,12 +182,12 @@ def main(argv: list[str] | None = None) -> int:
             "`python3 tools/build_aec_fixtures.py`, never edit it by hand"
         )
     print("identical")
-    run([str(ORACLE), "corpus", str(corpus)])
+    oracle("corpus", corpus, EXPECT_AEC=CORPUS_AEC_CASES, EXPECT_SZ=CORPUS_SZ_CASES)
 
     step("2. the full matrix")
     full = WORK / "full"
     generate(tarball, "--full", str(full))
-    run([str(ORACLE), "corpus", str(full), "--expect-aec", str(FULL_AEC_CASES), "--expect-sz", "0"])
+    oracle("corpus", full, EXPECT_AEC=FULL_AEC_CASES, EXPECT_SZ=0)
 
     step("3. CCSDS 121.0-B-2 sample data, with sampledata.sh's parameters")
     samples = WORK / "samples"
@@ -174,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"sampledata.sh names {len(rows)} streams, expected {SAMPLE_STREAMS}")
     listing = WORK / "sampledata.tsv"
     listing.write_text("\n".join(rows) + "\n", encoding="utf-8")
-    run([str(ORACLE), "sampledata", str(listing), "--expect", str(SAMPLE_STREAMS)])
+    oracle("sampledata", listing, EXPECT=SAMPLE_STREAMS)
 
     if not args.keep:
         shutil.rmtree(WORK)

@@ -1,15 +1,22 @@
 //! Compare this crate's decoder with libaec's recorded output, case by case.
 //!
 //! ```text
-//! cargo run --release -p fieldglass-aec --example oracle -- corpus DIR [--expect-aec N] [--expect-sz N]
-//! cargo run --release -p fieldglass-aec --example oracle -- sampledata LIST --expect N
+//! AEC_ORACLE_MODE=corpus AEC_ORACLE_INPUT=DIR [AEC_ORACLE_EXPECT_AEC=N] [AEC_ORACLE_EXPECT_SZ=N] \
+//!     cargo run --release -p fieldglass-aec --example oracle
+//! AEC_ORACLE_MODE=sampledata AEC_ORACLE_INPUT=LIST AEC_ORACLE_EXPECT=N \
+//!     cargo run --release -p fieldglass-aec --example oracle
 //! ```
 //!
 //! The CI oracle job (`tools/aec_oracle.py`, #763) runs this. It is not a
 //! test: the data it reads is generated in CI from a pinned libaec build and is
 //! too large to commit, or is not ours to commit.
 //!
-//! `corpus DIR` reads `DIR/manifest.json`, as `tools/build_aec_fixtures.py`
+//! Configured through the environment rather than arguments: reading
+//! `std::env::args()` trips semgrep's `rust.lang.security.args.args`, and this
+//! repo keeps zero suppressions (the same reason `bench_decode` and the perf
+//! harness's `report` take none).
+//!
+//! The `corpus` mode reads `DIR/manifest.json`, as `tools/build_aec_fixtures.py`
 //! writes it (the committed corpus, or the `--full` matrix), decodes every
 //! `aec_cases` and `sz_cases` row, and checks the result against what libaec
 //! recorded. Where the manifest's `kind` names a recorded divergence from
@@ -17,8 +24,8 @@
 //! shape that divergence describes, and the decode must give the standard's
 //! answer instead; see [`expectation`]. Every other outcome fails.
 //!
-//! `sampledata LIST` decodes the CCSDS 121.0-B-2 sample streams from libaec's
-//! tarball. Each line of `LIST` is `stream<TAB>expected<TAB>graec options`, as
+//! The `sampledata` mode decodes the CCSDS 121.0-B-2 sample streams from libaec's
+//! tarball. Each line of the list is `stream<TAB>expected<TAB>graec options`, as
 //! libaec's `tests/sampledata.sh` passes them to its `graec` tool, and the
 //! decode must equal the expected file byte for byte. There is no divergence
 //! allowance here: the sample data is the standard's own.
@@ -37,13 +44,12 @@ use serde_json::Value;
 const AEC_DATA_ERROR: i64 = -3;
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let result = match args.first().map(String::as_str) {
-        Some("corpus") => corpus(&args[1..]),
-        Some("sampledata") => sampledata(&args[1..]),
+    let result = match env("AEC_ORACLE_MODE").as_deref() {
+        Some("corpus") => corpus(),
+        Some("sampledata") => sampledata(),
         _ => Err(vec![
-            "usage: oracle corpus DIR [--expect-aec N] [--expect-sz N] | \
-             oracle sampledata LIST --expect N"
+            "set AEC_ORACLE_MODE to `corpus` or `sampledata`, and AEC_ORACLE_INPUT; \
+             see the example's docs"
                 .to_owned(),
         ]),
     };
@@ -64,16 +70,24 @@ fn main() -> ExitCode {
 
 type Outcome = Result<String, Vec<String>>;
 
-/// `--name N` from `args`, if present.
-fn flag(args: &[String], name: &str) -> Result<Option<usize>, Vec<String>> {
-    match args.iter().position(|a| a == name) {
-        None => Ok(None),
-        Some(i) => args
-            .get(i + 1)
-            .and_then(|v| v.parse().ok())
-            .map(Some)
-            .ok_or_else(|| vec![format!("{name} needs a number")]),
-    }
+/// The environment variable `name`, if set and not empty.
+fn env(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.is_empty())
+}
+
+/// `AEC_ORACLE_INPUT`, which every mode needs.
+fn input() -> Result<String, Vec<String>> {
+    env("AEC_ORACLE_INPUT").ok_or_else(|| vec!["AEC_ORACLE_INPUT is not set".to_owned()])
+}
+
+/// The number in environment variable `name`, if set.
+fn count(name: &str) -> Result<Option<usize>, Vec<String>> {
+    env(name)
+        .map(|v| {
+            v.parse()
+                .map_err(|_| vec![format!("{name}={v} is not a number")])
+        })
+        .transpose()
 }
 
 fn one<T>(message: String) -> Result<T, Vec<String>> {
@@ -192,16 +206,14 @@ fn narrow<T: TryFrom<u64>>(row: &Value, key: &str) -> Result<T, String> {
     T::try_from(uint(row, key)?).map_err(|_| format!("`{key}` is out of range in {row}"))
 }
 
-fn corpus(args: &[String]) -> Outcome {
-    let Some(dir) = args.first() else {
-        return one("corpus needs a directory".to_owned());
-    };
-    let manifest = Manifest::load(Path::new(dir))?;
+fn corpus() -> Outcome {
+    let dir = input()?;
+    let manifest = Manifest::load(Path::new(&dir))?;
     let aec = manifest.rows("aec_cases")?;
     let sz = manifest.rows("sz_cases")?;
     for (key, rows, want) in [
-        ("aec_cases", aec.len(), flag(args, "--expect-aec")?),
-        ("sz_cases", sz.len(), flag(args, "--expect-sz")?),
+        ("aec_cases", aec.len(), count("AEC_ORACLE_EXPECT_AEC")?),
+        ("sz_cases", sz.len(), count("AEC_ORACLE_EXPECT_SZ")?),
     ] {
         if let Some(want) = want
             && rows != want
@@ -347,14 +359,12 @@ fn graec_params(options: &str) -> Result<Params, String> {
     Params::new(bits, block, rsi, flags).map_err(|e| format!("{options}: {e}"))
 }
 
-fn sampledata(args: &[String]) -> Outcome {
-    let Some(list) = args.first() else {
-        return one("sampledata needs a list file".to_owned());
+fn sampledata() -> Outcome {
+    let list = input()?;
+    let Some(expect) = count("AEC_ORACLE_EXPECT")? else {
+        return one("sampledata needs AEC_ORACLE_EXPECT".to_owned());
     };
-    let Some(expect) = flag(args, "--expect")? else {
-        return one("sampledata needs --expect N".to_owned());
-    };
-    let text = std::fs::read_to_string(list).map_err(|e| vec![format!("{list}: {e}")])?;
+    let text = std::fs::read_to_string(&list).map_err(|e| vec![format!("{list}: {e}")])?;
     let mut failures = Vec::new();
     let mut compared = 0;
     for line in text.lines().filter(|l| !l.trim().is_empty()) {

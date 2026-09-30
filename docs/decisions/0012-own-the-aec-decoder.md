@@ -286,8 +286,8 @@ signature.
 - **Regenerated and diffed in CI** (#763). A path-filtered job rebuilds libaec,
   regenerates the committed corpus and fails on any diff, so a hand-edited
   manifest is caught. It also runs the full matrix (4,819 cases, a count the
-  job pins with `--expect-aec 4819`) and the 66 CCSDS 121.0-B-2 sample files
-  from the tarball, neither of which is committed. The job is
+  job pins with `AEC_ORACLE_EXPECT_AEC=4819`) and the 66 CCSDS 121.0-B-2
+  sample files from the tarball, neither of which is committed. The job is
   `.github/workflows/aec-oracle.yml`, and `tools/aec_oracle.py` runs it
   locally.
 - **No differential testing against rust-aec.** It diverges from libaec in two
