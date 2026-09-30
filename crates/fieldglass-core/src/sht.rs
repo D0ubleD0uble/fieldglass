@@ -57,7 +57,7 @@
 //! arithmetic, the worst `P̄` error is at noise level to T1810, `4·10⁻¹⁰` at
 //! T1840, `2·10⁻⁴` at T1927 and `0.5` at T2000. So every entry point runs the
 //! one kernel SHTns and ducc0 use: each `(latitude, m)` column starts as an
-//! extended-exponent number ([`XNum`]), runs scaled only until it is back in
+//! extended-exponent number (Fukushima 2012), runs scaled only until it is back in
 //! `f64`'s range, and then runs in plain `f64`; a column that never comes back
 //! before the band limit contributes nothing and is skipped. That holds at
 //! every truncation up to [`MAX_TRUNCATION`], costs nothing where the plain
