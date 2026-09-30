@@ -56,7 +56,7 @@ builds really write different `PAD_RSI` streams.
     4 and 6 bits, where acceptance depends on the pair.
   - `aec_cases` (540 rows): parameters, sample count, libaec's status, the
     bytes it wrote and their SHA-256, and the SHA-256 of the stream file.
-  - `sz_cases` (78 rows): `SZ_com_t` parameters (in libsz's order: mask, bits
+  - `sz_cases` (84 rows): `SZ_com_t` parameters (in libsz's order: mask, bits
     per pixel, pixels per block, pixels per scanline, which is not HDF5's
     `cd_values` order), the requested length, libsz's status, the bytes it
     wrote and their SHA-256.
@@ -122,13 +122,17 @@ and RSI ends.
   the standard reads, so `fieldglass-aec` must decode it to `source_sha256`
   (ADR-0012 decision 4); see below.
 
-**szip (`sz_*`, 78).** libsz's `SZ_BufftoBuffCompress` output, decoded with
+**szip (`sz_*`, 84).** libsz's `SZ_BufftoBuffCompress` output, decoded with
 `SZ_BufftoBuffDecompress`: bits per pixel 8, 12, 16, 24, 32 and 64 against
 pixels per block 2, 8, 10, 16, 18 and 32, each once with a scanline that is a
 multiple of the block and once padded; one block per scanline (RSI 1) with a
 scanline shorter than and equal to the block; one pixel per scanline; a 32-bit
-and a 64-bit chunk whose byte-plane edge falls mid-scanline; and the option
-bits libsz ignores (K13, CHIP, RAW). `NN` and `EC`, `MSB` and `LSB` rotate
+and a 64-bit chunk whose byte-plane edge falls mid-scanline; the option
+bits libsz ignores (K13, CHIP, RAW); and six 32- and 64-bit chunks
+(`sz_b*_short_last_line_*`) whose last scanline is short by more than a block
+with the scanline a multiple of the block, which libsz's `add_padding` still
+fills to a whole scanline (#421). The first, 5,000 pixels at 4,096 per
+scanline, is the shape libhdf5 writes for a long 1-D chunk. `NN` and `EC`, `MSB` and `LSB` rotate
 through the grid.
 
 ## What libaec does that the ADR did not say

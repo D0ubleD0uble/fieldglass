@@ -283,28 +283,36 @@ fn a_prefix_of_the_output_decodes_from_the_same_stream() {
 /// out by the output's own length, so every byte after the first plane lands
 /// in the wrong place. libsz returns `SZ_OK` with those bytes (#794, measured
 /// on this corpus: 73% to 87% of them differ from the full decode). Here it
-/// is an error, for every byte-plane case at half its length in whole pixels.
+/// is an error, for every byte-plane case at half its length in whole pixels
+/// whenever that half ends in an earlier scanline than the whole.
 ///
 /// A shortfall that stays inside the last scanline cannot be seen: libsz
 /// pads every scanline to whole blocks, so the samples it drops sit where
-/// that padding would, and the stream ends in the same place.
+/// that padding would, and the stream ends in the same place. The one case
+/// here that small, three pixels in one scanline, is pinned as that limit.
 #[test]
 fn a_byte_plane_output_shorter_than_its_stream_is_an_error() {
     let mut checked = 0;
+    let mut same_line = Vec::new();
     for case in cases() {
         if !matches!(case.params.bits_per_pixel(), 32 | 64) {
             continue;
         }
         let pixel = case.params.bytes_per_pixel();
-        {
-            let short = (case.dest_len / 2) / pixel * pixel;
-            let got = decompress(&case, short);
+        // Byte planes: one stream sample per output byte.
+        let pps = case.params.pixels_per_scanline() as usize;
+        let short = (case.dest_len / 2) / pixel * pixel;
+        let got = decompress(&case, short);
+        if short.div_ceil(pps) < case.dest_len.div_ceil(pps) {
             assert!(
                 matches!(got, Err(AecError::TrailingInput { len, unread }) if len == short && unread > 0),
                 "{} into {short} of {} bytes: {got:?}",
                 case.name,
                 case.dest_len
             );
+        } else {
+            assert!(got.is_ok(), "{}: {got:?}", case.name);
+            same_line.push(case.name.clone());
         }
         // The full length still decodes: the check does not fire on the
         // rest of the last scanline or the fill.
@@ -324,7 +332,8 @@ fn a_byte_plane_output_shorter_than_its_stream_is_an_error() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 26, "byte-plane cases in the corpus");
+    assert_eq!(checked, 32, "byte-plane cases in the corpus");
+    assert_eq!(same_line, ["sz_b32_short_last_line_ec"]);
 
     // The two #794 names, spelled out.
     for name in ["sz_b32_ppb16_exact", "sz_b64_ppb32_padded"] {
