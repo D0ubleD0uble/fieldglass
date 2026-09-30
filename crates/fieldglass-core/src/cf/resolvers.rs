@@ -8,7 +8,7 @@
 //! their projection lives in metadata the lat/lon path never reads.
 //!
 //! Two metadata paths, both terminating in a parameter struct this module
-//! returns and the napi layer maps onto a `MessageMeta`:
+//! returns and a caller converts into a `GridGeometry`:
 //!
 //! 1. **CF `grid_mapping`** ([`resolve_cf_geostationary`]) — the standard path.
 //!    A data variable names a `grid_mapping` variable whose `grid_mapping_name`
@@ -136,9 +136,8 @@ pub fn resolve_cf_geostationary(
 /// few hundred metres off its true position.
 pub const WRF_EARTH_RADIUS_M: f64 = 6_370_000.0;
 
-/// A Lambert Conformal grid resolved from WRF global attributes. Mirrors the
-/// `lambert_*` + corner fields of a `MessageMeta`; the napi layer copies these
-/// straight across and reuses the existing Lambert projector.
+/// A Lambert Conformal grid resolved from WRF global attributes. Converts into
+/// a `GridGeometry::Lambert`, which reuses the existing Lambert projector.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WrfLambertGrid {
     /// Columns — the `west_east` dimension.
@@ -255,9 +254,9 @@ pub fn resolve_wrf_lambert(
     })
 }
 
-/// A polar stereographic grid resolved from WRF global attributes. Mirrors the
-/// `polar_stereo_*` + corner fields of a `MessageMeta`; the napi layer copies
-/// these straight across and reuses the existing polar stereographic projector.
+/// A polar stereographic grid resolved from WRF global attributes. Converts
+/// into a `GridGeometry::PolarStereo`, which reuses the existing polar
+/// stereographic projector.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WrfPolarStereoGrid {
     /// Columns — the `west_east` dimension.
@@ -366,7 +365,7 @@ pub fn resolve_wrf_mercator(
 /// An unrotated WRF lat-lon grid (`MAP_PROJ == 6`, `POLE_LAT == 90`). Like the
 /// WRF Mercator grid it is pinned entirely by its corner coordinates: an
 /// unrotated lat-lon domain is a plain regular geographic grid, so both corners
-/// fix a `"latlon"` `MessageMeta` the existing lat/lon projector reads. `DX`/`DY`
+/// fix a `"latlon"` geometry the existing lat/lon projector reads. `DX`/`DY`
 /// (which are *degrees* here, not metres) and `STAND_LON` never enter the
 /// geolocation.
 #[derive(Debug, Clone, Copy, PartialEq)]

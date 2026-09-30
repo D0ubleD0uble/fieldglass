@@ -93,7 +93,7 @@
 //! fields is recorded too, with its resolved geometry, a source-projection
 //! render and an equirectangular render.
 //!
-//! [`DEEP_FIELDS`] then names 16 of them and gives each the full matrix: every
+//! [`DEEP_FIELDS`] then names 17 of them and gives each the full matrix: every
 //! target projection under both resamplings, three manual render windows, the
 //! flipped source view, probes, contours and both CSV formats. That is where
 //! the per-family warp setups actually differ. Running the matrix over all 144
@@ -102,19 +102,21 @@
 //! runs, and the extra cases differ only in the data flowing through the same
 //! code path.
 //!
-//! The 16 are one per *source path*, which is a finer partition than the render
+//! The 17 are one per *source path*, which is a finer partition than the render
 //! family: spectral synthesis (in full, and band-limited with a full-detail
 //! probe), HEALPix resampling and two ordinary lat/lon grids all report
-//! `family=latlon`, and the sixteen entries cover twelve families. `every_grid_family_in_the_golden_has_a_deep_field` enforces the
+//! `family=latlon`, and the seventeen entries cover thirteen families.
+//! `every_grid_family_in_the_golden_has_a_deep_field` enforces the
 //! coarser half — a family arriving with no representative fails rather than
 //! being covered shallowly — while the finer half is the named list itself,
 //! held in place by `every_deep_field_is_still_in_the_recording`.
 //!
-//! Two of the sixteen trace no contours at all under any target: the regular
-//! Gaussian and the rotated lat/lon fixtures are constant fields, so the auto
-//! levels have nothing to cross. They are each the only fixture of their family
-//! in the corpus, so there is nothing to swap them for; the tracer is covered
-//! by the other fourteen.
+//! Three of the seventeen trace no contours at all under any target. The
+//! regular Gaussian and the rotated lat/lon fixtures are constant fields, so the
+//! auto levels have nothing to cross; they are each the only fixture of their
+//! family in the corpus, so there is nothing to swap them for. The
+//! coordinate-less slice is refused outright, since a contour needs a position
+//! per point. The tracer is covered by the other fourteen.
 //!
 //! # Re-recording
 //!
@@ -223,14 +225,14 @@ const WINDOWS: [NamedWindow; 3] = [
 ///
 /// A finer partition than the render family, and deliberately so — spectral
 /// synthesis, HEALPix resampling and two ordinary lat/lon grids all report
-/// `family=latlon`, so these sixteen cover twelve families. Chosen as the
+/// `family=latlon`, so these seventeen cover thirteen families. Chosen as the
 /// cheapest fixture in each family, plus the three source paths that synthesise
 /// a lat/lon grid instead of describing one, plus the two refusals: a §3.20 whose
 /// stated radius places no point (#603) and a §3.51 whose geometry never
 /// resolves at all. `every_grid_family_in_the_golden_has_a_deep_field` asserts
 /// the family half of that coverage; the source-path half is this list, held in
 /// place by `every_deep_field_is_still_in_the_recording`.
-const DEEP_FIELDS: [&str; 16] = [
+const DEEP_FIELDS: [&str; 17] = [
     // A lat/lon grid whose row order is the awkward one, from GRIB1.
     "grib1/j_consecutive_latlon.grib1#00",
     // Spectral: no grid of its own, synthesised onto a global 0.5° lat/lon.
@@ -258,6 +260,11 @@ const DEEP_FIELDS: [&str; 16] = [
     // WRF's Mercator projection: the only Mercator grid in the corpus, and a
     // geometry synthesised from projection attributes rather than declared.
     "netcdf/wrf_mercator.nc#T2",
+    // A slice with no coordinates at all: `family=source`, drawn in grid
+    // coordinates and placed by nothing, so every map target refuses it. It
+    // was captioned `latlon` until #574 and so hid inside that family, which is
+    // why the coverage guard did not ask for it sooner.
+    "netcdf/hdf5_v2_linkinfo.h5#chunked",
 ];
 
 /// One recorded case.
@@ -327,16 +334,32 @@ enum Subject<'a> {
 }
 
 impl Subject<'_> {
-    /// The geometry the display path will actually run on — the resolved one,
-    /// so a spectral or HEALPix message reports its synthesis grid.
-    fn meta(&self) -> napi::Result<MessageMeta> {
+    /// The placement the display path will actually run on — the resolved one,
+    /// so a spectral or HEALPix message reports its synthesis grid — with the
+    /// raster shape it paints.
+    fn placement(&self) -> napi::Result<(fieldglass::Georef, u32, u32)> {
+        let georef = |g: fieldglass::Georef| {
+            let (ni, nj) = (g.ni, g.nj);
+            (g, ni, nj)
+        };
         match self {
-            Self::Grib1(h, i) => h.resolved_meta(*i),
-            Self::Grib2(h, i) => h.resolved_meta(*i),
+            Self::Grib1(h, i) => h.resolved_georef(*i).map(georef),
+            Self::Grib2(h, i) => h.resolved_georef(*i).map(georef),
             Self::Netcdf(h, v, y, x, _) => {
                 let var = h.renderable(*v)?;
-                h.slice_meta(&var, *y as usize, *x as usize)
+                h.slice_georef(&var, *y as usize, *x as usize)
             }
+        }
+    }
+
+    /// The message's band-limit label (#637): `Some` only for a spectral
+    /// message declaring more than the synthesis grid carries. Read through
+    /// `message(i)`, as the extension reads it; a NetCDF slice has none.
+    fn truncation(&self) -> Option<fieldglass::SpectralTruncation> {
+        match self {
+            Self::Grib1(h, i) => h.info(*i).ok().and_then(|m| m.truncation),
+            Self::Grib2(h, i) => h.info(*i).ok().and_then(|m| m.truncation),
+            Self::Netcdf(..) => None,
         }
     }
 
@@ -670,28 +693,6 @@ fn mix_opt_i32(h: &mut u64, v: Option<i32>) {
     }
 }
 
-/// Fold an optional `bool`, with a presence tag.
-fn mix_opt_bool(h: &mut u64, v: Option<bool>) {
-    match v {
-        None => support::fnv(h, &[0xff]),
-        Some(v) => {
-            support::fnv(h, &[0x01]);
-            support::fnv(h, &[u8::from(v)]);
-        }
-    }
-}
-
-/// Fold an optional string, with a presence tag.
-fn mix_opt_str(h: &mut u64, v: Option<&str>) {
-    match v {
-        None => support::fnv(h, &[0xff]),
-        Some(v) => {
-            support::fnv(h, &[0x01]);
-            mix_str(h, v);
-        }
-    }
-}
-
 /// An error reason with every run of digits replaced by `#`, tabs and newlines
 /// flattened to spaces.
 ///
@@ -736,24 +737,21 @@ fn error_row(e: &napi::Error) -> Row {
     }
 }
 
-/// The resolved geometry: family, raster shape and reprojection offer in the
-/// open, every geometry-defining field in the fold.
+/// The resolved placement: family, raster shape and reprojection offer in the
+/// open, the whole `Georef` in the fold.
 ///
-/// The fold destructures `MessageMeta` exhaustively with no rest pattern: a
-/// field added to it is a compile error here until someone decides whether it
-/// belongs in the recording. That guard used to live on
-/// `MessageMeta::geometry()`, where it also served the combine gate; #579 moved
-/// the gate onto `GridGeometry` in `fieldglass`, and this is the recording that
-/// still wants it. The *set* of fields folded below is unchanged, and
-/// deliberately so — these rows are what the refactor has to leave
-/// byte-identical.
+/// The fold is the placement's wire form, the object a host is handed, so a
+/// field added to `Georef` is recorded without anyone having to remember to add
+/// it here. Until #574 this row folded the geometry fields of the `MessageMeta`
+/// view, field by field; that view is gone, and `Georef` carries every one of
+/// those fields and more — the geometry itself, the corners, the scan and the
+/// placement — so what the row pins is a superset of what it pinned.
 ///
-/// Folding each field by its own bits rather than through `Debug` also keeps
-/// the recording out of reach of two things that are not behaviour — the
-/// toolchain's float formatting, and the field names.
+/// `serde_json`'s float formatting is shortest-round-trip, so the text is a
+/// function of the bits and not of the toolchain.
 fn meta_row(subject: &Subject<'_>) -> Row {
-    let meta = match subject.meta() {
-        Ok(m) => m,
+    let (georef, ni, nj) = match subject.placement() {
+        Ok(p) => p,
         // A geometry that will not resolve is its own family as far as the
         // coverage guard is concerned: `family=unresolved` keeps those fields
         // inside `every_grid_family_in_the_golden_has_a_deep_field` instead of
@@ -769,168 +767,27 @@ fn meta_row(subject: &Subject<'_>) -> Row {
     };
     let mut h = hasher();
     mix_str(&mut h, "meta");
-    let MessageMeta {
-        // Not part of the display path: it says how a *vector pair* should be
-        // read, which changes no pixel of a single field's render. The
-        // conformance suite pins it per message instead (#241).
-        uv_relative_to_grid: _,
-        grid_type,
-        grid_ni,
-        grid_nj,
-        lat_first,
-        lon_first,
-        lat_last,
-        lon_last,
-        earth_radius_metres,
-        lambert_lad,
-        lambert_lov,
-        lambert_dx_metres,
-        lambert_dy_metres,
-        lambert_latin1,
-        lambert_latin2,
-        gaussian_n_parallels,
-        polar_stereo_lov,
-        polar_stereo_lad,
-        polar_stereo_dx_metres,
-        polar_stereo_dy_metres,
-        polar_stereo_south_pole,
-        lambert_azimuthal_semi_major_metres,
-        lambert_azimuthal_semi_minor_metres,
-        lambert_azimuthal_standard_parallel,
-        lambert_azimuthal_central_longitude,
-        lambert_azimuthal_dx_metres,
-        lambert_azimuthal_dy_metres,
-        transverse_mercator_semi_major_metres,
-        transverse_mercator_semi_minor_metres,
-        transverse_mercator_lat_ref,
-        transverse_mercator_lon_ref,
-        transverse_mercator_scale_factor,
-        transverse_mercator_false_easting_metres,
-        transverse_mercator_false_northing_metres,
-        transverse_mercator_x1_metres,
-        transverse_mercator_y1_metres,
-        transverse_mercator_dx_metres,
-        transverse_mercator_dy_metres,
-        rotated_south_pole_lat,
-        rotated_south_pole_lon,
-        rotated_angle_of_rotation,
-        geos_sub_lon,
-        geos_height,
-        geos_r_eq,
-        geos_r_pol,
-        geos_sweep_x,
-        geos_x0,
-        geos_dx_rad,
-        geos_y0,
-        geos_dy_rad,
-        j_scans_positive,
-        // Not folded: the metadata a difference map holds constant, plus the
-        // answers that are not part of the geometry. For a GRIB message
-        // `reprojectable` and `placement` are the *message's* answers
-        // (`MessageInfo`, about where its values land), whichever grid the row
-        // describes, and for a NetCDF slice they are derived from the geometry
-        // above; `reprojectable` is printed in the portable column. `grid_size_label`
-        // states the *native* size of a grid-less message, which is not the
-        // synthesised raster this row describes; the rest are indices,
-        // parameter, level, time, format and packing.
-        grid_size_label: _,
-        message_index: _,
-        offset_bytes: _,
-        parameter_name: _,
-        parameter_units: _,
-        parameter_abbreviation: _,
-        level: _,
-        level_type: _,
-        reference_time: _,
-        forecast_hours: _,
-        forecast_display: _,
-        p1_octet: _,
-        originating_centre: _,
-        sub_centre: _,
-        format: _,
-        edition: _,
-        discipline: _,
-        total_length_bytes: _,
-        production_status: _,
-        data_type: _,
-        packing: _,
-        reprojectable: _,
-        placement: _,
-        // The band-limit label (#637), set only for the T383 fixtures: mixed
-        // below only where it exists, so every other row keeps its hash.
-        truncated_to,
-        declared_truncation,
-    } = &meta;
-    mix_opt_str(&mut h, grid_type.as_deref());
-    mix_opt_i32(&mut h, *grid_ni);
-    mix_opt_i32(&mut h, *grid_nj);
-    mix_opt_f64(&mut h, *lat_first);
-    mix_opt_f64(&mut h, *lon_first);
-    mix_opt_f64(&mut h, *lat_last);
-    mix_opt_f64(&mut h, *lon_last);
-    mix_opt_f64(&mut h, *earth_radius_metres);
-    mix_opt_f64(&mut h, *lambert_lad);
-    mix_opt_f64(&mut h, *lambert_lov);
-    mix_opt_f64(&mut h, *lambert_dx_metres);
-    mix_opt_f64(&mut h, *lambert_dy_metres);
-    mix_opt_f64(&mut h, *lambert_latin1);
-    mix_opt_f64(&mut h, *lambert_latin2);
-    mix_opt_i32(&mut h, *gaussian_n_parallels);
-    mix_opt_f64(&mut h, *polar_stereo_lov);
-    mix_opt_f64(&mut h, *polar_stereo_lad);
-    mix_opt_f64(&mut h, *polar_stereo_dx_metres);
-    mix_opt_f64(&mut h, *polar_stereo_dy_metres);
-    mix_opt_bool(&mut h, *polar_stereo_south_pole);
-    mix_opt_f64(&mut h, *lambert_azimuthal_semi_major_metres);
-    mix_opt_f64(&mut h, *lambert_azimuthal_semi_minor_metres);
-    mix_opt_f64(&mut h, *lambert_azimuthal_standard_parallel);
-    mix_opt_f64(&mut h, *lambert_azimuthal_central_longitude);
-    mix_opt_f64(&mut h, *lambert_azimuthal_dx_metres);
-    mix_opt_f64(&mut h, *lambert_azimuthal_dy_metres);
-    mix_opt_f64(&mut h, *transverse_mercator_semi_major_metres);
-    mix_opt_f64(&mut h, *transverse_mercator_semi_minor_metres);
-    mix_opt_f64(&mut h, *transverse_mercator_lat_ref);
-    mix_opt_f64(&mut h, *transverse_mercator_lon_ref);
-    mix_opt_f64(&mut h, *transverse_mercator_scale_factor);
-    mix_opt_f64(&mut h, *transverse_mercator_false_easting_metres);
-    mix_opt_f64(&mut h, *transverse_mercator_false_northing_metres);
-    mix_opt_f64(&mut h, *transverse_mercator_x1_metres);
-    mix_opt_f64(&mut h, *transverse_mercator_y1_metres);
-    mix_opt_f64(&mut h, *transverse_mercator_dx_metres);
-    mix_opt_f64(&mut h, *transverse_mercator_dy_metres);
-    mix_opt_f64(&mut h, *rotated_south_pole_lat);
-    mix_opt_f64(&mut h, *rotated_south_pole_lon);
-    mix_opt_f64(&mut h, *rotated_angle_of_rotation);
-    mix_opt_f64(&mut h, *geos_sub_lon);
-    mix_opt_f64(&mut h, *geos_height);
-    mix_opt_f64(&mut h, *geos_r_eq);
-    mix_opt_f64(&mut h, *geos_r_pol);
-    mix_opt_bool(&mut h, *geos_sweep_x);
-    mix_opt_f64(&mut h, *geos_x0);
-    mix_opt_f64(&mut h, *geos_dx_rad);
-    mix_opt_f64(&mut h, *geos_y0);
-    mix_opt_f64(&mut h, *geos_dy_rad);
-    mix_opt_bool(&mut h, *j_scans_positive);
-    let truncation = match (truncated_to, declared_truncation) {
-        (None, None) => String::new(),
-        (shown, declared) => {
+    mix_str(
+        &mut h,
+        &serde_json::to_string(&georef).expect("a Georef serialises"),
+    );
+    mix_opt_i32(&mut h, i32::try_from(ni).ok());
+    mix_opt_i32(&mut h, i32::try_from(nj).ok());
+    // The band-limit label (#637), the message's own answer rather than the
+    // grid's, set only for the T383 fixtures: mixed only where it exists.
+    let truncation = match subject.truncation() {
+        None => String::new(),
+        Some(t) => {
             mix_str(&mut h, "truncation");
-            mix_opt_f64(&mut h, shown.map(f64::from));
-            mix_opt_f64(&mut h, declared.map(f64::from));
-            format!(
-                " shown=T{} of T{}",
-                shown.map_or("-".to_string(), |t| t.to_string()),
-                declared.map_or("-".to_string(), |t| t.to_string()),
-            )
+            mix_opt_f64(&mut h, Some(f64::from(t.truncated_to)));
+            mix_opt_f64(&mut h, Some(f64::from(t.declared)));
+            format!(" shown=T{} of T{}", t.truncated_to, t.declared)
         }
     };
     Row {
         portable: format!(
-            "family={} ni={} nj={} reprojectable={}{truncation}",
-            meta.grid_type.as_deref().unwrap_or("-"),
-            meta.grid_ni.unwrap_or(-1),
-            meta.grid_nj.unwrap_or(-1),
-            meta.reprojectable,
+            "family={} ni={ni} nj={nj} reprojectable={}{truncation}",
+            georef.label, georef.reprojectable,
         ),
         exact: h,
     }

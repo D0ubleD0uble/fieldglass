@@ -24,10 +24,6 @@ use std::sync::Mutex;
 mod characterisation;
 mod directory_store;
 
-// The one `MessageMeta` builder for a GRIB message, over what `Session` reports
-// (#726). It replaced a per-edition pair that read the format crates directly.
-mod session_meta;
-
 // This host, run through the ADR-0006 conformance suite that ships in
 // `fieldglass` (#573). Test only, and the second runner of one set of
 // expectations — the browser host's Node runner is the third.
@@ -88,351 +84,6 @@ mod into_napi_tests {
 /// its declared grid (#330).
 type ResolvedField = (std::sync::Arc<Vec<Option<f64>>>, Placed);
 
-/// A single message's metadata, exposed to Node.js.
-///
-/// `Default` is derived so a builder states the fields its family actually has
-/// and leaves the rest absent, rather than writing out seventy-two of them to
-/// say "not this one" (#726). Every field is either an `Option`, a `String`, a
-/// number or a `bool`, so the derived value is the all-absent meta.
-#[napi(object)]
-#[derive(Debug, Default)]
-pub struct MessageMeta {
-    /// Position of the message in the file, and the handle every other call
-    /// takes.
-    pub message_index: i32,
-    /// Byte offset of the message's first byte within the file. A JS number,
-    /// not a 32-bit integer: GRIB and NetCDF archives run past 2 GiB, and an
-    /// `i32` offset goes negative there. Exact up to 2^53 bytes.
-    pub offset_bytes: f64,
-    /// The parameter's name, as the table that resolved it states it.
-    ///
-    /// When no table in this build resolves the message's parameter codes,
-    /// this is `Parameter <codes>` — the codes that went unresolved, slash
-    /// separated, outermost first: `Parameter 209/10/0` for GRIB2
-    /// (discipline/category/number), `Parameter 98/128/210` for GRIB1
-    /// (centre/table version/id). The same string `fieldglass::api::Field`
-    /// documents and every host shows (#633).
-    pub parameter_name: String,
-    /// Units as the parameter's table states them, typeset for display
-    /// (ADR-0007). Empty when the parameter did not resolve.
-    pub parameter_units: String,
-    /// The table's short name for the parameter, e.g. `"2t"`. Empty when the
-    /// parameter did not resolve.
-    pub parameter_abbreviation: String,
-    /// The level, rendered — `"500 hPa"`, `"2 m above ground"`.
-    pub level: String,
-    /// The level's surface type on its own, so a host can group messages that
-    /// share a surface at different values.
-    pub level_type: String,
-    /// Reference (analysis) time, rendered. Empty when the message carries no
-    /// usable date.
-    pub reference_time: String,
-    /// Forecast lead normalised to whole hours, whatever unit the message
-    /// states it in. See `p1_octet` for why the raw octet travels separately.
-    pub forecast_hours: i32,
-    /// Forecast lead rendered for display, e.g. `"+6h"`, `"+30 Minute"`,
-    /// `"analysis"`.
-    pub forecast_display: String,
-    /// Raw P1 octet (GRIB1 PDS octet 19), for the dormant in-viewer edit of
-    /// that byte. `None` wherever writing one octet would not mean what the
-    /// reader sees: GRIB2 and NetCDF have no P1, and GRIB1 time-range 10
-    /// spends octets 19 *and* 20 on a single 16-bit value, so editing octet 19
-    /// alone would move the lead by multiples of 256.
-    ///
-    /// Deliberately not `forecast_hours`: that is normalised to hours while
-    /// the edit writes the octet. Under a 3-hourly unit the two differ by 3×,
-    /// so opening the box and saving an untouched value would have tripled the
-    /// lead time.
-    pub p1_octet: Option<i32>,
-    /// Whether this message's `u`/`v` components run along the grid's own axes
-    /// rather than east and north (#241). `null` when the family states no
-    /// resolution flags, and for a NetCDF or Zarr slice.
-    pub uv_relative_to_grid: Option<bool>,
-    /// Originating centre name (WMO Common Code Table C-11), or the numeric
-    /// code when the centre is unassigned.
-    pub originating_centre: String,
-    /// Sub-centre name (WMO Common Code Table C-12), or `None` when the field
-    /// is 0 ("no sub-centre") or the pair is unassigned. Resolved from the
-    /// **pair**: the same sub-centre code means different things under
-    /// different centres (#440).
-    pub sub_centre: Option<String>,
-    /// The grid's family as its own format names it, e.g.
-    /// `"regular_ll"`, `"lambert"`. `None` for a message with no grid.
-    pub grid_type: Option<String>,
-    /// Grid columns (points along a row). `None` for a grid-less message; see
-    /// `grid_size_label` for what such a message reports instead.
-    pub grid_ni: Option<i32>,
-    /// Grid rows. `None` for a grid-less message.
-    pub grid_nj: Option<i32>,
-    /// The field's size in its own family's units when it has no raster
-    /// shape — spectral truncation (`T63`), HEALPix `Nside`. A host shows it
-    /// where `grid_ni`/`grid_nj` would go, so a grid-less message states its
-    /// size instead of reporting a dash.
-    ///
-    /// This is the message's *native* size, so it survives onto the
-    /// synthesised render meta alongside that grid's real dimensions; it is
-    /// not an alternative spelling of them.
-    pub grid_size_label: Option<String>,
-    /// Latitude of the first scanned grid point, degrees. For a rotated grid
-    /// this is in the rotated frame, not the geographic one.
-    pub lat_first: Option<f64>,
-    /// Longitude of the first scanned grid point, degrees.
-    pub lon_first: Option<f64>,
-    /// Latitude of the last scanned grid point, degrees.
-    pub lat_last: Option<f64>,
-    /// Longitude of the last scanned grid point, degrees.
-    pub lon_last: Option<f64>,
-    /// Which container the message came out of: `"grib1"`, `"grib2"` or
-    /// `"netcdf"`.
-    pub format: String,
-    /// GRIB edition number (1 or 2). Optional so older callers reading
-    /// historical fields stay source-compatible.
-    pub edition: Option<i32>,
-    /// GRIB2 discipline name (WMO Code Table 0.0). `None` for non-GRIB2.
-    pub discipline: Option<String>,
-    /// Total length of the message in bytes, surfaced for GRIB2 where the
-    /// 64-bit length is part of the IS metadata.
-    pub total_length_bytes: Option<f64>,
-    /// Human-readable production status (WMO Code Table 1.3). `None` for
-    /// formats that don't carry the field.
-    pub production_status: Option<String>,
-    /// Human-readable processed-data type (WMO Code Table 1.4). `None` for
-    /// formats that don't carry the field.
-    pub data_type: Option<String>,
-    // -------------------------------------------------------------------
-    // Lambert Conformal projection parameters (only populated for Lambert
-    // grids; `None` for every other grid type). The renderer uses these to
-    // run an inverse-projection warp from output (lat, lon) → source grid
-    // sample. Naming matches WMO §3.30 / GRIB1 GDS conventions.
-    // -------------------------------------------------------------------
-    /// Radius of the sphere the grid is projected on, in metres, as the message
-    /// declares it (GRIB1's earth-shape flag; GRIB2's `shapeOfTheEarth`; WRF's
-    /// own 6 370 000 m sphere). `None` falls back to the projection default.
-    pub earth_radius_metres: Option<f64>,
-    /// Latitude at which Dx and Dy are specified, in degrees. GRIB2 §3.30
-    /// carries this explicitly; for GRIB1 it is mirrored from `latin1` (the
-    /// historical convention).
-    pub lambert_lad: Option<f64>,
-    /// Orientation longitude (the meridian parallel to the y-axis), degrees.
-    pub lambert_lov: Option<f64>,
-    /// Grid spacing in metres along x at the latitude of true scale.
-    pub lambert_dx_metres: Option<f64>,
-    /// Grid spacing in metres along y at the latitude of true scale.
-    pub lambert_dy_metres: Option<f64>,
-    /// First standard parallel, degrees.
-    pub lambert_latin1: Option<f64>,
-    /// Second standard parallel, degrees.
-    pub lambert_latin2: Option<f64>,
-    // -------------------------------------------------------------------
-    // Gaussian projection parameter (only populated for Gaussian grids).
-    // -------------------------------------------------------------------
-    /// Number of parallels between a pole and the equator (the "N" in the
-    /// Gaussian grid spec). Needed to reconstruct row latitudes via the
-    /// Gauss–Legendre quadrature nodes during reprojection.
-    pub gaussian_n_parallels: Option<i32>,
-    // -------------------------------------------------------------------
-    // Polar stereographic projection parameters (only populated for polar
-    // stereographic grids; `None` for every other grid type). GRIB1 fixes
-    // the latitude of true scale at 60° implicitly — see `PolarStereoParams`
-    // — so the only on-the-wire fields are `lov`, the grid spacing in metres
-    // along x and y, and the pole-orientation flag.
-    // -------------------------------------------------------------------
-    /// Orientation longitude (`LoV`) — meridian parallel to the y-axis,
-    /// degrees.
-    pub polar_stereo_lov: Option<f64>,
-    /// Latitude of true scale (`LaD`), degrees — the parallel at which the
-    /// grid spacings are specified. GRIB1 fixes this at ±60°; GRIB2 §3.20
-    /// carries it explicitly.
-    pub polar_stereo_lad: Option<f64>,
-    /// Grid spacing in metres along x at the latitude of true scale.
-    pub polar_stereo_dx_metres: Option<f64>,
-    /// Grid spacing in metres along y at the latitude of true scale.
-    pub polar_stereo_dy_metres: Option<f64>,
-    /// `true` ⇒ south-pole projection, `false` ⇒ north-pole.
-    pub polar_stereo_south_pole: Option<bool>,
-    // -------------------------------------------------------------------
-    // Lambert azimuthal equal-area parameters (GRIB2 §3.140 only). Both
-    // semi-axes travel for the same reason as transverse Mercator: eccodes
-    // projects an oblate §3.140 on the true spheroid, so a mean radius would
-    // disagree with the oracle as well as with the ground.
-    // -------------------------------------------------------------------
-    /// Semi-major axis in metres, as the message declares it.
-    pub lambert_azimuthal_semi_major_metres: Option<f64>,
-    /// Semi-minor axis in metres, as the message declares it.
-    pub lambert_azimuthal_semi_minor_metres: Option<f64>,
-    /// The tangent point: `standardParallel` latitude and `centralLongitude`.
-    pub lambert_azimuthal_standard_parallel: Option<f64>,
-    /// The tangent point's `centralLongitude`, degrees.
-    pub lambert_azimuthal_central_longitude: Option<f64>,
-    /// Grid spacing in metres, carrying the scanning-mode sign.
-    pub lambert_azimuthal_dx_metres: Option<f64>,
-    /// Grid spacing along y in metres, carrying the scanning-mode sign.
-    pub lambert_azimuthal_dy_metres: Option<f64>,
-    // -------------------------------------------------------------------
-    // Transverse Mercator projection parameters (GRIB2 §3.12 only; `None`
-    // for every other grid type). Unlike Lambert and polar stereographic,
-    // §3.12 states the grid origin in the projection plane rather than as a
-    // corner latitude and longitude, so `x1`/`y1` travel with the rest — and
-    // both semi-axes travel rather than `earth_radius_metres`, because the
-    // projection runs on the spheroid (see `TransverseMercatorParams`).
-    // -------------------------------------------------------------------
-    /// Semi-major and semi-minor axes in metres, as the message declares them.
-    pub transverse_mercator_semi_major_metres: Option<f64>,
-    /// Semi-minor axis in metres, as the message declares it.
-    pub transverse_mercator_semi_minor_metres: Option<f64>,
-    /// Reference point (`LaR`, `LoR`) in degrees; `lon_ref` is the central
-    /// meridian.
-    pub transverse_mercator_lat_ref: Option<f64>,
-    /// Reference longitude (`LoR`) in degrees — the central meridian.
-    pub transverse_mercator_lon_ref: Option<f64>,
-    /// Scale factor at the central meridian (`m`).
-    pub transverse_mercator_scale_factor: Option<f64>,
-    /// False easting and northing (`XR`, `YR`) in metres.
-    pub transverse_mercator_false_easting_metres: Option<f64>,
-    /// False northing (`YR`) in metres.
-    pub transverse_mercator_false_northing_metres: Option<f64>,
-    /// First scanned grid point (`X1`, `Y1`) in projection metres.
-    pub transverse_mercator_x1_metres: Option<f64>,
-    /// Northing of the first scanned grid point (`Y1`) in projection metres.
-    pub transverse_mercator_y1_metres: Option<f64>,
-    /// Grid spacing in metres, carrying the scanning-mode sign.
-    pub transverse_mercator_dx_metres: Option<f64>,
-    /// Grid spacing along y in metres, carrying the scanning-mode sign.
-    pub transverse_mercator_dy_metres: Option<f64>,
-    // -------------------------------------------------------------------
-    // Rotated latitude/longitude projection parameters (only populated for
-    // GRIB2 §3.1 rotated lat/lon grids; `None` for every other grid type).
-    // The grid's corner coordinates (lat/lon first/last) are in the rotated
-    // frame; these three fields define the rotation back to geographic.
-    // -------------------------------------------------------------------
-    /// Geographic latitude of the projection's southern pole (degrees).
-    pub rotated_south_pole_lat: Option<f64>,
-    /// Geographic longitude of the projection's southern pole (degrees).
-    pub rotated_south_pole_lon: Option<f64>,
-    /// Angle of rotation about the new polar axis (degrees).
-    pub rotated_angle_of_rotation: Option<f64>,
-    // -------------------------------------------------------------------
-    // Geostationary / space-view projection parameters (only populated for
-    // GRIB2 §3.90 space-view grids; `None` for every other grid type). The
-    // grid is described in scan-angle space, so the warp reconstructs a
-    // `GeostationaryProjector` whose inverse maps (lat, lon) → scan angle →
-    // grid index. See `fieldglass::GridGeometry::Geostationary`.
-    // -------------------------------------------------------------------
-    /// Sub-satellite longitude (`longitude_of_projection_origin`), degrees.
-    pub geos_sub_lon: Option<f64>,
-    /// Distance from the Earth's centre to the satellite, metres.
-    pub geos_height: Option<f64>,
-    /// Ellipsoid semi-major axis (equatorial radius), metres.
-    pub geos_r_eq: Option<f64>,
-    /// Ellipsoid semi-minor axis (polar radius), metres.
-    pub geos_r_pol: Option<f64>,
-    /// `true` ⇒ sweep angle about the `x` axis (GOES-R; GRIB2 §3.90);
-    /// `false` ⇒ about the `y` axis (Meteosat).
-    pub geos_sweep_x: Option<bool>,
-    /// Scan angle (radians) at column `i = 0`.
-    pub geos_x0: Option<f64>,
-    /// Signed scan-angle increment per column (radians).
-    pub geos_dx_rad: Option<f64>,
-    /// Scan angle (radians) at row `j = 0`.
-    pub geos_y0: Option<f64>,
-    /// Signed scan-angle increment per row (radians).
-    pub geos_dy_rad: Option<f64>,
-    /// Human-readable data-packing method for this message — the GRIB1 BDS
-    /// packing or GRIB2 §5 data-representation template, mapped to a friendly
-    /// label (e.g. "Second-order (SPD-2)", "Simple grid-point"). `None` when
-    /// the section can't be parsed.
-    pub packing: Option<String>,
-    /// Whether the grid this message's **values** land on can be reprojected
-    /// (the render panel's non-source projection targets) — for a GRIB message,
-    /// `fieldglass::MessageInfo::reprojectable`, so a spectral or HEALPix
-    /// message, whose values are synthesised onto a global lat/lon grid,
-    /// answers `true` although the grid it declares does not reproject (#776).
-    /// The grid's own answer, not this crate's:
-    /// only lat/lon, rotated lat/lon, Gaussian, Mercator, curvilinear and the
-    /// planar families (Lambert, polar stereographic, transverse Mercator,
-    /// Lambert azimuthal, space view) reproject; the corner-pinned ones need a
-    /// west-to-east scan, and a planar one needs a non-zero grid spacing (some
-    /// sample files carry Dx = Dy = 0) and a projection that resolves to a
-    /// usable plane, so a collapsed cone or an Earth smaller than one cell stays
-    /// source-only rather than advertising a target the warp then refuses
-    /// (#603, #610). The rule and the reasons behind it are in
-    /// `fieldglass::GridGeometry::reprojectable`, so a second host asking
-    /// the same question gets the same answer. The webview hides the
-    /// reprojection options when this is `false`.
-    pub reprojectable: bool,
-    /// Whether this message's values can be placed on the Earth, and why not
-    /// (#776): `"placed"`, `"no_raster"`, `"unplaceable"`, `"unsupported"` or
-    /// `"predefined_unresolved"` — `fieldglass::Placement`'s wire spelling.
-    ///
-    /// What a message list reads to decide whether it can draw a message at
-    /// all: `"placed"` and `"unplaceable"` both have a raster to paint (the
-    /// second only in its own grid coordinates). The other three do not: there
-    /// is nothing to place, the grid's template is one this build does not
-    /// model, or the predefined grid is one it does not know. About
-    /// the values, like `reprojectable`, so a spectral message is `"placed"`
-    /// and a bi-Fourier one is `"no_raster"` — which is how the two are told
-    /// apart without a list of family names in the host.
-    ///
-    /// Declared to TypeScript as the literal union rather than `string`, so a
-    /// misspelt comparison in a host fails to compile. A test in this crate
-    /// holds the union to `fieldglass::Placement`'s full vocabulary.
-    #[napi(
-        ts_type = "\"placed\" | \"no_raster\" | \"unplaceable\" | \"unsupported\" | \"predefined_unresolved\""
-    )]
-    pub placement: String,
-    /// The truncation a spectral message's map was synthesised at, when that is
-    /// below what the message declares (#637): the 0.5° grid carries T359, so
-    /// a T7999 field is drawn band-limited to T359. `None` for every other
-    /// message. Always set together with `declared_truncation`, and the render
-    /// panel shows the pair ("shown at T359 of T7999") so a smoothed field is
-    /// never shown silently. `fieldglass::MessageInfo::truncation`.
-    pub truncated_to: Option<u32>,
-    /// The truncation the message declares, when its map is band-limited below
-    /// it — see `truncated_to`.
-    pub declared_truncation: Option<u32>,
-    /// Whether the grid's rows scan south→north (GRIB `jScansPositively`).
-    /// The source projection paints grid row 0 at the top of the canvas, so a
-    /// south→north grid renders upside-down unless flipped; the source render
-    /// uses this to orient the raster by default (#286). `None` for grids with
-    /// no scan flag (predefined GRIB1 grids, NetCDF), treated as `false`.
-    pub j_scans_positive: Option<bool>,
-}
-
-/// Answer [`MessageMeta::reprojectable`] and [`MessageMeta::placement`] for a
-/// NetCDF slice's view, from the geometry the slice was placed with.
-///
-/// One predicate for each, and both are `core`'s: [`GridGeometry::reprojectable`]
-/// and `fieldglass::Placement::from_extent`, asked of the same geometry so the
-/// two answers cannot describe different grids (#571, #776). Before #574 the
-/// geometry was the one this host rebuilt out of the meta's own flat fields;
-/// it is now the reader's, handed in.
-///
-/// `scan` is the slice's own storage order. Only [`Scan::i_negative`] is read,
-/// and only by the corner-pinned families, whose inverse maps assume columns run
-/// west to east: a descending longitude axis is NetCDF's spelling of the GRIB −i
-/// scan bit.
-///
-/// Test-only, with the view it answers for — see `NetcdfHandle::slice_meta`.
-#[cfg(test)]
-fn gate_reprojection(mut meta: MessageMeta, geometry: &GridGeometry, scan: Scan) -> MessageMeta {
-    meta.reprojectable = geometry.reprojectable(scan);
-    // A slice with no coordinates maps to a geometry with no grid points, and it
-    // still has the raster `grid_ni` × `grid_nj` that renders in grid
-    // coordinates: that is a raster nothing places, not no raster, so the meta's
-    // own dimensions stand in for the ones the geometry lacks.
-    let raster = match (meta.grid_ni, meta.grid_nj) {
-        (Some(ni), Some(nj)) => u32::try_from(ni).ok().zip(u32::try_from(nj).ok()),
-        _ => None,
-    };
-    meta.placement = fieldglass::Placement::from_extent(
-        geometry.dims().or(raster),
-        geometry.lonlat_bbox().is_some(),
-    )
-    .as_str()
-    .to_string();
-    meta
-}
-
 /// Map an eccodes-style `packingType` (GRIB1) or §5 template name (GRIB2) to a
 /// friendly label for the message table. Falls back to the raw identifier for
 /// anything unmapped so a new variant still shows *something* meaningful.
@@ -480,6 +131,43 @@ fn friendly_packing(label: &str) -> String {
         }
     };
     mapped.to_string()
+}
+
+/// The message table's label for a packing identifier — `MessageInfo.packing`,
+/// e.g. `"grid_second_order"` — such as `"Second-order (SPD-2)"`. An identifier
+/// with no label comes back as itself, so a new packing still shows something.
+///
+/// A function rather than a field because the label is this host's display
+/// text and lossy on purpose (#727), where `MessageInfo.packing` is the
+/// identifier both hosts report (#574).
+#[napi]
+pub fn packing_label(packing: String) -> String {
+    friendly_packing(&packing)
+}
+
+/// An API DTO in the shape it crosses to JavaScript: the plain object its
+/// serde form describes (ADR-0006 decision 2).
+///
+/// **Every key is present, and a Rust `None` is `null`** (#574, decided
+/// 2026-09-29). That is what `serde_json` writes for an `Option` field, and
+/// nothing here strips nulls. The declaration a caller reads is generated from
+/// the same schema (`extension/src/api.generated.ts`), and the extension's
+/// `api-wire` test checks real values against it.
+///
+/// Two things `serde_json` does that the browser binding does not, and why
+/// neither reaches a DTO this returns:
+///
+/// - A non-finite float becomes `null`, where the browser passes `NaN`. No
+///   field of `AxisValues` can hold one, because a coordinate that is not finite
+///   is a hole and the axis reports none (`fieldglass::Session::axis_values`).
+///   No field of `MessageInfo` does either: the geometry parameters are GRIB
+///   integers scaled, and `core` withholds an origin or extent it cannot compute
+///   rather than returning one. `no_message_carries_a_non_finite_float` holds
+///   that over every committed GRIB message.
+/// - An integer above 2^53 becomes a `BigInt`. The byte offsets and lengths of
+///   any GRIB file this can hold in memory are far below it.
+fn to_js(dto: Result<serde_json::Value, serde_json::Error>) -> napi::Result<serde_json::Value> {
+    dto.map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
 /// Detect the format of a file from its raw bytes.
@@ -566,7 +254,14 @@ fn units_from(attributes: &[AttributeMeta]) -> String {
 /// Top-level NetCDF dataset metadata. Covers what's exposable from the
 /// header alone; per-variable values are a separate decode step (out of
 /// scope for issue #29).
-#[napi(object)]
+///
+/// Every key is present, and a field with nothing to report is `null`, never
+/// missing (#574).
+// `use_nullable`: napi writes `null` for a `None` and declares the field
+// `T | null`, the wire form every object this addon returns has (#574, decided
+// 2026-09-29). Without it the key is left out and reads `undefined`, which is
+// how a `T | null` declaration once let a `!== null` guard through (#288).
+#[napi(object, use_nullable = true)]
 #[derive(Debug)]
 pub struct DatasetMeta {
     /// `"classic"` (CDF-1/2/5) or `"hdf5"` (NetCDF-4).
@@ -586,6 +281,7 @@ pub struct DatasetMeta {
     pub fully_parsed: bool,
     /// Free-form note for the provider to surface when `fully_parsed` is
     /// false — e.g. why an HDF5 file's metadata could not be fully resolved.
+    /// `null` otherwise.
     pub note: Option<String>,
     /// Every dimension in the file, in declared order.
     pub dimensions: Vec<DimensionMeta>,
@@ -594,7 +290,7 @@ pub struct DatasetMeta {
     /// Every variable in the file, in declared order — coordinate variables
     /// included, unlike [`NetcdfHandle::variables`].
     pub variables: Vec<VariableMeta>,
-    /// HDF5 superblock version, when applicable. `None` for classic files.
+    /// HDF5 superblock version, when applicable. `null` for classic files.
     pub hdf5_superblock_version: Option<i32>,
     /// NetCDF-4 datasets left out of `variables` because their HDF5 datatype is
     /// outside the decoded subset — compound, enum, variable-length, opaque or
@@ -1010,35 +706,6 @@ pub fn colormaps() -> Vec<ColormapInfo> {
         .collect()
 }
 
-/// One axis of a variable with its coordinate values, for labelling the axes of
-/// a cross-section (#171).
-#[napi(object)]
-#[derive(Debug)]
-pub struct AxisValuesResult {
-    /// The dimension's name, as the file spells it.
-    pub dimension: String,
-    /// How many points the axis has.
-    pub length: f64,
-    /// The coordinate value at each index, or `null` when the container holds no
-    /// coordinate array for the axis — the axis is then its own index.
-    pub coordinates: Option<Vec<f64>>,
-    /// The coordinate array's `units`, empty when it states none. A time axis
-    /// carries the CF form, `hours since 2020-01-01`.
-    pub units: String,
-}
-
-impl From<fieldglass::AxisValues> for AxisValuesResult {
-    fn from(a: fieldglass::AxisValues) -> Self {
-        Self {
-            dimension: a.dimension,
-            // `f64` for the reason `NetcdfAxis::length` is one.
-            length: a.length as f64,
-            coordinates: a.coordinates,
-            units: a.units,
-        }
-    }
-}
-
 /// A colour palette table (`.cpt`) read and compiled, as an import needs it.
 #[napi(object)]
 #[derive(Debug)]
@@ -1101,7 +768,18 @@ pub fn combine_ops() -> Vec<CombineOpInfo> {
 /// Output of [`Grib1Handle::render_grid`] / [`Grib2Handle::render_grid`].
 /// `rgba` is a paint-ready buffer the webview blits straight to canvas
 /// via `putImageData`.
-#[napi(object)]
+///
+/// Every key is present, and a field with nothing to report is `null`, never
+/// missing (#574).
+// `use_nullable`: napi writes `null` for a `None` and declares the field
+// `T | null`, the wire form every object this addon returns has (#574, decided
+// 2026-09-29). Without it the key is left out and reads `undefined`, which is
+// how a `T | null` declaration once let a `!== null` guard through (#288).
+//
+// A `#[napi(object)]` rather than an API DTO through serde, because `rgba` is a
+// bulk buffer: `serde_json` would turn it into an array of numbers, a copy and
+// a type change on every repaint, where ADR-0006 keeps buffers per host.
+#[napi(object, use_nullable = true)]
 pub struct RenderedGrid {
     /// RGBA bytes, `width * height * 4` long.
     pub rgba: napi::bindgen_prelude::Buffer,
@@ -1116,7 +794,7 @@ pub struct RenderedGrid {
     /// High end of the range actually used to paint — see `used_min`.
     pub used_max: f64,
     /// Equirectangular extent actually rendered (degrees), echoed back so the
-    /// webview can pre-fill the manual-bounds inputs. `None` for the
+    /// webview can pre-fill the manual-bounds inputs. `null` for the
     /// source-projection target, which has no geographic extent. `lonMin`/
     /// `lonMax` may fall outside [-180, 180] for an antimeridian-spanning
     /// window — pass them back verbatim to reproduce the same view.
@@ -1271,8 +949,8 @@ impl std::fmt::Debug for DecodedGrid {
 ///
 /// Both GRIB handles are this plus a name. They used to hold their own format
 /// readers and two value caches each — `decoded` for a raster, `synthesized` for
-/// a spectral or HEALPix field — and build `MessageMeta` through per-edition
-/// mappings that read the format crates directly. `Session` already resolves
+/// a spectral or HEALPix field — and build a metadata DTO of their own through
+/// per-edition mappings that read the format crates directly. `Session` already resolves
 /// which families are synthesised and onto what grid, so a handle over it needs
 /// one cache, not two, and no branch on the family at all.
 ///
@@ -1283,65 +961,34 @@ impl std::fmt::Debug for DecodedGrid {
 #[derive(Debug)]
 struct MessageStream {
     session: fieldglass::Session,
-    /// `"grib1"` or `"grib2"`, for `MessageMeta::format`.
-    format: &'static str,
     values: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
 }
 
 impl MessageStream {
-    fn new(session: fieldglass::Session, format: &'static str) -> Self {
+    fn new(session: fieldglass::Session) -> Self {
         Self {
             session,
-            format,
             values: Mutex::new(std::collections::HashMap::new()),
         }
     }
 
-    /// Every message's declared metadata, in file order.
-    fn messages(&self) -> Vec<MessageMeta> {
-        (0..self.session.count())
-            // Cannot fail: the index is inside `count`, and a GRIB session is
-            // message-addressed, which are the only two things `message` checks.
-            .filter_map(|i| self.message_meta(i).ok())
-            .collect()
-    }
-
-    /// Message `index` as the API states it, in its wire form — see
-    /// [`message_info_to_js`].
+    /// Message `index` as the API states it, in its wire form — see [`to_js`].
     fn message_info(&self, index: u32) -> napi::Result<serde_json::Value> {
         let info = self.session.message(index).into_napi()?;
-        message_info_to_js(&info)
+        to_js(serde_json::to_value(&info))
     }
 
-    /// What message `index` declares — its grid as the file names it.
-    fn message_meta(&self, index: u32) -> napi::Result<MessageMeta> {
-        let info = self.session.message(index).into_napi()?;
-        Ok(session_meta::meta_from_session(
-            &info,
-            info.grid.as_ref(),
-            self.format,
-        ))
-    }
-
-    /// Where message `index`'s values land, as the MessageMeta view states it.
-    ///
-    /// The synthesis grid for a spectral or HEALPix message and the declared
-    /// raster otherwise, carrying the corner pair the container reports (#730).
-    /// No entry point renders from this since #574 — they run on the geometry
-    /// itself, through [`placed`](Self::placed) — so it exists for the
-    /// characterisation golden, whose `meta` rows record this view.
+    /// Where message `index`'s values land, as the characterisation golden
+    /// records it: the synthesis grid for a spectral or HEALPix message and the
+    /// declared raster otherwise, refused when it has no raster to display —
+    /// what [`placed`](Self::placed) renders from, in its wire form.
     #[cfg(test)]
-    fn resolved_meta(&self, index: u32) -> napi::Result<MessageMeta> {
-        let info = self.session.message(index).into_napi()?;
+    fn resolved_georef(&self, index: u32) -> napi::Result<fieldglass::Georef> {
         let placed = self.session.place_message(index).into_napi()?;
         if placed.geometry.dims().is_none() {
             return Err(no_display_raster());
         }
-        Ok(session_meta::meta_from_session(
-            &info,
-            Some(&placed),
-            self.format,
-        ))
+        Ok(placed)
     }
 
     /// Message `index`'s placement, refused when it has no raster to display.
@@ -1553,25 +1200,6 @@ impl MessageStream {
     }
 }
 
-/// A `fieldglass::MessageInfo` in the shape it crosses to JavaScript.
-///
-/// **Through serde, not a `#[napi(object)]`** (ADR-0006 decision 2): napi-rs
-/// hands a `serde_json::Value` to JavaScript as the plain object it describes,
-/// so the addon returns exactly the document the browser host and the
-/// conformance suite do, with no host DTO to keep in step.
-///
-/// **Every key is present, and a Rust `None` is `null`** (#574, decided
-/// 2026-09-29). That is what `serde_json` writes for an `Option` field, and it
-/// is kept: nothing here strips nulls. A `#[napi(object)]` does the opposite —
-/// it leaves the key out, so the field reads `undefined` — which is how a
-/// declaration saying `T | null` once let a `!== null` guard through on a
-/// grid-less spectral message (#288). The declaration a caller reads is
-/// generated from the same schema (`extension/src/api.generated.ts`), and the
-/// extension's `api-wire` test checks a real message against it.
-fn message_info_to_js(info: &fieldglass::MessageInfo) -> napi::Result<serde_json::Value> {
-    serde_json::to_value(info).map_err(|e| napi::Error::from_reason(e.to_string()))
-}
-
 /// The refusal every GRIB display entry point gives a message whose grid has no
 /// dimensions — see `MessageStream::placed`.
 fn no_display_raster() -> napi::Error {
@@ -1611,18 +1239,19 @@ impl Grib1Handle {
         Self::from_vec(bytes.to_vec())
     }
 
-    /// Metadata for every message in the file, in file order. Built on each
-    /// call; a caller that needs it repeatedly should hold the result.
+    /// How many messages the file holds: `message(i)` answers for every `i`
+    /// below it. The browser host's `count()`, and `fieldglass::Session::count`.
     #[napi]
-    pub fn messages(&self) -> Vec<MessageMeta> {
-        self.stream.messages()
+    pub fn count(&self) -> u32 {
+        self.stream.session.count()
     }
 
     /// One message's metadata as the fieldglass API states it: the same
     /// `MessageInfo` the browser host's `message(index)` returns, key for key.
     ///
     /// Every key is present, and a field with nothing to report is `null`,
-    /// never missing (#574). Built on each call.
+    /// never missing (#574). Built on each call, so a caller listing a file
+    /// asks once per message and keeps what it gets.
     #[napi(ts_return_type = "MessageInfo")]
     pub fn message(&self, message_index: u32) -> napi::Result<serde_json::Value> {
         self.stream.message_info(message_index)
@@ -1875,13 +1504,16 @@ impl Grib1Handle {
             fieldglass::Session::open_source(std::sync::Arc::clone(&bytes)).into_napi()?;
         Ok(Self {
             bytes,
-            stream: MessageStream::new(session, "grib1"),
+            stream: MessageStream::new(session),
         })
     }
 
+    /// Message `index` as `message(i)` hands it to JavaScript, read back into
+    /// the API type, so a test asserts on what actually crossed.
     #[cfg(test)]
-    fn message_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
-        self.stream.message_meta(message_index)
+    fn info(&self, message_index: u32) -> napi::Result<fieldglass::MessageInfo> {
+        serde_json::from_value(self.message(message_index)?)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 
     fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
@@ -1889,8 +1521,8 @@ impl Grib1Handle {
     }
 
     #[cfg(test)]
-    fn resolved_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
-        self.stream.resolved_meta(message_index)
+    fn resolved_georef(&self, message_index: u32) -> napi::Result<fieldglass::Georef> {
+        self.stream.resolved_georef(message_index)
     }
 }
 
@@ -1914,11 +1546,10 @@ impl Grib2Handle {
         Self::from_vec(bytes.to_vec())
     }
 
-    /// Metadata for every message in the file, in file order. Built on each
-    /// call; a caller that needs it repeatedly should hold the result.
+    /// How many messages the file holds — see [`Grib1Handle::count`].
     #[napi]
-    pub fn messages(&self) -> Vec<MessageMeta> {
-        self.stream.messages()
+    pub fn count(&self) -> u32 {
+        self.stream.session.count()
     }
 
     /// One message's metadata as the fieldglass API states it — see
@@ -2136,13 +1767,16 @@ impl Grib2Handle {
     pub(crate) fn from_vec(bytes: Vec<u8>) -> napi::Result<Self> {
         let session = fieldglass::Session::open(bytes).into_napi()?;
         Ok(Self {
-            stream: MessageStream::new(session, "grib2"),
+            stream: MessageStream::new(session),
         })
     }
 
+    /// Message `index` as `message(i)` hands it to JavaScript, read back into
+    /// the API type, so a test asserts on what actually crossed.
     #[cfg(test)]
-    fn message_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
-        self.stream.message_meta(message_index)
+    fn info(&self, message_index: u32) -> napi::Result<fieldglass::MessageInfo> {
+        serde_json::from_value(self.message(message_index)?)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 
     fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
@@ -2150,51 +1784,27 @@ impl Grib2Handle {
     }
 
     #[cfg(test)]
-    fn resolved_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
-        self.stream.resolved_meta(message_index)
+    fn resolved_georef(&self, message_index: u32) -> napi::Result<fieldglass::Georef> {
+        self.stream.resolved_georef(message_index)
     }
-}
-
-/// A `MessageInfo` with every identification field empty, for a test that is
-/// about one half of `meta_from_session` and nothing else.
-///
-/// Deserialised rather than written as a literal: the type is
-/// `#[non_exhaustive]`, so this crate cannot construct it, and its wire form is
-/// exactly how a host receives one anyway. `overrides` is merged on top, so a
-/// test names only the fields it is about.
-#[cfg(test)]
-pub(crate) fn message_info_with(overrides: serde_json::Value) -> fieldglass::MessageInfo {
-    let mut base = serde_json::json!({
-        "index": 0,
-        "offsetBytes": 0,
-        "parameter": "",
-        "abbreviation": "",
-        "units": "",
-        "level": "",
-        "levelType": "",
-        "forecast": "",
-        "packing": "",
-        "originatingCentre": "",
-        "placement": "no_raster",
-        "reprojectable": false,
-    });
-    if let (Some(base), Some(extra)) = (base.as_object_mut(), overrides.as_object()) {
-        for (k, v) in extra {
-            base.insert(k.clone(), v.clone());
-        }
-    }
-    serde_json::from_value(base).expect("a MessageInfo in its wire form")
 }
 
 /// A geometry a test states in its wire form — `kind` plus the family's own
 /// parameters, snake_case, as `GridGeometry` serialises.
 ///
-/// Deserialised rather than built from the parameter structs, for the reason
-/// [`message_info_with`] is: this crate names nothing below the umbrella (#574),
-/// and the wire form is how a geometry crosses into a host anyway.
+/// Deserialised rather than built from the parameter structs: this crate names
+/// nothing below the umbrella (#574), and the wire form is how a geometry
+/// crosses into a host anyway.
 #[cfg(test)]
 pub(crate) fn test_geometry(wire: serde_json::Value) -> GridGeometry {
     serde_json::from_value(wire).expect("a GridGeometry in its wire form")
+}
+
+/// The other direction: a placement's geometry in its wire form, so a test can
+/// read one family parameter by the name `GridGeometry` serialises it under.
+#[cfg(test)]
+pub(crate) fn geometry_wire(georef: &fieldglass::Georef) -> serde_json::Value {
+    serde_json::to_value(&georef.geometry).expect("a GridGeometry serialises")
 }
 
 // ---------------------------------------------------------------------------
@@ -2217,7 +1827,19 @@ pub struct NetcdfAxis {
 /// the axis indices (into `dims`) the picker pre-fills the Y / X selectors with;
 /// `null` means detection found no matching coordinate variable and the user
 /// must assign that axis by hand.
-#[napi(object)]
+///
+/// Every key is present, and a field with nothing to report is `null`, never
+/// missing (#574).
+// `use_nullable`: napi writes `null` for a `None` and declares the field
+// `T | null`, the wire form every object this addon returns has (#574, decided
+// 2026-09-29). Without it the key is left out and reads `undefined`, which is
+// how a `T | null` declaration once let a `!== null` guard through (#288).
+//
+// Not the API's `VariableInfo`, which the browser host returns, because the two
+// differ on purpose in two places the picker reads: `variableIndex` is the
+// file's own numbering, which every other method here takes, and `units` is
+// typeset for display (ADR-0007).
+#[napi(object, use_nullable = true)]
 #[derive(Debug)]
 pub struct NetcdfVariableMeta {
     /// Index into the reader's decode order — pass back as `variableIndex`.
@@ -2242,10 +1864,10 @@ pub struct NetcdfVariableMeta {
     /// The variable's CF `units`, typeset for display the way a GRIB unit is
     /// (ADR-0007). Empty when the variable declares none.
     ///
-    /// Carried here because the render panel builds its own `MessageMeta` for a
-    /// NetCDF slice and had nowhere to read units from, so its title line and
-    /// probe readout showed none at all — the normalisation would have been
-    /// correct and invisible (#453).
+    /// Carried here because the render panel labels a slice from this list and
+    /// had nowhere else to read units from, so its title line and probe readout
+    /// showed none at all — the normalisation would have been correct and
+    /// invisible (#453).
     pub units: String,
 }
 
@@ -2429,14 +2051,33 @@ impl NetcdfHandle {
 
     /// The coordinate values along one axis of a variable, for labelling a
     /// cross-section (#171). Reads the coordinate array only, never the field.
-    #[napi]
-    pub fn axis_values(&self, variable_index: u32, dim: u32) -> napi::Result<AxisValuesResult> {
+    ///
+    /// The API's own `AxisValues`: every key present, `null` for none (#574).
+    #[napi(ts_return_type = "AxisValues")]
+    pub fn axis_values(&self, variable_index: u32, dim: u32) -> napi::Result<serde_json::Value> {
         let var = self.renderable(variable_index)?;
         let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
         let name = var.name.strip_prefix('/').unwrap_or(&var.name);
-        fieldglass::axis_values(&arrays, name, dim)
-            .map(AxisValuesResult::from)
-            .into_napi()
+        let axis = fieldglass::axis_values(&arrays, name, dim).into_napi()?;
+        to_js(serde_json::to_value(&axis))
+    }
+
+    /// Where one slice sits, as the render panel's picker asks it: the family to
+    /// caption, whether it can be placed, and whether it can be reprojected
+    /// (#574, #776). Decodes nothing.
+    ///
+    /// The same placement every display entry point on this handle renders
+    /// from, so the picker cannot offer a target the render then refuses.
+    #[napi]
+    pub fn slice_grid(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+    ) -> napi::Result<SliceGrid> {
+        let var = self.renderable(variable_index)?;
+        let placed = self.slice_placed(&var, y_dim as usize, x_dim as usize)?;
+        Ok(SliceGrid::of(&placed))
     }
 
     /// The slice's zonal mean, against latitude (#240) — see
@@ -2788,8 +2429,7 @@ impl NetcdfHandle {
     }
 
     /// How one slice is placed, before it becomes what a caller asks of it — a
-    /// [`Placed`] to render from, or, in the tests, the `MessageMeta` view the
-    /// characterisation golden records.
+    /// [`Placed`] to render from, or the [`SliceGrid`] the render panel reads.
     ///
     /// The axis checks and the curvilinear precedence are stated here once, so
     /// the two cannot resolve one slice two ways.
@@ -2821,7 +2461,7 @@ impl NetcdfHandle {
             return Ok(SliceResolution {
                 ni,
                 nj,
-                grid: SliceGrid::Lookup(geometry),
+                grid: SliceSource::Lookup(geometry),
             });
         }
 
@@ -2852,7 +2492,7 @@ impl NetcdfHandle {
         Ok(SliceResolution {
             ni,
             nj,
-            grid: SliceGrid::Resolved {
+            grid: SliceSource::Resolved {
                 placement,
                 y_is_latitude,
             },
@@ -2874,7 +2514,7 @@ impl NetcdfHandle {
     ) -> napi::Result<Placed> {
         let SliceResolution { ni, nj, grid } = self.resolve_slice(var, y_dim, x_dim)?;
         let (geometry, scan, family) = match grid {
-            SliceGrid::Lookup(geometry) => {
+            SliceSource::Lookup(geometry) => {
                 // A lookup grid has no latitude axis to read an ordering from,
                 // so its rows are compared directly — see
                 // `rows_run_south_to_north`.
@@ -2887,7 +2527,7 @@ impl NetcdfHandle {
                     "curvilinear".to_string(),
                 )
             }
-            SliceGrid::Resolved {
+            SliceSource::Resolved {
                 placement,
                 y_is_latitude,
             } => {
@@ -2916,6 +2556,33 @@ impl NetcdfHandle {
         })
     }
 
+    /// One slice's placement in the API's wire shape, with the raster shape it
+    /// paints — what the characterisation golden records and the placement
+    /// tests read. The same `Placed` every display entry point renders from,
+    /// and `Georef::from_slice`, which is `Session::decode_slice`'s rule, so the
+    /// family, placement and reprojection it states are the ones
+    /// [`Self::slice_grid`] hands the panel.
+    #[cfg(test)]
+    fn slice_georef(
+        &self,
+        var: &RenderableVariable,
+        y_dim: usize,
+        x_dim: usize,
+    ) -> napi::Result<(fieldglass::Georef, u32, u32)> {
+        let placed = self.slice_placed(var, y_dim, x_dim)?;
+        Ok((
+            fieldglass::Georef::from_slice(
+                &placed.geometry,
+                placed.scan,
+                &placed.family,
+                placed.ni,
+                placed.nj,
+            ),
+            placed.ni,
+            placed.nj,
+        ))
+    }
+
     /// A variable's CF `units`, typeset for display the way a GRIB unit is
     /// (ADR-0007, #453). Empty when the variable declares none.
     fn slice_units(&self, var: &RenderableVariable) -> String {
@@ -2925,53 +2592,6 @@ impl NetcdfHandle {
             .map(|units| normalize_units(units).into_owned())
             .unwrap_or_default()
     }
-
-    /// The `MessageMeta` view of one slice, for the tests.
-    ///
-    /// No entry point reads it: the display path runs on [`Self::slice_placed`],
-    /// and the VS Code render panel builds its own meta for a NetCDF slice
-    /// rather than asking for this one (#574 moves the panel onto a real
-    /// per-slice answer). It survives for the characterisation golden, whose
-    /// `meta` rows record exactly this view, and for the tests of what it says
-    /// about placement and reprojection.
-    #[cfg(test)]
-    fn slice_meta(
-        &self,
-        var: &RenderableVariable,
-        y_dim: usize,
-        x_dim: usize,
-    ) -> napi::Result<MessageMeta> {
-        let SliceResolution { ni, nj, grid } = self.resolve_slice(var, y_dim, x_dim)?;
-        let units = self.slice_units(var);
-        Ok(match &grid {
-            SliceGrid::Lookup(geometry) => {
-                // The extent of the cells, since a lookup grid states no corner
-                // of its own: north-up, matching the corner convention the other
-                // families report, so `lat_first` is the northern edge.
-                let bbox = geometry.lonlat_bbox();
-                let placement = fieldglass::Placement::from_extent(geometry.dims(), bbox.is_some());
-                let (lat_min, lat_max, lon_min, lon_max) = bbox
-                    .map_or((-90.0, 90.0, -180.0, 180.0), |b| {
-                        (b.lat_min, b.lat_max, b.lon_min, b.lon_max)
-                    });
-                MessageMeta {
-                    grid_type: Some("curvilinear".to_string()),
-                    lat_first: Some(lat_max),
-                    lat_last: Some(lat_min),
-                    lon_first: Some(lon_min),
-                    lon_last: Some(lon_max),
-                    reprojectable: geometry.reprojectable(Scan::north_down()),
-                    placement: placement.as_str().to_string(),
-                    j_scans_positive: lookup_index(geometry).and_then(rows_run_south_to_north),
-                    ..base_netcdf_meta(&var.name, &units, ni as i32, nj as i32)
-                }
-            }
-            SliceGrid::Resolved {
-                placement,
-                y_is_latitude,
-            } => meta_from_placement(&var.name, &units, ni, nj, placement, *y_is_latitude),
-        })
-    }
 }
 
 /// One slice's placement as [`NetcdfHandle::resolve_slice`] found it.
@@ -2980,11 +2600,11 @@ struct SliceResolution {
     ni: u32,
     /// Raster rows: the length of the chosen Y axis.
     nj: u32,
-    grid: SliceGrid,
+    grid: SliceSource,
 }
 
 /// The two ways a slice is placed.
-enum SliceGrid {
+enum SliceSource {
     /// By 2-D coordinates, through the handle's cell-centre index cache (#445).
     Lookup(std::sync::Arc<GridGeometry>),
     /// By the reader, and whether the user's Y axis is a latitude.
@@ -2994,129 +2614,14 @@ enum SliceGrid {
     },
 }
 
-/// What a slice's picker caption calls its family.
+/// What a slice's picker caption calls its family: the geometry's own label,
+/// which is what the browser host and `Session` call the same slice.
 ///
-/// The geometry's own kind, except for a raster no coordinates place, which
-/// has always been captioned `latlon` — the render panel offers it the source
-/// view only, and a caption reading `source: source 8×8` would say nothing.
-/// The refusals such a slice meets name the geometry's own `source` label
-/// instead of this caption, which is `fieldglass::render`'s rule for every host.
+/// A raster no coordinates place is `source`. This host captioned it `latlon`
+/// until #574, which disagreed with every other host and with the refusals the
+/// same slice meets, which already said `source`.
 fn slice_family(geometry: &GridGeometry) -> &str {
-    match geometry {
-        GridGeometry::Unsupported { .. } => "latlon",
-        other => other.kind(),
-    }
-}
-
-/// The `MessageMeta` skeleton a NetCDF slice's view starts from, carrying only
-/// the painted plane's identity and dimensions. `units` arrives typeset.
-#[cfg(test)]
-fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
-    MessageMeta {
-        parameter_name: name.to_string(),
-        parameter_units: units.to_string(),
-        parameter_abbreviation: name.to_string(),
-        grid_ni: Some(ni),
-        grid_nj: Some(nj),
-        format: "netcdf".to_string(),
-        ..MessageMeta::default()
-    }
-}
-
-/// The `MessageMeta` view of a slice the reader placed — see
-/// [`NetcdfHandle::slice_meta`] for why it is test-only.
-///
-/// `y_is_latitude` is the one input that is not in the placement: it asks
-/// whether the axis the *user* chose for Y is a latitude at all, which is a
-/// question about the slice request rather than about the file.
-#[cfg(test)]
-fn meta_from_placement(
-    name: &str,
-    units: &str,
-    ni: u32,
-    nj: u32,
-    placement: &fieldglass::netcdf::resolve::SlicePlacement,
-    y_is_latitude: bool,
-) -> MessageMeta {
-    let (ni, nj) = (ni as i32, nj as i32);
-    let base = base_netcdf_meta(name, units, ni, nj);
-    // A family that states no order says nothing here rather than guessing
-    // north-down, which is why the placement's scan is an `Option`.
-    let j_scans_positive = placement
-        .scan
-        .filter(|_| y_is_latitude)
-        .map(|scan| scan.j_positive);
-    let meta = match &placement.geometry {
-        GridGeometry::LatLon(g) => MessageMeta {
-            grid_type: Some("latlon".to_string()),
-            j_scans_positive,
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            lat_last: Some(g.lat_last),
-            lon_last: Some(g.lon_last),
-            ..base
-        },
-        GridGeometry::Lambert(g) => MessageMeta {
-            // WRF projects on its own 6 370 000 m sphere, not a WMO default.
-            earth_radius_metres: Some(g.earth_radius_m),
-            grid_type: Some("lambert".to_string()),
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            lambert_lad: Some(g.lad),
-            lambert_lov: Some(g.lov),
-            lambert_dx_metres: Some(g.dx_metres),
-            lambert_dy_metres: Some(g.dy_metres),
-            lambert_latin1: Some(g.latin1),
-            lambert_latin2: Some(g.latin2),
-            ..base
-        },
-        GridGeometry::PolarStereo(g) => MessageMeta {
-            earth_radius_metres: Some(g.earth_radius_m),
-            grid_type: Some("polar_stereo".to_string()),
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            polar_stereo_lov: Some(g.lov),
-            polar_stereo_lad: Some(g.lad),
-            polar_stereo_dx_metres: Some(g.dx_metres),
-            polar_stereo_dy_metres: Some(g.dy_metres),
-            polar_stereo_south_pole: Some(g.south_pole),
-            ..base
-        },
-        GridGeometry::Mercator(g) => MessageMeta {
-            grid_type: Some("mercator".to_string()),
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            lat_last: Some(g.lat_last),
-            lon_last: Some(g.lon_last),
-            ..base
-        },
-        GridGeometry::Geostationary(g) => MessageMeta {
-            grid_type: Some("space_view".to_string()),
-            geos_sub_lon: Some(g.sub_lon_deg),
-            geos_height: Some(g.h_metres),
-            geos_r_eq: Some(g.r_eq),
-            geos_r_pol: Some(g.r_pol),
-            geos_sweep_x: Some(g.sweep_x),
-            geos_x0: Some(g.x0),
-            geos_dx_rad: Some(g.dx_rad),
-            geos_y0: Some(g.y0),
-            geos_dy_rad: Some(g.dy_rad),
-            ..base
-        },
-        // Source-only: the grid is renderable in its own projection and placed
-        // nowhere. `Lookup` never reaches here — a curvilinear slice is
-        // resolved from the cache first.
-        _ => MessageMeta {
-            grid_type: Some("latlon".to_string()),
-            ..base
-        },
-    };
-    // A family that states no order is gated north-down.
-    gate_reprojection(
-        meta,
-        &placement.geometry,
-        placement.scan.unwrap_or_else(Scan::north_down),
-    )
+    geometry.label()
 }
 
 /// Repack the decoder's `Vec<Option<f64>>` into the typed-array pair
@@ -3190,8 +2695,7 @@ fn rows_run_south_to_north(index: &SpatialIndex) -> Option<bool> {
 ///
 /// **The first handle in this binding built entirely over
 /// [`fieldglass::Session`]**, and the shape the rest is moving toward: it holds a
-/// session and nothing else — no reader, no `MessageMeta`, no per-container
-/// metadata object. A variable list is `Session::variables`, a slice is
+/// session and nothing else — no reader and no per-container metadata object. A variable list is `Session::variables`, a slice is
 /// `Session::decode_slice`, and the placement a raster needs rides on the decoded
 /// field's `georef`. Adding a container to this binding should cost this much.
 ///
@@ -3477,12 +2981,33 @@ impl ZarrHandle {
 
     /// The coordinate values along one axis — see `NetcdfHandle::axis_values`,
     /// read through this handle's session (#171).
+    #[napi(ts_return_type = "AxisValues")]
+    pub fn axis_values(&self, variable_index: u32, dim: u32) -> napi::Result<serde_json::Value> {
+        let axis = self.session.axis_values(variable_index, dim).into_napi()?;
+        to_js(serde_json::to_value(&axis))
+    }
+
+    /// Where one slice sits — see [`NetcdfHandle::slice_grid`], answered from
+    /// this handle's session.
     #[napi]
-    pub fn axis_values(&self, variable_index: u32, dim: u32) -> napi::Result<AxisValuesResult> {
-        self.session
-            .axis_values(variable_index, dim)
-            .map(AxisValuesResult::from)
-            .into_napi()
+    pub fn slice_grid(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+    ) -> napi::Result<SliceGrid> {
+        let placed = self.place(variable_index, y_dim, x_dim)?;
+        Ok(SliceGrid {
+            label: placed.family().to_string(),
+            placement: fieldglass::Placement::of_raster(
+                placed.geometry(),
+                placed.ni(),
+                placed.nj(),
+            )
+            .as_str()
+            .to_string(),
+            reprojectable: placed.geometry().reprojectable(placed.scan()),
+        })
     }
 
     /// The slice's zonal mean — see `NetcdfHandle::zonal_mean`; the same
@@ -3593,6 +3118,43 @@ impl ZarrHandle {
     }
 }
 
+/// Where one slice sits, as a picker asks it — what
+/// [`NetcdfHandle::slice_grid`] and [`ZarrHandle::slice_grid`] return (#574).
+///
+/// Three answers and not the API's `Georef`, which carries the geometry itself:
+/// for a curvilinear slice that is every cell centre, and a global ocean mesh
+/// would cross as hundreds of megabytes to caption a panel. These three are the
+/// ones the panel reads, and each is the umbrella's rule, not this crate's.
+#[derive(Debug)]
+#[napi(object)]
+pub struct SliceGrid {
+    /// The family, as the panel's caption and a refusal name it — `"latlon"`,
+    /// `"lambert"`, `"curvilinear"`, or `"source"` for a slice with no
+    /// coordinates to place it by.
+    pub label: String,
+    /// Whether the slice can be placed on the Earth, and why not:
+    /// `fieldglass::Placement::of_raster`. A slice with no coordinates is
+    /// `"unplaceable"`: it renders in grid coordinates and nothing places it.
+    #[napi(ts_type = "Placement")]
+    pub placement: String,
+    /// Whether the panel may offer the reprojection targets:
+    /// `GridGeometry::reprojectable` of the slice's own geometry and scan.
+    pub reprojectable: bool,
+}
+
+impl SliceGrid {
+    /// A NetCDF slice's answers, from the placement the handle renders from.
+    fn of(placed: &Placed) -> Self {
+        Self {
+            label: placed.family.clone(),
+            placement: fieldglass::Placement::of_raster(&placed.geometry, placed.ni, placed.nj)
+                .as_str()
+                .to_string(),
+            reprojectable: placed.geometry.reprojectable(placed.scan),
+        }
+    }
+}
+
 /// One array a store holds and this build will not read.
 #[derive(Debug)]
 #[napi(object)]
@@ -3634,8 +3196,8 @@ fn field_values(field: &fieldglass::Field) -> Vec<Option<f64>> {
 /// alignment gate, and the arithmetic. The gate is `PartialEq` on the two
 /// geometries, plus the raster shape and the scan order each [`Placed`] carries
 /// beside its geometry — the comparison the browser host makes too (#579). Both
-/// geometries are the ones the readers built, not ones rebuilt out of
-/// `MessageMeta` (#574), so a curvilinear pair compares the two cell-centre
+/// geometries are the ones the readers built, not ones rebuilt out of a flat
+/// DTO (#574), so a curvilinear pair compares the two cell-centre
 /// indexes the handle cached, and a grid nothing places compares by its label.
 ///
 /// `op` arrives as a wire tag rather than as the parsed value because naming
@@ -3806,8 +3368,8 @@ fn engine_options(o: &RenderOptions) -> fieldglass::RenderOptions {
 /// The geometry is the one the readers built — `Session::place_message` for a
 /// GRIB message, the NetCDF reader's slice placement or the handle's cached
 /// cell-centre index for a slice — and is carried as it is, never flattened
-/// into `MessageMeta`'s fields and rebuilt out of them again. `MessageMeta` is
-/// what `messages()` shows JavaScript; this is what the renderer runs on.
+/// into a DTO's fields and rebuilt out of them again. `message(i)` is what a
+/// message list shows JavaScript; this is what the renderer runs on.
 ///
 /// **A grid that cannot be placed still has a `Placed`.** A §3.20 stating
 /// `Dx = 0`, or a slice with no coordinate arrays, is a raster the source view
@@ -3970,16 +3532,27 @@ fn project_vectors_impl(
 /// The napi spelling of `fieldglass::Line`: `values` beside a `mask` the way
 /// [`DecodedGrid`] carries them, with `NaN` at a masked point, so read `mask`
 /// first. A line is one axis long, so plain arrays rather than typed ones.
-#[napi(object)]
+///
+/// Every key is present, and a field with nothing to report is `null`, never
+/// missing (#574).
+// `use_nullable`: napi writes `null` for a `None` and declares the field
+// `T | null`, the wire form every object this addon returns has (#574, decided
+// 2026-09-29). Without it the key is left out and reads `undefined`, which is
+// how a `T | null` declaration once let a `!== null` guard through (#288).
+//
+// Not the `Line` DTO through serde, because of that `NaN`: `serde_json` writes
+// a non-finite float as `null`, so the masked points would arrive as `null` in
+// an array declared `number[]`.
+#[napi(object, use_nullable = true)]
 #[derive(Debug)]
 pub struct LineResult {
     /// The values along the axis, in index order. `NaN` where `mask` is `0`.
     pub values: Vec<f64>,
     /// One byte per point: `1` present, `0` absent.
     pub mask: Vec<u8>,
-    /// Smallest present value, absent when no point is present.
+    /// Smallest present value, `null` when no point is present.
     pub min: Option<f64>,
-    /// Largest present value, absent when no point is present.
+    /// Largest present value, `null` when no point is present.
     pub max: Option<f64>,
     /// The variable's name.
     pub variable: String,
@@ -3987,10 +3560,11 @@ pub struct LineResult {
     pub units: String,
     /// The axis the line runs along.
     pub dimension: String,
-    /// The axis's coordinate values, in index order — absent when the axis has
-    /// no coordinate array, or when one of its values is.
+    /// The axis's coordinate values, in index order — `null` when the axis has
+    /// no coordinate array, or when one of its values is missing or not finite.
     pub coordinates: Option<Vec<f64>>,
-    /// The coordinate array's units, when there are coordinates.
+    /// The coordinate array's units, when there are coordinates; `null`
+    /// otherwise.
     pub coordinate_units: Option<String>,
 }
 
@@ -4017,21 +3591,31 @@ impl From<fieldglass::Line> for LineResult {
 
 /// The result of probing one output pixel (#172): the geographic point under
 /// the pixel, the source grid cell it fell on, and the decoded value there.
-#[napi(object)]
+///
+/// Every key is present, and a field with nothing to report is `null`, never
+/// missing (#574).
+// `use_nullable`: napi writes `null` for a `None` and declares the field
+// `T | null`, the wire form every object this addon returns has (#574, decided
+// 2026-09-29). Without it the key is left out and reads `undefined`, which is
+// how a `T | null` declaration once let a `!== null` guard through (#288).
+//
+// Not the API's `Probe`, which answers a geographic point: this answers an
+// output pixel, which is the question the panel's pointer asks.
+#[napi(object, use_nullable = true)]
 #[derive(Debug)]
 pub struct ProbeResult {
-    /// Latitude under the pixel (degrees). `None` when the grid can't be
+    /// Latitude under the pixel (degrees). `null` when the grid can't be
     /// geolocated (a source-projection view of a grid whose forward map isn't
     /// wired); the value is still reported.
     pub lat: Option<f64>,
     /// Longitude (degrees, normalised to `[-180, 180)`).
     pub lon: Option<f64>,
-    /// The decoded value at the grid cell, or `None` when the pixel fell off the
+    /// The decoded value at the grid cell, or `null` when the pixel fell off the
     /// grid or onto a masked cell.
     pub value: Option<f64>,
-    /// The source grid column / row the pixel resolved to; `None` off-grid.
+    /// The source grid column / row the pixel resolved to; `null` off-grid.
     pub grid_i: Option<i32>,
-    /// The source grid row the pixel resolved to; `None` off-grid.
+    /// The source grid row the pixel resolved to; `null` off-grid.
     pub grid_j: Option<i32>,
     /// For a spectral map drawn band-limited below what the message declares
     /// (#637): the full sum over every wavenumber the file holds, at the same
@@ -4040,7 +3624,7 @@ pub struct ProbeResult {
     /// field, whose `value` is already the file's.
     pub full_detail_value: Option<f64>,
     /// The truncation `full_detail_value` carries — the message's declared `T`
-    /// (`MessageMeta.declaredTruncation`); for a combined map, the larger of
+    /// (`MessageInfo.truncation.declared`); for a combined map, the larger of
     /// the two operands'. Set whenever the probe read a full-detail value,
     /// which `full_detail_value` then holds — except on a combined cell the
     /// operation leaves empty (a ratio over zero), where it is `None`.
@@ -4161,47 +3745,32 @@ mod color_table_tests {
 
 /// The host seam of the reprojection rule. The rule itself is
 /// `GridGeometry::reprojectable` and is tested per family in `fieldglass-core`;
-/// these are the tests that a message's `reprojectable`, and a slice view's,
-/// reach it — including the case that used to need a second pass of its own, a
-/// grid whose spacings are fine and whose projection still places no point
-/// (#603, #610).
+/// these are the tests that a message's `reprojectable`, and a slice's
+/// [`SliceGrid`], reach it — including the case that used to need a second pass
+/// of its own, a grid whose spacings are fine and whose projection still places
+/// no point (#603, #610).
 #[cfg(test)]
 mod planar_offer_needs_a_placeable_projection_tests {
-    use super::{
-        Grib1Handle, Grib2Handle, GridGeometry, MessageMeta, Scan, gate_reprojection,
-        meta_from_placement,
-    };
-    use fieldglass::netcdf::resolve::SlicePlacement;
+    use super::{Grib1Handle, Grib2Handle, GridGeometry, Placed, Scan, SliceGrid};
     use fieldglass::netcdf::{GeostationaryGrid, WrfLambertGrid, WrfPolarStereoGrid};
 
-    /// The meta a resolved grid of this family produces, which is what these
-    /// cases are really about: `gate_reprojection`'s verdict per family. Since
-    /// #549 that runs through one mapping rather than a builder per family, so
-    /// the grid becomes a `GridGeometry` first.
-    fn meta_of(geometry: GridGeometry, ni: u32, nj: u32) -> MessageMeta {
-        meta_from_placement(
-            "t2",
-            "K",
-            ni,
-            nj,
-            &SlicePlacement {
-                geometry,
-                scan: None,
-            },
-            false,
-        )
+    /// What the panel is told about a slice resolved to this geometry — the
+    /// answer these cases are really about. A family that states no order is
+    /// placed north-down, as the handle places it.
+    fn offer(geometry: GridGeometry, scan: Scan) -> SliceGrid {
+        SliceGrid::of(&Placed::of(geometry, scan))
     }
 
-    fn lambert_meta(g: &WrfLambertGrid) -> MessageMeta {
-        meta_of(GridGeometry::from(g), g.ni, g.nj)
+    fn lambert_meta(g: &WrfLambertGrid) -> SliceGrid {
+        offer(GridGeometry::from(g), Scan::north_down())
     }
 
-    fn polar_meta(g: &WrfPolarStereoGrid) -> MessageMeta {
-        meta_of(GridGeometry::from(g), g.ni, g.nj)
+    fn polar_meta(g: &WrfPolarStereoGrid) -> SliceGrid {
+        offer(GridGeometry::from(g), Scan::north_down())
     }
 
-    fn geos_meta(g: &GeostationaryGrid) -> MessageMeta {
-        meta_of(GridGeometry::from(g), g.ni, g.nj)
+    fn geos_meta(g: &GeostationaryGrid) -> SliceGrid {
+        offer(GridGeometry::from(g), Scan::north_down())
     }
 
     /// A healthy WRF Lambert domain, as the CONUS 4 km configuration states it.
@@ -4451,7 +4020,8 @@ mod planar_offer_needs_a_placeable_projection_tests {
     fn grib1_reprojectable(grid_type: u8, body: &[u8]) -> bool {
         Grib1Handle::from_vec(grib1_message_with_gds(grid_type, body))
             .expect("synthetic GRIB1 message opens")
-            .messages()[0]
+            .info(0)
+            .expect("message 0")
             .reprojectable
     }
 
@@ -4493,38 +4063,23 @@ mod planar_offer_needs_a_placeable_projection_tests {
         );
     }
 
-    /// The gate is one predicate asked of the geometry the slice was placed
-    /// with, so it can be asked directly — no fixture, and every planar family
-    /// in one place.
+    /// The offer is one predicate asked of the geometry the slice was placed
+    /// with, and its scan, so it can be asked directly — no fixture, and every
+    /// planar family in one place.
     #[test]
-    fn the_gate_is_the_warps_own_answer_for_every_planar_family() {
-        let lambert = GridGeometry::from(&wrf_lambert());
-        let placeable = lambert_meta(&wrf_lambert());
-        assert!(gate_reprojection(placeable, &lambert, Scan::north_down()).reprojectable);
-
-        // The gate *answers* rather than narrows, which is the difference #571
-        // made: whatever the field arrived holding is overwritten by the
-        // geometry's own answer, so a `true` that was never earned cannot
-        // survive and a `false` cannot suppress a grid the warp would take.
+    fn the_offer_is_the_warps_own_answer_for_every_planar_family() {
+        assert!(lambert_meta(&wrf_lambert()).reprojectable);
         let collapsed = WrfPolarStereoGrid {
             // Wider than WRF's own 6 370 km sphere: the plane collapses.
             dx_metres: 12_000_000.0,
             dy_metres: 12_000_000.0,
             ..wrf_polar_stereo()
         };
-        let stale_true = MessageMeta {
-            reprojectable: true,
-            ..polar_meta(&collapsed)
-        };
-        let collapsed_geometry = GridGeometry::from(&collapsed);
-        assert!(
-            !gate_reprojection(stale_true, &collapsed_geometry, Scan::north_down()).reprojectable
-        );
-        let stale_false = MessageMeta {
-            reprojectable: false,
-            ..lambert_meta(&wrf_lambert())
-        };
-        assert!(gate_reprojection(stale_false, &lambert, Scan::north_down()).reprojectable);
+        let offer_collapsed = polar_meta(&collapsed);
+        assert!(!offer_collapsed.reprojectable);
+        // A collapsed plane places no point, and it still has its raster: the
+        // panel draws it in grid coordinates and withholds the map targets.
+        assert_eq!(offer_collapsed.placement, "unplaceable");
 
         // The corner-pinned families are the only ones that read the scan, and
         // a −i grid stays in its source projection: their inverse maps assume
@@ -4540,10 +4095,10 @@ mod planar_offer_needs_a_placeable_projection_tests {
         .expect("a lat/lon message places")
         .geometry;
         assert_eq!(latlon.kind(), "latlon");
-        let meta = || lambert_meta(&wrf_lambert());
-        assert!(gate_reprojection(meta(), &latlon, Scan::north_down()).reprojectable);
+        let latlon = || GridGeometry::clone(&latlon);
+        assert!(offer(latlon(), Scan::north_down()).reprojectable);
         assert!(
-            !gate_reprojection(meta(), &latlon, Scan::new(true, false, false)).reprojectable,
+            !offer(latlon(), Scan::new(true, false, false)).reprojectable,
             "a −i scan keeps a corner-pinned grid in its source projection"
         );
     }
@@ -4551,7 +4106,24 @@ mod planar_offer_needs_a_placeable_projection_tests {
 
 #[cfg(test)]
 mod friendly_packing_tests {
-    use super::friendly_packing;
+    use super::{Grib2Handle, friendly_packing, packing_label};
+
+    /// The message table labels a real message's `MessageInfo.packing` through
+    /// the exported function, so the identifier the API reports is one the
+    /// label table knows (#574).
+    #[test]
+    fn a_real_messages_packing_identifier_has_a_label() {
+        let info = Grib2Handle::from_vec(
+            include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2")
+                .to_vec(),
+        )
+        .expect("opens")
+        .info(0)
+        .expect("message 0");
+        let label = packing_label(info.packing.clone());
+        assert_ne!(label, info.packing, "{:?} has no label", info.packing);
+        assert_eq!(label, friendly_packing(&info.packing));
+    }
 
     #[test]
     fn maps_grib1_and_grib2_labels_to_friendly_names() {
@@ -4916,7 +4488,7 @@ mod zarr_handle_tests {
     /// The strongest claim available for "a new decode path needs no render
     /// changes": one dataset written both ways, painted through two handles, and
     /// the RGBA compared byte for byte. `ZarrHandle` goes through `Session` and
-    /// `NetcdfHandle` through its own reader and `MessageMeta`, so agreement here
+    /// `NetcdfHandle` through its own reader and placement, so agreement here
     /// means the two routes really do meet.
     #[test]
     fn the_store_paints_what_its_netcdf_twin_paints() {
@@ -5092,40 +4664,34 @@ mod netcdf_slice_tests {
             include_bytes!("../../fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1");
 
         // A plain one-octet P1: the edit box can show the byte it writes.
-        let m = &grib1_handle(ECMWF_GRIB1).messages()[0];
-        assert_eq!(m.forecast_display, "+24h");
+        let m = grib1_handle(ECMWF_GRIB1).info(0).expect("message 0");
+        assert_eq!(m.forecast, "+24h");
         assert_eq!(m.p1_octet, Some(24));
 
         // Time range 10 spends octets 19 and 20 on one 16-bit P1, so writing
         // octet 19 alone would shift the lead by multiples of 256. No octet is
         // offered, and the message stays read-only.
-        let m = &grib1_handle(CMC_WIND).messages()[0];
-        assert_eq!(m.forecast_display, "+12h");
-        assert_eq!(m.forecast_hours, 12);
+        let m = grib1_handle(CMC_WIND).info(0).expect("message 0");
+        assert_eq!(m.forecast, "+12h");
+        assert_eq!(m.forecast_hours, Some(12));
         assert_eq!(m.p1_octet, None);
 
         // GRIB2 has no P1 at all.
-        let m = &grib2_handle(SPECTRAL_T63).messages()[0];
+        let m = grib2_handle(SPECTRAL_T63).info(0).expect("message 0");
         assert_eq!(m.p1_octet, None);
     }
 
-    /// The four GRIB2 display fields, on real messages, as they reach the panel.
+    /// The four GRIB2 display fields, on real messages, as they cross this
+    /// binding.
     ///
-    /// The rendering itself is `fieldglass-grib2`'s since #545 and is tested
-    /// there; what this pins is the *wiring* — which of the crate's four
-    /// functions fills which `MessageMeta` field, and that the hours column and
-    /// the display string are read from the same message. Nothing else covers
-    /// it: the display golden elides all four (`characterisation.rs` lists them
-    /// as `_`, since the size column is what a render row is about), and the
-    /// conformance suite's `message` op is skipped by this host's runner
-    /// because napi answers `MessageMeta` where the suite states `MessageInfo`
-    /// (#574). So a `level` and a `level_type` swapped at this seam, or an
-    /// `unwrap_or(0)` reading the wrong side, would have been silent.
-    ///
-    /// The fixtures are chosen so a swap cannot pass: each has a level value
-    /// that differs from its level type, and one carries a long lead.
+    /// The conformance suite's `message` op compares the whole `MessageInfo`
+    /// through `message(i)` since #574; this stays as the named check that a
+    /// `level` and a `level_type` were not swapped, which a recording taken
+    /// after the swap would not see. The fixtures are chosen so a swap cannot
+    /// pass: each has a level value that differs from its level type, and one
+    /// carries a long lead.
     #[test]
-    fn grib2_message_meta_carries_the_crates_level_and_lead() {
+    fn grib2_message_info_carries_the_crates_level_and_lead() {
         const ETA_LAMBERT: &[u8] =
             include_bytes!("../../fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2");
         const GFS_C255: &[u8] =
@@ -5133,51 +4699,19 @@ mod netcdf_slice_tests {
 
         // A mean-sea-level field at +24h. The value is a scaled zero, which is
         // not the same as a surface carrying no value at all.
-        let m = &grib2_handle(ETA_LAMBERT).messages()[0];
+        let m = grib2_handle(ETA_LAMBERT).info(0).expect("message 0");
         assert_eq!(m.level, "0");
         assert_eq!(m.level_type, "Mean sea level");
-        assert_eq!(m.forecast_hours, 24);
-        assert_eq!(m.forecast_display, "+24h");
+        assert_eq!(m.forecast_hours, Some(24));
+        assert_eq!(m.forecast, "+24h");
 
-        // A long lead, so the hours column and the display string agree on a
+        // A long lead, so the hours value and the display string agree on a
         // number neither could have produced from the other's default.
-        let m = &grib2_handle(GFS_C255).messages()[0];
+        let m = grib2_handle(GFS_C255).info(0).expect("message 0");
         assert_eq!(m.level, "0");
         assert_eq!(m.level_type, "Reserved for local use");
-        assert_eq!(m.forecast_hours, 204);
-        assert_eq!(m.forecast_display, "+204h");
-
-        // A unit with no hours value must reach the column as 0 rather than as
-        // anything the `Option` could be read into. The crate reports `None` for
-        // a calendar unit and the umbrella carries that through; this seam is
-        // where the display default is applied, and the display string is where
-        // the six months survive. The corpus has no message stating a calendar
-        // unit, so this is the only cover for the `unwrap_or(0)`.
-        let month = crate::message_info_with(serde_json::json!({
-            "forecastHours": null,
-            "forecast": "+6 Month",
-        }));
-        let meta = crate::session_meta::meta_from_session(&month, None, "grib2");
-        assert_eq!(
-            meta.forecast_hours, 0,
-            "no hours value reaches the column as 0"
-        );
-        assert_eq!(meta.forecast_display, "+6 Month");
-
-        // A template with no horizontal product common has none of the four to
-        // render. The umbrella says so with a dash rather than inventing a
-        // zero-hour analysis, and this seam must pass the dash through rather
-        // than substitute its own default.
-        let placeholder = crate::message_info_with(serde_json::json!({
-            "level": "—",
-            "levelType": "—",
-            "forecast": "—",
-        }));
-        let meta = crate::session_meta::meta_from_session(&placeholder, None, "grib2");
-        assert_eq!(meta.level, "—");
-        assert_eq!(meta.level_type, "—");
-        assert_eq!(meta.forecast_hours, 0);
-        assert_eq!(meta.forecast_display, "—");
+        assert_eq!(m.forecast_hours, Some(204));
+        assert_eq!(m.forecast, "+204h");
     }
 
     #[test]
@@ -5293,21 +4827,18 @@ mod netcdf_slice_tests {
         )
     }
 
-    /// Both editions: the label reaches the meta the panel is built from, the
-    /// probe reads both the map's value and the full-detail one at the same
-    /// cell, and the CSV carries the label.
+    /// Both editions: the label reaches the `MessageInfo` the panel is built
+    /// from, through `message(i)`, the probe reads both the map's value and the
+    /// full-detail one at the same cell, and the CSV carries the label.
     #[test]
     fn a_band_limited_spectral_map_is_labelled_and_probes_both_values() {
         let (full, truncated) = t383_oracle(45.5, 120.0);
         let check = |edition: &str,
-                     meta: &MessageMeta,
+                     meta: &fieldglass::MessageInfo,
                      probed: Option<ProbeResult>,
                      csv: napi::bindgen_prelude::Buffer| {
-            assert_eq!(
-                (meta.truncated_to, meta.declared_truncation),
-                (Some(359), Some(383)),
-                "{edition}"
-            );
+            let t = meta.truncation.as_ref().expect("a band-limited message");
+            assert_eq!((t.truncated_to, t.declared), (359, 383), "{edition}");
             let p = probed.expect("on the grid");
             assert_eq!((p.grid_i, p.grid_j), (Some(240), Some(89)), "{edition}");
             // The value the map shows, matching the colour under the cursor.
@@ -5341,14 +4872,14 @@ mod netcdf_slice_tests {
         let g1 = grib1_handle(SPECTRAL_T383_GRIB1);
         check(
             "grib1",
-            &g1.messages()[0],
+            &g1.info(0).expect("message 0"),
             g1.probe(0, opts("source"), 240, 89).expect("probe"),
             g1.export_csv(0, "long".to_string()).expect("csv"),
         );
         let g2 = grib2_handle(SPECTRAL_T383);
         check(
             "grib2",
-            &g2.messages()[0],
+            &g2.info(0).expect("message 0"),
             g2.probe(0, opts("source"), 240, 89).expect("probe"),
             g2.export_csv(0, "long".to_string()).expect("csv"),
         );
@@ -5359,8 +4890,8 @@ mod netcdf_slice_tests {
     #[test]
     fn a_spectral_map_the_grid_carries_is_unlabelled() {
         let h = grib2_handle(SPECTRAL_T63);
-        let meta = &h.messages()[0];
-        assert_eq!((meta.truncated_to, meta.declared_truncation), (None, None));
+        let meta = h.info(0).expect("message 0");
+        assert_eq!(meta.truncation, None);
         let p = h
             .probe(0, opts("source"), 240, 89)
             .expect("probe")
@@ -5445,12 +4976,19 @@ mod netcdf_slice_tests {
         assert_eq!((placed.ni, placed.nj), (180, 89));
         assert_eq!(placed.family, "latlon");
 
-        let meta = handle.slice_meta(&var, y, x).expect("the slice's view");
-        assert_eq!(meta.grid_type.as_deref(), Some("latlon"));
-        assert_eq!(meta.format, "netcdf");
-        assert_eq!(meta.grid_ni, Some(180));
-        assert!(meta.lat_first.is_some());
-        assert!(meta.reprojectable);
+        // What the render panel is told, through the call it makes (#574).
+        let grid = handle
+            .slice_grid(sst.variable_index as u32, y as u32, x as u32)
+            .expect("the slice's grid");
+        assert_eq!(grid.label, "latlon");
+        assert_eq!(grid.placement, "placed");
+        assert!(grid.reprojectable);
+        let (georef, ni, _) = handle.slice_georef(&var, y, x).expect("the placement");
+        assert_eq!(ni, 180);
+        assert!(
+            georef.corners.is_some(),
+            "a placed slice states its corners"
+        );
     }
 
     #[test]
@@ -6222,27 +5760,30 @@ mod netcdf_slice_tests {
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/goes_geostationary.nc");
 
     /// Shared walkthrough for the WRF `wrfout` fixtures: resolve `T2`'s slice
-    /// meta on the projected axes, assert it is reprojectable with the expected
-    /// grid type, render the 6×5 source raster, and reproject into a flat
-    /// target that must paint and echo its extent. Returns the meta for the
-    /// per-projection assertions. `T2` is Time × south_north × west_east with
-    /// no 1-D coordinate variables for the projected axes, so the axes are
-    /// picked explicitly.
-    fn wrf_t2_meta_after_renders(fixture: &[u8], grid_type: &str) -> MessageMeta {
+    /// placement on the projected axes, assert the panel is told it is
+    /// reprojectable with the expected family, render the 6×5 source raster,
+    /// and reproject into a flat target that must paint and echo its extent.
+    /// Returns the placement for the per-projection assertions. `T2` is Time ×
+    /// south_north × west_east with no 1-D coordinate variables for the
+    /// projected axes, so the axes are picked explicitly.
+    fn wrf_t2_meta_after_renders(fixture: &[u8], grid_type: &str) -> fieldglass::Georef {
         let handle = handle(fixture);
         let vars = handle.variables();
         let t2 = vars.iter().find(|v| v.name == "T2").expect("T2 present");
         let (y, x) = (1u32, 2u32);
 
-        let meta = handle
-            .slice_meta(
+        let grid = handle
+            .slice_grid(t2.variable_index as u32, y, x)
+            .expect("the slice's grid");
+        assert_eq!(grid.label, grid_type);
+        assert!(grid.reprojectable, "WRF {grid_type} reprojects");
+        let (meta, _, _) = handle
+            .slice_georef(
                 &handle.renderable(t2.variable_index as u32).unwrap(),
                 y as usize,
                 x as usize,
             )
-            .expect("slice meta");
-        assert_eq!(meta.grid_type.as_deref(), Some(grid_type));
-        assert!(meta.reprojectable, "WRF {grid_type} reprojects");
+            .expect("slice placement");
 
         let indices = vec![0u32; t2.dims.len()];
         let source = handle
@@ -6278,8 +5819,9 @@ mod netcdf_slice_tests {
     #[test]
     fn wrf_t2_slice_renders_as_reprojected_lambert() {
         let meta = wrf_t2_meta_after_renders(WRF, "lambert");
-        assert_eq!(meta.lambert_latin1, Some(30.0));
-        assert_eq!(meta.lambert_latin2, Some(60.0));
+        let g = geometry_wire(&meta);
+        assert_eq!(g["latin1"], 30.0);
+        assert_eq!(g["latin2"], 60.0);
     }
 
     /// The WRF Lambert slice is the NetCDF half of #470: the same forward
@@ -6347,11 +5889,11 @@ mod netcdf_slice_tests {
     #[test]
     fn wrf_t2_slice_renders_as_reprojected_polar_stereo() {
         let meta = wrf_t2_meta_after_renders(WRF_POLAR, "polar_stereo");
-        assert_eq!(meta.polar_stereo_lad, Some(60.0), "true scale at TRUELAT1");
-        assert_eq!(meta.polar_stereo_lov, Some(-100.0));
+        let g = geometry_wire(&meta);
+        assert_eq!(g["lad"], 60.0, "true scale at TRUELAT1");
+        assert_eq!(g["lov"], -100.0);
         assert_eq!(
-            meta.polar_stereo_south_pole,
-            Some(false),
+            g["south_pole"], false,
             "positive TRUELAT1 = north-pole projection"
         );
     }
@@ -6362,10 +5904,9 @@ mod netcdf_slice_tests {
     #[test]
     fn wrf_t2_slice_renders_as_reprojected_mercator() {
         let meta = wrf_t2_meta_after_renders(WRF_MERCATOR, "mercator");
-        let lat_last = meta.lat_last.expect("far corner latitude");
-        let lon_last = meta.lon_last.expect("far corner longitude");
+        let [lat_first, lon_first, lat_last, lon_last] = meta.corners.expect("corners");
         assert!(
-            lat_last > meta.lat_first.unwrap() && lon_last > meta.lon_first.unwrap(),
+            lat_last > lat_first && lon_last > lon_first,
             "far corner is north-east of the origin (+DX/+DY scan)"
         );
     }
@@ -6376,10 +5917,9 @@ mod netcdf_slice_tests {
     #[test]
     fn wrf_t2_slice_renders_as_reprojected_latlon() {
         let meta = wrf_t2_meta_after_renders(WRF_LATLON, "latlon");
-        let lat_last = meta.lat_last.expect("far corner latitude");
-        let lon_last = meta.lon_last.expect("far corner longitude");
+        let [lat_first, lon_first, lat_last, lon_last] = meta.corners.expect("corners");
         assert!(
-            lat_last > meta.lat_first.unwrap() && lon_last > meta.lon_first.unwrap(),
+            lat_last > lat_first && lon_last > lon_first,
             "far corner is north-east of the origin (+DX/+DY scan)"
         );
     }
@@ -6398,21 +5938,25 @@ mod netcdf_slice_tests {
             rad.detected_x_dim.expect("x detected") as u32,
         );
 
-        let meta = handle
-            .slice_meta(
+        let grid = handle
+            .slice_grid(rad.variable_index as u32, y, x)
+            .expect("the slice's grid");
+        assert_eq!(grid.label, "space_view");
+        assert!(grid.reprojectable, "geostationary reprojects");
+        let (meta, _, _) = handle
+            .slice_georef(
                 &handle.renderable(rad.variable_index as u32).unwrap(),
                 y as usize,
                 x as usize,
             )
-            .expect("slice meta");
-        assert_eq!(meta.grid_type.as_deref(), Some("space_view"));
-        assert!(meta.reprojectable, "geostationary reprojects");
-        assert_eq!(meta.geos_sub_lon, Some(-75.0));
-        assert_eq!(meta.geos_sweep_x, Some(true), "GOES sweeps about x");
+            .expect("slice placement");
+        let g = geometry_wire(&meta);
+        assert_eq!(g["sub_lon_deg"], -75.0);
+        assert_eq!(g["sweep_x"], true, "GOES sweeps about x");
         // x/y were scaled int16: the recovered scan angle is radians (~±0.02),
         // not raw integer codes in the tens of thousands.
         assert!(
-            meta.geos_x0.unwrap().abs() < 1.0,
+            g["x0"].as_f64().expect("x0").abs() < 1.0,
             "x0 is radians after CF scaling"
         );
 
@@ -6791,17 +6335,19 @@ mod planar_geolocation_tests {
     #[test]
     fn grib1_polar_meta_keeps_its_projection_parameters_and_scan_flags() {
         let handle = grib1_handle(CMC_POLAR);
-        let meta = handle.message_meta(0).expect("message 0 has meta");
-        assert_eq!(meta.polar_stereo_lad, Some(60.0));
-        assert_eq!(meta.polar_stereo_dx_metres, Some(60_000.0));
-        assert_eq!(meta.polar_stereo_dy_metres, Some(60_000.0));
-        assert_eq!(meta.polar_stereo_lov, Some(249.0));
-        assert_eq!(meta.polar_stereo_south_pole, Some(false));
+        let meta = handle.info(0).expect("message 0");
+        let grid = meta.grid.as_ref().expect("a declared grid");
+        let g = geometry_wire(grid);
+        assert_eq!(g["lad"], 60.0);
+        assert_eq!(g["dx_metres"], 60_000.0);
+        assert_eq!(g["dy_metres"], 60_000.0);
+        assert_eq!(g["lov"], 249.0);
+        assert_eq!(g["south_pole"], false);
         // A planar grid's scan sign rides in the increments, so it reprojects
         // regardless of the i flag — the reason surfacing that flag for Lambert
         // and polar stereo (where it used to read a hard `false`) changes
         // nothing here.
-        assert_eq!(meta.j_scans_positive, Some(true));
+        assert!(grid.scan.j_positive);
         assert!(meta.reprojectable);
     }
 
@@ -7118,7 +6664,10 @@ mod planar_geolocation_tests {
             ("transverse_mercator", TRANSVERSE_MERCATOR, 12),
         ] {
             assert!(
-                grib2_handle(bytes).messages()[0].reprojectable,
+                grib2_handle(bytes)
+                    .info(0)
+                    .expect("message 0")
+                    .reprojectable,
                 "{family} (template {patch}): the real grid is offered a reprojection"
             );
         }
@@ -7140,7 +6689,7 @@ mod planar_geolocation_tests {
             patched[at + 6..at + 16].fill(0xFF);
             let handle = grib2_handle(&patched);
             assert!(
-                !handle.messages()[0].reprojectable,
+                !handle.info(0).expect("message 0").reprojectable,
                 "{family}: a collapsed plane was offered a reprojection"
             );
             assert!(
@@ -7178,17 +6727,15 @@ mod planar_geolocation_tests {
     #[test]
     fn a_lambert_message_reports_its_real_last_grid_point() {
         let handle = grib2_handle(ETA_LAMBERT);
-        let meta = handle.message_meta(0).expect("message 0 has meta");
+        let meta = handle.info(0).expect("message 0");
+        let grid = meta.grid.as_ref().expect("a declared grid");
         let (_, placed) = handle.resolved(0).expect("message 0 resolves");
         let (ni, nj) = (placed.ni, placed.nj);
         assert_eq!((ni, nj), (93, 65));
 
         // eccodes 2.34.1's own iterator, last row of `grib_get_data`.
         let (want_lat, want_lon) = (57.289_403_949, -49.385_097_250);
-        let (got_lat, got_lon) = (
-            meta.lat_last.expect("latLast reported"),
-            meta.lon_last.expect("lonLast reported"),
-        );
+        let [_, _, got_lat, got_lon] = grid.corners.expect("corners reported");
         assert!(
             (got_lat - want_lat).abs() < 1e-6 && (got_lon - want_lon).abs() < 1e-6,
             "reported ({got_lat}, {got_lon}), eccodes says ({want_lat}, {want_lon})"
@@ -7196,8 +6743,9 @@ mod planar_geolocation_tests {
 
         // The projection parameters are not lost — they are reported under
         // their own names, which is where they belonged all along.
-        assert_eq!(meta.lambert_lad, Some(25.0));
-        assert_eq!(meta.lambert_lov, Some(265.0));
+        let g = geometry_wire(grid);
+        assert_eq!(g["lad"], 25.0);
+        assert_eq!(g["lov"], 265.0);
 
         // Two independent paths to the same corner: the metadata column and
         // the forward geolocation the contours and CSV export read (#470).
@@ -7388,13 +6936,9 @@ mod reduced_grid_render_tests {
             );
             assert!(raw.len() > stored, "{label}: the raster is the larger one");
             assert_eq!(placed.family, "reduced_gaussian", "{label}");
-            let meta = handle.resolved_meta(0).expect("resolves");
-            assert_eq!(
-                meta.grid_type.as_deref(),
-                Some("reduced_gaussian"),
-                "{label}"
-            );
-            assert_eq!(meta.grid_ni, Some(width as i32), "{label}");
+            let meta = handle.resolved_georef(0).expect("resolves");
+            assert_eq!(meta.label, "reduced_gaussian", "{label}");
+            assert_eq!(meta.ni, width, "{label}");
         }
 
         let (raw, placed) = grib1_handle(GRIB1_N32).resolved(0).expect("resolves");
@@ -7460,15 +7004,19 @@ mod reduced_grid_render_tests {
         let handle = grib2_handle(GRIB2_O32);
         let (_, placed) = handle.resolved(0).expect("resolves");
         assert_eq!(placed.ni, 144);
-        let meta = handle.resolved_meta(0).expect("resolves");
-        assert_eq!(meta.lon_last, Some(357.5), "derived from the widest row");
+        let meta = handle.resolved_georef(0).expect("resolves");
+        assert_eq!(
+            meta.corners.map(|c| c[3]),
+            Some(357.5),
+            "derived from the widest row"
+        );
 
         // The message table keeps showing what the file states.
-        let declared = handle.message_meta(0).expect("meta");
+        let declared = handle.info(0).expect("message 0").grid.expect("a grid");
+        let lo2 = declared.corners.expect("corners")[3];
         assert!(
-            (declared.lon_last.expect("lo2") - 357.1875).abs() < 1e-3,
-            "the table stays faithful to the file: {:?}",
-            declared.lon_last
+            (lo2 - 357.1875).abs() < 1e-3,
+            "the table stays faithful to the file: {lo2}"
         );
 
         let forward = placed.geometry.forward_at();
@@ -7546,9 +7094,9 @@ mod reduced_grid_render_tests {
     ///
     /// The umbrella's `reduced_grid_long_csv.rs` holds the export to eccodes
     /// point by point. This is the other half: that the handle actually hands the
-    /// row structure to it. `MessageMeta` carries no `points_per_row`, so a
-    /// handle that forgot to pass it would compile, and every widened copy would
-    /// come back — 8,192 rows for this file's 6,114 — with nothing to say so.
+    /// row structure to it. A handle that forgot to pass `points_per_row` would
+    /// compile, and every widened copy would come back — 8,192 rows for this
+    /// file's 6,114 — with nothing to say so.
     #[test]
     fn the_handles_long_csv_exports_the_points_a_reduced_grid_holds() {
         for (label, bytes, points) in [
@@ -7636,16 +7184,17 @@ mod curvilinear_render_tests {
         (handle, var, y, x, indices)
     }
 
-    /// A lookup slice's view reports what its cached geometry answers, asked of
+    /// A lookup slice's grid reports what its cached geometry answers, asked of
     /// the same index the render borrows (#572).
     #[test]
     fn a_lookup_slice_reports_what_the_geometry_would() {
         for (bytes, name) in [(TRIPOLAR, "ice_thickness"), (SWATH, "TPW")] {
             let (handle, var, y, x, _) = slice(bytes, name);
-            let meta = handle.slice_meta(&var, y, x).expect("slice meta");
+            let meta = handle
+                .slice_grid(var.decode_index as u32, y as u32, x as u32)
+                .expect("the slice's grid");
             assert_eq!(
-                meta.grid_type.as_deref(),
-                Some("curvilinear"),
+                meta.label, "curvilinear",
                 "{name} is the lookup family this constant is about"
             );
             let geometry = handle
@@ -7689,43 +7238,37 @@ mod curvilinear_render_tests {
 
     /// The slice reports itself as a lookup grid, with the extent of its cells.
     ///
-    /// A lookup grid has no corners to read from the file, so the ones reported
-    /// are the index's bounding box. For the tripolar window that box reaches
-    /// the pole; for the swath it crosses the antimeridian, which is why
-    /// `lon_first` is allowed to fall outside [-180, 180].
+    /// A lookup grid has no corners to read from the file, so its extent is the
+    /// index's bounding box. For the tripolar window that box reaches the pole;
+    /// for the swath it crosses the antimeridian.
     #[test]
     fn a_curvilinear_slice_reports_the_extent_of_its_cells() {
         for (label, bytes, field, ni, nj) in [
-            ("tripolar", TRIPOLAR, "ice_thickness", 260i32, 200i32),
+            ("tripolar", TRIPOLAR, "ice_thickness", 260u32, 200u32),
             ("swath", SWATH, "TPW", 96, 100),
         ] {
             let (handle, var, y, x, _) = slice(bytes, field);
-            let meta = handle.slice_meta(&var, y, x).expect("meta resolves");
+            let (meta, got_ni, got_nj) = handle.slice_georef(&var, y, x).expect("resolves");
+            assert_eq!(meta.label, "curvilinear", "{label}: named as a lookup grid");
+            assert_eq!((got_ni, got_nj), (ni, nj), "{label}");
             assert_eq!(
-                meta.grid_type.as_deref(),
-                Some("curvilinear"),
-                "{label}: named as a lookup grid"
-            );
-            assert_eq!(
-                (meta.grid_ni, meta.grid_nj),
-                (Some(ni), Some(nj)),
-                "{label}"
+                (meta.ni, meta.nj),
+                (ni, nj),
+                "{label}: the index's own shape"
             );
             assert!(meta.reprojectable, "{label}: it can be put on a map");
-            let (lat_first, lat_last) = (
-                meta.lat_first.expect("lat_first"),
-                meta.lat_last.expect("lat_last"),
-            );
-            assert!(lat_first > lat_last, "{label}: north-up corners");
+            assert_eq!(meta.placement, fieldglass::Placement::Placed, "{label}");
+            let [lat_min, lat_max, _, _] = meta.bounds_lonlat.expect("an extent");
+            assert!(lat_max > lat_min, "{label}: a real extent");
         }
 
         // The tripolar window reaches the pole its grid folds around.
         let (handle, var, y, x, _) = slice(TRIPOLAR, "ice_thickness");
-        let meta = handle.slice_meta(&var, y, x).expect("meta");
+        let (meta, _, _) = handle.slice_georef(&var, y, x).expect("resolves");
+        let [_, lat_max, _, _] = meta.bounds_lonlat.expect("an extent");
         assert!(
-            meta.lat_first.expect("lat_first") > 89.9,
-            "the window should reach the pole, got {:?}",
-            meta.lat_first
+            lat_max > 89.9,
+            "the window should reach the pole, got {lat_max}"
         );
     }
 
@@ -7930,12 +7473,8 @@ mod curvilinear_render_tests {
     fn a_curvilinear_source_view_is_flipped_to_face_north_up() {
         // RTOFS ascends: the committed window runs 82 °N at row 0 to the pole.
         let (handle, var, y, x, _) = slice(TRIPOLAR, "ice_thickness");
-        let meta = handle.slice_meta(&var, y, x).expect("meta");
-        assert_eq!(
-            meta.j_scans_positive,
-            Some(true),
-            "the window's rows run south to north"
-        );
+        let (meta, _, _) = handle.slice_georef(&var, y, x).expect("resolves");
+        assert!(meta.scan.j_positive, "the window's rows run south to north");
         let placed = handle.slice_placed(&var, y, x).expect("the slice places");
         assert!(
             placed.scan.flips_source_rows(false),
@@ -7944,8 +7483,8 @@ mod curvilinear_render_tests {
 
         // The swath descends — row 0 is its northern end — and must not flip.
         let (handle, var, y, x, _) = slice(SWATH, "TPW");
-        let meta = handle.slice_meta(&var, y, x).expect("meta");
-        assert_eq!(meta.j_scans_positive, Some(false), "north-first already");
+        let (meta, _, _) = handle.slice_georef(&var, y, x).expect("resolves");
+        assert!(!meta.scan.j_positive, "north-first already");
         let placed = handle.slice_placed(&var, y, x).expect("the slice places");
         assert!(!placed.scan.flips_source_rows(false), "so it is left alone");
     }
@@ -8029,8 +7568,8 @@ mod curvilinear_render_tests {
                 .is_none(),
             "a 1-D lat/lon grid names no 2-D coordinate pair"
         );
-        let meta = handle.slice_meta(&var, y, x).expect("meta");
-        assert_eq!(meta.grid_type.as_deref(), Some("latlon"));
+        let (meta, _, _) = handle.slice_georef(&var, y, x).expect("resolves");
+        assert_eq!(meta.label, "latlon");
     }
 
     fn nc_classic(bytes: &[u8]) -> NetcdfHandle {
@@ -8077,20 +7616,22 @@ mod healpix_render_tests {
         assert_eq!(placed.geometry.kind(), "latlon");
         assert_eq!((placed.ni, placed.nj), (26, 14), "the report's grid");
 
-        let meta = handle().resolved_meta(0).expect("the message resolves");
-        assert_eq!(meta.grid_type.as_deref(), Some("latlon"));
+        let meta = handle().resolved_georef(0).expect("the message resolves");
+        assert_eq!(meta.label, "latlon");
         assert!(
             meta.reprojectable,
             "a resampled grid reprojects like any other"
         );
-        assert_eq!(meta.lat_first, Some(90.0));
-        assert_eq!(meta.lat_last, Some(-90.0));
-        assert_eq!(meta.grid_ni, Some(26));
-        assert_eq!(meta.grid_nj, Some(14));
+        // And the message says the same about its values, which is what the
+        // panel's projection picker reads (#776).
+        assert!(handle().info(0).expect("message 0").reprojectable);
+        let [lat_first, _, lat_last, lon_last] = meta.corners.expect("corners");
+        assert_eq!((lat_first, lat_last), (90.0, -90.0));
+        assert_eq!((meta.ni, meta.nj), (26, 14));
         // The eastern corner is the last longitude the field was evaluated at,
         // bit for bit — not a second spelling of it (#546).
         let wire = serde_json::to_value(&*placed.geometry).expect("a geometry serialises");
-        assert_eq!(meta.lon_last, wire["lon_last"].as_f64());
+        assert_eq!(Some(lon_last), wire["lon_last"].as_f64());
     }
 
     /// Every reprojection of a coarse grid is drawn at display scale, so the
@@ -8191,77 +7732,11 @@ mod healpix_render_tests {
     }
 }
 
-/// The unresolved-parameter contract, compared against the umbrella (#633).
-///
-/// This binding and `fieldglass::Session` are separate display seams over the
-/// same format crates, and they used to render an unresolved parameter
-/// differently: this one as `Parameter d/c/n`, the umbrella as the empty
-/// string for GRIB2 and `"Unknown"` for GRIB1. Nothing failed, because the
-/// conformance suite could not compare the field through this binding.
-///
-/// It can now: the handles' `message(i)` returns the API's `MessageInfo`, and
-/// `conformance_host` compares `Op::Message` through it (#574). What is left
-/// here pins the `MessageMeta` view the extension still lists messages with,
-/// which goes when that view does.
-#[cfg(test)]
-mod unresolved_parameter_tests {
-    use super::*;
-
-    const GRIB2: &[u8] =
-        include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2");
-    const GRIB1: &[u8] =
-        include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
-
-    /// GRIB2 §0 octet 7 (discipline) and GRIB1 PDS octet 9 (parameter id), as
-    /// 0-based offsets into the whole message. Documented in full in
-    /// `fieldglass/tests/unresolved_parameter.rs`.
-    const GRIB2_DISCIPLINE: usize = 6;
-    const GRIB1_PARAMETER_ID: usize = 16;
-
-    fn patched(bytes: &[u8], at: usize, to: u8) -> Vec<u8> {
-        let mut out = bytes.to_vec();
-        out[at] = to;
-        out
-    }
-
-    // These asserted that this crate and the umbrella agreed, back when this
-    // crate built the name itself (#633). It no longer does — the message list
-    // is the umbrella's `MessageInfo` mapped for display (#726) — so agreement
-    // is structural and what is left worth pinning is the contract itself: what
-    // the extension shows for a parameter no table defines.
-
-    #[test]
-    fn an_unresolved_grib2_parameter_is_named_by_its_codes() {
-        // Discipline 209: a local NSSL/MRMS assignment no table here defines.
-        let meta = &Grib2Handle::from_vec(patched(GRIB2, GRIB2_DISCIPLINE, 209))
-            .expect("the patched message still opens")
-            .messages()[0];
-        assert_eq!(meta.parameter_name, "Parameter 209/0/0");
-        assert_eq!(meta.parameter_abbreviation, "");
-        assert_eq!(meta.parameter_units, "");
-    }
-
-    #[test]
-    fn an_unresolved_grib1_parameter_is_named_by_its_codes() {
-        // Id 0 is undefined in ECMWF local table 128, which this file declares.
-        let meta = &Grib1Handle::from_vec(patched(GRIB1, GRIB1_PARAMETER_ID, 0))
-            .expect("the patched message still opens")
-            .messages()[0];
-        assert_eq!(meta.parameter_name, "Parameter 98/128/0");
-        assert_eq!(meta.parameter_abbreviation, "");
-        assert_eq!(meta.parameter_units, "");
-    }
-
-    /// A *resolved* parameter too, or the tests above would pass with the
-    /// fallback firing unconditionally.
-    #[test]
-    fn a_resolved_parameter_is_named_by_its_table() {
-        let g2 = Grib2Handle::from_vec(GRIB2.to_vec()).expect("opens");
-        assert_eq!(g2.messages()[0].parameter_name, "Temperature");
-        let g1 = Grib1Handle::from_vec(GRIB1.to_vec()).expect("opens");
-        assert_eq!(g1.messages()[0].parameter_name, "2 metre temperature");
-    }
-}
+// `unresolved_parameter_tests` stood here (#633): it pinned how the message list
+// named a parameter no table resolves, through the `MessageMeta` view. That view
+// is gone (#574); the list is `message(i)`, the conformance runner compares
+// `Op::Message` through it, and `fieldglass/tests/unresolved_parameter.rs` holds
+// the contract itself.
 
 /// The wire form `message(i)` hands JavaScript: every key present, `null` for
 /// a Rust `None` (#574, decided 2026-09-29).
@@ -8338,6 +7813,67 @@ mod message_wire_tests {
             reference.values().any(serde_json::Value::is_null),
             "the fixture must have an absent field, or this checks nothing"
         );
+    }
+
+    /// No float in a `MessageInfo` is non-finite, over every message of every
+    /// committed GRIB fixture (#574).
+    ///
+    /// The one place the two hosts' wire forms could differ: `serde_json` here
+    /// writes a `NaN` or an infinity as `null`, where the browser binding passes
+    /// it through as a number. So instead of choosing one spelling for a value
+    /// that should not occur, this proves it does not. Reading `message(i)`'s
+    /// wire form back into the API type and comparing it with the session's
+    /// value fails on any non-finite float, wherever it is: a `null` in a
+    /// required float or inside the corner array does not deserialise, a
+    /// `Some(NaN)` read back as `None` differs, and `NaN` is not equal to
+    /// itself. The geometry parameters are GRIB integers scaled, and `core`
+    /// withholds an origin or extent it cannot compute rather than returning one
+    /// (`GridGeometry::plane_affine`, `lonlat_bbox`).
+    #[test]
+    fn no_message_carries_a_non_finite_float() {
+        let mut checked = 0usize;
+        for dir in [
+            "../fieldglass-grib1/tests/fixtures",
+            "../fieldglass-grib2/tests/fixtures",
+        ] {
+            let mut paths: Vec<_> = std::fs::read_dir(dir)
+                .unwrap_or_else(|e| panic!("{dir}: {e}"))
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_file())
+                .collect();
+            paths.sort();
+            for path in paths {
+                let bytes = std::fs::read(&path).expect("readable");
+                let name = path.display().to_string();
+                let handle = match fieldglass::detect_from_bytes(&bytes) {
+                    fieldglass::Format::Grib1 => {
+                        Grib1Handle::from_vec(bytes.clone()).map(|h| h.stream)
+                    }
+                    fieldglass::Format::Grib2 => {
+                        Grib2Handle::from_vec(bytes.clone()).map(|h| h.stream)
+                    }
+                    _ => continue,
+                };
+                // A fixture built to be refused on open has no message to check.
+                let Ok(stream) = handle else { continue };
+                let session = fieldglass::Session::open(bytes).expect("opened once already");
+                for i in 0..stream.session.count() {
+                    let wire = stream.message_info(i).expect("message i");
+                    let read_back: fieldglass::MessageInfo = serde_json::from_value(wire)
+                        .unwrap_or_else(|e| {
+                            panic!("{name} #{i}: the wire form does not read back ({e})")
+                        });
+                    assert_eq!(
+                        read_back,
+                        session.message(i).expect("message i"),
+                        "{name} #{i}: a float changed crossing the wire"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked >= 70, "only {checked} messages checked");
     }
 }
 
@@ -8520,8 +8056,8 @@ mod sized_output_raster_tests {
     }
 }
 
-/// `MessageMeta::placement` and `reprojectable` through the real handles, over
-/// the committed fixtures (#776).
+/// `MessageInfo::placement` and `reprojectable` through the real handles'
+/// `message(i)`, over the committed fixtures (#776).
 ///
 /// These two are what the extension's Render button and projection picker read
 /// instead of naming the synthesised families in TypeScript, so what is pinned
@@ -8530,20 +8066,21 @@ mod sized_output_raster_tests {
 /// answer differently.
 #[cfg(test)]
 mod placement_tests {
-    use super::{Grib1Handle, Grib2Handle, MessageMeta};
+    use super::{Grib1Handle, Grib2Handle};
+    use fieldglass::{MessageInfo, Placement};
 
-    fn grib2(bytes: &[u8]) -> MessageMeta {
+    fn grib2(bytes: &[u8]) -> MessageInfo {
         Grib2Handle::from_vec(bytes.to_vec())
             .expect("the fixture opens")
-            .messages()
-            .swap_remove(0)
+            .info(0)
+            .expect("message 0")
     }
 
-    fn grib1(bytes: &[u8]) -> MessageMeta {
+    fn grib1(bytes: &[u8]) -> MessageInfo {
         Grib1Handle::from_vec(bytes.to_vec())
             .expect("the fixture opens")
-            .messages()
-            .swap_remove(0)
+            .info(0)
+            .expect("message 0")
     }
 
     #[test]
@@ -8551,7 +8088,7 @@ mod placement_tests {
         let meta = grib2(include_bytes!(
             "../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2"
         ));
-        assert_eq!(meta.placement, "placed");
+        assert_eq!(meta.placement, Placement::Placed);
         assert!(meta.reprojectable);
     }
 
@@ -8567,9 +8104,14 @@ mod placement_tests {
                 "../../fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2"
             )),
         ] {
-            assert_eq!(meta.grid_type.as_deref(), Some("spherical_harmonic"));
-            assert_eq!(meta.grid_ni, None, "the declared grid has no raster");
-            assert_eq!(meta.placement, "placed");
+            let grid = meta.grid.as_ref().expect("a declared grid");
+            assert_eq!(grid.label, "spherical_harmonic");
+            assert_eq!(
+                grid.placement,
+                Placement::NoRaster,
+                "the declared grid has no raster"
+            );
+            assert_eq!(meta.placement, Placement::Placed);
             assert!(meta.reprojectable);
         }
     }
@@ -8581,7 +8123,7 @@ mod placement_tests {
         let meta = grib2(include_bytes!(
             "../../fieldglass-grib2/tests/fixtures/bifourier_ellipse_keepaxes.grib2"
         ));
-        assert_eq!(meta.placement, "no_raster");
+        assert_eq!(meta.placement, Placement::NoRaster);
         assert!(!meta.reprojectable);
     }
 
@@ -8592,8 +8134,8 @@ mod placement_tests {
         let meta = grib2(include_bytes!(
             "../../fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2"
         ));
-        assert_eq!(meta.placement, "unplaceable");
-        assert!(meta.grid_ni.is_some());
+        assert_eq!(meta.placement, Placement::Unplaceable);
+        assert!(meta.grid.expect("a declared grid").ni > 0);
         assert!(!meta.reprojectable);
     }
 
@@ -8615,16 +8157,16 @@ mod placement_tests {
         msg.extend_from_slice(b"7777");
 
         let meta = grib1(&msg);
-        assert_eq!(meta.grid_type, None);
-        assert_eq!(meta.placement, "predefined_unresolved");
+        assert!(meta.grid.is_none());
+        assert_eq!(meta.placement, Placement::PredefinedUnresolved);
         assert!(!meta.reprojectable);
     }
 }
 
 /// A NetCDF-4 / HDF5 slice with no coordinate arrays, through the real
-/// `NetcdfHandle`: its meta names a 10×10 raster that renders in grid
-/// coordinates and that nothing places, so `unplaceable`, not `no_raster`
-/// (#776).
+/// `NetcdfHandle`: a 10×10 raster that renders in grid coordinates and that
+/// nothing places, so `unplaceable`, not `no_raster` (#776), captioned `source`
+/// as every other host captions it (#574).
 #[cfg(test)]
 mod coordinate_less_slice_placement_tests {
     use super::{NetcdfHandle, NetcdfReader};
@@ -8651,19 +8193,30 @@ mod coordinate_less_slice_placement_tests {
             .renderable(u32::try_from(index).expect("an index"))
             .expect("renderable");
         let rank = var.dims.len();
-        let meta = handle
-            .slice_meta(&var, rank - 2, rank - 1)
-            .expect("a slice meta");
-        assert_eq!((meta.grid_ni, meta.grid_nj), (Some(10), Some(10)));
-        assert_eq!(meta.lat_first, None, "no coordinates to place it by");
-        assert_eq!(meta.placement, "unplaceable");
+        let (meta, ni, nj) = handle
+            .slice_georef(&var, rank - 2, rank - 1)
+            .expect("a slice placement");
+        assert_eq!((ni, nj), (10, 10));
+        assert_eq!(meta.corners, None, "no coordinates to place it by");
+        assert_eq!(meta.placement, fieldglass::Placement::Unplaceable);
         assert!(!meta.reprojectable);
+        // The panel's answer, through the call it makes, is the same one.
+        let grid = handle
+            .slice_grid(
+                u32::try_from(index).expect("an index"),
+                u32::try_from(rank - 2).expect("an axis"),
+                u32::try_from(rank - 1).expect("an axis"),
+            )
+            .expect("the slice's grid");
+        assert_eq!(grid.label, "source");
+        assert_eq!(grid.placement, "unplaceable");
+        assert!(!grid.reprojectable);
 
-        // The display path, through the handle: the source view renders and
-        // keeps its caption, and a warp is refused in the umbrella's words —
-        // the ones the Zarr and browser hosts give the same slice — rather
-        // than in terms of a wire field this host once rebuilt a grid from
-        // (#574).
+        // The display path, through the handle: the source view renders under
+        // the caption every host gives the slice, and a warp is refused in the
+        // umbrella's words — the ones the Zarr and browser hosts give the same
+        // slice — rather than in terms of a wire field this host once rebuilt a
+        // grid from (#574).
         let (vi, y, x) = (
             u32::try_from(index).expect("an index"),
             u32::try_from(rank - 2).expect("an axis"),
@@ -8681,7 +8234,7 @@ mod coordinate_less_slice_placement_tests {
             .expect("the source view needs no placement");
         assert_eq!(
             source.projection_summary,
-            "source: latlon 10×10 → latlon (no reprojection)"
+            "source: source 10×10 → source (no reprojection)"
         );
         let err = handle
             .render_slice(
@@ -8740,9 +8293,9 @@ mod unsupported_template_placement_tests {
         }
         let meta = Grib2Handle::from_vec(bytes)
             .expect("opens")
-            .messages()
-            .swap_remove(0);
-        assert_eq!(meta.placement, "unsupported");
+            .info(0)
+            .expect("message 0");
+        assert_eq!(meta.placement, fieldglass::Placement::Unsupported);
         assert!(!meta.reprojectable);
     }
 }
@@ -8903,28 +8456,34 @@ mod paired_field_tests {
     }
 }
 
-/// `MessageMeta::placement`'s TypeScript union is written by hand in a
-/// `ts_type` attribute; this holds it to `fieldglass::Placement::ALL`, so a
-/// value added to the vocabulary cannot be missing from the declaration (#776).
+/// `SliceGrid::placement` is declared to TypeScript as the schema's
+/// `Placement` union through a `ts_type`, which names the type rather than
+/// spelling its values: the union itself is generated from the schema into
+/// `api.generated.ts`, so a value added to the vocabulary reaches the
+/// declaration with nothing here to update. This holds the one string that
+/// could still drift — the value `SliceGrid::of` writes — to the vocabulary.
 #[cfg(test)]
 mod placement_ts_type_tests {
     #[test]
-    fn placement_ts_type_is_the_vocabulary() {
+    fn slice_grid_placement_is_the_placement_type() {
         let source = include_str!("lib.rs");
-        let line = source
-            .lines()
-            .find(|l| l.trim_start().starts_with("ts_type = \"\\\"placed"))
-            .expect("the placement field's ts_type");
-        let declared: Vec<String> = line
-            .split("\\\"")
-            .skip(1)
-            .step_by(2)
-            .map(str::to_string)
-            .collect();
-        let vocabulary: Vec<String> = fieldglass::Placement::ALL
-            .iter()
-            .map(|p| p.as_str().to_string())
-            .collect();
-        assert_eq!(declared, vocabulary);
+        let start = source
+            .find("pub struct SliceGrid {")
+            .expect("SliceGrid is declared");
+        let end = start + source[start..].find("\n}\n").expect("its body ends");
+        let body = &source[start..end];
+        let field = body
+            .find("pub placement: String")
+            .expect("SliceGrid::placement");
+        assert!(
+            body[..field]
+                .trim_end()
+                .ends_with(r#"#[napi(ts_type = "Placement")]"#),
+            "SliceGrid::placement must be declared as the generated Placement type"
+        );
+        for placement in fieldglass::Placement::ALL {
+            let wire = serde_json::to_value(placement).expect("serialises");
+            assert_eq!(wire, placement.as_str(), "as_str is the serde tag");
+        }
     }
 }

@@ -12,8 +12,14 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { loadNative, type MessageMeta, type NetcdfVariableMeta } from "../../native";
-import { defaultAnimationDim, nextFrame, renderImagePanelHtml, type SlicePanelData } from "../../render-panel";
+import { loadNative, type NetcdfVariableMeta } from "../../native";
+import {
+  defaultAnimationDim,
+  nextFrame,
+  renderImagePanelHtml,
+  type PanelField,
+  type SlicePanelData,
+} from "../../render-panel";
 
 function fixture(name: string): Buffer {
   const ext = vscode.extensions.getExtension("fieldglass.fieldglass");
@@ -94,7 +100,7 @@ suite("Time animation", () => {
       variables: [v],
       initial: { variableIndex: v.variableIndex, yDim: 1, xDim: 2, sliceIndices: [0, 0, 0] },
     };
-    const meta = { gridType: "latlon", reprojectable: true } as unknown as MessageMeta;
+    const meta = { grid: { label: "latlon" }, reprojectable: true } as unknown as PanelField;
     const webview = { cspSource: "" } as unknown as vscode.Webview;
     const html = renderImagePanelHtml(webview, meta, "summary", native.colormaps(), native.combineOps(), slice);
     for (const id of ["animate-row", "animate-dim", "anim-first", "anim-back", "anim-play", "anim-forward", "anim-last", "anim-speed", "anim-loop"]) {

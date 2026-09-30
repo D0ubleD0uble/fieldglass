@@ -26,17 +26,20 @@ import * as vscode from "vscode";
 
 import {
   buildGridReadyMessage,
+  listMessages,
   renderHtml,
-  syntheticNetcdfMeta,
+  sliceCaption,
+  sliceField,
   gribFieldLabel,
   lineIndices,
+  refreshedP1Value,
   resolveGribCompare,
   resolveInterval,
   resolveNetcdfCompare,
   resolveRerenderOptions,
   type GridReadyMessage,
 } from "../../provider";
-import { loadNative, type MessageMeta, type RenderOptions } from "../../native";
+import { loadNative, type MessageInfo, type RenderOptions } from "../../native";
 import {
   buildGraticule,
   flattenLonLatLines,
@@ -48,6 +51,7 @@ import {
   composeTitleLine,
   composeTruncationNote,
   renderImagePanelHtml,
+  type PanelField,
   type SlicePanelData,
 } from "../../render-panel";
 
@@ -194,48 +198,21 @@ suite("Render pipeline", () => {
     // removed or weakened, `constructor.name` will revert to `"Buffer"` and
     // VS Code's serializer will corrupt the payload again.
     const rgba = Buffer.from([10, 20, 30, 40, 50, 60, 70, 80]);
-    const meta: MessageMeta = {
-      messageIndex: 0,
-      offsetBytes: 0,
-      parameterName: "",
-      parameterUnits: "",
-      parameterAbbreviation: "",
-      level: "",
-      levelType: "",
-      referenceTime: "",
-      forecastHours: 0,
-    p1Octet: null,
-      forecastDisplay: "",
-      originatingCentre: "",
-      gridType: null,
-      gridNi: null,
-      gridNj: null,
-      gridSizeLabel: null,
-      latFirst: null,
-      lonFirst: null,
-      latLast: null,
-      lonLast: null,
-      format: "grib1",
-      edition: null,
-      discipline: null,
-      totalLengthBytes: null,
-      productionStatus: null,
-      dataType: null,
-      lambertLad: null,
-      lambertLov: null,
-      lambertDxMetres: null,
-      lambertDyMetres: null,
-      lambertLatin1: null,
-      lambertLatin2: null,
-      gaussianNParallels: null,
-      packing: null,
-      reprojectable: true,
-      placement: "placed",
-      jScansPositive: null,
-    };
+    const meta = { index: 0, parameter: "", units: "" };
     const options = defaultRenderOptions();
     const message: GridReadyMessage = buildGridReadyMessage(
-      { rgba, width: 2, height: 1, usedMin: 0, usedMax: 1, projectionSummary: "" },
+      {
+        rgba,
+        width: 2,
+        height: 1,
+        usedMin: 0,
+        usedMax: 1,
+        usedLatMin: null,
+        usedLatMax: null,
+        usedLonMin: null,
+        usedLonMax: null,
+        projectionSummary: "",
+      },
       meta,
       options,
     );
@@ -281,7 +258,7 @@ suite("Render pipeline", () => {
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
     const handle = native.Grib1Handle.fromBytes(bytes);
-    const messages = handle.messages();
+    const messages = listMessages(handle);
     assert.ok(messages.length > 0, "GRIB1 fixture should contain at least one message");
 
     const rendered = handle.renderGrid(0, defaultRenderOptions());
@@ -302,7 +279,7 @@ suite("Render pipeline", () => {
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
     const handle = native.Grib1Handle.fromBytes(bytes);
-    const n = handle.messages().length;
+    const n = listMessages(handle).length;
     assert.ok(n >= 1, "fixture should contain at least one message");
 
     // A − A: every present cell is exactly zero, so the used range collapses —
@@ -375,9 +352,8 @@ suite("Render pipeline", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const handle = native.Grib2Handle.fromBytes(fs.readFileSync(fixturePath("spectral_simple_t383.grib2")));
-    const meta = handle.messages()[0];
-    assert.strictEqual(meta.truncatedTo, 359);
-    assert.strictEqual(meta.declaredTruncation, 383);
+    const meta = handle.message(0);
+    assert.deepStrictEqual(meta.truncation, { declared: 383, truncatedTo: 359 });
     assert.strictEqual(composeTruncationNote(meta), "shown at T359 of T383");
 
     // The subtitle carries the note, and the PNG export draws the subtitle.
@@ -415,7 +391,7 @@ suite("Render pipeline", () => {
 
     // Below the limit there is no note, and the probe has one value.
     const t63 = native.Grib2Handle.fromBytes(fs.readFileSync(fixturePath("spectral_simple_t63.grib2")));
-    assert.strictEqual(composeTruncationNote(t63.messages()[0]), null);
+    assert.strictEqual(composeTruncationNote(t63.message(0)), null);
     const one = t63.probe(0, defaultRenderOptions(), 240, 89);
     assert.ok(one?.value != null && one.fullDetailValue == null, "one value below the limit");
     assert.strictEqual(composeProbeValue(one, ""), Number(one.value).toPrecision(5));
@@ -427,7 +403,7 @@ suite("Render pipeline", () => {
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("eta_lambert_msg0.grib2"));
     const handle = native.Grib2Handle.fromBytes(bytes);
-    assert.strictEqual(handle.messages()[0].gridType, "lambert");
+    assert.strictEqual(handle.message(0).grid?.label, "lambert");
     const options = defaultRenderOptions();
 
     // Both used to refuse a planar grid for want of per-point coordinates.
@@ -577,7 +553,7 @@ suite("Render pipeline", () => {
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
     const handle = native.Grib2Handle.fromBytes(bytes);
-    const messages = handle.messages();
+    const messages = listMessages(handle);
     assert.ok(messages.length > 0, "GRIB2 fixture should contain at least one message");
 
     const rendered = handle.renderGrid(0, defaultRenderOptions());
@@ -595,10 +571,10 @@ suite("Render pipeline", () => {
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("spectral_simple_t63.grib2"));
     const handle = native.Grib2Handle.fromBytes(bytes);
-    const messages = handle.messages();
-    assert.strictEqual(messages[0].gridType, "spherical_harmonic", "T63 spectral");
-    // The message itself has no grid (napi `None` surfaces as `undefined`)...
-    assert.ok(messages[0].gridNi == null, "spectral message declares no Ni");
+    const messages = listMessages(handle);
+    assert.strictEqual(messages[0].grid?.label, "spherical_harmonic", "T63 spectral");
+    // The message itself has no raster: its declared grid has no points...
+    assert.strictEqual(messages[0].grid?.placement, "no_raster", "spectral message declares no raster");
 
     // ...but renderGrid synthesizes the global 0.5° lat/lon grid via the
     // inverse spherical-harmonic transform and paints it. The grid does not
@@ -624,9 +600,9 @@ suite("Render pipeline", () => {
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("spectral_simple_t63.grib1"));
     const handle = native.Grib1Handle.fromBytes(bytes);
-    const messages = handle.messages();
-    assert.strictEqual(messages[0].gridType, "spherical_harmonic", "T63 spectral");
-    assert.ok(messages[0].gridNi == null, "spectral message declares no Ni");
+    const messages = listMessages(handle);
+    assert.strictEqual(messages[0].grid?.label, "spherical_harmonic", "T63 spectral");
+    assert.strictEqual(messages[0].grid?.placement, "no_raster", "spectral message declares no raster");
 
     // GRIB1 spectral renders through the same shared inverse-transform engine.
     const rendered = handle.renderGrid(0, defaultRenderOptions());
@@ -870,21 +846,18 @@ suite("rerenderRequest option clamp", () => {
 
   test("gribFieldLabel: concise, skips placeholder level", () => {
     const base = {
-      messageIndex: 3,
-      parameterAbbreviation: "TMP",
-      parameterName: "Temperature",
+      index: 3,
+      abbreviation: "TMP",
+      parameter: "Temperature",
       level: "500",
-      forecastDisplay: "+6h",
-    } as MessageMeta;
+      forecast: "+6h",
+    };
     assert.strictEqual(gribFieldLabel(base), "#3 · TMP · 500 · +6h");
     // A placeholder level ("—") is dropped rather than shown.
-    assert.strictEqual(
-      gribFieldLabel({ ...base, level: "—" } as MessageMeta),
-      "#3 · TMP · +6h",
-    );
+    assert.strictEqual(gribFieldLabel({ ...base, level: "—" }), "#3 · TMP · +6h");
     // Falls back to the full name when there is no abbreviation.
     assert.strictEqual(
-      gribFieldLabel({ ...base, parameterAbbreviation: "" } as MessageMeta),
+      gribFieldLabel({ ...base, abbreviation: "" }),
       "#3 · Temperature · 500 · +6h",
     );
   });
@@ -997,45 +970,19 @@ suite("render-panel HTML", () => {
   // picker can't drift away from what the native side reads (`currentOptions`
   // pulls these by id).
 
-  function fakeMeta(): MessageMeta {
+  function fakeMeta(): PanelField {
     return {
-      messageIndex: 0,
-      offsetBytes: 0,
-      parameterName: "",
-      parameterUnits: "",
-      parameterAbbreviation: "",
+      index: 0,
+      parameter: "",
+      units: "",
       level: "",
       levelType: "",
-      referenceTime: "",
-      forecastHours: 0,
-    p1Octet: null,
-      forecastDisplay: "",
-      originatingCentre: "",
-      gridType: null,
-      gridNi: null,
-      gridNj: null,
-      gridSizeLabel: null,
-      latFirst: null,
-      lonFirst: null,
-      latLast: null,
-      lonLast: null,
-      format: "grib1",
-      edition: null,
-      discipline: null,
-      totalLengthBytes: null,
-      productionStatus: null,
-      dataType: null,
-      lambertLad: null,
-      lambertLov: null,
-      lambertDxMetres: null,
-      lambertDyMetres: null,
-      lambertLatin1: null,
-      lambertLatin2: null,
-      gaussianNParallels: null,
-      packing: null,
+      referenceTime: null,
+      forecast: "",
+      uvRelativeToGrid: null,
       reprojectable: true,
-      placement: "placed",
-      jScansPositive: null,
+      truncation: null,
+      grid: null,
     };
   }
 
@@ -1104,14 +1051,14 @@ suite("render-panel HTML", () => {
   /** The first message's meta, as the real addon reports it. These tests are
    *  about what Rust answers for a family, so a hand-written meta would test
    *  only what the test author believed it answers. */
-  function nativeMeta(file: string): MessageMeta {
+  function nativeMeta(file: string): MessageInfo {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(file);
     const handle = file.endsWith(".grib1")
       ? native.Grib1Handle.fromBytes(bytes)
       : native.Grib2Handle.fromBytes(bytes);
-    return handle.messages()[0];
+    return handle.message(0);
   }
 
   /** A committed GRIB2 fixture the extension's own corpus does not copy. */
@@ -1121,7 +1068,7 @@ suite("render-panel HTML", () => {
     return path.join(ext.extensionPath, "..", "crates", "fieldglass-grib2", "tests", "fixtures", name);
   }
 
-  function offeredProjections(meta: MessageMeta): { offered: string[]; html: string } {
+  function offeredProjections(meta: PanelField): { offered: string[]; html: string } {
     const html = renderImagePanelHtml(
       { cspSource: "" } as unknown as vscode.Webview,
       meta,
@@ -1141,7 +1088,7 @@ suite("render-panel HTML", () => {
     // it hands the panel says so; the panel used to rescue it by family name.
     for (const fixture of ["spectral_simple_t63.grib1", "spectral_simple_t63.grib2"]) {
       const meta = nativeMeta(fixturePath(fixture));
-      assert.strictEqual(meta.gridType, "spherical_harmonic", fixture);
+      assert.strictEqual(meta.grid?.label, "spherical_harmonic", fixture);
       assert.strictEqual(meta.placement, "placed", fixture);
       const { offered, html } = offeredProjections(meta);
       assert.ok(
@@ -1208,7 +1155,7 @@ suite("render-panel HTML", () => {
       at += bytes.readUInt32BE(at);
     }
     bytes.writeUInt16BE(4, at + 12);
-    const meta = native.Grib2Handle.fromBytes(bytes).messages()[0];
+    const meta = native.Grib2Handle.fromBytes(bytes).message(0);
     assert.strictEqual(meta.placement, "unsupported");
     const html = renderHtml(
       { cspSource: "" } as unknown as vscode.Webview,
@@ -1798,12 +1745,63 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
 
   // A NetCDF slice carries its units to the panel, typeset (#453, ADR-0007).
   //
-  // The render panel builds its own `MessageMeta` for a NetCDF slice, and that
-  // builder hard-coded `parameterUnits: ""` — so the panel title and the probe
+  // The render panel builds what it reads of a NetCDF slice itself, and that
+  // builder once hard-coded the units to `""` — so the panel title and the probe
   // readout showed no units at all for a NetCDF file, where a GRIB message
   // shows them. Normalising the string on the Rust side alone would have been
   // correct and completely invisible, which is what makes this the seam worth
   // testing rather than the normaliser.
+  // The slice panel reads the slice's own answers (#574, #776).
+  //
+  // It used to build its meta from a stub that said `latlon`, `placed` and
+  // reprojectable for every slice, so a slice with no coordinates was offered
+  // every map target and each one then failed in `renderSlice`. The answers now
+  // come from `sliceGrid`, which asks the placement the handle renders from.
+  test("a netcdf slice panel offers the map targets exactly where the slice is placed", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const handle = native.NetcdfHandle.fromBytes(fs.readFileSync(fixturePath("netcdf4_dimscale.nc")));
+    const variables = handle.variables();
+    const picker = (name: string) => {
+      const v = variables.find((x) => x.name === name);
+      assert.ok(v, `the fixture has ${name}`);
+      const rank = v.dims.length;
+      const grid = handle.sliceGrid(
+        v.variableIndex,
+        v.detectedYDim ?? rank - 2,
+        v.detectedXDim ?? rank - 1,
+      );
+      const html = renderImagePanelHtml(
+        { cspSource: "" } as unknown as vscode.Webview,
+        sliceField(v, grid),
+        sliceCaption("NetCDF", grid),
+        registry(),
+        combineOps(),
+      );
+      const select = /<select id="picker-projection">([\s\S]*?)<\/select>/.exec(html);
+      assert.ok(select, "the projection picker is in the panel");
+      const offered = [...select[1].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
+      return { grid, html, offered };
+    };
+
+    // A 1-D lat/lon coordinate pair places the slice.
+    const placed = picker("temperature");
+    assert.deepStrictEqual(placed.grid, { label: "latlon", placement: "placed", reprojectable: true });
+    assert.ok(placed.offered.includes("equirectangular"), `got ${placed.offered.join(", ")}`);
+    assert.ok(placed.html.includes("NetCDF slice — latlon"), "the caption names the slice's family");
+
+    // `lat_bnds` has no coordinate arrays: it draws in grid coordinates only.
+    const unplaced = picker("lat_bnds");
+    assert.deepStrictEqual(unplaced.grid, {
+      label: "source",
+      placement: "unplaceable",
+      reprojectable: false,
+    });
+    assert.deepStrictEqual(unplaced.offered, ["source"], `got ${unplaced.offered.join(", ")}`);
+    assert.ok(/Reprojection isn't available for source grids/.test(unplaced.html));
+    assert.ok(unplaced.html.includes("NetCDF slice — source"), "the caption says so too");
+  });
+
   test("a netcdf slice carries typeset units into the render panel", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
@@ -1814,9 +1812,9 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
 
     // A name, not a notation: `degree_C` is the author's word and stays.
     assert.strictEqual(sst.units, "degree_C");
-    const meta = syntheticNetcdfMeta(sst);
+    const meta = sliceField(sst, null);
     assert.strictEqual(
-      meta.parameterUnits,
+      meta.units,
       "degree_C",
       "the panel meta must carry the units, not an empty string",
     );
@@ -1859,8 +1857,19 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
 
     const rgba = Buffer.from([1, 2, 3, 4]);
     const message = buildGridReadyMessage(
-      { rgba, width: 1, height: 1, usedMin: 0, usedMax: 1, projectionSummary: "" },
-      syntheticNetcdfMeta(sst),
+      {
+        rgba,
+        width: 1,
+        height: 1,
+        usedMin: 0,
+        usedMax: 1,
+        usedLatMin: null,
+        usedLatMax: null,
+        usedLonMin: null,
+        usedLonMax: null,
+        projectionSummary: "",
+      },
+      sliceField(sst, null),
       defaultRenderOptions(),
     );
 
@@ -1875,7 +1884,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     );
     // Same composer as the initial HTML, so the live update cannot drift from
     // the heading the panel was built with.
-    assert.strictEqual(message.titleLine, composeTitleLine(syntheticNetcdfMeta(sst)));
+    assert.strictEqual(message.titleLine, composeTitleLine(sliceField(sst, null)));
   });
 
   // Every table scrolls inside itself rather than widening the page (#452).
@@ -1893,7 +1902,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
-    const messages = native.Grib1Handle.fromBytes(bytes).messages();
+    const messages = listMessages(native.Grib1Handle.fromBytes(bytes));
     const html = renderHtml(
       { cspSource: "" } as unknown as vscode.Webview,
       "grib1",
@@ -2054,11 +2063,11 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
-    const messages = native.Grib1Handle.fromBytes(bytes).messages();
+    const messages = listMessages(native.Grib1Handle.fromBytes(bytes));
 
     // This fixture is time range 10: P1 spans octets 19 and 20 as one 16-bit
     // value, so no single octet can be offered and the cell stays read-only.
-    assert.strictEqual(messages[0].forecastDisplay, "+12h");
+    assert.strictEqual(messages[0].forecast, "+12h");
     assert.ok(messages[0].p1Octet == null, "no writable octet for a 16-bit P1");
 
     const html = renderHtml(
@@ -2089,13 +2098,25 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const input = /class="p1-input"[^>]*value="(\d+)"/.exec(editable);
     assert.ok(input, "a one-octet P1 offers an edit box");
     assert.strictEqual(input[1], "4", "the box carries the octet, not the 12 hours it means");
+
+    // And after an edit re-lists the file, the refreshed box carries the octet
+    // too. It used to be refilled from `forecastHours`, so under a 3-hourly
+    // unit a P1 of 4 came back as 12 and re-saving the untouched box tripled
+    // the lead.
+    assert.strictEqual(refreshedP1Value(patched[0]), "4", "the refresh writes the octet");
+    assert.strictEqual(refreshedP1Value(messages[0]), null, "and leaves a 16-bit P1 alone");
+    assert.ok(
+      editable.includes("function refreshedP1Value") && /const p1 = refreshedP1Value\(m\)/.test(editable),
+      "the table's update handler refreshes the box through it",
+    );
+    assert.ok(!/String\(m\.forecastHours\)/.test(editable), "never from the normalised hours");
   });
 
   test("the panel subtitle names the level once when level repeats levelType", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("spectral_simple_t63.grib2"));
-    const meta = native.Grib2Handle.fromBytes(bytes).messages()[0];
+    const meta = native.Grib2Handle.fromBytes(bytes).message(0);
     assert.strictEqual(
       meta.level,
       meta.levelType,
@@ -2200,45 +2221,20 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(!/id="slice-variable"/.test(gribHtml), "no slice row without slice data");
   });
 
-  function fakeNetcdfMeta(): MessageMeta {
+  function fakeNetcdfMeta(): PanelField {
     return {
-      messageIndex: 0,
-      offsetBytes: 0,
-      parameterName: "sst",
-      parameterUnits: "degree_C",
-      parameterAbbreviation: "sst",
+      index: 0,
+      parameter: "sst",
+      units: "degree_C",
       level: "",
       levelType: "",
-      referenceTime: "",
-      forecastHours: 0,
-    p1Octet: null,
-      forecastDisplay: "",
-      originatingCentre: "",
-      gridType: "latlon",
-      gridNi: null,
-      gridNj: null,
-      gridSizeLabel: null,
-      latFirst: null,
-      lonFirst: null,
-      latLast: null,
-      lonLast: null,
-      format: "netcdf",
-      edition: null,
-      discipline: null,
-      totalLengthBytes: null,
-      productionStatus: null,
-      dataType: null,
-      lambertLad: null,
-      lambertLov: null,
-      lambertDxMetres: null,
-      lambertDyMetres: null,
-      lambertLatin1: null,
-      lambertLatin2: null,
-      gaussianNParallels: null,
-      packing: null,
+      referenceTime: null,
+      forecast: "",
+      uvRelativeToGrid: null,
       reprojectable: true,
-      placement: "placed",
-      jScansPositive: null,
+      truncation: null,
+      grid: { label: "latlon" },
     };
   }
+
 });

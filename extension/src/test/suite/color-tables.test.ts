@@ -25,9 +25,9 @@ import {
   useColorTableStore,
 } from "../../color-tables";
 import type { FieldglassApi } from "../../extension";
-import { loadNative, type MessageMeta } from "../../native";
+import { loadNative } from "../../native";
 import { resolveRerenderOptions } from "../../provider";
-import { renderImagePanelHtml } from "../../render-panel";
+import { renderImagePanelHtml, type PanelField } from "../../render-panel";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -127,7 +127,7 @@ suite("Imported color tables", () => {
     assert.ok(native, "native binding required");
     const html = renderImagePanelHtml(
       { cspSource: "" } as unknown as vscode.Webview,
-      { gridType: "latlon", reprojectable: true } as unknown as MessageMeta,
+      { grid: { label: "latlon" }, reprojectable: true } as unknown as PanelField,
       "summary",
       [...native.colormaps(), ...importedPickerColormaps()],
       native.combineOps(),
@@ -159,7 +159,7 @@ suite("Imported color tables", () => {
       {} as vscode.CustomDocumentOpenContext,
       new vscode.CancellationTokenSource().token,
     );
-    const meta = native.Grib2Handle.fromBytes(fs.readFileSync(fixture)).messages()[0];
+    const meta = native.Grib2Handle.fromBytes(fs.readFileSync(fixture)).message(0);
 
     // A stand-in panel: the HTML the provider writes is the thing under test.
     const onDispose: (() => void)[] = [];

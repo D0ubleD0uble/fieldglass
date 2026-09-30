@@ -13,8 +13,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { loadNative, type MessageMeta } from "../../native";
-import { renderImagePanelHtml, type CompareFieldOption } from "../../render-panel";
+import { loadNative } from "../../native";
+import { renderImagePanelHtml, type CompareFieldOption, type PanelField } from "../../render-panel";
 
 /** One arrow is one run of five vertices: tail, tip, barb, tip, barb. */
 const ARROW_VERTICES = 5;
@@ -47,7 +47,7 @@ const SOURCE = { projection: "source" as const, resampling: "nearest" as const, 
 
 suite("Vector arrows", () => {
   test("the addon reports which convention a file's components use", () => {
-    const message = cmcWind().messages()[0];
+    const message = cmcWind().message(0);
     assert.strictEqual(
       message.uvRelativeToGrid,
       true,
@@ -58,7 +58,7 @@ suite("Vector arrows", () => {
     const latlon = native.Grib2Handle.fromBytes(
       fs.readFileSync(path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2")),
     );
-    assert.strictEqual(latlon.messages()[0].uvRelativeToGrid, false, "a plain lat/lon grid does not");
+    assert.strictEqual(latlon.message(0).uvRelativeToGrid, false, "a plain lat/lon grid does not");
   });
 
   test("arrows come back as whole runs, and spacing thins them", () => {
@@ -126,13 +126,13 @@ suite("Vector arrows", () => {
   test("the Vectors row appears with a pair to choose from, and carries the file's convention", () => {
     const native = loadNative();
     assert.ok(native);
-    const meta = (uvRelativeToGrid: boolean | undefined) =>
-      ({ gridType: "polar_stereographic", reprojectable: true, uvRelativeToGrid }) as unknown as MessageMeta;
+    const meta = (uvRelativeToGrid: boolean | null) =>
+      ({ grid: { label: "polar_stereo" }, reprojectable: true, uvRelativeToGrid }) as unknown as PanelField;
     const fields: CompareFieldOption[] = [
       { index: 0, label: "#0 · UGRD" },
       { index: 1, label: "#1 · VGRD" },
     ];
-    const html = (m: MessageMeta, f: CompareFieldOption[]) =>
+    const html = (m: PanelField, f: CompareFieldOption[]) =>
       renderImagePanelHtml(
         { cspSource: "" } as unknown as vscode.Webview,
         m,

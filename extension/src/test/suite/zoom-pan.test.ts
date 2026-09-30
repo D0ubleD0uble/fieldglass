@@ -14,8 +14,14 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { loadNative, type MessageMeta, type RenderOptions } from "../../native";
-import { panMapWindow, renderImagePanelHtml, zoomMapWindow, type MapWindow } from "../../render-panel";
+import { loadNative, type RenderOptions } from "../../native";
+import {
+  panMapWindow,
+  renderImagePanelHtml,
+  zoomMapWindow,
+  type MapWindow,
+  type PanelField,
+} from "../../render-panel";
 
 const MERCATOR_MAX_LAT = 85.05112877980659;
 const EPS = 1e-9;
@@ -172,7 +178,7 @@ suite("Zoom and pan", () => {
     assert.ok(native, "native module must load");
     const html = renderImagePanelHtml(
       { cspSource: "" } as unknown as vscode.Webview,
-      { gridType: "latlon", reprojectable: true } as unknown as MessageMeta,
+      { grid: { label: "latlon" }, reprojectable: true } as unknown as PanelField,
       "summary",
       native.colormaps(),
       native.combineOps(),
