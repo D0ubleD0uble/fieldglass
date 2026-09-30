@@ -95,9 +95,10 @@ pub enum AecError {
     /// Those pixels are coded as byte planes whose length is the output's
     /// pixel count, so an output shorter than the stream puts every byte
     /// after the first plane in the wrong place. libsz returns `SZ_OK` with
-    /// those bytes. This is raised when more input is left after the last
-    /// pixel than the rest of its block, the scanline's pads and the fill to
-    /// a byte boundary can take up. `unread` is the whole bytes left.
+    /// those bytes. This is raised when a whole byte of input is left after
+    /// the last scanline the output reaches, which libsz always encodes
+    /// whole. A shortfall inside that scanline cannot be seen. `unread` is
+    /// the whole bytes left.
     #[error(
         "an szip output of {len} bytes is shorter than its stream of 32- or 64-bit pixels: \
          {unread} bytes are left after the last pixel"

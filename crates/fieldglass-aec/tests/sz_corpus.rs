@@ -285,9 +285,9 @@ fn a_prefix_of_the_output_decodes_from_the_same_stream() {
 /// on this corpus: 73% to 87% of them differ from the full decode). Here it
 /// is an error, for every byte-plane case at half its length in whole pixels.
 ///
-/// A shortfall that stays inside the last block (or, with padded scanlines,
-/// the last scanline) cannot be seen: the samples it drops sit where the
-/// encoder's own padding would, so the stream ends in the same place.
+/// A shortfall that stays inside the last scanline cannot be seen: libsz
+/// pads every scanline to whole blocks, so the samples it drops sit where
+/// that padding would, and the stream ends in the same place.
 #[test]
 fn a_byte_plane_output_shorter_than_its_stream_is_an_error() {
     let mut checked = 0;
@@ -307,7 +307,7 @@ fn a_byte_plane_output_shorter_than_its_stream_is_an_error() {
             );
         }
         // The full length still decodes: the check does not fire on the
-        // rest of the last block, the pads, or the fill.
+        // rest of the last scanline or the fill.
         assert!(decompress(&case, case.dest_len).is_ok(), "{}", case.name);
         // One whole byte past the fill is a stream for more pixels.
         let mut longer = case.stream.clone();

@@ -61,12 +61,13 @@
 //!   output's length, so a shorter output is not a prefix: libsz returns
 //!   `SZ_OK` with every byte after the first plane out of place. For byte
 //!   planes the decoder reads on to the end of the stream the output's
-//!   length implies (the rest of the last block, and the last scanline's
-//!   pads), handing nothing past the last pixel to the output, and refuses a
-//!   whole byte of input left after that. A shortfall that stays inside that
-//!   last block or scanline cannot be seen, since it ends the stream in the
-//!   same place. If those trailing codes are bad or missing, it decodes again
-//!   up to the last pixel, as the point above describes.
+//!   length implies, the end of the last scanline (libsz pads every
+//!   scanline to whole blocks, the last one included), handing nothing past
+//!   the last pixel to the output, and refuses a whole byte of input left
+//!   after that. A shortfall that stays inside the last scanline cannot be
+//!   seen, since the stream ends in the same place. If those trailing codes
+//!   are bad or missing, it decodes again up to the last pixel, as the point
+//!   above describes.
 //!
 //! Parameter validation is libsz's (`sz_compat.c:229-235`) plus the one check
 //! libaec's decoder adds behind it: at most 256 pixels per block. See
@@ -317,7 +318,7 @@ pub fn decompress(input: &[u8], params: &SzParams, out: &mut [u8]) -> Result<(),
     // fall through: decode again, stopping at the last pixel, and report only
     // what that finds.
     if params.byte_planes()
-        && let Some(total) = stream_samples(samples, pps, line, usize::from(aec.block_size()))
+        && let Some(total) = stream_samples(samples, pps, line)
         && let (Ok(consumed), _) = run(input, params, out, count, total)
     {
         let left = input.len().saturating_mul(8).saturating_sub(consumed);
@@ -398,15 +399,13 @@ fn run(
 /// How many stream samples a whole szip stream for `samples` output samples
 /// holds, or `None` if that does not fit a `usize`.
 ///
-/// With padded scanlines libsz encodes every scanline whole, pads included
-/// (`sz_compat.c:264-267`). Without, the stream is the samples themselves,
-/// and libaec's encoder completes the last block.
-fn stream_samples(samples: usize, pps: usize, line: usize, block: usize) -> Option<usize> {
-    if line == pps {
-        samples.checked_next_multiple_of(block)
-    } else {
-        samples.div_ceil(pps).checked_mul(line)
-    }
+/// libsz's encoder pads every scanline to `line` samples, the last one
+/// included (`add_padding` in `sz_compat.c`), whether or not `pps` is a
+/// multiple of the block: with no per-line padding, the last partial
+/// scanline is still filled out to a whole one. So the stream holds whole
+/// scanlines in every case.
+fn stream_samples(samples: usize, pps: usize, line: usize) -> Option<usize> {
+    samples.div_ceil(pps).checked_mul(line)
 }
 
 /// Forwards the first `left` samples to `inner` and drops the rest.

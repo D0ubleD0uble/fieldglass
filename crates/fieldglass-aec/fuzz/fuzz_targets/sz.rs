@@ -25,7 +25,11 @@
 //! * at 32 and 64 bits, where a whole byte of input is left after the stream
 //!   the output's length implies, the crate returns `TrailingInput` (#794)
 //!   whatever the reference does: the output is shorter than the stream, and
-//!   byte planes laid out by the shorter length are not the data.
+//!   byte planes laid out by the shorter length are not the data. The target
+//!   checks the claim: decoding every scanline the output reaches whole, as
+//!   libsz writes them, must leave that many bytes unread. Anywhere else the
+//!   crate must agree with the reference, so a refusal of a valid stream is
+//!   a finding.
 //!
 //! Input layout: an 8-byte header, then the stream.
 //!
@@ -134,6 +138,26 @@ fn reference(stream: &[u8], p: &SzParams, len: usize) -> (Result<Vec<u8>, AecErr
     (Ok(result), last_block)
 }
 
+/// Whether every scanline an output of `len` bytes reaches, pads included,
+/// decodes from `stream`: what libsz's encoder writes for that length
+/// (`add_padding` fills the last scanline too). Byte-plane pixels only.
+fn decodes_whole_scanlines(stream: &[u8], p: &SzParams, len: usize) -> bool {
+    let ppb = p.pixels_per_block() as usize;
+    let pps = p.pixels_per_scanline() as usize;
+    let rsi = pps.div_ceil(ppb);
+    let mut flags = Flags::empty();
+    if p.options_mask() & sz::MSB_OPTION_MASK != 0 {
+        flags.insert(Flags::MSB);
+    }
+    if p.options_mask() & sz::NN_OPTION_MASK != 0 {
+        flags.insert(Flags::PREPROCESS);
+    }
+    let params = Params::new(8, ppb as u16, rsi as u16, flags).unwrap();
+    // Byte planes: one 8-bit stream sample per output byte.
+    let total = len.div_ceil(pps) * rsi * ppb;
+    decode(stream, &params, total, &mut Collect::default()).is_ok()
+}
+
 /// The pixels in the coder's byte layout, then deinterleaved when they are
 /// byte planes of `w`-byte pixels.
 fn expand(pixels: Vec<u32>, flags: Flags, sample_bytes: usize, planes: Option<usize>) -> Vec<u8> {
@@ -201,6 +225,16 @@ fuzz_target!(|data: &[u8]| {
         );
         assert_eq!(at, len);
         assert!(unread >= 1 && unread <= stream.len());
+        // And only when it is true: libsz's way, decoding every scanline the
+        // output reaches whole, must also stop at least `unread` whole bytes
+        // before the end of the input. The kernel runs out of input only
+        // when it needs bits past the end, so that holds exactly when the
+        // same decode succeeds on the input without its last `unread` bytes.
+        // A refusal of a valid stream fails here.
+        assert!(
+            decodes_whole_scanlines(&stream[..stream.len() - unread], &params, len),
+            "TrailingInput refused a stream whose whole scanlines need its last {unread} bytes"
+        );
         return;
     }
     let (want, last_block) = reference(stream, &params, len);
