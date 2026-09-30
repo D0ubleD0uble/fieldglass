@@ -4041,7 +4041,9 @@ pub struct ProbeResult {
     pub full_detail_value: Option<f64>,
     /// The truncation `full_detail_value` carries — the message's declared `T`
     /// (`MessageMeta.declaredTruncation`); for a combined map, the larger of
-    /// the two operands'. Set exactly when `full_detail_value` is.
+    /// the two operands'. Set whenever the probe read a full-detail value,
+    /// which `full_detail_value` then holds — except on a combined cell the
+    /// operation leaves empty (a ratio over zero), where it is `None`.
     pub full_detail_truncation: Option<u32>,
 }
 

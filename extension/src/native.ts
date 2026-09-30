@@ -324,8 +324,10 @@ export interface ProbeResult {
    *  cell. `value` is the map's own, matching the colour under the cursor;
    *  the readout shows this one beside it. Absent for every other field. */
   fullDetailValue?: number;
-  /** The truncation `fullDetailValue` carries (the message's declared T). Set
-   *  exactly when `fullDetailValue` is. */
+  /** The truncation `fullDetailValue` carries (the message's declared T; for a
+   *  combined map, the larger operand's). Set whenever the probe read a
+   *  full-detail value; `fullDetailValue` is then absent only on a combined
+   *  cell the operation leaves empty. */
   fullDetailTruncation?: number;
 }
 
