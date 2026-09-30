@@ -73,8 +73,8 @@
 //! pixels, and the option mask, over the same kernel and without libsz's
 //! padded copy. See the [`sz`] module for how it differs from libsz.
 //!
-//! `fieldglass-grib2` decodes GRIB2 template 5.42 with this crate. No reader
-//! uses the szip layer yet.
+//! `fieldglass-grib2` decodes GRIB2 template 5.42 with this crate, and
+//! `fieldglass-netcdf` the HDF5 szip filter with the szip layer.
 //!
 //! Reference: CCSDS 121.0-B-3, *Lossless Data Compression* (2020); behaviour
 //! checked against libaec 1.1.7 (`decode.c`).

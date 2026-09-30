@@ -576,6 +576,96 @@ without the plugin it supplies. The builder fails the build rather than emit a
 fixture with the filter silently absent. `tests/hdf5_zstd.rs` checks the decoded
 values and the corrupt-frame report. Part of #413.
 
+## szip filter fixtures (`hdf5_szip.h5`, `hdf5_szip_hand.h5`)
+
+Synthetic files carrying the **szip** filter (id 4, #421), built by
+`build_szip` and `build_szip_hand` in `tools/build_hdf5_fixtures.py` with
+**h5py 3.16.0, libhdf5 2.0.0 and libaec 1.1.4**. The h5py wheel bundles libaec
+as libsz, so libhdf5 writes szip with no plugin; the builder reads the libaec
+version out of the bundled library and records it in each oracle's `source`.
+Each `*.oracle.json` holds, per dataset, the h5py read-back of **every** value
+(the test compares all of them), the pipeline and `cd_values` the file really
+carries, and each chunk's filter mask, file offset and stored size. The
+builders are deterministic: rebuilding gives the same bytes.
+
+`hdf5_szip.h5` (`libver='latest'`) is written by libhdf5 itself. `cd_values`
+are `(mask, pixels per block, bits per pixel, pixels per scanline)`, and the
+builder refuses to write a dataset whose values are not the ones listed:
+
+| Dataset | Type | `cd_values` | What it covers |
+| --- | --- | --- | --- |
+| `i2_ppb16` | `<i2` | 169, 16, 16, 32 | Two chunks; the size-prefix test alters the first |
+| `i2_ppb10` | `<i2` | 169, 10, 16, 40 | Block 10, a NASA EOS size outside CCSDS's 8/16/32/64 |
+| `i4be_ppb32` | `>i4` | 177, 32, 32, 64 | MSB (mask bit 16, set for big-endian data); byte planes |
+| `f4_ppb18` | `<f4` | 169, 18, 32, 36 | Block 18; 32-bit byte planes |
+| `f8_ppb8` | `<f8` | 169, 8, 64, 16 | 64-bit byte planes, two chunks |
+| `f8_ppb18` | `<f8` | 169, 18, 64, 20 | 64-bit, and 20 pixels per scanline padded to 36 |
+| `u1_ppb8` | `\|u1` | 169, 8, 8, 32 | 8-bit pixels |
+| `i4_precision16` | `<i4`, precision 16 | 169, 8, 16, 16 | Pixel (2 bytes) narrower than the element (4), decision D2 |
+| `shuffle_szip` | `<i4` | 169, 16, 32, 32 | Pipeline `[shuffle, szip]` |
+| `pps_not_multiple` | `<i2` | 141, 16, 16, 25 | 25 pixels per scanline padded to 32; the `EC` mask |
+| `partial_scanline` | `<i2` | 169, 8, 16, 1024 | 3,000 pixels end part-way through the third 1,024-pixel scanline |
+| `f4_pps_capped` | `<f4`, 1-D | 169, 32, 32, 4096 | One 5,000-pixel chunk: libhdf5 caps a scanline at 128 blocks, so the last scanline holds 904 pixels and libsz pads it to 4,096 |
+| `f8_pps_capped` | `<f8`, 1-D | 169, 8, 64, 1024 | The same at 64 bits: 1,500 pixels, the last scanline 476 of 1,024 |
+| `incompressible` | `\|u1` | 141, 8, 8, 8 | Random bytes: szip does not shrink them, so libhdf5 stores the chunk as it is with filter-mask bit 0 set |
+
+`i4_precision16` holds only non-negative values. The reader does not apply a
+fixed-point precision below the element width, so a negative value in a
+16-bit-precision `int32` (stored `ec ff 00 00` for -20) would read as 65516.
+That is a datatype gap, not an szip one (#795), and is kept out of this
+fixture.
+
+`hdf5_szip_hand.h5` (`libver='earliest'`) holds chunks libhdf5 reads but its
+writer never produces. Each chunk is compressed by the wheel's own libsz
+(`SZ_BufftoBuffCompress` through `ctypes`, the call `H5Zszip.c` makes), given
+the 4-byte size prefix, and stored with `write_direct_chunk`. libhdf5's read-back
+is the oracle, and the builder checks it equals the source array.
+
+| Dataset | Type | `cd_values` | How it was made |
+| --- | --- | --- | --- |
+| `rsi1_i2` | `<i2` | 169, 16, 16, **5** | Written with pixels per scanline 40, then patched to 5 in the stored filter message: one block per scanline (RSI 1), 11 of its 16 pixels padding |
+| `rsi1_f4` | `<f4` | 169, 32, 32, **1** | Patched from 64 to 1: one pixel per 32-pixel block, the case where libsz decodes into a copy 32 times the output |
+| `deflate_szip` | `\|u1` | 169, 8, 8, 64 | Pipeline `[deflate, szip]`. libhdf5 skips szip on every chunk here, since szip never shrinks a deflate stream, so the chunks are `szip(zlib(data))` written with filter mask 0. The prefix is the deflate stream's length (61), not the chunk's (64) |
+
+libhdf5's `set_local` never picks a scanline shorter than a block: it uses the
+whole chunk instead. The patch is why this file is `libver='earliest'`:
+version-1 object headers carry no checksum, so the edited filter message stays
+valid. The builder asserts each patched sequence occurs exactly once.
+
+**Where the reader is stricter than libhdf5.** libhdf5 checks the size prefix
+only in a debug-build `assert` (`H5Zszip.c`), and libsz returns success with
+short output when a stream runs out. Setting the prefix of `i2_ppb16`'s first
+chunk to 256 MiB + 1 (`MAX_DECOMPRESSED_CHUNK` + 1) reads back correctly through
+h5py 3.16, after allocating that much; the same on `deflate_szip` also reads
+back. The reader refuses both, before allocating. When only shuffle precedes
+szip the prefix must equal the chunk's length; behind a length-changing filter
+it may be at most the chunk's length plus an eighth plus 4 KiB (4,168 bytes
+for `deflate_szip`), which covers deflate's, zstd's and fletcher32's growth.
+A prefix of 511 or 513 on the 512-byte chunk fails in libhdf5 as well.
+`a_chunk_whose_size_prefix_is_wrong_is_refused` and
+`behind_deflate_the_prefix_is_bounded_by_the_chunk` in
+`tests/hdf5_szip.rs` pin both; ADR-0012 decision 4 lists the divergence.
+
+## szip long-stream fixture (`hdf5_szip_long_stream.h5`)
+
+One chunk the reader must refuse, built by `build_szip_long_stream` in
+`tools/build_hdf5_fixtures.py` with the same h5py, libhdf5 and libaec (#794).
+`f8_long_stream` is a single 4x8 `<f8` chunk (256 bytes), `cd_values` 169, 8,
+64, 8, szip alone, with the right size prefix, 256. Its stream is libsz's
+encoding of 64 values, twice the chunk, stored with `write_direct_chunk`.
+
+64-bit pixels are coded as byte planes laid out by the output's length, so
+decoding 256 bytes of that stream puts bytes in the wrong places. libhdf5
+reads the chunk without complaint and returns that: 60 of its 256 bytes differ
+from the 32 values the chunk should hold. The oracle records libhdf5's
+read-back as `values`, the intended values as `source_values`, and the count
+as `wrong_bytes`; the builder fails if libhdf5 ever reads the chunk
+correctly. Every length rule the reader applies passes here, so
+`fieldglass_aec::sz::decompress` is what refuses it
+(`AecError::TrailingInput`: a whole byte of stream left after the one the
+output's length implies). `a_chunk_whose_stream_codes_more_pixels_is_refused`
+in `tests/hdf5_szip.rs` pins it; ADR-0012 decision 4 lists the divergence.
+
 ## Anonymous-dimension fixture (`hdf5_phony_dims.h5`)
 
 A synthetic `h5py` (libhdf5) file written with `libver='latest'` carrying **no

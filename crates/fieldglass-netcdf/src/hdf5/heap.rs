@@ -570,7 +570,10 @@ fn decode_filtered_direct_block<S: ByteSource + ?Sized>(
     let stored = read_at(source, block_addr, filtered_size).map_err(|_| {
         FieldglassError::Parse("filtered direct block runs past end of file".into())
     })?;
-    let image = pipeline.reverse(stored.into_owned(), filter_mask, 1)?;
+    // In range: checked against the 64 MiB cap above.
+    let expected = usize::try_from(logical_size)
+        .map_err(|_| FieldglassError::Parse("implausible filtered direct block size".into()))?;
+    let image = pipeline.reverse(stored.into_owned(), filter_mask, 1, expected)?;
     if image.len() as u64 != logical_size {
         return Err(FieldglassError::Parse(
             "filtered direct block decoded to the wrong size".into(),
@@ -1375,10 +1378,10 @@ mod tests {
     #[test]
     fn rejects_unknown_heap_filter() {
         let on_disk = zlib(&fhdb_image(64, HEAP_ADDR, &[0xFF]));
-        let szip = vec![
-            2u8, 1, /*id*/ 4, 0, /*flags*/ 0, 0, /*nvalues*/ 0, 0,
+        let nbit = vec![
+            2u8, 1, /*id*/ 5, 0, /*flags*/ 0, 0, /*nvalues*/ 0, 0,
         ];
-        let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &szip);
+        let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &nbit);
         assert!(FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).is_err());
     }
 

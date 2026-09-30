@@ -21,7 +21,7 @@ pub(crate) const GRID_ROWS: usize = 981;
 /// Rows in `aec_cases`.
 pub(crate) const AEC_CASES: usize = 540;
 /// Rows in `sz_cases`.
-pub(crate) const SZ_CASES: usize = 78;
+pub(crate) const SZ_CASES: usize = 84;
 
 /// The libaec commit the manifest must name.
 pub(crate) const LIBAEC_COMMIT: &str = "0c4c01463d2c64a112a61271d317b74efb660608";

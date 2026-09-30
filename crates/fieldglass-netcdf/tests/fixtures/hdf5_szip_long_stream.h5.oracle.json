@@ -1,0 +1,115 @@
+{
+ "source": "h5py 3.16.0 (libhdf5 2.0.0, libaec 1.1.4 as bundled libsz)",
+ "note": "one 256-byte <f8 chunk whose szip stream codes 64 values, twice the chunk; `values` is libhdf5's scrambled read-back, `source` what the chunk should hold. The reader must refuse it (#794, #421)",
+ "source_values": [
+  -7.0,
+  -6.5,
+  -6.0,
+  -5.5,
+  -5.0,
+  -4.5,
+  -4.0,
+  -3.5,
+  -3.0,
+  -2.5,
+  -2.0,
+  -1.5,
+  -1.0,
+  -0.5,
+  0.0,
+  0.5,
+  1.0,
+  1.5,
+  2.0,
+  2.5,
+  3.0,
+  3.5,
+  4.0,
+  4.5,
+  5.0,
+  5.5,
+  6.0,
+  6.5,
+  7.0,
+  7.5,
+  8.0,
+  8.5
+ ],
+ "wrong_bytes": 60,
+ "objects": {
+  "f8_long_stream": {
+   "dtype": "<f8",
+   "precision_bits": 64,
+   "shape": [
+    4,
+    8
+   ],
+   "chunks": [
+    4,
+    8
+   ],
+   "pipeline": [
+    {
+     "id": 4,
+     "cd_values": [
+      169,
+      8,
+      64,
+      8
+     ]
+    }
+   ],
+   "szip": {
+    "options_mask": 169,
+    "pixels_per_block": 8,
+    "bits_per_pixel": 64,
+    "pixels_per_scanline": 8,
+    "rsi": 1,
+    "padded": false
+   },
+   "chunk_filter_masks": [
+    0
+   ],
+   "chunk_byte_offsets": [
+    2048
+   ],
+   "chunk_stored_sizes": [
+    159
+   ],
+   "values": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  }
+ }
+}

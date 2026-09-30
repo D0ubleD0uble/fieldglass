@@ -106,6 +106,18 @@ pub fn decode(
     count: usize,
     sink: &mut dyn Sink,
 ) -> Result<(), AecError> {
+    Kernel::new(input, params).run(count, sink).map(|_| ())
+}
+
+/// [`decode`], also returning how many bits of `input` it read. The szip
+/// layer uses it to tell an output that stopped short of the stream from one
+/// that reached its end.
+pub(crate) fn decode_consumed(
+    input: &[u8],
+    params: &Params,
+    count: usize,
+    sink: &mut dyn Sink,
+) -> Result<usize, AecError> {
     Kernel::new(input, params).run(count, sink)
 }
 
@@ -216,7 +228,9 @@ impl<'a> Kernel<'a> {
         }
     }
 
-    fn run(mut self, count: usize, sink: &mut dyn Sink) -> Result<(), AecError> {
+    /// Decode `count` samples into `sink`, and return how many bits of the
+    /// input that read.
+    fn run(mut self, count: usize, sink: &mut dyn Sink) -> Result<usize, AecError> {
         let mut buf = [0u32; MAX_BLOCK];
         let mut produced = 0usize;
         let mut blocks_in_rsi = 0u32;
@@ -279,7 +293,7 @@ impl<'a> Kernel<'a> {
                 }
             }
         }
-        Ok(())
+        Ok(self.reader.consumed_bits())
     }
 
     /// Read one CDS. A block's codes go into `buf[..want]`, with the reference

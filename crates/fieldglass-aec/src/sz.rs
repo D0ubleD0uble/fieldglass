@@ -33,7 +33,7 @@
 //! skipped as they arrive, and byte planes are scattered straight to their
 //! place in `out`. It allocates nothing.
 //!
-//! It differs from libsz in three more ways (ADR-0012 decision 4):
+//! It differs from libsz in four more ways (ADR-0012 decision 4):
 //!
 //! - **A stream that runs out is an error**, [`AecError::Truncated`]. libsz
 //!   returns `SZ_OK` either way. With unpadded scanlines it lowers `destLen`
@@ -52,14 +52,28 @@
 //!   scanline whole when scanlines are padded, including the blocks after
 //!   the last pixel of a partial last scanline, and fails if one of them
 //!   holds a bad code. Those blocks describe samples nobody asked for, so
-//!   here they are never read and the result is `Ok`, with the bytes libsz
-//!   would have written.
+//!   here a bad code in them is never an error and the result is `Ok`, with
+//!   the bytes libsz would have written. Up to 16 bits they are not read at
+//!   all; at 32 and 64 bits they are read only to find where the stream
+//!   ends (next point).
+//! - **A 32- or 64-bit output shorter than its stream is an error**,
+//!   [`AecError::TrailingInput`] (#794). Byte planes are laid out by the
+//!   output's length, so a shorter output is not a prefix: libsz returns
+//!   `SZ_OK` with every byte after the first plane out of place. For byte
+//!   planes the decoder reads on to the end of the stream the output's
+//!   length implies, the end of the last scanline (libsz pads every
+//!   scanline to whole blocks, the last one included), handing nothing past
+//!   the last pixel to the output, and refuses a whole byte of input left
+//!   after that. A shortfall that stays inside the last scanline cannot be
+//!   seen, since the stream ends in the same place. If those trailing codes
+//!   are bad or missing, it decodes again up to the last pixel, as the point
+//!   above describes.
 //!
 //! Parameter validation is libsz's (`sz_compat.c:229-235`) plus the one check
 //! libaec's decoder adds behind it: at most 256 pixels per block. See
 //! [`SzParams::new`].
 
-use crate::decode::decode;
+use crate::decode::decode_consumed;
 use crate::sink::{ByteSink, Sink};
 use crate::{AecError, Flags, Params};
 
@@ -232,8 +246,14 @@ impl SzParams {
 /// `out.len()` is the uncompressed size, in bytes. It must be a whole number
 /// of [`SzParams::bytes_per_pixel`]; the pixels are written in libsz's
 /// layout, most significant byte first with [`MSB_OPTION_MASK`], and as the
-/// encoder's input bytes for 32- and 64-bit pixels. Bytes after the last
-/// pixel's code are never read.
+/// encoder's input bytes for 32- and 64-bit pixels.
+///
+/// Up to 16 bits per pixel, bytes after the last pixel's code are never read,
+/// so a shorter output decodes the same stream's first pixels. At 32 and 64
+/// bits it does not: byte planes are laid out by the output's length, so
+/// `out.len()` must be the length the stream was encoded from. The rest of
+/// the stream is read to check that, and a whole byte left over is
+/// [`AecError::TrailingInput`].
 ///
 /// # Errors
 ///
@@ -247,6 +267,9 @@ impl SzParams {
 /// - [`AecError::InvalidCode`] for a code no valid encoder writes. Its
 ///   `sample` is counted the same way, and points at the first sample the
 ///   bad block would have written.
+/// - [`AecError::TrailingInput`] at 32 and 64 bits when a whole byte of input
+///   is left after the stream `out.len()` implies: the output is shorter than
+///   what was encoded. libsz returns `SZ_OK` with the bytes out of place.
 /// - [`AecError::OutputTooLarge`] when the padded stream behind `out` has more
 ///   samples than `usize` can count. Only a 32-bit target can reach it.
 ///
@@ -286,23 +309,30 @@ pub fn decompress(input: &[u8], params: &SzParams, out: &mut [u8]) -> Result<(),
         padded_count(samples, pps, line).ok_or(AecError::OutputTooLarge { len: out.len() })?;
 
     let len = out.len();
-    let layout = if params.byte_planes() {
-        Layout::Planes(Planes::new(out, pixel))
-    } else {
-        let msb = aec.flags().contains(Flags::MSB);
-        Layout::Bytes(ByteSink::new(out, aec.bytes_per_sample(), msb))
-    };
-    let mut sink = SzSink {
-        layout,
-        pps,
-        line,
-        pos: 0,
-        written: 0,
-    };
-    let result = decode(input, aec, count, &mut sink);
-    let written = sink.written;
+    // Byte planes are laid out by the output's length, so an output that
+    // stops short of its stream is not a prefix of it: every byte after the
+    // first plane would land in the wrong place (#794). Decode on to the end
+    // of the stream this length implies, handing the sink nothing past the
+    // last pixel, and require that only fill is left after it. If that fails,
+    // the bad or missing code is after the last pixel and codes no pixel, so
+    // fall through: decode again, stopping at the last pixel, and report only
+    // what that finds.
+    if params.byte_planes()
+        && let Some(total) = stream_samples(samples, pps, line)
+        && let (Ok(consumed), _) = run(input, params, out, count, total)
+    {
+        let left = input.len().saturating_mul(8).saturating_sub(consumed);
+        if left >= 8 {
+            return Err(AecError::TrailingInput {
+                len,
+                unread: left / 8,
+            });
+        }
+        return Ok(());
+    }
+    let (result, written) = run(input, params, out, count, count);
     match result {
-        Ok(()) => {
+        Ok(_) => {
             debug_assert_eq!(written, samples, "an output of {len} bytes");
             Ok(())
         }
@@ -332,6 +362,74 @@ fn padded_count(samples: usize, pps: usize, line: usize) -> Option<usize> {
         .checked_mul(line)?
         .checked_add(last % pps)?
         .checked_add(1)
+}
+
+/// Decode `total` stream samples into `out`, handing the sink only the first
+/// `count` of them. Returns the kernel's result, with the input bits it read,
+/// and the output samples written.
+fn run(
+    input: &[u8],
+    params: &SzParams,
+    out: &mut [u8],
+    count: usize,
+    total: usize,
+) -> (Result<usize, AecError>, usize) {
+    let aec = &params.aec;
+    let layout = if params.byte_planes() {
+        Layout::Planes(Planes::new(out, params.bytes_per_pixel()))
+    } else {
+        let msb = aec.flags().contains(Flags::MSB);
+        Layout::Bytes(ByteSink::new(out, aec.bytes_per_sample(), msb))
+    };
+    let mut sink = SzSink {
+        layout,
+        pps: params.pixels_per_scanline as usize,
+        line: usize::from(aec.rsi()) * usize::from(aec.block_size()),
+        pos: 0,
+        written: 0,
+    };
+    let mut capped = Capped {
+        inner: &mut sink,
+        left: count,
+    };
+    let result = decode_consumed(input, aec, total, &mut capped);
+    (result, sink.written)
+}
+
+/// How many stream samples a whole szip stream for `samples` output samples
+/// holds, or `None` if that does not fit a `usize`.
+///
+/// libsz's encoder pads every scanline to `line` samples, the last one
+/// included (`add_padding` in `sz_compat.c`), whether or not `pps` is a
+/// multiple of the block: with no per-line padding, the last partial
+/// scanline is still filled out to a whole one. So the stream holds whole
+/// scanlines in every case.
+fn stream_samples(samples: usize, pps: usize, line: usize) -> Option<usize> {
+    samples.div_ceil(pps).checked_mul(line)
+}
+
+/// Forwards the first `left` samples to `inner` and drops the rest.
+struct Capped<'s, 'a> {
+    inner: &'s mut SzSink<'a>,
+    left: usize,
+}
+
+impl Sink for Capped<'_, '_> {
+    fn samples(&mut self, block: &[u32]) {
+        let n = block.len().min(self.left);
+        if let Some(run) = block.get(..n).filter(|run| !run.is_empty()) {
+            self.inner.samples(run);
+            self.left -= n;
+        }
+    }
+
+    fn repeat(&mut self, value: u32, count: usize) {
+        let n = count.min(self.left);
+        if n > 0 {
+            self.inner.repeat(value, n);
+            self.left -= n;
+        }
+    }
 }
 
 /// The output index of stream sample `sample`, or of the next output sample

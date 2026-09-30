@@ -10,7 +10,10 @@ For NetCDF-4 / HDF5 input the target also drives `NetcdfReader::hdf5_metadata`,
 the on-demand deep walk — object headers, group and link tables, dense-attribute
 fractal heaps and B-tree v2 indexes, and the filter pipeline — so the bounded,
 fail-safe traversal hardened under #33 is fuzzed alongside the classic header
-parser, not just the eager superblock probe.
+parser, not just the eager superblock probe. It then decodes the values of the
+first few variables, which reads every chunk through the filter pipeline
+(deflate, shuffle, fletcher32, zstd and szip) and the chunk indexes that locate
+them.
 
 This crate is intentionally **not** a member of the workspace, so the standard
 stable-toolchain gates (`cargo fmt/clippy/test --workspace`) never try to build
@@ -23,6 +26,7 @@ the nightly-only libFuzzer target.
 cargo +nightly fuzz run parse
 ```
 
-The seed corpus under `corpus/parse/` is the crate's NetCDF test fixtures. CI
+The seed corpus under `corpus/parse/` is some of the crate's NetCDF test fixtures,
+including the three szip files (#421). CI
 runs this target time-boxed on pull requests that touch the crate; see
 `.github/workflows/fuzz.yml`.

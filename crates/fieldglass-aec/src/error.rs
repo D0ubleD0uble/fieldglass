@@ -90,6 +90,26 @@ pub enum AecError {
     #[error("szip pixels per scanline must be 1 to 4096, got {0}")]
     PixelsPerScanline(u32),
 
+    /// An szip output of 32- or 64-bit pixels that stops short of its stream.
+    ///
+    /// Those pixels are coded as byte planes whose length is the output's
+    /// pixel count, so an output shorter than the stream puts every byte
+    /// after the first plane in the wrong place. libsz returns `SZ_OK` with
+    /// those bytes. This is raised when a whole byte of input is left after
+    /// the last scanline the output reaches, which libsz always encodes
+    /// whole. A shortfall inside that scanline cannot be seen. `unread` is
+    /// the whole bytes left.
+    #[error(
+        "an szip output of {len} bytes is shorter than its stream of 32- or 64-bit pixels: \
+         {unread} bytes are left after the last pixel"
+    )]
+    TrailingInput {
+        /// The buffer's length in bytes.
+        len: usize,
+        /// Whole bytes of input left after the last pixel's code.
+        unread: usize,
+    },
+
     /// An szip output whose padded stream has more samples than `usize` can
     /// count. Only a 32-bit target can reach it: one pixel per scanline in
     /// blocks of 256 decodes 256 stream samples per pixel.

@@ -1016,6 +1016,21 @@ def sz_cases(sz: Libsz) -> list[SzCase]:
         "150-byte planes over 64-sample scanlines",
     )
     add("sz_b64_plane_edge_mid_scanline", SZ_NN | SZ_MSB, 64, 10, 45, 77, 11_005, "77-byte planes over 45-sample scanlines")
+    # Byte planes whose last scanline is partial by more than a block, with
+    # pps a multiple of ppb (no per-line padding). libsz's add_padding still
+    # fills that last scanline to a whole one, so the stream ends there, not
+    # after the last block (#421 review). libhdf5 writes the first shape for
+    # any long 1-D chunk: it caps pps at 128 blocks.
+    for name, mask, bpp, ppb, pps, pixels, seed in (
+        ("sz_b32_short_last_line_pps4096", SZ_EC | SZ_NN | SZ_MSB, 32, 32, 4096, 5000, 11_007),
+        ("sz_b32_short_last_line_ppb16", SZ_EC | SZ_NN | SZ_MSB, 32, 16, 64, 40, 11_008),
+        ("sz_b32_short_last_line_pps48", SZ_EC | SZ_NN | SZ_MSB, 32, 16, 48, 20, 11_009),
+        ("sz_b32_short_last_line_ppb32", SZ_EC | SZ_NN | SZ_MSB, 32, 32, 32, 20, 11_010),
+        ("sz_b32_short_last_line_ec", SZ_EC | SZ_MSB, 32, 8, 16, 3, 11_011),
+        ("sz_b64_short_last_line_ppb32", SZ_EC | SZ_NN | SZ_MSB, 64, 32, 64, 11, 11_012),
+    ):
+        add(name, mask, bpp, ppb, pps, pixels, seed,
+            f"{pixels} pixels over {pps}-pixel scanlines: the last is short by more than a block")
     # The options libsz ignores when decoding.
     add("sz_b16_ignored_options", SZ_NN | SZ_LSB | 1 | 2 | 128, 16, 16, 64, 64 * 5, 11_006, "K13, CHIP and RAW set")
     return cases

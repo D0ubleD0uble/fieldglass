@@ -33,6 +33,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "fieldglass-aec"
+version = "0.5.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "fieldglass-core"
 version = "0.5.0"
 dependencies = [
@@ -43,6 +50,7 @@ dependencies = [
 name = "fieldglass-netcdf"
 version = "0.5.0"
 dependencies = [
+ "fieldglass-aec",
  "fieldglass-core",
  "miniz_oxide",
  "ruzstd",

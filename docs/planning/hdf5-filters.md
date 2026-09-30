@@ -1,9 +1,10 @@
 # HDF5 filter coverage and cost
 
-*Verified against the code 2026-08-23.*
+*Verified against the code 2026-09-29.*
 
-`crates/fieldglass-netcdf/src/hdf5/filter.rs` decodes four filters: deflate
-(id 1), shuffle (id 2), fletcher32 (id 3, #412), and zstd (id 32015, #413).
+`crates/fieldglass-netcdf/src/hdf5/filter.rs` decodes five filters: deflate
+(id 1), shuffle (id 2), fletcher32 (id 3, #412), szip (id 4, #421), and zstd
+(id 32015, #413).
 Any other filter in a pipeline fails the whole file. Chunk indexing is already ahead of the field (all five v4 index
 types plus the v1 B-tree), so filters are the gap that blocks real files.
 
@@ -12,7 +13,7 @@ types plus the v1 B-tree), so filters are the gap that blocks real files.
 | 3 | fletcher32 | ~~A checksum, not compression. Its presence fails files whose compression we handle fine.~~ **Done (#412).** | Not the no-op it looks like: it *appends* 4 bytes, so reading must strip them, and libhdf5 accepts two checksum byte orders (a pre-1.6.3 bug). See below. |
 | 32015 | zstd | ~~netcdf-c ≥ 4.9; DKRZ-recommended for climate archives.~~ **Done (#413)** via `ruzstd` 0.9 (MIT, pure Rust, one transitive dep). | Cross-compile verified to `x86_64-pc-windows-msvc` and `wasm32` with no C toolchain, which is ADR-0001's actual deciding criterion. |
 | 307 | bzip2 | Rare. | Pure-Rust decoder (`bzip2-rs`). Small. |
-| 4 | szip | Common across the NASA EOS archive (AIRS, MODIS). | Same entropy coder as GRIB2 5.42, now `fieldglass-aec` (#762); different framing (#761, #421). See below. |
+| 4 | szip | ~~Common across the NASA EOS archive (AIRS, MODIS).~~ **Done (#421)** via `fieldglass-aec`, the project's own CCSDS 121.0 decoder ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). | Same entropy coder as GRIB2 5.42 (#762); libsz framing in `fieldglass_aec::sz` (#761), HDF5 framing in the reader (#421). See below. |
 
 Blosc/LZ4: rare in NetCDF, defer. This set would exceed default netcdf-c
 installs, which frequently lack working szip/zstd plugins at runtime.
@@ -70,7 +71,7 @@ value is rejected" will pass against the library's default and tell you nothing.
 
 The entropy coder (CCSDS 121.0 extended-Rice) is shared with GRIB2 5.42. The
 external decoder GRIB2 used first rejected the block sizes HDF5 writes, so the
-project now owns the coder, and szip is to decode through `fieldglass-aec` (#421,
+project now owns the coder, and szip decodes through `fieldglass-aec` (#421,
 [ADR-0012](../decisions/0012-own-the-aec-decoder.md)), the crate GRIB2 5.42
 already decodes with (#762). It accepts every even block size from 2 to 256
 (HDF5's `pixels_per_block` is any even value 2–32; NASA EOS commonly ships 8,
@@ -83,9 +84,64 @@ uncompressed-size prefix per chunk, scanline padding when
 `pixels_per_scanline % pixels_per_block != 0`, and byte-interleaving for
 32/64-bit samples (libaec decodes those as 8-bit streams and deinterleaves).
 That is libaec's `sz_compat.c`, which `fieldglass_aec::sz` carries (#761); the
-HDF5 framing stays in the NetCDF reader. It also needs its own oracle (an
-h5py/netCDF4 wheel built with szip; `tools/build_hdf5_fixtures.py` is the
-pattern).
+HDF5 framing stays in the NetCDF reader. Its oracle is the h5py wheel, whose
+libhdf5 writes szip with a bundled libaec (`tools/build_hdf5_fixtures.py`,
+`build_szip`).
+
+## What szip turned out to be (#421)
+
+Once the coder was ours, the HDF5 side was small. What is worth carrying
+forward:
+
+- **The `cd_values` order is a trap.** HDF5 stores `(mask, pixels per block,
+  bits per pixel, pixels per scanline)` (`H5Zpublic.h`); libsz's `SZ_com_t`,
+  and so `fieldglass_aec::sz::SzParams`, is `(mask, bits per pixel, pixels per
+  block, pixels per scanline)`. Passing them through positionally swaps the
+  middle two, and most swaps are still valid parameters, so the mistake decodes
+  to garbage instead of failing. Fixtures where the two differ (block 10 at 16
+  bits, block 18 at 32) are what catch it; a block of 16 at 16 bits would not.
+- **The 32× padding copy is gone.** libsz decodes into a buffer padded to whole
+  blocks per scanline, up to 32 times the output at one pixel per scanline and
+  32 per block, then copies it again to reorder byte planes. `sz::decompress`
+  skips pads as they arrive and writes each byte to its place, so the only
+  allocation is the chunk itself.
+- **The size prefix is checked before it is allocated.** Every chunk starts
+  with a 4-byte little-endian uncompressed size. It must be at most
+  `MAX_DECOMPRESSED_CHUNK`; when every filter before szip keeps the length
+  (only shuffle does), it must equal the chunk's length; and it must be a whole
+  number of szip pixels. The pixel is set by bits per pixel, not by the element:
+  libhdf5 codes a 16-bit-precision `int32` at 16 bits per pixel, so the pixel is
+  half the element (ADR-0012 decision D2).
+- **A length-changing filter before szip is decoded, not refused.** libhdf5
+  writes `[deflate, szip]` and reads it back, so refusing it would reject valid
+  files. The prefix is then deflate's output length, which nothing outside the
+  stream records, so it is bounded, not matched: at most the chunk's length
+  plus an eighth plus 4 KiB, which covers deflate's, zstd's and fletcher32's
+  growth and stops a tiny chunk from committing a 256 MiB buffer. The chunk
+  must then come back exactly its own length; before #421 a longer result was
+  silently cut.
+- **A stream longer than its chunk is refused, for 32- and 64-bit pixels.**
+  Those are coded as byte planes laid out by the output's length, so a chunk
+  whose stream codes more pixels than it holds decodes to bytes in the wrong
+  places. With a correct prefix and nothing but shuffle before szip, that
+  passes every length rule, and libhdf5 returns the scrambled values.
+  `fieldglass_aec::sz` now reads to the end of the stream the length implies
+  and refuses a whole byte left over (#794, `hdf5_szip_long_stream.h5`).
+- **Stricter than libhdf5, on purpose.** libhdf5 checks the prefix only in a
+  debug-build `assert` (`H5Zszip.c`), and libsz returns success with short
+  output when the stream runs out. So a chunk whose prefix is larger than its
+  data reads without complaint in a release libhdf5: measured on
+  `hdf5_szip.h5`, a prefix of 256 MiB + 1 on a 512-byte chunk reads back
+  correctly through h5py 3.16, after allocating 256 MiB. Here the same chunk is
+  refused, before allocating. A prefix one byte either side of the chunk's
+  length fails in libhdf5 too.
+- **szip is an optional filter.** When a chunk does not shrink, libhdf5 stores
+  it as it is and sets the filter's bit in the chunk's filter mask. Random bytes
+  do this every time, so the fixture has one.
+- **libhdf5 never writes a scanline shorter than a block.** Its `set_local`
+  takes pixels per scanline from the chunk's fastest dimension, capped at 128
+  blocks, or from the whole chunk when that dimension is shorter than a block.
+  Other writers can, so the fixture patches one in and lets libhdf5 read it back.
 
 ## Other NetCDF / HDF5 gaps
 

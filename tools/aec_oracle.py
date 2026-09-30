@@ -54,7 +54,7 @@ ORACLE = REPO / "target" / "release" / "examples" / "oracle"
 # `crates/fieldglass-aec/tests/common/mod.rs` pins. Step 1's diff already holds
 # them; pinning them here too makes a count change fail with a plain message.
 CORPUS_AEC_CASES = 540
-CORPUS_SZ_CASES = 78
+CORPUS_SZ_CASES = 84
 # `aec_cases` in the `--full` matrix. Pinned so a matrix that shrinks, or
 # comes back empty, fails rather than passing on fewer cases. A change to the
 # matrix in `build_aec_fixtures.py` changes this number in the same commit.

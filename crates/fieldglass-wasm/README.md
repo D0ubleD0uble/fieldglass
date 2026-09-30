@@ -273,12 +273,23 @@ after #785. The generated TypeScript declarations cost nothing here:
 wasm-bindgen moves them into the `.d.ts` and drops the custom section from the
 module.
 
+Decoding the HDF5 szip filter (#421), with the byte-plane end-of-stream check
+it relies on (#794), added about 5.5 KB raw and 2.3 to 2.9 KB gzipped (0.4%
+and 0.5%), measured against a build of the commit before it (#799) on the same
+machine with binaryen 132. The coder was already in the bundle for GRIB2; what
+is new is its szip layer, the reader's framing and the length checks:
+
+| Build | before `.wasm` | after `.wasm` | before gzipped | after gzipped |
+|---|---:|---:|---:|---:|
+| baseline | 1,513,182 | 1,518,725 | 574,136 | 577,027 |
+| `+simd128` | 1,497,627 | 1,503,113 | 568,547 | 570,891 |
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,513,229 | 574,188 |
-| `+simd128` | 1,497,674 | 568,579 |
+| baseline | 1,518,725 | 577,027 |
+| `+simd128` | 1,503,113 | 570,891 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
