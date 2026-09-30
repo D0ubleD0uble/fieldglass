@@ -369,7 +369,10 @@ def check() -> list[str]:
         if API_GENERATED.is_file()
         else set()
     )
-    for used in sorted(set(TYPE_NAME_RE.findall(gen)) - declared_by_napi - GLOBAL_TYPES):
+    # String literals first: a capitalised word inside `"…"` (a literal union
+    # napi copies from a `ts_type`) names no type.
+    code = re.sub(r""""(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'""", '""', gen)
+    for used in sorted(set(TYPE_NAME_RE.findall(code)) - declared_by_napi - GLOBAL_TYPES):
         if used not in exported_by_api:
             problems.append(
                 f"index.d.ts names `{used}`, which neither it nor {shown(API_GENERATED)} "

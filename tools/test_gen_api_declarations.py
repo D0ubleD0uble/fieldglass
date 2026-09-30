@@ -150,6 +150,32 @@ class Refusals(unittest.TestCase):
         self.assertIn("pattern", str(e.exception))
         self.assertIn("Grid.kind", str(e.exception))
 
+    def test_a_combination_it_would_half_render_is_refused(self):
+        # Each of these renders from one keyword and would drop the other.
+        for name, node in [
+            ("$ref with siblings", {"$ref": "#/$defs/Grid", "properties": {}}),
+            ("oneOf with properties", {"oneOf": [{"type": "string"}], "properties": {}}),
+            ("anyOf with a type", {"anyOf": [{"type": "string"}], "type": "string"}),
+            ("enum on a number", {"type": "number", "enum": [1, 2]}),
+            ("const with items", {"const": "a", "items": {"type": "string"}}),
+            ("properties on a string", {"type": "string", "properties": {}}),
+            ("items with no array type", {"type": "object", "properties": {}, "items": {}}),
+        ]:
+            with self.subTest(name), self.assertRaises(gen.SchemaError):
+                wrapped = dict(GRID, properties={"kind": {"type": "string"}, "x": node})
+                gen.render(schema({"Grid": wrapped}), "")
+
+    def test_the_combinations_it_renders_in_full_are_accepted(self):
+        for node in [
+            {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+            {"type": "string", "const": "a"},
+            {"type": "string", "enum": ["a", "b"]},
+            {"anyOf": [{"$ref": "#/$defs/Grid"}, {"type": "null"}], "description": "doc"},
+        ]:
+            with self.subTest(node):
+                wrapped = dict(GRID, properties={"kind": {"type": "string"}, "x": node})
+                gen.render(schema({"Grid": wrapped}), "")
+
     def test_a_dangling_ref_is_refused(self):
         bad = dict(GRID, properties={"kind": {"$ref": "#/$defs/Missing"}})
         with self.assertRaises(gen.SchemaError):

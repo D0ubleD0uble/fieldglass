@@ -28,8 +28,9 @@ them and then by name. Two branches that each changed the schema resolve by
 re-recording the schema and re-running this, never by editing either output.
 
 **It fails loudly on a schema it does not understand.** A keyword it has no
-rule for is an error naming the keyword and where it was found, not a silent
-`unknown`: a type that quietly widened to `unknown` is the drift this exists to
+rule for, or a combination of keywords it would render only half of (a `$ref`
+with siblings, an `enum` on a number), is an error naming it and where it was
+found, not a silent `unknown`: a type that quietly widened to `unknown` is the drift this exists to
 stop.
 """
 
@@ -145,6 +146,48 @@ def check_keywords(schema: dict, where: str) -> None:
             f"{where}: no rule for keyword(s) {sorted(unknown)}; teach "
             "tools/gen_api_declarations.py what they mean in TypeScript"
         )
+    check_combination(schema, where)
+
+
+# Keywords that only mean something beside a `type` naming that kind.
+OBJECT_ONLY = {"properties", "required", "additionalProperties"}
+ARRAY_ONLY = {"items", "minItems", "maxItems"}
+
+
+def check_combination(schema: dict, where: str) -> None:
+    """Refuse a node whose keywords `ts_type` would not all honour.
+
+    `ts_type` reads the first of `$ref`, `const`, `oneOf`/`anyOf` and `type`
+    it finds and renders that. A node that also carried, say, `properties`
+    beside a `$ref` would have those properties silently dropped, which is the
+    quiet widening this generator exists to refuse. So every combination
+    outside the ones it renders in full is an error: `type` with the keywords
+    of that kind, `const` or `enum` with a string `type`, and a `$ref`, a
+    `oneOf` or an `anyOf` alone.
+    """
+    structural = set(schema) - IGNORED
+    for alone in ("$ref", "oneOf", "anyOf"):
+        if alone in schema and structural != {alone}:
+            raise SchemaError(
+                f"{where}: {alone} beside {sorted(structural - {alone})} — only the "
+                f"{alone} would be rendered; no rule for the combination"
+            )
+    kinds = schema.get("type")
+    kinds = set(kinds) if isinstance(kinds, list) else {kinds} if kinds else set()
+    if "const" in schema and structural - {"const", "type"}:
+        raise SchemaError(
+            f"{where}: const beside {sorted(structural - {'const', 'type'})}; "
+            "no rule for the combination"
+        )
+    if "enum" in schema and kinds - {"string"}:
+        raise SchemaError(f"{where}: enum on type {sorted(kinds)}; only a string enum is rendered")
+    for keywords, kind in ((OBJECT_ONLY, "object"), (ARRAY_ONLY, "array")):
+        present = structural & keywords
+        if present and kind not in kinds:
+            raise SchemaError(
+                f"{where}: {sorted(present)} without type {kind!r} (type is "
+                f"{sorted(kinds) or 'absent'}); no rule for the combination"
+            )
 
 
 def literal(value) -> str:

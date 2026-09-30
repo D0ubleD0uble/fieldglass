@@ -8030,10 +8030,16 @@ mod message_wire_tests {
         }
     }
 
-    /// Every key the API's `MessageInfo` serialises is on the object — the
-    /// check that nothing between `Session` and JavaScript strips a null.
+    /// `message(i)` hands over the umbrella's own `MessageInfo` for the index
+    /// asked, serialised whole — a **routing** check, not a wire one.
+    ///
+    /// Both sides go through `serde_json` on the same struct, so this cannot
+    /// see a key lost on the way into JavaScript; napi-rs's conversion runs
+    /// only in Node, and the extension's `api-wire` test is the evidence for
+    /// that half. What it does catch is the handle answering from some other
+    /// place — a different message, a view, a trimmed copy.
     #[test]
-    fn every_key_the_api_writes_is_kept() {
+    fn message_answers_the_sessions_own_message_info() {
         let session = fieldglass::Session::open(SPECTRAL_GRIB1.to_vec()).expect("opens");
         let reference =
             serde_json::to_value(session.message(0).expect("message 0")).expect("serialises");
@@ -8041,7 +8047,12 @@ mod message_wire_tests {
         let info = message();
         let want: Vec<&String> = reference.keys().collect();
         let got: Vec<&String> = info.keys().collect();
-        assert_eq!(got, want, "the addon's MessageInfo must carry every key");
+        assert_eq!(got, want, "the addon's MessageInfo must be the session's");
+        assert_eq!(
+            serde_json::Value::Object(info.clone()),
+            serde_json::Value::Object(reference.clone()),
+            "the addon's MessageInfo must be the session's, value for value"
+        );
         assert!(
             reference.values().any(serde_json::Value::is_null),
             "the fixture must have an absent field, or this checks nothing"

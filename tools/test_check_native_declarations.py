@@ -168,6 +168,11 @@ export interface O {
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("`MessageInfo`", problems[0])
 
+    def test_a_capitalised_string_literal_is_not_a_type_name(self):
+        gen = self.GEN.replace("  read(): number\n", '  read(): "Linear" | \'Log\'\n')
+        hand = self.HAND.replace("  read(): number;\n", '  read(): "Linear" | "Log";\n')
+        self.assertEqual(self.run_on(gen, hand), [])
+
     def test_a_name_only_in_a_comment_does_not_count_as_declared(self):
         api = "// export interface MessageInfo {}\n"
         problems = self.run_on(self.SERDE_GEN, self.SERDE_HAND, api=api)

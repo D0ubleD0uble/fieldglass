@@ -304,7 +304,7 @@ impl Handle {
     /// painter's own table. Upload it as a 256 × 1 `RGBA8` texture sampled
     /// `NEAREST` and pair it with [`glsl_snippet`].
     #[wasm_bindgen(
-        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: string; maskedRgba: Uint8Array }"
+        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: \"linear\" | \"log10\"; maskedRgba: Uint8Array }"
     )]
     pub fn palette(
         &self,
@@ -469,6 +469,7 @@ impl WasmField {
     }
 
     /// `"f32"` or `"f64"` — which typed array [`WasmField::values`] returned.
+    #[wasm_bindgen(unchecked_return_type = "\"f32\" | \"f64\"")]
     pub fn dtype(&self) -> String {
         if self.field.values.as_f32().is_some() {
             "f32".to_string()
