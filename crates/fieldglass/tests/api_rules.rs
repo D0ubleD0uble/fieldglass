@@ -1525,7 +1525,8 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>) {
     register!(returned:
         SourceFormat, Dtype, AxisUnits, Placement, Georef, Values, Stats, Field, Line,
         MessageInfo, Addressing, DimensionInfo, VariableInfo, AxisValues, LeftOutArray,
-        CombineOpInfo, Warped, Probe, Isoline, Error, Raster,
+        CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
+        Error, Raster,
     );
     register!(sent:
         DecodeOptions, WarpOptions, PaletteOptions, RenderOptions, VectorOptions,

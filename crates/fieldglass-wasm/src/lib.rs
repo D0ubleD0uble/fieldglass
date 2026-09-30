@@ -370,30 +370,30 @@ impl Handle {
     }
 
     /// Probe message `index` at one geographic point: `{ lat, lon, i, j, value,
-    /// fullDetail }`, or `undefined` off the grid (#637).
+    /// fullDetail }`, or `null` off the grid (#637).
     ///
     /// `value` is what the decoded field shows at the cell, as [`Handle::probe`]
-    /// reads it. `fullDetail` is set only for a spectral message whose field
+    /// reads it. `fullDetail` is `null` except for a spectral message whose field
     /// reports a `truncation()`: its values are the field band-limited to what
     /// the 0.5° grid carries, and `fullDetail.value` is the full sum over every
     /// wavenumber the file holds at the same cell node, with
     /// `fullDetail.truncation` saying which two truncations the pair is. Show
     /// both. This decodes the message on every call; a caller holding the field
     /// should use `probe` and `fullDetail` instead.
-    #[wasm_bindgen(js_name = probeMessage)]
+    #[wasm_bindgen(js_name = probeMessage, unchecked_return_type = "MessageProbe | null")]
     pub fn probe_message(&self, index: u32, lat: f64, lon: f64) -> Result<JsValue, JsValue> {
         match self.session.probe_message(index, lat, lon).map_err(throw)? {
             Some(p) => to_js(&p),
-            None => Ok(JsValue::UNDEFINED),
+            None => Ok(JsValue::NULL),
         }
     }
 
     /// The full-detail value of message `index` at the cell a probe at
-    /// `(lat, lon)` lands on: `{ value, truncation }`, or `undefined` when the
+    /// `(lat, lon)` lands on: `{ value, truncation }`, or `null` when the
     /// message's decoded field already holds the file's values (every message
     /// but a band-limited spectral one) or the point is off the grid (#637).
     /// Decodes the coefficients each call: about a second at T7999.
-    #[wasm_bindgen(js_name = fullDetail)]
+    #[wasm_bindgen(js_name = fullDetail, unchecked_return_type = "FullDetail | null")]
     pub fn full_detail(&self, index: u32, lat: f64, lon: f64) -> Result<JsValue, JsValue> {
         match self
             .session
@@ -401,7 +401,7 @@ impl Handle {
             .map_err(throw)?
         {
             Some(d) => to_js(&d),
-            None => Ok(JsValue::UNDEFINED),
+            None => Ok(JsValue::NULL),
         }
     }
 
@@ -561,13 +561,14 @@ impl WasmField {
 
     /// `{ declared, truncatedTo }` when the values are a spectral field
     /// band-limited to what the grid carries, below the truncation the message
-    /// declares (#637); `undefined` otherwise. Show it beside the field —
+    /// declares (#637); `null` otherwise. Show it beside the field —
     /// "shown at T359 of T7999" — since the map is smoother than the file, and
     /// read a point's full-detail value with `Handle.fullDetail`.
+    #[wasm_bindgen(unchecked_return_type = "SpectralTruncation | null")]
     pub fn truncation(&self) -> Result<JsValue, JsValue> {
         match &self.field.truncation {
             Some(t) => to_js(t),
-            None => Ok(JsValue::UNDEFINED),
+            None => Ok(JsValue::NULL),
         }
     }
 }

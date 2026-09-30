@@ -178,7 +178,7 @@ function fieldObservation(field) {
     stats: wire(field.stats(), `${current}: stats`),
     georef: georef(field.grid()),
     // `null` unless the field is a band-limited spectral one (#637).
-    truncation: nulled(field.truncation()),
+    truncation: wire(field.truncation(), `${current}: truncation`),
     samples: sampleIndices(values.length).map((i) => ({
       i,
       // Read the mask first, as the DTO's own doc says: the buffer holds
@@ -287,7 +287,7 @@ function withHandle(caseSpec, handle) {
   // for a band-limited spectral message the full-detail value beside it.
   if (op === 'probeMessage') {
     const p = handle.probeMessage(args.index, args.lat ?? 0, args.lon ?? 0);
-    return p === undefined ? null : nulled(p);
+    return wire(p, `${current}: probeMessage`);
   }
 
   // Everything else decodes first. The field is owned by this side, so it is
