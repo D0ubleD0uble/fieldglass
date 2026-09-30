@@ -1060,6 +1060,50 @@ def build_szip_hand(name: str) -> None:
     print(f"wrote {path} ({path.stat().st_size} B) + oracle [{len(objects)} hand-built szip datasets]")
 
 
+def build_szip_long_stream(name: str) -> None:
+    """A 64-bit szip chunk whose stream codes more pixels than the chunk holds
+    (#794, #421).
+
+    ``f8_long_stream`` is one 4x8 ``<f8`` chunk (256 bytes) with the right
+    size prefix, 256, and no filter before szip, so every length rule the
+    reader applies passes. Its stream, though, is libsz's encoding of 64
+    values, twice the chunk. 64-bit pixels are coded as byte planes laid out
+    by the output's length, so decoding 256 bytes of a 512-byte stream puts
+    most bytes in the wrong place. libhdf5 reads it without complaint: the
+    oracle records that read-back beside the 32 values the chunk should hold,
+    and the builder checks the two differ. The reader must refuse the chunk.
+    """
+    import struct
+
+    path = FIXturesDir / name
+    values = (np.arange(64, dtype="<f8") * 0.5 - 7.0)
+    chunk = values[:32].reshape(4, 8)
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass szip chunk with a stream too long")
+        f.create_dataset("f8_long_stream", data=chunk, chunks=(4, 8), compression="szip",
+                         compression_opts=("nn", 8), track_times=False)
+    with h5py.File(path, "r+") as f:
+        d = f["f8_long_stream"]
+        mask, ppb, bpp, pps = d.id.get_create_plist().get_filter(0)[2]
+        if (mask, ppb, bpp, pps) != (169, 8, 64, 8):
+            raise SystemExit(f"f8_long_stream: cd_values {(mask, ppb, bpp, pps)}")
+        stream = szip_compress(values.tobytes(), mask, bpp, ppb, pps)[4:]
+        d.id.write_direct_chunk((0, 0), struct.pack("<I", chunk.nbytes) + stream, 0)
+    with h5py.File(path, "r") as f:
+        read = f["f8_long_stream"][()]
+        if np.array_equal(read, chunk):
+            raise SystemExit("f8_long_stream: libhdf5 read the chunk correctly; "
+                             "the fixture no longer shows the scramble")
+        wrong = int((read.view("u1") != chunk.view("u1")).sum())
+    write_szip_oracle(
+        path, "one 256-byte <f8 chunk whose szip stream codes 64 values, twice the chunk; "
+              "`values` is libhdf5's scrambled read-back, `source` what the chunk should "
+              "hold. The reader must refuse it (#794, #421)",
+        extra={"source_values": chunk.reshape(-1).tolist(), "wrong_bytes": wrong})
+    print(f"wrote {path} ({path.stat().st_size} B) + oracle [{wrong} of {chunk.nbytes} bytes "
+          f"differ in libhdf5's read-back]")
+
+
 def _find_all(raw: bytes, sig: bytes) -> list[int]:
     out, i = [], 0
     while (i := raw.find(sig, i)) >= 0:
@@ -1151,6 +1195,7 @@ def main() -> int:
     # libaec. The second file holds chunks its writer never produces.
     build_szip("hdf5_szip.h5")
     build_szip_hand("hdf5_szip_hand.h5")
+    build_szip_long_stream("hdf5_szip_long_stream.h5")
     # Scale-less datasets: every axis is an invented anonymous dimension (#533).
     build_phony_dims("hdf5_phony_dims.h5")
     return 0

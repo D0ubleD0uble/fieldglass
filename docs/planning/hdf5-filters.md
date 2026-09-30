@@ -115,8 +115,18 @@ forward:
 - **A length-changing filter before szip is decoded, not refused.** libhdf5
   writes `[deflate, szip]` and reads it back, so refusing it would reject valid
   files. The prefix is then deflate's output length, which nothing outside the
-  stream records, so only the ceiling bounds it, and the caller's check of the
-  final chunk length does the rest.
+  stream records, so it is bounded, not matched: at most the chunk's length
+  plus an eighth plus 4 KiB, which covers deflate's, zstd's and fletcher32's
+  growth and stops a tiny chunk from committing a 256 MiB buffer. The chunk
+  must then come back exactly its own length; before #421 a longer result was
+  silently cut.
+- **A stream longer than its chunk is refused, for 32- and 64-bit pixels.**
+  Those are coded as byte planes laid out by the output's length, so a chunk
+  whose stream codes more pixels than it holds decodes to bytes in the wrong
+  places. With a correct prefix and nothing but shuffle before szip, that
+  passes every length rule, and libhdf5 returns the scrambled values.
+  `fieldglass_aec::sz` now reads to the end of the stream the length implies
+  and refuses a whole byte left over (#794, `hdf5_szip_long_stream.h5`).
 - **Stricter than libhdf5, on purpose.** libhdf5 checks the prefix only in a
   debug-build `assert` (`H5Zszip.c`), and libsz returns success with short
   output when the stream runs out. So a chunk whose prefix is larger than its

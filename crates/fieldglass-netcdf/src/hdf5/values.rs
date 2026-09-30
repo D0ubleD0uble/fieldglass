@@ -11,7 +11,8 @@
 //! the version-4/5 single-chunk, fixed-array, extensible-array, and implicit
 //! indexes of the "latest format".
 //! Chunks pass back through the [`filter`](super::filter) pipeline
-//! (deflate / shuffle) before being scattered into place; any region with no
+//! (deflate, shuffle, fletcher32, zstd, szip), must come back exactly one
+//! chunk long, and are then scattered into place; any region with no
 //! stored chunk reads as the dataset's Fill Value (message `0x0005`) default.
 //!
 //! Element bytes honour the datatype's byte order — unlike classic NetCDF
@@ -370,7 +371,12 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
         } else {
             pipeline.reverse(stored.into_owned(), chunk.filter_mask, elem, chunk_bytes)?
         };
-        if expanded.len() < chunk_bytes {
+        // Exactly one chunk, not at least one: `scatter_chunk` reads only the
+        // first `chunk_bytes`, so a longer result would be cut silently, and
+        // a chunk that decodes to the wrong length is corrupt whichever way
+        // it is wrong. This is also the check that stands behind szip's size
+        // prefix when a length-changing filter precedes it.
+        if expanded.len() != chunk_bytes {
             return Err(FieldglassError::Parse(format!(
                 "chunk decoded to {} bytes, expected {chunk_bytes}",
                 expanded.len()

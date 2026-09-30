@@ -27,6 +27,6 @@ cargo +nightly fuzz run parse
 ```
 
 The seed corpus under `corpus/parse/` is some of the crate's NetCDF test fixtures,
-including both szip files (#421). CI
+including the three szip files (#421). CI
 runs this target time-boxed on pull requests that touch the crate; see
 `.github/workflows/fuzz.yml`.

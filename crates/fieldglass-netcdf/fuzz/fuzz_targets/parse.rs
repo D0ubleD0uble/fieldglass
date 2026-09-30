@@ -8,7 +8,9 @@
 //! group and link tables, dense-attribute fractal heaps + B-tree v2 indexes, and
 //! the filter pipeline. This target drives both — `from_bytes` for the eager
 //! parse, then `hdf5_metadata` for the deep HDF5 walk — asserting the parser
-//! never panics, over-reads, or hangs.
+//! never panics, over-reads, or hangs. It then decodes the first few
+//! variables' values, which runs every chunk through the chunk indexes and
+//! the filter pipeline, szip included.
 
 #![no_main]
 

@@ -168,8 +168,9 @@ impl FilterPipeline {
     /// `element_size` is the dataset's element width, used by shuffle when the
     /// filter itself doesn't carry it. `expected_len` is the chunk's length
     /// before any filter ran, which szip checks its size prefix against when
-    /// every filter before it keeps the length. The caller still checks the
-    /// result's length: deflate and zstd are bounded by a ceiling only.
+    /// every filter before it keeps the length, and bounds it otherwise. The
+    /// caller must still check that the result is exactly `expected_len`:
+    /// deflate and zstd are bounded by a ceiling only.
     pub fn reverse(
         &self,
         mut data: Vec<u8>,
@@ -194,12 +195,15 @@ impl FilterPipeline {
                 }
                 FILTER_FLETCHER32 => verify_fletcher32(&data)?,
                 FILTER_ZSTD => unzstd(&data)?,
-                FILTER_SZIP => unszip(
-                    &data,
-                    &filter.client_data,
-                    self.length_before(index, filter_mask, expected_len),
-                    MAX_DECOMPRESSED_CHUNK,
-                )?,
+                FILTER_SZIP => {
+                    let exact = self.length_before(index, filter_mask, expected_len);
+                    unszip(
+                        &data,
+                        &filter.client_data,
+                        exact,
+                        szip_limit(exact, expected_len),
+                    )?
+                }
                 other => {
                     return Err(FieldglassError::UnsupportedSection(format!(
                         "HDF5 filter id {other} is not supported (only deflate, \
@@ -218,10 +222,10 @@ impl FilterPipeline {
     /// Only shuffle keeps the length. deflate and zstd produce a stream of
     /// any length, and fletcher32 adds four bytes. When one of them ran before
     /// szip, szip's size prefix is that filter's output length, which nothing
-    /// outside the stream records, so the prefix is bounded by the ceiling
-    /// alone and the caller's check of the final length does the rest.
-    /// libhdf5 writes and reads such pipelines, so they are decoded rather
-    /// than refused.
+    /// outside the stream records, so the prefix is only bounded, by
+    /// [`szip_limit`], and the caller's check that the chunk comes back
+    /// exactly its own length does the rest. libhdf5 writes and reads such
+    /// pipelines, so they are decoded rather than refused.
     fn length_before(&self, index: usize, filter_mask: u32, expected_len: usize) -> Option<usize> {
         self.filters[..index]
             .iter()
@@ -230,6 +234,30 @@ impl FilterPipeline {
             .then_some(expected_len)
     }
 }
+
+/// The most an szip size prefix may declare before it is allocated.
+///
+/// When the exact length is known the prefix must equal it, so the ceiling
+/// alone is the backstop. When it is not, a length-changing filter ran
+/// before szip, and szip's input was that filter's output: deflate's or
+/// zstd's worst case grows the data by well under an eighth (zlib's bound is
+/// a few bytes per 16 KiB, zstd's about 1/256), and fletcher32 adds four
+/// bytes. So the chunk's length plus an eighth plus 4 KiB covers any real
+/// file, and keeps a 12-byte chunk from committing a 256 MiB zeroed buffer
+/// (which on wasm is a real allocation, not a lazily mapped one).
+fn szip_limit(exact: Option<usize>, expected_len: usize) -> usize {
+    match exact {
+        Some(_) => MAX_DECOMPRESSED_CHUNK,
+        None => expected_len
+            .saturating_add(expected_len / 8)
+            .saturating_add(SZIP_SLACK)
+            .min(MAX_DECOMPRESSED_CHUNK),
+    }
+}
+
+/// Fixed headroom in [`szip_limit`] for small chunks, whose compressed form
+/// can carry a header larger than an eighth of the data.
+const SZIP_SLACK: usize = 4096;
 
 /// Undo the HDF5 szip filter (id 4) on one chunk.
 ///
@@ -242,7 +270,7 @@ impl FilterPipeline {
 ///
 /// The prefix is checked before anything is allocated for it. It must be:
 ///
-/// - at most `limit` bytes ([`MAX_DECOMPRESSED_CHUNK`] outside tests);
+/// - at most `limit` bytes ([`szip_limit`] outside tests);
 /// - equal to `exact`, when that is known ([`FilterPipeline::length_before`]);
 /// - a whole number of szip pixels. The pixel is the width bits per pixel
 ///   rounds up to (1, 2, 4 or 8 bytes), not the dataset's element: libhdf5
@@ -1026,6 +1054,28 @@ mod tests {
             MAX_DECOMPRESSED_CHUNK,
         ));
         assert!(m.contains("whole number of 8-byte pixels"), "{m}");
+    }
+
+    /// Behind a length-changing filter the prefix is bounded by the chunk's
+    /// length plus an eighth plus 4 KiB, not by the 256 MiB ceiling: a prefix
+    /// between the two is refused before it is allocated. At the bound itself
+    /// the prefix passes the check and the stream fails later, in the codec.
+    #[test]
+    fn szip_behind_a_length_changing_filter_is_bounded_by_the_chunk() {
+        let expected = 64;
+        let bound = expected + expected / 8 + SZIP_SLACK;
+        assert_eq!(szip_limit(None, expected), bound);
+        assert_eq!(szip_limit(Some(expected), expected), MAX_DECOMPRESSED_CHUNK);
+        assert_eq!(szip_limit(None, usize::MAX), MAX_DECOMPRESSED_CHUNK);
+        assert!(bound < MAX_DECOMPRESSED_CHUNK);
+
+        let pipeline = szip_pipeline(&[FILTER_FLETCHER32], &SZ_CD);
+        let over = u32::try_from(bound + 1).unwrap();
+        let m = parse_message(pipeline.reverse(szip_chunk(over), 0, 1, expected));
+        assert!(m.contains(&format!("past the {bound}-byte ceiling")), "{m}");
+        let at = u32::try_from(bound).unwrap();
+        let m = parse_message(pipeline.reverse(szip_chunk(at), 0, 1, expected));
+        assert!(m.contains("szip decompress failed"), "{m}");
     }
 
     #[test]

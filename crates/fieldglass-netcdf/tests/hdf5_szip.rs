@@ -14,6 +14,10 @@
 //!   same libsz and stored with `write_direct_chunk`. Scanlines shorter than a
 //!   block (RSI 1), and szip after deflate.
 //!
+//! A third, `hdf5_szip_long_stream.h5`, holds one chunk the reader must
+//! refuse: its stream codes more 64-bit pixels than the chunk holds, and
+//! libhdf5 reads it back scrambled (#794).
+//!
 //! See `tests/fixtures/NOTICE.md` for what each dataset covers.
 
 use fieldglass_core::FieldglassError;
@@ -25,6 +29,8 @@ const SZIP: &[u8] = include_bytes!("fixtures/hdf5_szip.h5");
 const SZIP_ORACLE: &str = include_str!("fixtures/hdf5_szip.h5.oracle.json");
 const HAND: &[u8] = include_bytes!("fixtures/hdf5_szip_hand.h5");
 const HAND_ORACLE: &str = include_str!("fixtures/hdf5_szip_hand.h5.oracle.json");
+const LONG: &[u8] = include_bytes!("fixtures/hdf5_szip_long_stream.h5");
+const LONG_ORACLE: &str = include_str!("fixtures/hdf5_szip_long_stream.h5.oracle.json");
 
 /// Datasets in each fixture. A regenerated fixture that lost one fails here
 /// rather than quietly testing less.
@@ -215,10 +221,12 @@ fn a_chunk_whose_size_prefix_is_wrong_is_refused() {
 }
 
 /// Behind deflate the prefix is deflate's output length, which the reader
-/// cannot know, so only the ceiling applies to it. A wrong prefix is then
-/// caught, if at all, by the filters after it, not by a length rule.
+/// cannot know exactly, so it is bounded by the chunk's length plus an eighth
+/// plus 4 KiB (4,168 bytes for this 64-byte chunk) rather than required to
+/// equal anything. A wrong prefix inside that is then caught, if at all, by
+/// the filters after it and by the chunk-length check.
 #[test]
-fn behind_deflate_the_prefix_is_bounded_by_the_ceiling_only() {
+fn behind_deflate_the_prefix_is_bounded_by_the_chunk() {
     let o = &objects(HAND_ORACLE)["deflate_szip"];
     let at = usize::try_from(o["chunk_byte_offsets"][0].as_u64().unwrap()).unwrap();
     let prefix = u32::from_le_bytes(HAND[at..at + 4].try_into().unwrap());
@@ -241,16 +249,36 @@ fn behind_deflate_the_prefix_is_bounded_by_the_ceiling_only() {
         long["deflate_szip"].as_ref().unwrap(),
         decode_all(HAND)["deflate_szip"].as_ref().unwrap()
     );
-    let m = parse_error(
-        &with_prefix(
-            HAND,
-            HAND_ORACLE,
+    // Past the bound, and far past it, is refused before allocating.
+    for over in [64 + 8 + 4096 + 1, MAX_DECOMPRESSED_CHUNK + 1] {
+        let m = parse_error(
+            &with_prefix(HAND, HAND_ORACLE, "deflate_szip", over),
             "deflate_szip",
-            MAX_DECOMPRESSED_CHUNK + 1,
-        ),
-        "deflate_szip",
+        );
+        assert!(m.contains("past the 4168-byte ceiling"), "{m}");
+    }
+}
+
+/// A 64-bit chunk whose size prefix is right, with no filter before szip, but
+/// whose stream codes twice the pixels (#794). Every length rule the reader
+/// applies passes; byte planes laid out by the shorter length would put the
+/// bytes in the wrong places, and libhdf5 returns exactly that: the oracle
+/// holds its read-back, which differs from what the chunk should hold. The
+/// reader refuses the chunk instead.
+#[test]
+fn a_chunk_whose_stream_codes_more_pixels_is_refused() {
+    let v: Value = serde_json::from_str(LONG_ORACLE).unwrap();
+    let o = &v["objects"]["f8_long_stream"];
+    assert_eq!(o["pipeline"].as_array().unwrap().len(), 1, "szip alone");
+    assert_eq!(o["szip"]["bits_per_pixel"], 64);
+    assert_ne!(
+        o["values"], v["source_values"],
+        "libhdf5's read-back must be the scrambled one, or this proves nothing"
     );
-    assert!(m.contains("ceiling"), "{m}");
+    assert!(v["wrong_bytes"].as_u64().unwrap() > 0);
+
+    let m = parse_error(LONG, "f8_long_stream");
+    assert!(m.contains("shorter than its stream"), "{m}");
 }
 
 /// Filter id 4 is decoded, so the "unsupported filter" error no longer names

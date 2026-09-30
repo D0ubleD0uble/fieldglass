@@ -610,7 +610,8 @@ builder refuses to write a dataset whose values are not the ones listed:
 `i4_precision16` holds only non-negative values. The reader does not apply a
 fixed-point precision below the element width, so a negative value in a
 16-bit-precision `int32` (stored `ec ff 00 00` for -20) would read as 65516.
-That is a datatype gap, not an szip one, and is kept out of this fixture.
+That is a datatype gap, not an szip one (#795), and is kept out of this
+fixture.
 
 `hdf5_szip_hand.h5` (`libver='earliest'`) holds chunks libhdf5 reads but its
 writer never produces. Each chunk is compressed by the wheel's own libsz
@@ -634,12 +635,34 @@ only in a debug-build `assert` (`H5Zszip.c`), and libsz returns success with
 short output when a stream runs out. Setting the prefix of `i2_ppb16`'s first
 chunk to 256 MiB + 1 (`MAX_DECOMPRESSED_CHUNK` + 1) reads back correctly through
 h5py 3.16, after allocating that much; the same on `deflate_szip` also reads
-back. The reader refuses both, before allocating: a prefix past the ceiling,
-or one that disagrees with the chunk's length when only shuffle precedes szip,
-is a corrupt chunk. A prefix of 511 or 513 on the 512-byte chunk fails in
-libhdf5 as well. `a_chunk_whose_size_prefix_is_wrong_is_refused` and
-`behind_deflate_the_prefix_is_bounded_by_the_ceiling_only` in
+back. The reader refuses both, before allocating. When only shuffle precedes
+szip the prefix must equal the chunk's length; behind a length-changing filter
+it may be at most the chunk's length plus an eighth plus 4 KiB (4,168 bytes
+for `deflate_szip`), which covers deflate's, zstd's and fletcher32's growth.
+A prefix of 511 or 513 on the 512-byte chunk fails in libhdf5 as well.
+`a_chunk_whose_size_prefix_is_wrong_is_refused` and
+`behind_deflate_the_prefix_is_bounded_by_the_chunk` in
 `tests/hdf5_szip.rs` pin both; ADR-0012 decision 4 lists the divergence.
+
+## szip long-stream fixture (`hdf5_szip_long_stream.h5`)
+
+One chunk the reader must refuse, built by `build_szip_long_stream` in
+`tools/build_hdf5_fixtures.py` with the same h5py, libhdf5 and libaec (#794).
+`f8_long_stream` is a single 4x8 `<f8` chunk (256 bytes), `cd_values` 169, 8,
+64, 8, szip alone, with the right size prefix, 256. Its stream is libsz's
+encoding of 64 values, twice the chunk, stored with `write_direct_chunk`.
+
+64-bit pixels are coded as byte planes laid out by the output's length, so
+decoding 256 bytes of that stream puts bytes in the wrong places. libhdf5
+reads the chunk without complaint and returns that: 60 of its 256 bytes differ
+from the 32 values the chunk should hold. The oracle records libhdf5's
+read-back as `values`, the intended values as `source_values`, and the count
+as `wrong_bytes`; the builder fails if libhdf5 ever reads the chunk
+correctly. Every length rule the reader applies passes here, so
+`fieldglass_aec::sz::decompress` is what refuses it
+(`AecError::TrailingInput`: a whole byte of stream left after the one the
+output's length implies). `a_chunk_whose_stream_codes_more_pixels_is_refused`
+in `tests/hdf5_szip.rs` pins it; ADR-0012 decision 4 lists the divergence.
 
 ## Anonymous-dimension fixture (`hdf5_phony_dims.h5`)
 

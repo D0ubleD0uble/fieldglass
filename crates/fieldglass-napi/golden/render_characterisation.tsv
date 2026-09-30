@@ -1320,6 +1320,11 @@ netcdf/hdf5_szip_hand.h5#rsi1_i2	combine/a_minus_b/render/source/nearest	ok w=5 
 netcdf/hdf5_szip_hand.h5#rsi1_i2	meta	family=latlon ni=5 nj=8 reprojectable=false	82658c4e2679a475
 netcdf/hdf5_szip_hand.h5#rsi1_i2	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
 netcdf/hdf5_szip_hand.h5#rsi1_i2	render/source/nearest	ok w=5 h=8 opaque=40	1c69f2a909bd9286
+netcdf/hdf5_szip_long_stream.h5	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/hdf5_szip_long_stream.h5#f8_long_stream	combine/a_minus_b/render/source/nearest	err: parse error: szip decompress failed: an szip output of # bytes is shorter than its stream of #- or #-bit pixels: # bytes are left after the last pixel	21b7b0239821cc8d
+netcdf/hdf5_szip_long_stream.h5#f8_long_stream	meta	family=latlon ni=8 nj=4 reprojectable=false	58b33599ae00ef2c
+netcdf/hdf5_szip_long_stream.h5#f8_long_stream	render/equirectangular/nearest	err: parse error: szip decompress failed: an szip output of # bytes is shorter than its stream of #- or #-bit pixels: # bytes are left after the last pixel	21b7b0239821cc8d
+netcdf/hdf5_szip_long_stream.h5#f8_long_stream	render/source/nearest	err: parse error: szip decompress failed: an szip output of # bytes is shorter than its stream of #- or #-bit pixels: # bytes are left after the last pixel	21b7b0239821cc8d
 netcdf/hdf5_v1_symboltable.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_v1_symboltable.h5#compressed	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_v1_symboltable.h5#compressed	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
