@@ -107,13 +107,15 @@ pub(crate) fn message_scaling(header: &BdsHeader, decimal_scale: i16) -> Scaling
 /// points are `None` (`fieldglass_core::bitmap::interleave_with_bitmap`, which
 /// is proved). The BDS holds one value per present point (FM 92, Section 4),
 /// which with no bitmap is every one of the `expected_count` points, so any
-/// other count is an error. Shared by the simple, IEEE, matrix and second-order
+/// other count is an error, as is a bitmap that is not one bit per grid point
+/// (see [`check_bitmap_len`]). Shared by the simple, IEEE, matrix and second-order
 /// decoders.
 pub(crate) fn interleave_with_bitmap(
     decoded: Vec<f64>,
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
+    check_bitmap_len(bitmap, expected_count)?;
     match bitmap {
         None if decoded.len() != expected_count => Err(FieldglassError::Parse(format!(
             "BDS decoded {} values but the grid has {expected_count} points",
@@ -131,24 +133,45 @@ pub(crate) fn interleave_with_bitmap(
 }
 
 /// A constant field (`bits_per_value == 0`): every present point equals
-/// `value`, and bitmap-masked points are `None`.
+/// `value`, and bitmap-masked points are `None`. Errors, like
+/// [`interleave_with_bitmap`], on a bitmap that is not one bit per grid point.
 pub(crate) fn materialise_constant(
     value: f64,
     bitmap: Option<&[bool]>,
     expected_count: usize,
-) -> Vec<Option<f64>> {
-    match bitmap {
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    check_bitmap_len(bitmap, expected_count)?;
+    Ok(match bitmap {
         Some(b) => fieldglass_core::bitmap::fill_present(value, b),
         None => vec![Some(value); expected_count],
-    }
+    })
 }
 
 /// Number of present (non-masked) grid points: every point when there is no
-/// bitmap, otherwise the count of set bits.
-pub(crate) fn present_count(bitmap: Option<&[bool]>, expected_count: usize) -> usize {
+/// bitmap, otherwise the count of set bits. Errors as [`check_bitmap_len`]
+/// does.
+pub(crate) fn present_count(
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<usize, FieldglassError> {
+    check_bitmap_len(bitmap, expected_count)?;
+    Ok(bitmap.map_or(expected_count, fieldglass_core::bitmap::count_present))
+}
+
+/// Errors unless the bitmap, when there is one, has exactly `expected_count`
+/// bits. FM 92 Section 3 gives one bit per data point, and the spreads above
+/// return one value per bit, so a longer bitmap would give a field longer than
+/// the grid (#804) and a shorter one a field shorter. The section's own
+/// trailing padding is not part of this: [`crate::bms::parse_bitmap`] reads
+/// exactly `expected_count` bits out of the section and ignores the rest. The
+/// wording matches GRIB2's check.
+fn check_bitmap_len(bitmap: Option<&[bool]>, expected_count: usize) -> Result<(), FieldglassError> {
     match bitmap {
-        Some(b) => fieldglass_core::bitmap::count_present(b),
-        None => expected_count,
+        Some(b) if b.len() != expected_count => Err(FieldglassError::Parse(format!(
+            "bitmap length {} != grid-point count {expected_count}",
+            b.len()
+        ))),
+        _ => Ok(()),
     }
 }
 

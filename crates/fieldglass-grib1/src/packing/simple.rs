@@ -43,11 +43,7 @@ impl Grib1Packing for SimplePacking {
 
         // Constant field: every present grid point equals R / 10^D.
         if header.bits_per_value == 0 {
-            return Ok(materialise_constant(
-                scaling.constant(),
-                bitmap,
-                expected_count,
-            ));
+            return materialise_constant(scaling.constant(), bitmap, expected_count);
         }
 
         if header.bits_per_value > 32 {
@@ -64,7 +60,7 @@ impl Grib1Packing for SimplePacking {
             .saturating_sub(header.unused_trailing_bits as usize);
         let stored_count = total_packed_bits / n as usize;
 
-        let present = present_count(bitmap, expected_count);
+        let present = present_count(bitmap, expected_count)?;
         if stored_count < present {
             return Err(FieldglassError::Parse(format!(
                 "BDS holds {stored_count} values but {present} are required"

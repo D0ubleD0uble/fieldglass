@@ -16,6 +16,16 @@
 //! `Vec` at up to 34 GB (#631). The GRIB2 target has always driven its
 //! equivalent, and had a cap; this one did not, and did not.
 //!
+//! `decode_matrix_message` joins it for the same reason: the true
+//! `matrixOfValues = 1` form is refused by `decode_message_values`, and its
+//! secondary-bitmap reshape is sized by `NR·NC`, two bare `u16`s. A primary
+//! bitmap marking every point absent empties the secondary bitmaps and the
+//! coded stream, so no section length constrains them, and a 1.3 KB message
+//! asked for about 2 TB and aborted the process (#802). The GRIB2 target drove
+//! its matrix path and had the cap; this one did not. The seed
+//! `hand_matrix_of_values_all_absent.grib1` is that message, which now stops at
+//! the cap.
+//!
 //! `synthesis_grid` joins it because it is a public entry point that reads §2
 //! and answers a grid size derived from attacker-controlled fields (#580). Its
 //! partner `synthesize_message_global` is deliberately **not** called: the only
@@ -76,6 +86,9 @@ fuzz_target!(|data: &[u8]| {
                 let _ = reader.synthesize_spectral_message_full(i, &PROBE_LATS, &PROBE_LONS);
                 let _ = reader.evaluate_spectral_point(i, 60.0, 120.0);
             }
+            // The true matrix-of-values path, which `decode_message_values`
+            // refuses. `MAX_FIELD_POINTS` bounds its output at 64 Mi cells.
+            let _ = reader.decode_matrix_message(i);
             // Total by construction, so the assertion is that it stays total.
             let _ = reader.synthesis_grid(i);
             let _ = reader.synthesis_truncation(i);

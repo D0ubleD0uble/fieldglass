@@ -147,3 +147,33 @@ fn decode_matrix_of_values_matches_hand_computed_oracle() {
         );
     }
 }
+
+/// #802: a primary bitmap that marks every point absent makes N = 0, so the
+/// secondary bitmaps and the coded stream are empty and every section-length
+/// check passes, while NR = NC = 0xFFFF asks for `496 · 65535²` cells (about
+/// 2 TB of `Option<f64>`). Built from the committed fixture: zero the BMS body,
+/// set BDS octets 12-13 (N) to 0 and octets 15-18 (NR, NC) to 0xFFFF. Before
+/// the cap this aborted the process on the allocation; it must be a parse
+/// error that names the cap.
+#[test]
+fn an_all_absent_bitmap_with_a_huge_matrix_is_refused_before_allocating() {
+    let reader =
+        Grib1Reader::from_bytes(MATRIX_OF_VALUES_FIXTURE.to_vec()).expect("fixture parses");
+    let msg = &reader.messages[0];
+    let bms = msg.bms_range.expect("the fixture carries a BMS");
+    let bds = msg.bds_range.start as usize;
+
+    let mut hostile = MATRIX_OF_VALUES_FIXTURE.to_vec();
+    hostile[bms.start as usize + 6..(bms.start + bms.len) as usize].fill(0);
+    hostile[bds + 11..bds + 13].copy_from_slice(&0u16.to_be_bytes()); // N
+    hostile[bds + 14..bds + 18].fill(0xFF); // NR, NC
+
+    let reader = Grib1Reader::from_bytes(hostile).expect("the edit keeps the framing");
+    let err = reader
+        .decode_matrix_message(0)
+        .expect_err("a field past the cell cap must be refused");
+    assert!(
+        matches!(&err, fieldglass_grib1::FieldglassError::Parse(m) if m.contains("cell cap")),
+        "got {err:?}"
+    );
+}

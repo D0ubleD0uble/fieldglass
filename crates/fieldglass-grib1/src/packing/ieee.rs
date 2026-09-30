@@ -48,6 +48,7 @@ impl Grib1Packing for IeeePacking {
             )));
         }
 
+        let present = present_count(bitmap, expected_count)?;
         let precision = bds[PRECISION_OFFSET];
         let width = match precision {
             1 => 4, // IEEE 32-bit
@@ -63,7 +64,6 @@ impl Grib1Packing for IeeePacking {
 
         let data = &bds[IEEE_DATA_OFFSET..section_len];
         let stored_count = data.len() / width;
-        let present = present_count(bitmap, expected_count);
         if stored_count < present {
             return Err(FieldglassError::Parse(format!(
                 "grid_ieee holds {stored_count} values but {present} are required"
