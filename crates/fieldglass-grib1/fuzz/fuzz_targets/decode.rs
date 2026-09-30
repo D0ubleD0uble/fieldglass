@@ -32,6 +32,11 @@ use libfuzzer_sys::fuzz_target;
 
 use fieldglass_grib1::{Grib1Reader, GridDescription};
 
+/// Latitudes/longitudes for the synthesis probe, tiny for the reason the GRIB2
+/// target gives: the coefficient count comes from the file.
+const PROBE_LATS: [f64; 3] = [-60.0, 0.0, 60.0];
+const PROBE_LONS: [f64; 3] = [0.0, 120.0, 240.0];
+
 /// The declared spherical-harmonic truncation of message `i`, if it has one,
 /// against a bound chosen for fuzzer throughput rather than for correctness.
 ///
@@ -64,8 +69,11 @@ fuzz_target!(|data: &[u8]| {
             // sub-truncation weave are all exercised at small `J`.
             if !declares_a_large_truncation(&reader, i) {
                 let _ = reader.decode_spectral_message(i);
-                // The probe's exact evaluation (#637): the full sum at one
-                // point, `(J+1)(J+2)/2` terms, behind the same bound.
+                // The transforms behind the same bound (#637): a caller's grid
+                // band-limited to what it resolves, then in full, and the full
+                // sum at one point, `(J+1)(J+2)/2` terms.
+                let _ = reader.synthesize_spectral_message(i, &PROBE_LATS, &PROBE_LONS);
+                let _ = reader.synthesize_spectral_message_full(i, &PROBE_LATS, &PROBE_LONS);
                 let _ = reader.evaluate_spectral_point(i, 60.0, 120.0);
             }
             // Total by construction, so the assertion is that it stays total.

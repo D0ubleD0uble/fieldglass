@@ -39,10 +39,24 @@ Output, per edition, `spectral_simple_t383.truncation.oracle.json`:
   (`truncated`, n <= 359) at a handful of points, some on the synthesis grid
   and some off it, for the exact probe.
 
+Two more oracles, for `fieldglass-core`'s transform past where plain `f64`
+holds (about T1810), from coefficients both sides generate with the same
+64-bit LCG so nothing large is committed:
+
+* `sht_t3000_extended_range.oracle.json`: the full sum at T3000 in 80-bit
+  `long double`, by the same recurrence in wider arithmetic.
+* `sht_t2500_pyshtools.oracle.json`: the full sum at T2500 by pyshtools
+  (`MakeGridPoint`, Holmes-Featherstone scaling), an independent algorithm
+  inside its documented range of about degree 2800.
+
 Regenerate (needs numpy, pyshtools, the `eccodes` wheel >= 2.48, and the pinned
 eccodes 2.34.1 CLI on PATH):
 
     python3 tools/build_spectral_truncation_oracle.py
+
+or only the two `fieldglass-core` oracles, which need numpy and pyshtools:
+
+    python3 tools/build_spectral_truncation_oracle.py --core-only
 """
 
 from __future__ import annotations
@@ -51,8 +65,8 @@ import json
 import math
 import pathlib
 import subprocess
+import sys
 
-import eccodes
 import numpy as np
 import pyshtools
 
@@ -108,6 +122,8 @@ def coefficients() -> np.ndarray:
 
 
 def build_fixture(directory: pathlib.Path) -> pathlib.Path:
+    import eccodes  # only the fixtures need it; `--core-only` runs without
+
     source = directory / SOURCES[directory]
     target = directory / TARGETS[directory]
     with source.open("rb") as f:
@@ -194,6 +210,10 @@ def extended_range_oracle() -> None:
     rather than a 4.5-million-step Python loop. Independent of pyshtools, whose
     own Legendre routine is documented as accurate to about degree 2800."""
     ld = np.longdouble
+    # x87 extended has a 15-bit exponent (maxexp 16384). A platform whose
+    # `long double` is plain `double` (MSVC, some ARM ABIs) would underflow
+    # exactly as the `f64` recurrence does and write a wrong oracle.
+    assert np.finfo(ld).maxexp >= 16384, f"long double is too narrow: {np.finfo(ld)}"
     t = EXTENDED_T
     raw = np.array(lcg_coefficients(t), dtype=ld)
     ms = np.arange(t + 1)
@@ -233,8 +253,43 @@ def extended_range_oracle() -> None:
     print(f"wrote {EXTENDED_OUT.relative_to(ROOT)}: {points}")
 
 
+PYSHTOOLS_T = 2500
+PYSHTOOLS_LATS = [89.0, 80.0, 60.0, 37.5, 0.25, -70.0]
+PYSHTOOLS_LONS = [10.0, 120.0, 300.0]
+PYSHTOOLS_OUT = ROOT / "crates/fieldglass-core/tests/fixtures/sht_t2500_pyshtools.oracle.json"
+
+
+def pyshtools_high_degree_oracle() -> None:
+    """The full sum at T2500 on a small grid, by pyshtools rather than by any
+    column recurrence of ours: an algorithm-independent check of the transform
+    past where plain `f64` holds (about T1810), inside pyshtools' documented
+    range (about degree 2800). Latitudes are latitude-major, as the Rust grid
+    transform returns them."""
+    t = PYSHTOOLS_T
+    cilm = to_pyshtools(np.array(lcg_coefficients(t)), t)
+    values = [evaluate(cilm, lat, lon, t) for lat in PYSHTOOLS_LATS for lon in PYSHTOOLS_LONS]
+    PYSHTOOLS_OUT.write_text(
+        json.dumps(
+            {
+                "truncation": t,
+                "pyshtools": pyshtools.__version__,
+                "lats": PYSHTOOLS_LATS,
+                "lons": PYSHTOOLS_LONS,
+                "values": values,
+            },
+            indent=1,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(f"wrote {PYSHTOOLS_OUT.relative_to(ROOT)}: {values}")
+
+
 def main() -> None:
     extended_range_oracle()
+    pyshtools_high_degree_oracle()
+    if "--core-only" in sys.argv[1:]:
+        return
     check_mapping()
     for directory in EDITIONS:
         fixture = build_fixture(directory)

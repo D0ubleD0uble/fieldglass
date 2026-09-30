@@ -32,8 +32,10 @@ fn spectral_synthesis_matches_definitive_oracle() {
     );
 
     let (lats, lons) = grid();
+    // The oracle is the full T63 sum at these points; the 5° grid itself
+    // resolves only T35, so the full sum is the explicit call (#637).
     let field = reader
-        .synthesize_spectral_message(0, &lats, &lons)
+        .synthesize_spectral_message_full(0, &lats, &lons)
         .expect("synthesize");
 
     let oracle: Vec<f64> = ORACLE
@@ -121,4 +123,44 @@ fn the_global_synthesis_pairs_the_field_with_the_grid_it_is_on() {
             "the {name} row must be longitude-independent"
         );
     }
+}
+
+/// A grid of the caller's own is band-limited by default to what it resolves
+/// (#637, MIR's rule): the 5° grid carries T35, so a T63 message on it is the
+/// T35 triangle, and the full sum is a separate, explicit call.
+#[test]
+fn a_callers_grid_is_band_limited_to_what_it_resolves() {
+    let reader = Grib2Reader::from_bytes(SPECTRAL_T63.to_vec()).expect("parse");
+    let (lats, lons) = grid();
+    assert_eq!(
+        fieldglass_core::sht::points_band_limit(&lats, &lons),
+        Some(35)
+    );
+    let coeffs = reader.decode_spectral_message(0).expect("spectral decodes");
+    let t35 = fieldglass_core::sht::synthesize_band_limited(
+        &coeffs.coefficients,
+        coeffs.j,
+        35,
+        &lats,
+        &lons,
+    )
+    .expect("T35");
+    let default = reader
+        .synthesize_spectral_message(0, &lats, &lons)
+        .expect("default");
+    assert_eq!(default, t35);
+    let full = reader
+        .synthesize_spectral_message_full(0, &lats, &lons)
+        .expect("full");
+    assert_ne!(default, full);
+    // A grid that resolves the whole field gets all of it by default: the
+    // pinned 0.5° grid carries T359.
+    let (grid, map) = reader.synthesize_spectral_global(0).expect("map");
+    let (lats, lons) = grid.axes();
+    assert_eq!(
+        reader
+            .synthesize_spectral_message(0, &lats[..3], &lons)
+            .expect("three rows"),
+        map[..3 * lons.len()]
+    );
 }
