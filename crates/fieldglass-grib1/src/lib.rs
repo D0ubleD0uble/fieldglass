@@ -87,13 +87,15 @@ pub use gds::{GridDescription, ScanningMode, SphericalHarmonicGrid};
 // `GlobalGrid` is the grid `synthesize_spectral_global` hands back beside the
 // synthesised field, so reading either means naming it (#546);
 // `SynthesisedField` is the pair `synthesize_message_global` hands back, for the
-// same reason (#580). `ByteSource` is what `Grib1Reader` reads through and
+// same reason (#580). `SpectralTruncation` is what `synthesis_truncation`
+// answers, the label a band-limited map carries (#637). `ByteSource` is what `Grib1Reader` reads through and
 // `ByteRange` is how a message records its sections, so a caller bringing its
 // own source, or reading a message's ranges, names both (#697).
 /// The shared allocation cap this crate's own cap is built from (#707), so a
 /// consumer of this crate alone can name the bar every reader is held to
 /// without a `fieldglass-core` line of its own.
 pub use fieldglass_core::MAX_FIELD_POINTS;
+pub use fieldglass_core::sht::SpectralTruncation;
 pub use fieldglass_core::{
     ByteRange, ByteSource, CornerPair, FieldglassError, GlobalGrid, GridGeometry, StoredRuns,
     SynthesisedField, expand_reduced_to_regular,

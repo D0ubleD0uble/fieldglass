@@ -44,9 +44,12 @@ use crate::api::Isoline;
 #[cfg(feature = "render")]
 use crate::api::Warped;
 use crate::api::{
-    Addressing, DimensionInfo, Dtype, Field, Georef, LeftOutArray, Line, MessageInfo, Placement,
-    Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
+    Addressing, DimensionInfo, Dtype, Field, FullDetail, Georef, LeftOutArray, Line, MessageInfo,
+    MessageProbe, Placement, Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
 };
+// The band-limit label only a spectral message carries (#637).
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+use crate::api::SpectralTruncation;
 // The axis a cross-section labels itself from: only an array container has one
 // (#171), so the import is gated the way its readers are.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
@@ -503,6 +506,9 @@ fn build_field(
         ni,
         nj,
         georef: Georef::from_container(geometry, scan, declared, None, without_geometry),
+        // Set by `Session::decode` for the one family it applies to; nothing
+        // else a field is built from is band-limited.
+        truncation: None,
         stats,
         parameter,
         units,
@@ -1158,6 +1164,20 @@ impl Session {
         }
     }
 
+    /// Message `i`'s band-limit label, when its map is a spectral field cut
+    /// down to what the synthesis grid carries (#637).
+    #[cfg(any(feature = "grib1", feature = "grib2"))]
+    fn message_truncation(&self, i: usize) -> Option<SpectralTruncation> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(r) => r.synthesis_truncation(i).map(Into::into),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(r) => r.synthesis_truncation(i).map(Into::into),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(_) => None,
+        }
+    }
+
     // Only a message container range-checks an index; a build with no GRIB
     // decoder never reaches one.
     #[cfg(any(feature = "grib1", feature = "grib2"))]
@@ -1365,6 +1385,11 @@ impl Session {
             if !was_synthesised {
                 field.georef.points_per_row = self.message_points_per_row(i);
             }
+            // A spectral message past what the synthesis grid carries was
+            // band-limited on the way, and the field says so (#637). The
+            // format crate's answer, read from the same declaration the
+            // transform band-limited by, and the one `message` reports.
+            field.truncation = self.message_truncation(i);
             Ok(field)
         }
         // As in `message`: with no GRIB decoder compiled there is no
@@ -1976,6 +2001,134 @@ impl Session {
         })
     }
 
+    /// Probe message `index` at one geographic point: the value the decoded
+    /// field shows there, and — for a spectral message whose map is
+    /// band-limited — the file's full-detail value at the same cell (#637).
+    ///
+    /// The first is [`probe`](Self::probe) of the decoded field, so it matches
+    /// the colour under the cursor. The second is
+    /// [`probe_full_detail`](Self::probe_full_detail), set only when
+    /// [`Field::truncation`](crate::Field::truncation) is: the map then shows
+    /// the field band-limited to what its grid carries, and this is the full
+    /// sum over every wavenumber the message holds at the node the first value
+    /// was read at. For every other message the answer is the ordinary probe
+    /// with no second value.
+    ///
+    /// Decodes the message, so it costs a decode per call; a host that already
+    /// holds the field should call [`probe`](Self::probe) and
+    /// [`probe_full_detail`](Self::probe_full_detail) itself.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongAddressing`] for a variable container, whose question is a
+    /// slice; [`Error::NoSuchMessage`] past the end; and whatever decoding the
+    /// message raises.
+    pub fn probe_message(
+        &self,
+        index: u32,
+        lat: f64,
+        lon: f64,
+    ) -> Result<Option<MessageProbe>, Error> {
+        // Asked first, so a variable container is refused by name rather than
+        // by `decode`'s own refusal, which names a different call.
+        let full_detail = self.probe_full_detail(index, lat, lon)?;
+        let field = self.decode(index, &DecodeOptions::new(Dtype::Auto))?;
+        Ok(self.probe(&field, lat, lon).map(|p| MessageProbe {
+            lat: p.lat,
+            lon: p.lon,
+            i: p.i,
+            j: p.j,
+            value: p.value,
+            full_detail,
+        }))
+    }
+
+    /// The full-detail value of message `index` at the cell a probe at
+    /// `(lat, lon)` lands on, or `None` when the message's decoded field
+    /// already holds the file's values there (#637).
+    ///
+    /// Only a spectral message whose map is band-limited
+    /// ([`Field::truncation`](crate::Field::truncation) is set) answers: its
+    /// decoded field is the smoothed one, so a value read off it is not the
+    /// file's. This evaluates the full spherical-harmonic sum over every
+    /// wavenumber the message holds, at the synthesis-grid node
+    /// [`probe`](Self::probe) would read — the cell's own point, not the raw
+    /// click, which is the rule every other field's probe follows — so the two
+    /// values describe the same cell and differ only in the detail they carry.
+    /// `None` too when the point is off the grid.
+    ///
+    /// Decodes the coefficients each call, then `(T+1)(T+2)/2` terms: about a
+    /// fifth of a second at T7999 on top of the decode.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongAddressing`] for a variable container; [`Error::NoSuchMessage`]
+    /// past the end; and whatever decoding the coefficients raises.
+    pub fn probe_full_detail(
+        &self,
+        index: u32,
+        lat: f64,
+        lon: f64,
+    ) -> Result<Option<FullDetail>, Error> {
+        #[cfg(any(feature = "netcdf", feature = "zarr"))]
+        if matches!(self.reader, Reader::Arrays(_)) {
+            return Err(wrong_addressing(
+                Addressing::Variables,
+                "probe_full_detail",
+                "decode_slice",
+            ));
+        }
+        #[cfg(any(feature = "grib1", feature = "grib2"))]
+        {
+            let i = self.check_index(index)?;
+            let grid = match &self.reader {
+                #[cfg(feature = "grib1")]
+                Reader::Grib1(r) => r.synthesis_grid(i),
+                #[cfg(feature = "grib2")]
+                Reader::Grib2(r) => r.synthesis_grid(i),
+                #[cfg(any(feature = "netcdf", feature = "zarr"))]
+                Reader::Arrays(_) => None,
+            };
+            let (Some(grid), Some(truncation)) = (grid, self.message_truncation(i)) else {
+                // The decoded field holds the file's values already.
+                return Ok(None);
+            };
+            // The cell `probe` would pick on the decoded field, by the same
+            // rule, on the same geometry `decode` gave it.
+            let geometry = GridGeometry::LatLon(grid.into());
+            let Some(at) = geometry.inverse(lat, lon) else {
+                return Ok(None);
+            };
+            let (lats, lons) = grid.axes();
+            // `f64::clamp` panics when its bounds cross, which an empty axis
+            // would make them do; the synthesis grid is never empty, but this
+            // is the same guard `probe` keeps.
+            if lats.is_empty() || lons.is_empty() {
+                return Ok(None);
+            }
+            let col = at.i.round().clamp(0.0, (lons.len() - 1) as f64) as usize;
+            let row = at.j.round().clamp(0.0, (lats.len() - 1) as f64) as usize;
+            let value = match &self.reader {
+                #[cfg(feature = "grib1")]
+                Reader::Grib1(r) => r.evaluate_spectral_point(i, lats[row], lons[col])?,
+                #[cfg(feature = "grib2")]
+                Reader::Grib2(r) => r.evaluate_spectral_point(i, lats[row], lons[col])?,
+                #[cfg(any(feature = "netcdf", feature = "zarr"))]
+                Reader::Arrays(_) => return Ok(None),
+            };
+            Ok(Some(FullDetail { value, truncation }))
+        }
+        #[cfg(not(any(feature = "grib1", feature = "grib2")))]
+        {
+            let _ = (index, lat, lon);
+            Err(wrong_addressing(
+                Addressing::Variables,
+                "probe_full_detail",
+                "decode_slice",
+            ))
+        }
+    }
+
     /// Combine two aligned fields element by element — the difference map and
     /// its siblings (#239, #579).
     ///
@@ -2399,6 +2552,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         forecast: fieldglass_grib1::forecast_display(&msg.pds),
         packing: reader.packing_label(index).unwrap_or("unknown").to_string(),
         size_label: msg.gds.as_ref().and_then(|g| g.size_label()),
+        truncation: reader.synthesis_truncation(index).map(Into::into),
         grid,
         placement,
         reprojectable,
@@ -2511,6 +2665,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         placement,
         reprojectable,
         size_label: msg.gds.size_label(),
+        truncation: reader.synthesis_truncation(index).map(Into::into),
         forecast_hours: common.and_then(fieldglass_grib2::forecast_hours),
         // A GRIB1 octet, and edition 2 does not have it.
         p1_octet: None,
@@ -2565,6 +2720,7 @@ mod tests {
             ni: 0,
             nj: 0,
             georef: Georef::from_geometry(&geometry, Scan::north_down()),
+            truncation: None,
             stats: Stats {
                 min: None,
                 max: None,
@@ -2620,6 +2776,7 @@ mod tests {
             ni: 16,
             nj: 8,
             georef: Georef::from_geometry(&geometry, Scan::north_down()),
+            truncation: None,
             stats: Stats {
                 min: Some(0.0),
                 max: Some(15.0),

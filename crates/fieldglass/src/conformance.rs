@@ -128,6 +128,10 @@ pub enum Op {
     Render,
     /// [`Session::probe`].
     Probe,
+    /// [`Session::probe_message`], with [`Args::index`], [`Args::lat`] and
+    /// [`Args::lon`]: the decoded field's value at a point and, for a
+    /// band-limited spectral message, the full-detail value beside it (#637).
+    ProbeMessage,
     /// [`Session::contours`].
     Contours,
     /// [`Session::combine`].
@@ -669,6 +673,55 @@ pub fn cases() -> Vec<Case> {
     let table: Vec<u8> = (0..=255u8)
         .flat_map(|i| [i, 255 - i, i.wrapping_mul(37)])
         .collect();
+    // ---- A spectral field past what the synthesis grid carries (#637) -------
+    //
+    // T383 against the 0.5° grid's T359: the map is band-limited and labelled,
+    // and `probe_message` reads both the value the map shows and the full sum
+    // beside it. Four cases rather than a subject with its 23: every host binds
+    // the same routing for this fixture as for the T63 one, and what is new is
+    // only the label and the two-value probe. The probed point is a node of the
+    // synthesis grid, so both hosts evaluate at the same point.
+    let truncated = format!("{G2}spectral_simple_t383.grib2");
+    for (id, op, args) in [
+        ("spectral_truncated/message", Op::Message, Args::default()),
+        (
+            "spectral_truncated/decode",
+            Op::Decode,
+            Args {
+                dtype: Some(Dtype::Auto),
+                ..Args::default()
+            },
+        ),
+        (
+            "spectral_truncated/probe_message",
+            Op::ProbeMessage,
+            Args {
+                lat: Some(45.5),
+                lon: Some(120.0),
+                ..Args::default()
+            },
+        ),
+    ] {
+        out.push(Case {
+            id: id.to_string(),
+            fixture: truncated.clone(),
+            op,
+            args,
+        });
+    }
+    // And below the limit, where `probe_message` is `probe` of the decoded
+    // field with no second value.
+    out.push(Case {
+        id: "spectral/probe_message".to_string(),
+        fixture: format!("{G2}spectral_simple_t63.grib2"),
+        op: Op::ProbeMessage,
+        args: Args {
+            lat: Some(45.5),
+            lon: Some(120.0),
+            ..Args::default()
+        },
+    });
+
     let latlon = format!("{G2}regular_latlon_surface.grib2");
     for (id, op) in [
         ("palette/colormap_table", Op::Palette),
@@ -1012,6 +1065,9 @@ fn field_value(field: &Field) -> Value {
         "units": field.units,
         "stats": value_of(&field.stats),
         "georef": georef_value(&field.georef),
+        // `null` for every field but a band-limited spectral one (#637), which
+        // is the label a host shows beside it.
+        "truncation": value_of(&field.truncation),
         "samples": samples,
     })
 }
@@ -1250,6 +1306,11 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             );
             value_of(&probe)
         }
+        Op::ProbeMessage => value_of(&session.probe_message(
+            case.args.index,
+            case.args.lat.unwrap_or(0.0),
+            case.args.lon.unwrap_or(0.0),
+        )?),
         Op::Combine => {
             // The same message decoded twice, which is two `Field` values
             // however equal their contents — see `Args::combine_op` for why

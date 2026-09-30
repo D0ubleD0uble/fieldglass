@@ -103,9 +103,11 @@ pub use ds::{DS_SECTION_NUMBER, decode_values};
 // `GlobalGrid` is the grid `synthesize_spectral_global` hands back beside the
 // synthesised field, so reading either means naming it (#546);
 // `SynthesisedField` is the pair `synthesize_message_global` hands back, for the
-// same reason (#580). `ByteSource` is what `Grib2Reader` reads through and
+// same reason (#580). `SpectralTruncation` is what `synthesis_truncation`
+// answers, the label a band-limited map carries (#637). `ByteSource` is what `Grib2Reader` reads through and
 // `ByteRange` is how a message records its sections, so a caller bringing its
 // own source, or reading a message's ranges, names both (#697).
+pub use fieldglass_core::sht::SpectralTruncation;
 pub use fieldglass_core::{
     ByteRange, ByteSource, CornerPair, FieldglassError, GeostationaryParams, GlobalGrid,
     GridGeometry, LambertAzimuthalParams, StoredRuns, SynthesisedField, TransverseMercatorParams,

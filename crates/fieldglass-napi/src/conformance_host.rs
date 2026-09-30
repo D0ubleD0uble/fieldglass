@@ -54,11 +54,12 @@
 //! level, lead time, identification and grid) are held to the recording through
 //! this binding too, where before only direct host-to-host tests pinned them.
 //!
-//! `warp`, `palette`, `probe` and `contours` are **not** compared, and each for
-//! a reason that is a task rather than an oversight:
+//! `warp`, `palette`, `probe`, `probe_message` and `contours` are **not**
+//! compared, and each for a reason that is a task rather than an oversight:
 //!
-//! * `probe` — napi probes an output *pixel*; the suite probes a geographic
-//!   point. Two different questions, not two answers to one.
+//! * `probe` and `probe_message` — napi probes an output *pixel*; the suite
+//!   probes a geographic point. Two different questions, not two answers to
+//!   one.
 //! * `warp`, `palette`, `contours`, `combine` — napi exposes no operation with
 //!   these shapes; its render does the warp inline, its contours come back as
 //!   projected polylines, and its combine paints in the same call, so there is
@@ -116,6 +117,11 @@ const SKIPPED: &[(Op, &str)] = &[
     (Op::Warp, "napi has no warp-without-paint operation"),
     (Op::Palette, "napi has no palette-as-data operation"),
     (Op::Probe, "napi probes a pixel, the suite probes a point"),
+    (
+        Op::ProbeMessage,
+        "napi probes a pixel, the suite probes a point; its two-value spectral probe \
+         (#637) is pinned by `lib.rs` tests and the characterisation golden's T383 rows",
+    ),
     (
         Op::Contours,
         "napi returns projected polylines, not grid-space isolines",
@@ -461,7 +467,7 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
         // `COMPARED` gates the entry, so nothing else reaches here. Written as
         // an explicit arm rather than a wildcard so that adding an op to
         // `COMPARED` without adding its adapter fails to compile.
-        Op::Warp | Op::Palette | Op::Probe | Op::Contours | Op::Combine => None,
+        Op::Warp | Op::Palette | Op::Probe | Op::ProbeMessage | Op::Contours | Op::Combine => None,
     }
 }
 

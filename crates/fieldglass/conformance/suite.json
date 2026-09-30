@@ -134,6 +134,7 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 1188,
+        "truncation": null,
         "units": "K",
         "uvRelativeToGrid": false
       }
@@ -241,6 +242,7 @@
           "min": 270.466796875,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -347,6 +349,7 @@
           "min": 270.466796875,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -453,6 +456,7 @@
           "min": 270.466796875,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -1453,6 +1457,7 @@
           "min": 0.0,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -1559,6 +1564,7 @@
           "min": 0.0,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -1665,6 +1671,7 @@
           "min": 540.93359375,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -1771,6 +1778,7 @@
           "min": 270.466796875,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -1877,6 +1885,7 @@
           "min": 1.0,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -2001,6 +2010,7 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 179,
+        "truncation": null,
         "units": "K",
         "uvRelativeToGrid": false
       }
@@ -2108,6 +2118,7 @@
           "min": 1.0,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -2214,6 +2225,7 @@
           "min": 1.0,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -2320,6 +2332,7 @@
           "min": 1.0,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -3308,6 +3321,7 @@
           "min": 0.0,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -3414,6 +3428,7 @@
           "min": 0.0,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -3520,6 +3535,7 @@
           "min": 2.0,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -3626,6 +3642,7 @@
           "min": 1.0,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -3732,6 +3749,7 @@
           "min": 1.0,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -3921,6 +3939,7 @@
         "sizeLabel": "N32",
         "subCentre": null,
         "totalLengthBytes": 10260,
+        "truncation": null,
         "units": "K",
         "uvRelativeToGrid": false
       }
@@ -4093,6 +4112,7 @@
           "min": 235.01171875,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -4264,6 +4284,7 @@
           "min": 235.01171875,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -4435,6 +4456,7 @@
           "min": 235.01171875,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -5506,6 +5528,7 @@
           "min": 0.0,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -5677,6 +5700,7 @@
           "min": 0.0,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -5848,6 +5872,7 @@
           "min": 470.0234375,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -6019,6 +6044,7 @@
           "min": 235.01171875,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -6190,6 +6216,7 @@
           "min": 1.0,
           "validCount": 8192
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -6314,6 +6341,7 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 10012,
+        "truncation": null,
         "units": "Pa",
         "uvRelativeToGrid": true
       }
@@ -6421,6 +6449,7 @@
           "min": 97392.0,
           "validCount": 6045
         },
+        "truncation": null,
         "units": "Pa"
       }
     },
@@ -6527,6 +6556,7 @@
           "min": 97392.0,
           "validCount": 6045
         },
+        "truncation": null,
         "units": "Pa"
       }
     },
@@ -6633,6 +6663,7 @@
           "min": 97392.0,
           "validCount": 6045
         },
+        "truncation": null,
         "units": "Pa"
       }
     },
@@ -7639,6 +7670,7 @@
           "min": 0.0,
           "validCount": 6045
         },
+        "truncation": null,
         "units": "Pa"
       }
     },
@@ -7745,6 +7777,7 @@
           "min": 0.0,
           "validCount": 6045
         },
+        "truncation": null,
         "units": "Pa"
       }
     },
@@ -7851,6 +7884,7 @@
           "min": 194784.0,
           "validCount": 6045
         },
+        "truncation": null,
         "units": "Pa"
       }
     },
@@ -7957,6 +7991,7 @@
           "min": 97392.0,
           "validCount": 6045
         },
+        "truncation": null,
         "units": "Pa"
       }
     },
@@ -8063,6 +8098,7 @@
           "min": 1.0,
           "validCount": 6045
         },
+        "truncation": null,
         "units": "Pa"
       }
     },
@@ -8187,6 +8223,7 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 1631,
+        "truncation": null,
         "units": "K",
         "uvRelativeToGrid": false
       }
@@ -8294,6 +8331,7 @@
           "min": 273.1499938964844,
           "validCount": 720
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -8400,6 +8438,7 @@
           "min": 273.1499938964844,
           "validCount": 720
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -8506,6 +8545,7 @@
           "min": 273.1499938964844,
           "validCount": 720
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -9504,6 +9544,7 @@
           "min": 0.0,
           "validCount": 720
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -9610,6 +9651,7 @@
           "min": 0.0,
           "validCount": 720
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -9716,6 +9758,7 @@
           "min": 546.2999877929688,
           "validCount": 720
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -9822,6 +9865,7 @@
           "min": 273.1499938964844,
           "validCount": 720
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -9928,6 +9972,7 @@
           "min": 1.0,
           "validCount": 720
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -10052,6 +10097,7 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 191,
+        "truncation": null,
         "units": "K",
         "uvRelativeToGrid": false
       }
@@ -10159,6 +10205,7 @@
           "min": 273.1499938964844,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -10265,6 +10312,7 @@
           "min": 273.1499938964844,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -10371,6 +10419,7 @@
           "min": 273.1499938964844,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -11347,6 +11396,7 @@
           "min": 0.0,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -11453,6 +11503,7 @@
           "min": 0.0,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -11559,6 +11610,7 @@
           "min": 546.2999877929688,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -11665,6 +11717,7 @@
           "min": 273.1499938964844,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -11771,6 +11824,7 @@
           "min": 1.0,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -11890,6 +11944,7 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 189,
+        "truncation": null,
         "units": "K",
         "uvRelativeToGrid": false
       }
@@ -11987,6 +12042,7 @@
           "min": 273.1499938964844,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -12083,6 +12139,7 @@
           "min": 273.1499938964844,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -12179,6 +12236,7 @@
           "min": 273.1499938964844,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -13046,6 +13104,7 @@
           "min": 0.0,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -13142,6 +13201,7 @@
           "min": 0.0,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -13238,6 +13298,7 @@
           "min": 546.2999877929688,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -13334,6 +13395,7 @@
           "min": 273.1499938964844,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -13430,6 +13492,7 @@
           "min": 1.0,
           "validCount": 496
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -13544,6 +13607,7 @@
         "sizeLabel": "T63",
         "subCentre": null,
         "totalLengthBytes": 8473,
+        "truncation": null,
         "units": "K",
         "uvRelativeToGrid": null
       }
@@ -13651,6 +13715,7 @@
           "min": 230.99377270421934,
           "validCount": 259920
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -13757,6 +13822,7 @@
           "min": 230.99377270421934,
           "validCount": 259920
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -13863,6 +13929,7 @@
           "min": 230.99377270421934,
           "validCount": 259920
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -14881,6 +14948,7 @@
           "min": 0.0,
           "validCount": 259920
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -14987,6 +15055,7 @@
           "min": 0.0,
           "validCount": 259920
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -15093,6 +15162,7 @@
           "min": 461.9875454084387,
           "validCount": 259920
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -15199,6 +15269,7 @@
           "min": 230.99377270421934,
           "validCount": 259920
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -15305,6 +15376,7 @@
           "min": 1.0,
           "validCount": 259920
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -15419,6 +15491,7 @@
         "sizeLabel": "Nside 4",
         "subCentre": null,
         "totalLengthBytes": 725,
+        "truncation": null,
         "units": "K",
         "uvRelativeToGrid": null
       }
@@ -15526,6 +15599,7 @@
           "min": 0.0,
           "validCount": 364
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -15632,6 +15706,7 @@
           "min": 0.0,
           "validCount": 364
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -15738,6 +15813,7 @@
           "min": 0.0,
           "validCount": 364
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -16758,6 +16834,7 @@
           "min": 0.0,
           "validCount": 364
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -16864,6 +16941,7 @@
           "min": 0.0,
           "validCount": 364
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -16970,6 +17048,7 @@
           "min": 0.0,
           "validCount": 364
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -17076,6 +17155,7 @@
           "min": 0.0,
           "validCount": 364
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -17182,6 +17262,7 @@
           "min": 1.0,
           "validCount": 352
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -17306,6 +17387,7 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 188,
+        "truncation": null,
         "units": "K",
         "uvRelativeToGrid": false
       }
@@ -17413,6 +17495,7 @@
           "min": 0.0,
           "validCount": 40
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -17519,6 +17602,7 @@
           "min": 0.0,
           "validCount": 40
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -17625,6 +17709,7 @@
           "min": 0.0,
           "validCount": 40
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -18621,6 +18706,7 @@
           "min": 0.0,
           "validCount": 40
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -18727,6 +18813,7 @@
           "min": 0.0,
           "validCount": 40
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -18833,6 +18920,7 @@
           "min": 0.0,
           "validCount": 40
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -18939,6 +19027,7 @@
           "min": 0.0,
           "validCount": 40
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -19045,6 +19134,7 @@
           "min": 1.0,
           "validCount": 39
         },
+        "truncation": null,
         "units": "K"
       }
     },
@@ -19169,6 +19259,7 @@
         "sizeLabel": null,
         "subCentre": null,
         "totalLengthBytes": 14524,
+        "truncation": null,
         "units": "m s⁻¹",
         "uvRelativeToGrid": true
       }
@@ -19276,6 +19367,7 @@
           "min": 0.20960766077041626,
           "validCount": 12825
         },
+        "truncation": null,
         "units": "m s⁻¹"
       }
     },
@@ -19382,6 +19474,7 @@
           "min": 0.20960766077041626,
           "validCount": 12825
         },
+        "truncation": null,
         "units": "m s⁻¹"
       }
     },
@@ -19488,6 +19581,7 @@
           "min": 0.20960766077041626,
           "validCount": 12825
         },
+        "truncation": null,
         "units": "m s⁻¹"
       }
     },
@@ -20486,6 +20580,7 @@
           "min": 0.0,
           "validCount": 12825
         },
+        "truncation": null,
         "units": "m s⁻¹"
       }
     },
@@ -20592,6 +20687,7 @@
           "min": 0.0,
           "validCount": 12825
         },
+        "truncation": null,
         "units": "m s⁻¹"
       }
     },
@@ -20698,6 +20794,7 @@
           "min": 0.4192153215408325,
           "validCount": 12825
         },
+        "truncation": null,
         "units": "m s⁻¹"
       }
     },
@@ -20804,6 +20901,7 @@
           "min": 0.20960766077041626,
           "validCount": 12825
         },
+        "truncation": null,
         "units": "m s⁻¹"
       }
     },
@@ -20910,6 +21008,7 @@
           "min": 1.0,
           "validCount": 12825
         },
+        "truncation": null,
         "units": "m s⁻¹"
       }
     },
@@ -21193,6 +21292,7 @@
           "min": -1.7999999523162842,
           "validCount": 10988
         },
+        "truncation": null,
         "units": "degree_C"
       }
     },
@@ -21537,6 +21637,7 @@
           "min": -3.5905208587646484,
           "validCount": 10988
         },
+        "truncation": null,
         "units": "degree_C"
       }
     },
@@ -22053,6 +22154,7 @@
           "min": 0.1599999964237213,
           "validCount": 540
         },
+        "truncation": null,
         "units": "%"
       }
     },
@@ -22283,6 +22385,7 @@
           "min": -1.7899999599903822,
           "validCount": 680
         },
+        "truncation": null,
         "units": "Celsius"
       }
     },
@@ -22403,6 +22506,283 @@
         },
         "units": "Celsius",
         "variable": "sst"
+      }
+    },
+    {
+      "id": "spectral_truncated/message",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t383.grib2",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null
+      },
+      "expect": {
+        "abbreviation": "TMP",
+        "dataType": "Missing",
+        "discipline": "Meteorological products",
+        "edition": 2,
+        "forecast": "+0h",
+        "forecastHours": 0,
+        "grid": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "corners": null,
+          "dx": null,
+          "dy": null,
+          "kind": "unsupported",
+          "label": "spherical_harmonic",
+          "ni": 0,
+          "nj": 0,
+          "periodicX": false,
+          "placement": "no_raster",
+          "pointsPerRow": null,
+          "proj4": null,
+          "reprojectable": false,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "index": 0,
+        "level": "Ground or water surface",
+        "levelType": "Ground or water surface",
+        "offsetBytes": 0,
+        "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
+        "p1Octet": null,
+        "packing": "spectral_simple",
+        "parameter": "Temperature",
+        "placement": "placed",
+        "productionStatus": "Operational products",
+        "referenceTime": "2007-04-24T12:00:00Z",
+        "reprojectable": true,
+        "sizeLabel": "T383",
+        "subCentre": null,
+        "totalLengthBytes": 147994,
+        "truncation": {
+          "declared": 383,
+          "truncatedTo": 359
+        },
+        "units": "K",
+        "uvRelativeToGrid": null
+      }
+    },
+    {
+      "id": "spectral_truncated/decode",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t383.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            359.5
+          ],
+          "corners": [
+            90.0,
+            0.0,
+            -90.0,
+            359.5
+          ],
+          "dx": 0.5,
+          "dy": -0.5,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 720,
+          "nj": 361,
+          "periodicX": true,
+          "placement": "placed",
+          "pointsPerRow": null,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "reprojectable": true,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 259920,
+        "maskLen": 259920,
+        "maskOnes": 259920,
+        "ni": 720,
+        "nj": 361,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 283.5335882172854
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 287.0101066686031
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 262.1178818019878
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 347.14406013575984
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 299.5739678166754
+          }
+        ],
+        "stats": {
+          "max": 501.37555069481755,
+          "min": 27.270419053871322,
+          "validCount": 259920
+        },
+        "truncation": {
+          "declared": 383,
+          "truncatedTo": 359
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "spectral_truncated/probe_message",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t383.grib2",
+      "op": "probeMessage",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.5,
+        "lon": 120.0,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null
+      },
+      "expect": {
+        "fullDetail": {
+          "truncation": {
+            "declared": 383,
+            "truncatedTo": 359
+          },
+          "value": 318.3964243314801
+        },
+        "i": 240.0,
+        "j": 89.0,
+        "lat": 45.5,
+        "lon": 120.0,
+        "value": 325.60207853042533
+      }
+    },
+    {
+      "id": "spectral/probe_message",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "probeMessage",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.5,
+        "lon": 120.0,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null
+      },
+      "expect": {
+        "fullDetail": null,
+        "i": 240.0,
+        "j": 89.0,
+        "lat": 45.5,
+        "lon": 120.0,
+        "value": 287.10102033969326
       }
     },
     {
@@ -25293,6 +25673,7 @@
           "min": 0.0,
           "validCount": 100
         },
+        "truncation": null,
         "units": ""
       }
     },

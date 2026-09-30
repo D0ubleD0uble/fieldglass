@@ -43,7 +43,13 @@ import {
   loadVectorLayer,
   VECTOR_LAYERS,
 } from "../../overlay";
-import { composeTitleLine, renderImagePanelHtml, type SlicePanelData } from "../../render-panel";
+import {
+  composeProbeValue,
+  composeTitleLine,
+  composeTruncationNote,
+  renderImagePanelHtml,
+  type SlicePanelData,
+} from "../../render-panel";
 
 /** The real colormap registry from Rust. The panel is fed the same data in
  *  production, so the panel tests exercise the actual names and stops rather
@@ -363,6 +369,57 @@ suite("Render pipeline", () => {
     assert.ok(r != null && r.value != null, "spectral probe reads a value");
     const c = handle.projectContours(0, options, undefined);
     assert.ok(c.xy.length > 0, "spectral contours project onto the synthesized grid");
+  });
+
+  test("GRIB2 spectral past T359: the map is labelled, the probe reads both values, the CSV says so (#637)", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const handle = native.Grib2Handle.fromBytes(fs.readFileSync(fixturePath("spectral_simple_t383.grib2")));
+    const meta = handle.messages()[0];
+    assert.strictEqual(meta.truncatedTo, 359);
+    assert.strictEqual(meta.declaredTruncation, 383);
+    assert.strictEqual(composeTruncationNote(meta), "shown at T359 of T383");
+
+    // The subtitle carries the note, and the PNG export draws the subtitle.
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      meta,
+      "summary",
+      [],
+      [],
+    );
+    const subtitle = /<div class="subtitle">([^<]*)<\/div>/.exec(html);
+    assert.ok(subtitle && subtitle[1].includes("shown at T359 of T383"), subtitle?.[1] ?? "no subtitle");
+
+    // The probe reads both: the T359 value the map shows (the colour under the
+    // cursor) and the file's T383 value at the same cell. At 120°E, 45.5°N
+    // (source pixel 240, 89) pyshtools gives these two
+    // (`spectral_simple_t383.truncation.oracle.json`).
+    const probe = handle.probe(0, defaultRenderOptions(), 240, 89);
+    assert.ok(probe?.value != null, "the probe reads a value");
+    assert.ok(Math.abs(probe.value - 325.60207852938714) < 1e-7, `T359 value, got ${probe.value}`);
+    assert.ok(probe.fullDetailValue != null, "the probe reads the full-detail value");
+    assert.ok(
+      Math.abs(probe.fullDetailValue - 318.39642433032003) < 1e-7,
+      `T383 value, got ${probe.fullDetailValue}`,
+    );
+    assert.strictEqual(probe.fullDetailTruncation, 383);
+    // And the readout shows both, labelled.
+    assert.strictEqual(
+      composeProbeValue(probe, "K"),
+      "325.60 K shown · 318.40 K at full detail (T383)",
+    );
+
+    const csv = handle.exportCsv(0, "matrix").toString("utf8");
+    assert.ok(csv.startsWith("# spectral field shown at T359 of T383"), csv.slice(0, 80));
+
+    // Below the limit there is no note, and the probe has one value.
+    const t63 = native.Grib2Handle.fromBytes(fs.readFileSync(fixturePath("spectral_simple_t63.grib2")));
+    assert.strictEqual(composeTruncationNote(t63.messages()[0]), null);
+    const one = t63.probe(0, defaultRenderOptions(), 240, 89);
+    assert.ok(one?.value != null && one.fullDetailValue == null, "one value below the limit");
+    assert.strictEqual(composeProbeValue(one, ""), Number(one.value).toPrecision(5));
+    assert.ok(!t63.exportCsv(0, "matrix").toString("utf8").startsWith("#"));
   });
 
   test("GRIB2 Lambert: contours and the source probe geolocate the grid (#470)", () => {

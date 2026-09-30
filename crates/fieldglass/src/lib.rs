@@ -136,13 +136,14 @@ pub use align::aligned;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{
-    Addressing, AxisUnits, AxisValues, DimensionInfo, Dtype, Field, Georef, LeftOutArray, Line,
-    MessageInfo, Placement, Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
+    Addressing, AxisUnits, AxisValues, DimensionInfo, Dtype, Field, FullDetail, Georef,
+    LeftOutArray, Line, MessageInfo, MessageProbe, Placement, Probe, Scan, SourceFormat,
+    SpectralTruncation, Stats, Values, VariableInfo,
 };
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};
 #[cfg(feature = "analysis")]
-pub use combine::{CombineOp, combine_ops, combine_values, op_from_wire};
+pub use combine::{CombineOp, combine_cell, combine_ops, combine_values, op_from_wire};
 pub use error::Error;
 /// Pixel-space runs, which `render::overlay_polylines` and
 /// `render::contour_polylines` return — named so a host can take the return

@@ -23,8 +23,11 @@
 //!   Laplacian-rescaled simple-packed remainder.
 //! * `decode_bifourier_message` — §5.53, four coefficients per wavenumber pair
 //!   over a rectangle / ellipse / diamond truncation.
-//! * `synthesize_spectral_message` — the inverse spherical-harmonic transform,
-//!   whose cost is driven by the truncation the *file* declares.
+//! * `synthesize_spectral_message`, `synthesize_spectral_message_full` and
+//!   `evaluate_spectral_point` — the inverse spherical-harmonic transform on a
+//!   grid (band-limited, then in full) and at one point, whose cost is driven
+//!   by the truncation the *file* declares. They run only below
+//!   `FUZZ_MAX_TRUNCATION`, as in the GRIB1 target.
 
 #![no_main]
 
@@ -38,6 +41,23 @@ use fieldglass_grib2::Grib2Reader;
 /// high-truncation input into a fuzzer timeout rather than a finding.
 const PROBE_LATS: [f64; 3] = [-60.0, 0.0, 60.0];
 const PROBE_LONS: [f64; 3] = [0.0, 120.0, 240.0];
+
+/// Whether message `i` declares a spherical-harmonic truncation past a bound
+/// chosen for fuzzer throughput rather than for correctness — the GRIB1
+/// target's rule, for the same reason.
+///
+/// The transforms' arithmetic is the same at `J = 512` as at `MAX_TRUNCATION`,
+/// but the full sum at one point is `(J+1)(J+2)/2` terms: 131,000 here, 34
+/// million at the cap. An input that reached the cap would be kept in the
+/// corpus and pay a fifth of a second per point per exec forever.
+fn declares_a_large_truncation(reader: &Grib2Reader, i: usize) -> bool {
+    const FUZZ_MAX_TRUNCATION: u32 = 512;
+    reader
+        .messages
+        .get(i)
+        .and_then(|m| m.gds.spherical_harmonic())
+        .is_some_and(|sh| sh.j > FUZZ_MAX_TRUNCATION)
+}
 
 fuzz_target!(|data: &[u8]| {
     // A malformed buffer must surface a structured error, never panic.
@@ -54,13 +74,15 @@ fuzz_target!(|data: &[u8]| {
             // nothing, so it is total by construction and the assertion is that
             // it stays total on a template whose fields are arbitrary.
             let _ = reader.synthesis_grid(i);
+            let _ = reader.synthesis_truncation(i);
             // Its expensive half, on the one family whose cost is bounded by
             // the grid rather than by the file. A HEALPix resample is capped at
             // 720x361 by `healpix_render_dims` and its pixel count by
             // `MAX_GRID_POINTS`; the spherical-harmonic arm is excluded for the
-            // reason `PROBE_LATS` exists, since it would evaluate the full
-            // 720x361 grid and turn a legitimate high-truncation input into a
-            // timeout.
+            // reason `PROBE_LATS` exists. Since #637 its map is band-limited to
+            // T359 whatever the file declares, so its cost is bounded too, but
+            // that bound is 1.4e8 terms over the full 720x361 grid: a tenth of
+            // a second per exec, which the fuzzer would pay on every input.
             if reader
                 .messages
                 .get(i)
@@ -71,8 +93,14 @@ fuzz_target!(|data: &[u8]| {
             // Only attempt the synthesis when the coefficients themselves
             // decoded, so a failure here is a transform bug rather than a
             // re-run of the decode error above.
-            if reader.decode_spectral_message(i).is_ok() {
+            let decoded = reader.decode_spectral_message(i).is_ok();
+            if decoded && !declares_a_large_truncation(&reader, i) {
+                // Band-limited to what the probe grid resolves (#637), then in
+                // full, which is the range-safe kernel at every declared T.
                 let _ = reader.synthesize_spectral_message(i, &PROBE_LATS, &PROBE_LONS);
+                let _ = reader.synthesize_spectral_message_full(i, &PROBE_LATS, &PROBE_LONS);
+                // The probe's full-detail evaluation: the full sum at one point.
+                let _ = reader.evaluate_spectral_point(i, 60.0, 120.0);
             }
         }
     }

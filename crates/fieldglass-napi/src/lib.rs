@@ -380,6 +380,16 @@ pub struct MessageMeta {
         ts_type = "\"placed\" | \"no_raster\" | \"unplaceable\" | \"unsupported\" | \"predefined_unresolved\""
     )]
     pub placement: String,
+    /// The truncation a spectral message's map was synthesised at, when that is
+    /// below what the message declares (#637): the 0.5° grid carries T359, so
+    /// a T7999 field is drawn band-limited to T359. `None` for every other
+    /// message. Always set together with `declared_truncation`, and the render
+    /// panel shows the pair ("shown at T359 of T7999") so a smoothed field is
+    /// never shown silently. `fieldglass::MessageInfo::truncation`.
+    pub truncated_to: Option<u32>,
+    /// The truncation the message declares, when its map is band-limited below
+    /// it — see `truncated_to`.
+    pub declared_truncation: Option<u32>,
     /// Whether the grid's rows scan south→north (GRIB `jScansPositively`).
     /// The source projection paints grid row 0 at the top of the canvas, so a
     /// south→north grid renders upside-down unless flipped; the source render
@@ -1379,6 +1389,140 @@ impl MessageStream {
         Ok((info.parameter, info.units))
     }
 
+    /// The full-detail value at cell `(grid_i, grid_j)` of message `index`'s
+    /// raster, when that raster is a band-limited spectral map (#637).
+    ///
+    /// `Ok(None)` when the raster already holds the file's values — every
+    /// message but a spectral one declaring more than the 0.5° grid carries —
+    /// or when the probe landed on no cell. Otherwise the full spherical-harmonic
+    /// sum at that cell's node, through `Session::probe_full_detail`, which
+    /// lands on the same cell the map painted.
+    fn full_detail(
+        &self,
+        index: u32,
+        grid_i: Option<i32>,
+        grid_j: Option<i32>,
+    ) -> napi::Result<Option<fieldglass::FullDetail>> {
+        if self
+            .session
+            .message(index)
+            .into_napi()?
+            .truncation
+            .is_none()
+        {
+            return Ok(None);
+        }
+        let (Some(i), Some(j)) = (
+            grid_i.and_then(|v| u32::try_from(v).ok()),
+            grid_j.and_then(|v| u32::try_from(v).ok()),
+        ) else {
+            return Ok(None);
+        };
+        let placed = self.session.place_message(index).into_napi()?;
+        let Some((lat, lon)) = placed.geometry.forward(i, j) else {
+            return Ok(None);
+        };
+        self.session.probe_full_detail(index, lat, lon).into_napi()
+    }
+
+    /// The point probe every GRIB handle answers: the rendered pixel's cell,
+    /// its value as the map shows it, and — for a band-limited spectral map —
+    /// the full-detail value at the same cell beside it (#637).
+    fn probe(
+        &self,
+        index: u32,
+        options: &RenderOptions,
+        px: u32,
+        py: u32,
+    ) -> napi::Result<Option<ProbeResult>> {
+        let (raw, placed) = self.resolved(index)?;
+        let mut probed = probe_from_source(&placed.source(), raw.as_ref(), options, px, py)?;
+        if let Some(p) = probed.as_mut()
+            && let Some(detail) = self.full_detail(index, p.grid_i, p.grid_j)?
+        {
+            p.full_detail_value = Some(detail.value);
+            p.full_detail_truncation = Some(detail.truncation.declared);
+        }
+        Ok(probed)
+    }
+
+    /// [`probe`](Self::probe) for a combined map (#329): the combined field's
+    /// cell and value, and where either operand is band-limited, the operation
+    /// applied at full detail beside it — each band-limited operand's full sum
+    /// at the cell, the other's own value (#637).
+    fn probe_combined(
+        &self,
+        index_a: u32,
+        index_b: u32,
+        op: &str,
+        options: &RenderOptions,
+        px: u32,
+        py: u32,
+    ) -> napi::Result<Option<ProbeResult>> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(op).into_napi()?;
+        let (raw_a, placed_a) = self.resolved(index_a)?;
+        let (raw_b, placed_b) = self.resolved(index_b)?;
+        let combined = combined_field(
+            &placed_a,
+            raw_a.as_ref(),
+            &placed_b,
+            raw_b.as_ref(),
+            op.as_str(),
+        )?;
+        let mut probed = probe_from_source(&placed_a.source(), &combined, options, px, py)?;
+        if let Some(p) = probed.as_mut() {
+            let detail_a = self.full_detail(index_a, p.grid_i, p.grid_j)?;
+            let detail_b = self.full_detail(index_b, p.grid_i, p.grid_j)?;
+            if detail_a.is_some() || detail_b.is_some() {
+                // The two are aligned cell for cell (`combined_field` refused
+                // them otherwise), so one index reads the same cell of each.
+                let ni = placed_a.ni as usize;
+                let cell = p.grid_i.zip(p.grid_j).and_then(|(i, j)| {
+                    usize::try_from(j)
+                        .ok()?
+                        .checked_mul(ni)?
+                        .checked_add(usize::try_from(i).ok()?)
+                });
+                let map = |raw: &[Option<f64>]| cell.and_then(|k| raw.get(k).copied().flatten());
+                p.full_detail_value = fieldglass::combine_cell(
+                    detail_a
+                        .as_ref()
+                        .map_or_else(|| map(raw_a.as_ref()), |d| Some(d.value)),
+                    detail_b
+                        .as_ref()
+                        .map_or_else(|| map(raw_b.as_ref()), |d| Some(d.value)),
+                    op,
+                );
+                // The label names the most detail either side carries.
+                p.full_detail_truncation = detail_a
+                    .iter()
+                    .chain(&detail_b)
+                    .map(|d| d.truncation.declared)
+                    .max();
+            }
+        }
+        Ok(probed)
+    }
+
+    /// Message `index` as CSV — the map's values, as the render shows them —
+    /// under a `#` comment line naming the band limit when the map is
+    /// band-limited (#637), so an export is never silently smoother than the
+    /// file. Numeric readers skip `#` lines (`numpy.loadtxt` by default, pandas
+    /// with `comment="#"`); an unlabelled export is byte-identical to before.
+    fn csv(&self, index: u32, format: &str) -> napi::Result<String> {
+        let (raw, placed) = self.resolved(index)?;
+        let csv = field_csv(&raw, &placed, format)?;
+        Ok(match self.session.message(index).into_napi()?.truncation {
+            Some(t) => format!(
+                "# spectral field shown at T{shown} of T{declared}: wavenumbers above T{shown} are not included\n{csv}",
+                shown = t.truncated_to,
+                declared = t.declared,
+            ),
+            None => csv,
+        })
+    }
+
     /// Get-or-decode message `index`'s values.
     ///
     /// `Dtype::Auto` because it is the one setting that never loses precision:
@@ -1514,8 +1658,7 @@ impl Grib1Handle {
         message_index: u32,
         format: String,
     ) -> napi::Result<napi::bindgen_prelude::Buffer> {
-        let (raw, placed) = self.resolved(message_index)?;
-        field_csv(&raw, &placed, &format).map(csv_buffer)
+        self.stream.csv(message_index, &format).map(csv_buffer)
     }
 
     /// Each row's mean over longitude, against latitude (#240) — see
@@ -1674,8 +1817,7 @@ impl Grib1Handle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
-        let (raw, placed) = self.resolved(message_index)?;
-        probe_from_source(&placed.source(), raw.as_ref(), &options, px, py)
+        self.stream.probe(message_index, &options, px, py)
     }
 
     /// Probe a difference/sum/… map under a pixel (#329): decode both fields,
@@ -1693,18 +1835,8 @@ impl Grib1Handle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
-        // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(&op).into_napi()?;
-        let (raw_a, placed_a) = self.resolved(message_index_a)?;
-        let (raw_b, placed_b) = self.resolved(message_index_b)?;
-        let combined = combined_field(
-            &placed_a,
-            raw_a.as_ref(),
-            &placed_b,
-            raw_b.as_ref(),
-            op.as_str(),
-        )?;
-        probe_from_source(&placed_a.source(), &combined, &options, px, py)
+        self.stream
+            .probe_combined(message_index_a, message_index_b, &op, &options, px, py)
     }
 
     /// Contour a difference/sum/… map (#329): decode both fields, combine under
@@ -1826,8 +1958,7 @@ impl Grib2Handle {
         message_index: u32,
         format: String,
     ) -> napi::Result<napi::bindgen_prelude::Buffer> {
-        let (raw, placed) = self.resolved(message_index)?;
-        field_csv(&raw, &placed, &format).map(csv_buffer)
+        self.stream.csv(message_index, &format).map(csv_buffer)
     }
 
     /// Each row's mean over longitude, against latitude (#240) — see
@@ -1951,8 +2082,7 @@ impl Grib2Handle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
-        let (raw, placed) = self.resolved(message_index)?;
-        probe_from_source(&placed.source(), raw.as_ref(), &options, px, py)
+        self.stream.probe(message_index, &options, px, py)
     }
 
     /// Probe a difference/sum/… map (#329) — sibling to
@@ -1969,18 +2099,8 @@ impl Grib2Handle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
-        // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(&op).into_napi()?;
-        let (raw_a, placed_a) = self.resolved(message_index_a)?;
-        let (raw_b, placed_b) = self.resolved(message_index_b)?;
-        let combined = combined_field(
-            &placed_a,
-            raw_a.as_ref(),
-            &placed_b,
-            raw_b.as_ref(),
-            op.as_str(),
-        )?;
-        probe_from_source(&placed_a.source(), &combined, &options, px, py)
+        self.stream
+            .probe_combined(message_index_a, message_index_b, &op, &options, px, py)
     }
 
     /// Contour a difference/sum/… map (#329) — sibling to
@@ -3913,6 +4033,18 @@ pub struct ProbeResult {
     pub grid_i: Option<i32>,
     /// The source grid row the pixel resolved to; `None` off-grid.
     pub grid_j: Option<i32>,
+    /// For a spectral map drawn band-limited below what the message declares
+    /// (#637): the full sum over every wavenumber the file holds, at the same
+    /// cell's node. `value` is the map's own, matching the colour under the
+    /// cursor; this is the full-detail value beside it. `None` for every other
+    /// field, whose `value` is already the file's.
+    pub full_detail_value: Option<f64>,
+    /// The truncation `full_detail_value` carries — the message's declared `T`
+    /// (`MessageMeta.declaredTruncation`); for a combined map, the larger of
+    /// the two operands'. Set whenever the probe read a full-detail value,
+    /// which `full_detail_value` then holds — except on a combined cell the
+    /// operation leaves empty (a ratio over zero), where it is `None`.
+    pub full_detail_truncation: Option<u32>,
 }
 
 /// Sample the field under one output pixel `(px, py)` in the *displayed*
@@ -3934,6 +4066,10 @@ fn probe_from_source(
         value: p.value,
         grid_i: p.grid_i,
         grid_j: p.grid_j,
+        // Only a band-limited spectral map has a second value, and only the
+        // GRIB stream's probe knows the message behind the raster.
+        full_detail_value: None,
+        full_detail_truncation: None,
     }))
 }
 
@@ -5128,6 +5264,141 @@ mod netcdf_slice_tests {
             (d.used_min, d.used_max),
             (0.0, 0.0),
             "A−A is zero everywhere"
+        );
+    }
+
+    /// A T383 field, past the T359 the 0.5° grid carries (#637).
+    const SPECTRAL_T383: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/spectral_simple_t383.grib2");
+    const SPECTRAL_T383_GRIB1: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/spectral_simple_t383.grib1");
+    /// pyshtools' T359 and T383 sums at points of that grid.
+    const SPECTRAL_T383_ORACLE: &str = include_str!(
+        "../../fieldglass-grib2/tests/fixtures/spectral_simple_t383.truncation.oracle.json"
+    );
+
+    /// The oracle's `(full, truncated)` at `(lat, lon)`.
+    fn t383_oracle(lat: f64, lon: f64) -> (f64, f64) {
+        let oracle: serde_json::Value =
+            serde_json::from_str(SPECTRAL_T383_ORACLE).expect("oracle parses");
+        let point = oracle["points"]
+            .as_array()
+            .expect("points")
+            .iter()
+            .find(|p| p["lat"].as_f64() == Some(lat) && p["lon"].as_f64() == Some(lon))
+            .expect("oracle point");
+        (
+            point["full"].as_f64().expect("full"),
+            point["truncated"].as_f64().expect("truncated"),
+        )
+    }
+
+    /// Both editions: the label reaches the meta the panel is built from, the
+    /// probe reads both the map's value and the full-detail one at the same
+    /// cell, and the CSV carries the label.
+    #[test]
+    fn a_band_limited_spectral_map_is_labelled_and_probes_both_values() {
+        let (full, truncated) = t383_oracle(45.5, 120.0);
+        let check = |edition: &str,
+                     meta: &MessageMeta,
+                     probed: Option<ProbeResult>,
+                     csv: napi::bindgen_prelude::Buffer| {
+            assert_eq!(
+                (meta.truncated_to, meta.declared_truncation),
+                (Some(359), Some(383)),
+                "{edition}"
+            );
+            let p = probed.expect("on the grid");
+            assert_eq!((p.grid_i, p.grid_j), (Some(240), Some(89)), "{edition}");
+            // The value the map shows, matching the colour under the cursor.
+            let shown = p.value.expect("value");
+            assert!(
+                (shown - truncated).abs() < 1e-7,
+                "{edition}: {shown} vs T359 {truncated}"
+            );
+            // The full detail beside it, labelled with what it carries.
+            let detail = p.full_detail_value.expect("full detail");
+            assert!(
+                (detail - full).abs() < 1e-7,
+                "{edition}: {detail} vs T383 {full}"
+            );
+            assert_eq!(p.full_detail_truncation, Some(383), "{edition}");
+            assert!((shown - detail).abs() > 1.0, "{edition}: two values");
+            let csv = String::from_utf8(csv.to_vec()).expect("utf-8");
+            let mut lines = csv.lines();
+            assert_eq!(
+                lines.next(),
+                Some(
+                    "# spectral field shown at T359 of T383: wavenumbers above T359 are \
+                     not included"
+                ),
+                "{edition}"
+            );
+            assert_eq!(lines.next(), Some("lat,lon,value"), "{edition}");
+        };
+        // Source projection: pixel (i, j) is grid (i, j), and (240, 89) is
+        // 120°E, 45.5°N on the 0.5° grid — an oracle point.
+        let g1 = grib1_handle(SPECTRAL_T383_GRIB1);
+        check(
+            "grib1",
+            &g1.messages()[0],
+            g1.probe(0, opts("source"), 240, 89).expect("probe"),
+            g1.export_csv(0, "long".to_string()).expect("csv"),
+        );
+        let g2 = grib2_handle(SPECTRAL_T383);
+        check(
+            "grib2",
+            &g2.messages()[0],
+            g2.probe(0, opts("source"), 240, 89).expect("probe"),
+            g2.export_csv(0, "long".to_string()).expect("csv"),
+        );
+    }
+
+    /// Below the limit nothing changes: no label, one value, and a CSV that
+    /// starts with its header as before.
+    #[test]
+    fn a_spectral_map_the_grid_carries_is_unlabelled() {
+        let h = grib2_handle(SPECTRAL_T63);
+        let meta = &h.messages()[0];
+        assert_eq!((meta.truncated_to, meta.declared_truncation), (None, None));
+        let p = h
+            .probe(0, opts("source"), 240, 89)
+            .expect("probe")
+            .expect("on the grid");
+        assert!(p.value.is_some());
+        assert_eq!(
+            (p.full_detail_value, p.full_detail_truncation),
+            (None, None)
+        );
+        let csv = h.export_csv(0, "long".to_string()).expect("csv");
+        assert!(csv.starts_with(b"lat,lon,value\n"));
+    }
+
+    /// A combined map reads the combined field for its shown value, and the
+    /// operation over its band-limited operands' full-detail values beside it:
+    /// A − A of the same message is zero either way, and A + A at full detail
+    /// is twice the single probe's full-detail value.
+    #[test]
+    fn a_combined_probe_reads_both_values_of_a_band_limited_operand() {
+        let h = grib2_handle(SPECTRAL_T383);
+        let p = h
+            .probe_combined(0, 0, "a_minus_b".to_string(), opts("source"), 240, 89)
+            .expect("probe")
+            .expect("on the grid");
+        assert_eq!((p.value, p.full_detail_value), (Some(0.0), Some(0.0)));
+        assert_eq!(p.full_detail_truncation, Some(383));
+        let single = h
+            .probe(0, opts("source"), 240, 89)
+            .expect("probe")
+            .expect("on the grid");
+        let sum = h
+            .probe_combined(0, 0, "a_plus_b".to_string(), opts("source"), 240, 89)
+            .expect("probe")
+            .expect("on the grid");
+        assert_eq!(sum.value, single.value.map(|v| v + v));
+        assert_eq!(
+            sum.full_detail_value,
+            single.full_detail_value.map(|v| v + v)
         );
     }
 

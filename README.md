@@ -26,7 +26,10 @@ equirectangular, Web Mercator, orthographic, polar stereographic, Mollweide,
 Robinson, Equal Earth), with coastlines, borders, lakes, rivers and a lat/lon
 grid over the top. GRIB2 decodes every packing the WMO has defined; see the
 [GRIB2 packing modes](#grib2-packing-modes) table. Spectral fields are stored as coefficients
-rather than as a grid; those are transformed back into a map and drawn.
+rather than as a grid; those are transformed back into a map and drawn. The map
+is half a degree, which shows detail up to T359, so a finer field is drawn at
+T359 and the panel says so ("shown at T359 of T1279"). Clicking a point shows
+both the value on the map and the field's full-detail value there.
 
 **NetCDF** — the full structure of both classic and NetCDF-4 / HDF5 files:
 dimensions, variables and attributes. Pick a variable and two axes to draw, then

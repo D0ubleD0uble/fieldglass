@@ -14,7 +14,7 @@ import * as vscode from "vscode";
 
 import { escapeHtml, nonce } from "./html";
 import type { PickerColormap } from "./color-tables";
-import type { CombineOpInfo, MessageMeta, NetcdfVariableMeta } from "./native";
+import type { CombineOpInfo, MessageMeta, NetcdfVariableMeta, ProbeResult } from "./native";
 
 /** Which 2-D plane of an N-D NetCDF variable to draw: the variable, the two
  *  image axes (positions into the variable's dimensions), and the held index
@@ -473,6 +473,37 @@ export function composeTitleLine(meta: MessageMeta): string {
     + (meta.parameterUnits ? ` (${meta.parameterUnits})` : "");
 }
 
+/** The band-limit note for a spectral map drawn below the truncation its
+ *  message declares (#637): `"shown at T359 of T7999"`, or `null` when the map
+ *  carries every wavenumber the file holds. Goes in the subtitle, which the PNG
+ *  export also draws, so the note travels with the picture. The numbers are
+ *  Rust's (`MessageMeta.truncatedTo` / `declaredTruncation`). */
+export function composeTruncationNote(
+  meta: Pick<MessageMeta, "truncatedTo" | "declaredTruncation">
+): string | null {
+  return meta.truncatedTo != null && meta.declaredTruncation != null
+    ? `shown at T${meta.truncatedTo} of T${meta.declaredTruncation}`
+    : null;
+}
+
+/** The value part of the point-probe readout (#172): the value under the
+ *  cursor, and for a band-limited spectral map the full-detail value at the
+ *  same cell beside it (#637), `"325.60 K shown · 318.40 K at full detail
+ *  (T7999)"`. Both numbers are Rust's (`ProbeResult.value`,
+ *  `fullDetailValue`). Serialized into the panel script
+ *  (`composeProbeValue.toString()`), so it must not reference anything outside
+ *  itself. */
+export function composeProbeValue(
+  r: Pick<ProbeResult, "value" | "fullDetailValue" | "fullDetailTruncation">,
+  units: string,
+): string {
+  const format = (v: number) => Number(v).toPrecision(5) + (units ? " " + units : "");
+  const shown = r.value == null ? "no data" : format(r.value);
+  if (r.fullDetailValue == null) return shown;
+  const truncation = r.fullDetailTruncation != null ? " (T" + r.fullDetailTruncation + ")" : "";
+  return shown + " shown · " + format(r.fullDetailValue) + " at full detail" + truncation;
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: MessageMeta,
@@ -502,7 +533,12 @@ export function renderImagePanelHtml(
   const levelDescription = meta.level && meta.level !== "—" && meta.level !== meta.levelType
     ? [meta.level, meta.levelType].filter((s) => !!s).join(" ")
     : meta.levelType;
-  const subLine = [levelDescription, meta.referenceTime, meta.forecastDisplay]
+  const subLine = [
+    levelDescription,
+    meta.referenceTime,
+    meta.forecastDisplay,
+    composeTruncationNote(meta),
+  ]
     .filter((s) => !!s).join(" · ");
   // A sensible default filename for the PNG export (#243), from the parameter
   // and message index; the provider sanitises it again before writing.
@@ -556,6 +592,7 @@ export function renderImagePanelHtml(
         ${isMapSlice.toString()}
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
+        ${composeProbeValue.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -1777,9 +1814,7 @@ export function renderImagePanelHtml(
           const r = msg.result;
           if (!r) { el.textContent = ''; return; }
           const coord = formatLatLon(r.lat, r.lon);
-          const value = r.value == null
-            ? 'no data'
-            : Number(r.value).toPrecision(5) + (UNITS ? ' ' + UNITS : '');
+          const value = composeProbeValue(r, UNITS);
           const grid = (r.gridI != null && r.gridJ != null)
             ? ' · grid ' + r.gridI + ',' + r.gridJ : '';
           el.textContent = (coord ? coord + ' · ' : '') + value + grid;

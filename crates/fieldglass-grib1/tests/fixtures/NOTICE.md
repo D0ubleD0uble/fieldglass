@@ -410,3 +410,20 @@ fixed 5° regular lat/lon grid (37 lats × 72 lons). See the GRIB2 crate's
 `tests/fixtures/NOTICE.md` for the formula and the pyshtools cross-check.
 Regenerate with `python3 tools/build_grib2_spectral_render_oracle.py` (needs
 numpy).
+
+## `spectral_simple_t383.grib1` and its truncation oracle (#637)
+
+The GRIB1 twin of the GRIB2 crate's `spectral_simple_t383.grib2`, built by the
+same script (`tools/build_spectral_truncation_oracle.py`) from
+`spectral_simple_t63.grib1` above with the eccodes **Python wheel** (2.48.0):
+`J = K = M = 383`, `bitsPerValue = 8`, the same seeded synthetic coefficients.
+Its oracle `spectral_simple_t383.truncation.oracle.json` is pyshtools 4.14.1
+over the coefficients the **pinned CLI eccodes 2.34.1** decodes from this file:
+the map band-limited to T359 on the 5° grid, and the full T383 and T359 sums at
+twelve points. See the GRIB2 crate's `tests/fixtures/NOTICE.md` for the
+coefficient mapping and how it is checked. The two editions decode to the same
+coefficients, so the two oracle files differ only in the fixture name they
+record.
+
+Its `.eccodes.ref.json` metadata snapshot is the pinned 2.34.1, written by
+`tools/regenerate-eccodes-snapshots.py` like every other fixture's.

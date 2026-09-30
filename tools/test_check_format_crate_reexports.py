@@ -563,6 +563,8 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "FieldglassError",
                 "GlobalGrid",
                 "GridGeometry",
+                # The label a band-limited spectral map carries (#637).
+                "SpectralTruncation",
                 "StoredRuns",
                 "SynthesisedField",
             },
@@ -575,6 +577,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "GlobalGrid",
                 "GridGeometry",
                 "LambertAzimuthalParams",
+                "SpectralTruncation",
                 "StoredRuns",
                 "SynthesisedField",
                 "TransverseMercatorParams",

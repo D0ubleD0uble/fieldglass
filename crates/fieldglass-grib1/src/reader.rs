@@ -10,6 +10,7 @@ use crate::pds::{ProductDefinition, parse_product_definition};
 use fieldglass_core::bytes::{
     ByteRange, ByteSource, FileCursor, find_forward, read_at, read_exact, read_up_to,
 };
+use fieldglass_core::sht::SpectralTruncation;
 use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns, SynthesisedField};
 use std::borrow::Cow;
 
@@ -527,8 +528,9 @@ impl<S: ByteSource> Grib1Reader<S> {
         )
     }
 
-    /// Synthesize a spherical-harmonic message onto a regular lat/lon grid via
-    /// the inverse spherical-harmonic transform.
+    /// Synthesize a spherical-harmonic message onto a grid of your own, via
+    /// the inverse spherical-harmonic transform, **band-limited to what that
+    /// grid resolves**.
     ///
     /// Decodes the coefficients (see
     /// [`decode_spectral_message`](Self::decode_spectral_message)) and evaluates
@@ -539,11 +541,72 @@ impl<S: ByteSource> Grib1Reader<S> {
     /// expects, so the same transform (validated against ECMWF's definitive
     /// spectral definition) applies.
     ///
+    /// Only the wavenumbers the grid can carry are summed:
+    /// [`points_band_limit`](fieldglass_core::sht::points_band_limit), from the
+    /// grid's coarsest step (a 0.25° grid carries T719, a 1° grid T179). An
+    /// axis counts only when it has at least three distinct points, so a
+    /// single meridian or two latitudes leave the other axis to decide, and a
+    /// grid with neither (a single point, 2 × 2) is synthesised in full. This is
+    /// what ECMWF's MIR does by default before every spectral-to-grid transform
+    /// (#637): past that limit a grid's points alias the rest of the field onto
+    /// what they can show. A message declaring no more than the grid carries is
+    /// synthesised in full; for the full sum on any grid, ask
+    /// [`synthesize_spectral_message_full`](Self::synthesize_spectral_message_full).
+    ///
     /// Choosing the grid is a separate question from evaluating the field on
     /// it, and every host has answered it the same way: use
     /// [`synthesize_spectral_global`](Self::synthesize_spectral_global) unless
     /// you want a grid of your own.
+    ///
+    /// # Errors
+    ///
+    /// - The message is not spherical-harmonic, or its coefficients do not
+    ///   decode ([`decode_spectral_message`](Self::decode_spectral_message)).
+    /// - The band limit and the grid together cost more than
+    ///   [`MAX_SYNTHESIS_WORK`](fieldglass_core::sht::MAX_SYNTHESIS_WORK) (the
+    ///   full sum at T8192 on a 720 × 361 grid, about thirty seconds), or the
+    ///   transform's tables for that grid exceed
+    ///   [`MAX_SYNTHESIS_CELLS`](fieldglass_core::sht::MAX_SYNTHESIS_CELLS)
+    ///   (the output raster plus the phase tables, `(2(L+1)+1)·nlon`, and the
+    ///   per-latitude sums; see
+    ///   [`synthesis_cells`](fieldglass_core::sht::synthesis_cells)). Both are
+    ///   [`FieldglassError::Parse`], refused before anything is allocated. A
+    ///   single point is never refused;
+    ///   [`evaluate_spectral_point`](Self::evaluate_spectral_point) reads one.
     pub fn synthesize_spectral_message(
+        &self,
+        message_index: usize,
+        latitudes_deg: &[f64],
+        longitudes_deg: &[f64],
+    ) -> Result<Vec<f64>, FieldglassError> {
+        let coeffs = self.decode_spectral_message(message_index)?;
+        let truncation = u32::from(coeffs.j);
+        let band_limit = fieldglass_core::sht::points_band_limit(latitudes_deg, longitudes_deg)
+            .unwrap_or(truncation);
+        fieldglass_core::sht::synthesize_band_limited(
+            &coeffs.coefficients,
+            truncation,
+            band_limit,
+            latitudes_deg,
+            longitudes_deg,
+        )
+    }
+
+    /// [`synthesize_spectral_message`](Self::synthesize_spectral_message) with
+    /// the **full** sum over every wavenumber the message holds, whatever the
+    /// grid resolves — the explicit opt-in to the exact value at each point.
+    ///
+    /// On a grid coarser than the field, the wavenumbers it cannot carry alias
+    /// onto the ones it can, so the values are exact point by point and not a
+    /// faithful picture as a raster. Correct at every truncation the reader
+    /// accepts (see [`fieldglass_core::sht`] for the range-safe transform).
+    ///
+    /// # Errors
+    ///
+    /// As [`synthesize_spectral_message`](Self::synthesize_spectral_message),
+    /// with the budgets charged at the declared truncation: the full sum at
+    /// T7999 fits a 720 × 361 grid and not a 1440 × 721 one.
+    pub fn synthesize_spectral_message_full(
         &self,
         message_index: usize,
         latitudes_deg: &[f64],
@@ -570,24 +633,27 @@ impl<S: ByteSource> Grib1Reader<S> {
     /// geometry from the returned [`GlobalGrid`] cannot declare one shape and
     /// evaluate at another.
     ///
-    /// Errors exactly where
-    /// [`synthesize_spectral_message`](Self::synthesize_spectral_message) does —
-    /// the message is not spherical-harmonic, or its coefficients do not decode.
+    /// **This is the map, band-limited to what the grid can carry** (#637):
+    /// only the wavenumbers `n ≤`
+    /// [`spectral_render_band_limit`](fieldglass_core::sht::spectral_render_band_limit)
+    /// (T359 on the 0.5° grid) are summed. A field declared at or below that is
+    /// synthesised in full, exactly as before; above it the values are the
+    /// field smoothed to the raster's resolution, which
+    /// [`synthesis_truncation`](Self::synthesis_truncation) labels and
+    /// [`evaluate_spectral_point`](Self::evaluate_spectral_point) reads past.
+    ///
+    /// # Errors
+    ///
+    /// The message is not spherical-harmonic, or its coefficients do not
+    /// decode ([`decode_spectral_message`](Self::decode_spectral_message)). The
+    /// map's own budgets admit every truncation the reader accepts, so nothing
+    /// is refused for its cost.
     pub fn synthesize_spectral_global(
         &self,
         message_index: usize,
     ) -> Result<(GlobalGrid, Vec<f64>), FieldglassError> {
         let coeffs = self.decode_spectral_message(message_index)?;
-        let truncation = u32::from(coeffs.j);
-        let grid = fieldglass_core::sht::spectral_render_grid(truncation);
-        let (lats, lons) = grid.axes();
-        let values = fieldglass_core::sht::synthesize_spherical_harmonic(
-            &coeffs.coefficients,
-            truncation,
-            &lats,
-            &lons,
-        )?;
-        Ok((grid, values))
+        fieldglass_core::sht::synthesize_map(&coeffs.coefficients, u32::from(coeffs.j))
     }
 
     /// The global lat/lon grid a message with no raster of its own would be
@@ -609,6 +675,59 @@ impl<S: ByteSource> Grib1Reader<S> {
             }
             _ => None,
         }
+    }
+
+    /// That message `message_index`'s map shows fewer wavenumbers than it holds,
+    /// and how many of each — or `None` when the map carries them all, or the
+    /// message is not spherical-harmonic (#637).
+    ///
+    /// The label [`synthesize_spectral_global`](Self::synthesize_spectral_global)'s
+    /// values need whenever the message declares a truncation past what the
+    /// synthesis grid can carry. Read from the grid description alone, like
+    /// [`synthesis_grid`](Self::synthesis_grid), so a message list can say so
+    /// before anything is decoded.
+    #[must_use]
+    pub fn synthesis_truncation(&self, message_index: usize) -> Option<SpectralTruncation> {
+        match self.messages.get(message_index)?.gds.as_ref()? {
+            GridDescription::SphericalHarmonic(sh) => {
+                SpectralTruncation::of_render(u32::from(sh.j))
+            }
+            _ => None,
+        }
+    }
+
+    /// The field's exact value at one point: the full spherical-harmonic sum
+    /// over every wavenumber the message holds, at `(latitude_deg,
+    /// longitude_deg)` (#637).
+    ///
+    /// What a probe's full-detail line reads. The map is band-limited
+    /// ([`synthesize_spectral_global`](Self::synthesize_spectral_global)), so
+    /// above T359 a value read off it is the smoothed field's; this is the
+    /// file's. At a point of the synthesis grid it equals the map's value
+    /// exactly whenever [`synthesis_truncation`](Self::synthesis_truncation) is
+    /// `None`. `O(T)` memory beyond the decoded coefficients, and
+    /// `(T+1)(T+2)/2` terms of work: about a fifth of a second at T7999, after
+    /// the decode.
+    ///
+    /// # Errors
+    ///
+    /// Where [`decode_spectral_message`](Self::decode_spectral_message) does:
+    /// the message is not spherical-harmonic, or its coefficients do not decode.
+    /// Never for its cost, which [`fieldglass_core::sht::MAX_TRUNCATION`]
+    /// bounds.
+    pub fn evaluate_spectral_point(
+        &self,
+        message_index: usize,
+        latitude_deg: f64,
+        longitude_deg: f64,
+    ) -> Result<f64, FieldglassError> {
+        let coeffs = self.decode_spectral_message(message_index)?;
+        fieldglass_core::sht::evaluate_spherical_harmonic(
+            &coeffs.coefficients,
+            u32::from(coeffs.j),
+            latitude_deg,
+            longitude_deg,
+        )
     }
 
     /// Synthesize a message that carries no raster of its own onto

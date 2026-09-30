@@ -1,0 +1,113 @@
+{
+  "messages": [
+    {
+      "editionNumber": 1,
+      "table2Version": 128,
+      "centre": 98,
+      "subCentre": 0,
+      "generatingProcessIdentifier": 128,
+      "indicatorOfParameter": 130,
+      "indicatorOfTypeOfLevel": 1,
+      "level": 2,
+      "timeRangeIndicator": 0,
+      "dataDate": 20070424,
+      "dataTime": 1200,
+      "decimalScaleFactor": 0,
+      "GDSPresent": 1,
+      "bitmapPresent": 0,
+      "gridType": "sh",
+      "Nj": 0,
+      "numberOfDataPoints": 147840,
+      "J": 383,
+      "K": 383,
+      "M": 383,
+      "packingType": "spectral_simple",
+      "sphericalHarmonics": 1,
+      "complexPacking": 0,
+      "integerPointValues": 0,
+      "additionalFlagPresent": 0,
+      "bitsPerValue": 8,
+      "binaryScaleFactor": -8,
+      "referenceValue": -0.492149
+    }
+  ],
+  "values": [
+    {
+      "count": 147840,
+      "numberOfMissing": null,
+      "minimum": null,
+      "maximum": null,
+      "average": 280,
+      "sample": [
+        [
+          0,
+          280
+        ],
+        [
+          9240,
+          -0.148399
+        ],
+        [
+          18480,
+          0.238319
+        ],
+        [
+          27720,
+          -0.0546495
+        ],
+        [
+          36960,
+          0.160194
+        ],
+        [
+          46200,
+          -0.00777447
+        ],
+        [
+          55440,
+          0.00785053
+        ],
+        [
+          64680,
+          -0.0663682
+        ],
+        [
+          73920,
+          -0.121056
+        ],
+        [
+          83160,
+          -0.093712
+        ],
+        [
+          92400,
+          -0.0429307
+        ],
+        [
+          101640,
+          0.128944
+        ],
+        [
+          110880,
+          0.304726
+        ],
+        [
+          120120,
+          0.0976943
+        ],
+        [
+          129360,
+          -0.152306
+        ],
+        [
+          138600,
+          0.015663
+        ],
+        [
+          147839,
+          0.0664443
+        ]
+      ]
+    }
+  ]
+}

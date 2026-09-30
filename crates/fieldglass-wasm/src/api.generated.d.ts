@@ -312,6 +312,13 @@ export interface Field {
    */
   georef: Georef;
   /**
+   * Set when the values are a spectral field band-limited to what the
+   * grid can carry, below the truncation the message declares (#637);
+   * `None` for every other field, including a spectral one the grid
+   * carries in full. A host shows it beside the field.
+   */
+  truncation: SpectralTruncation | null;
+  /**
    * Range and count over the present cells.
    */
   stats: Stats;
@@ -348,6 +355,28 @@ export interface Field {
    * parameter did not resolve, or is dimensionless.
    */
   units: string;
+}
+
+/**
+ * A spectral message's full-detail value at a probed cell (#637): the sum
+ * over every wavenumber the file holds, where the map shows the field
+ * band-limited to what its grid carries.
+ *
+ * Carried beside the displayed value rather than instead of it, so a
+ * readout can show both — "325.6 K at T359 (shown) · 318.4 K at T7999
+ * (full detail)" — and neither disagrees with the colour under the cursor
+ * without saying why.
+ */
+export interface FullDetail {
+  /**
+   * The full sum at the cell's node.
+   */
+  value: number;
+  /**
+   * The truncation `value` carries (`declared`) and the one the
+   * displayed value carries (`truncated_to`).
+   */
+  truncation: SpectralTruncation;
 }
 
 /**
@@ -741,6 +770,15 @@ export interface MessageInfo {
    */
   sizeLabel: string | null;
   /**
+   * What `Session::decode` will set as
+   * `Field::truncation` for this message: the map of a spectral
+   * message declaring more wavenumbers than the synthesis grid carries
+   * is band-limited, and says so (#637). Read from the declaration, so a
+   * message list can show it before anything is decoded. `None` for
+   * everything else.
+   */
+  truncation: SpectralTruncation | null;
+  /**
    * Forecast lead time in whole hours, `None` for a template that states
    * none.
    *
@@ -804,6 +842,41 @@ export interface MessageInfo {
    * states no resolution flags, and for a container that is not GRIB.
    */
   uvRelativeToGrid: boolean | null;
+}
+
+/**
+ * One point probed out of a message by index
+ * (`Session::probe_message`): the value the decoded field shows,
+ * and for a band-limited spectral message the file's full-detail value at
+ * the same cell.
+ */
+export interface MessageProbe {
+  /**
+   * Latitude asked for, echoed back.
+   */
+  lat: number;
+  /**
+   * Longitude asked for, echoed back.
+   */
+  lon: number;
+  /**
+   * Fractional column the point landed on.
+   */
+  i: number;
+  /**
+   * Fractional row the point landed on.
+   */
+  j: number;
+  /**
+   * The decoded field's value at the cell — what the map shows there.
+   * `None` when the cell is masked.
+   */
+  value: number | null;
+  /**
+   * Set only when the decoded field is band-limited
+   * (`Field::truncation` is set): the full sum at the same cell.
+   */
+  fullDetail: FullDetail | null;
 }
 
 /**
@@ -1153,6 +1226,35 @@ export type SourceFormat =
    * `Session::open_store` (#704, behind the `zarr` feature).
    */
   | "zarr";
+
+/**
+ * That a spectral field's map shows fewer wavenumbers than the file holds
+ * (#637): the truncation the message declares, and the one its values
+ * were synthesised at.
+ *
+ * **A smoothed field is never shown silently.** A spectral message's
+ * values are synthesised onto the 0.5° global grid, which carries
+ * wavenumbers up to T359; a message declaring more is band-limited to
+ * that, which is the correct picture at that resolution and a different,
+ * smoother field from the one the file holds. This is the fact a host
+ * shows beside it — "shown at T359 of T7999" — carried as data so that
+ * every host has it rather than only the one that wrote the caption.
+ *
+ * A value read out of such a field is the smoothed one; the file's own
+ * value at a point is `Session::probe_message`.
+ */
+export interface SpectralTruncation {
+  /**
+   * The truncation `T` the message declares — what its coefficients
+   * hold.
+   */
+  declared: number;
+  /**
+   * The truncation the values were synthesised at, always below
+   * `declared`.
+   */
+  truncatedTo: number;
+}
 
 /**
  * Range and count of the present cells. Absent cells are excluded, so an

@@ -457,6 +457,31 @@ api_type! {
         F64(Vec<f64>),
     }
 
+    /// That a spectral field's map shows fewer wavenumbers than the file holds
+    /// (#637): the truncation the message declares, and the one its values
+    /// were synthesised at.
+    ///
+    /// **A smoothed field is never shown silently.** A spectral message's
+    /// values are synthesised onto the 0.5° global grid, which carries
+    /// wavenumbers up to T359; a message declaring more is band-limited to
+    /// that, which is the correct picture at that resolution and a different,
+    /// smoother field from the one the file holds. This is the fact a host
+    /// shows beside it — "shown at T359 of T7999" — carried as data so that
+    /// every host has it rather than only the one that wrote the caption.
+    ///
+    /// A value read out of such a field is the smoothed one; the file's own
+    /// value at a point is [`crate::Session::probe_message`].
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct SpectralTruncation {
+        /// The truncation `T` the message declares — what its coefficients
+        /// hold.
+        pub declared: u32,
+        /// The truncation the values were synthesised at, always below
+        /// `declared`.
+        pub truncated_to: u32,
+    }
+
     /// Range and count of the present cells. Absent cells are excluded, so an
     /// all-masked field reports no range at all rather than `±inf`.
     #[serde(rename_all = "camelCase")]
@@ -525,6 +550,11 @@ api_type! {
         pub nj: u32,
         /// Where the cells sit on the Earth.
         pub georef: Georef,
+        /// Set when the values are a spectral field band-limited to what the
+        /// grid can carry, below the truncation the message declares (#637);
+        /// `None` for every other field, including a spectral one the grid
+        /// carries in full. A host shows it beside the field.
+        pub truncation: Option<SpectralTruncation>,
         /// Range and count over the present cells.
         pub stats: Stats,
         /// The parameter's name, as the table that resolved it states it.
@@ -646,6 +676,13 @@ api_type! {
         /// How the file names its own grid where `Ni × Nj` is not how it is
         /// described — `N32`, `O1280`, `T639`.
         pub size_label: Option<String>,
+        /// What [`crate::Session::decode`] will set as
+        /// [`Field::truncation`] for this message: the map of a spectral
+        /// message declaring more wavenumbers than the synthesis grid carries
+        /// is band-limited, and says so (#637). Read from the declaration, so a
+        /// message list can show it before anything is decoded. `None` for
+        /// everything else.
+        pub truncation: Option<SpectralTruncation>,
 
         // The identification a message list shows beside the parameter. These
         // are file facts rather than derived ones, and every one of them needed
@@ -729,6 +766,47 @@ api_type! {
         pub j: f64,
         /// `None` when the cell is masked.
         pub value: Option<f64>,
+    }
+
+    /// A spectral message's full-detail value at a probed cell (#637): the sum
+    /// over every wavenumber the file holds, where the map shows the field
+    /// band-limited to what its grid carries.
+    ///
+    /// Carried beside the displayed value rather than instead of it, so a
+    /// readout can show both — "325.6 K at T359 (shown) · 318.4 K at T7999
+    /// (full detail)" — and neither disagrees with the colour under the cursor
+    /// without saying why.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct FullDetail {
+        /// The full sum at the cell's node.
+        pub value: f64,
+        /// The truncation `value` carries (`declared`) and the one the
+        /// displayed value carries (`truncated_to`).
+        pub truncation: SpectralTruncation,
+    }
+
+    /// One point probed out of a message by index
+    /// ([`crate::Session::probe_message`]): the value the decoded field shows,
+    /// and for a band-limited spectral message the file's full-detail value at
+    /// the same cell.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct MessageProbe {
+        /// Latitude asked for, echoed back.
+        pub lat: f64,
+        /// Longitude asked for, echoed back.
+        pub lon: f64,
+        /// Fractional column the point landed on.
+        pub i: f64,
+        /// Fractional row the point landed on.
+        pub j: f64,
+        /// The decoded field's value at the cell — what the map shows there.
+        /// `None` when the cell is masked.
+        pub value: Option<f64>,
+        /// Set only when the decoded field is band-limited
+        /// ([`Field::truncation`] is set): the full sum at the same cell.
+        pub full_detail: Option<FullDetail>,
     }
 
     /// One entry of the field-combine vocabulary: what a host's Compare picker
@@ -845,6 +923,16 @@ impl Values {
             Dtype::Auto => Self::narrow(values, mask),
             Dtype::F32 => Self::F32(values.into_iter().map(|v| v as f32).collect()),
             Dtype::F64 => Self::F64(values),
+        }
+    }
+}
+
+/// The core label, as the wire type every host binds (#637).
+impl From<fieldglass_core::sht::SpectralTruncation> for SpectralTruncation {
+    fn from(t: fieldglass_core::sht::SpectralTruncation) -> Self {
+        Self {
+            declared: t.declared,
+            truncated_to: t.truncated_to,
         }
     }
 }

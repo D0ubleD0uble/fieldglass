@@ -284,12 +284,19 @@ is new is its szip layer, the reader's framing and the length checks:
 | baseline | 1,513,182 | 1,518,725 | 574,136 | 577,027 |
 | `+simd128` | 1,497,627 | 1,503,113 | 568,547 | 570,891 |
 
+Drawing a spectral field finer than the map at the map's resolution (#637) added
+7,840 raw bytes and 3,878 gzipped to the baseline build (0.5% and 0.7%), and
+7,684 and 4,096 to `+simd128`, measured with binaryen 132 against the figures
+recorded before it: the band-limit label on every `Field` and `MessageInfo`,
+the `probeMessage` and `fullDetail` bindings and the two wire types they
+return, and the transform's extended-exponent column starts.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,518,725 | 577,027 |
-| `+simd128` | 1,503,113 | 570,891 |
+| baseline | 1,526,565 | 580,905 |
+| `+simd128` | 1,510,797 | 574,987 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

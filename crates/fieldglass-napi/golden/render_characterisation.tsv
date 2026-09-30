@@ -167,6 +167,11 @@ grib1/spectral_complex_t63.grib1#00	combine/a_minus_b/render/source/nearest	ok w
 grib1/spectral_complex_t63.grib1#00	meta	family=latlon ni=720 nj=361 reprojectable=true	7a6418b9d0ba6b00
 grib1/spectral_complex_t63.grib1#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	50c7e83021fbebb6
 grib1/spectral_complex_t63.grib1#00	render/source/nearest	ok w=720 h=361 opaque=259920	5e79355754c16ad8
+grib1/spectral_simple_t383.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
+grib1/spectral_simple_t383.grib1#00	combine/a_minus_b/render/source/nearest	ok w=720 h=361 opaque=259920	8a66709fd9ea99c9
+grib1/spectral_simple_t383.grib1#00	meta	family=latlon ni=720 nj=361 reprojectable=true shown=T359 of T383	2f9971e7cfc13afe
+grib1/spectral_simple_t383.grib1#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	e0b1bf7df6a84dfa
+grib1/spectral_simple_t383.grib1#00	render/source/nearest	ok w=720 h=361 opaque=259920	1304dbec473d9464
 grib1/spectral_simple_t63.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
 grib1/spectral_simple_t63.grib1#00	combine/a_minus_b/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
 grib1/spectral_simple_t63.grib1#00	combine/a_minus_b/probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes	f3d35d3ce56c5a7b
@@ -1037,6 +1042,70 @@ grib2/spectral_complex_t63.grib2#00	combine/a_minus_b/render/source/nearest	ok w
 grib2/spectral_complex_t63.grib2#00	meta	family=latlon ni=720 nj=361 reprojectable=true	7a6418b9d0ba6b00
 grib2/spectral_complex_t63.grib2#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	2b86a10b209e2d2a
 grib2/spectral_complex_t63.grib2#00	render/source/nearest	ok w=720 h=361 opaque=259920	40919148c95bdf94
+grib2/spectral_simple_t383.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
+grib2/spectral_simple_t383.grib2#00	combine/a_minus_b/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/spectral_simple_t383.grib2#00	combine/a_minus_b/probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes full=T383	8ba3c986b6895d44
+grib2/spectral_simple_t383.grib2#00	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes full=T383	dbae974e0c8dc7a0
+grib2/spectral_simple_t383.grib2#00	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	d902f1a663ba0d6d
+grib2/spectral_simple_t383.grib2#00	combine/a_minus_b/render/source/nearest	ok w=720 h=361 opaque=259920	8a66709fd9ea99c9
+grib2/spectral_simple_t383.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=452402 points=904804	0effaead8e3e7e9c
+grib2/spectral_simple_t383.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes full=T383	293924dcb18ace18
+grib2/spectral_simple_t383.grib2#00	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes full=T383	15f64f39873e7727
+grib2/spectral_simple_t383.grib2#00	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	800127daca98c1ba
+grib2/spectral_simple_t383.grib2#00	combine/a_plus_b/render/source/nearest	ok w=720 h=361 opaque=259920	dac5ee5a5f12efa4
+grib2/spectral_simple_t383.grib2#00	combine/b_minus_a/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/spectral_simple_t383.grib2#00	combine/b_minus_a/probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes full=T383	8ba3c986b6895d44
+grib2/spectral_simple_t383.grib2#00	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes full=T383	dbae974e0c8dc7a0
+grib2/spectral_simple_t383.grib2#00	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	d902f1a663ba0d6d
+grib2/spectral_simple_t383.grib2#00	combine/b_minus_a/render/source/nearest	ok w=720 h=361 opaque=259920	8a66709fd9ea99c9
+grib2/spectral_simple_t383.grib2#00	combine/mean/contours/source/auto	ok runs=452402 points=904804	0effaead8e3e7e9c
+grib2/spectral_simple_t383.grib2#00	combine/mean/probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes full=T383	0b26ccbcdfd3ee78
+grib2/spectral_simple_t383.grib2#00	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes full=T383	d71781ca3bd3a607
+grib2/spectral_simple_t383.grib2#00	combine/mean/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	e0b1bf7df6a84dfa
+grib2/spectral_simple_t383.grib2#00	combine/mean/render/source/nearest	ok w=720 h=361 opaque=259920	1304dbec473d9464
+grib2/spectral_simple_t383.grib2#00	combine/ratio/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/spectral_simple_t383.grib2#00	combine/ratio/probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes full=T383	0d7d085241e80244
+grib2/spectral_simple_t383.grib2#00	combine/ratio/probe/source/0,0	hit cell=0,0 geo=yes value=yes full=T383	e304e30dc0868e48
+grib2/spectral_simple_t383.grib2#00	combine/ratio/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	5a4ddf5beef21153
+grib2/spectral_simple_t383.grib2#00	combine/ratio/render/source/nearest	ok w=720 h=361 opaque=259920	028037a1647c663b
+grib2/spectral_simple_t383.grib2#00	contours/equirectangular/auto	ok runs=452402 points=904804	e238737e58ac5198
+grib2/spectral_simple_t383.grib2#00	contours/mollweide/auto	ok runs=452414 points=904828	8655543a6c4b6734
+grib2/spectral_simple_t383.grib2#00	contours/source/auto	ok runs=452402 points=904804	0effaead8e3e7e9c
+grib2/spectral_simple_t383.grib2#00	csv/long	ok lines=259922	3fbe2bd5e5228494
+grib2/spectral_simple_t383.grib2#00	csv/matrix	ok lines=362	3b799754d3496441
+grib2/spectral_simple_t383.grib2#00	meta	family=latlon ni=720 nj=361 reprojectable=true shown=T359 of T383	2f9971e7cfc13afe
+grib2/spectral_simple_t383.grib2#00	probe/equirectangular/0,0	hit cell=0,0 geo=yes value=yes full=T383	d71781ca3bd3a607
+grib2/spectral_simple_t383.grib2#00	probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes full=T383	0b26ccbcdfd3ee78
+grib2/spectral_simple_t383.grib2#00	probe/equirectangular/7,3	hit cell=7,3 geo=yes value=yes full=T383	e55c922567bbc631
+grib2/spectral_simple_t383.grib2#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib2/spectral_simple_t383.grib2#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib2/spectral_simple_t383.grib2#00	probe/orthographic/359,180	hit cell=0,120 geo=yes value=yes full=T383	18983fb6280f1249
+grib2/spectral_simple_t383.grib2#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib2/spectral_simple_t383.grib2#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib2/spectral_simple_t383.grib2#00	probe/source/0,0	hit cell=0,0 geo=yes value=yes full=T383	d71781ca3bd3a607
+grib2/spectral_simple_t383.grib2#00	probe/source/359,180	hit cell=359,180 geo=yes value=yes full=T383	0b26ccbcdfd3ee78
+grib2/spectral_simple_t383.grib2#00	probe/source/7,3	hit cell=7,3 geo=yes value=yes full=T383	e55c922567bbc631
+grib2/spectral_simple_t383.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib2/spectral_simple_t383.grib2#00	render/equal_earth/bilinear	ok w=1479 h=720 opaque=937140	174806fb849d25a3
+grib2/spectral_simple_t383.grib2#00	render/equal_earth/nearest	ok w=1479 h=720 opaque=937140	a056030cedc44b47
+grib2/spectral_simple_t383.grib2#00	render/equirectangular/bilinear	ok w=720 h=361 opaque=259920	7522f53858152bf9
+grib2/spectral_simple_t383.grib2#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	e0b1bf7df6a84dfa
+grib2/spectral_simple_t383.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=361 opaque=259920	a23b5b79f4676ca9
+grib2/spectral_simple_t383.grib2#00	render/equirectangular/nearest+window/conus	ok w=720 h=361 opaque=259920	4c55166f80498461
+grib2/spectral_simple_t383.grib2#00	render/equirectangular/nearest+window/world	ok w=720 h=361 opaque=259920	7bad941a39d3a0d4
+grib2/spectral_simple_t383.grib2#00	render/mollweide/bilinear	ok w=1440 h=720 opaque=812568	2a46d3fac5cf1703
+grib2/spectral_simple_t383.grib2#00	render/mollweide/nearest	ok w=1440 h=720 opaque=812568	326a62edd6a89e13
+grib2/spectral_simple_t383.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=405960	f2829d522a2bd0d4
+grib2/spectral_simple_t383.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=405960	1e4e18355bb08bc9
+grib2/spectral_simple_t383.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=405960	2017c5d674e57a57
+grib2/spectral_simple_t383.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=405960	f6c83b06a679da9b
+grib2/spectral_simple_t383.grib2#00	render/robinson/bilinear	ok w=1420 h=720 opaque=891396	fc04ed9363a3880d
+grib2/spectral_simple_t383.grib2#00	render/robinson/nearest	ok w=1420 h=720 opaque=891396	f62082e3f7fdb1d7
+grib2/spectral_simple_t383.grib2#00	render/source/bilinear	ok w=720 h=361 opaque=259920	1304dbec473d9464
+grib2/spectral_simple_t383.grib2#00	render/source/nearest	ok w=720 h=361 opaque=259920	1304dbec473d9464
+grib2/spectral_simple_t383.grib2#00	render/source/nearest+flip_y	ok w=720 h=361 opaque=259920	f86049804c81d744
+grib2/spectral_simple_t383.grib2#00	render/web_mercator/bilinear	ok w=720 h=361 opaque=259920	c6d5e6e485375911
+grib2/spectral_simple_t383.grib2#00	render/web_mercator/nearest	ok w=720 h=361 opaque=259920	b1ed29f267104781
 grib2/spectral_simple_t63.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/spectral_simple_t63.grib2#00	combine/a_minus_b/render/source/nearest	ok w=720 h=361 opaque=259920	8a66709fd9ea99c9
 grib2/spectral_simple_t63.grib2#00	meta	family=latlon ni=720 nj=361 reprojectable=true	7a6418b9d0ba6b00

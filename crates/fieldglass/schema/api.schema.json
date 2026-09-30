@@ -334,6 +334,17 @@
           "$ref": "#/$defs/Stats",
           "description": "Range and count over the present cells."
         },
+        "truncation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpectralTruncation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Set when the values are a spectral field band-limited to what the\ngrid can carry, below the truncation the message declares (#637);\n`None` for every other field, including a spectral one the grid\ncarries in full. A host shows it beside the field."
+        },
         "units": {
           "description": "The parameter's units as its table states them. Empty when the\nparameter did not resolve, or is dimensionless.",
           "type": "string"
@@ -349,9 +360,29 @@
         "ni",
         "nj",
         "georef",
+        "truncation",
         "stats",
         "parameter",
         "units"
+      ],
+      "type": "object"
+    },
+    "FullDetail": {
+      "description": "A spectral message's full-detail value at a probed cell (#637): the sum\nover every wavenumber the file holds, where the map shows the field\nband-limited to what its grid carries.\n\nCarried beside the displayed value rather than instead of it, so a\nreadout can show both — \"325.6 K at T359 (shown) · 318.4 K at T7999\n(full detail)\" — and neither disagrees with the colour under the cursor\nwithout saying why.",
+      "properties": {
+        "truncation": {
+          "$ref": "#/$defs/SpectralTruncation",
+          "description": "The truncation `value` carries (`declared`) and the one the\ndisplayed value carries (`truncated_to`)."
+        },
+        "value": {
+          "description": "The full sum at the cell's node.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "truncation"
       ],
       "type": "object"
     },
@@ -775,6 +806,17 @@
             "null"
           ]
         },
+        "truncation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpectralTruncation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What [`crate::Session::decode`] will set as\n[`Field::truncation`] for this message: the map of a spectral\nmessage declaring more wavenumbers than the synthesis grid carries\nis band-limited, and says so (#637). Read from the declaration, so a\nmessage list can show it before anything is decoded. `None` for\neverything else."
+        },
         "units": {
           "description": "Units as the parameter's table states them.",
           "type": "string"
@@ -802,6 +844,7 @@
         "placement",
         "reprojectable",
         "sizeLabel",
+        "truncation",
         "forecastHours",
         "p1Octet",
         "originatingCentre",
@@ -812,6 +855,59 @@
         "productionStatus",
         "dataType",
         "uvRelativeToGrid"
+      ],
+      "type": "object"
+    },
+    "MessageProbe": {
+      "description": "One point probed out of a message by index\n([`crate::Session::probe_message`]): the value the decoded field shows,\nand for a band-limited spectral message the file's full-detail value at\nthe same cell.",
+      "properties": {
+        "fullDetail": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FullDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Set only when the decoded field is band-limited\n([`Field::truncation`] is set): the full sum at the same cell."
+        },
+        "i": {
+          "description": "Fractional column the point landed on.",
+          "format": "double",
+          "type": "number"
+        },
+        "j": {
+          "description": "Fractional row the point landed on.",
+          "format": "double",
+          "type": "number"
+        },
+        "lat": {
+          "description": "Latitude asked for, echoed back.",
+          "format": "double",
+          "type": "number"
+        },
+        "lon": {
+          "description": "Longitude asked for, echoed back.",
+          "format": "double",
+          "type": "number"
+        },
+        "value": {
+          "description": "The decoded field's value at the cell — what the map shows there.\n`None` when the cell is masked.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "lat",
+        "lon",
+        "i",
+        "j",
+        "value",
+        "fullDetail"
       ],
       "type": "object"
     },
@@ -1148,6 +1244,28 @@
           "type": "string"
         }
       ]
+    },
+    "SpectralTruncation": {
+      "description": "That a spectral field's map shows fewer wavenumbers than the file holds\n(#637): the truncation the message declares, and the one its values\nwere synthesised at.\n\n**A smoothed field is never shown silently.** A spectral message's\nvalues are synthesised onto the 0.5° global grid, which carries\nwavenumbers up to T359; a message declaring more is band-limited to\nthat, which is the correct picture at that resolution and a different,\nsmoother field from the one the file holds. This is the fact a host\nshows beside it — \"shown at T359 of T7999\" — carried as data so that\nevery host has it rather than only the one that wrote the caption.\n\nA value read out of such a field is the smoothed one; the file's own\nvalue at a point is [`crate::Session::probe_message`].",
+      "properties": {
+        "declared": {
+          "description": "The truncation `T` the message declares — what its coefficients\nhold.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "truncatedTo": {
+          "description": "The truncation the values were synthesised at, always below\n`declared`.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "declared",
+        "truncatedTo"
+      ],
+      "type": "object"
     },
     "Stats": {
       "description": "Range and count of the present cells. Absent cells are excluded, so an\nall-masked field reports no range at all rather than `±inf`.",
