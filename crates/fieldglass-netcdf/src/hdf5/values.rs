@@ -17,7 +17,9 @@
 //!
 //! Element bytes honour the datatype's byte order — unlike classic NetCDF
 //! (always big-endian), HDF5 records it per type and NetCDF-4 writers normally
-//! pick the host's little-endian order.
+//! pick the host's little-endian order — and a fixed-point type's bit offset
+//! and precision, through [`Datatype::element_bits`](super::datatype::Datatype::element_bits)
+//! (#795).
 
 use super::datatype::DatatypeClass;
 use super::layout::{ChunkIndex, ChunkedLayout, DataLayout};
@@ -117,10 +119,31 @@ pub fn read_dataset_values<S: ByteSource + ?Sized>(
     // the stride and the bound are then the same value, so an assembly that
     // returned fewer bytes than `total * elem` is caught by the length check
     // below instead of panicking on the slice.
+    //
+    // Whether the type is packed is decided once here, not per element: each
+    // branch gets its own copy of the loop with its reader inlined (#795).
+    if datatype.is_packed() {
+        decode_elements(&raw, elem, total, &fills, |c| datatype.read_packed_f64(c))
+    } else {
+        decode_elements(&raw, elem, total, &fills, |c| {
+            datatype.read_full_width_f64(c)
+        })
+    }
+}
+
+/// Decode `total` elements of `elem` bytes from `raw` with `read`, masking any
+/// that equal one of `fills`. Generic over the reader so the per-element loop
+/// is compiled once per reader, with no dispatch inside it.
+fn decode_elements(
+    raw: &[u8],
+    elem: usize,
+    total: usize,
+    fills: &[f64],
+    read: impl Fn(&[u8]) -> Option<f64>,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
     let mut out = Vec::with_capacity(total);
     for chunk in raw.chunks_exact(elem).take(total) {
-        let v = datatype
-            .read_element_f64(chunk)
+        let v = read(chunk)
             .ok_or_else(|| FieldglassError::Parse("dataset element decode failed".into()))?;
         out.push(if fills.contains(&v) { None } else { Some(v) });
     }
