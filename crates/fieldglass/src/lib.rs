@@ -106,6 +106,8 @@ compile_error!(
      consumer names back the ones it opens)"
 );
 
+#[cfg(any(feature = "render", feature = "analysis"))]
+mod align;
 pub mod api;
 #[cfg(feature = "analysis")]
 pub mod combine;
@@ -127,6 +129,10 @@ pub mod session;
 #[cfg(feature = "render")]
 pub mod shader;
 
+/// Whether two fields line up cell for cell: the gate `combine` and
+/// `render::vector_polylines` both ask before pairing two value arrays.
+#[cfg(any(feature = "render", feature = "analysis"))]
+pub use align::aligned;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{
@@ -136,7 +142,7 @@ pub use api::{
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};
 #[cfg(feature = "analysis")]
-pub use combine::{CombineOp, aligned, combine_ops, combine_values, op_from_wire};
+pub use combine::{CombineOp, combine_ops, combine_values, op_from_wire};
 pub use error::Error;
 /// Pixel-space runs, which `render::overlay_polylines` and
 /// `render::contour_polylines` return — named so a host can take the return

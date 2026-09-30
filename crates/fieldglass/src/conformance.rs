@@ -353,9 +353,10 @@ const SUBJECTS: &[(&str, &str)] = &[
 
 /// GRIB1 subjects, kept separate because the fixture directory differs.
 const SUBJECTS_G1: &[(&str, &str)] = &[
-    // GRIB1, and a message whose points are stored `j`-consecutive — the
-    // decoder transposes it, so `scan.jConsecutive` is descriptive and the
-    // raster is already row-major by the time a host sees it.
+    // GRIB1, and a message whose points are stored `j`-consecutive. The
+    // decoder transposes it, so the raster is row-major by the time a host
+    // sees it and `scan.jConsecutive` says so: it is `false` here although the
+    // message sets the bit (#792).
     ("grib1_jcons", "j_consecutive_latlon.grib1"),
     // GRIB1 polar stereographic with real spacings: the projected family that
     // is not Lambert, the one `decode_and_colour` already geolocates, and the

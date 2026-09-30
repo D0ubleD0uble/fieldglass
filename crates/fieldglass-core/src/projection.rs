@@ -2109,8 +2109,11 @@ impl LonLatBox {
 ///   those two questions.
 ///
 /// The flags describe the raster a decoder **returns**, not the raw GDS byte
-/// (#541): a `j`-consecutive message is transposed on the way out, which is why
-/// that flag is descriptive here and acting on it would transpose twice.
+/// (#541, #792). A `j`-consecutive message is transposed on the way out, so the
+/// raster it becomes is row-major and its `j_consecutive` is `false`: a scan
+/// carrying the message's own bit would tell a consumer to transpose a second
+/// time, and would make two messages on one grid, stored in different orders,
+/// look as if their cells did not line up.
 ///
 /// `#[non_exhaustive]`, because it surfaces on the `fieldglass` API as
 /// `Georef::scan` and ADR-0006 requires it of every type there. Build one with
@@ -2125,8 +2128,13 @@ pub struct Scan {
     pub i_negative: bool,
     /// Rows run south→north rather than north→south (bit 2).
     pub j_positive: bool,
-    /// The *message* stored adjacent points consecutive in `j` (column-major,
-    /// bit 3). Descriptive only — see the type docs.
+    /// The raster holds adjacent points consecutive in `j` (column-major,
+    /// bit 3), so point `(i, j)` is at `i * nj + j`.
+    ///
+    /// `false` for every raster a Fieldglass reader returns: both GRIB decoders
+    /// transpose a column-major regular grid to row-major, and a quasi-regular
+    /// grid ignores the bit, as eccodes does. A consumer that does meet `true`
+    /// must transpose before indexing. See the type docs.
     pub j_consecutive: bool,
 }
 

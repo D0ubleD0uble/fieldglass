@@ -427,8 +427,15 @@ api_type! {
         /// the last column lands back on the first. A renderer wraps rather
         /// than clamping there, or the seam meridian draws as a hole.
         pub periodic_x: bool,
-        /// The scan order the message's own flags state, so a consumer can
-        /// walk `values` without re-deriving it.
+        /// The order `values` are in, so a consumer can walk them without
+        /// re-deriving it.
+        ///
+        /// This is the decoded raster's order, which is not always the order
+        /// the message stored: a GRIB message stored column-major is
+        /// transposed while decoding, so its `jConsecutive` is `false` here
+        /// even though its scanning-mode octet sets the bit (#792). The two
+        /// direction flags say which way the rows and columns run, which no
+        /// reader changes while decoding.
         ///
         /// A `core` type, like [`geometry`](Self::geometry), so it is described
         /// to a schema consumer the same way — but written out property by

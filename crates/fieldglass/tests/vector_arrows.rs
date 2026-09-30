@@ -32,6 +32,18 @@ fn global() -> GridGeometry {
     })
 }
 
+/// Arrows for a `u` and a `v` on the one grid `source` places, which is what
+/// every case here but the alignment ones is about.
+fn one_grid(
+    source: &Source<'_>,
+    u: &[Option<f64>],
+    v: &[Option<f64>],
+    options: &RenderOptions,
+    vectors: &VectorOptions,
+) -> Result<fieldglass::render::VectorArrows, fieldglass::Error> {
+    vector_polylines(source, u, source, v, options, vectors)
+}
+
 fn source<'a>(geometry: &'a GridGeometry, family: &'a str) -> Source<'a> {
     Source {
         geometry: Ok(geometry),
@@ -90,7 +102,7 @@ fn shafts(arrows: &fieldglass::render::VectorArrows) -> Vec<Shaft> {
 fn an_eastward_field_points_east_on_an_equirectangular_map() {
     let geometry = global();
     let (u, v) = solid_rotation();
-    let arrows = vector_polylines(
+    let arrows = one_grid(
         &source(&geometry, "latlon"),
         &u,
         &v,
@@ -121,7 +133,7 @@ fn the_same_field_runs_around_the_pole_on_an_orthographic_globe() {
     let mut options = options("orthographic");
     options.center_lat = Some(90.0);
     options.center_lon = Some(0.0);
-    let arrows = vector_polylines(
+    let arrows = one_grid(
         &source(&geometry, "latlon"),
         &u,
         &v,
@@ -179,7 +191,7 @@ fn grid_relative_components_agree_with_earth_relative_on_a_latlon_grid() {
     let cells = (NI * NJ) as usize;
     let (u, v) = (vec![Some(0.0); cells], vec![Some(5.0); cells]);
     let options = options("equirectangular");
-    let earth = vector_polylines(
+    let earth = one_grid(
         &source(&geometry, "latlon"),
         &u,
         &v,
@@ -189,7 +201,7 @@ fn grid_relative_components_agree_with_earth_relative_on_a_latlon_grid() {
     .expect("arrows");
     let mut grid_relative = VectorOptions::new();
     grid_relative.grid_relative = true;
-    let grid = vector_polylines(
+    let grid = one_grid(
         &source(&geometry, "latlon"),
         &u,
         &v,
@@ -256,10 +268,8 @@ fn grid_relative_and_earth_relative_part_company_on_a_lambert_grid() {
     earth_relative.grid_relative = false;
 
     let source = source(&geometry, "lambert");
-    let grid =
-        shafts(&vector_polylines(&source, &u, &v, &options, &grid_relative).expect("arrows"));
-    let earth =
-        shafts(&vector_polylines(&source, &u, &v, &options, &earth_relative).expect("arrows"));
+    let grid = shafts(&one_grid(&source, &u, &v, &options, &grid_relative).expect("arrows"));
+    let earth = shafts(&one_grid(&source, &u, &v, &options, &earth_relative).expect("arrows"));
     assert!(grid.len() > 20, "only {} arrows", grid.len());
 
     // Paired by the cell they start from, not by position: the two conventions
@@ -300,11 +310,8 @@ fn spacing_thins_the_arrows_and_missing_cells_draw_none() {
     let count = |spacing: Option<u32>| {
         let mut vectors = VectorOptions::new();
         vectors.spacing = spacing;
-        shafts(
-            &vector_polylines(&source(&geometry, "latlon"), &u, &v, &options, &vectors)
-                .expect("arrows"),
-        )
-        .len()
+        shafts(&one_grid(&source(&geometry, "latlon"), &u, &v, &options, &vectors).expect("arrows"))
+            .len()
     };
     let dense = count(Some(2));
     let sparse = count(Some(8));
@@ -316,11 +323,11 @@ fn spacing_thins_the_arrows_and_missing_cells_draw_none() {
     let gone = vec![None; (NI * NJ) as usize];
     let mut vectors = VectorOptions::new();
     vectors.spacing = Some(2);
-    let half = vector_polylines(&source(&geometry, "latlon"), &u, &gone, &options, &vectors)
+    let half = one_grid(&source(&geometry, "latlon"), &u, &gone, &options, &vectors)
         .expect("a half-missing field is not an error");
     assert_eq!(shafts(&half).len(), 0);
     let still = vec![Some(0.0); (NI * NJ) as usize];
-    let calm = vector_polylines(
+    let calm = one_grid(
         &source(&geometry, "latlon"),
         &still,
         &still,
@@ -338,7 +345,7 @@ fn the_reference_speed_is_the_scale_the_arrows_were_drawn_to() {
     let geometry = global();
     let (u, v) = solid_rotation();
     let options = options("equirectangular");
-    let arrows = vector_polylines(
+    let arrows = one_grid(
         &source(&geometry, "latlon"),
         &u,
         &v,
@@ -357,8 +364,7 @@ fn the_reference_speed_is_the_scale_the_arrows_were_drawn_to() {
     // arrows rather than filling the plot again.
     let mut pinned = VectorOptions::new();
     pinned.reference_speed = Some(4.0);
-    let held =
-        vector_polylines(&source(&geometry, "latlon"), &u, &v, &options, &pinned).expect("arrows");
+    let held = one_grid(&source(&geometry, "latlon"), &u, &v, &options, &pinned).expect("arrows");
     assert_eq!(held.reference_speed, 4.0);
     // The median shaft, not the first: a shaft that crosses the antimeridian
     // comes back as a run spanning the raster, and one sample could be it.
@@ -379,7 +385,7 @@ fn the_reference_speed_is_the_scale_the_arrows_were_drawn_to() {
 
     // Nothing drawn, nothing to scale.
     let calm = vec![Some(0.0); (NI * NJ) as usize];
-    let none = vector_polylines(
+    let none = one_grid(
         &source(&geometry, "latlon"),
         &calm,
         &calm,
@@ -394,7 +400,7 @@ fn the_reference_speed_is_the_scale_the_arrows_were_drawn_to() {
 fn mismatched_components_are_refused() {
     let geometry = global();
     let (u, _) = solid_rotation();
-    let err = vector_polylines(
+    let err = one_grid(
         &source(&geometry, "latlon"),
         &u,
         &[Some(1.0), Some(2.0)],
@@ -403,4 +409,79 @@ fn mismatched_components_are_refused() {
     )
     .expect_err("two sizes are not one field");
     assert_eq!(err.code(), "invalid_option");
+}
+
+/// `u` and `v` are paired cell by cell, so a `v` whose cells sit somewhere else
+/// gives an arrow that exists at no point. Two same-shape grids that differ in
+/// origin, or in the direction their rows run, are refused with the words a
+/// refused combine uses, because it is the same question (#793).
+#[test]
+fn a_v_on_another_grid_is_refused_as_combine_refuses_it() {
+    let here = global();
+    let (u, v) = solid_rotation();
+    let options = options("equirectangular");
+    let vectors = VectorOptions::new();
+
+    // Same shape, same spacing, moved 5° east.
+    let moved = GridGeometry::LatLon(LatLonParams {
+        ni: NI,
+        nj: NJ,
+        lat_first: 90.0,
+        lon_first: 5.0,
+        lat_last: -90.0,
+        lon_last: 360.0,
+    });
+    let err = vector_polylines(
+        &source(&here, "latlon"),
+        &u,
+        &source(&moved, "latlon"),
+        &v,
+        &options,
+        &vectors,
+    )
+    .expect_err("a v on a moved grid");
+    assert_eq!(err.code(), "unsupported");
+    assert!(
+        err.message()
+            .contains("on different grids and cannot be combined: their grid differs"),
+        "{}",
+        err.message()
+    );
+    // The words are `aligned`'s, not a second spelling of them.
+    let gate = fieldglass::aligned(&source(&here, "latlon"), &source(&moved, "latlon"))
+        .expect_err("the gate refuses the same pair");
+    assert_eq!(err.message(), gate.message());
+
+    // Same grid, rows stored the other way up.
+    let mut south_up = source(&here, "latlon");
+    south_up.scan = Scan::new(false, true, false);
+    let err = vector_polylines(
+        &source(&here, "latlon"),
+        &u,
+        &south_up,
+        &v,
+        &options,
+        &vectors,
+    )
+    .expect_err("a v scanned the other way up");
+    assert_eq!(err.code(), "unsupported");
+    assert!(
+        err.message().contains("their scan order differs"),
+        "{}",
+        err.message()
+    );
+
+    // The same grid built twice is one grid: a second source is not refused
+    // for being a second source.
+    let again = global();
+    let arrows = vector_polylines(
+        &source(&here, "latlon"),
+        &u,
+        &source(&again, "latlon"),
+        &v,
+        &options,
+        &vectors,
+    )
+    .expect("two equal geometries align");
+    assert!(!shafts(&arrows).is_empty());
 }

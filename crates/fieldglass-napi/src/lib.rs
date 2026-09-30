@@ -1604,6 +1604,8 @@ impl Grib1Handle {
     ///
     /// One arrow is one run of five vertices (tail, tip, barb, tip, barb), in
     /// the same pixel space the coastlines come back in, for the same canvas.
+    /// The two messages are paired cell by cell, so a pair that is not on the
+    /// same grid is refused, in the words a refused combine uses (#793).
     #[napi]
     pub fn project_vectors(
         &self,
@@ -1613,12 +1615,11 @@ impl Grib1Handle {
         spacing: Option<u32>,
         grid_relative: Option<bool>,
     ) -> napi::Result<ProjectedVectors> {
-        let (u, placed) = self.resolved(message_index_u)?;
-        let (v, _) = self.resolved(message_index_v)?;
+        let (u, placed_u) = self.resolved(message_index_u)?;
+        let (v, placed_v) = self.resolved(message_index_v)?;
         project_vectors_impl(
-            &placed,
-            u.as_ref(),
-            v.as_ref(),
+            (&placed_u, u.as_ref()),
+            (&placed_v, v.as_ref()),
             &options,
             spacing,
             grid_relative,
@@ -1871,12 +1872,11 @@ impl Grib2Handle {
         spacing: Option<u32>,
         grid_relative: Option<bool>,
     ) -> napi::Result<ProjectedVectors> {
-        let (u, placed) = self.resolved(message_index_u)?;
-        let (v, _) = self.resolved(message_index_v)?;
+        let (u, placed_u) = self.resolved(message_index_u)?;
+        let (v, placed_v) = self.resolved(message_index_v)?;
         project_vectors_impl(
-            &placed,
-            u.as_ref(),
-            v.as_ref(),
+            (&placed_u, u.as_ref()),
+            (&placed_v, v.as_ref()),
             &options,
             spacing,
             grid_relative,
@@ -3774,13 +3774,15 @@ fn project_contours_impl(
 
 /// Arrows for a vector field, projected onto the rendered raster (#241).
 ///
-/// `u` and `v` are two decoded fields on one grid. `grid_relative` says the
-/// components run along the grid's own axes rather than east and north, which is
-/// what GRIB's resolution flag reports and what HRRR and NAM set.
+/// `u` and `v` each come with their own placement, and
+/// `fieldglass::render::vector_polylines` refuses a pair that does not line up
+/// cell for cell, in the words a refused combine uses (#793). The arrows are
+/// drawn on `u`'s placement. `grid_relative` says the components run along the
+/// grid's own axes rather than east and north, which is what GRIB's resolution
+/// flag reports and what HRRR and NAM set.
 fn project_vectors_impl(
-    placed: &Placed,
-    u: &[Option<f64>],
-    v: &[Option<f64>],
+    (placed_u, u): (&Placed, &[Option<f64>]),
+    (placed_v, v): (&Placed, &[Option<f64>]),
     options: &RenderOptions,
     spacing: Option<u32>,
     grid_relative: Option<bool>,
@@ -3789,7 +3791,15 @@ fn project_vectors_impl(
     let mut vectors = fieldglass::render::VectorOptions::new();
     vectors.spacing = spacing;
     vectors.grid_relative = grid_relative.unwrap_or(false);
-    fieldglass::render::vector_polylines(&placed.source(), u, v, &engine, &vectors).into_napi()
+    fieldglass::render::vector_polylines(
+        &placed_u.source(),
+        u,
+        &placed_v.source(),
+        v,
+        &engine,
+        &vectors,
+    )
+    .into_napi()
 }
 
 /// One line through a variable — a profile or a time series at a cell (#172).
@@ -8344,6 +8354,162 @@ mod unsupported_template_placement_tests {
             .swap_remove(0);
         assert_eq!(meta.placement, "unsupported");
         assert!(!meta.reprojectable);
+    }
+}
+
+/// Two fields paired cell by cell through the handles: a column-major message
+/// against a row-major copy of the same grid combines (#792), and a u/v pair
+/// that does not line up is refused rather than drawn (#793).
+///
+/// The copies are the committed column-major fixtures with one scanning-mode
+/// bit changed, in memory, as the readers' own `decode_j_consecutive.rs` tests
+/// do. `fieldglass/tests/stored_order_pairs.rs` runs the same pairs through
+/// `Session`; this is the host seam over them.
+#[cfg(test)]
+mod paired_field_tests {
+    use super::*;
+    use crate::netcdf_slice_tests::opts;
+
+    const GRIB1: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
+    const GRIB2: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/j_consecutive_latlon.grib2");
+
+    const I_NEGATIVE: u8 = 0x80;
+    const J_POSITIVE: u8 = 0x40;
+    const J_CONSECUTIVE: u8 = 0x20;
+
+    /// GDS octet 28, past the 8-byte IS and the PDS whose length leads it.
+    fn grib1_scan_octet(bytes: &[u8]) -> usize {
+        let pds_len =
+            usize::from(bytes[8]) << 16 | usize::from(bytes[9]) << 8 | usize::from(bytes[10]);
+        8 + pds_len + 27
+    }
+
+    /// §3 octet 72, template 3.0's scanning mode, found by walking the sections.
+    fn grib2_scan_octet(bytes: &[u8]) -> usize {
+        let mut off = 16;
+        loop {
+            assert_ne!(&bytes[off..off + 4], b"7777", "message has no §3");
+            let len = u32::from_be_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
+            if bytes[off + 4] == 3 {
+                return off + 72 - 1;
+            }
+            off += len;
+        }
+    }
+
+    /// Message 0 the column-major original, 1 a row-major copy, 2 the original
+    /// with `i` reversed, 3 with `j` reversed.
+    fn variants(original: &[u8], at: usize) -> Vec<u8> {
+        assert_ne!(original[at] & J_CONSECUTIVE, 0, "stored column-major");
+        let with = |octet: u8| {
+            let mut copy = original.to_vec();
+            copy[at] = octet;
+            copy
+        };
+        let mut file = original.to_vec();
+        file.extend(with(original[at] & !J_CONSECUTIVE));
+        file.extend(with(original[at] | I_NEGATIVE));
+        file.extend(with(original[at] | J_POSITIVE));
+        file
+    }
+
+    fn grib1() -> Grib1Handle {
+        Grib1Handle::from_vec(variants(GRIB1, grib1_scan_octet(GRIB1))).expect("opens")
+    }
+
+    fn grib2() -> Grib2Handle {
+        Grib2Handle::from_vec(variants(GRIB2, grib2_scan_octet(GRIB2))).expect("opens")
+    }
+
+    fn assert_scan_refusal(result: napi::Result<impl Sized>, flag: &str) {
+        let Err(e) = result else {
+            panic!("a pair differing in {flag} was accepted");
+        };
+        assert!(
+            e.reason.contains("their scan order differs")
+                && e.reason.contains(&format!("{flag}=true")),
+            "{}",
+            e.reason
+        );
+    }
+
+    /// The column-major message and its row-major copy combine through the
+    /// handle, and the combined field is their element-wise difference.
+    #[test]
+    fn the_two_stored_orders_combine_through_the_grib1_handle() {
+        let h = grib1();
+        let (a, placed_a) = h.resolved(0).expect("message 0");
+        let (b, placed_b) = h.resolved(1).expect("message 1");
+        assert_eq!(placed_a.scan, placed_b.scan);
+
+        let combined = combined_field(&placed_a, &a, &placed_b, &b, "a_minus_b")
+            .expect("the same grid in two orders");
+        let expected: Vec<Option<f64>> = a
+            .iter()
+            .zip(b.iter())
+            .map(|(a, b)| Some(a.expect("no bitmap") - b.expect("no bitmap")))
+            .collect();
+        assert_eq!(combined, expected);
+        assert!(expected.iter().any(|d| d.is_some_and(|d| d != 0.0)));
+
+        h.render_grid_combined(0, 1, "a_minus_b".to_string(), opts("source"))
+            .expect("the entry point the panel calls");
+        for (i, flag) in [(2, "iNegative"), (3, "jPositive")] {
+            assert_scan_refusal(
+                h.render_grid_combined(0, i, "a_minus_b".to_string(), opts("source")),
+                flag,
+            );
+        }
+    }
+
+    /// The same, through the GRIB2 handle.
+    #[test]
+    fn the_two_stored_orders_combine_through_the_grib2_handle() {
+        let h = grib2();
+        let (a, placed_a) = h.resolved(0).expect("message 0");
+        let (b, placed_b) = h.resolved(1).expect("message 1");
+        let combined = combined_field(&placed_a, &a, &placed_b, &b, "a_minus_b")
+            .expect("the same grid in two orders");
+        let expected: Vec<Option<f64>> = a
+            .iter()
+            .zip(b.iter())
+            .map(|(a, b)| Some(a.expect("no bitmap") - b.expect("no bitmap")))
+            .collect();
+        assert_eq!(combined, expected);
+        for (i, flag) in [(2, "iNegative"), (3, "jPositive")] {
+            assert_scan_refusal(
+                h.render_grid_combined(0, i, "a_minus_b".to_string(), opts("source")),
+                flag,
+            );
+        }
+    }
+
+    /// `project_vectors` used to discard v's placement, so a v on another
+    /// grid of the same shape was paired with u cell by cell (#793). Both
+    /// handles now refuse it; the two stored orders still pair.
+    #[test]
+    fn project_vectors_refuses_a_v_that_does_not_line_up() {
+        let g2 = grib2();
+        g2.project_vectors(0, 1, opts("source"), None, None)
+            .expect("the same grid in two orders");
+        assert_scan_refusal(
+            g2.project_vectors(0, 3, opts("source"), None, None),
+            "jPositive",
+        );
+        assert_scan_refusal(
+            g2.project_vectors(0, 2, opts("source"), None, None),
+            "iNegative",
+        );
+
+        let g1 = grib1();
+        g1.project_vectors(0, 1, opts("source"), None, None)
+            .expect("the same grid in two orders");
+        assert_scan_refusal(
+            g1.project_vectors(0, 3, opts("source"), None, None),
+            "jPositive",
+        );
     }
 }
 
