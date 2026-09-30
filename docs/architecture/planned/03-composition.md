@@ -125,12 +125,12 @@ it travels as `Georef::label`, set by `Georef::from_declared` from
 rather than re-derived from the collapsed geometry. A `reduced_gg` message is
 now `kind` `gaussian`, `label` `reduced_gaussian` in both hosts, and the
 conformance suite carries a reduced-Gaussian subject, which pins the pair for
-the runners that drive `Op::Message`. That is a weaker guarantee than it looks
-for the browser host, which serialises `Georef` verbatim and so cannot diverge
-from the umbrella by construction; the independent check is `fieldglass-napi`'s
-own `declared_grid_family_tests`, which compares the two seams on the same bytes
-over every committed fixture, because this crate's conformance runner drives
-only `Op::Decode` and `Op::Render` and `DecodedGrid` carries no georef.
+the runners that drive `Op::Message`. That is a weaker guarantee than it looks,
+because both hosts serialise `Georef` verbatim and so cannot diverge from the
+umbrella by construction. Since #574 that includes `fieldglass-napi`, whose
+handles' `message(i)` returns `MessageInfo` itself and whose conformance runner
+compares `Op::Message` through it; `declared_grid_family_tests`, which compared
+the addon's own mapping with the umbrella's, went when #726 removed that mapping.
 
 The three options this document previously listed were each rejected for a
 reason worth keeping:
@@ -195,10 +195,15 @@ corruption, and the index keeps such a cell in place without ever returning it.
 ## The two host boundaries after #464
 
 Both hosts bind one `Session` in the `fieldglass` umbrella crate (ADR-0006);
-their DTOs are derived from its serde types (napi's `native.ts` is generated
-from the JSON schema), only the buffer handoff and the error mapping are
-hand-written, and both run the crate's conformance suite. wasm returns the
-API `Message` as-is. napi keeps `MessageMeta` only as a compatibility mapping
+their DTOs are derived from its serde types, only the buffer handoff and the
+error mapping are hand-written, and both run the crate's conformance suite. The
+declarations are generated too (#574): `crates/fieldglass/schema/api.schema.json`
+is held to the wire types by `api_rules.rs`, and `tools/gen_api_declarations.py`
+turns it into `extension/src/api.generated.ts` and the browser package's
+embedded `api.generated.d.ts`. Both hosts send every key of a returned object
+and `null` for none, so the two files hold the same `T | null` declarations. wasm
+returns the API `Message` as-is, and so does napi's `message(i)` (through
+`serde_json::Value`). napi keeps `MessageMeta` only as a compatibility mapping
 from `Message` while the extension still uses its field names; it is a napi
 detail, not something `fieldglass` or `core` knows about. napi keeps its caches (the extension wiggles a picker and
 expects a free repaint). wasm keeps none: the host owns every field it
