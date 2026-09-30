@@ -470,7 +470,7 @@
         },
         "scan": {
           "additionalProperties": false,
-          "description": "The scan order the message's own flags state, so a consumer can\nwalk `values` without re-deriving it.\n\nA `core` type, like [`geometry`](Self::geometry), so it is described\nto a schema consumer the same way — but written out property by\nproperty rather than loosely, because a host reads these three and\n#574 generates its declarations from this schema.\n`the_scan_schema_names_every_field_scan_serialises` holds the two in\nstep.",
+          "description": "The order `values` are in, so a consumer can walk them without\nre-deriving it.\n\nThis is the decoded raster's order, which is not always the order\nthe message stored: a GRIB message stored column-major is\ntransposed while decoding, so its `jConsecutive` is `false` here\neven though its scanning-mode octet sets the bit (#792). The two\ndirection flags say which way the rows and columns run, which no\nreader changes while decoding.\n\nA `core` type, like [`geometry`](Self::geometry), so it is described\nto a schema consumer the same way — but written out property by\nproperty rather than loosely, because a host reads these three and\n#574 generates its declarations from this schema.\n`the_scan_schema_names_every_field_scan_serialises` holds the two in\nstep.",
           "properties": {
             "iNegative": {
               "type": "boolean"
