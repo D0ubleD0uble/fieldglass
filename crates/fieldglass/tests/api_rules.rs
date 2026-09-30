@@ -728,9 +728,55 @@ fn macro_context(source: &str) -> (Vec<String>, Option<(usize, usize)>) {
     (attrs, span)
 }
 
+/// `source` with every attribute on one line.
+///
+/// rustfmt breaks a long attribute across lines —
+/// `#[serde(\n    skip_serializing_if = "Option::is_none"\n)]` — and a scanner
+/// that reads an attribute as the line it starts on would see only
+/// `#[serde(` and miss what it says. So an attribute whose brackets do not
+/// close on its first line takes the following lines until they do, joined
+/// with a space.
+fn join_attributes(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut open: Option<(String, i32)> = None;
+    for line in source.lines() {
+        let depth = |s: &str| {
+            s.chars().fold(0i32, |d, c| match c {
+                '[' => d + 1,
+                ']' => d - 1,
+                _ => d,
+            })
+        };
+        if let Some((mut attr, d)) = open.take() {
+            attr.push(' ');
+            attr.push_str(line.trim());
+            let d = d + depth(line);
+            if d > 0 {
+                open = Some((attr, d));
+            } else {
+                out.push_str(&attr);
+                out.push('\n');
+            }
+            continue;
+        }
+        let d = depth(line);
+        if line.trim_start().starts_with("#[") && d > 0 {
+            open = Some((line.to_string(), d));
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if let Some((attr, _)) = open {
+        out.push_str(&attr);
+    }
+    out
+}
+
 /// Every `pub struct` / `pub enum` an API module declares.
 fn declarations(source: &str) -> Vec<Decl> {
-    let source = without_tests(source);
+    let joined = join_attributes(without_tests(source));
+    let source = joined.as_str();
     let (macro_attrs, macro_span) = macro_context(source);
     let lines: Vec<&str> = source.lines().collect();
 
@@ -1198,6 +1244,31 @@ pub struct SkippingDto {
     pub note: Option<String>,
 }
 
+/// The same skip, broken across lines the way rustfmt writes a long attribute:
+/// a scanner that reads an attribute as its first line sees only `#[serde(`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct WrappedSkippingDto {
+    #[serde(
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub note: Option<String>,
+}
+
+/// And on the type itself, where it would drop every `None` field at once.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(
+    rename_all = "camelCase",
+    skip_serializing_if = "Option::is_none"
+)]
+#[non_exhaustive]
+pub struct WrappedTypeSkippingDto {
+    pub note: Option<String>,
+}
+
 /// Borrows, so a host has to write the struct literal — and `#[non_exhaustive]`
 /// is exactly what stops it.
 #[derive(Debug, Clone)]
@@ -1229,6 +1300,8 @@ fn the_scanner_rejects_a_non_conforming_type() {
             "OneLiner",
             "AfterThem",
             "SkippingDto",
+            "WrappedSkippingDto",
+            "WrappedTypeSkippingDto",
         ]),
         "the scanner did not find every type in the non-conforming module"
     );
@@ -1291,9 +1364,18 @@ pub struct GoodDto {
     assert_eq!(optional.len(), 1, "{optional:?}");
     assert!(optional[0].contains("Vec<Option<"));
 
-    let skipping = report("SkippingDto");
-    assert_eq!(skipping.len(), 1, "{skipping:?}");
-    assert!(skipping[0].contains("skip_serializing"), "{skipping:?}");
+    for name in [
+        "SkippingDto",
+        "WrappedSkippingDto",
+        "WrappedTypeSkippingDto",
+    ] {
+        let skipping = report(name);
+        assert_eq!(skipping.len(), 1, "{name}: {skipping:?}");
+        assert!(
+            skipping[0].contains("skip_serializing"),
+            "{name}: {skipping:?}"
+        );
+    }
 
     let borrowing = report("BorrowingDto");
     assert_eq!(borrowing.len(), 2, "{borrowing:?}");
