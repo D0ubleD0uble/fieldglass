@@ -58,7 +58,7 @@ impl Grib1Packing for ComplexPacking {
         // with a confusing "P2 != grid points". Reject the combination up front
         // rather than emit wrong values. (Full bit-map support for second-order
         // packing is tracked separately.)
-        if super::present_count(bitmap, expected_count) != expected_count {
+        if super::present_count(bitmap, expected_count)? != expected_count {
             return Err(FieldglassError::UnsupportedSection(format!(
                 "BDS uses second-order packing (`{label}`) together with a \
                  bit-map that masks grid points, which is not yet supported."

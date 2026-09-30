@@ -13,8 +13,35 @@
 
 use std::borrow::Cow;
 
+use crate::array::MAX_FIELD_POINTS;
 use crate::bitmap::{count_present, interleave_with_bitmap};
 use crate::error::FieldglassError;
+
+/// The number of cells in a flattened `expected_count · datum` matrix field,
+/// or an error when it overflows or exceeds [`MAX_FIELD_POINTS`].
+///
+/// The flattened field holds a cell (a `None` at least) for every point of
+/// every matrix, present or not, so this is what the decode allocates. Both
+/// factors come from the file: `datum = NR·NC` is two `u16`s, and a primary
+/// bitmap can mark every point absent, which leaves the secondary bitmaps and
+/// the packed stream empty while `datum` stays huge. Every size check on the
+/// packed bytes then passes, so this cap is the only thing between a
+/// kilobyte-sized message and a multi-terabyte allocation.
+///
+/// [`expand_matrix`] checks it before it allocates. A decoder should also call
+/// it as soon as it knows `datum`, before it unpacks the secondary bitmaps, so
+/// the two editions reject the same messages at the same step.
+pub fn matrix_cell_count(expected_count: usize, datum: usize) -> Result<usize, FieldglassError> {
+    expected_count
+        .checked_mul(datum)
+        .filter(|&n| n <= MAX_FIELD_POINTS)
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "matrix-of-values: {expected_count} grid points × {datum} cells (NR·NC) \
+                 exceeds the {MAX_FIELD_POINTS}-cell cap"
+            ))
+        })
+}
 
 /// Expand a per-present-point secondary bitmap into the full
 /// `expected_count · datum` value grid, pulling `coded` values where a cell is
@@ -31,7 +58,8 @@ use crate::error::FieldglassError;
 /// [`interleave_with_bitmap`], the proved rule every other GRIB decoder
 /// spreads its values with.
 ///
-/// Errors unless the lengths agree: `bitmap` has `expected_count` bits,
+/// Errors when the flattened field would exceed [`matrix_cell_count`]'s cap,
+/// before anything is allocated, and unless the lengths agree: `bitmap` has `expected_count` bits,
 /// `secondary` has `datum` bits per present point, and `coded` has one value
 /// per set secondary bit. A shortfall means the declared bitmaps and the packed
 /// data disagree, and silently substituting `None` there would misreport a
@@ -43,6 +71,7 @@ pub fn expand_matrix(
     expected_count: usize,
     datum: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
+    let cell_count = matrix_cell_count(expected_count, datum)?;
     let present_points = match bitmap {
         Some(b) if b.len() != expected_count => {
             return Err(FieldglassError::Parse(format!(
@@ -63,7 +92,7 @@ pub fn expand_matrix(
     let cells: Cow<'_, [bool]> = match bitmap {
         None => Cow::Borrowed(secondary),
         Some(b) => {
-            let mut cells = Vec::with_capacity(expected_count.saturating_mul(datum));
+            let mut cells = Vec::with_capacity(cell_count);
             let mut next = 0;
             for &point_present in b {
                 if point_present {
@@ -167,5 +196,34 @@ mod tests {
         assert!(matches!(err, FieldglassError::Parse(_)), "got {err:?}");
         let err = expand_matrix(&[true; 5], vec![1.0; 5], None, 3, 2).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)), "got {err:?}");
+    }
+
+    /// An all-absent primary bitmap leaves the secondary bitmaps and the coded
+    /// stream empty, so every length check passes while `datum` is huge. The
+    /// cap must reject that before the cell bitmap is allocated (#802): without
+    /// it this call asks for about 4 TB and aborts the process.
+    #[test]
+    fn expand_rejects_a_field_past_the_cap_before_allocating() {
+        let datum = usize::from(u16::MAX) * usize::from(u16::MAX);
+        let primary = vec![false; 1_000];
+        let err = expand_matrix(&[], Vec::new(), Some(&primary), primary.len(), datum).unwrap_err();
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m.contains("cell cap")),
+            "got {err:?}"
+        );
+    }
+
+    /// The cap is inclusive: a field of exactly `MAX_FIELD_POINTS` cells is
+    /// accepted, one more is not, and an overflowing product is an error rather
+    /// than a wrapped count.
+    #[test]
+    fn matrix_cell_count_is_bounded_by_the_field_cap() {
+        assert_eq!(
+            matrix_cell_count(MAX_FIELD_POINTS / 4, 4).unwrap(),
+            MAX_FIELD_POINTS
+        );
+        assert!(matrix_cell_count(MAX_FIELD_POINTS + 1, 1).is_err());
+        assert!(matrix_cell_count(usize::MAX, 2).is_err());
+        assert_eq!(matrix_cell_count(0, usize::MAX).unwrap(), 0);
     }
 }

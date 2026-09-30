@@ -460,6 +460,69 @@ mod tests {
         }
     }
 
+    /// FM 92 Section 3 gives one bit per grid point, so a bitmap one bit longer
+    /// or one bit shorter than the grid is a parse error on every packing,
+    /// rather than a field longer or shorter than the grid (#804). Each case is
+    /// a real section from a committed fixture; the constant case re-reads the
+    /// simple and matrix sections with `bits_per_value = 0`.
+    #[test]
+    fn a_bitmap_that_is_not_one_bit_per_point_is_rejected() {
+        use crate::reader::Grib1Reader;
+        const SIMPLE: &[u8] = include_bytes!("../tests/fixtures/cmc_wind_300_2010052400_p012.grib");
+        const IEEE: &[u8] = include_bytes!("../tests/fixtures/ieee32_cmc_wind.grib1");
+        const MATRIX: &[u8] = include_bytes!("../tests/fixtures/matrix_simple_cmc_wind.grib1");
+
+        let mut cases = Vec::new();
+        for (name, file, runs) in [
+            ("simple", SIMPLE, 0),
+            ("ieee", IEEE, 0),
+            ("matrix", MATRIX, 0),
+            ("second-order", ROW_BY_ROW, 240),
+        ] {
+            let reader = Grib1Reader::from_bytes(file.to_vec()).expect("fixture parses");
+            let expected = reader
+                .decode_message_values(0)
+                .expect("fixture decodes")
+                .len();
+            let range = reader.messages[0].bds_range;
+            let bds = file[range.start as usize..(range.start + range.len) as usize].to_vec();
+            let header = parse_bds_header(&bds).expect("BDS header parses");
+            if name == "simple" || name == "matrix" {
+                let constant = BdsHeader {
+                    bits_per_value: 0,
+                    ..header
+                };
+                cases.push((
+                    format!("{name} constant"),
+                    bds.clone(),
+                    constant,
+                    expected,
+                    runs,
+                ));
+            }
+            cases.push((name.to_string(), bds, header, expected, runs));
+        }
+
+        for (name, bds, header, expected, runs) in cases {
+            let runs = StoredRuns::Uniform(runs);
+            let exact = vec![true; expected];
+            let out = decode_values(&bds, &header, 0, Some(&exact), expected, runs)
+                .unwrap_or_else(|e| panic!("{name}: an exact bitmap decodes, got {e:?}"));
+            assert_eq!(out.len(), expected, "{name}");
+            for len in [expected - 1, expected + 1] {
+                let mut bitmap = vec![true; expected];
+                bitmap.resize(len, false);
+                let err = decode_values(&bds, &header, 0, Some(&bitmap), expected, runs)
+                    .expect_err(&format!("{name}: a {len}-bit bitmap must be rejected"));
+                assert!(
+                    matches!(&err, FieldglassError::Parse(m)
+                        if m == &format!("bitmap length {len} != grid-point count {expected}")),
+                    "{name}, {len} bits: got {err:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn decode_constant_field() {
         // bits_per_value = 0 → all points equal R / 10^D.
@@ -479,6 +542,31 @@ mod tests {
         let bds = vec![0u8; BDS_DATA_OFFSET];
         let out = decode_values(&bds, &header, 0, None, 4, StoredRuns::Uniform(0)).unwrap();
         assert_eq!(out, vec![Some(42.0); 4]);
+    }
+
+    /// The constant path with a masking bit-map (the `fill_present` spread
+    /// #791 moved it onto): present points take `R / 10^D`, absent ones are
+    /// `None`, and the field is one entry per grid point.
+    #[test]
+    fn decode_constant_field_with_bitmap() {
+        let header = BdsHeader {
+            section_len: BDS_DATA_OFFSET as u32,
+            is_spherical_harmonic: false,
+            is_complex_packing: false,
+            is_integer_data: false,
+            has_extra_flags: false,
+            unused_trailing_bits: 0,
+            binary_scale_factor: 0,
+            reference_value: 425.0,
+            bits_per_value: 0,
+            spherical_extended: None,
+            complex_extended: None,
+        };
+        let bds = vec![0u8; BDS_DATA_OFFSET];
+        let bitmap = [false, true, true, false, true];
+        let out =
+            decode_values(&bds, &header, 1, Some(&bitmap), 5, StoredRuns::Uniform(0)).unwrap();
+        assert_eq!(out, vec![None, Some(42.5), Some(42.5), None, Some(42.5)]);
     }
 
     #[test]

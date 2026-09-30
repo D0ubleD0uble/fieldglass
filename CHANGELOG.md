@@ -315,6 +315,10 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Fixed
 
+- **A GRIB1 matrix-of-values message can no longer crash the process with a huge allocation.** A 1.3 KB message that marked every grid point missing and declared a 65,535 × 65,535 matrix at each one asked for about 2 TB and aborted. The field is now limited to the same 64 Mi cells GRIB2 already allowed, checked in the shared reshape before anything is allocated, and a larger one is an error. The GRIB1 fuzz target now covers this decode path. Closes #802.
+
+- **A GRIB1 bitmap must have one bit per grid point.** `fieldglass_grib1::bds::decode_values` given a bitmap longer than the grid returned a field longer than the grid. A bitmap of any other length is now an error, as it is for GRIB2. Files read through `Grib1Reader` are not affected, since it always reads exactly one bit per point from the bitmap section. Closes #804.
+
 - **A GRIB message stored column by column combines with one stored row by row on the same grid.** Both GRIB readers turn a column-major grid into rows while decoding, but `Georef::scan` still reported the message's column-major flag, so a difference map between two such messages was refused for a scan-order difference their values did not have. The browser binding refused these pairs, and so did the extension once it moved onto the library's placement earlier in this release. `Georef::scan` now describes the order of the decoded values, so its `jConsecutive` is `false` for every GRIB field, and a pair that really differs in direction is still refused. Closes #792.
 
 - **Wind arrows check that u and v are on the same grid.** The Vectors row paired the drawn message with any message in the file, and a v component on a different grid of the same size was matched to u point by point, drawing arrows for winds that exist nowhere. Such a pair is now refused with the same message a difference map gives. In the library API, `render::vector_polylines` takes a `Source` for each component, and `aligned` is available with the `render` feature as well as `analysis`. Closes #793.

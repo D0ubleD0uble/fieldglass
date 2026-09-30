@@ -19,17 +19,6 @@ use fieldglass_core::FieldglassError;
 use fieldglass_core::bitmap::{count_present, unpack_bitmap};
 use fieldglass_core::scaling::unpack_simple;
 
-/// Upper bound on the total matrix-cell count (`Ni·Nj·NR·NC`) the decoder will
-/// allocate. `NR`/`NC` are attacker-controlled `u16`s, and a §6 bitmap can drop
-/// most grid points while leaving a huge `datum = NR·NC`, so the flattened
-/// output (which still holds a `None` per masked cell) is capped here. Real
-/// wave-spectra matrices are orders of magnitude below this.
-///
-/// [`fieldglass_core::MAX_FIELD_POINTS`], which is the grid-point envelope the
-/// scalar reader accepts — the thing this comment used to claim to match while
-/// both said `200_000_000` and the scalar cap was meant to be 64 Mi (#707).
-const MAX_MATRIX_CELLS: usize = fieldglass_core::MAX_FIELD_POINTS;
-
 /// Decode the §7 payload of a template-5.1 `matrixBitmapsPresent = 1` message
 /// into the flattened `expected_count · (NR·NC)` matrix field. `bitmap` is the
 /// decoded §6 primary bitmap (present grid points), or `None` when every point
@@ -63,18 +52,11 @@ pub fn decode_matrix_of_values(
         )));
     }
     // The flattened output has `expected_count · datum` cells (a `None` even for
-    // masked cells / absent points), so bound it before `expand_matrix`
-    // allocates — a §6 bitmap could leave `present` tiny while `datum` is huge.
-    if expected_count
-        .checked_mul(datum)
-        .filter(|&n| n <= MAX_MATRIX_CELLS)
-        .is_none()
-    {
-        return Err(FieldglassError::Parse(format!(
-            "grid_simple_matrix field {expected_count}×(NR·NC={datum}) exceeds the \
-             {MAX_MATRIX_CELLS}-cell cap"
-        )));
-    }
+    // masked cells / absent points), and `NR`/`NC` are file-declared `u16`s: a
+    // §6 bitmap could leave `present` tiny while `datum` is huge. Bound it now,
+    // before the secondary bitmaps are unpacked, by the rule `expand_matrix`
+    // applies again before it allocates — the same step GRIB1 checks it at.
+    fieldglass_core::matrix::matrix_cell_count(expected_count, datum)?;
 
     // Present grid points drive the secondary-bitmap length.
     let present = match bitmap {

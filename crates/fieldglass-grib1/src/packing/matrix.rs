@@ -176,14 +176,10 @@ impl Grib1Packing for MatrixPacking {
         // matrixOfValues = 0: the body is plain simple packing behind the
         // matrix header. Constant field (bits_per_value == 0) still applies.
         let scaling = message_scaling(header, decimal_scale);
-        let present = present_count(bitmap, expected_count);
+        let present = present_count(bitmap, expected_count)?;
 
         if header.bits_per_value == 0 {
-            return Ok(materialise_constant(
-                scaling.constant(),
-                bitmap,
-                expected_count,
-            ));
+            return materialise_constant(scaling.constant(), bitmap, expected_count);
         }
         if header.bits_per_value > 32 {
             return Err(FieldglassError::Parse(format!(
@@ -339,11 +335,18 @@ pub(crate) fn decode_matrix_of_values(
                 matrix.nr, matrix.nc
             ))
         })?;
+    // The flattened output has `expected_count · datum` cells, a `None` even
+    // for an absent point. With a primary bitmap that marks every point absent,
+    // N = 0 leaves the secondary bitmaps and the coded stream empty, so every
+    // section-length check below passes whatever NR·NC says (#802). Bound it
+    // here by the rule GRIB2 and `expand_matrix` apply, before anything is
+    // unpacked.
+    fieldglass_core::matrix::matrix_cell_count(expected_count, datum)?;
 
     // `octetAtWichPackedDataBegins` is repurposed as N, the count of present
     // grid points; it must agree with the primary bitmap.
     let n = matrix.packed_data_begins as usize;
-    let present_primary = present_count(bitmap, expected_count);
+    let present_primary = present_count(bitmap, expected_count)?;
     if n != present_primary {
         return Err(FieldglassError::Parse(format!(
             "grid_simple_matrix N (octetAtWichPackedDataBegins = {n}) disagrees with \

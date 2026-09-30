@@ -64,3 +64,43 @@ fn matrix_reshape_matches_hand_computed_oracle() {
         );
     }
 }
+
+/// #802, the GRIB2 twin of GRIB1's hostile matrix: an inline §6 bitmap that
+/// marks every point absent, an empty §7, `numberOfCodedValues = 0` and
+/// NR = NC = 0xFFFF. Every length check on the payload passes, so only the cell
+/// cap stands between this and a multi-terabyte allocation; it must be a parse
+/// error that names the cap, as it is for GRIB1.
+#[test]
+fn an_all_absent_bitmap_with_a_huge_matrix_is_refused_before_allocating() {
+    // Walk the sections rather than hard-code their offsets.
+    let mut sections = std::collections::HashMap::new();
+    let mut at = 16;
+    while &FIXTURE[at..at + 4] != b"7777" {
+        let len = u32::from_be_bytes(FIXTURE[at..at + 4].try_into().unwrap()) as usize;
+        sections.insert(FIXTURE[at + 4], at..at + len);
+        at += len;
+    }
+    let (s5, s6, s7) = (&sections[&5], &sections[&6], &sections[&7]);
+    let points = 16 * 31;
+
+    let mut hostile = FIXTURE[..s6.start].to_vec();
+    hostile[s5.start + 21..s5.start + 25].copy_from_slice(&0u32.to_be_bytes()); // coded values
+    hostile[s5.start + 25..s5.start + 29].fill(0xFF); // NR, NC
+    let bitmap_len = 6 + points / 8;
+    hostile.extend_from_slice(&(bitmap_len as u32).to_be_bytes());
+    hostile.extend_from_slice(&[6, 0]); // §6, a bitmap follows
+    hostile.resize(hostile.len() + points / 8, 0); // every point absent
+    hostile.extend_from_slice(&[0, 0, 0, 5, 7]); // an empty §7
+    hostile.extend_from_slice(&FIXTURE[s7.end..]); // 7777
+    let total = hostile.len() as u64;
+    hostile[8..16].copy_from_slice(&total.to_be_bytes());
+
+    let reader = Grib2Reader::from_bytes(hostile).expect("the edit keeps the framing");
+    let err = reader
+        .decode_matrix_message(0)
+        .expect_err("a field past the cell cap must be refused");
+    assert!(
+        matches!(&err, fieldglass_grib2::FieldglassError::Parse(m) if m.contains("cell cap")),
+        "got {err:?}"
+    );
+}
