@@ -208,7 +208,7 @@ pub const fn synthesis_work(truncation: u32, nlat: usize, nlon: usize) -> u64 {
 /// |---|---|
 /// | output raster | `nlat·nlon` |
 /// | per latitude: `μ`, `cos φ`, and the column seed (two words) | `4·nlat` |
-/// | each column's reduction at each latitude, `Option<(re, im)>` | `3(L+1)·nlat` |
+/// | each column's reduction at each latitude, `(re, im)` | `2(L+1)·nlat` |
 /// | one column's recurrence `(a, b)` | `2(L+1)` |
 /// | longitudes in radians, then `cos(mλ)` and `sin(mλ)` | `(2(L+1)+1)·nlon` |
 ///
@@ -224,7 +224,7 @@ pub const fn synthesis_cells(truncation: u32, nlat: usize, nlon: usize) -> u64 {
     let columns = truncation as u64 + 1;
     let (nlat, nlon) = (nlat as u64, nlon as u64);
     let raster = nlat.saturating_mul(nlon);
-    let per_latitude = nlat.saturating_mul(columns.saturating_mul(3).saturating_add(4));
+    let per_latitude = nlat.saturating_mul(columns.saturating_mul(2).saturating_add(4));
     let recurrence = columns.saturating_mul(2);
     let phases = nlon.saturating_mul(columns.saturating_mul(2).saturating_add(1));
     raster
@@ -247,7 +247,7 @@ pub const MAX_MAP_SYNTHESIS_WORK: u64 = {
 };
 
 /// Ceiling on [`synthesis_cells`] for a map, defined as
-/// [`MAX_MAP_SYNTHESIS_WORK`] is: 1,171,084 values, 9.4 MB.
+/// [`MAX_MAP_SYNTHESIS_WORK`] is: 1,041,124 values, 8.3 MB.
 pub const MAX_MAP_SYNTHESIS_CELLS: u64 = {
     let (ni, nj) = spectral_render_dims(MAX_TRUNCATION);
     synthesis_cells(spectral_render_band_limit(MAX_TRUNCATION), nj, ni)
@@ -279,7 +279,7 @@ pub const MAX_SYNTHESIS_WORK: u64 = {
 /// The transform's own tables are the band limit times one side of the grid
 /// (see [`synthesis_cells`]), so on any grid near square this is in effect a
 /// bound on the output raster, the same bound every reader's decode is held
-/// to; the full sum at the cap on the pinned grid allocates 20.9 M values.
+/// to; the full sum at the cap on the pinned grid allocates 18.0 M values.
 pub const MAX_SYNTHESIS_CELLS: u64 = crate::MAX_FIELD_POINTS as u64;
 
 /// Choose the global regular lat/lon grid to synthesize a spectral field onto.
@@ -718,8 +718,8 @@ fn synthesize_unchecked(
             (mu, (1.0 - mu * mu).max(0.0).sqrt(), XNum::ONE)
         })
         .collect();
-    // `m`-major: `sums[m * nlat + latitude]`, `None` for a column skipped there.
-    let mut sums: Vec<Option<(f64, f64)>> = Vec::with_capacity((l + 1) * nlat);
+    // `m`-major: `sums[m * nlat + latitude]`, zero for a column skipped there.
+    let mut sums: Vec<(f64, f64)> = Vec::with_capacity((l + 1) * nlat);
     let mut ab: Vec<(f64, f64)> = Vec::with_capacity(l.saturating_sub(1));
     // `start` is where column `m` begins in the flat pairs: `n = m..=T` are
     // stored, and `n = m..=L` are read.
@@ -732,7 +732,7 @@ fn synthesize_unchecked(
         // P̄_{m+1}^{m+1} = √((2m+3)/(2m+2))·cos φ·P̄_m^m.
         let advance = ((2.0 * mf + 3.0) / (2.0 * mf + 2.0)).sqrt();
         for (mu, s, seed) in &mut rows {
-            sums.push(column_sum(*seed, *mu, mf, column, &ab));
+            sums.push(column_sum(*seed, *mu, mf, column, &ab).unwrap_or((0.0, 0.0)));
             if m < l {
                 *seed = seed.scaled(advance * *s);
             }
@@ -761,8 +761,12 @@ fn synthesize_unchecked(
         let first = b * block_rows;
         for m in 0..=l {
             let column = &sums[m * nlat + first..];
-            for (row, sum) in block.chunks_exact_mut(nlon).zip(column) {
-                let Some((re, im)) = *sum else { continue };
+            for (row, &(re, im)) in block.chunks_exact_mut(nlon).zip(column) {
+                // A skipped column, or one that sums to nothing: adding its
+                // zero would change no cell but a negative zero.
+                if re == 0.0 && im == 0.0 {
+                    continue;
+                }
                 if m == 0 {
                     // The m = 0 term is longitude-independent (its imaginary
                     // part is zero for a real field).
@@ -1215,7 +1219,7 @@ mod tests {
         assert!(synthesis_cells(MAX_TRUNCATION, 1, 1_000) < MAX_SYNTHESIS_CELLS);
         assert_eq!(
             synthesis_cells(MAX_TRUNCATION, SYNTHESIS_NJ, SYNTHESIS_NI),
-            20_949_409
+            17_991_736
         );
     }
 
@@ -1237,7 +1241,7 @@ mod tests {
         );
         // The numbers the docs state, so a doc that drifts from them is caught.
         assert_eq!(MAX_MAP_SYNTHESIS_WORK, 140_356_800);
-        assert_eq!(MAX_MAP_SYNTHESIS_CELLS, 1_171_084);
+        assert_eq!(MAX_MAP_SYNTHESIS_CELLS, 1_041_124);
         // Every truncation's map fits, since each one's band limit is at most
         // the cap's.
         for t in [0, 63, 359, 360, 1279, 7999, MAX_TRUNCATION] {

@@ -164,16 +164,16 @@ lost to the next regression.
 | `grib1-simple-S/decode` | 16,380 | 4 | 32,772 | 32,868 | 1 | 15 | 475,046 | 3,236,151 | 4,470,965 | 2,162,688 | 2,162,688 |
 | `grib1-simple-S/place` | 0 | — | 0 | 491 | 0 | 3 | 64 | 15,440 | 29,062 | — | — |
 | `grib1-spectral-complex-L/open` | 0 | — | 192 | 491 | 6 | 3 | 800 | 15,023 | 26,695 | 1,703,936 | 1,703,936 |
-| `grib1-spectral-complex-L/decode` | 259,920 | 8 | 33,966 | 34,062 | 1 | 22 | 6,498,082 | 303,913,181 | 439,158,540 | 9,764,864 | 9,764,864 |
+| `grib1-spectral-complex-L/decode` | 259,920 | 8 | 33,966 | 34,062 | 1 | 24 | 6,498,082 | 253,298,906 | 362,290,830 | 10,551,296 | 10,551,296 |
 | `grib1-spectral-complex-L/place` | 0 | — | 0 | 491 | 0 | 4 | 70 | 15,476 | 27,958 | — | — |
 | `grib1-spectral-complex-S/open` | 0 | — | 192 | 491 | 6 | 3 | 800 | 15,036 | 26,687 | 1,638,400 | 1,638,400 |
-| `grib1-spectral-complex-S/decode` | 259,920 | 8 | 9,262 | 9,358 | 1 | 22 | 6,498,082 | 135,161,342 | 203,013,515 | 8,716,288 | 8,716,288 |
+| `grib1-spectral-complex-S/decode` | 259,920 | 8 | 9,262 | 9,358 | 1 | 24 | 6,498,082 | 122,294,120 | 180,336,983 | 9,109,504 | 9,109,504 |
 | `grib1-spectral-complex-S/place` | 0 | — | 0 | 491 | 0 | 4 | 70 | 15,891 | 28,595 | — | — |
 | `grib1-spectral-simple-L/open` | 0 | — | 192 | 491 | 6 | 3 | 800 | 14,998 | 26,644 | 1,703,936 | 1,703,936 |
-| `grib1-spectral-simple-L/decode` | 259,920 | 8 | 33,038 | 33,134 | 1 | 21 | 6,498,082 | 303,715,142 | 438,843,681 | 9,764,864 | 9,764,864 |
+| `grib1-spectral-simple-L/decode` | 259,920 | 8 | 33,038 | 33,134 | 1 | 23 | 6,498,082 | 253,051,139 | 361,888,237 | 10,551,296 | 10,551,296 |
 | `grib1-spectral-simple-L/place` | 0 | — | 0 | 491 | 0 | 4 | 70 | 15,865 | 28,564 | — | — |
 | `grib1-spectral-simple-S/open` | 0 | — | 192 | 491 | 6 | 3 | 800 | 15,060 | 26,695 | 1,638,400 | 1,638,400 |
-| `grib1-spectral-simple-S/decode` | 259,920 | 8 | 8,334 | 8,430 | 1 | 21 | 6,498,082 | 135,074,644 | 202,888,316 | 8,716,288 | 8,716,288 |
+| `grib1-spectral-simple-S/decode` | 259,920 | 8 | 8,334 | 8,430 | 1 | 23 | 6,498,082 | 122,194,633 | 180,190,384 | 9,109,504 | 9,109,504 |
 | `grib1-spectral-simple-S/place` | 0 | — | 0 | 491 | 0 | 4 | 70 | 15,898 | 28,602 | — | — |
 | `grib2-5.0-L/open` | 0 | — | 424 | 755 | 7 | 3 | 2,048 | 80,364 | 126,622 | 1,900,544 | 1,900,544 |
 | `grib2-5.0-L/decode` | 65,160 | 4 | 130,331 | 130,499 | 1 | 16 | 1,889,658 | 12,613,827 | 17,648,418 | 3,735,552 | 3,735,552 |
@@ -369,10 +369,10 @@ that the count does not change.
 | `grib1-simple/decode` | 15 | 15 | holds |
 | `grib1-simple/place` | 3 | 3 | holds |
 | `grib1-spectral-complex/open` | 3 | 3 | holds |
-| `grib1-spectral-complex/decode` | 22 | 22 | holds |
+| `grib1-spectral-complex/decode` | 24 | 24 | holds |
 | `grib1-spectral-complex/place` | 4 | 4 | holds |
 | `grib1-spectral-simple/open` | 3 | 3 | holds |
-| `grib1-spectral-simple/decode` | 21 | 21 | holds |
+| `grib1-spectral-simple/decode` | 23 | 23 | holds |
 | `grib1-spectral-simple/place` | 4 | 4 | holds |
 | `grib2-5.0/open` | 3 | 3 | holds |
 | `grib2-5.0/decode` | 16 | 16 | holds |
@@ -493,8 +493,8 @@ Instructions at `L` over `S`. Proportional work is a ratio of about 4
 |---|---:|---:|---:|
 | `grib1-second-order/decode` | 3,360,995 | 12,307,674 | 3.66 |
 | `grib1-simple/decode` | 3,236,151 | 12,613,719 | 3.90 |
-| `grib1-spectral-complex/decode` | 135,161,342 | 303,913,181 | 2.25 |
-| `grib1-spectral-simple/decode` | 135,074,644 | 303,715,142 | 2.25 |
+| `grib1-spectral-complex/decode` | 122,294,120 | 253,298,906 | 2.07 |
+| `grib1-spectral-simple/decode` | 122,194,633 | 253,051,139 | 2.07 |
 | `grib2-5.0/decode` | 3,235,616 | 12,613,827 | 3.90 |
 | `grib2-5.0/warp` | 7,029,994 | 27,727,741 | 3.94 |
 | `grib2-5.0/render` | 1,804,418 | 6,641,486 | 3.68 |
