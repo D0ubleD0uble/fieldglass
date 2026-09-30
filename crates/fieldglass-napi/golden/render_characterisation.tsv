@@ -1265,60 +1265,60 @@ netcdf/hdf5_phony_dims.h5#d_6x4	render/source/nearest	ok w=4 h=6 opaque=24	80b13
 netcdf/hdf5_szip.h5	file	parsed=true fields=12	2bedaa0631cb8fc5
 netcdf/hdf5_szip.h5#f4_ppb18	combine/a_minus_b/render/source/nearest	ok w=36 h=4 opaque=144	671ca8209f2c3d54
 netcdf/hdf5_szip.h5#f4_ppb18	meta	family=latlon ni=36 nj=4 reprojectable=false	679a254683e40480
-netcdf/hdf5_szip.h5#f4_ppb18	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#f4_ppb18	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#f4_ppb18	render/source/nearest	ok w=36 h=4 opaque=144	678701d94b438a7b
 netcdf/hdf5_szip.h5#f8_ppb18	combine/a_minus_b/render/source/nearest	ok w=20 h=5 opaque=100	174af12b4ac5e539
 netcdf/hdf5_szip.h5#f8_ppb18	meta	family=latlon ni=20 nj=5 reprojectable=false	e1ae1826c25a9d5b
-netcdf/hdf5_szip.h5#f8_ppb18	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#f8_ppb18	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#f8_ppb18	render/source/nearest	ok w=20 h=5 opaque=100	9e8e2402e893d485
 netcdf/hdf5_szip.h5#f8_ppb8	combine/a_minus_b/render/source/nearest	ok w=16 h=8 opaque=128	eb3ca5a78b49321e
 netcdf/hdf5_szip.h5#f8_ppb8	meta	family=latlon ni=16 nj=8 reprojectable=false	f641a05031f83740
-netcdf/hdf5_szip.h5#f8_ppb8	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#f8_ppb8	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#f8_ppb8	render/source/nearest	ok w=16 h=8 opaque=128	ab4ddb1f027d05aa
 netcdf/hdf5_szip.h5#i2_ppb10	combine/a_minus_b/render/source/nearest	ok w=40 h=6 opaque=240	89587ef0cb31b649
 netcdf/hdf5_szip.h5#i2_ppb10	meta	family=latlon ni=40 nj=6 reprojectable=false	80d377fa8880bd76
-netcdf/hdf5_szip.h5#i2_ppb10	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#i2_ppb10	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#i2_ppb10	render/source/nearest	ok w=40 h=6 opaque=240	00bbfcee7f75f0da
 netcdf/hdf5_szip.h5#i2_ppb16	combine/a_minus_b/render/source/nearest	ok w=32 h=16 opaque=512	83ca3c1d2230afae
 netcdf/hdf5_szip.h5#i2_ppb16	meta	family=latlon ni=32 nj=16 reprojectable=false	c4db12deb3284f58
-netcdf/hdf5_szip.h5#i2_ppb16	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#i2_ppb16	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#i2_ppb16	render/source/nearest	ok w=32 h=16 opaque=512	f9b0eb679d7238e6
 netcdf/hdf5_szip.h5#i4_precision16	combine/a_minus_b/render/source/nearest	ok w=16 h=8 opaque=128	eb3ca5a78b49321e
 netcdf/hdf5_szip.h5#i4_precision16	meta	family=latlon ni=16 nj=8 reprojectable=false	f641a05031f83740
-netcdf/hdf5_szip.h5#i4_precision16	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#i4_precision16	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#i4_precision16	render/source/nearest	ok w=16 h=8 opaque=128	c8420f0bfce7894a
 netcdf/hdf5_szip.h5#i4be_ppb32	combine/a_minus_b/render/source/nearest	ok w=64 h=8 opaque=512	c6b75c529a8d0a17
 netcdf/hdf5_szip.h5#i4be_ppb32	meta	family=latlon ni=64 nj=8 reprojectable=false	3c40d6af33238770
-netcdf/hdf5_szip.h5#i4be_ppb32	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#i4be_ppb32	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#i4be_ppb32	render/source/nearest	ok w=64 h=8 opaque=512	c37eae0b747280f2
 netcdf/hdf5_szip.h5#incompressible	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	03cee7ac9f47a416
 netcdf/hdf5_szip.h5#incompressible	meta	family=latlon ni=8 nj=8 reprojectable=false	c0ba5ca92d7918d8
-netcdf/hdf5_szip.h5#incompressible	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#incompressible	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#incompressible	render/source/nearest	ok w=8 h=8 opaque=64	62dc8623e0f26673
 netcdf/hdf5_szip.h5#partial_scanline	combine/a_minus_b/render/source/nearest	ok w=1500 h=2 opaque=3000	8325e88fd440a374
 netcdf/hdf5_szip.h5#partial_scanline	meta	family=latlon ni=1500 nj=2 reprojectable=false	d66f918ae098c3f1
-netcdf/hdf5_szip.h5#partial_scanline	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#partial_scanline	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#partial_scanline	render/source/nearest	ok w=1500 h=2 opaque=3000	7d72fd11ef48b6b7
 netcdf/hdf5_szip.h5#pps_not_multiple	combine/a_minus_b/render/source/nearest	ok w=25 h=4 opaque=100	cb0afde4775483b3
 netcdf/hdf5_szip.h5#pps_not_multiple	meta	family=latlon ni=25 nj=4 reprojectable=false	05b315fa3bed7ba5
-netcdf/hdf5_szip.h5#pps_not_multiple	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#pps_not_multiple	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#pps_not_multiple	render/source/nearest	ok w=25 h=4 opaque=100	e08fbb2053f8b445
 netcdf/hdf5_szip.h5#shuffle_szip	combine/a_minus_b/render/source/nearest	ok w=32 h=8 opaque=256	9e119f95b4468f64
 netcdf/hdf5_szip.h5#shuffle_szip	meta	family=latlon ni=32 nj=8 reprojectable=false	230545e40bcb4350
-netcdf/hdf5_szip.h5#shuffle_szip	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#shuffle_szip	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#shuffle_szip	render/source/nearest	ok w=32 h=8 opaque=256	5aa9309bbb4c57c0
 netcdf/hdf5_szip.h5#u1_ppb8	combine/a_minus_b/render/source/nearest	ok w=32 h=8 opaque=256	9e119f95b4468f64
 netcdf/hdf5_szip.h5#u1_ppb8	meta	family=latlon ni=32 nj=8 reprojectable=false	230545e40bcb4350
-netcdf/hdf5_szip.h5#u1_ppb8	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip.h5#u1_ppb8	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#u1_ppb8	render/source/nearest	ok w=32 h=8 opaque=256	df616d78e423a87a
 netcdf/hdf5_szip_hand.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_szip_hand.h5#rsi1_f4	combine/a_minus_b/render/source/nearest	ok w=16 h=4 opaque=64	a32685d0178802c6
 netcdf/hdf5_szip_hand.h5#rsi1_f4	meta	family=latlon ni=16 nj=4 reprojectable=false	158057b51d053a44
-netcdf/hdf5_szip_hand.h5#rsi1_f4	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip_hand.h5#rsi1_f4	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip_hand.h5#rsi1_f4	render/source/nearest	ok w=16 h=4 opaque=64	91729e818f0eb33f
 netcdf/hdf5_szip_hand.h5#rsi1_i2	combine/a_minus_b/render/source/nearest	ok w=5 h=8 opaque=40	e51202dbbbeb1ea8
 netcdf/hdf5_szip_hand.h5#rsi1_i2	meta	family=latlon ni=5 nj=8 reprojectable=false	82658c4e2679a475
-netcdf/hdf5_szip_hand.h5#rsi1_i2	render/equirectangular/nearest	err: missing latFirst	d6e947bf16a3ed58
+netcdf/hdf5_szip_hand.h5#rsi1_i2	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip_hand.h5#rsi1_i2	render/source/nearest	ok w=5 h=8 opaque=40	1c69f2a909bd9286
 netcdf/hdf5_szip_long_stream.h5	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/hdf5_szip_long_stream.h5#f8_long_stream	combine/a_minus_b/render/source/nearest	err: parse error: szip decompress failed: an szip output of # bytes is shorter than its stream of #- or #-bit pixels: # bytes are left after the last pixel	21b7b0239821cc8d
