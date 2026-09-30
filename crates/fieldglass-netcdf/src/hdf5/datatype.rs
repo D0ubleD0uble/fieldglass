@@ -55,7 +55,12 @@ pub enum DatatypeClass {
 }
 
 /// Decoded element type of a dataset or attribute.
+///
+/// `#[non_exhaustive]`: the datatype message has more properties than these
+/// (#795 added the bit offset and precision), so a caller outside this crate
+/// gets one from [`decode`] rather than building it field by field.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Datatype {
     /// Which of the three supported classes this is.
     pub class: DatatypeClass,
@@ -300,6 +305,8 @@ fn check_ieee_layout(body: &[u8], bit_field: u32, size: u32) -> Result<(), Field
         _ => (63, 52, 11, 52, 1023),
     };
     let found = FloatLayout {
+        // Bit 6 (VAX order) is defined only from datatype message version 3;
+        // refusing it on an older message too is deliberately conservative.
         vax_order: bit_field & 0x40 != 0,
         normalization: (bit_field >> 4) & 0x03,
         sign: (bit_field >> 8) & 0xff,
@@ -455,7 +462,7 @@ impl Datatype {
     /// Whether this is a fixed-point type whose value does not fill its
     /// container: a non-zero bit offset, or a precision short of `size` bytes.
     /// Only then does [`Self::element_bits`] do more than a plain read.
-    fn is_packed(&self) -> bool {
+    pub(crate) fn is_packed(&self) -> bool {
         self.class == DatatypeClass::FixedPoint
             && (self.bit_offset != 0 || u64::from(self.bit_precision) != u64::from(self.size) * 8)
     }
@@ -470,16 +477,31 @@ impl Datatype {
     /// other type (floats, and integers that fill their container, which is
     /// nearly every real file) takes a plain typed read instead: this runs once
     /// per element of a variable, and for those types the two agree bit for
-    /// bit (`full_width_fast_path_agrees_with_element_bits` pins that).
+    /// bit (`full_width_fast_path_agrees_with_element_bits` pins that). The
+    /// dataset decode in this crate makes that choice once per variable
+    /// (crate-private `is_packed`) and calls the matching reader directly.
     pub fn read_element_f64(&self, bytes: &[u8]) -> Option<f64> {
         if self.is_packed() {
-            let bits = self.element_bits(bytes)?;
-            return Some(if self.signed {
-                bits as i64 as f64
-            } else {
-                bits as f64
-            });
+            self.read_packed_f64(bytes)
+        } else {
+            self.read_full_width_f64(bytes)
         }
+    }
+
+    /// [`Self::read_element_f64`] for a packed fixed-point type: the value
+    /// [`Self::element_bits`] extracts, as a signed or unsigned integer.
+    pub(crate) fn read_packed_f64(&self, bytes: &[u8]) -> Option<f64> {
+        let bits = self.element_bits(bytes)?;
+        Some(if self.signed {
+            bits as i64 as f64
+        } else {
+            bits as f64
+        })
+    }
+
+    /// [`Self::read_element_f64`] for every type that is not packed: a plain
+    /// typed read of the container in its byte order.
+    pub(crate) fn read_full_width_f64(&self, bytes: &[u8]) -> Option<f64> {
         let big_endian = self.byte_order == Some(ByteOrder::BigEndian);
         macro_rules! read {
             ($ty:ty) => {{
