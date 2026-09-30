@@ -86,7 +86,8 @@ pub mod shuffle;
 #[path = "../../fieldglass-core/src/groups.rs"]
 pub mod groups;
 
-// The presence bitmaps of both GRIB editions (#202). It names only
+// The presence bitmaps of both GRIB editions, and the spreading of values
+// over them (#202, #785). It names only
 // `bits_model`, under Verus.
 #[path = "../../fieldglass-core/src/bitmap.rs"]
 pub mod bitmap;

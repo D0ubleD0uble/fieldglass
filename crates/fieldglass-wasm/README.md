@@ -256,12 +256,22 @@ names the Earth radius it declares. The figures below also carry the two
 changes merged after the table was last recorded (#781, #786), which between
 them added about 1,300 raw bytes.
 
+Spreading GRIB values over a bitmap through one proved function (#785) took
+712 raw bytes and 301 gzipped out of the baseline build (under 0.1%), and 720
+and 345 out of `+simd128`, measured against a build of the commit before it
+(#787) on the same machine:
+
+| Build | before `.wasm` | after `.wasm` | before gzipped | after gzipped |
+|---|---:|---:|---:|---:|
+| baseline | 1,514,338 | 1,513,626 | 574,707 | 574,406 |
+| `+simd128` | 1,498,791 | 1,498,071 | 569,029 | 568,684 |
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,514,338 | 574,707 |
-| `+simd128` | 1,498,791 | 569,029 |
+| baseline | 1,513,626 | 574,406 |
+| `+simd128` | 1,498,071 | 568,684 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

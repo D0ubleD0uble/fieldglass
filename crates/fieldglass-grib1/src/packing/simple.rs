@@ -11,7 +11,9 @@ use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::{BDS_DATA_OFFSET, BdsHeader};
 
-use super::{Grib1Packing, interleave_with_bitmap, message_scaling, present_count};
+use super::{
+    Grib1Packing, interleave_with_bitmap, materialise_constant, message_scaling, present_count,
+};
 
 #[derive(Debug)]
 /// The [`Grib1Packing`] decoder for simple packing (`grid_simple`).
@@ -71,21 +73,6 @@ impl Grib1Packing for SimplePacking {
 
         let packed = &bds[BDS_DATA_OFFSET..header.section_len as usize];
         let decoded = unpack_simple(packed, n, &scaling, present)?;
-        Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
-    }
-}
-
-fn materialise_constant(
-    value: f64,
-    bitmap: Option<&[bool]>,
-    expected_count: usize,
-) -> Vec<Option<f64>> {
-    match bitmap {
-        Some(b) => b
-            .iter()
-            .take(expected_count)
-            .map(|present| if *present { Some(value) } else { None })
-            .collect(),
-        None => vec![Some(value); expected_count],
+        interleave_with_bitmap(decoded, bitmap, expected_count)
     }
 }

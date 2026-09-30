@@ -102,25 +102,44 @@ pub(crate) fn message_scaling(header: &BdsHeader, decimal_scale: i16) -> Scaling
     )
 }
 
-/// Interleave `None` at bitmap-masked points: walk the per-point `bitmap`,
-/// pulling the next decoded value where the bit is set and emitting `None`
-/// where it is clear. With no bitmap every decoded value is `Some`. Shared by
-/// the simple, IEEE, and matrix decoders.
+/// Spread the decoded values over the grid: with no bitmap every value is
+/// `Some`; with one, the `k`-th present point takes the `k`-th value and absent
+/// points are `None` (`fieldglass_core::bitmap::interleave_with_bitmap`, which
+/// is proved). The BDS holds one value per present point (FM 92, Section 4),
+/// which with no bitmap is every one of the `expected_count` points, so any
+/// other count is an error. Shared by the simple, IEEE, matrix and second-order
+/// decoders.
 pub(crate) fn interleave_with_bitmap(
     decoded: Vec<f64>,
     bitmap: Option<&[bool]>,
     expected_count: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    match bitmap {
+        None if decoded.len() != expected_count => Err(FieldglassError::Parse(format!(
+            "BDS decoded {} values but the grid has {expected_count} points",
+            decoded.len()
+        ))),
+        None => Ok(decoded.into_iter().map(Some).collect()),
+        Some(b) => fieldglass_core::bitmap::interleave_with_bitmap(&decoded, b).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "BDS decoded {} values but the bit-map marks {} points present",
+                decoded.len(),
+                fieldglass_core::bitmap::count_present(b)
+            ))
+        }),
+    }
+}
+
+/// A constant field (`bits_per_value == 0`): every present point equals
+/// `value`, and bitmap-masked points are `None`.
+pub(crate) fn materialise_constant(
+    value: f64,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
 ) -> Vec<Option<f64>> {
     match bitmap {
-        None => decoded.into_iter().map(Some).collect(),
-        Some(b) => {
-            let mut out = Vec::with_capacity(expected_count);
-            let mut iter = decoded.into_iter();
-            for present in b.iter().take(expected_count) {
-                out.push(if *present { iter.next() } else { None });
-            }
-            out
-        }
+        Some(b) => fieldglass_core::bitmap::fill_present(value, b),
+        None => vec![Some(value); expected_count],
     }
 }
 
@@ -202,24 +221,37 @@ pub(crate) fn finalize_stored_order(
         fieldglass_core::reverse_alternate_runs(&mut scaled, runs);
     }
 
-    match bitmap {
-        None => {
-            if scaled.len() != expected_count {
-                return Err(FieldglassError::Parse(format!(
-                    "second-order decoded {} values but {} expected",
-                    scaled.len(),
-                    expected_count
-                )));
-            }
-            Ok(scaled.into_iter().map(Some).collect())
+    interleave_with_bitmap(scaled, bitmap, expected_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One value per present point, or per grid point with no bit-map (FM 92,
+    /// Section 4): any other count is a parse error, never padding or
+    /// truncation.
+    #[test]
+    fn interleave_refuses_a_wrong_value_count() {
+        let bitmap = [true, false, true];
+        for result in [
+            interleave_with_bitmap(vec![1.0], Some(&bitmap), 3),
+            interleave_with_bitmap(vec![1.0, 2.0, 3.0], Some(&bitmap), 3),
+            interleave_with_bitmap(vec![1.0, 2.0], None, 3),
+            interleave_with_bitmap(vec![1.0; 4], None, 3),
+        ] {
+            assert!(
+                matches!(result, Err(FieldglassError::Parse(_))),
+                "got {result:?}"
+            );
         }
-        Some(b) => {
-            let mut out = Vec::with_capacity(expected_count);
-            let mut iter = scaled.into_iter();
-            for present in b.iter().take(expected_count) {
-                out.push(if *present { iter.next() } else { None });
-            }
-            Ok(out)
-        }
+        assert_eq!(
+            interleave_with_bitmap(vec![1.0, 2.0], Some(&bitmap), 3).unwrap(),
+            vec![Some(1.0), None, Some(2.0)]
+        );
+        assert_eq!(
+            interleave_with_bitmap(vec![1.0, 2.0], None, 2).unwrap(),
+            vec![Some(1.0), Some(2.0)]
+        );
     }
 }

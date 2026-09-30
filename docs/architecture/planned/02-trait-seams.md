@@ -402,7 +402,7 @@ flowchart LR
         t1a["core::scaling red_scale, unpack_simple #199"]
         t1b["core::spatial_diff apply_spd_inverse #200"]
         t1c["core::groups expand_complex_groups, expand_groups_into #201"]
-        t2a["core::bitmap unpack_bitmap, count_present #202"]
+        t2a["core::bitmap unpack_bitmap, count_present #202, interleave_with_bitmap #785"]
         t2b["core::shuffle unshuffle, shuffle #203"]
         t3["classic read_slab / record_size #204"]
     end
