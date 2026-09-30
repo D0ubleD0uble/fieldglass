@@ -94,9 +94,11 @@ zarr = ["dep:fieldglass-zarr"]
 render = ["fieldglass-core/render"]
 analysis = ["fieldglass-core/analysis"]
 
-# JSON Schema derives on every API type (ADR-0006 decision 2), which is what a
-# host's `.d.ts` is generated from. Off for the wasm host, whose bundle pays for
-# every byte and whose declarations come from wasm-bindgen.
+# JSON Schema derives on every API type (ADR-0006 decision 2), which is what the
+# hosts' TypeScript declarations are generated from (#574). Needed only to
+# *record* the schema: `tests/api_rules.rs` writes it to `schema/api.schema.json`
+# and `tools/gen_api_declarations.py` reads that file, so both hosts take this
+# crate without the feature and no `.node` or `.wasm` carries `schemars`.
 schema = ["dep:schemars"]
 
 # Fetch planning (#461, ADR-0005 decision 5): the manifest dialects in both
