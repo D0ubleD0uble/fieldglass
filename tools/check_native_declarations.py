@@ -14,7 +14,7 @@ Both have happened. #659 added four methods to `ZarrHandle` and declared none of
 them; the omission surfaced only because a throwaway assignability check was
 written for another reason.
 
-**Two properties, and only two.** This is a drift gate, not a TypeScript parser:
+**Three properties, and only three.** This is a drift gate, not a TypeScript parser:
 
 1. **No generated *method* is missing.** Every method on a generated class has a
    declaration, because a method the extension cannot call is a capability that
@@ -27,12 +27,25 @@ written for another reason.
    webview payloads and `SlicePanelHandle`, none of which napi generates.
 
 2. **Every field that *is* declared agrees, optionality included, and `| null` is
-   refused.** napi maps Rust `None` to
-   JavaScript `undefined`, so it generates `field?: T`. A hand-written
+   refused** — on a `#[napi(object)]`, which is what napi generates an
+   interface for. napi maps such an object's Rust `None` to JavaScript
+   `undefined`, so it generates `field?: T`. A hand-written
    `field: T | null` type-checks and then fails *open* at every `!== null`
    guard — which is how a grid-less GRIB1 spectral message crashed the editor
    with `undefined.toFixed()` (#288, fixed in #289). That is the one bug this
    file exists to make impossible.
+
+   The API's own types are the other kind (#574). The addon returns them
+   through serde (`#[napi(ts_return_type = "MessageInfo")]` over a
+   `serde_json::Value`), which keeps every key and writes `null` for `None`, so
+   their declarations are `field: T | null` and are *generated* from the Rust
+   schema into `extension/src/api.generated.ts` rather than written here.
+   napi emits no interface for them, so property 2 never sees them.
+
+3. **Every type a generated signature names is declared somewhere.** A
+   `ts_return_type` puts a name into `index.d.ts` that napi does not declare
+   itself; it must be one `api.generated.ts` exports, or the method's return
+   type is a name nothing defines — which `skipLibCheck` would let through.
 
 Types beyond optionality are compared only after normalising the spellings the
 two generators legitimately differ on (`Array<T>` against `T[]`); anything else
@@ -54,6 +67,22 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 GENERATED = REPO / "extension" / "bin" / "index.d.ts"
 HANDWRITTEN = REPO / "extension" / "src" / "native.ts"
+# The API's wire types, generated from the Rust schema (#574).
+API_GENERATED = REPO / "extension" / "src" / "api.generated.ts"
+
+# Names a generated signature may use without anything in the repo declaring
+# them: the language's and Node's own.
+GLOBAL_TYPES = {
+    "Array",
+    "Buffer",
+    "Float32Array",
+    "Float64Array",
+    "Int32Array",
+    "Promise",
+    "Record",
+    "Uint8Array",
+    "Uint32Array",
+}
 
 # Spellings the two sides legitimately differ on. Left is what napi generates.
 TYPE_ALIASES: dict[str, str] = {
@@ -75,7 +104,9 @@ IGNORED_GENERATED: dict[str, str] = {
 # `T?`. **This is a ratchet, not an exemption**: the check fails when a field is
 # added to this list's shape without being listed, *and* when a listed field stops
 # diverging — so #574, which deletes `MessageMeta` outright, empties this list and
-# is forced to say so.
+# is forced to say so. That is its last PR (the extension moving onto
+# `MessageInfo`); the earlier one added `message(i)`, which returns `MessageInfo`
+# with real nulls and so needs no entry here, and left `MessageMeta` unchanged.
 #
 # Latent rather than live: no current guard in the extension compares any of these
 # with `!== null` (the four strict-null comparisons that exist are either on local
@@ -330,7 +361,35 @@ def check() -> list[str]:
                     f"{name}.{field}: napi generates `{gen_ty}` and native.ts declares "
                     f"`{hand_ty}`"
                 )
+
+    # --- 3. A name a generated signature uses is declared somewhere -----------
+    declared_by_napi = set(DECLARED_RE.findall(gen))
+    exported_by_api = (
+        set(DECLARED_RE.findall(strip_comments(API_GENERATED.read_text(encoding="utf-8"))))
+        if API_GENERATED.is_file()
+        else set()
+    )
+    # String literals first: a capitalised word inside `"…"` (a literal union
+    # napi copies from a `ts_type`) names no type.
+    code = re.sub(r""""(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'""", '""', gen)
+    for used in sorted(set(TYPE_NAME_RE.findall(code)) - declared_by_napi - GLOBAL_TYPES):
+        if used not in exported_by_api:
+            problems.append(
+                f"index.d.ts names `{used}`, which neither it nor {shown(API_GENERATED)} "
+                "declares — a `ts_return_type` naming an API type that is not in the "
+                "schema, or a generated file that is stale (python3 "
+                "tools/gen_api_declarations.py)"
+            )
     return problems
+
+
+# `export interface X`, `export declare class X`, `export type X = …`, …
+DECLARED_RE = re.compile(
+    r"export\s+(?:declare\s+)?(?:const\s+)?(?:class|interface|type|enum|function|const)\s+"
+    r"([A-Za-z_][A-Za-z0-9_]*)"
+)
+# A capitalised identifier, which in a declaration file is a type name.
+TYPE_NAME_RE = re.compile(r"\b[A-Z][A-Za-z0-9_]*\b")
 
 
 def main() -> int:

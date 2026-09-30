@@ -36,8 +36,12 @@ crate-type = ["cdylib"]
 # which has no dev-dependencies. A feature the shipped addon needs is a feature
 # the shipped addon asks for.
 fieldglass         = { path = "../fieldglass",        version = "=0.5.0", default-features = false, features = ["grib1", "grib2", "netcdf", "zarr", "render", "analysis"] }
-napi = { version = "3", features = ["napi6"] }
+# `serde-json` is how an API DTO crosses: a `serde_json::Value` becomes the plain
+# object it describes, with `null` for a Rust `None` and every key kept
+# (ADR-0006 decision 2, #574).
+napi = { version = "3", features = ["napi6", "serde-json"] }
 napi-derive = "3"
+serde_json = { workspace = true }
 
 [dev-dependencies]
 # The conformance suite (ADR-0006 decision 3, #573): the shipped addon does not
@@ -47,7 +51,6 @@ napi-derive = "3"
 # It forwards `netcdf`, which is why the library entry above must name that
 # feature itself — see the note there.
 fieldglass = { path = "../fieldglass", version = "=0.5.0", default-features = false, features = ["conformance"] }
-serde_json = { workspace = true }
 
 [build-dependencies]
 napi-build = "2"

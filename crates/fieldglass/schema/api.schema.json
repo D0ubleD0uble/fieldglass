@@ -1,0 +1,1432 @@
+{
+  "$defs": {
+    "Addressing": {
+      "description": "How a container is addressed: what a caller asks for to get a field.\n\nThe two shapes are not a detail of the format, they are what the format\n*is*. GRIB is a stream of self-describing messages, so a message index\nis the whole address. NetCDF and Zarr hold named variables of two or\nmore dimensions, so a field is a variable plus which axes are the\nhorizontal pair plus where the caller is standing on the others — four\nthings, and no ordering of them is more natural than another.\n\nA host asks this once, on open, and then knows which half of\n[`crate::Session`] applies. Everything downstream of a decode —\n`render`, `probe`, `contours`, `combine`, `warp`, `palette` — takes a\n[`Field`] and is the same for both.",
+      "oneOf": [
+        {
+          "const": "messages",
+          "description": "A flat list of messages: [`crate::Session::count`],\n[`crate::Session::message`], [`crate::Session::decode`].",
+          "type": "string"
+        },
+        {
+          "const": "variables",
+          "description": "Named variables over shared dimensions:\n[`crate::Session::variables`], [`crate::Session::dimensions`],\n[`crate::Session::decode_slice`].",
+          "type": "string"
+        }
+      ]
+    },
+    "AxisUnits": {
+      "description": "Units the [`Georef`] origin and spacing are expressed in.",
+      "oneOf": [
+        {
+          "const": "degrees",
+          "description": "Degrees **in the plane [`Georef::proj4`] names**, which for\n`latlon`, `gaussian` and `lookup` is geographic — `x0`/`dx` are\nlongitudes, `y0`/`dy` latitudes.\n\n`rotated_latlon` also reports degrees, and they are **not**\ngeographic: its CRS is a PROJ `ob_tran` and its corners are\nrotated-frame coordinates, which is the whole reason the frame is\nnamed. A host that read them as longitude and latitude would put a\nCOSMO domain in the Sahara. The unit is not enough on its own; the\nCRS beside it is what says what the degrees measure.",
+          "type": "string"
+        },
+        {
+          "const": "metres",
+          "description": "Projected families: `x0`/`y0` are the grid origin in the projection\nplane described by [`Georef::proj4`], with no false easting or\nnorthing, and `dx`/`dy` are metre spacings carrying the scan sign.",
+          "type": "string"
+        }
+      ]
+    },
+    "AxisValues": {
+      "description": "One axis of a variable, with the coordinate values along it (#171).\n\nWhat a host labels a cross-section's axes from: a plot of any two\ndimensions needs the numbers down its side and along its foot, and those\nare the 1-D coordinate array CF names after the dimension. `coordinates`\nis `None` when the container holds no such array — an axis is then its\nown index — and `units` is empty when it states none.",
+      "properties": {
+        "coordinates": {
+          "description": "The coordinate value at each index, in index order.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "dimension": {
+          "description": "The dimension's name, as the container spells it.",
+          "type": "string"
+        },
+        "length": {
+          "description": "How many points it has, whether or not it has coordinates.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "units": {
+          "description": "The coordinate array's own `units`, empty when it states none. For a\ntime axis this is the CF form, `hours since 2020-01-01`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dimension",
+        "length",
+        "coordinates",
+        "units"
+      ],
+      "type": "object"
+    },
+    "CombineOpInfo": {
+      "description": "One entry of the field-combine vocabulary: what a host's Compare picker\nshows and what it sends back.\n\n[`crate::combine_ops`] builds the whole list from\n[`CombineOp::ALL`](fieldglass_core::CombineOp::ALL), so both hosts offer\nthe same operations in the same order and an op added to the enum\nreaches each picker without either being edited (#342).",
+      "properties": {
+        "label": {
+          "description": "The menu label, e.g. `\"A − B\"`.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The stable wire tag, which is what\n[`Session::combine`](crate::Session::combine)'s host wrappers parse\nback — `\"a_minus_b\"`, `\"ratio\"`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "type": "object"
+    },
+    "DecodeOptions": {
+      "description": "How a decode should be shaped.",
+      "properties": {
+        "dtype": {
+          "$ref": "#/$defs/Dtype",
+          "default": "auto",
+          "description": "Element type to decode into. [`Dtype::Auto`] keeps the source's own\nwidth and is the only setting that never loses precision."
+        }
+      },
+      "type": "object"
+    },
+    "DimensionInfo": {
+      "description": "One dimension of an array dataset, as the file names it.\n\nShared: two variables that name the same dimension are on the same axis,\nwhich is what lets a host offer one time slider for a whole file rather\nthan one per variable.",
+      "properties": {
+        "length": {
+          "description": "How many points it has.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "The dimension's name, path-qualified for a nested group.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "length"
+      ],
+      "type": "object"
+    },
+    "Dtype": {
+      "description": "Which element type a caller wants back from a decode.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "Whatever the source supports losslessly — the default, and the only\nsetting that never discards precision.\n\n[`Values::F32`] comes back **only if every present value survives the\nround trip**, otherwise [`Values::F64`] does. That is stricter than\n\"the packing used 24 bits or fewer\", and deliberately so. A\nsimple-packed value is `(R + X·2ᴱ)·10⁻ᴰ`: at 24 bits the *ordinals*\nfit an `f32` mantissa, but the values need `log2(max|v| / 2ᴱ)` bits\nonce the reference value sits far from zero relative to the quantum,\nand a non-zero decimal scale factor makes the quantum a negative\npower of ten, which no binary float represents exactly at all.\nChecking the decoded numbers costs one pass and answers the question\nthe bit count only approximates: does this field fit?\n\nMasked cells do not participate — their value is not data.",
+          "type": "string"
+        },
+        {
+          "const": "f32",
+          "description": "Narrow to `f32` whatever the source was. The caller has decided the\nloss is acceptable (an `R32F` texture, say).",
+          "type": "string"
+        },
+        {
+          "const": "f64",
+          "description": "Widen to `f64` whatever the source was.",
+          "type": "string"
+        }
+      ]
+    },
+    "Error": {
+      "description": "Everything an API call can fail with.\n\nOne enum, not a per-operation family: a host maps errors once, and\n[`code`](Error::code) is the stable string it maps on. The `code` is part of\nthe API — a host may branch on it — while [`message`](Error::message) is\nprose and may be reworded.",
+      "oneOf": [
+        {
+          "description": "The bytes are not a container this build can open.",
+          "properties": {
+            "code": {
+              "const": "unsupported_format",
+              "type": "string"
+            },
+            "detail": {
+              "description": "What was detected instead, in prose.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "detail"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The container opened but a section did not parse.",
+          "properties": {
+            "code": {
+              "const": "decode",
+              "type": "string"
+            },
+            "detail": {
+              "description": "The underlying `core` error, rendered.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "detail"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A message index outside `0..count()`.",
+          "properties": {
+            "code": {
+              "const": "no_such_message",
+              "type": "string"
+            },
+            "count": {
+              "description": "How many messages the session actually holds.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "index": {
+              "description": "The index that was asked for.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "index",
+            "count"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The operation is defined but this message's family does not support it —\na grid with no geometry asked to warp, a spectral field asked to probe.",
+          "properties": {
+            "code": {
+              "const": "unsupported",
+              "type": "string"
+            },
+            "detail": {
+              "description": "Which operation, and what about this message refuses it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "detail"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The call belongs to the other addressing mode: a message index asked of\na variable dataset, or a slice asked of a message stream.\n\nDistinct from [`Self::NoSuchMessage`] on purpose. A NetCDF file holds no\nmessages *at all*, so answering \"index 0 is outside the 0 available\"\nwould tell a caller its index was wrong when its whole question was.\n[`crate::Session::addressing`] is what to ask first.",
+          "properties": {
+            "code": {
+              "const": "wrong_addressing",
+              "type": "string"
+            },
+            "detail": {
+              "description": "Which call was made, and what to call instead.",
+              "type": "string"
+            },
+            "expected": {
+              "description": "The mode this session is in, named as the wire value.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "expected",
+            "detail"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A source served fewer bytes than it was asked for.\n\nIts own code, not [`Self::Decode`], because the two call for opposite\nresponses: a truncated transfer is worth retrying and a corrupt file is\nnot. A buffer cannot produce this — the reader bounds-checks a range\nagainst the source's own size — so it means the host's transport came back\nshort, which is the one failure the host can do something about (#707).",
+          "properties": {
+            "at": {
+              "description": "Offset in the source the read began at.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "code": {
+              "const": "short_read",
+              "type": "string"
+            },
+            "got": {
+              "description": "How many bytes came back.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "wanted": {
+              "description": "How many were asked for.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "at",
+            "got",
+            "wanted"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A caller-supplied option is out of range or self-contradictory.",
+          "properties": {
+            "code": {
+              "const": "invalid_option",
+              "type": "string"
+            },
+            "detail": {
+              "description": "Which option, and what it would have had to be.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "detail"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Field": {
+      "description": "One decoded field: the values, where they sit, and what they are.\n\nThe host owns this. The façade keeps no decode cache — linear memory\nnever shrinks and an animation holds many fields — so a field is handed\nout once and passed back by reference to every operation that consumes\none.",
+      "properties": {
+        "georef": {
+          "$ref": "#/$defs/Georef",
+          "description": "Where the cells sit on the Earth."
+        },
+        "mask": {
+          "description": "One byte per cell: `1` present, `0` absent. Same length as `values`.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "ni": {
+          "description": "Grid columns.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nj": {
+          "description": "Grid rows.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parameter": {
+          "description": "The parameter's name, as the table that resolved it states it.\n\n# The unresolved-parameter contract\n\nWhen no table in this build resolves the message's parameter codes,\nthis is `Parameter <codes>` — the numeric codes that went\nunresolved, slash-separated, outermost first:\n\n| Format | Rendering | Codes |\n|---|---|---|\n| GRIB2 | `Parameter 209/10/0` | discipline / category / number |\n| GRIB1 | `Parameter 98/128/210` | centre / table version / id |\n\nThe codes rather than a bare `\"Unknown\"` because they are the only\nthing that tells a user *which* table is missing, and no other field\ncarries them: a host reads the discipline as a Code Table 0.0\n*name*, which is itself unresolved for a discipline no table\ndefines. This is the string every host shows — the umbrella, the\nwasm binding and the napi binding all render it from the format\ncrate's own `unresolved_parameter` (#633).\n\nEmpty only when the message has no parameter codes to name at all,\nwhich is a GRIB2 product template carrying no horizontal product\ncommon. [`units`](Self::units) is empty in both cases — an\nunresolved parameter has a name to show but no unit to state.",
+          "type": "string"
+        },
+        "stats": {
+          "$ref": "#/$defs/Stats",
+          "description": "Range and count over the present cells."
+        },
+        "units": {
+          "description": "The parameter's units as its table states them. Empty when the\nparameter did not resolve, or is dimensionless.",
+          "type": "string"
+        },
+        "values": {
+          "$ref": "#/$defs/Values",
+          "description": "The cell values in scan order, `ni * nj` of them. Read `mask`\nbefore a value: an absent cell still occupies its slot."
+        }
+      },
+      "required": [
+        "values",
+        "mask",
+        "ni",
+        "nj",
+        "georef",
+        "stats",
+        "parameter",
+        "units"
+      ],
+      "type": "object"
+    },
+    "Georef": {
+      "description": "Where a decoded field sits on the Earth, flattened to scalars.\n\nA browser map library needs two things and this carries both: a CRS it\ncan name ([`proj4`](Self::proj4)) and an affine placing the raster in\nthat CRS (`x0`, `y0`, `dx`, `dy`). Everything is `Option` because a\nfamily that cannot state it says so rather than guessing — a Gaussian\ngrid's rows are not uniformly spaced, so its `dy` is absent, and a grid\nthis build does not model has none of it.",
+      "properties": {
+        "axisUnits": {
+          "$ref": "#/$defs/AxisUnits",
+          "description": "What `x0` / `y0` / `dx` / `dy` are measured in."
+        },
+        "boundsLonlat": {
+          "description": "`[lat_min, lat_max, lon_min, lon_max]` in degrees. `lon_min` may\nfall below -180 (or `lon_max` above 180) to describe a window\nspanning the antimeridian; do not normalise it into range without\ncollapsing the span.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "corners": {
+          "description": "The first and last scanned grid points, as\n`[lat_first, lon_first, lat_last, lon_last]` (#726).\n\nThe corner pair a message list shows, and **not** a bounding box:\nthese are two diagonally opposite grid points in scan order, so\n`lat_last` may be less or greater than `lat_first`.\n[`bounds_lonlat`](Self::bounds_lonlat) is the extent.\n\nAn array for the reason `bounds_lonlat` is one, and in the order the\nname states. `None` when the family has no raster, or when the\nprojection cannot place its far corner — reported absent rather than\nclamped, so a host shows nothing instead of a plausible fiction.\n[`placement`](Self::placement) says which of the two it is.\n\nWhere the container states its corners they are reported as stated\n(see [`Georef::from_declared_corners`]), so a grid can carry a\ncorner pair and still be [`Placement::Unplaceable`]: the file wrote\nthe numbers down, and the projection it describes cannot use them.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "dx": {
+          "description": "Signed step between columns, in [`Georef::axis_units`].",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "dy": {
+          "description": "Signed step between rows. Negative for the usual north-to-south\nscan, so `y0 + j * dy` walks the rows as stored.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "description": "The grid itself, as `core` models it.\n\nThe scalars below are a flattened *view* of this, which is what a\nhost reads; this field is what the engine needs back to place a\npoint — `warp`, `probe`, and `contours` all invert through it, and\nthe inverse is a projection, not something four scalars reconstruct.\nKeeping the two together means a field carries everything an\noperation on it needs, which is the whole point of the host owning\nthe memory. It serialises, so a `Field` still survives a JSON round\ntrip whole.\n\n`core` does not derive `JsonSchema` (it is a decode-side crate and\nthe derive would follow it everywhere), so under the `schema`\nfeature this field is described as the tagged object it serialises\nto. A generated `.d.ts` types it loosely and a host does not read it.",
+          "properties": {
+            "kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "kind": {
+          "description": "The family tag `core` reports: `latlon`, `gaussian`, `mercator`,\n`rotated_latlon`, `lambert`, `polar_stereo`, `transverse_mercator`,\n`lambert_azimuthal`, `space_view`, `lookup`, or `unsupported`.",
+          "type": "string"
+        },
+        "label": {
+          "description": "The family name the **file** uses for its own grid — the decoder's\nown grid-type string, and what a grid-type column should show.\n\nUsually [`kind`](Self::kind), and deliberately not always. It is\nmore specific for a family this build does not place points on\n(`spherical_harmonic`, `healpix`, `unsupported(3.99)`, all of kind\n`unsupported`) and for the reduced families, whose rows are widened\nonto their regular sibling's raster before anything reads them:\na `reduced_gg` message is `kind` `gaussian` and `label`\n`reduced_gaussian`, which is what eccodes calls it and what the\nother host shows (#645).\n\nA field's own georef reports the grid its *values* are on, so a\nsynthesised raster is `latlon` in both — see\n[`MessageInfo::grid`](crate::api::MessageInfo::grid) for the other\nhalf of that split.",
+          "type": "string"
+        },
+        "ni": {
+          "description": "Grid columns (west-to-east point count of one row).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nj": {
+          "description": "Grid rows.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "periodicX": {
+          "description": "The grid closes on itself in the column axis: one column step past\nthe last column lands back on the first. A renderer wraps rather\nthan clamping there, or the seam meridian draws as a hole.",
+          "type": "boolean"
+        },
+        "placement": {
+          "$ref": "#/$defs/Placement",
+          "description": "Whether this grid can be placed on the Earth, and why not — the\nreason a `null` [`corners`](Self::corners) or\n[`bounds_lonlat`](Self::bounds_lonlat) is `null` (#776).\n\nComputed from [`geometry`](Self::geometry), the same geometry that\nfills `bounds_lonlat`, and never from the corners a container\nreports. Never [`Placement::PredefinedUnresolved`]."
+        },
+        "pointsPerRow": {
+          "description": "Points per row for a **reduced** grid — `PL`, the number of values\neach row really holds — and `None` for every other family (#244).\n\nA reduced grid's [`geometry`](Self::geometry) is its regular\nsibling's, widened to the widest row, which is what lets it reproject\nlike any other grid. The file's own points are fewer: an N32 reduced\nGaussian grid holds 6,114 values that the widened raster spreads over\n8,192 cells by repeating each short row's values. Anything that\nreports individual points rather than painting the raster needs this\nto report the file's.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "proj4": {
+          "description": "A PROJ string for the grid's own plane, for a map library that\ntakes one. `None` for a family this build does not name a CRS for.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reprojectable": {
+          "description": "Whether the grid can be reprojected: a host may offer map targets\nother than the grid's own coordinates, and the warp will place it.\n\n`core`'s `GridGeometry::reprojectable`, asked with\n[`scan`](Self::scan). **Its own field because it is not derivable\nfrom [`placement`](Self::placement) and [`kind`](Self::kind)**\n(#776). A placed grid can still decline: a lat/lon, Gaussian,\nMercator or rotated grid scanned east to west, because their inverse\nmaps assume columns run west to east, and a planar grid whose cell is\nlarger than the Earth radius the message declares. Deriving it in a\nhost would mean a family list and the scan rule in every host.",
+          "type": "boolean"
+        },
+        "scan": {
+          "additionalProperties": false,
+          "description": "The scan order the message's own flags state, so a consumer can\nwalk `values` without re-deriving it.\n\nA `core` type, like [`geometry`](Self::geometry), so it is described\nto a schema consumer the same way — but written out property by\nproperty rather than loosely, because a host reads these three and\n#574 generates its declarations from this schema.\n`the_scan_schema_names_every_field_scan_serialises` holds the two in\nstep.",
+          "properties": {
+            "iNegative": {
+              "type": "boolean"
+            },
+            "jConsecutive": {
+              "type": "boolean"
+            },
+            "jPositive": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "iNegative",
+            "jPositive",
+            "jConsecutive"
+          ],
+          "type": "object"
+        },
+        "x0": {
+          "description": "Plane coordinate of the first grid point's cell centre, along the\ncolumn axis. `None` when the family has no affine.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "y0": {
+          "description": "Plane coordinate of the first grid point's cell centre, along the\nrow axis.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "geometry",
+        "kind",
+        "label",
+        "ni",
+        "nj",
+        "boundsLonlat",
+        "corners",
+        "placement",
+        "reprojectable",
+        "pointsPerRow",
+        "proj4",
+        "axisUnits",
+        "x0",
+        "y0",
+        "dx",
+        "dy",
+        "periodicX",
+        "scan"
+      ],
+      "type": "object"
+    },
+    "Isoline": {
+      "description": "One level's isoline segments, in grid coordinates.",
+      "properties": {
+        "segments": {
+          "description": "`[i0, j0, i1, j1]` per segment, in fractional grid indices.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "value": {
+          "description": "The level these segments trace.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "segments"
+      ],
+      "type": "object"
+    },
+    "LeftOutArray": {
+      "description": "One array a container holds and this build will not read, and why.\n\nBeside [`crate::Session::variables`] rather than inside it: a host shows\nthese so a user can see *why* a name is absent from the list, instead of\nwondering whether the file has it. Not an error — a container reads every\narray it can and leaves the rest here (#709).",
+      "properties": {
+        "name": {
+          "description": "The array's name, spelled as a readable one would be, so a host can\nmatch it against the list it did get.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why, as the reader phrased it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "Line": {
+      "description": "One line through an array: its values along one axis, every other axis\nheld at an index (#172).\n\nA vertical profile or a time series at a grid point — the plot a viewer\ndraws beside a map when a user clicks a cell. The values are what\n[`crate::Session::decode_slice`] would report at that cell on each slice\nalong the axis, and a test holds the two to that.",
+      "properties": {
+        "coordinateUnits": {
+          "description": "The coordinate array's units, when there are coordinates.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coordinates": {
+          "description": "The axis's coordinate values, in index order — the times or levels to\nlabel the line against.\n\n`None` when the axis has no 1-D coordinate array of its own name, or\nwhen one of its values is absent: a coordinate with a hole has no\nhonest position to plot that point at, so the host falls back to\nindices rather than being handed a gap it would have to invent across.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "dimension": {
+          "description": "The axis the line runs along, named as the array names it.",
+          "type": "string"
+        },
+        "mask": {
+          "description": "One byte per point: `1` present, `0` absent. Same length as `values`.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "stats": {
+          "$ref": "#/$defs/Stats",
+          "description": "Range and count over the present points."
+        },
+        "units": {
+          "description": "The array's units, as its attributes state them.",
+          "type": "string"
+        },
+        "values": {
+          "$ref": "#/$defs/Values",
+          "description": "The values along the axis, in index order. Read `mask` before a\nvalue: an absent point still occupies its slot."
+        },
+        "variable": {
+          "description": "The array's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "values",
+        "mask",
+        "stats",
+        "variable",
+        "units",
+        "dimension",
+        "coordinates",
+        "coordinateUnits"
+      ],
+      "type": "object"
+    },
+    "MessageInfo": {
+      "description": "One message's metadata, built on demand.\n\nLazy by design: a thousand-message file should not serialise a thousand\nof these to open.",
+      "properties": {
+        "abbreviation": {
+          "description": "The table's short name for the parameter, e.g. `\"2t\"`. Empty when\nthe parameter did not resolve.",
+          "type": "string"
+        },
+        "dataType": {
+          "description": "The GRIB2 data type — analysis, forecast, reanalysis — named. `None`\nfor GRIB1.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "discipline": {
+          "description": "The GRIB2 discipline, named. `None` for GRIB1, which has no\ndiscipline.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "edition": {
+          "description": "The GRIB edition: 1 or 2.",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "forecast": {
+          "description": "Forecast time relative to `reference_time`, rendered — `\"+6h\"`, or\n`\"+30 Minute\"` for a unit the edition does not convert to hours.",
+          "type": "string"
+        },
+        "forecastHours": {
+          "description": "Forecast lead time in whole hours, `None` for a template that states\nnone.\n\n[`forecast`](Self::forecast) is the same fact rendered for display\n(\"+6 h\", an averaging interval, \"analysis\"); this is the number, for\na host that sorts or animates by it.",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "grid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Georef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The grid the message **declares**, not the one its field is decoded\nonto.\n\nThe two differ for the families that carry no raster of their own:\na spectral message declares a `\"spherical_harmonic\"` grid and a\nHEALPix one a `\"healpix\"` grid, both of kind `\"unsupported\"` —\nnothing places a point on either — while\n[`crate::Session::decode`] hands back a field on the synthesised\n`\"latlon\"` grid (#580). This is the message list's answer, so it\ndescribes the file; [`Field::georef`] is the field's, so it\ndescribes where the values are. [`size_label`](Self::size_label)\nnames the native shape beside it.\n\n`None` only for a GRIB1 message that carries no §2 at all and whose\n`pds.grid_number` is not a predefined grid this build's catalogue\nresolves — either 255, \"no predefined grid\", or a number outside the\ncatalogue. [`placement`](Self::placement) tells the two apart."
+        },
+        "index": {
+          "description": "Position in `0..Session::count()`; the handle every other call\ntakes.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "level": {
+          "description": "The level, rendered — `\"500 hPa\"`, `\"2 m above ground\"`.",
+          "type": "string"
+        },
+        "levelType": {
+          "description": "The level's surface type on its own, for grouping messages that\nshare a surface at different values.",
+          "type": "string"
+        },
+        "offsetBytes": {
+          "description": "Byte offset of the message's first byte within the container, so a\nhost can range-fetch this message alone on a later visit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "originatingCentre": {
+          "description": "The originating centre, named from the CCT common code table, or\n`Centre <n>` when the table has no entry.",
+          "type": "string"
+        },
+        "p1Octet": {
+          "description": "GRIB1's `P1` octet, when the time-range indicator is one that makes\nit a lead time rather than the second half of an interval.\n\n`None` for GRIB2, which has no such octet, and for GRIB1 time range\n10, where `P1` is a two-octet value and not this field.",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "packing": {
+          "description": "Which packing the data section uses, named — what decodes it, and\nthe first thing to look at when a decode is wrong.",
+          "type": "string"
+        },
+        "parameter": {
+          "description": "The parameter's name, under the same contract as\n[`Field::parameter`]: the table's name, or `Parameter <codes>`\nnaming the codes no table in this build resolved.",
+          "type": "string"
+        },
+        "placement": {
+          "$ref": "#/$defs/Placement",
+          "description": "Whether this message's **values** can be placed on the Earth, and\nwhy not (#776) — the answer a message list reads to decide whether\nit can draw the message at all.\n\nWhere the values land rather than what the file declares, which is\nthe difference from `grid.placement`. The two differ only for the\nfamilies whose values are synthesised onto a raster: a spectral or\nHEALPix message declares a `no_raster` grid, and its values land on\na global lat/lon one, so this is [`Placement::Placed`]. Always the\n[`Georef::placement`] [`crate::Session::place_message`] reports when\nthat call succeeds; `place_message_agrees_with_decode.rs` holds the\ntwo together over the corpus.\n\nWith no `grid`, this is [`Placement::PredefinedUnresolved`] when the\nmessage names a predefined grid this build cannot resolve, and\n[`Placement::NoRaster`] when it names none (grid number 255).\n\nPlaced is not decodable: a GRIB1 matrix-of-values or GRIB2\nbi-Fourier message is refused by [`crate::Session::decode`]\nwhatever this says, and the refusal names the call that reads it."
+        },
+        "productionStatus": {
+          "description": "The GRIB2 production status, named. `None` for GRIB1.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "referenceTime": {
+          "description": "Reference (analysis) time as RFC 3339. `None` when the message\ncarries no usable date.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reprojectable": {
+          "description": "Whether the grid this message's values land on can be reprojected —\nthe answer a projection picker reads, and\n[`Georef::reprojectable`] of the same grid\n[`placement`](Self::placement) describes. `false` when there is no\ngrid.\n\nLike `placement`, it is about the values: a spectral message's\ndeclared grid does not reproject and its synthesised lat/lon field\ndoes, so this is `true`.",
+          "type": "boolean"
+        },
+        "sizeLabel": {
+          "description": "How the file names its own grid where `Ni × Nj` is not how it is\ndescribed — `N32`, `O1280`, `T639`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subCentre": {
+          "description": "The sub-centre, named from the originating centre's own table, and\n`None` when there is no entry — which is the common case.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "totalLengthBytes": {
+          "description": "The length the message declares for itself, in bytes.\n\nDistinct from [`offset_bytes`](Self::offset_bytes), which says where\nit starts. Together they are the range a host would re-fetch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "units": {
+          "description": "Units as the parameter's table states them.",
+          "type": "string"
+        },
+        "uvRelativeToGrid": {
+          "description": "Whether this message's `u`/`v` components are resolved along the\ngrid's own axes rather than east and north (GRIB1 GDS octet 17 bit 5,\nGRIB2 §3 Flag Table 3.3 bit 5).\n\nWhat a vector plot must know before it draws an arrow (#241): a\ngrid-relative pair drawn as east/north points wrong by the grid's\nconvergence angle, which over a continental Lambert domain is tens of\ndegrees. HRRR and NAM set it. `None` for a message whose family\nstates no resolution flags, and for a container that is not GRIB.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "index",
+        "offsetBytes",
+        "parameter",
+        "abbreviation",
+        "units",
+        "level",
+        "levelType",
+        "referenceTime",
+        "forecast",
+        "packing",
+        "grid",
+        "placement",
+        "reprojectable",
+        "sizeLabel",
+        "forecastHours",
+        "p1Octet",
+        "originatingCentre",
+        "subCentre",
+        "edition",
+        "discipline",
+        "totalLengthBytes",
+        "productionStatus",
+        "dataType",
+        "uvRelativeToGrid"
+      ],
+      "type": "object"
+    },
+    "PaletteOptions": {
+      "description": "Colour, decided once in Rust and exported as data.",
+      "properties": {
+        "colormap": {
+          "default": null,
+          "description": "A colormap name `core` knows. Unknown names are an error rather than a\nsilent fallback: a host that misspells one should hear about it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "colormapTable": {
+          "default": null,
+          "description": "A colormap given as its 768-byte lookup table instead of by name, as\n[`RenderOptions::colormap_table`](crate::RenderOptions::colormap_table)\ndescribes, and refused on the same terms.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "max": {
+          "default": null,
+          "description": "High end of the display range. `None` takes the field's own maximum.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "min": {
+          "default": null,
+          "description": "Low end of the display range. `None` takes the field's own minimum.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "reversed": {
+          "default": false,
+          "description": "Walk the colormap high-to-low. Applied after `colormap` is resolved,\nso a reversed unknown name is still an error.",
+          "type": "boolean"
+        },
+        "scale": {
+          "default": null,
+          "description": "`\"linear\"` (default) or `\"log10\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Placement": {
+      "description": "Whether a grid can be placed on the Earth, and why not when it cannot\n(#776).\n\nThe reason [`Georef::corners`] alone does not give: a `null` corner pair\ncan mean there is nothing to place, or that there is a raster and the\nprojection cannot place it, and a host acts differently on the two. The\nfirst has nothing to draw. The second still draws in its own grid\ncoordinates and only the map is missing.\n\nA sibling of the value rather than a wrapper around it (#574's decision):\nthe corners stay a plain `[f64; 4] | null`, and this says which absence\na `null` is.",
+      "oneOf": [
+        {
+          "const": "placed",
+          "description": "The grid has a raster and its projection places at least part of it:\n[`Georef::bounds_lonlat`] is present.\n\nNot a promise that every cell has a position. A full-disc satellite\nimage is placed, and its corner pixels look past the Earth, so its\n[`Georef::corners`] is `null` while the disc itself is on the map.",
+          "type": "string"
+        },
+        {
+          "const": "no_raster",
+          "description": "There is genuinely nothing to place: the family carries no grid\npoints of its own (spectral coefficients, HEALPix pixels, bi-Fourier\ncoefficients), the grid declares zero columns or rows, or the\nmessage states no grid at all (GRIB1 predefined grid 255).\n\nNot \"this build cannot read the grid\": a template this build does not\nmodel is [`Unsupported`](Self::Unsupported), and a raster with no\nusable projection is [`Unplaceable`](Self::Unplaceable). Those two\nhave grid points; this one has none.\n\nOn a [`MessageInfo`] this is about where the *values* land, so a\nspectral or HEALPix message is [`Placed`](Self::Placed) there: its\nvalues are synthesised onto a global lat/lon raster, even though the\ngrid it declares is `no_raster`.",
+          "type": "string"
+        },
+        {
+          "const": "unplaceable",
+          "description": "There is a raster, and nothing places any of it on the Earth: a\npolar stereographic grid stating a zero grid step, a Lambert cone\nwhose standard parallels are both on the equator, a first point the\nforward map sends to infinity, a §3.90 camera that sees no Earth, or\na NetCDF, HDF5 or Zarr slice with no coordinates to place it by. The\ngrid still renders in its own grid coordinates; it has no position on\na map.",
+          "type": "string"
+        },
+        {
+          "const": "unsupported",
+          "description": "The message declares a grid in a template this build does not model\n(a GRIB2 §3 template such as 3.4 or 3.101, a GRIB1 data\nrepresentation type such as 90), so the grid has points and this\nbuild knows neither their shape nor where they are.\n\nKept apart from [`NoRaster`](Self::NoRaster) because the reasons\ndiffer and so does what fixes them: nothing makes a spectral field a\nraster, and support for the template would make this one placeable.\nNothing decodes it today, so a host offers no render.",
+          "type": "string"
+        },
+        {
+          "const": "predefined_unresolved",
+          "description": "A GRIB1 message with no grid description, identified only by a\npredefined grid number (WMO ON388 Table B) this build does not have\nin its catalogue. The message names a grid; this build cannot say\nwhich.\n\nOnly [`MessageInfo::placement`] reports this. A [`Georef`] exists\nonly once a grid is known, so its placement is never this one.",
+          "type": "string"
+        }
+      ]
+    },
+    "Probe": {
+      "description": "One point sampled out of a field.",
+      "properties": {
+        "i": {
+          "description": "Fractional column / row the point landed on.",
+          "format": "double",
+          "type": "number"
+        },
+        "j": {
+          "description": "Fractional row the point landed on.",
+          "format": "double",
+          "type": "number"
+        },
+        "lat": {
+          "description": "Latitude asked for, echoed back.",
+          "format": "double",
+          "type": "number"
+        },
+        "lon": {
+          "description": "Longitude asked for, echoed back.",
+          "format": "double",
+          "type": "number"
+        },
+        "value": {
+          "description": "`None` when the cell is masked.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "lat",
+        "lon",
+        "i",
+        "j",
+        "value"
+      ],
+      "type": "object"
+    },
+    "Raster": {
+      "description": "A painted raster: RGBA bytes plus the dimensions they cover.",
+      "properties": {
+        "height": {
+          "description": "Raster rows.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rgba": {
+          "description": "Non-premultiplied RGBA, `width * height * 4` bytes, row-major from the\ntop-left. Ready for `putImageData` or an `RGBA8` texture upload.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "width": {
+          "description": "Raster columns.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rgba",
+        "width",
+        "height"
+      ],
+      "type": "object"
+    },
+    "RenderOptions": {
+      "description": "How a field should be projected and painted.\n\nThe loose strings are deliberate and are the host's wire shape: a picker\nsends `\"equirectangular\"`, not an enum discriminant. [`ResolvedOptions`] is\nwhere they become a closed vocabulary, and an unrecognised one is an error\nthere rather than a silent fallback — a typo should say so instead of\npainting the wrong thing.\n\n`#[non_exhaustive]`, like every other option struct here, so start from\n[`Default`] and assign the fields the call needs.",
+      "properties": {
+        "boundsLatMax": {
+          "description": "North edge of the manual window — see\n[`bounds_lat_min`](Self::bounds_lat_min).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "boundsLatMin": {
+          "description": "South edge of a manual render window (degrees). All four must be `Some`\nand form a non-degenerate box, or the window falls back to the grid's\nown extent. `lon_min`/`lon_max` may lie outside [-180, 180] to describe a\nwindow that crosses the antimeridian.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "boundsLonMax": {
+          "description": "East edge of the manual window — see\n[`bounds_lat_min`](Self::bounds_lat_min).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "boundsLonMin": {
+          "description": "West edge of the manual window — see\n[`bounds_lat_min`](Self::bounds_lat_min).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "centerLat": {
+          "description": "Free-form projection centre for the azimuthal targets (degrees).\n`\"orthographic\"` reads both; `\"polar_stereographic\"` and the three world\ntargets read only [`center_lon`](Self::center_lon), as their central\nmeridian. Either field `None` falls back to the preset/default for that\ncomponent.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "centerLon": {
+          "description": "Free-form projection-centre longitude — see\n[`center_lat`](Self::center_lat).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "colormap": {
+          "description": "A colormap name `core` knows. `None` is the default map. An unknown name\nis an error rather than a silent fallback.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "colormapTable": {
+          "description": "A colormap given as its lookup table instead of by name: 768 bytes, 256\nRGB entries from the low end of the ramp to the high end. This is how an\nimported colour table reaches the painter — a host parses the file once\n(`fieldglass::parse_cpt`) and sends the table it compiles to — and it\ntakes [`reverse_colormap`](Self::reverse_colormap) like any named map.\n\nNaming a [`colormap`](Self::colormap) as well is an error rather than a\nguess at which one was meant, and so is a table of any other length.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "flipY": {
+          "description": "Paint row 0 at the bottom rather than the top.",
+          "type": "boolean"
+        },
+        "height": {
+          "description": "Output raster rows — the other half of [`width`](Self::width).\n\nThe pair is what a map view asks for: *this window at W × H pixels*. It\nis read by the two lat/lon-box targets (`\"equirectangular\"` and\n`\"web_mercator\"`) and, like every option in this struct, it is read the\nsame way by the render, the overlay projection, the contour projection\nand the pixel probe — so all four paint into one raster and a probe\nstill reads the cell the render painted.\n\nThree rules, each of them deliberate:\n\n* **Both or neither.** One alone is an [`Error::InvalidOption`], not a\n  silent fallback. The four `bounds_*` fields do fall back silently,\n  because three edges cannot make a box and \"the grid's own extent\" is\n  the natural completion; a width with no height has no such completion\n  that is not invented.\n* **An explicit size is the answer.** It bypasses both\n  [`MIN_REPROJECTED_LONG_EDGE`] and the window-shaped sizing a\n  coordinate-lookup grid gets, so 512 × 512 is 512 × 512. A caller that\n  wants the floor is the caller that leaves these unset.\n* **Ignored by every other target.** The azimuthal and world ones size\n  themselves from the aspect their projection fixes — a square for the\n  discs, the projection's own ratio for Mollweide, Robinson and Equal\n  Earth — and `\"source\"` paints the array as stored, at `ni × nj`, which\n  is the one view whose whole point is that nothing resampled it. Naming\n  a size for any of them is not an error, the same way naming a\n  [`projection_preset`](Self::projection_preset) on a box target is not.\n\nZero on either axis, and a raster past this target's allocation ceiling\n(`isize::MAX` bytes — 2 GB on wasm32, where a pixel count well inside\n`u32` can still be too many bytes), are refused rather than allocated. A\nraster that merely will not fit in the memory available is the caller's\nown budget.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "projection": {
+          "description": "Which target to paint into: `\"source\"`, `\"equirectangular\"`,\n`\"web_mercator\"`, `\"orthographic\"`, `\"polar_stereographic\"`,\n`\"mollweide\"`, `\"robinson\"` or `\"equal_earth\"`.",
+          "type": "string"
+        },
+        "projectionPreset": {
+          "description": "Preset selector for the parameterised targets. `\"orthographic\"` reads a\ncentre preset (`\"atlantic\"` (0°N 0°E, default), `\"indian\"` (0°N 90°E),\n`\"pacific\"` (0°N 180°E), `\"americas\"` (0°N 270°E), `\"north_pole\"`,\n`\"south_pole\"`); `\"polar_stereographic\"` reads a hemisphere preset\n(`\"north\"` (default), `\"south\"`). Ignored by the lat/lon-box targets.\n`None`/unknown falls back to the default.\n\nSuperseded by [`center_lat`](Self::center_lat) /\n[`center_lon`](Self::center_lon) when those are supplied: the free-form\ncentre wins, the preset is only the fallback.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rangeMax": {
+          "description": "High end of the manual range — see [`range_min`](Self::range_min).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rangeMin": {
+          "description": "Low end of a manual display range. When either end is `None` the caller\ntakes the computed min/max over the present cells.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "resampling": {
+          "description": "`\"nearest\"` or `\"bilinear\"`. A grid that is a list of cell centres\ndowngrades to nearest whatever this says, since its index-adjacent cells\nneed not be spatially adjacent.",
+          "type": "string"
+        },
+        "reverseColormap": {
+          "description": "Walk the colormap high-to-low. `None` is `false`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "scaleMode": {
+          "description": "`\"linear\"` (default) or `\"log10\"`. `None` is linear; anything else is an\nerror, matching the colormap field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "width": {
+          "description": "Output raster columns for the lat/lon-box targets (#465). `None` keeps\nthe sizing described on [`height`](Self::height).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "projection",
+        "resampling",
+        "flipY"
+      ],
+      "type": "object"
+    },
+    "SourceFormat": {
+      "description": "The container a session was opened from.\n\nNamed for the source rather than `Format` so it does not collide with\n`core`'s detection enum, which also answers NetCDF and \"unknown\" — this\none enumerates only what a session can actually be.\n\n**Not gated by the format features (#552).** It is the wire vocabulary a\nhost compares strings against, and dropping a variant with its decoder\nwould change the JSON schema for every consumer of the shipped\ndeclarations. A build without `grib1` simply never constructs\n[`SourceFormat::Grib1`], because it never opens a session over one.",
+      "oneOf": [
+        {
+          "const": "grib1",
+          "description": "WMO FM 92 GRIB edition 1.",
+          "type": "string"
+        },
+        {
+          "const": "grib2",
+          "description": "WMO FM 92 GRIB edition 2.",
+          "type": "string"
+        },
+        {
+          "const": "netcdf",
+          "description": "NetCDF, either classic (CDF-1/2/5) or NetCDF-4 over HDF5.\n\nSpelled `netcdf` on the wire, not the `snake_case` derive's\n`net_cdf`: the other two variants are `grib1` and `grib2`, and a\nhost comparing strings should not have to remember that one of the\nthree grew an underscore from how the Rust identifier is\ncapitalised. Pinned rather than left to the rename rule because this\nis the vocabulary the JSON schema publishes; #662 added the variant\nand it has not shipped in a release, so this is the last moment\nchanging it is free.",
+          "type": "string"
+        },
+        {
+          "const": "zarr",
+          "description": "A Zarr store, v2 or v3, opened from its objects with\n`Session::open_store` (#704, behind the `zarr` feature).",
+          "type": "string"
+        }
+      ]
+    },
+    "Stats": {
+      "description": "Range and count of the present cells. Absent cells are excluded, so an\nall-masked field reports no range at all rather than `±inf`.",
+      "properties": {
+        "max": {
+          "description": "Largest present value. `None` when no cell is present.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "min": {
+          "description": "Smallest present value. `None` when no cell is present.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "validCount": {
+          "description": "How many cells are present, i.e. the count of `1`s in the mask.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min",
+        "max",
+        "validCount"
+      ],
+      "type": "object"
+    },
+    "Values": {
+      "description": "Decoded values, in whichever element type the source supports.",
+      "oneOf": [
+        {
+          "description": "Single precision — what a source packed to 32 bits or fewer decodes\nto, and what [`Dtype::F32`] forces.",
+          "properties": {
+            "data": {
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "dtype": {
+              "const": "f32",
+              "type": "string"
+            }
+          },
+          "required": [
+            "dtype",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Double precision — an IEEE-64 source, or [`Dtype::F64`].",
+          "properties": {
+            "data": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "dtype": {
+              "const": "f64",
+              "type": "string"
+            }
+          },
+          "required": [
+            "dtype",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "VariableInfo": {
+      "description": "One renderable variable of an array dataset.",
+      "properties": {
+        "detectedTimeDim": {
+          "description": "Which axis is time: the one whose coordinate the file's conventions\nmark as time (`axis = \"T\"`, `standard_name = \"time\"`, or units of the\nform `hours since …`), or one named `time`. Never an image axis. What\na host animates along (#170).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "detectedXDim": {
+          "description": "The longitude half of [`Self::detected_y_dim`], under the same rule.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "detectedYDim": {
+          "description": "Which axis the file's own conventions say is latitude, when they say\nso. `None` for a WRF or satellite file, whose horizontal axes are\nprojected and carry no CF axis attribute — the caller picks, which is\nwhy this is a hint rather than the answer.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "dims": {
+          "description": "Its axes in declared (C) order — the order `y_dim` and `x_dim`\nindex into, and the order `slice_indices` is given in.",
+          "items": {
+            "$ref": "#/$defs/DimensionInfo"
+          },
+          "type": "array"
+        },
+        "dtype": {
+          "description": "The element type as the file declares it, named.",
+          "type": "string"
+        },
+        "index": {
+          "description": "Position in [`crate::Session::variables`], and the handle\n[`crate::Session::decode_slice`] takes.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "The variable's name, path-qualified for a nested group.",
+          "type": "string"
+        },
+        "units": {
+          "description": "Units from the variable's own attributes, empty when it states none.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "name",
+        "dims",
+        "dtype",
+        "units",
+        "detectedYDim",
+        "detectedXDim",
+        "detectedTimeDim"
+      ],
+      "type": "object"
+    },
+    "VectorOptions": {
+      "description": "How to draw a vector field: which cells get an arrow, how long the arrows\nare, and which way the components point (#241).",
+      "properties": {
+        "gridRelative": {
+          "default": false,
+          "description": "**Are the components along the grid's axes rather than east and north?**\n\nGRIB says so in its resolution flags, and the common projected files —\nHRRR, NAM — set it. Drawn as if they were east and north, a grid-relative\npair points wrong by the grid's convergence angle: up to tens of degrees\naway from the projection's central meridian. When this is set the\ncomponents are rotated through the grid's own north, per cell.",
+          "type": "boolean"
+        },
+        "referenceSpeed": {
+          "default": null,
+          "description": "The speed the longest arrow stands for.\n\n`None` takes the fastest cell **that is drawn**, so the plot fills itself\nat any spacing — which also means a sparser spacing can report a slower\nreference, having skipped the fastest cell. State one to hold the scale\nstill across two renders a user is comparing.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "spacing": {
+          "default": null,
+          "description": "Draw an arrow every `spacing` grid cells, in both directions. `None` and\n`0` mean \"about 24 arrows across the grid\", which reads at any size.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "WarpOptions": {
+      "description": "How a field should be resampled onto a geographic box.",
+      "properties": {
+        "bilinear": {
+          "default": true,
+          "description": "Bilinear when true, nearest otherwise. A grid that is a list of cell\ncentres downgrades to nearest whatever this says.",
+          "type": "boolean"
+        },
+        "bounds": {
+          "default": null,
+          "description": "Output window `[lat_min, lat_max, lon_min, lon_max]`. `None` uses the\nsource grid's own extent.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "height": {
+          "default": null,
+          "description": "Output raster rows — the other half of [`width`](Self::width). `None`\nkeeps the source grid's `nj`.\n\nTogether with [`bounds`](Self::bounds) this is the whole of what a map\nview asks for: *this window at W × H pixels*. Send both or neither; one\nalone is an [`Error::InvalidOption`], for the reason\n[`crate::RenderOptions::height`] gives. Zero on either axis, and a raster\npast this target's allocation ceiling, are refused rather than\nallocated.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "width": {
+          "default": null,
+          "description": "Output raster columns. `None` keeps the source grid's `ni` (#465).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Warped": {
+      "description": "A resampled raster: [`crate::Session::warp`] without the paint step.",
+      "properties": {
+        "bounds": {
+          "description": "`[lat_min, lat_max, lon_min, lon_max]` of the output window.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "height": {
+          "description": "Output rows.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mask": {
+          "description": "One byte per output pixel: `1` present, `0` off-grid or masked.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "values": {
+          "description": "Resampled values, row-major from the north-west corner of `bounds`.",
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "width": {
+          "description": "Output columns.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "values",
+        "mask",
+        "width",
+        "height",
+        "bounds"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Generated from the wire types of the `fieldglass` crate by `FIELDGLASS_UPDATE_SCHEMA=1 cargo test -p fieldglass --test api_rules`; do not edit by hand. `tools/gen_api_declarations.py` turns it into the TypeScript both hosts ship. A returned type is the serialize contract (every key present, null for none); an option type a host sends is the deserialize contract (a key left out takes its default).",
+  "title": "Fieldglass host API"
+}

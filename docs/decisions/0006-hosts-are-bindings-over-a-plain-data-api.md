@@ -115,7 +115,11 @@ converts a `serde_json::Value`, so a derived DTO crosses as
 `serde_json::to_value(dto)` (verified against napi 3.12); `serde-wasm-bindgen`
 or `tsify` derives the JS side, `pythonize` the Python side, and `#[repr(C)]`
 is compatible with all of them. TypeScript declarations are generated from the JSON schema rather than
-kept by hand in `native.ts`.
+kept by hand in `native.ts`. The wire form is the same on both hosts (#574,
+decided 2026-09-29): every key of a returned object is present and a Rust `None`
+is `null` — `serde_json` on napi, serde-wasm-bindgen with
+`serialize_missing_as_null` on wasm — so a generated declaration types an
+optional field as `T | null`.
 
 ### 3. A conformance suite is part of the API, not of any host
 

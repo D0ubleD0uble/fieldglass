@@ -178,6 +178,19 @@ repos:
         entry: python3 tools/check_architecture_diagrams.py
         pass_filenames: false
 
+      - id: api-declarations
+        name: generated API declarations match the schema
+        language: system
+        # The second half of a two-step chain (#574). `cargo test -p fieldglass
+        # --test api_rules` holds `crates/fieldglass/schema/api.schema.json` to
+        # the Rust wire types; this holds the TypeScript both hosts ship to that
+        # schema. Python only, so it runs on every commit that touches either end
+        # and in CI's pre-commit job, and a hand edit to a generated file fails
+        # here rather than being overwritten by the next regeneration.
+        files: ^(tools/gen_api_declarations\.py|crates/fieldglass/schema/api\.schema\.json|extension/src/api\.generated\.ts|crates/fieldglass-wasm/src/api\.generated\.d\.ts)$
+        entry: python3 tools/gen_api_declarations.py --check
+        pass_filenames: false
+
       - id: generator-encoding
         name: generators name their text encoding
         language: system
@@ -394,8 +407,20 @@ repos:
         # it needs the generated `index.d.ts` and errors rather than skipping when
         # that is absent. Its *self-test* runs here, over synthetic file pairs, so
         # the four failure directions are checked on the commit that changes them.
-        files: ^(tools/(check_native_declarations|test_check_native_declarations)\.py|extension/src/native\.ts)$
+        files: ^(tools/(check_native_declarations|test_check_native_declarations)\.py|extension/src/(native|api\.generated)\.ts)$
         entry: python3 tools/test_check_native_declarations.py
+        pass_filenames: false
+
+      - id: api-declarations-selftest
+        name: API declaration generator self-test
+        stages: [pre-push]
+        language: system
+        # Shows the drift gate failing — a hand edit to either generated file,
+        # a schema nobody regenerated from, a keyword the generator has no rule
+        # for — so the commit-stage `api-declarations` hook is known to be
+        # connected, not only green.
+        files: ^(tools/(gen_api_declarations|test_gen_api_declarations)\.py|crates/fieldglass/schema/api\.schema\.json|extension/src/api\.generated\.ts|crates/fieldglass-wasm/src/api\.generated\.d\.ts)$
+        entry: python3 tools/test_gen_api_declarations.py
         pass_filenames: false
 
       - id: host-dependencies-selftest

@@ -9,15 +9,16 @@
 //!
 //! # What this runner covers, and what it cannot yet
 //!
-//! `fieldglass-napi` binds a *different shape* from the browser host, and #464
-//! is what closes the gap. It has no `Session`; its three handles decode by
-//! index, probe by pixel rather than by latitude and longitude, and describe a
-//! message with `MessageMeta` rather than with `MessageInfo`. So the runner
-//! takes the operations whose answers are directly comparable today:
+//! `fieldglass-napi` binds a *different shape* from the browser host. Its three
+//! handles decode by index and probe by pixel rather than by latitude and
+//! longitude, and the extension still lists messages through the `MessageMeta`
+//! view (until #574 retires it). So the runner takes the operations whose
+//! answers are directly comparable today:
 //!
 //! | suite op | napi call | compared |
 //! |---|---|---|
 //! | `open` | `Grib1Handle::from_bytes` / `Grib2Handle::from_bytes`, `messages()` | which format accepted the bytes, and the message count |
+//! | `message` | `message(i)` | the whole `MessageInfo`, key for key, as the addon hands it to JavaScript (#574) |
 //! | `decode` | `decode_grid(i)` | raster shape, value count, mask sum, the sampled cells |
 //! | `render` | `render_grid(i, …)` with `projection: "source"` | raster shape, RGBA length, opaque count, the sampled pixels |
 //! | `variables` | `NetcdfHandle::variables()` | each variable's name, axes, element type and detected image axes, in order |
@@ -47,11 +48,15 @@
 //! everywhere else. It resolves now (#580), and those cases are the first in
 //! the suite to pin the synthesised grid across two bindings.
 //!
-//! `message`, `warp`, `palette`, `probe` and `contours` are **not** compared,
-//! and each for a reason that is a task rather than an oversight:
+//! `message` is compared through the handles' `message(i)`, which crosses the
+//! API's own `MessageInfo` through serde rather than the extension's
+//! `MessageMeta` view (#574). So the fields a message list shows (the parameter,
+//! level, lead time, identification and grid) are held to the recording through
+//! this binding too, where before only direct host-to-host tests pinned them.
 //!
-//! * `message` — napi answers `MessageMeta`, whose field names differ. #574
-//!   deletes it, and the comparison becomes free at that point.
+//! `warp`, `palette`, `probe` and `contours` are **not** compared, and each for
+//! a reason that is a task rather than an oversight:
+//!
 //! * `probe` — napi probes an output *pixel*; the suite probes a geographic
 //!   point. Two different questions, not two answers to one.
 //! * `warp`, `palette`, `contours`, `combine` — napi exposes no operation with
@@ -97,6 +102,7 @@ const THE_NAPI_ERROR_MAPPING_LOSES_THE_CODE: &str =
 /// what stops an op quietly falling out of coverage.
 const COMPARED: &[Op] = &[
     Op::Open,
+    Op::Message,
     Op::Decode,
     Op::Render,
     Op::Variables,
@@ -107,10 +113,6 @@ const COMPARED: &[Op] = &[
 
 /// Skipped ops and why — see the module docs for the long form.
 const SKIPPED: &[(Op, &str)] = &[
-    (
-        Op::Message,
-        "napi answers MessageMeta, not MessageInfo (#574)",
-    ),
     (Op::Warp, "napi has no warp-without-paint operation"),
     (Op::Palette, "napi has no palette-as-data operation"),
     (Op::Probe, "napi probes a pixel, the suite probes a point"),
@@ -176,6 +178,14 @@ impl Handle {
         match self {
             Self::Grib1(_) | Self::Grib2(_) => "messages",
             Self::Netcdf(_) => "variables",
+        }
+    }
+
+    fn message(&self, index: u32) -> napi::Result<Value> {
+        match self {
+            Self::Grib1(h) => h.message(index),
+            Self::Grib2(h) => h.message(index),
+            Self::Netcdf(_) => Err(no_messages()),
         }
     }
 
@@ -264,6 +274,17 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
                 open["count"] = json!(count);
             }
             Some(open)
+        }
+        Op::Message => {
+            let Ok(mut info) = handle.message(case.args.index) else {
+                return Some(failed());
+            };
+            // The suite leaves `geometry` out of every `Georef` it records:
+            // it is `core`'s tagged enum and outside the host contract.
+            if let Some(grid) = info.get_mut("grid").and_then(Value::as_object_mut) {
+                grid.remove("geometry");
+            }
+            Some(info)
         }
         Op::Decode => {
             let Ok(grid) = handle.decode_grid(case.args.index) else {
@@ -440,7 +461,7 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
         // `COMPARED` gates the entry, so nothing else reaches here. Written as
         // an explicit arm rather than a wildcard so that adding an op to
         // `COMPARED` without adding its adapter fails to compile.
-        Op::Message | Op::Warp | Op::Palette | Op::Probe | Op::Contours | Op::Combine => None,
+        Op::Warp | Op::Palette | Op::Probe | Op::Contours | Op::Combine => None,
     }
 }
 

@@ -1084,7 +1084,11 @@ fn geometry_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         "type": "object",
         "required": ["kind"],
         "properties": { "kind": { "type": "string" } },
-        "description": "fieldglass_core::projection::GridGeometry, serde-tagged by `kind`."
+        // Stated rather than left to the JSON Schema default, because it is
+        // the one object on the surface a declaration generator should type
+        // loosely (#574): the per-family fields are `core`'s, not the host's.
+        "additionalProperties": true,
+        "description": "The grid as the engine models it, tagged by `kind`. A host hands it back unread; the per-family fields beside `kind` are not part of the host contract."
     })
 }
 
@@ -1107,7 +1111,8 @@ fn scan_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
             "jPositive": { "type": "boolean" },
             "jConsecutive": { "type": "boolean" }
         },
-        "description": "fieldglass_core::Scan: the message's own scanning-mode direction flags."
+        "additionalProperties": false,
+        "description": "The scanning-mode direction flags the message states for itself."
     })
 }
 

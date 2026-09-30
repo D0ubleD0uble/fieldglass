@@ -4,14 +4,23 @@
 // `extension/bin/index.d.ts` after `napi build`; we mirror them here so
 // the TypeScript checker has stable shapes regardless of whether the
 // generated `.d.ts` exists in the workspace (CI generates it before
-// `tsc` runs; locally during development it may lag). When the schema
-// changes on the Rust side, update this file in lockstep — there's a
-// follow-up item to import from `bin/index.d.ts` directly once we can
-// guarantee its presence at typecheck time.
+// `tsc` runs; locally during development it may lag).
+// `tools/check_native_declarations.py` compares the two in CI.
+//
+// The API's own wire types (`MessageInfo`, `Georef`, …) are not written here:
+// they are generated from the Rust schema into `api.generated.ts` by
+// `tools/gen_api_declarations.py` (#574). A field with nothing to report is
+// `null` there, under its own key, because that is what the addon returns for
+// them. The hand-written `#[napi(object)]` shapes below still read `undefined`
+// for a Rust `None`.
 
 import * as path from "path";
 
 import * as vscode from "vscode";
+
+import type { MessageInfo } from "./api.generated";
+
+export type { Georef, MessageInfo, Placement } from "./api.generated";
 
 // ---------------------------------------------------------------------------
 // MessageMeta + NetCDF dataset types (returned from the native module)
@@ -338,6 +347,10 @@ export interface CombineOpInfo {
 
 export interface Grib1Handle {
   messages(): MessageMeta[];
+  /** One message's metadata as the fieldglass API states it, the same
+   *  `MessageInfo` the browser package returns. Every key is present; a field
+   *  with nothing to report is `null` (#574). */
+  message(messageIndex: number): MessageInfo;
   /** One message's field, resolved: a spectral message has no raster of its
    *  own and comes back synthesized onto a global lat/lon grid (#580), the
    *  same grid `renderGrid` paints. */
@@ -420,6 +433,8 @@ export interface Grib1Handle {
 
 export interface Grib2Handle {
   messages(): MessageMeta[];
+  /** Sibling to {@link Grib1Handle.message}. */
+  message(messageIndex: number): MessageInfo;
   /** Sibling to {@link Grib1Handle.decodeGrid}; HEALPix resolves the same way
    *  a spectral message does. */
   decodeGrid(messageIndex: number): DecodedGrid;

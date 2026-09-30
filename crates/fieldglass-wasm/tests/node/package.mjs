@@ -108,6 +108,22 @@ try {
   );
   check('the declarations are in the tarball', packed.files.includes(packed.types.replace('./', '')));
 
+  // The API's wire types, generated from the Rust schema and embedded in
+  // wasm-bindgen's own `.d.ts` (#574), so a consumer's `message(i)` is a
+  // `MessageInfo` and not `any`. Read off the installed file: a custom section
+  // that stopped reaching the output would leave every method typed and every
+  // type it names undefined.
+  const dts = await readFile(join(modules, packed.types.replace('./', '')), 'utf8');
+  for (const [what, text] of [
+    ['MessageInfo is declared', 'export interface MessageInfo {'],
+    ['message(i) returns a MessageInfo', 'message(index: number): MessageInfo;'],
+    ['an absent field is declared as a present null', '  referenceTime: string | null;'],
+    ['probe answers null off the grid', '): Probe | null;'],
+    ['grid() returns a Georef', 'grid(): Georef;'],
+  ]) {
+    check(what, dts.includes(text));
+  }
+
   await init({ module_or_path: await readFile(wasmPath) });
 
   // GRIB2, the message-addressed half.
@@ -120,6 +136,9 @@ try {
   check('format', handle.format() === 'grib2', handle.format());
   check('addressing', handle.addressing() === 'messages', handle.addressing());
   check('message count', handle.count() === 1, handle.count());
+  // GRIB2 has no P1 octet: the key is there, and it is `null` (#574).
+  const info = handle.message(0);
+  check('an absent field is a present null', 'p1Octet' in info && info.p1Octet === null, info.p1Octet);
 
   const field = handle.decode(0, {});
   check('raster', field.ni() === 16 && field.nj() === 31, `${field.ni()}x${field.nj()}`);

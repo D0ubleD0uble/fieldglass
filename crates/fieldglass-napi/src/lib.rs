@@ -1296,6 +1296,13 @@ impl MessageStream {
             .collect()
     }
 
+    /// Message `index` as the API states it, in its wire form — see
+    /// [`message_info_to_js`].
+    fn message_info(&self, index: u32) -> napi::Result<serde_json::Value> {
+        let info = self.session.message(index).into_napi()?;
+        message_info_to_js(&info)
+    }
+
     /// What message `index` declares — its grid as the file names it.
     fn message_meta(&self, index: u32) -> napi::Result<MessageMeta> {
         let info = self.session.message(index).into_napi()?;
@@ -1402,6 +1409,25 @@ impl MessageStream {
     }
 }
 
+/// A `fieldglass::MessageInfo` in the shape it crosses to JavaScript.
+///
+/// **Through serde, not a `#[napi(object)]`** (ADR-0006 decision 2): napi-rs
+/// hands a `serde_json::Value` to JavaScript as the plain object it describes,
+/// so the addon returns exactly the document the browser host and the
+/// conformance suite do, with no host DTO to keep in step.
+///
+/// **Every key is present, and a Rust `None` is `null`** (#574, decided
+/// 2026-09-29). That is what `serde_json` writes for an `Option` field, and it
+/// is kept: nothing here strips nulls. A `#[napi(object)]` does the opposite —
+/// it leaves the key out, so the field reads `undefined` — which is how a
+/// declaration saying `T | null` once let a `!== null` guard through on a
+/// grid-less spectral message (#288). The declaration a caller reads is
+/// generated from the same schema (`extension/src/api.generated.ts`), and the
+/// extension's `api-wire` test checks a real message against it.
+fn message_info_to_js(info: &fieldglass::MessageInfo) -> napi::Result<serde_json::Value> {
+    serde_json::to_value(info).map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
 /// The refusal every GRIB display entry point gives a message whose grid has no
 /// dimensions — see `MessageStream::placed`.
 fn no_display_raster() -> napi::Error {
@@ -1446,6 +1472,16 @@ impl Grib1Handle {
     #[napi]
     pub fn messages(&self) -> Vec<MessageMeta> {
         self.stream.messages()
+    }
+
+    /// One message's metadata as the fieldglass API states it: the same
+    /// `MessageInfo` the browser host's `message(index)` returns, key for key.
+    ///
+    /// Every key is present, and a field with nothing to report is `null`,
+    /// never missing (#574). Built on each call.
+    #[napi(ts_return_type = "MessageInfo")]
+    pub fn message(&self, message_index: u32) -> napi::Result<serde_json::Value> {
+        self.stream.message_info(message_index)
     }
 
     /// Decode one message into a `(values, mask)` typed-array pair. NaN
@@ -1751,6 +1787,13 @@ impl Grib2Handle {
     #[napi]
     pub fn messages(&self) -> Vec<MessageMeta> {
         self.stream.messages()
+    }
+
+    /// One message's metadata as the fieldglass API states it — see
+    /// [`Grib1Handle::message`].
+    #[napi(ts_return_type = "MessageInfo")]
+    pub fn message(&self, message_index: u32) -> napi::Result<serde_json::Value> {
+        self.stream.message_info(message_index)
     }
 
     /// Decode one message's values and mask, without painting them. Errors
@@ -7883,14 +7926,12 @@ mod healpix_render_tests {
 /// same format crates, and they used to render an unresolved parameter
 /// differently: this one as `Parameter d/c/n`, the umbrella as the empty
 /// string for GRIB2 and `"Unknown"` for GRIB1. Nothing failed, because the
-/// conformance suite cannot compare the field — `parameter` reaches a host
-/// only through `Op::Message`, which this crate's runner skips (it answers
-/// `MessageMeta`, not `MessageInfo`; #574), and the `Op::Decode` adapter has
-/// no parameter to project because `DecodedGrid` carries none.
+/// conformance suite could not compare the field through this binding.
 ///
-/// So the two hosts are compared here instead, directly: same bytes, both
-/// seams, one assertion that the strings are equal. That is the gate #633 asks
-/// for, and it holds for as long as this crate can depend on the umbrella.
+/// It can now: the handles' `message(i)` returns the API's `MessageInfo`, and
+/// `conformance_host` compares `Op::Message` through it (#574). What is left
+/// here pins the `MessageMeta` view the extension still lists messages with,
+/// which goes when that view does.
 #[cfg(test)]
 mod unresolved_parameter_tests {
     use super::*;
@@ -7948,6 +7989,84 @@ mod unresolved_parameter_tests {
         assert_eq!(g2.messages()[0].parameter_name, "Temperature");
         let g1 = Grib1Handle::from_vec(GRIB1.to_vec()).expect("opens");
         assert_eq!(g1.messages()[0].parameter_name, "2 metre temperature");
+    }
+}
+
+/// The wire form `message(i)` hands JavaScript: every key present, `null` for
+/// a Rust `None` (#574, decided 2026-09-29).
+///
+/// This is the Rust half. The value becomes a JavaScript object in napi-rs's
+/// `serde_json::Value` conversion, which maps `Null` to `null`; the extension's
+/// `api-wire` test reads the same message through the built addon, which is the
+/// only place that conversion runs.
+#[cfg(test)]
+mod message_wire_tests {
+    use super::*;
+
+    /// The message that crashed the editor in #288: GRIB1 spectral
+    /// coefficients, with a declared grid nothing places a point on, and none
+    /// of GRIB2's identification. Most of its optional fields are `None`.
+    const SPECTRAL_GRIB1: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/spectral_simple_t63.grib1");
+
+    fn message() -> serde_json::Map<String, serde_json::Value> {
+        let handle = Grib1Handle::from_vec(SPECTRAL_GRIB1.to_vec()).expect("opens");
+        match handle.message(0).expect("message 0") {
+            serde_json::Value::Object(map) => map,
+            other => panic!("MessageInfo crossed as {other:?}, not an object"),
+        }
+    }
+
+    #[test]
+    fn an_absent_field_is_a_null_under_its_own_key() {
+        let info = message();
+        // GRIB1 has no discipline, production status or data type.
+        for key in ["discipline", "productionStatus", "dataType"] {
+            assert_eq!(
+                info.get(key),
+                Some(&serde_json::Value::Null),
+                "{key} must be present and null, not left out"
+            );
+        }
+        let grid = info["grid"].as_object().expect("a declared grid");
+        // A spherical-harmonic grid places no point, so it has no extent, no
+        // corners and no affine.
+        for key in ["boundsLonlat", "corners", "proj4", "x0", "y0", "dx", "dy"] {
+            assert_eq!(
+                grid.get(key),
+                Some(&serde_json::Value::Null),
+                "grid.{key} must be present and null, not left out"
+            );
+        }
+    }
+
+    /// `message(i)` hands over the umbrella's own `MessageInfo` for the index
+    /// asked, serialised whole — a **routing** check, not a wire one.
+    ///
+    /// Both sides go through `serde_json` on the same struct, so this cannot
+    /// see a key lost on the way into JavaScript; napi-rs's conversion runs
+    /// only in Node, and the extension's `api-wire` test is the evidence for
+    /// that half. What it does catch is the handle answering from some other
+    /// place — a different message, a view, a trimmed copy.
+    #[test]
+    fn message_answers_the_sessions_own_message_info() {
+        let session = fieldglass::Session::open(SPECTRAL_GRIB1.to_vec()).expect("opens");
+        let reference =
+            serde_json::to_value(session.message(0).expect("message 0")).expect("serialises");
+        let reference = reference.as_object().expect("an object");
+        let info = message();
+        let want: Vec<&String> = reference.keys().collect();
+        let got: Vec<&String> = info.keys().collect();
+        assert_eq!(got, want, "the addon's MessageInfo must be the session's");
+        assert_eq!(
+            serde_json::Value::Object(info.clone()),
+            serde_json::Value::Object(reference.clone()),
+            "the addon's MessageInfo must be the session's, value for value"
+        );
+        assert!(
+            reference.values().any(serde_json::Value::is_null),
+            "the fixture must have an absent field, or this checks nothing"
+        );
     }
 }
 

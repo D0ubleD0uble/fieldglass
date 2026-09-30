@@ -1394,3 +1394,193 @@ fn the_core_types_on_the_wire_are_camel_cased() {
         "Scan crosses the wire beside camelCase DTOs and must match them"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The checked-in schema (#574)
+// ---------------------------------------------------------------------------
+
+/// The host contract as one JSON Schema document, relative to this crate's
+/// manifest directory (which cargo makes the working directory of a test).
+///
+/// `tools/gen_api_declarations.py` reads this file and writes the TypeScript
+/// declarations both hosts ship, and its `--check` is the drift gate for that
+/// half. This test is the drift gate for the other half: the file is what the
+/// Rust types describe *now*.
+const SCHEMA_PATH: &str = "schema/api.schema.json";
+
+/// Set to rewrite [`SCHEMA_PATH`] rather than compare against it.
+const UPDATE_SCHEMA_ENV: &str = "FIELDGLASS_UPDATE_SCHEMA";
+
+/// The option types: what a host **sends**. Every other type in the schema is
+/// what a host **receives**.
+///
+/// The direction decides how a field's optionality reads, and the difference is
+/// real. A returned DTO always carries every key, with `null` for a Rust `None`
+/// (#574, decided 2026-09-29), so it is described by `schemars`' *serialize*
+/// contract, in which every field is required and an `Option` is `T | null`. An
+/// option object is read with `#[serde(default)]`, so a key a host leaves out
+/// is a default rather than an error: the *deserialize* contract, in which
+/// those fields are not required.
+const SENT: &[&str] = &[
+    "DecodeOptions",
+    "WarpOptions",
+    "PaletteOptions",
+    "RenderOptions",
+    "VectorOptions",
+];
+
+/// Wire types that are deliberately not in the schema, with the reason.
+///
+/// Both are `core`'s, and `core` does not derive `JsonSchema` (the reason
+/// `Georef::scan` has a hand-written schema). Neither crosses as serialised
+/// JSON: the browser host builds its palette object field by field, with a
+/// `Uint8Array` lookup table, and `ScaleMode` crosses only as the string in it.
+const NOT_IN_SCHEMA: &[(&str, &str)] = &[
+    (
+        "Palette",
+        "core's type; the wasm host builds its palette object by hand, with typed arrays",
+    ),
+    (
+        "ScaleMode",
+        "core's type; crosses only as the `scale` string of the palette object",
+    ),
+];
+
+/// Rebuild every object with its keys in sorted order.
+///
+/// Not cosmetic. `serde_json`'s map keeps insertion order when any crate in
+/// the build turns on its `preserve_order` feature, and sorts by key otherwise,
+/// and feature unification means `cargo test -p fieldglass` and `cargo test
+/// --workspace` need not agree on which. A file one of them wrote and the other
+/// called drift would be a gate that fails at random.
+fn canonical(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let sorted: BTreeMap<String, serde_json::Value> =
+                map.into_iter().map(|(k, v)| (k, canonical(v))).collect();
+            serde_json::Value::Object(sorted.into_iter().collect())
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(canonical).collect())
+        }
+        other => other,
+    }
+}
+
+/// The schema of every wire type, as the file on disk should hold it, and the
+/// names of the types it was built from.
+///
+/// Two generators, one per direction (see [`SENT`]), feeding one `$defs` table.
+/// A type reachable from both directions must describe the same way in both, or
+/// one name would mean two shapes. That is asserted rather than resolved,
+/// because the fix is a decision about the type, not about the schema.
+fn api_schema() -> (serde_json::Value, Vec<&'static str>) {
+    use schemars::generate::SchemaSettings;
+
+    let mut returned = SchemaSettings::draft2020_12()
+        .for_serialize()
+        .into_generator();
+    let mut sent = SchemaSettings::draft2020_12()
+        .for_deserialize()
+        .into_generator();
+    let mut roots: Vec<&'static str> = Vec::new();
+
+    macro_rules! register {
+        ($generator:ident: $($t:ident),* $(,)?) => {$(
+            $generator.subschema_for::<$t>();
+            roots.push(stringify!($t));
+        )*};
+    }
+    register!(returned:
+        SourceFormat, Dtype, AxisUnits, Placement, Georef, Values, Stats, Field, Line,
+        MessageInfo, Addressing, DimensionInfo, VariableInfo, AxisValues, LeftOutArray,
+        CombineOpInfo, Warped, Probe, Isoline, Error, Raster,
+    );
+    register!(sent:
+        DecodeOptions, WarpOptions, PaletteOptions, RenderOptions, VectorOptions,
+    );
+
+    let mut defs = sent.take_definitions(true);
+    for (name, schema) in returned.take_definitions(true) {
+        if let Some(other) = defs.get(&name) {
+            assert_eq!(
+                other, &schema,
+                "{name} is both sent and returned, and its two contracts describe \
+                 different shapes: one name would mean two types in the declarations"
+            );
+        }
+        defs.insert(name, schema);
+    }
+
+    let document = serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Fieldglass host API",
+        "description": "Generated from the wire types of the `fieldglass` crate by \
+            `FIELDGLASS_UPDATE_SCHEMA=1 cargo test -p fieldglass --test api_rules`; do not \
+            edit by hand. `tools/gen_api_declarations.py` turns it into the TypeScript both \
+            hosts ship. A returned type is the serialize contract (every key present, null \
+            for none); an option type a host sends is the deserialize contract (a key left \
+            out takes its default).",
+        "$defs": defs,
+    });
+    (canonical(document), roots)
+}
+
+/// The checked-in schema is exactly what the Rust types describe, and it
+/// describes every wire type.
+///
+/// With `FIELDGLASS_UPDATE_SCHEMA` set it rewrites the file and then **fails**,
+/// the rule the conformance recording follows: a run that re-recorded has
+/// verified nothing, and a variable left set in an environment must not turn
+/// the gate into a no-op.
+#[test]
+fn the_checked_in_schema_is_what_the_types_describe() {
+    let (schema, roots) = api_schema();
+    let text = serde_json::to_string_pretty(&schema).expect("the schema serialises") + "\n";
+
+    assert_covers_every_wire_type("the_checked_in_schema_is_what_the_types_describe", &roots);
+    for (name, reason) in NOT_IN_SCHEMA {
+        assert!(
+            !reason.is_empty(),
+            "{name} is left out of the schema with no reason"
+        );
+        assert!(
+            FOREIGN_REEXPORTS
+                .iter()
+                .any(|(n, c, _)| n == name && *c == Class::Wire),
+            "{name} is excused from the schema but is not a foreign wire type"
+        );
+    }
+    let defs = schema["$defs"].as_object().expect("the schema has $defs");
+    for root in &roots {
+        assert!(
+            defs.contains_key(*root),
+            "{root} has no definition in the schema"
+        );
+    }
+    for sent in SENT {
+        assert!(
+            roots.contains(sent),
+            "{sent} is listed as sent but is not in the schema"
+        );
+    }
+
+    if std::env::var_os(UPDATE_SCHEMA_ENV).is_some() {
+        std::fs::create_dir_all("schema").expect("the schema directory is creatable");
+        std::fs::write(SCHEMA_PATH, &text).expect("the schema is writable");
+        panic!(
+            "{SCHEMA_PATH} rewritten ({} definitions). Unset {UPDATE_SCHEMA_ENV}, run \
+             `python3 tools/gen_api_declarations.py` to regenerate the declarations, and \
+             run again to verify.",
+            defs.len()
+        );
+    }
+
+    let on_disk = std::fs::read_to_string(SCHEMA_PATH).unwrap_or_default();
+    assert!(
+        on_disk == text,
+        "{SCHEMA_PATH} is not what the wire types describe. Regenerate it with \
+         `{UPDATE_SCHEMA_ENV}=1 cargo test -p fieldglass --test api_rules`, then run \
+         `python3 tools/gen_api_declarations.py`."
+    );
+}
