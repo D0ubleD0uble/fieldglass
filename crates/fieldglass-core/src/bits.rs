@@ -62,6 +62,24 @@ pub fn ibm_float_to_f64(raw: u32) -> f64 {
 mod tests {
     use super::*;
 
+    /// IBM single precision has no NaN or infinity: every bit pattern is a
+    /// number, at most 16^63 in magnitude, so a GRIB1 float field is always
+    /// finite and needs no check a GRIB2 IEEE one does (#823). Every
+    /// characteristic with the largest and smallest fractions, both signs.
+    #[test]
+    fn every_ibm_float_is_finite() {
+        for sign in [0u32, 0x8000_0000] {
+            for characteristic in 0u32..128 {
+                for fraction in [0x00_0001, 0x10_0000, 0x80_0000, 0xFF_FFFF] {
+                    let raw = sign | characteristic << 24 | fraction;
+                    let v = ibm_float_to_f64(raw);
+                    assert!(v.is_finite(), "{raw:#010x} -> {v}");
+                }
+            }
+        }
+        assert!(ibm_float_to_f64(0x7FFF_FFFF) > 7.2e75);
+    }
+
     #[test]
     fn ibm_float_zero() {
         assert_eq!(ibm_float_to_f64(0x0000_0000), 0.0);

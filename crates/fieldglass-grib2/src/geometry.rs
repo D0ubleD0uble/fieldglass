@@ -121,6 +121,21 @@ impl From<&GridDefinitionSection> for GridGeometry {
             }),
             // §3.1's corners are **rotated-frame** degrees, so they are handed
             // over as stated: unrotating them here would place the grid twice.
+            // Two §3 parameters are IEEE floats rather than scaled integers,
+            // §3.1's angle of rotation and §3.12's scale factor, so a file can
+            // state NaN or an infinity in them. No grid can be built from one,
+            // so it declines the way a §3.90 with no usable camera does, rather
+            // than reporting a placed grid with NaN bounds (#823).
+            GridTemplate::RotatedLatLon(t) if !t.angle_of_rotation.is_finite() => {
+                Self::Unsupported {
+                    label: gds.template_name(),
+                }
+            }
+            GridTemplate::TransverseMercator(t) if !t.scale_factor.is_finite() => {
+                Self::Unsupported {
+                    label: gds.template_name(),
+                }
+            }
             GridTemplate::RotatedLatLon(t) => Self::RotatedLatLon(RotatedLatLonParams {
                 ni: t.ni,
                 nj: t.nj,

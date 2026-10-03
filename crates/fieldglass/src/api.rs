@@ -274,7 +274,8 @@ api_type! {
         /// There is a raster, and nothing places any of it on the Earth: a
         /// polar stereographic grid stating a zero grid step, a Lambert cone
         /// whose standard parallels are both on the equator, a first point the
-        /// forward map sends to infinity, a §3.90 camera that sees no Earth, or
+        /// forward map sends to infinity, a §3.90 camera that sees no Earth, a
+        /// GRIB2 rotation or scale factor that is not a finite number (#823), or
         /// a NetCDF, HDF5 or Zarr slice with no coordinates to place it by. The
         /// grid still renders in its own grid coordinates; it has no position on
         /// a map.

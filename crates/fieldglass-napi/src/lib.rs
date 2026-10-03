@@ -160,10 +160,16 @@ pub fn packing_label(packing: String) -> String {
 /// - A non-finite float becomes `null`, where the browser passes `NaN`. No
 ///   field of `AxisValues` can hold one, because a coordinate that is not finite
 ///   is a hole and the axis reports none (`fieldglass::Session::axis_values`).
-///   No field of `MessageInfo` does either: the geometry parameters are GRIB
-///   integers scaled, and `core` withholds an origin or extent it cannot compute
-///   rather than returning one. `no_message_carries_a_non_finite_float` holds
-///   that over every committed GRIB message.
+///   No field of `MessageInfo` does either. Its floats are all in its grid,
+///   and the grid's parameters are GRIB integers scaled, IBM floats (GRIB1,
+///   which cannot encode a NaN or an infinity), or GRIB2 IEEE floats, §3.1's
+///   angle of rotation and §3.12's scale factor, a non-finite one of which
+///   declines the grid rather than building it (#823); and `core` withholds an
+///   origin or extent it cannot compute rather than returning one.
+///   `no_message_carries_a_non_finite_float` holds that over every committed
+///   GRIB message, and
+///   `a_non_finite_grid_parameter_crosses_as_the_session_holds_it` over the two
+///   IEEE parameters set to NaN and both infinities.
 /// - An integer above 2^53 becomes a `BigInt`. The byte offsets and lengths of
 ///   any GRIB file this can hold in memory are far below it.
 fn to_js(dto: Result<serde_json::Value, serde_json::Error>) -> napi::Result<serde_json::Value> {
@@ -7826,8 +7832,9 @@ mod message_wire_tests {
     /// value fails on any non-finite float, wherever it is: a `null` in a
     /// required float or inside the corner array does not deserialise, a
     /// `Some(NaN)` read back as `None` differs, and `NaN` is not equal to
-    /// itself. The geometry parameters are GRIB integers scaled, and `core`
-    /// withholds an origin or extent it cannot compute rather than returning one
+    /// itself. The geometry parameters are GRIB integers scaled, or IEEE floats
+    /// a non-finite one of which declines the grid, and `core` withholds an
+    /// origin or extent it cannot compute rather than returning one
     /// (`GridGeometry::plane_affine`, `lonlat_bbox`).
     #[test]
     fn no_message_carries_a_non_finite_float() {
@@ -7874,6 +7881,56 @@ mod message_wire_tests {
             }
         }
         assert!(checked >= 70, "only {checked} messages checked");
+    }
+
+    /// The fixtures above can only show what they hold, and none holds a
+    /// non-finite float. Two §3 parameters are IEEE floats a file can state as
+    /// NaN or an infinity, §3.1's angle of rotation and §3.12's scale factor
+    /// (#823): their messages, edited to each, cross this binding as the
+    /// session holds them, so the two hosts send the same values.
+    #[test]
+    fn a_non_finite_grid_parameter_crosses_as_the_session_holds_it() {
+        fn with_template_float(path: &str, payload_offset: usize, value: f32) -> Vec<u8> {
+            let mut bytes = std::fs::read(path).expect("fixture");
+            let mut at = 16; // past §0
+            while &bytes[at..at + 4] != b"7777" {
+                let len =
+                    u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+                        as usize;
+                if bytes[at + 4] == 3 {
+                    let field = at + 14 + payload_offset;
+                    bytes[field..field + 4].copy_from_slice(&value.to_be_bytes());
+                    return bytes;
+                }
+                at += len;
+            }
+            panic!("{path}: no §3");
+        }
+        for (path, offset) in [
+            (
+                "../fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+                66,
+            ),
+            (
+                "../fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+                33,
+            ),
+        ] {
+            for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                let bytes = with_template_float(path, offset, value);
+                let handle = Grib2Handle::from_vec(bytes.clone()).expect("opens");
+                let wire = handle.stream.message_info(0).expect("message 0");
+                let read_back: fieldglass::MessageInfo = serde_json::from_value(wire)
+                    .unwrap_or_else(|e| panic!("{path} = {value}: does not read back ({e})"));
+                let session = fieldglass::Session::open(bytes).expect("opens");
+                assert_eq!(
+                    read_back,
+                    session.message(0).expect("message 0"),
+                    "{path} = {value}: a value changed crossing the wire"
+                );
+                assert_eq!(read_back.placement, fieldglass::Placement::Unplaceable);
+            }
+        }
     }
 }
 

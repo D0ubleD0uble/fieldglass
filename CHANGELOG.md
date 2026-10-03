@@ -319,6 +319,8 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Fixed
 
+- **A GRIB2 grid with a rotation or scale factor that is not a number is no longer reported as placed.** Two GRIB2 grid parameters are stored as floating-point numbers: the angle of rotation of a rotated lat/lon grid and the scale factor of a transverse Mercator grid. A corrupt file that set either to NaN or infinity produced a rotated grid marked as placed and reprojectable, with an invalid extent and projection string, and the Node and browser bindings sent the bad value differently. Such a grid is now reported as unplaceable in both, and its values still decode in grid coordinates. The same now holds for a GRIB2 space-view grid whose camera sees no Earth, which used to refuse to decode.
+
 - **A small compressed NetCDF-4 chunk can no longer inflate to 256 MiB before it is refused.** A deflate or zstd chunk now stops decompressing at its own length, or at the most the filters that ran before it could have grown it to. Before, the only limit was 256 MiB per chunk, so a chunk of a few hundred bytes could make the reader allocate that much and then reject the result for being the wrong length. Valid files read the same.
 
 - **Re-saving an untouched P1 box no longer changes a GRIB1 forecast time.** After a P1 edit, the message table refilled each P1 box with the forecast in hours instead of the P1 byte it writes. For a message whose time unit is 3 hours, a P1 of 4 came back as 12, and saving that box unchanged tripled the lead time. The box now refills with the P1 byte. The in-table P1 edit is not switched on in released builds, so no saved file was affected. Part of #574.
