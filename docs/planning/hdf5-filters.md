@@ -47,11 +47,18 @@ unbounded, so a few kilobytes on disk could name an arbitrarily large
 allocation. `inflate` had used the unbounded `decompress_to_vec_zlib` since the
 deflate filter shipped.
 
-Both codecs now stop at `MAX_DECOMPRESSED_CHUNK` (256 MiB) — far past any real
-HDF5 chunk, libhdf5's own chunk cache defaults to 1 MiB — and the ceiling is
-exercised by unit tests through `_bounded` helpers that take the limit as an
+Both codecs then stopped at `MAX_DECOMPRESSED_CHUNK` (256 MiB) — far past any
+real HDF5 chunk, libhdf5's own chunk cache defaults to 1 MiB — and the ceiling
+is exercised by unit tests through `_bounded` helpers that take the limit as an
 argument, so the guarantee is tested without the suite paying to build a
 256 MiB stream.
+
+Since #813 each codec stops at the chunk's own length when every filter before
+it keeps the length (only shuffle does), and at the chunk's length plus an
+eighth plus 4 KiB behind one that changes it, the bound szip's prefix already
+had. 256 MiB is only the outer ceiling now: a 12-byte chunk had been able to
+inflate to all of it before the caller's length check refused the result, and
+on wasm that is a real allocation.
 
 zstd needs a **second, separate** ceiling, and this is the part worth carrying
 to the next codec. A zstd frame header declares its own window size, and the

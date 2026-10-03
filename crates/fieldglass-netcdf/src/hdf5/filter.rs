@@ -167,10 +167,12 @@ impl FilterPipeline {
     /// skipped on write for this chunk, so it is skipped on read too.
     /// `element_size` is the dataset's element width, used by shuffle when the
     /// filter itself doesn't carry it. `expected_len` is the chunk's length
-    /// before any filter ran, which szip checks its size prefix against when
-    /// every filter before it keeps the length, and bounds it otherwise. The
-    /// caller must still check that the result is exactly `expected_len`:
-    /// deflate and zstd are bounded by a ceiling only.
+    /// before any filter ran. A codec that every filter before it keeps the
+    /// length for must produce exactly that: szip checks its size prefix
+    /// against it, and deflate and zstd stop there (#813). Behind a filter
+    /// that changes the length, all three are bounded by a ceiling instead:
+    /// the chunk's length plus an eighth plus 4 KiB, or 256 MiB behind szip.
+    /// The caller must still check that the result is exactly `expected_len`.
     pub fn reverse(
         &self,
         mut data: Vec<u8>,
@@ -183,7 +185,11 @@ impl FilterPipeline {
                 continue; // filter was not applied to this chunk
             }
             data = match filter.id {
-                FILTER_DEFLATE => inflate(&data)?,
+                FILTER_DEFLATE => {
+                    let exact = self.length_before(index, filter_mask, expected_len);
+                    let behind = self.limit_behind(index, filter_mask, expected_len);
+                    inflate_bounded(&data, codec_limit(exact, behind))?
+                }
                 FILTER_SHUFFLE => {
                     let elem = filter
                         .client_data
@@ -194,15 +200,15 @@ impl FilterPipeline {
                     unshuffle(&data, elem)
                 }
                 FILTER_FLETCHER32 => verify_fletcher32(&data)?,
-                FILTER_ZSTD => unzstd(&data)?,
+                FILTER_ZSTD => {
+                    let exact = self.length_before(index, filter_mask, expected_len);
+                    let behind = self.limit_behind(index, filter_mask, expected_len);
+                    unzstd_bounded(&data, codec_limit(exact, behind))?
+                }
                 FILTER_SZIP => {
                     let exact = self.length_before(index, filter_mask, expected_len);
-                    unszip(
-                        &data,
-                        &filter.client_data,
-                        exact,
-                        szip_limit(exact, expected_len),
-                    )?
+                    let behind = self.limit_behind(index, filter_mask, expected_len);
+                    unszip(&data, &filter.client_data, exact, szip_limit(exact, behind))?
                 }
                 other => {
                     return Err(FieldglassError::UnsupportedSection(format!(
@@ -233,29 +239,105 @@ impl FilterPipeline {
             .all(|(i, f)| filter_mask & (1u32 << i) != 0 || f.id == FILTER_SHUFFLE)
             .then_some(expected_len)
     }
+
+    /// The most filter `index` may be handed back when
+    /// [`Self::length_before`] cannot say exactly: [`growth_limit`] when every
+    /// filter before it that ran is one whose growth is known, and the outer
+    /// ceiling behind an szip that ran.
+    ///
+    /// szip's own growth is not small enough to bound by the chunk. Without
+    /// the restricted option libsz codes a 3-bit ID on every block, so
+    /// incompressible one-bit pixels in 8-pixel blocks grow by three eighths,
+    /// and each scanline is padded to whole blocks on top (CCSDS 121.0-B
+    /// §5.1.2, `H5Zszip.c`). Nobody writes a codec after szip, but libhdf5
+    /// would read one back, so it is bounded the way it was before #813
+    /// rather than refused.
+    fn limit_behind(&self, index: usize, filter_mask: u32, expected_len: usize) -> usize {
+        let behind_szip = self.filters[..index]
+            .iter()
+            .enumerate()
+            .any(|(i, f)| filter_mask & (1u32 << i) == 0 && f.id == FILTER_SZIP);
+        if behind_szip {
+            MAX_DECOMPRESSED_CHUNK
+        } else {
+            growth_limit(expected_len)
+        }
+    }
 }
 
 /// The most an szip size prefix may declare before it is allocated.
 ///
 /// When the exact length is known the prefix must equal it, so the ceiling
-/// alone is the backstop. When it is not, a length-changing filter ran
-/// before szip, and szip's input was that filter's output: deflate's or
-/// zstd's worst case grows the data by well under an eighth (zlib's bound is
-/// a few bytes per 16 KiB, zstd's about 1/256), and fletcher32 adds four
-/// bytes. So the chunk's length plus an eighth plus 4 KiB covers any real
-/// file, and keeps a 12-byte chunk from committing a 256 MiB zeroed buffer
-/// (which on wasm is a real allocation, not a lazily mapped one).
-fn szip_limit(exact: Option<usize>, expected_len: usize) -> usize {
+/// alone is the backstop. When it is not, it is `behind`, from
+/// [`FilterPipeline::limit_behind`].
+fn szip_limit(exact: Option<usize>, behind: usize) -> usize {
     match exact {
         Some(_) => MAX_DECOMPRESSED_CHUNK,
-        None => expected_len
-            .saturating_add(expected_len / 8)
-            .saturating_add(SZIP_SLACK)
-            .min(MAX_DECOMPRESSED_CHUNK),
+        None => behind,
     }
 }
 
-/// Fixed headroom in [`szip_limit`] for small chunks, whose compressed form
+/// The most deflate or zstd may decompress one chunk to (#813): the chunk's
+/// own length when every filter before the codec keeps it, and `behind`, from
+/// [`FilterPipeline::limit_behind`], when one changes it.
+///
+/// [`MAX_DECOMPRESSED_CHUNK`] alone let a 12-byte chunk inflate to 256 MiB
+/// before the caller's length check refused it, and on wasm that is a real
+/// allocation, not a lazily mapped one.
+fn codec_limit(exact: Option<usize>, behind: usize) -> Limit {
+    match exact {
+        Some(len) if len <= MAX_DECOMPRESSED_CHUNK => Limit::Length(len),
+        Some(_) => Limit::Ceiling(MAX_DECOMPRESSED_CHUNK),
+        None => Limit::Ceiling(behind.min(MAX_DECOMPRESSED_CHUNK)),
+    }
+}
+
+/// How far a bounded codec may decompress one chunk, and why, so a chunk that
+/// runs past it says which bound it broke.
+#[derive(Clone, Copy, Debug)]
+enum Limit {
+    /// The chunk's own length, known because every filter before the codec
+    /// keeps it. Running past it is a corrupt chunk.
+    Length(usize),
+    /// A ceiling on a length nothing outside the stream records.
+    Ceiling(usize),
+}
+
+impl Limit {
+    fn bytes(self) -> usize {
+        match self {
+            Limit::Length(n) | Limit::Ceiling(n) => n,
+        }
+    }
+
+    /// The error for a `codec` stream that decompresses past this limit.
+    fn exceeded(self, codec: &str) -> FieldglassError {
+        FieldglassError::Parse(match self {
+            Limit::Length(n) => {
+                format!("{codec} chunk decompresses past the chunk's {n}-byte length")
+            }
+            Limit::Ceiling(n) => format!("{codec} chunk decompresses past the {n}-byte ceiling"),
+        })
+    }
+}
+
+/// The most a codec's output may be when fletcher32, deflate or zstd ran
+/// before it, so its output is that filter's, whose length nothing outside
+/// the stream records.
+///
+/// deflate's or zstd's worst case grows the data by well under an eighth
+/// (zlib's bound is a few bytes per 16 KiB, zstd's about 1/256), and
+/// fletcher32 adds four bytes. So the chunk's length plus an eighth plus
+/// 4 KiB covers any real file, and keeps a 12-byte chunk from committing a
+/// 256 MiB zeroed buffer.
+fn growth_limit(expected_len: usize) -> usize {
+    expected_len
+        .saturating_add(expected_len / 8)
+        .saturating_add(SZIP_SLACK)
+        .min(MAX_DECOMPRESSED_CHUNK)
+}
+
+/// Fixed headroom in [`growth_limit`] for small chunks, whose compressed form
 /// can carry a header larger than an eighth of the data.
 const SZIP_SLACK: usize = 4096;
 
@@ -417,51 +499,46 @@ fn fletcher32(data: &[u8]) -> u32 {
     (sum2 << 16) | sum1
 }
 
-/// Inflate a zlib stream (the HDF5 deflate filter's on-disk form).
-fn inflate(data: &[u8]) -> Result<Vec<u8>, FieldglassError> {
-    inflate_bounded(data, MAX_DECOMPRESSED_CHUNK)
-}
+/// Inflate a zlib stream (the HDF5 deflate filter's on-disk form) to at most
+/// `limit` bytes, which [`codec_limit`] sets per chunk.
+fn inflate_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError> {
+    use miniz_oxide::inflate::TINFLStatus;
 
-/// [`inflate`] with the ceiling supplied, so the bound itself is testable
-/// without building a 256 MiB stream.
-fn inflate_bounded(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
     // The unbounded `decompress_to_vec_zlib` would let a crafted chunk name its
     // own allocation size.
-    miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(data, limit)
-        .map_err(|e| FieldglassError::Parse(format!("deflate (zlib) inflate failed: {e:?}")))
+    miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(data, limit.bytes()).map_err(|e| {
+        if e.status == TINFLStatus::HasMoreOutput {
+            limit.exceeded("deflate")
+        } else {
+            FieldglassError::Parse(format!("deflate (zlib) inflate failed: {e:?}"))
+        }
+    })
 }
 
-/// Decompress a zstd frame (the HDF5 zstd filter's on-disk form).
+/// Decompress a zstd frame (the HDF5 zstd filter's on-disk form) to at most
+/// `limit` bytes, which [`codec_limit`] sets per chunk.
 ///
 /// Streamed rather than decoded in one shot so the output can be capped:
-/// `take` stops one byte past the ceiling, which distinguishes "too large" from
+/// `take` stops one byte past the limit, which distinguishes "too large" from
 /// a stream that merely ends there.
-fn unzstd(data: &[u8]) -> Result<Vec<u8>, FieldglassError> {
-    unzstd_bounded(data, MAX_DECOMPRESSED_CHUNK)
-}
-
-/// [`unzstd`] with the ceiling supplied, so the bound itself is testable
-/// without building a 256 MiB frame.
-fn unzstd_bounded(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
+fn unzstd_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError> {
     use std::io::Read;
 
     // Two ceilings, because a crafted frame has two ways to ask for memory.
     // [`MAX_ZSTD_WINDOW`] bounds the buffer sized from the frame header, which
     // is allocated before any output exists and so is invisible to the `take`
-    // below; [`MAX_DECOMPRESSED_CHUNK`] bounds the output itself.
+    // below; `limit` bounds the output itself.
     let mut decoder =
         ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, MAX_ZSTD_WINDOW)
             .map_err(|e| FieldglassError::Parse(format!("zstd frame header: {e}")))?;
     let mut out = Vec::new();
     decoder
         .by_ref()
-        .take(limit as u64 + 1)
+        .take(limit.bytes() as u64 + 1)
         .read_to_end(&mut out)
         .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?;
-    if out.len() > limit {
-        return Err(FieldglassError::Parse(format!(
-            "zstd chunk decompresses past the {limit}-byte ceiling"
-        )));
+    if out.len() > limit.bytes() {
+        return Err(limit.exceeded("zstd"));
     }
     Ok(out)
 }
@@ -763,8 +840,11 @@ mod tests {
         );
         assert!(frame.len() < big.len(), "the vector must actually expand");
 
-        assert_eq!(unzstd_bounded(&frame, big.len()).unwrap(), big);
-        let err = unzstd_bounded(&frame, 64).unwrap_err();
+        assert_eq!(
+            unzstd_bounded(&frame, Limit::Ceiling(big.len())).unwrap(),
+            big
+        );
+        let err = unzstd_bounded(&frame, Limit::Ceiling(64)).unwrap_err();
         assert!(
             matches!(&err, FieldglassError::Parse(m) if m.contains("ceiling")),
             "expected a ceiling error, got {err:?}"
@@ -777,8 +857,11 @@ mod tests {
         let stream = miniz_oxide::deflate::compress_to_vec_zlib(&big, 6);
         assert!(stream.len() < big.len(), "the vector must actually expand");
 
-        assert_eq!(inflate_bounded(&stream, big.len()).unwrap(), big);
-        assert!(inflate_bounded(&stream, 64).is_err());
+        assert_eq!(
+            inflate_bounded(&stream, Limit::Ceiling(big.len())).unwrap(),
+            big
+        );
+        assert!(inflate_bounded(&stream, Limit::Ceiling(64)).is_err());
     }
 
     /// A frame header declaring an enormous window is refused before anything
@@ -795,7 +878,7 @@ mod tests {
         // `exponent << 3 | mantissa`, and window = 2^(10 + exponent) scaled by
         // the mantissa — exponent 31 asks for 2 TiB.
         let frame = [0x28u8, 0xB5, 0x2F, 0xFD, 0x00, 0xF8];
-        let err = unzstd(&frame).unwrap_err();
+        let err = unzstd_bounded(&frame, Limit::Ceiling(MAX_DECOMPRESSED_CHUNK)).unwrap_err();
         assert!(
             matches!(&err, FieldglassError::Parse(m) if m.contains("frame header")),
             "expected the header to be rejected, got {err:?}"
@@ -819,7 +902,8 @@ mod tests {
             0x21, 0x00, 0x00, // block header: last block, raw, 4 bytes
             0xAA, 0xBB, 0xCC, 0xDD, // the block's literal bytes
         ];
-        let err = unzstd(&valid_but_wide).unwrap_err();
+        let err =
+            unzstd_bounded(&valid_but_wide, Limit::Ceiling(MAX_DECOMPRESSED_CHUNK)).unwrap_err();
         assert!(
             matches!(&err, FieldglassError::Parse(m) if m.contains("frame header")),
             "expected our window bound to refuse this frame, got {err:?}"
@@ -829,7 +913,10 @@ mod tests {
             [0u8; 128].as_slice(),
             ruzstd::encoding::CompressionLevel::Fastest,
         );
-        assert!(unzstd(&ok).is_ok(), "an ordinary frame must still decode");
+        assert!(
+            unzstd_bounded(&ok, Limit::Ceiling(MAX_DECOMPRESSED_CHUNK)).is_ok(),
+            "an ordinary frame must still decode"
+        );
     }
 
     #[test]
@@ -1064,9 +1151,10 @@ mod tests {
     fn szip_behind_a_length_changing_filter_is_bounded_by_the_chunk() {
         let expected = 64;
         let bound = expected + expected / 8 + SZIP_SLACK;
-        assert_eq!(szip_limit(None, expected), bound);
-        assert_eq!(szip_limit(Some(expected), expected), MAX_DECOMPRESSED_CHUNK);
-        assert_eq!(szip_limit(None, usize::MAX), MAX_DECOMPRESSED_CHUNK);
+        assert_eq!(growth_limit(expected), bound);
+        assert_eq!(szip_limit(None, bound), bound);
+        assert_eq!(szip_limit(Some(expected), bound), MAX_DECOMPRESSED_CHUNK);
+        assert_eq!(growth_limit(usize::MAX), MAX_DECOMPRESSED_CHUNK);
         assert!(bound < MAX_DECOMPRESSED_CHUNK);
 
         let pipeline = szip_pipeline(&[FILTER_FLETCHER32], &SZ_CD);
@@ -1076,6 +1164,142 @@ mod tests {
         let at = u32::try_from(bound).unwrap();
         let m = parse_message(pipeline.reverse(szip_chunk(at), 0, 1, expected));
         assert!(m.contains("szip decompress failed"), "{m}");
+    }
+
+    /// A pipeline of `ids` in write order, each with one client value.
+    fn pipeline_of(ids: &[u16]) -> FilterPipeline {
+        FilterPipeline {
+            filters: ids
+                .iter()
+                .map(|&id| Filter {
+                    id,
+                    client_data: vec![1],
+                })
+                .collect(),
+        }
+    }
+
+    /// 1 MiB of zeros: a stream of a few hundred bytes whose output is far past
+    /// any small chunk's length and far below the 256 MiB ceiling, which is the
+    /// gap #813 closes.
+    const BOMB_LEN: usize = 1 << 20;
+
+    fn zlib_bomb() -> Vec<u8> {
+        miniz_oxide::deflate::compress_to_vec_zlib(&vec![0u8; BOMB_LEN], 6)
+    }
+
+    fn zstd_bomb() -> Vec<u8> {
+        ruzstd::encoding::compress_to_vec(
+            vec![0u8; BOMB_LEN].as_slice(),
+            ruzstd::encoding::CompressionLevel::Fastest,
+        )
+    }
+
+    /// Deflate and zstd stop at the chunk's own length when every filter
+    /// before them keeps it (#813). The chunk is valid apart from inflating
+    /// past that length; it used to come back at its full 1 MiB, and only the
+    /// caller's length check refused it, after the allocation.
+    #[test]
+    fn deflate_and_zstd_stop_at_the_chunks_length() {
+        for (name, id, stream) in [
+            ("deflate", FILTER_DEFLATE, zlib_bomb()),
+            ("zstd", FILTER_ZSTD, zstd_bomb()),
+        ] {
+            assert!(stream.len() < 4096, "{name}: the stream is small");
+            for before in [&[][..], &[FILTER_SHUFFLE][..]] {
+                let mut ids = before.to_vec();
+                ids.push(id);
+                let pipeline = pipeline_of(&ids);
+                let m = parse_message(pipeline.reverse(stream.clone(), 0, 1, 64));
+                assert!(
+                    m.contains("chunk decompresses past the chunk's 64-byte length"),
+                    "{name} behind {before:?}: {m}"
+                );
+                // The same stream is still decoded for a chunk of its length.
+                let out = pipeline.reverse(stream.clone(), 0, 1, BOMB_LEN).unwrap();
+                assert_eq!(out.len(), BOMB_LEN, "{name} behind {before:?}");
+            }
+        }
+    }
+
+    /// Behind a filter that changes the length, the codec's output is bounded
+    /// the way szip's prefix is: the chunk's length plus an eighth plus 4 KiB.
+    #[test]
+    fn deflate_and_zstd_behind_a_length_changing_filter_are_bounded_by_the_chunk() {
+        let expected = 64;
+        let bound = expected + expected / 8 + SZIP_SLACK;
+        for (name, id, stream) in [
+            ("deflate", FILTER_DEFLATE, zlib_bomb()),
+            ("zstd", FILTER_ZSTD, zstd_bomb()),
+        ] {
+            for before in [FILTER_FLETCHER32, FILTER_DEFLATE, FILTER_ZSTD] {
+                let pipeline = pipeline_of(&[before, id]);
+                let m = parse_message(pipeline.reverse(stream.clone(), 0, 1, expected));
+                assert!(
+                    m.contains(&format!("past the {bound}-byte ceiling")),
+                    "{name} behind {before}: {m}"
+                );
+            }
+            // With the filter before it skipped for this chunk, the length is
+            // known again.
+            let m = parse_message(pipeline_of(&[FILTER_FLETCHER32, id]).reverse(
+                stream.clone(),
+                0b1,
+                1,
+                expected,
+            ));
+            assert!(
+                m.contains("chunk decompresses past the chunk's 64-byte length"),
+                "{name}: {m}"
+            );
+        }
+    }
+
+    /// Behind an szip that ran, nothing short of the outer ceiling is safe:
+    /// szip can grow incompressible one-bit pixels by three eighths before
+    /// scanline padding, so the chunk-plus-an-eighth bound could refuse a file
+    /// libhdf5 reads. Skipped for this chunk, the szip no longer counts.
+    #[test]
+    fn a_codec_behind_szip_keeps_the_outer_ceiling() {
+        let grown = growth_limit(64);
+        for (ids, mask, want) in [
+            (
+                &[FILTER_SZIP, FILTER_DEFLATE][..],
+                0,
+                MAX_DECOMPRESSED_CHUNK,
+            ),
+            (&[FILTER_SZIP, FILTER_ZSTD][..], 0, MAX_DECOMPRESSED_CHUNK),
+            (&[FILTER_SZIP, FILTER_SZIP][..], 0, MAX_DECOMPRESSED_CHUNK),
+            (
+                &[FILTER_FLETCHER32, FILTER_SZIP, FILTER_DEFLATE][..],
+                0,
+                MAX_DECOMPRESSED_CHUNK,
+            ),
+            (&[FILTER_SZIP, FILTER_DEFLATE][..], 0b1, grown),
+            (&[FILTER_FLETCHER32, FILTER_DEFLATE][..], 0, grown),
+            (&[FILTER_DEFLATE, FILTER_ZSTD][..], 0, grown),
+        ] {
+            let pipeline = pipeline_of(ids);
+            let last = ids.len() - 1;
+            assert_eq!(
+                pipeline.limit_behind(last, mask, 64),
+                want,
+                "{ids:?} mask {mask:#b}"
+            );
+        }
+    }
+
+    /// The bound refuses only what is too long. A real fletcher32-then-deflate
+    /// chunk, whose deflate output is four bytes longer than the chunk, still
+    /// decodes.
+    #[test]
+    fn deflate_behind_fletcher32_still_decodes() {
+        let body: Vec<u8> = (0..64u8).collect();
+        let mut with_sum = body.clone();
+        with_sum.extend_from_slice(&fletcher32(&body).to_le_bytes());
+        let chunk = miniz_oxide::deflate::compress_to_vec_zlib(&with_sum, 6);
+        let pipeline = pipeline_of(&[FILTER_FLETCHER32, FILTER_DEFLATE]);
+        assert_eq!(pipeline.reverse(chunk, 0, 1, body.len()).unwrap(), body);
     }
 
     #[test]

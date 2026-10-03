@@ -53,7 +53,7 @@
 //!   the last pixel of a partial last scanline, and fails if one of them
 //!   holds a bad code. Those blocks describe samples nobody asked for, so
 //!   here a bad code in them is never an error and the result is `Ok`, with
-//!   the bytes libsz would have written. Up to 16 bits they are not read at
+//!   the bytes libsz would have written. Below 32 bits they are not read at
 //!   all; at 32 and 64 bits they are read only to find where the stream
 //!   ends (next point).
 //! - **A 32- or 64-bit output shorter than its stream is an error**,
@@ -248,7 +248,7 @@ impl SzParams {
 /// layout, most significant byte first with [`MSB_OPTION_MASK`], and as the
 /// encoder's input bytes for 32- and 64-bit pixels.
 ///
-/// Up to 16 bits per pixel, bytes after the last pixel's code are never read,
+/// Below 32 bits per pixel, bytes after the last pixel's code are never read,
 /// so a shorter output decodes the same stream's first pixels. At 32 and 64
 /// bits it does not: byte planes are laid out by the output's length, so
 /// `out.len()` must be the length the stream was encoded from. The rest of
