@@ -8001,6 +8001,57 @@ mod message_wire_tests {
             }
         }
     }
+
+    /// The third grid that reaches the same refusal: a §3.90 whose camera sees
+    /// no Earth (`Nr` of one Earth radius). Built from the lat/lon fixture with
+    /// its §3 rewritten as template 3.90, as the umbrella's test builds it.
+    #[test]
+    fn a_space_view_that_sees_no_earth_draws_unplaced_and_takes_no_overlay() {
+        let path = "../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2";
+        let bytes = std::fs::read(path).expect("fixture");
+        let mut at = 16;
+        let bytes = loop {
+            let len = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+                as usize;
+            if bytes[at + 4] == 3 {
+                let mut p = vec![0u8; 66];
+                p[0] = 6; // a sphere of radius 6,371,229 m
+                p[16..24].copy_from_slice(&bytes[at + 30..at + 38]); // Ni, Nj
+                p[33..37].copy_from_slice(&1_000u32.to_be_bytes()); // Dx
+                p[37..41].copy_from_slice(&1_000u32.to_be_bytes()); // Dy
+                p[54..58].copy_from_slice(&1_000_000u32.to_be_bytes()); // Nr
+                let mut section = bytes[at..at + 14].to_vec();
+                section[12..14].copy_from_slice(&90u16.to_be_bytes());
+                section.extend_from_slice(&p);
+                let section_len = section.len() as u32;
+                section[0..4].copy_from_slice(&section_len.to_be_bytes());
+                let mut out = bytes[..at].to_vec();
+                out.extend_from_slice(&section);
+                out.extend_from_slice(&bytes[at + len..]);
+                let total = out.len() as u64;
+                out[8..16].copy_from_slice(&total.to_be_bytes());
+                break out;
+            }
+            at += len;
+        };
+        let handle = Grib2Handle::from_vec(bytes.clone()).expect("opens");
+        let session = fieldglass::Session::open(bytes).expect("opens");
+        let field = session
+            .decode(0, &fieldglass::DecodeOptions::default())
+            .expect("decodes in grid coordinates");
+        let g = handle
+            .render_grid(0, super::netcdf_slice_tests::opts("source"))
+            .expect("renders");
+        assert_eq!(
+            (g.width as u64, g.height as u64),
+            (u64::from(field.ni), u64::from(field.nj))
+        );
+        let refused = handle.stream.placed(0).expect_err("no overlay geometry");
+        assert_eq!(
+            refused.reason,
+            "the space_view grid is unplaceable: its geometry places no point on the Earth"
+        );
+    }
 }
 
 // `declared_grid_family_tests` stood here (#645): it held this crate's
