@@ -129,7 +129,8 @@ forward:
   files. The prefix is then deflate's output length, which nothing outside the
   stream records, so it is bounded, not matched: at most the chunk's length
   plus an eighth plus 4 KiB, which covers deflate's, zstd's and fletcher32's
-  growth and stops a tiny chunk from committing a 256 MiB buffer. The chunk
+  growth and stops a tiny chunk from committing a 256 MiB buffer, and 33
+  times the chunk plus 4 KiB behind an szip (#813). The chunk
   must then come back exactly its own length; before #421 a longer result was
   silently cut.
 - **A stream longer than its chunk is refused, for 32- and 64-bit pixels.**

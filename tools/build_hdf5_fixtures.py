@@ -833,7 +833,7 @@ def szip_compress(raw: bytes, mask: int, bpp: int, ppb: int, pps: int) -> bytes:
 
     libsz = ctypes.CDLL(_bundled_lib("libsz"))
     params = SzCom(mask, bpp, ppb, pps)
-    cap = ctypes.c_size_t(len(raw) * 4 + 1024)
+    cap = ctypes.c_size_t(len(raw) * 40 + 1024)
     dst = ctypes.create_string_buffer(cap.value)
     rc = libsz.SZ_BufftoBuffCompress(dst, ctypes.byref(cap), raw, ctypes.c_size_t(len(raw)),
                                      ctypes.byref(params))
@@ -1067,6 +1067,70 @@ def build_szip_hand(name: str) -> None:
               "write_direct_chunk: scanlines shorter than a block (cd_values patched) "
               "and szip after deflate; `values` is the h5py read-back (#421)")
     print(f"wrote {path} ({path.stat().st_size} B) + oracle [{len(objects)} hand-built szip datasets]")
+
+
+def build_szip_growth(name: str) -> None:
+    """A ``[szip, deflate]`` chunk whose szip stream is 24 times the chunk
+    (#813).
+
+    The reader bounds a codec behind a length-changing filter by that
+    filter's worst-case growth, and szip's is large: libsz pads every
+    scanline to whole blocks, so a scanline of one pixel at 32 pixels per
+    block is coded as a 32-pixel block. ``i2_growth`` is one 4,096-byte
+    ``<i2`` chunk of 32767s at 32 pixels per block, entropy coding without
+    the NN preprocessor (which would predict a constant chunk exactly), with
+    pixels per scanline
+    patched to 1 as in ``build_szip_hand``; its szip stream is 99,076 bytes,
+    which deflate stores in about a kilobyte. A bound of the chunk plus an
+    eighth plus 4 KiB (8,704 bytes) would refuse it, and libhdf5 reads it,
+    so this pins that the reader's szip factor is large enough. The file is
+    ``libver='earliest'`` for the patch, as ``hdf5_szip_hand.h5`` is.
+    """
+    import struct
+    import zlib
+
+    path = FIXturesDir / name
+    data = np.full(2048, np.iinfo("<i2").max, dtype="<i2")
+    with h5py.File(path, "w", libver="earliest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass szip chunk that grows 24 times")
+        dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
+        dcpl.set_chunk((2048,))
+        # EC, not NN: with NN a constant chunk predicts exactly and compresses.
+        dcpl.set_szip(h5py.h5z.SZIP_EC_OPTION_MASK, 32)
+        dcpl.set_deflate(4)
+        dcpl.set_obj_track_times(False)
+        h5py.h5d.create(f.id, b"i2_growth", h5py.h5t.STD_I16LE,
+                        h5py.h5s.create_simple((2048,)), dcpl=dcpl)
+        written = f["i2_growth"].id.get_create_plist().get_filter(0)[2]
+    raw = bytearray(path.read_bytes())
+    old = struct.pack("<4I", *written)
+    if raw.count(old) != 1:
+        raise SystemExit(f"i2_growth: cd_values {written} not unique in the file")
+    at = raw.index(old)
+    raw[at:at + 16] = struct.pack("<4I", *written[:3], 1)
+    path.write_bytes(bytes(raw))
+
+    with h5py.File(path, "r+") as f:
+        d = f["i2_growth"]
+        plist = d.id.get_create_plist()
+        if [plist.get_filter(i)[0] for i in range(plist.get_nfilters())] != [4, 1]:
+            raise SystemExit("i2_growth: the pipeline is not [szip, deflate]")
+        mask, ppb, bpp, pps = plist.get_filter(0)[2]
+        if (ppb, bpp, pps) != (32, 16, 1):
+            raise SystemExit(f"i2_growth: cd_values {(mask, ppb, bpp, pps)}")
+        stream = szip_compress(data.tobytes(), mask, bpp, ppb, pps)
+        if len(stream) <= data.nbytes + data.nbytes // 8 + 4096:
+            raise SystemExit(f"i2_growth: the szip stream ({len(stream)} B) no longer "
+                             "grows past the chunk plus an eighth plus 4 KiB")
+        d.id.write_direct_chunk((0,), zlib.compress(stream, 4), 0)
+    with h5py.File(path, "r") as f:
+        if not np.array_equal(f["i2_growth"][()], data):
+            raise SystemExit("i2_growth: libhdf5 does not read back what was written")
+    write_szip_oracle(
+        path, "one 4,096-byte <i2 chunk, pipeline [szip, deflate], pixels per scanline "
+              f"patched to 1 at 32 per block: its szip stream is {len(stream)} bytes; "
+              "`values` is the h5py read-back (#813)")
+    print(f"wrote {path} ({path.stat().st_size} B) + oracle, szip stream {len(stream)} B")
 
 
 def build_szip_long_stream(name: str) -> None:
@@ -1374,6 +1438,7 @@ def main() -> int:
     build_szip("hdf5_szip.h5")
     build_szip_hand("hdf5_szip_hand.h5")
     build_szip_long_stream("hdf5_szip_long_stream.h5")
+    build_szip_growth("hdf5_szip_growth.h5")
     # Scale-less datasets: every axis is an invented anonymous dimension (#533).
     build_phony_dims("hdf5_phony_dims.h5")
     # Fixed-point bit offset / precision / padding, and a non-IEEE float (#795).

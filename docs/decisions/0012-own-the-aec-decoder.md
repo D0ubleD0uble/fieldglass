@@ -29,6 +29,12 @@ its stream, which libsz returns scrambled and `sz::decompress` now refuses.
 The value oracle is the h5py 3.16 wheel (libhdf5 2.0.0, bundled libaec
 1.1.4).
 
+**Amended** (2026-10-03, #813): the bound behind a length-changing filter is
+now each earlier filter's worst-case growth chained in write order: an eighth
+plus 4 KiB for deflate, zstd and fletcher32 as before, and 33 times for an
+szip, and it applies to deflate and zstd as well as to szip's prefix.
+Decision 6 records the szip factor and the one case it does not cover.
+
 ## Context
 
 GRIB2 template 5.42 and the HDF5 szip filter (id 4) use the same entropy coder,
@@ -252,11 +258,25 @@ SZIP (#248). So:
   `[deflate, szip]` and reads it back, so refusing it would reject valid
   files, and the prefix is then the earlier filter's output length, which
   nothing outside the stream records. So the prefix is bounded rather than
-  matched: at most the chunk's length plus an eighth plus 4 KiB, which covers
-  deflate's and zstd's worst-case growth and fletcher32's four bytes, and
-  keeps a tiny chunk from committing a 256 MiB buffer. The reader then
-  requires the chunk to come back exactly its own length, whatever the
-  pipeline. `hdf5_szip_hand.h5`'s `deflate_szip` pins it end to end.
+  matched: by the chunk's length grown by each earlier filter's worst case,
+  an eighth plus 4 KiB for deflate, zstd and fletcher32 (deflate's and zstd's
+  worst-case growth and fletcher32's four bytes), and 33 times for an szip,
+  which keeps a tiny chunk from committing a 256 MiB buffer. deflate and zstd
+  are bounded the same way when something before them changes the length,
+  and by the chunk's own length otherwise (#813). The reader then requires
+  the chunk to come back exactly its own length, whatever the pipeline.
+  `hdf5_szip_hand.h5`'s `deflate_szip` and `hdf5_szip_growth.h5` pin it end
+  to end.
+- **szip's factor of 33** is libsz's worst case under libhdf5's limits: an
+  uncompressed block of `J·n` bits plus a 3-to-5-bit ID, at most 32 pixels per
+  block (`H5Pset_szip`), with each scanline padded to whole blocks, so a
+  one-pixel scanline of 8-bit pixels codes about 32.4 times its input.
+  `hdf5_szip_growth.h5` is a libsz stream 24 times its chunk, behind which
+  deflate decodes. `sz` accepts blocks of up to 256 pixels for other
+  writers; a stream from one with blocks over 32 and scanlines shorter than a
+  block can grow past 33 times, and a codec after it would then be refused.
+  No known writer produces one, and the bound is what keeps a file from
+  inflating a bomb behind an szip it put there itself.
 - **A stream that codes more pixels than the chunk** is refused by the codec
   for 32- and 64-bit pixels (`AecError::TrailingInput`, decision 4, #794).
   With no filter or only shuffle before szip and a correct prefix, it passes

@@ -357,6 +357,15 @@ const SZIP_SLACK: usize = 4096;
 /// `J·n + ID` bits for an input pixel of `8·⌈n/8⌉` bits. With `J ≤ 32` that is
 /// at most `(32·8 + 3) / 8 ≈ 32.4` (8-bit pixels), which this rounds up. The
 /// 4-byte size prefix and the last byte's padding are in [`SZIP_SLACK`].
+///
+/// `J ≤ 32` is libhdf5's: `H5Pset_szip` refuses a larger block, and its
+/// `set_local` never picks a scanline shorter than a block, which keeps real
+/// files to about twice their input. `fieldglass_aec::sz` decodes blocks of
+/// up to 256 pixels, for other writers, so a file from one of those with
+/// blocks over 32 and scanlines shorter than a block could exceed this, and
+/// a codec after its szip would then be refused. No writer we know of makes
+/// one; ADR-0012 decision 6 records it. `hdf5_szip_growth.h5` pins a libsz
+/// stream 24 times its chunk.
 const SZIP_MAX_GROWTH: usize = 33;
 
 /// Undo the HDF5 szip filter (id 4) on one chunk.
