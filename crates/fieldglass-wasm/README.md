@@ -298,12 +298,18 @@ and 314 gzipped to the baseline build, and 795 and 393 to `+simd128` (under
 growth chained through the filters before a codec, and the error that names
 which bound a chunk broke.
 
+Declining a GRIB2 grid whose rotation or scale factor is not finite, and
+decoding such a grid onto the rows and columns its section declares (#823),
+added 308 raw bytes and 174 gzipped to the baseline build, and 308 and 90 to
+`+simd128`, measured with binaryen 132 against a build of #832's merge on the
+same machine, which itself measured exactly the figures recorded before it.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,529,092 | 583,179 |
-| `+simd128` | 1,513,155 | 577,158 |
+| baseline | 1,529,400 | 583,353 |
+| `+simd128` | 1,513,463 | 577,248 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
