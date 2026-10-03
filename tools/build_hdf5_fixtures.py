@@ -1070,17 +1070,17 @@ def build_szip_hand(name: str) -> None:
 
 
 def build_szip_growth(name: str) -> None:
-    """A ``[szip, deflate]`` chunk whose szip stream is 24 times the chunk
+    """A ``[szip, deflate]`` chunk whose szip stream is 26 times the chunk
     (#813).
 
     The reader bounds a codec behind a length-changing filter by that
     filter's worst-case growth, and szip's is large: libsz pads every
     scanline to whole blocks, so a scanline of one pixel at 32 pixels per
     block is coded as a 32-pixel block. ``i2_growth`` is one 4,096-byte
-    ``<i2`` chunk of 32767s at 32 pixels per block, entropy coding without
+    ``<i2`` chunk of -1s (all bits set) at 32 pixels per block, entropy coding without
     the NN preprocessor (which would predict a constant chunk exactly), with
     pixels per scanline
-    patched to 1 as in ``build_szip_hand``; its szip stream is 99,076 bytes,
+    patched to 1 as in ``build_szip_hand``; its szip stream is 107,268 bytes,
     which deflate stores in about a kilobyte. A bound of the chunk plus an
     eighth plus 4 KiB (8,704 bytes) would refuse it, and libhdf5 reads it,
     so this pins that the reader's szip factor is large enough. The file is
@@ -1090,9 +1090,10 @@ def build_szip_growth(name: str) -> None:
     import zlib
 
     path = FIXturesDir / name
-    data = np.full(2048, np.iinfo("<i2").max, dtype="<i2")
+    # -1 is the worst value a sweep of libsz over every 16-bit value found.
+    data = np.full(2048, -1, dtype="<i2")
     with h5py.File(path, "w", libver="earliest") as f:
-        f.attrs["title"] = np.bytes_(b"fieldglass szip chunk that grows 24 times")
+        f.attrs["title"] = np.bytes_(b"fieldglass szip chunk that grows 26 times")
         dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
         dcpl.set_chunk((2048,))
         # EC, not NN: with NN a constant chunk predicts exactly and compresses.

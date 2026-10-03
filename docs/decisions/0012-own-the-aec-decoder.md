@@ -267,14 +267,19 @@ SZIP (#248). So:
   the chunk to come back exactly its own length, whatever the pipeline.
   `hdf5_szip_hand.h5`'s `deflate_szip` and `hdf5_szip_growth.h5` pin it end
   to end.
-- **szip's factor of 33** is libsz's worst case under libhdf5's limits: an
-  uncompressed block of `J·n` bits plus a 3-to-5-bit ID, at most 32 pixels per
-  block (`H5Pset_szip`), with each scanline padded to whole blocks, so a
-  one-pixel scanline of 8-bit pixels codes about 32.4 times its input.
-  `hdf5_szip_growth.h5` is a libsz stream 24 times its chunk, behind which
-  deflate decodes. `sz` accepts blocks of up to 256 pixels for other
+- **szip's factor of 33** bounds any encoder that never codes a block longer
+  than its uncompressed option, an ID of 3 to 5 bits plus `J·n` bits, at most
+  32 pixels per block (`H5Pset_szip`) and each scanline padded to whole
+  blocks: a one-pixel scanline of 8-bit pixels would code about 32.4 times
+  its input. libsz itself stays under it: it pads short scanlines with zeros
+  or the last pixel rather than coding them raw, and a sweep of bundled
+  libaec 1.1.4 over 8- to 64-bit pixels, 8 to 32 pixels per block and one
+  pixel per scanline found 26.2 times at most. `hdf5_szip_growth.h5` is that
+  worst stream, behind which deflate decodes. `sz` accepts blocks of up to 256 pixels for other
   writers; a stream from one with blocks over 32 and scanlines shorter than a
-  block can grow past 33 times, and a codec after it would then be refused.
+  block can grow past 33 times, and so can one from an encoder that codes a
+  block in an option longer than the uncompressed one (CCSDS 121.0-B leaves
+  the choice to the encoder), and a codec after either would be refused.
   No known writer produces one, and the bound is what keeps a file from
   inflating a bomb behind an szip it put there itself.
 - **A stream that codes more pixels than the chunk** is refused by the codec

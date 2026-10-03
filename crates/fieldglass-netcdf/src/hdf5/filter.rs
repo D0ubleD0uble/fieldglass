@@ -365,7 +365,7 @@ const SZIP_SLACK: usize = 4096;
 /// blocks over 32 and scanlines shorter than a block could exceed this, and
 /// a codec after its szip would then be refused. No writer we know of makes
 /// one; ADR-0012 decision 6 records it. `hdf5_szip_growth.h5` pins a libsz
-/// stream 24 times its chunk.
+/// stream 26 times its chunk, the most libsz produced in a sweep.
 const SZIP_MAX_GROWTH: usize = 33;
 
 /// Undo the HDF5 szip filter (id 4) on one chunk.
