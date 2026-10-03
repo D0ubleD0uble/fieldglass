@@ -209,9 +209,10 @@ suite("Slice panel projection picker", () => {
     assert.strictEqual(reprojectionNote(false, null), "Reprojection isn't available for this grids yet.");
   });
 
-  // The note's own `display: block` out-specifies the UA stylesheet's
-  // [hidden], so toggling the attribute changed nothing on screen until the
-  // panel said so itself: a cross-section showed both notes side by side.
+  // The note's own `display: block` overrides the UA stylesheet's [hidden]
+  // (an author rule beats a UA one by origin), so toggling the attribute
+  // changed nothing on screen until the panel said so itself: a cross-section
+  // showed both notes side by side.
   test("a hidden picker note is not displayed", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");

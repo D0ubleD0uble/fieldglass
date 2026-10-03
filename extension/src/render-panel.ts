@@ -2900,7 +2900,7 @@ export function renderImagePanelHtml(
       display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
       border: none; padding: 0; margin: 0;
     }
-    /* The fieldset display:flex rule above out-specifies the UA hidden rule, so
+    /* The fieldset display:flex rule above overrides the UA hidden rule, so
        restore it explicitly — the Bounds row hides for projections without a
        manual lat/lon window (see syncProjectionControls). */
     .toolbar fieldset[hidden] { display: none; }
@@ -2910,7 +2910,7 @@ export function renderImagePanelHtml(
       color: var(--vscode-descriptionForeground);
     }
     .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; }
-    /* The rule above sets display, out-specifying the UA stylesheet's hidden
+    /* The rule above sets display, overriding the UA stylesheet's hidden
        rule (display:none); without this the preset selectors never hide when
        syncProjectionControls toggles them off. */
     .toolbar label[hidden] { display: none; }
@@ -2918,7 +2918,7 @@ export function renderImagePanelHtml(
        hemisphere + central meridian) bundle their fields in a span so
        syncProjectionControls can toggle the whole group; inline-flex spaces the
        fields like the other groups, and the explicit hidden rule restores the
-       toggle the display above would otherwise out-specify. */
+       toggle the display above would otherwise override. */
     .toolbar-row > span { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem; }
     .toolbar-row > span[hidden] { display: none; }
     /* The graticule-spacing field hides without reflowing: visibility:hidden
