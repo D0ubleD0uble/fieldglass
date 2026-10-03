@@ -331,6 +331,40 @@ export function projectionOptionsHtml(
   return html;
 }
 
+/** The projection `<select>` and its note, moved to a slice render's answer to
+ *  whether it can be reprojected (#822). `offered` is whether the select
+ *  currently lists the map targets; the options are rebuilt only when that
+ *  changes, keeping the selection where it is still offered and going back to
+ *  `source` where it is not — which is what the provider drew it in. The note
+ *  takes the text the provider composed.
+ *
+ *  Returns the new `offered`, and whether the selection moved. Takes its
+ *  elements as arguments, so a test can run it against stand-ins. Serialized
+ *  into the panel script, so it must not reference anything outside itself but
+ *  {@link projectionOptionsHtml}, which is serialized beside it. */
+export function applyReprojectable(
+  projection: { value: string; innerHTML: string; options: ArrayLike<{ value: string }> } | null,
+  note: { textContent: string | null; toggleAttribute(name: string, force: boolean): unknown } | null,
+  sliceGrid: { reprojectable: boolean; note?: string },
+  offered: boolean,
+  targets: ReadonlyArray<{ value: string; label: string }>,
+): { offered: boolean; moved: boolean } {
+  const reprojectable = sliceGrid.reprojectable === true;
+  let moved = false;
+  if (projection && reprojectable !== offered) {
+    const keep = projection.value;
+    projection.innerHTML = projectionOptionsHtml(targets, reprojectable);
+    const still = Array.from(projection.options).some((o) => o.value === keep);
+    projection.value = still ? keep : "source";
+    moved = !still;
+  }
+  if (note) {
+    note.textContent = typeof sliceGrid.note === "string" ? sliceGrid.note : "";
+    note.toggleAttribute("hidden", reprojectable);
+  }
+  return { offered: reprojectable, moved };
+}
+
 /** The note beside the projection picker: why there is nothing but the source
  *  view, or nothing at all for a field that can be reprojected. `label` is the
  *  grid's family, `null` when the field could not be placed at all. A slice
@@ -660,6 +694,7 @@ export function renderImagePanelHtml(
         ${defaultAnimationDim.toString()}
         ${isMapSlice.toString()}
         ${projectionOptionsHtml.toString()}
+        ${applyReprojectable.toString()}
         const MAP_PROJECTIONS = ${JSON.stringify(MAP_PROJECTIONS)};
         // Whether the picker offers the map targets. It starts as the answer
         // for the field the panel opened on; a slice panel replaces it with the
@@ -903,27 +938,17 @@ export function renderImagePanelHtml(
         }
 
         // Take a slice render's own answer to whether it can be reprojected
-        // (#822). The options and the note follow it, and a selected map target
-        // the new slice cannot be drawn on goes back to the source view, which
-        // is what the provider drew it in. Returns whether the selection moved.
+        // (#822); see applyReprojectable. Returns whether the selection moved.
         function applySliceGrid(sliceGrid) {
-          const projection = document.getElementById('picker-projection');
-          const note = document.getElementById('reproject-note');
-          const reprojectable = sliceGrid.reprojectable === true;
-          let moved = false;
-          if (projection && reprojectable !== mapsOffered) {
-            const keep = projection.value;
-            projection.innerHTML = projectionOptionsHtml(MAP_PROJECTIONS, reprojectable);
-            const still = Array.from(projection.options).some((o) => o.value === keep);
-            projection.value = still ? keep : 'source';
-            moved = !still;
-          }
-          mapsOffered = reprojectable;
-          if (note) {
-            note.textContent = typeof sliceGrid.note === 'string' ? sliceGrid.note : '';
-            note.toggleAttribute('hidden', reprojectable);
-          }
-          return moved;
+          const next = applyReprojectable(
+            document.getElementById('picker-projection'),
+            document.getElementById('reproject-note'),
+            sliceGrid,
+            mapsOffered,
+            MAP_PROJECTIONS,
+          );
+          mapsOffered = next.offered;
+          return next.moved;
         }
 
         // A cross-section has no projection and no coastlines to draw on it.
@@ -2447,6 +2472,16 @@ export function renderImagePanelHtml(
             const el = document.querySelector('input[name="' + name + '"][value="' + v + '"]');
             if (el) el.checked = true;
           };
+          // A slice panel's options are the ones for the slice it was written
+          // for, which a hide and show brings back even after the picker moved
+          // on (#822). A saved map target is offered again here, and the
+          // provider's first render — which draws it, or the source view if the
+          // restored slice cannot take it — says which, through applySliceGrid.
+          if (SLICE && !mapsOffered && MAP_PROJECTIONS.some((t) => t.value === s.projection)) {
+            const projection = document.getElementById('picker-projection');
+            if (projection) projection.innerHTML = projectionOptionsHtml(MAP_PROJECTIONS, true);
+            mapsOffered = true;
+          }
           setVal('picker-projection', s.projection);
           setVal('picker-center-lon', s.centerLon);
           setVal('picker-center-lat', s.centerLat);
@@ -2746,6 +2781,9 @@ export function renderImagePanelHtml(
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; margin-bottom: 0.5rem; }
     .projection { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
+    /* The display above out-specifies the UA stylesheet's [hidden], and a note
+       inside a <label> is out of reach of the toolbar-row rule below (#822). */
+    .picker-note[hidden] { display: none; }
     #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.1em; }
     .contour-status {
       font-size: 0.85rem;

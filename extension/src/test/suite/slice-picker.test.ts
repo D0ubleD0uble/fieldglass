@@ -18,7 +18,14 @@ import * as vscode from "vscode";
 import type { FieldglassApi } from "../../extension";
 import { loadNative } from "../../native";
 import type { FieldglassDocument, FieldglassEditorProvider, GridReadyMessage } from "../../provider";
-import { MAP_PROJECTIONS, projectionOptionsHtml, reprojectionNote } from "../../render-panel";
+import {
+  applyReprojectable,
+  MAP_PROJECTIONS,
+  projectionOptionsHtml,
+  renderImagePanelHtml,
+  reprojectionNote,
+  type PanelField,
+} from "../../render-panel";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -129,10 +136,55 @@ function render(
   return reply as GridReadyMessage;
 }
 
-/** What the panel script's picker offers after it takes this render. */
-function pickerAfter(reply: GridReadyMessage): string[] {
-  assert.ok(reply.sliceGrid, "a slice render carries the slice's own answer");
-  return offered(projectionOptionsHtml(MAP_PROJECTIONS, reply.sliceGrid.reprojectable));
+/** The panel script's projection picker and note, as stand-ins for the two
+ *  elements, moved by the same `applyReprojectable` the script runs on every
+ *  slice render. Starts as the panel's HTML wrote it. */
+class Picker {
+  value = "source";
+  options: { value: string }[] = [];
+  noteText = "";
+  noteHidden = false;
+  private offered: boolean;
+
+  constructor(html: string) {
+    this.innerHTML = /<select id="picker-projection">([\s\S]*?)<\/select>/.exec(html)?.[1] ?? "";
+    const note = /<span class="picker-note" id="reproject-note"( hidden)?>([^<]*)<\/span>/.exec(html);
+    assert.ok(note, "the reprojection note is in the panel");
+    this.noteHidden = note[1] !== undefined;
+    this.noteText = note[2];
+    this.offered = this.options.length > 1;
+  }
+
+  set innerHTML(html: string) {
+    this.options = offered(html).map((value) => ({ value }));
+  }
+
+  get innerHTML(): string {
+    return "";
+  }
+
+  /** Select a target, as the user does. */
+  choose(value: string): void {
+    assert.ok(this.offers().includes(value), `${value} is offered`);
+    this.value = value;
+  }
+
+  offers(): string[] {
+    return this.options.map((o) => o.value);
+  }
+
+  /** What `handleGridReady` does with a render's answer. */
+  take(reply: GridReadyMessage): boolean {
+    assert.ok(reply.sliceGrid, "a slice render carries the slice's own answer");
+    const note = {
+      textContent: this.noteText as string | null,
+      toggleAttribute: (_: string, hidden: boolean) => (this.noteHidden = hidden),
+    };
+    const next = applyReprojectable(this, note, reply.sliceGrid, this.offered, MAP_PROJECTIONS);
+    this.noteText = note.textContent ?? "";
+    this.offered = next.offered;
+    return next.moved;
+  }
 }
 
 suite("Slice panel projection picker", () => {
@@ -155,6 +207,22 @@ suite("Slice panel projection picker", () => {
     assert.strictEqual(reprojectionNote(true, "latlon"), "");
     assert.strictEqual(reprojectionNote(false, "source"), UNPLACED_NOTE);
     assert.strictEqual(reprojectionNote(false, null), "Reprojection isn't available for this grids yet.");
+  });
+
+  // The note's own `display: block` out-specifies the UA stylesheet's
+  // [hidden], so toggling the attribute changed nothing on screen until the
+  // panel said so itself: a cross-section showed both notes side by side.
+  test("a hidden picker note is not displayed", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      { grid: { label: "source" }, reprojectable: false } as unknown as PanelField,
+      "summary",
+      native.colormaps(),
+      native.combineOps(),
+    );
+    assert.match(html, /\.picker-note\[hidden\] \{ display: none; \}/);
   });
 
   test("a NetCDF panel opened on an unplaceable variable offers the map targets for a placed one", async () => {
@@ -190,27 +258,36 @@ suite("Slice panel projection picker", () => {
       (p as any).openNetcdfRenderPanel(doc, latBnds.variableIndex),
     );
     assert.deepStrictEqual(pickerIn(panel.html()), ["source"], "opened on lat_bnds");
-    assert.match(panel.html(), /Reprojection isn't available for source grids yet\./);
+    const picker = new Picker(panel.html());
+    assert.strictEqual(picker.noteText, UNPLACED_NOTE);
+    assert.strictEqual(picker.noteHidden, false);
 
     // The first paint: lat_bnds, source only.
     panel.send({ type: "ready", projection: "source", resampling: "nearest", flipY: false, slice: latBndsSlice });
     const first = panel.posted[panel.posted.length - 1] as GridReadyMessage;
     assert.strictEqual(first.type, "gridReady");
     assert.deepStrictEqual(first.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE });
+    assert.strictEqual(picker.take(first), false);
+    assert.deepStrictEqual(picker.offers(), ["source"]);
 
     // Move the same panel onto temperature. The render says it can be
     // reprojected, so the picker offers the map targets…
-    const onTemperature = render(panel, temperatureSlice, "source");
+    const onTemperature = render(panel, temperatureSlice, picker.value);
     assert.deepStrictEqual(onTemperature.sliceGrid, { label: "latlon", reprojectable: true, note: "" });
-    assert.ok(pickerAfter(onTemperature).includes("equirectangular"));
+    assert.strictEqual(picker.take(onTemperature), false, "source stays selected");
+    assert.ok(picker.offers().includes("equirectangular"), `got ${picker.offers().join(", ")}`);
+    assert.strictEqual(picker.noteHidden, true, "and the note goes");
     // The export is named for the variable drawn, not the one the panel opened
     // on — the same frozen-at-open shape as the picker.
     assert.match(panel.html(), /DEFAULT_PNG_NAME = "lat_bnds-message-1\.png"/);
     assert.strictEqual(onTemperature.defaultPngName, `temperature-message-${temperature.variableIndex}.png`);
 
     // …and they draw.
-    const mapped = render(panel, temperatureSlice, "equirectangular");
+    picker.choose("equirectangular");
+    const mapped = render(panel, temperatureSlice, picker.value);
     assert.strictEqual(mapped.options.projection, "equirectangular");
+    assert.strictEqual(picker.take(mapped), false);
+    assert.strictEqual(picker.value, "equirectangular");
     assert.ok(mapped.usedLatMin !== null, "an equirectangular render reports its extent");
 
     // A rebuild now writes the picker for the slice on screen, so the saved
@@ -222,11 +299,15 @@ suite("Slice panel projection picker", () => {
     // Back to lat_bnds with equirectangular still selected. It is drawn in the
     // source view rather than failing, and the picker goes back to source only,
     // with the note.
-    const back = render(panel, latBndsSlice, "equirectangular");
+    const back = render(panel, latBndsSlice, picker.value);
     assert.strictEqual(back.options.projection, "source", "drawn in the source view");
     assert.strictEqual(back.usedLatMin, null, "with no geographic extent");
     assert.deepStrictEqual(back.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE });
-    assert.deepStrictEqual(pickerAfter(back), ["source"]);
+    assert.strictEqual(picker.take(back), true, "the selection moves");
+    assert.strictEqual(picker.value, "source");
+    assert.deepStrictEqual(picker.offers(), ["source"]);
+    assert.strictEqual(picker.noteHidden, false);
+    assert.strictEqual(picker.noteText, UNPLACED_NOTE);
   });
 
   // One `openSliceRenderPanel` serves both containers, so the NetCDF test above
@@ -239,6 +320,8 @@ suite("Slice panel projection picker", () => {
     assert.ok(fs.existsSync(store), `fixture store missing: ${store}`);
     const panel = withSlicePanel(p, () => p.openZarrStore(vscode.Uri.file(store)));
     assert.ok(pickerIn(panel.html()).includes("equirectangular"), "cf_v2 opens placed");
+    const picker = new Picker(panel.html());
+    assert.strictEqual(picker.noteHidden, true);
 
     panel.send({ type: "ready", projection: "source", resampling: "nearest", flipY: false });
     const first = panel.posted[panel.posted.length - 1] as GridReadyMessage;
@@ -246,12 +329,17 @@ suite("Slice panel projection picker", () => {
     assert.deepStrictEqual(first.sliceGrid, { label: "latlon", reprojectable: true, note: "" });
     const variableIndex = first.messageIndex;
 
-    const mapped = render(panel, { variableIndex, yDim: 0, xDim: 1, sliceIndices: [0, 0] }, "equirectangular");
+    picker.choose("equirectangular");
+    const mapped = render(panel, { variableIndex, yDim: 0, xDim: 1, sliceIndices: [0, 0] }, picker.value);
     assert.strictEqual(mapped.options.projection, "equirectangular");
+    assert.strictEqual(picker.take(mapped), false);
 
-    const transposed = render(panel, { variableIndex, yDim: 1, xDim: 0, sliceIndices: [0, 0] }, "equirectangular");
+    const transposed = render(panel, { variableIndex, yDim: 1, xDim: 0, sliceIndices: [0, 0] }, picker.value);
     assert.strictEqual(transposed.options.projection, "source", "drawn in the source view, not refused");
     assert.deepStrictEqual(transposed.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE });
-    assert.deepStrictEqual(pickerAfter(transposed), ["source"]);
+    assert.strictEqual(picker.take(transposed), true);
+    assert.strictEqual(picker.value, "source");
+    assert.deepStrictEqual(picker.offers(), ["source"]);
+    assert.strictEqual(picker.noteText, UNPLACED_NOTE);
   });
 });
