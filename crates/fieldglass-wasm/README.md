@@ -291,12 +291,19 @@ recorded before it: the band-limit label on every `Field` and `MessageInfo`,
 the `probeMessage` and `fullDetail` bindings and the two wire types they
 return, and the transform's extended-exponent column starts.
 
+Bounding deflate and zstd by the chunk's own length (#813) added 804 raw bytes
+and 314 gzipped to the baseline build, and 795 and 393 to `+simd128` (under
+0.1%), measured with binaryen 132 against a build of the commit before it
+(#831's merge) on the same machine: the per-chunk limit, the worst-case
+growth chained through the filters before a codec, and the error that names
+which bound a chunk broke.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,526,565 | 580,905 |
-| `+simd128` | 1,510,797 | 574,987 |
+| baseline | 1,529,092 | 583,179 |
+| `+simd128` | 1,513,155 | 577,158 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

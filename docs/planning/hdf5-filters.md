@@ -47,11 +47,23 @@ unbounded, so a few kilobytes on disk could name an arbitrarily large
 allocation. `inflate` had used the unbounded `decompress_to_vec_zlib` since the
 deflate filter shipped.
 
-Both codecs now stop at `MAX_DECOMPRESSED_CHUNK` (256 MiB) — far past any real
-HDF5 chunk, libhdf5's own chunk cache defaults to 1 MiB — and the ceiling is
-exercised by unit tests through `_bounded` helpers that take the limit as an
+Both codecs then stopped at `MAX_DECOMPRESSED_CHUNK` (256 MiB) — far past any
+real HDF5 chunk, libhdf5's own chunk cache defaults to 1 MiB — and the ceiling
+is exercised by unit tests through `_bounded` helpers that take the limit as an
 argument, so the guarantee is tested without the suite paying to build a
 256 MiB stream.
+
+Since #813 each codec stops at the chunk's own length when every filter before
+it keeps the length (only shuffle does). Behind filters that change it, the
+bound is the chunk's length grown by each one's worst case in turn: an eighth
+plus 4 KiB for fletcher32, deflate and zstd (the margin szip's prefix already
+had), and 33 times for szip, whose uncompressed blocks and scanline padding
+can make one-pixel scanlines about 32 times their input. szip's factor is
+large, but bounding it by the 256 MiB ceiling instead, as the first draft of
+#813 did, let a file sidestep the bound by putting an szip in front. 256 MiB
+is only the outer ceiling now: a 12-byte chunk had been able to inflate to
+all of it before the caller's length check refused the result, and on wasm
+that is a real allocation.
 
 zstd needs a **second, separate** ceiling, and this is the part worth carrying
 to the next codec. A zstd frame header declares its own window size, and the
@@ -117,7 +129,8 @@ forward:
   files. The prefix is then deflate's output length, which nothing outside the
   stream records, so it is bounded, not matched: at most the chunk's length
   plus an eighth plus 4 KiB, which covers deflate's, zstd's and fletcher32's
-  growth and stops a tiny chunk from committing a 256 MiB buffer. The chunk
+  growth and stops a tiny chunk from committing a 256 MiB buffer, and 33
+  times the chunk plus 4 KiB behind an szip (#813). The chunk
   must then come back exactly its own length; before #421 a longer result was
   silently cut.
 - **A stream longer than its chunk is refused, for 32- and 64-bit pixels.**
