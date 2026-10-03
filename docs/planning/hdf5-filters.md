@@ -54,11 +54,16 @@ argument, so the guarantee is tested without the suite paying to build a
 256 MiB stream.
 
 Since #813 each codec stops at the chunk's own length when every filter before
-it keeps the length (only shuffle does), and at the chunk's length plus an
-eighth plus 4 KiB behind one that changes it, the bound szip's prefix already
-had. 256 MiB is only the outer ceiling now: a 12-byte chunk had been able to
-inflate to all of it before the caller's length check refused the result, and
-on wasm that is a real allocation.
+it keeps the length (only shuffle does). Behind filters that change it, the
+bound is the chunk's length grown by each one's worst case in turn: an eighth
+plus 4 KiB for fletcher32, deflate and zstd (the margin szip's prefix already
+had), and 33 times for szip, whose uncompressed blocks and scanline padding
+can make one-pixel scanlines about 32 times their input. szip's factor is
+large, but bounding it by the 256 MiB ceiling instead, as the first draft of
+#813 did, let a file sidestep the bound by putting an szip in front. 256 MiB
+is only the outer ceiling now: a 12-byte chunk had been able to inflate to
+all of it before the caller's length check refused the result, and on wasm
+that is a real allocation.
 
 zstd needs a **second, separate** ceiling, and this is the part worth carrying
 to the next codec. A zstd frame header declares its own window size, and the
