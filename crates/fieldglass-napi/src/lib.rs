@@ -1013,7 +1013,18 @@ impl MessageStream {
     fn placed(&self, index: u32) -> napi::Result<Placed> {
         let placed = self.session.place_message(index).into_napi()?;
         if placed.geometry.dims().is_none() {
-            return Err(no_display_raster());
+            // A raster the section declares and nothing places (#823) has its
+            // dimensions, so "no declared dimensions" would contradict the
+            // message table; say what is missing instead.
+            return Err(if placed.ni > 0 && placed.nj > 0 {
+                napi::Error::from_reason(format!(
+                    "the {} grid is {}: its geometry places no point on the Earth",
+                    placed.label,
+                    placed.placement.as_str(),
+                ))
+            } else {
+                no_display_raster()
+            });
         }
         Ok(Placed::from_georef(placed))
     }
@@ -7971,6 +7982,15 @@ mod message_wire_tests {
                         .expect("probes")
                         .is_some(),
                     "{path} = {value}: the middle cell has a value"
+                );
+                // An overlay needs the geometry, which a declined grid has not
+                // got; the refusal says so rather than "no declared dimensions",
+                // which the message table's 16 x 31 would contradict.
+                let refused = handle.stream.placed(0).expect_err("no overlay geometry");
+                assert!(
+                    refused.reason.contains("places no point on the Earth"),
+                    "{path} = {value}: {}",
+                    refused.reason
                 );
                 let csv = handle.stream.csv(0, "matrix").expect("exports");
                 assert_eq!(

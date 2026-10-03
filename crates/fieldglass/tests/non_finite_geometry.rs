@@ -95,6 +95,19 @@ fn a_non_finite_grid_parameter_declines_the_grid() {
             assert!(!grid.reprojectable && !info.reprojectable, "{what}");
             assert_eq!(grid.kind, "unsupported", "{what}");
             assert_eq!(grid.bounds_lonlat, None, "{what}");
+            // Still a raster of the size the section declares: a host sizes what
+            // it draws from these (#823 review, where they were 0 x 0).
+            let declared = Session::open(std::fs::read(format!("{G2}{fixture}")).unwrap())
+                .unwrap()
+                .message(0)
+                .unwrap()
+                .grid
+                .map(|g| (g.ni, g.nj))
+                .unwrap();
+            assert!(declared.0 > 1 && declared.1 > 1, "{what}");
+            assert_eq!((grid.ni, grid.nj), declared, "{what}");
+            let placed = session.place_message(0).expect("places");
+            assert_eq!((placed.ni, placed.nj), declared, "{what}");
             assert_eq!(grid.proj4, None, "{what}");
             assert_eq!(
                 session.place_message(0).expect("places").placement,
@@ -109,6 +122,7 @@ fn a_non_finite_grid_parameter_declines_the_grid() {
             assert_eq!(field.georef.placement, Placement::Unplaceable, "{what}");
             assert!(!field.georef.reprojectable, "{what}");
             assert_eq!(field.georef.bounds_lonlat, None, "{what}");
+            assert_eq!((field.georef.ni, field.georef.nj), declared, "{what}");
             let original = std::fs::read(format!("{G2}{fixture}")).expect("fixture");
             let want = Session::open(original)
                 .expect("opens")
@@ -203,6 +217,10 @@ fn a_space_view_that_sees_no_earth_decodes_unplaced() {
         .expect("decodes in grid coordinates");
     assert_eq!(field.georef.placement, Placement::Unplaceable);
     assert!(!field.georef.reprojectable);
+    assert_eq!((grid.ni, grid.nj), (field.ni, field.nj));
+    assert_eq!((field.georef.ni, field.georef.nj), (field.ni, field.nj));
+    let placed = session.place_message(0).expect("places");
+    assert_eq!((placed.ni, placed.nj), (field.ni, field.nj));
     let want = Session::open(std::fs::read(format!("{G2}regular_latlon_surface.grib2")).unwrap())
         .unwrap()
         .decode(0, &DecodeOptions::default())
