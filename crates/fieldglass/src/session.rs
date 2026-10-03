@@ -1172,6 +1172,8 @@ impl Session {
             #[cfg(any(feature = "netcdf", feature = "zarr"))]
             Reader::Arrays(_) => None,
         }
+        // As `raster_without_geometry` reads them: a side of zero is no raster.
+        .filter(|&(ni, nj)| ni > 0 && nj > 0)
     }
 
     /// Message `i`'s points per row, when its grid is reduced (#244).
@@ -1919,6 +1921,7 @@ impl Session {
                         gds.grid_type_name(),
                         gds.raster_bounds(),
                         grib1_without_geometry(gds),
+                        gds.dimensions(),
                     )
                     .with_points_per_row(gds.points_per_row()))
                 }
@@ -1931,6 +1934,7 @@ impl Session {
                         &msg.gds.template_name(),
                         msg.gds.raster_bounds(),
                         grib2_without_geometry(&msg.gds),
+                        msg.gds.dimensions(),
                     )
                     .with_points_per_row(msg.gds.points_per_row()))
                 }
@@ -2564,6 +2568,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
             gds.grid_type_name(),
             gds.bounds(),
             grib1_without_geometry(gds),
+            gds.dimensions(),
         )
         .with_points_per_row(gds.points_per_row())
     });
@@ -2677,6 +2682,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         &msg.gds.template_name(),
         msg.gds.bounds(),
         grib2_without_geometry(&msg.gds),
+        msg.gds.dimensions(),
     )
     .with_points_per_row(msg.gds.points_per_row());
     // Every GRIB2 message carries a §3, so the no-grid answer is unreachable;

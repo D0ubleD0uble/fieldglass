@@ -7929,6 +7929,55 @@ mod message_wire_tests {
                     "{path} = {value}: a value changed crossing the wire"
                 );
                 assert_eq!(read_back.placement, fieldglass::Placement::Unplaceable);
+
+                // Declined, the grid is still a raster, and this binding draws
+                // it at the size the session decodes it, which is what the
+                // browser binding paints from. Every display call here sizes
+                // itself from `place_message`'s georef, which reported 0 x 0
+                // when only the geometry's own dimensions counted: a blank
+                // render, no probe and an empty CSV, where the browser drew the
+                // whole grid (#823 review).
+                let field = session
+                    .decode(0, &fieldglass::DecodeOptions::default())
+                    .expect("decodes in grid coordinates");
+                let (ni, nj) = (field.ni, field.nj);
+                assert!(ni > 1 && nj > 1, "{path} = {value}: {ni} x {nj}");
+                let placed = session.place_message(0).expect("places");
+                assert_eq!((placed.ni, placed.nj), (ni, nj), "{path} = {value}");
+                assert_eq!(
+                    (
+                        read_back.grid.as_ref().unwrap().ni,
+                        read_back.grid.as_ref().unwrap().nj
+                    ),
+                    (ni, nj)
+                );
+                assert_eq!((field.georef.ni, field.georef.nj), (ni, nj));
+                let opts = super::netcdf_slice_tests::opts;
+                let g = handle.render_grid(0, opts("source")).expect("renders");
+                assert_eq!(
+                    (g.width as u64, g.height as u64),
+                    (u64::from(ni), u64::from(nj)),
+                    "{path} = {value}"
+                );
+                let d = handle.decode_grid(0).expect("decodes");
+                assert_eq!(
+                    (d.width as u64, d.height as u64),
+                    (u64::from(ni), u64::from(nj)),
+                    "{path} = {value}"
+                );
+                assert!(
+                    handle
+                        .probe(0, opts("source"), ni / 2, nj / 2)
+                        .expect("probes")
+                        .is_some(),
+                    "{path} = {value}: the middle cell has a value"
+                );
+                let csv = handle.stream.csv(0, "matrix").expect("exports");
+                assert_eq!(
+                    csv.lines().count(),
+                    nj as usize,
+                    "{path} = {value}: one line per row"
+                );
             }
         }
     }
