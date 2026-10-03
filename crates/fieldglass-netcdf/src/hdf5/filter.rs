@@ -348,11 +348,13 @@ const SZIP_SLACK: usize = 4096;
 
 /// The most an szip stream can be, as a multiple of the bytes it codes.
 ///
-/// The encoder takes the shortest option per block, so no block is longer
+/// libsz takes the shortest option per block, so none of its blocks is longer
 /// than the uncompressed one: an ID of at most 5 bits plus `J·n` bits for `J`
 /// pixels of `n` bits (CCSDS 121.0-B §5.1; libsz never sets the restricted
 /// option, so the ID is 3 bits up to 8 bits per pixel, 4 to 16, 5 beyond:
-/// `fieldglass-aec`'s `decode.rs`). libsz pads every scanline to whole
+/// `fieldglass-aec`'s `decode.rs`). The standard leaves that choice to the
+/// encoder, so this bounds encoders that choose the way libsz does; ADR-0012
+/// decision 6 records the rest. libsz pads every scanline to whole
 /// blocks, so the worst case is one pixel per scanline coded as a whole block:
 /// `J·n + ID` bits for an input pixel of `8·⌈n/8⌉` bits. With `J ≤ 32` that is
 /// at most `(32·8 + 3) / 8 ≈ 32.4` (8-bit pixels), which this rounds up. The
