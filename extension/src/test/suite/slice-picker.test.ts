@@ -225,6 +225,25 @@ suite("Slice panel projection picker", () => {
     assert.match(html, /\.picker-note\[hidden\] \{ display: none; \}/);
   });
 
+  // The panel script calls these by name. A missing `.toString()` still
+  // parses — the script parse check cannot see an unbound name — and then
+  // throws on the first slice render.
+  test("the panel script defines the picker helpers it calls", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      { grid: { label: "latlon" }, reprojectable: true } as unknown as PanelField,
+      "summary",
+      native.colormaps(),
+      native.combineOps(),
+    );
+    for (const name of ["applyReprojectable", "projectionOptionsHtml"]) {
+      assert.ok(html.includes(`function ${name}(`), `${name} is serialized into the script`);
+    }
+    assert.match(html, /const MAP_PROJECTIONS = \[/, "and the targets it builds from");
+  });
+
   test("a NetCDF panel opened on an unplaceable variable offers the map targets for a placed one", async () => {
     const p = await provider();
     const uri = vscode.Uri.file(path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc"));

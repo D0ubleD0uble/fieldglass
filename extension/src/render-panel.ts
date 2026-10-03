@@ -2781,8 +2781,9 @@ export function renderImagePanelHtml(
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; margin-bottom: 0.5rem; }
     .projection { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
-    /* The display above out-specifies the UA stylesheet's [hidden], and a note
-       inside a <label> is out of reach of the toolbar-row rule below (#822). */
+    /* An author display rule beats the UA stylesheet's [hidden] by origin, and
+       a note inside a <label> is out of reach of the toolbar-row rule below
+       (#822). */
     .picker-note[hidden] { display: none; }
     #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.1em; }
     .contour-status {
