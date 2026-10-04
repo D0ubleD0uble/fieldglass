@@ -12,6 +12,7 @@
 use fieldglass_grib2::{GlobalGrid, Grib2Reader};
 
 const SPECTRAL_T63: &[u8] = include_bytes!("fixtures/spectral_simple_t63.grib2");
+const SPECTRAL_T383: &[u8] = include_bytes!("fixtures/spectral_simple_t383.grib2");
 const ORACLE: &str = include_str!("fixtures/spectral_render_t63.oracle.txt");
 
 /// The fixed 5° regular lat/lon grid the oracle builder uses: latitudes 90..-90
@@ -163,4 +164,78 @@ fn a_callers_grid_is_band_limited_to_what_it_resolves() {
             .expect("three rows"),
         map[..3 * lons.len()]
     );
+}
+
+/// A grid of two regions resolves what each region is sampled at, not the gap
+/// between them (#812). Two polar caps 140° apart, or two longitude sectors
+/// 170° apart, both at 0.5°, used to read as a 140° or 170° step: T0, the
+/// field's global mean at every point.
+#[test]
+fn a_grid_of_two_regions_is_synthesised_at_its_own_spacing() {
+    let reader = Grib2Reader::from_bytes(SPECTRAL_T383.to_vec()).expect("parse");
+    let axis = |from: f64, to: f64, step: f64| -> Vec<f64> {
+        let n = ((to - from) / step).round() as usize;
+        (0..=n).map(|k| from + k as f64 * step).collect()
+    };
+    let coeffs = reader.decode_spectral_message(0).expect("spectral decodes");
+    let cases = [
+        // Two latitude caps over a 0.5° sector.
+        (
+            [axis(-80.0, -70.0, 0.5), axis(70.0, 80.0, 0.5)].concat(),
+            axis(0.0, 10.0, 0.5),
+        ),
+        // Two longitude sectors over a 0.5° latitude band.
+        (
+            axis(-10.0, 10.0, 0.5),
+            [axis(0.0, 10.0, 0.5), axis(180.0, 190.0, 0.5)].concat(),
+        ),
+    ];
+    for (lats, lons) in cases {
+        assert_eq!(
+            fieldglass_core::sht::points_band_limit(&lats, &lons),
+            Some(359)
+        );
+        let values = reader
+            .synthesize_spectral_message(0, &lats, &lons)
+            .expect("synthesises");
+        let (lo, hi) = values
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
+                (lo.min(v), hi.max(v))
+            });
+        assert!(hi - lo > 1.0, "a constant field: {lo} .. {hi}");
+        // Exactly the T359 triangle, the most a 0.5° step carries.
+        let t359 = fieldglass_core::sht::synthesize_band_limited(
+            &coeffs.coefficients,
+            coeffs.j,
+            359,
+            &lats,
+            &lons,
+        )
+        .expect("T359");
+        assert_eq!(values, t359);
+    }
+}
+
+/// A coarse regional sector is judged by its own steps, however short the gap
+/// outside it: three longitudes 90° apart carry T1, as on master, not the T0
+/// (the field's mean) a rule that charged the outside would give (#812 review).
+#[test]
+fn a_coarse_regional_sector_is_judged_by_its_steps() {
+    let reader = Grib2Reader::from_bytes(SPECTRAL_T383.to_vec()).expect("parse");
+    let lats: Vec<f64> = (0..=360).map(|k| -90.0 + 0.5 * f64::from(k)).collect();
+    let lons = [0.0, 90.0, 180.0];
+    assert_eq!(
+        fieldglass_core::sht::points_band_limit(&lats, &lons),
+        Some(1)
+    );
+    let values = reader
+        .synthesize_spectral_message(0, &lats, &lons)
+        .expect("synthesises");
+    let (lo, hi) = values
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
+            (lo.min(v), hi.max(v))
+        });
+    assert!(hi > lo, "a constant field: {lo} .. {hi}");
 }

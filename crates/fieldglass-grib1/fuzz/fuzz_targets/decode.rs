@@ -44,8 +44,13 @@ use fieldglass_grib1::{Grib1Reader, GridDescription, MAX_FIELD_POINTS};
 
 /// Latitudes/longitudes for the synthesis probe, tiny for the reason the GRIB2
 /// target gives: the coefficient count comes from the file.
+///
+/// Six longitudes, not three: the band-limited call sums what the grid
+/// resolves, and three longitudes round the circle resolve T0 (#812), which
+/// would leave that call nothing to sum. Six at 60° and three latitudes 60°
+/// apart carry T2.
 const PROBE_LATS: [f64; 3] = [-60.0, 0.0, 60.0];
-const PROBE_LONS: [f64; 3] = [0.0, 120.0, 240.0];
+const PROBE_LONS: [f64; 6] = [0.0, 60.0, 120.0, 180.0, 240.0, 300.0];
 
 /// The declared spherical-harmonic truncation of message `i`, if it has one,
 /// against a bound chosen for fuzzer throughput rather than for correctness.
