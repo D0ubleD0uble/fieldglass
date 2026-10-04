@@ -463,8 +463,12 @@ impl GridDescription {
     /// its ON388 Table 6 code, as GRIB2's `template_name` names an unread
     /// template `"unsupported(3.<n>)"`, so the code reaches the message list
     /// (#774).
-    pub fn grid_type_name(&self) -> String {
-        match self {
+    ///
+    /// Borrowed for every family this crate reads, so naming a grid allocates
+    /// only for a grid type it does not: the perf gate counts allocations on
+    /// the open and place paths, which call this for every message.
+    pub fn grid_type_name(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed(match self {
             Self::LatLon(_) => "latlon",
             Self::RotatedLatLon(_) => "rotated_latlon",
             Self::ReducedLatLon(_) => "reduced_latlon",
@@ -473,9 +477,10 @@ impl GridDescription {
             Self::PolarStereographic(_) => "polar_stereo",
             Self::LambertConformal(_) => "lambert",
             Self::SphericalHarmonic(_) => "spherical_harmonic",
-            Self::Unsupported { grid_type } => return format!("unsupported({grid_type})"),
-        }
-        .to_string()
+            Self::Unsupported { grid_type } => {
+                return std::borrow::Cow::Owned(format!("unsupported({grid_type})"));
+            }
+        })
     }
 
     /// The scanning-mode flags (GDS octet 28), for the grids that have them.
