@@ -62,7 +62,10 @@ fn main() -> Result<(), FieldglassError> {
             println!(
                 "  [{index}] {} / §3.{} {ni}×{nj} / §5.{}: {} stored, {} in the raster \
                  ({present} present)",
-                lookup_discipline(msg.is.discipline),
+                lookup_discipline(msg.is.discipline).map_or_else(
+                    || format!("Discipline {}", msg.is.discipline),
+                    str::to_string
+                ),
                 msg.gds.template_number,
                 msg.drs.template_number,
                 stored.len(),

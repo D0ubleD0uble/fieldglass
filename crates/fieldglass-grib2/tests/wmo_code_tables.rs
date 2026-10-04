@@ -72,7 +72,9 @@ const SNAPSHOT: &str = include_str!("fixtures/wmo_code_tables.ref.json");
 struct Table {
     /// WMO table number, as keyed in the snapshot.
     wmo: &'static str,
-    /// The function under test, widened to `u16` so Table 3.1 fits.
+    /// The function under test, widened to `u16` so Table 3.1 fits. A lookup's
+    /// `None` is read here as `"Unknown"`, the no-name answer
+    /// [`lookup_has_no_name`] recognises (#774).
     lookup: fn(u16) -> &'static str,
     /// Whether the underlying function takes a `u8` (so codes above 255 in the
     /// snapshot are outside what it can be asked about, not a gap).
@@ -80,37 +82,37 @@ struct Table {
 }
 
 fn discipline(c: u16) -> &'static str {
-    lookup_discipline(c as u8)
+    lookup_discipline(c as u8).unwrap_or("Unknown")
 }
 fn reference_time_significance(c: u16) -> &'static str {
-    lookup_reference_time_significance(c as u8)
+    lookup_reference_time_significance(c as u8).unwrap_or("Unknown")
 }
 fn production_status(c: u16) -> &'static str {
-    lookup_production_status(c as u8)
+    lookup_production_status(c as u8).unwrap_or("Unknown")
 }
 fn data_type(c: u16) -> &'static str {
-    lookup_data_type(c as u8)
+    lookup_data_type(c as u8).unwrap_or("Unknown")
 }
 fn grid_template(c: u16) -> &'static str {
-    lookup_grid_template(c)
+    lookup_grid_template(c).unwrap_or("Unknown")
 }
 fn earth_shape(c: u16) -> &'static str {
-    lookup_earth_shape(c as u8)
+    lookup_earth_shape(c as u8).unwrap_or("Unknown")
 }
 fn generating_process_type(c: u16) -> &'static str {
-    lookup_generating_process_type(c as u8)
+    lookup_generating_process_type(c as u8).unwrap_or("Unknown")
 }
 fn time_range_unit(c: u16) -> &'static str {
-    lookup_time_range_unit(c as u8)
+    lookup_time_range_unit(c as u8).unwrap_or("Unknown")
 }
 fn fixed_surface(c: u16) -> &'static str {
-    lookup_fixed_surface(c as u8)
+    lookup_fixed_surface(c as u8).unwrap_or("Unknown")
 }
 fn ensemble_type(c: u16) -> &'static str {
-    lookup_ensemble_type(c as u8)
+    lookup_ensemble_type(c as u8).unwrap_or("Unknown")
 }
 fn statistical_process(c: u16) -> &'static str {
-    lookup_statistical_process(c as u8)
+    lookup_statistical_process(c as u8).unwrap_or("Unknown")
 }
 
 const TABLES: &[Table] = &[

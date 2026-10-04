@@ -44,14 +44,20 @@ fn gfs_latlon_pds_template_4_0_decodes() {
         Some(("PRES", "Pressure", "Pa")),
     );
     assert_eq!(common.forecast_time, 204);
-    assert_eq!(lookup_time_range_unit(common.forecast_time_unit), "Hour");
     assert_eq!(
-        lookup_generating_process_type(common.generating_process_type),
-        "Forecast"
+        lookup_time_range_unit(common.forecast_time_unit),
+        Some("Hour")
     );
     assert_eq!(
+        lookup_generating_process_type(common.generating_process_type),
+        Some("Forecast")
+    );
+    // A centre's local-use surface: the table names the range, not the code,
+    // so the lookup has no name for it and a caller shows the code (#774).
+    assert!((192..=254).contains(&common.first_surface.surface_type));
+    assert_eq!(
         lookup_fixed_surface(common.first_surface.surface_type),
-        "Reserved for local use",
+        None
     );
 }
 
@@ -71,14 +77,17 @@ fn eta_lambert_pds_template_4_0_decodes() {
     // curated table does not cover; surface 101 is the WMO MSL code.
     assert_eq!(msg.is.discipline, 0);
     assert_eq!(common.forecast_time, 24);
-    assert_eq!(lookup_time_range_unit(common.forecast_time_unit), "Hour");
+    assert_eq!(
+        lookup_time_range_unit(common.forecast_time_unit),
+        Some("Hour")
+    );
     assert_eq!(
         lookup_generating_process_type(common.generating_process_type),
-        "Forecast"
+        Some("Forecast")
     );
     assert_eq!(
         lookup_fixed_surface(common.first_surface.surface_type),
-        "Mean sea level",
+        Some("Mean sea level"),
     );
 }
 
@@ -103,7 +112,7 @@ fn ecmwf_reduced_gaussian_pds_template_4_0_decodes() {
     assert_eq!(common.forecast_time, 0);
     assert_eq!(
         lookup_generating_process_type(common.generating_process_type),
-        "Analysis"
+        Some("Analysis")
     );
     assert_eq!(common.first_surface.surface_type, 100); // isobaric
     let pressure_pa = common.first_surface.value().expect("scaled pressure");
@@ -272,18 +281,18 @@ fn template_4_8_round_trips_via_full_reader() {
     assert_eq!(stats.specs.len(), 1);
     assert_eq!(
         lookup_statistical_process(stats.specs[0].stat_process),
-        "Accumulation",
+        Some("Accumulation"),
     );
     assert_eq!(stats.specs[0].stat_length, 6);
     assert_eq!(
         lookup_time_range_unit(stats.specs[0].stat_length_unit),
-        "Hour",
+        Some("Hour"),
     );
     // Confirm the surface lookup table covers the ground code seen in real
     // accumulation fields.
     assert_eq!(
         lookup_fixed_surface(common.first_surface.surface_type),
-        "Ground or water surface",
+        Some("Ground or water surface"),
     );
 }
 
@@ -348,13 +357,13 @@ fn template_4_11_round_trips_via_full_reader() {
     assert_eq!(common.first_surface.value(), Some(2.0));
     assert_eq!(
         lookup_generating_process_type(common.generating_process_type),
-        "Ensemble forecast",
+        Some("Ensemble forecast"),
     );
 
     let stats = msg.pds.stats().unwrap();
     assert_eq!(stats.end_time_iso8601(), "2024-01-01T18:00:00Z");
     assert_eq!(
         lookup_statistical_process(stats.specs[0].stat_process),
-        "Average"
+        Some("Average")
     );
 }

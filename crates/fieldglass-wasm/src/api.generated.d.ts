@@ -338,9 +338,9 @@ export interface Field {
    *
    * The codes rather than a bare `"Unknown"` because they are the only
    * thing that tells a user *which* table is missing, and no other field
-   * carries them: a host reads the discipline as a Code Table 0.0
-   * *name*, which is itself unresolved for a discipline no table
-   * defines. This is the string every host shows — the umbrella, the
+   * carries them all: the discipline is a Code Table 0.0 *name*, and
+   * only `Discipline <n>` for a discipline no table defines. This is
+   * the string every host shows — the umbrella, the
    * wasm binding and the napi binding all render it from the format
    * crate's own `unresolved_parameter` (#633).
    *
@@ -597,16 +597,19 @@ export type Identification =
   | {
     edition: "grib2";
     /**
-     * The discipline (§0 octet 7), named from Code Table 0.0.
+     * The discipline (§0 octet 7), named from Code Table 0.0, or
+     * `Discipline <n>` for a code the table does not name.
      */
     discipline: string;
     /**
-     * The production status (§1 octet 20), named from Code Table 1.3.
+     * The production status (§1 octet 20), named from Code Table 1.3,
+     * or `Production status <n>` for a code the table does not name.
      */
     productionStatus: string;
     /**
      * The data type — analysis, forecast, reanalysis — (§1 octet 21),
-     * named from Code Table 1.4.
+     * named from Code Table 1.4, or `Data type <n>` for a code the
+     * table does not name.
      */
     dataType: string;
   };
@@ -836,8 +839,10 @@ export interface MessageInfo {
    */
   originatingCentre: string;
   /**
-   * The sub-centre, named from the originating centre's own table, and
-   * `None` when there is no entry — which is the common case.
+   * The sub-centre, named from WMO Common Code Table C-12 under the
+   * originating centre, or `Sub-centre <n>` when the table has no entry.
+   * `None` only for code 0, which GRIB uses to mean there is no
+   * sub-centre — the common case.
    */
   subCentre: string | null;
   /**

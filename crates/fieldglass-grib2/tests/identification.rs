@@ -56,13 +56,13 @@ fn fixture_table_lookups_resolve() {
     let msg = &reader.messages[0];
     assert_eq!(
         lookup_reference_time_significance(msg.ids.reference_time_significance),
-        "Start of forecast"
+        Some("Start of forecast")
     );
     assert_eq!(
         lookup_production_status(msg.ids.production_status),
-        "Operational products"
+        Some("Operational products")
     );
-    assert_eq!(lookup_data_type(msg.ids.data_type), "Missing");
+    assert_eq!(lookup_data_type(msg.ids.data_type), Some("Missing"));
 }
 
 #[test]

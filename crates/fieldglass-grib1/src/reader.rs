@@ -1082,7 +1082,9 @@ fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
 /// indicator (WMO ON388 Table 5) so accumulations and ranges show both bounds
 /// rather than collapsing to P1 only.
 pub fn forecast_display(pds: &ProductDefinition) -> String {
-    let unit = crate::tables::lookup_time_unit(pds.time_unit);
+    // An unnamed unit keeps its code, so a lead in it says which (#774).
+    let unit = crate::tables::lookup_time_unit(pds.time_unit)
+        .map_or_else(|| format!("time unit {}", pds.time_unit), str::to_string);
     let p1 = forecast_p1(pds);
     let p2 = pds.p2 as i32;
 
@@ -1095,7 +1097,7 @@ pub fn forecast_display(pds: &ProductDefinition) -> String {
         fieldglass_core::lead_time::lead_label(
             p1_to_hours(pds.time_unit, v).map(i64::from),
             i64::from(v),
-            unit,
+            &unit,
         )
     };
     let pair = |a: i32, b: i32| match (p1_to_hours(pds.time_unit, a), p1_to_hours(pds.time_unit, b))
@@ -1223,7 +1225,9 @@ pub fn level_value_str(pds: &ProductDefinition) -> String {
 /// read naturally with the value column to its left, e.g. `200 (hPa) Isobaric
 /// level`.
 pub fn level_type_str(pds: &ProductDefinition) -> String {
-    let name = crate::tables::lookup_level_type(pds.level_type);
+    // An unnamed level type keeps its code (#774).
+    let name = crate::tables::lookup_level_type(pds.level_type)
+        .map_or_else(|| format!("Level type {}", pds.level_type), str::to_string);
     match level_unit(pds.level_type) {
         Some(unit) => format!("({unit}) {name}"),
         None => name.to_string(),
@@ -1313,7 +1317,9 @@ mod level_display_tests {
     fn unknown_level_type_falls_back_to_raw_with_no_unit() {
         let p = pds(250, 1, 0);
         assert_eq!(level_value_str(&p), "256");
-        assert_eq!(level_type_str(&p), "Unknown level type");
+        // The code survives into the column, rather than a placeholder every
+        // unnamed type shares (#774).
+        assert_eq!(level_type_str(&p), "Level type 250");
     }
 }
 
@@ -1402,8 +1408,17 @@ mod forecast_display_tests {
         assert_eq!(forecast_display(&pds_time(3, 0, 6, 0)), "+6 month");
         assert_eq!(forecast_display(&pds_time(4, 0, 1, 0)), "+1 year");
         assert_eq!(forecast_display(&pds_time(3, 4, 0, 6)), "0–6 month accum");
-        // An unknown code is not silently reported as hours either.
+        // An unknown code is not silently reported as hours either, and the
+        // label keeps the code rather than a placeholder (#774).
         assert_eq!(p1_to_hours(200, 5), None);
+        assert_eq!(
+            forecast_display(&pds_time(200, 0, 5, 0)),
+            "+5 time unit 200"
+        );
+        assert_eq!(
+            forecast_display(&pds_time(200, 4, 0, 6)),
+            "0–6 time unit 200 accum"
+        );
     }
 
     #[test]

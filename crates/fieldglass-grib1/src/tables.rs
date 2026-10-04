@@ -424,8 +424,11 @@ pub fn lookup_parameter(
 }
 
 /// Look up a level type name from WMO ON388 Table 3.
-pub fn lookup_level_type(id: u8) -> &'static str {
-    match id {
+///
+/// `None` for a code the table does not name; a caller that shows the answer
+/// keeps the code instead (#774).
+pub fn lookup_level_type(id: u8) -> Option<&'static str> {
+    Some(match id {
         0 => "Ground or water surface",
         1 => "Cloud base level",
         2 => "Cloud top level",
@@ -480,8 +483,8 @@ pub fn lookup_level_type(id: u8) -> &'static str {
         221 => "High cloud layer",
         241 => "Convective cloud bottom level",
         242 => "Convective cloud top level",
-        _ => "Unknown level type",
-    }
+        _ => return None,
+    })
 }
 
 /// Unit of time (WMO ON388 Table 4).
@@ -491,8 +494,11 @@ pub fn lookup_level_type(id: u8) -> &'static str {
 /// and GRIB1 spells a second as 254 — a code GRIB2 does not define at all.
 /// Reading one table for the other edition silently misreports the lead time,
 /// so the two editions keep separate tables on purpose.
-pub fn lookup_time_unit(value: u8) -> &'static str {
-    match value {
+///
+/// `None` for a code the table does not name; a caller that shows the answer
+/// keeps the code instead (#774).
+pub fn lookup_time_unit(value: u8) -> Option<&'static str> {
+    Some(match value {
         0 => "minute",
         1 => "hour",
         2 => "day",
@@ -507,8 +513,8 @@ pub fn lookup_time_unit(value: u8) -> &'static str {
         13 => "15 minutes",
         14 => "30 minutes",
         254 => "second",
-        _ => "unknown time unit",
-    }
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
