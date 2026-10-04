@@ -483,6 +483,9 @@ pub fn lookup_level_type(id: u8) -> Option<&'static str> {
         221 => "High cloud layer",
         241 => "Convective cloud bottom level",
         242 => "Convective cloud top level",
+        // WMO FM 92 GRIB edition 1, Code Table 3, as eccodes transcribes it
+        // (`grib1/3.table`: "255 Indicates a missing value").
+        255 => "Missing",
         _ => return None,
     })
 }

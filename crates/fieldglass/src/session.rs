@@ -1921,7 +1921,7 @@ impl Session {
                     Ok(Georef::from_container(
                         &GridGeometry::from(gds),
                         grib1_scan(msg),
-                        gds.grid_type_name(),
+                        &gds.grid_type_name(),
                         gds.raster_bounds(),
                         grib1_without_geometry(gds),
                         gds.dimensions(),
@@ -2592,7 +2592,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         Georef::from_container(
             &GridGeometry::from(gds),
             grib1_scan(msg),
-            gds.grid_type_name(),
+            &gds.grid_type_name(),
             gds.bounds(),
             grib1_without_geometry(gds),
             gds.dimensions(),

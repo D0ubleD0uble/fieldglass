@@ -131,6 +131,32 @@ fn a_grib2_sub_centre_the_table_does_not_name_keeps_its_code() {
     }
 }
 
+/// GRIB2's sub-centre is two octets, and the whole of it is the code: a high
+/// byte the name dropped would read 0x0105 as 5. 65535 is not a missing value
+/// under C-12, so it keeps its number like any other code.
+#[test]
+fn a_grib2_sub_centre_is_read_from_both_octets() {
+    let cases = [
+        ((0x01u8, 0x05u8), "Sub-centre 261"),
+        ((0xff, 0xff), "Sub-centre 65535"),
+    ];
+    for ((high, low), want) in cases {
+        let info = patched(
+            GRIB2,
+            &[
+                (G2_CENTRE, 7),
+                (G2_SUB_CENTRE - 1, high),
+                (G2_SUB_CENTRE, low),
+            ],
+        );
+        assert_eq!(
+            info.sub_centre.as_deref(),
+            Some(want),
+            "{high:#04x}{low:02x}"
+        );
+    }
+}
+
 #[test]
 fn a_grib1_sub_centre_the_table_does_not_name_keeps_its_code() {
     // Centre 85 (Toulouse): C-12 names 200 under it and not 105, the code the

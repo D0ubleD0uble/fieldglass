@@ -1320,6 +1320,10 @@ mod level_display_tests {
         // The code survives into the column, rather than a placeholder every
         // unnamed type shares (#774).
         assert_eq!(level_type_str(&p), "Level type 250");
+        // 255 is the table's own missing code, and is named so.
+        assert_eq!(level_type_str(&pds(255, 0, 0)), "Missing");
+        // A named type, for the known half of the same rule.
+        assert_eq!(level_type_str(&pds(102, 0, 0)), "Mean sea level");
     }
 }
 

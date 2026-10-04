@@ -2127,6 +2127,50 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(!/String\(m\.forecastHours\)/.test(editable), "never from the normalised hours");
   });
 
+  // A code no table names arrives as its number (#774), and the Center cell
+  // shows it rather than dropping it; only the table's own "Missing" is left
+  // out of the cell.
+  test("the Center cell shows an unnamed status and sub-centre by their codes", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
+    const [message] = listMessages(native.Grib2Handle.fromBytes(bytes));
+    assert.strictEqual(message.identification.edition, "grib2");
+    const withStatus = (productionStatus: string, subCentre: string | null): MessageInfo => ({
+      ...message,
+      subCentre,
+      identification: {
+        edition: "grib2",
+        discipline: "Meteorological products",
+        productionStatus,
+        dataType: "Missing",
+      },
+    });
+    const cell = (m: MessageInfo): string => {
+      const html = renderHtml(
+        { cspSource: "" } as unknown as vscode.Webview,
+        "grib2",
+        "/tmp/example.grib2",
+        [m],
+        undefined,
+        undefined,
+        false,
+      );
+      return html;
+    };
+    const centre = message.originatingCentre;
+    assert.ok(
+      cell(withStatus("Production status 99", "Sub-centre 105")).includes(
+        `${centre} (Sub-centre 105) · Production status 99`,
+      ),
+      "an unnamed status and sub-centre keep their codes",
+    );
+    assert.ok(
+      !cell(withStatus("Missing", null)).includes("· Missing"),
+      "the table's own missing status is left out",
+    );
+  });
+
   test("the panel subtitle names the level once when level repeats levelType", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");

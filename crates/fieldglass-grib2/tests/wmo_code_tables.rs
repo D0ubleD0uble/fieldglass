@@ -291,12 +291,14 @@ const DELIBERATELY_UNNAMED: &[(&str, u16, &str)] = &[];
 
 /// Whether the lookup answered with no name at all.
 ///
-/// The `Unknown…` fallback arms, and only those. `"Missing"` and `"Reserved
-/// for local use"` are *names* — WMO's own, for the missing sentinel and the
-/// local range — so a lookup returning one has carried the code and is
-/// compared like any other. (They were once treated as gaps here, which is
-/// what let the nine `255 => "Missing"` arms that existed go unchecked — and
-/// hid that Tables 3.1 and 3.2 had no missing-sentinel arm at all: #653.)
+/// A lookup's `None`, which the [`Table`] shims read as `"Unknown"`, and only
+/// that. Since #774 that covers a local-use code too: the table names the
+/// range, not the code, so the lookup has no name for it and a caller shows
+/// the number. `"Missing"` is a *name* — WMO's own, for the missing sentinel —
+/// so a lookup returning it has carried the code and is compared like any
+/// other. (It was once treated as a gap here, which is what let the nine
+/// `255 => "Missing"` arms that existed go unchecked — and hid that Tables 3.1
+/// and 3.2 had no missing-sentinel arm at all: #653.)
 fn lookup_has_no_name(label: &str) -> bool {
     label.starts_with("Unknown")
 }
@@ -654,8 +656,8 @@ fn no_two_codes_in_a_table_share_a_label() {
         for code in 0..=highest {
             let code = code as u16;
             let ours = (table.lookup)(code);
-            // The three catch-all answers are shared by construction.
-            if lookup_has_no_name(ours) || ours == "Missing" || ours == "Reserved for local use" {
+            // The two catch-all answers are shared by construction.
+            if lookup_has_no_name(ours) || ours == "Missing" {
                 continue;
             }
             if let Some((first, _)) = seen.iter().find(|(_, label)| *label == ours) {
