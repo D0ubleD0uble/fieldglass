@@ -1980,8 +1980,8 @@ impl Session {
     /// Paint a field to RGBA on the CPU. The fallback path: a GPU host colours
     /// from [`Session::palette`] instead.
     ///
-    /// **`flip_y` composes with the message's own scan order, it does not
-    /// replace it.** Grid point `(i, j)` paints at pixel `(i, j)`, so a field
+    /// **`flip_y` composes with the field's own row order, it does not replace
+    /// it.** Grid point `(i, j)` paints at pixel `(i, j)`, so a field
     /// stored south-to-north (`jScansPositively`) arrives upside down on a
     /// canvas whose first row is the top; `false` therefore means *north up*,
     /// not *rows as stored*, and `true` asks for the other one. This is the same

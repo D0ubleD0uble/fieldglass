@@ -328,10 +328,12 @@ export interface Grib1Handle {
     interval?: number,
   ): ProjectedOverlay;
   /** Arrows for a vector field built from two messages (#241): `u` eastward and
-   *  `v` northward, or along the grid's own axes under `gridRelative` — which is
-   *  what `MessageInfo.uvRelativeToGrid` reports. One arrow is one run of five
+   *  `v` northward, or along the grid's own axes, as each message's
+   *  `MessageInfo.uvRelativeToGrid` reports. One arrow is one run of five
    *  vertices, in the same pixel space the coastlines come back in. Throws when
-   *  the two messages are not on the same grid, as a combine would (#793). */
+   *  the two messages are not on the same grid, as a combine would (#793), or
+   *  state different component frames (#805). `gridRelative` overrides the
+   *  frame the pair states; left out, the pair's own is used. */
   projectVectors(
     messageIndexU: number,
     messageIndexV: number,
@@ -402,10 +404,12 @@ export interface Grib2Handle {
     interval?: number,
   ): ProjectedOverlay;
   /** Arrows for a vector field built from two messages (#241): `u` eastward and
-   *  `v` northward, or along the grid's own axes under `gridRelative` — which is
-   *  what `MessageInfo.uvRelativeToGrid` reports. One arrow is one run of five
+   *  `v` northward, or along the grid's own axes, as each message's
+   *  `MessageInfo.uvRelativeToGrid` reports. One arrow is one run of five
    *  vertices, in the same pixel space the coastlines come back in. Throws when
-   *  the two messages are not on the same grid, as a combine would (#793). */
+   *  the two messages are not on the same grid, as a combine would (#793), or
+   *  state different component frames (#805). `gridRelative` overrides the
+   *  frame the pair states; left out, the pair's own is used. */
   projectVectors(
     messageIndexU: number,
     messageIndexV: number,

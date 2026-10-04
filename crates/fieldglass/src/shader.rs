@@ -23,7 +23,7 @@
 //! # Orientation is the host's, here
 //!
 //! These arrays are in the field's own **data order**, cell `(i, j)` at index
-//! `j * ni + i`. [`crate::Session::render`] composes the message's scan flag
+//! `j * ni + i`. [`crate::Session::render`] composes the field's row order
 //! before it paints, so its raster is north up; a GPU host uploading these
 //! textures has to compose `Georef::scan` itself, or its picture and the CPU
 //! painter's disagree for a grid that scans south to north. That is the one
