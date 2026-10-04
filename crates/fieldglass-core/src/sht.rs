@@ -548,8 +548,8 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
             // and a stray run between them sets none.
             region_step
         } else {
-            // Mostly strays: the axis is one sampling, every gap but a ring's
-            // outside is a step.
+            // Regions hold half the sites or fewer: the axis is one sampling,
+            // every gap but a ring's outside is a step.
             (0..n)
                 .filter(|&i| Some(i) != forced)
                 .map(|i| gaps[i])
