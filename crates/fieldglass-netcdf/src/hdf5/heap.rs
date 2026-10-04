@@ -1407,6 +1407,24 @@ mod tests {
         ));
     }
 
+    /// A filtered direct block that inflates far past its logical size is
+    /// refused at that size, not after the codec has produced it all (#813).
+    #[test]
+    fn a_filtered_block_stops_inflating_at_its_logical_size() {
+        // 1 MiB of image behind a 64-byte logical block size.
+        let mut image = fhdb_image(64, HEAP_ADDR, &[0x01]);
+        image.resize(1 << 20, 0);
+        let on_disk = zlib(&image);
+        let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &deflate_pipeline_body());
+        match FractalHeap::parse(&buf, HEAP_ADDR, 8, 8) {
+            Err(FieldglassError::Parse(m)) => {
+                assert!(m.contains("past the chunk's 64-byte length"), "{m}")
+            }
+            Err(e) => panic!("expected a Parse error, got {e:?}"),
+            Ok(_) => panic!("a 1 MiB block behind a 64-byte size was accepted"),
+        }
+    }
+
     #[test]
     fn rejects_filtered_block_past_end_of_file() {
         let on_disk = zlib(&fhdb_image(64, HEAP_ADDR, &[0x01]));

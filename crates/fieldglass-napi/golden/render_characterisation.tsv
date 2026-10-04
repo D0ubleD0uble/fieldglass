@@ -1287,134 +1287,135 @@ netcdf/hdf5_ea_filtered.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_fixed_point_precision.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_fletcher32.h5	file	parsed=true fields=5	fc2e3b9795c31478
 netcdf/hdf5_fletcher32.h5#f32_deflate	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_fletcher32.h5#f32_deflate	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_fletcher32.h5#f32_deflate	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_fletcher32.h5#f32_deflate	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#f32_deflate	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/hdf5_fletcher32.h5#f32_only	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_fletcher32.h5#f32_only	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_fletcher32.h5#f32_only	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_fletcher32.h5#f32_only	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#f32_only	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/hdf5_fletcher32.h5#f32_shuffle	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_fletcher32.h5#f32_shuffle	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_fletcher32.h5#f32_shuffle	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_fletcher32.h5#f32_shuffle	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#f32_shuffle	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/hdf5_fletcher32.h5#plain_deflate	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_fletcher32.h5#plain_deflate	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_fletcher32.h5#plain_deflate	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_fletcher32.h5#plain_deflate	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#plain_deflate	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/hdf5_implicit_index.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_implicit_index.h5#implicit	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_implicit_index.h5#implicit	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_implicit_index.h5#implicit	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_implicit_index.h5#implicit	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_implicit_index.h5#implicit	render/source/nearest	ok w=8 h=8 opaque=64	a187a9eea53f39a7
 netcdf/hdf5_implicit_index.h5#implicit_partial	combine/a_minus_b/render/source/nearest	ok w=7 h=5 opaque=35	90461e4324f67ea2
-netcdf/hdf5_implicit_index.h5#implicit_partial	meta	family=source ni=7 nj=5 reprojectable=false	27ffd3f3b216b9e4
+netcdf/hdf5_implicit_index.h5#implicit_partial	meta	family=source ni=7 nj=5 reprojectable=false	f98445f95db583cc
 netcdf/hdf5_implicit_index.h5#implicit_partial	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_implicit_index.h5#implicit_partial	render/source/nearest	ok w=7 h=5 opaque=35	dc1054ebff3c5295
 netcdf/hdf5_phony_dims.h5	file	parsed=true fields=4	fc2e3c9795c3162b
 netcdf/hdf5_phony_dims.h5#a_8x8	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_phony_dims.h5#a_8x8	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_phony_dims.h5#a_8x8	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_phony_dims.h5#a_8x8	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_phony_dims.h5#a_8x8	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/hdf5_phony_dims.h5#b_8x8	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_phony_dims.h5#b_8x8	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_phony_dims.h5#b_8x8	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_phony_dims.h5#b_8x8	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_phony_dims.h5#b_8x8	render/source/nearest	ok w=8 h=8 opaque=64	a187a9eea53f39a7
 netcdf/hdf5_phony_dims.h5#c_4x6	combine/a_minus_b/render/source/nearest	ok w=6 h=4 opaque=24	7afd73262e6389be
-netcdf/hdf5_phony_dims.h5#c_4x6	meta	family=source ni=6 nj=4 reprojectable=false	4231aec1f09ab33a
+netcdf/hdf5_phony_dims.h5#c_4x6	meta	family=source ni=6 nj=4 reprojectable=false	9a4b464293bd85a0
 netcdf/hdf5_phony_dims.h5#c_4x6	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_phony_dims.h5#c_4x6	render/source/nearest	ok w=6 h=4 opaque=24	10705231a0c2fb6b
 netcdf/hdf5_phony_dims.h5#d_6x4	combine/a_minus_b/render/source/nearest	ok w=4 h=6 opaque=24	ca8d417f1b2ab28a
-netcdf/hdf5_phony_dims.h5#d_6x4	meta	family=source ni=4 nj=6 reprojectable=false	5b27bc5a257e24be
+netcdf/hdf5_phony_dims.h5#d_6x4	meta	family=source ni=4 nj=6 reprojectable=false	484a6bd4c65fcda4
 netcdf/hdf5_phony_dims.h5#d_6x4	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_phony_dims.h5#d_6x4	render/source/nearest	ok w=4 h=6 opaque=24	2309a04d0dcf826b
 netcdf/hdf5_szip.h5	file	parsed=true fields=12	2bedaa0631cb8fc5
 netcdf/hdf5_szip.h5#f4_ppb18	combine/a_minus_b/render/source/nearest	ok w=36 h=4 opaque=144	2cb3479a850312b6
-netcdf/hdf5_szip.h5#f4_ppb18	meta	family=source ni=36 nj=4 reprojectable=false	ade7b896e5b3e93c
+netcdf/hdf5_szip.h5#f4_ppb18	meta	family=source ni=36 nj=4 reprojectable=false	9f03cf56d1c0310c
 netcdf/hdf5_szip.h5#f4_ppb18	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#f4_ppb18	render/source/nearest	ok w=36 h=4 opaque=144	d38a146407b984d9
 netcdf/hdf5_szip.h5#f8_ppb18	combine/a_minus_b/render/source/nearest	ok w=20 h=5 opaque=100	5db1451abef51a03
-netcdf/hdf5_szip.h5#f8_ppb18	meta	family=source ni=20 nj=5 reprojectable=false	8487ba78859906fd
+netcdf/hdf5_szip.h5#f8_ppb18	meta	family=source ni=20 nj=5 reprojectable=false	8ab72ffd1d2c37c7
 netcdf/hdf5_szip.h5#f8_ppb18	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#f8_ppb18	render/source/nearest	ok w=20 h=5 opaque=100	1b9e3ff225602e6f
 netcdf/hdf5_szip.h5#f8_ppb8	combine/a_minus_b/render/source/nearest	ok w=16 h=8 opaque=128	15322c1838396cd0
-netcdf/hdf5_szip.h5#f8_ppb8	meta	family=source ni=16 nj=8 reprojectable=false	b2211407daa614fc
+netcdf/hdf5_szip.h5#f8_ppb8	meta	family=source ni=16 nj=8 reprojectable=false	b6a8cb661da226ca
 netcdf/hdf5_szip.h5#f8_ppb8	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#f8_ppb8	render/source/nearest	ok w=16 h=8 opaque=128	c5caace23c2a3e4c
 netcdf/hdf5_szip.h5#i2_ppb10	combine/a_minus_b/render/source/nearest	ok w=40 h=6 opaque=240	5dc5f216da058997
-netcdf/hdf5_szip.h5#i2_ppb10	meta	family=source ni=40 nj=6 reprojectable=false	a05e5aee8e05a58a
+netcdf/hdf5_szip.h5#i2_ppb10	meta	family=source ni=40 nj=6 reprojectable=false	175d14de9f278e55
 netcdf/hdf5_szip.h5#i2_ppb10	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#i2_ppb10	render/source/nearest	ok w=40 h=6 opaque=240	cb9776d429a31d1c
 netcdf/hdf5_szip.h5#i2_ppb16	combine/a_minus_b/render/source/nearest	ok w=32 h=16 opaque=512	9448858f244d5d12
-netcdf/hdf5_szip.h5#i2_ppb16	meta	family=source ni=32 nj=16 reprojectable=false	7b511e7142a49854
+netcdf/hdf5_szip.h5#i2_ppb16	meta	family=source ni=32 nj=16 reprojectable=false	54a4d9dd2f018244
 netcdf/hdf5_szip.h5#i2_ppb16	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#i2_ppb16	render/source/nearest	ok w=32 h=16 opaque=512	3babeb05583060ea
 netcdf/hdf5_szip.h5#i4_precision16	combine/a_minus_b/render/source/nearest	ok w=16 h=8 opaque=128	15322c1838396cd0
-netcdf/hdf5_szip.h5#i4_precision16	meta	family=source ni=16 nj=8 reprojectable=false	b2211407daa614fc
+netcdf/hdf5_szip.h5#i4_precision16	meta	family=source ni=16 nj=8 reprojectable=false	b6a8cb661da226ca
 netcdf/hdf5_szip.h5#i4_precision16	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#i4_precision16	render/source/nearest	ok w=16 h=8 opaque=128	c0ce89c58c7b64ec
 netcdf/hdf5_szip.h5#i4be_ppb32	combine/a_minus_b/render/source/nearest	ok w=64 h=8 opaque=512	0e04503470efe3dd
-netcdf/hdf5_szip.h5#i4be_ppb32	meta	family=source ni=64 nj=8 reprojectable=false	c35bc1464b12faec
+netcdf/hdf5_szip.h5#i4be_ppb32	meta	family=source ni=64 nj=8 reprojectable=false	0ac3ef327a15d7a3
 netcdf/hdf5_szip.h5#i4be_ppb32	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#i4be_ppb32	render/source/nearest	ok w=64 h=8 opaque=512	57b9ee5f4e5b1024
 netcdf/hdf5_szip.h5#incompressible	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_szip.h5#incompressible	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_szip.h5#incompressible	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_szip.h5#incompressible	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#incompressible	render/source/nearest	ok w=8 h=8 opaque=64	1a768a88467c81f7
 netcdf/hdf5_szip.h5#partial_scanline	combine/a_minus_b/render/source/nearest	ok w=1500 h=2 opaque=3000	42fc64d4ac564762
-netcdf/hdf5_szip.h5#partial_scanline	meta	family=source ni=1500 nj=2 reprojectable=false	a4fdcf7dd2cf4f1b
+netcdf/hdf5_szip.h5#partial_scanline	meta	family=source ni=1500 nj=2 reprojectable=false	a9b3bf59b097e264
 netcdf/hdf5_szip.h5#partial_scanline	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#partial_scanline	render/source/nearest	ok w=1500 h=2 opaque=3000	eb050cfc677c5c71
 netcdf/hdf5_szip.h5#pps_not_multiple	combine/a_minus_b/render/source/nearest	ok w=25 h=4 opaque=100	fdd210aede429e69
-netcdf/hdf5_szip.h5#pps_not_multiple	meta	family=source ni=25 nj=4 reprojectable=false	1d01c9ae914d6c4b
+netcdf/hdf5_szip.h5#pps_not_multiple	meta	family=source ni=25 nj=4 reprojectable=false	ef51bd2a481febcb
 netcdf/hdf5_szip.h5#pps_not_multiple	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#pps_not_multiple	render/source/nearest	ok w=25 h=4 opaque=100	12756e4fd3a40193
 netcdf/hdf5_szip.h5#shuffle_szip	combine/a_minus_b/render/source/nearest	ok w=32 h=8 opaque=256	4fd12008f70bd43e
-netcdf/hdf5_szip.h5#shuffle_szip	meta	family=source ni=32 nj=8 reprojectable=false	7b7bbe2e90f6b3cc
+netcdf/hdf5_szip.h5#shuffle_szip	meta	family=source ni=32 nj=8 reprojectable=false	04c4ac7a6e6ed97c
 netcdf/hdf5_szip.h5#shuffle_szip	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#shuffle_szip	render/source/nearest	ok w=32 h=8 opaque=256	36ba45b6f7eb249a
 netcdf/hdf5_szip.h5#u1_ppb8	combine/a_minus_b/render/source/nearest	ok w=32 h=8 opaque=256	4fd12008f70bd43e
-netcdf/hdf5_szip.h5#u1_ppb8	meta	family=source ni=32 nj=8 reprojectable=false	7b7bbe2e90f6b3cc
+netcdf/hdf5_szip.h5#u1_ppb8	meta	family=source ni=32 nj=8 reprojectable=false	04c4ac7a6e6ed97c
 netcdf/hdf5_szip.h5#u1_ppb8	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#u1_ppb8	render/source/nearest	ok w=32 h=8 opaque=256	fb8a97779a3fc5fc
+netcdf/hdf5_szip_growth.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_szip_hand.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_szip_hand.h5#rsi1_f4	combine/a_minus_b/render/source/nearest	ok w=16 h=4 opaque=64	8d762c992cad55d8
-netcdf/hdf5_szip_hand.h5#rsi1_f4	meta	family=source ni=16 nj=4 reprojectable=false	326103a3d0213e30
+netcdf/hdf5_szip_hand.h5#rsi1_f4	meta	family=source ni=16 nj=4 reprojectable=false	9fd67bcbf5da918a
 netcdf/hdf5_szip_hand.h5#rsi1_f4	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip_hand.h5#rsi1_f4	render/source/nearest	ok w=16 h=4 opaque=64	44642acd0439dea5
 netcdf/hdf5_szip_hand.h5#rsi1_i2	combine/a_minus_b/render/source/nearest	ok w=5 h=8 opaque=40	4fc409333c5e2b18
-netcdf/hdf5_szip_hand.h5#rsi1_i2	meta	family=source ni=5 nj=8 reprojectable=false	2165c4dcd491b383
+netcdf/hdf5_szip_hand.h5#rsi1_i2	meta	family=source ni=5 nj=8 reprojectable=false	090b6b64283f6b88
 netcdf/hdf5_szip_hand.h5#rsi1_i2	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip_hand.h5#rsi1_i2	render/source/nearest	ok w=5 h=8 opaque=40	983ac99315617aae
 netcdf/hdf5_szip_long_stream.h5	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/hdf5_szip_long_stream.h5#f8_long_stream	combine/a_minus_b/render/source/nearest	err: parse error: szip decompress failed: an szip output of # bytes is shorter than its stream of #- or #-bit pixels: # bytes are left after the last pixel	21b7b0239821cc8d
-netcdf/hdf5_szip_long_stream.h5#f8_long_stream	meta	family=source ni=8 nj=4 reprojectable=false	cdb3ae9074f8eec8
+netcdf/hdf5_szip_long_stream.h5#f8_long_stream	meta	family=source ni=8 nj=4 reprojectable=false	4712ce5d26c877d4
 netcdf/hdf5_szip_long_stream.h5#f8_long_stream	render/equirectangular/nearest	err: parse error: szip decompress failed: an szip output of # bytes is shorter than its stream of #- or #-bit pixels: # bytes are left after the last pixel	21b7b0239821cc8d
 netcdf/hdf5_szip_long_stream.h5#f8_long_stream	render/source/nearest	err: parse error: szip decompress failed: an szip output of # bytes is shorter than its stream of #- or #-bit pixels: # bytes are left after the last pixel	21b7b0239821cc8d
 netcdf/hdf5_v1_symboltable.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_v1_symboltable.h5#compressed	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_v1_symboltable.h5#compressed	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_v1_symboltable.h5#compressed	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_v1_symboltable.h5#compressed	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v1_symboltable.h5#compressed	render/source/nearest	ok w=8 h=8 opaque=64	a187a9eea53f39a7
 netcdf/hdf5_v1_symboltable.h5#temp_i32	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	05ac0c4c9a025cb6
-netcdf/hdf5_v1_symboltable.h5#temp_i32	meta	family=source ni=4 nj=3 reprojectable=false	7b37b84122dcef0b
+netcdf/hdf5_v1_symboltable.h5#temp_i32	meta	family=source ni=4 nj=3 reprojectable=false	0c6939705907aad4
 netcdf/hdf5_v1_symboltable.h5#temp_i32	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v1_symboltable.h5#temp_i32	render/source/nearest	ok w=4 h=3 opaque=12	a990cf36474913e1
 netcdf/hdf5_v2_btree_index.h5	file	parsed=true fields=3	fc2e419795c31eaa
 netcdf/hdf5_v2_btree_index.h5#bt2	combine/a_minus_b/render/source/nearest	ok w=4 h=4 opaque=16	2520e337a9e44dc2
-netcdf/hdf5_v2_btree_index.h5#bt2	meta	family=source ni=4 nj=4 reprojectable=false	1b3264497912ab9c
+netcdf/hdf5_v2_btree_index.h5#bt2	meta	family=source ni=4 nj=4 reprojectable=false	a59adb09ab0b5f24
 netcdf/hdf5_v2_btree_index.h5#bt2	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_btree_index.h5#bt2	render/source/nearest	ok w=4 h=4 opaque=16	45133527465108bf
 netcdf/hdf5_v2_btree_index.h5#bt2_filtered	combine/a_minus_b/render/source/nearest	ok w=4 h=4 opaque=16	2520e337a9e44dc2
-netcdf/hdf5_v2_btree_index.h5#bt2_filtered	meta	family=source ni=4 nj=4 reprojectable=false	1b3264497912ab9c
+netcdf/hdf5_v2_btree_index.h5#bt2_filtered	meta	family=source ni=4 nj=4 reprojectable=false	a59adb09ab0b5f24
 netcdf/hdf5_v2_btree_index.h5#bt2_filtered	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_btree_index.h5#bt2_filtered	render/source/nearest	ok w=4 h=4 opaque=16	45133527465108bf
 netcdf/hdf5_v2_btree_index.h5#bt2_multi	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_v2_btree_index.h5#bt2_multi	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_v2_btree_index.h5#bt2_multi	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_v2_btree_index.h5#bt2_multi	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_btree_index.h5#bt2_multi	render/source/nearest	ok w=8 h=8 opaque=64	a187a9eea53f39a7
 netcdf/hdf5_v2_linkinfo.h5	file	parsed=true fields=2	fc2e429795c3205d
@@ -1448,7 +1449,7 @@ netcdf/hdf5_v2_linkinfo.h5#chunked	contours/mollweide/auto	err: contours not yet
 netcdf/hdf5_v2_linkinfo.h5#chunked	contours/source/auto	err: contours not yet supported for grid type "source" (only regular lat/lon, Mercator, rotated lat/lon, Gaussian, reduced lat/lon, reduced Gaussian, #-D coordinate (curvilinear), Lambert conformal, polar stereographic, transverse Mercator, and Lambert azimuthal equal-area for now)	323bd4f805d081ff
 netcdf/hdf5_v2_linkinfo.h5#chunked	csv/long	err: the long CSV format needs per-point coordinates, which grid type "source" doesn't provide (only regular lat/lon, Mercator, rotated lat/lon, Gaussian, reduced lat/lon, reduced Gaussian, #-D coordinate (curvilinear), Lambert conformal, polar stereographic, transverse Mercator, and Lambert azimuthal equal-area); export as the Matrix format instead	f770e6b2e14c11fe
 netcdf/hdf5_v2_linkinfo.h5#chunked	csv/matrix	ok lines=10	11ffd3b83ad44688
-netcdf/hdf5_v2_linkinfo.h5#chunked	meta	family=source ni=10 nj=10 reprojectable=false	3453119efc483898
+netcdf/hdf5_v2_linkinfo.h5#chunked	meta	family=source ni=10 nj=10 reprojectable=false	dbbec3af967f24e2
 netcdf/hdf5_v2_linkinfo.h5#chunked	probe/equirectangular/0,0	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_linkinfo.h5#chunked	probe/equirectangular/359,180	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_linkinfo.h5#chunked	probe/equirectangular/7,3	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
@@ -1482,41 +1483,41 @@ netcdf/hdf5_v2_linkinfo.h5#chunked	render/source/nearest+flip_y	ok w=10 h=10 opa
 netcdf/hdf5_v2_linkinfo.h5#chunked	render/web_mercator/bilinear	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_linkinfo.h5#chunked	render/web_mercator/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_linkinfo.h5#temp_i32	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	05ac0c4c9a025cb6
-netcdf/hdf5_v2_linkinfo.h5#temp_i32	meta	family=source ni=4 nj=3 reprojectable=false	7b37b84122dcef0b
+netcdf/hdf5_v2_linkinfo.h5#temp_i32	meta	family=source ni=4 nj=3 reprojectable=false	0c6939705907aad4
 netcdf/hdf5_v2_linkinfo.h5#temp_i32	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v2_linkinfo.h5#temp_i32	render/source/nearest	ok w=4 h=3 opaque=12	a990cf36474913e1
 netcdf/hdf5_v4_chunk_index.h5	file	parsed=true fields=3	fc2e419795c31eaa
 netcdf/hdf5_v4_chunk_index.h5#fixed_array	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_v4_chunk_index.h5#fixed_array	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_v4_chunk_index.h5#fixed_array	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_v4_chunk_index.h5#fixed_array	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v4_chunk_index.h5#fixed_array	render/source/nearest	ok w=8 h=8 opaque=64	a187a9eea53f39a7
 netcdf/hdf5_v4_chunk_index.h5#single_chunk	combine/a_minus_b/render/source/nearest	ok w=4 h=4 opaque=16	2520e337a9e44dc2
-netcdf/hdf5_v4_chunk_index.h5#single_chunk	meta	family=source ni=4 nj=4 reprojectable=false	1b3264497912ab9c
+netcdf/hdf5_v4_chunk_index.h5#single_chunk	meta	family=source ni=4 nj=4 reprojectable=false	a59adb09ab0b5f24
 netcdf/hdf5_v4_chunk_index.h5#single_chunk	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v4_chunk_index.h5#single_chunk	render/source/nearest	ok w=4 h=4 opaque=16	45133527465108bf
 netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	combine/a_minus_b/render/source/nearest	ok w=4 h=4 opaque=16	2520e337a9e44dc2
-netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	meta	family=source ni=4 nj=4 reprojectable=false	1b3264497912ab9c
+netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	meta	family=source ni=4 nj=4 reprojectable=false	a59adb09ab0b5f24
 netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	render/source/nearest	ok w=4 h=4 opaque=16	45133527465108bf
 netcdf/hdf5_zstd.h5	file	parsed=true fields=5	fc2e3b9795c31478
 netcdf/hdf5_zstd.h5#plain_deflate	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_zstd.h5#plain_deflate	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_zstd.h5#plain_deflate	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_zstd.h5#plain_deflate	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#plain_deflate	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/hdf5_zstd.h5#shuffle_zstd	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_zstd.h5#shuffle_zstd	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_zstd.h5#shuffle_zstd	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_zstd.h5#shuffle_zstd	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#shuffle_zstd	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/hdf5_zstd.h5#zstd	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_zstd.h5#zstd	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_zstd.h5#zstd	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_zstd.h5#zstd	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#zstd	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/hdf5_zstd.h5#zstd_fletcher32	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_zstd.h5#zstd_fletcher32	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_zstd.h5#zstd_fletcher32	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_zstd.h5#zstd_fletcher32	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#zstd_fletcher32	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/hdf5_zstd.h5#zstd_high	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
-netcdf/hdf5_zstd.h5#zstd_high	meta	family=source ni=8 nj=8 reprojectable=false	4dc8fe6f1c21fc84
+netcdf/hdf5_zstd.h5#zstd_high	meta	family=source ni=8 nj=8 reprojectable=false	1b8ba292042e0b14
 netcdf/hdf5_zstd.h5#zstd_high	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#zstd_high	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/mirs_swath_n21.nc	file	parsed=true fields=4	fc2e3c9795c3162b
@@ -1597,17 +1598,17 @@ netcdf/mirs_swath_n21.nc#TSkin	render/equirectangular/nearest	ok w=720 h=50 opaq
 netcdf/mirs_swath_n21.nc#TSkin	render/source/nearest	ok w=96 h=100 opaque=9600	34b236b019f44562
 netcdf/missing_value_classic.nc	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/missing_value_classic.nc#temp	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=3	d052814996f28486
-netcdf/missing_value_classic.nc#temp	meta	family=source ni=3 nj=2 reprojectable=false	d5ae7d61ae4cd59f
+netcdf/missing_value_classic.nc#temp	meta	family=source ni=3 nj=2 reprojectable=false	64bd1f52a6520458
 netcdf/missing_value_classic.nc#temp	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/missing_value_classic.nc#temp	render/source/nearest	ok w=3 h=2 opaque=3	f7b0c465eb5e7987
 netcdf/missing_value_nc4.nc	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/missing_value_nc4.nc#temp	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=3	d052814996f28486
-netcdf/missing_value_nc4.nc#temp	meta	family=source ni=3 nj=2 reprojectable=false	d5ae7d61ae4cd59f
+netcdf/missing_value_nc4.nc#temp	meta	family=source ni=3 nj=2 reprojectable=false	64bd1f52a6520458
 netcdf/missing_value_nc4.nc#temp	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/missing_value_nc4.nc#temp	render/source/nearest	ok w=3 h=2 opaque=3	f7b0c465eb5e7987
 netcdf/netcdf4_dimscale.nc	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/netcdf4_dimscale.nc#lat_bnds	combine/a_minus_b/render/source/nearest	ok w=2 h=3 opaque=6	c37321ab8cd65236
-netcdf/netcdf4_dimscale.nc#lat_bnds	meta	family=source ni=2 nj=3 reprojectable=false	6fcb085145a7c139
+netcdf/netcdf4_dimscale.nc#lat_bnds	meta	family=source ni=2 nj=3 reprojectable=false	756635a88b62d914
 netcdf/netcdf4_dimscale.nc#lat_bnds	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_dimscale.nc#lat_bnds	render/source/nearest	ok w=2 h=3 opaque=6	6c3d068855f3642c
 netcdf/netcdf4_dimscale.nc#temperature	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	ce80d4a70900b636
@@ -1616,46 +1617,46 @@ netcdf/netcdf4_dimscale.nc#temperature	render/equirectangular/nearest	ok w=720 h
 netcdf/netcdf4_dimscale.nc#temperature	render/source/nearest	ok w=4 h=3 opaque=12	ae897e6957eb51bd
 netcdf/netcdf4_grouped.nc	file	parsed=true fields=4	fc2e3c9795c3162b
 netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	05ac0c4c9a025cb6
-netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	meta	family=source ni=4 nj=3 reprojectable=false	7b37b84122dcef0b
+netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	meta	family=source ni=4 nj=3 reprojectable=false	0c6939705907aad4
 netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	render/source/nearest	ok w=4 h=3 opaque=12	88eb6fce35a4bf24
 netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	05ac0c4c9a025cb6
-netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	meta	family=source ni=4 nj=3 reprojectable=false	7b37b84122dcef0b
+netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	meta	family=source ni=4 nj=3 reprojectable=false	0c6939705907aad4
 netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	render/source/nearest	ok w=4 h=3 opaque=12	a990cf36474913e1
 netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	05ac0c4c9a025cb6
-netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	meta	family=source ni=4 nj=3 reprojectable=false	7b37b84122dcef0b
+netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	meta	family=source ni=4 nj=3 reprojectable=false	0c6939705907aad4
 netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	render/source/nearest	ok w=4 h=3 opaque=12	cd3deff9c0b1c8b7
 netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	05ac0c4c9a025cb6
-netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	meta	family=source ni=4 nj=3 reprojectable=false	7b37b84122dcef0b
+netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	meta	family=source ni=4 nj=3 reprojectable=false	0c6939705907aad4
 netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/source/nearest	ok w=4 h=3 opaque=12	a990cf36474913e1
 netcdf/netcdf4_hdf5_dummy.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf4_unsupported_type.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf_classic_dummy.nc	file	parsed=true fields=6	fc2e3e9795c31991
 netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
-netcdf/netcdf_classic_dummy.nc#AGC_1202	meta	family=source ni=8 nj=0 reprojectable=false	c06f432c430163db
+netcdf/netcdf_classic_dummy.nc#AGC_1202	meta	family=source ni=8 nj=0 reprojectable=false	3f34bfde511450c3
 netcdf/netcdf_classic_dummy.nc#AGC_1202	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#AGC_1202	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
 netcdf/netcdf_classic_dummy.nc#CD_310	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
-netcdf/netcdf_classic_dummy.nc#CD_310	meta	family=source ni=8 nj=0 reprojectable=false	c06f432c430163db
+netcdf/netcdf_classic_dummy.nc#CD_310	meta	family=source ni=8 nj=0 reprojectable=false	3f34bfde511450c3
 netcdf/netcdf_classic_dummy.nc#CD_310	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#CD_310	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
 netcdf/netcdf_classic_dummy.nc#CS_300	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
-netcdf/netcdf_classic_dummy.nc#CS_300	meta	family=source ni=8 nj=0 reprojectable=false	c06f432c430163db
+netcdf/netcdf_classic_dummy.nc#CS_300	meta	family=source ni=8 nj=0 reprojectable=false	3f34bfde511450c3
 netcdf/netcdf_classic_dummy.nc#CS_300	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#CS_300	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
 netcdf/netcdf_classic_dummy.nc#u_1205	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
-netcdf/netcdf_classic_dummy.nc#u_1205	meta	family=source ni=8 nj=0 reprojectable=false	c06f432c430163db
+netcdf/netcdf_classic_dummy.nc#u_1205	meta	family=source ni=8 nj=0 reprojectable=false	3f34bfde511450c3
 netcdf/netcdf_classic_dummy.nc#u_1205	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#u_1205	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
 netcdf/netcdf_classic_dummy.nc#v_1206	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
-netcdf/netcdf_classic_dummy.nc#v_1206	meta	family=source ni=8 nj=0 reprojectable=false	c06f432c430163db
+netcdf/netcdf_classic_dummy.nc#v_1206	meta	family=source ni=8 nj=0 reprojectable=false	3f34bfde511450c3
 netcdf/netcdf_classic_dummy.nc#v_1206	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#v_1206	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
 netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
-netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=source ni=8 nj=0 reprojectable=false	c06f432c430163db
+netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=source ni=8 nj=0 reprojectable=false	3f34bfde511450c3
 netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
 netcdf/oisst_avhrr_v2.nc	file	parsed=true fields=2	fc2e429795c3205d
@@ -1669,31 +1670,31 @@ netcdf/oisst_avhrr_v2.nc#sst	render/equirectangular/nearest	ok w=720 h=720 opaqu
 netcdf/oisst_avhrr_v2.nc#sst	render/source/nearest	ok w=32 h=32 opaque=680	f63b59fd4bd53523
 netcdf/record_mixed_cdf1.nc	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/record_mixed_cdf1.nc#a	combine/a_minus_b/render/source/nearest	ok w=3 h=3 opaque=9	e851e17a453e7b1e
-netcdf/record_mixed_cdf1.nc#a	meta	family=source ni=3 nj=3 reprojectable=false	35b3d1595817190e
+netcdf/record_mixed_cdf1.nc#a	meta	family=source ni=3 nj=3 reprojectable=false	83ba89bb3bfa7398
 netcdf/record_mixed_cdf1.nc#a	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/record_mixed_cdf1.nc#a	render/source/nearest	ok w=3 h=3 opaque=9	4266901947c138d9
 netcdf/record_mixed_cdf1.nc#b	combine/a_minus_b/render/source/nearest	ok w=1 h=3 opaque=3	29e49a54dea340b2
-netcdf/record_mixed_cdf1.nc#b	meta	family=source ni=1 nj=3 reprojectable=false	8ef4767cd60a3aa4
+netcdf/record_mixed_cdf1.nc#b	meta	family=source ni=1 nj=3 reprojectable=false	c3fc5913549124b0
 netcdf/record_mixed_cdf1.nc#b	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/record_mixed_cdf1.nc#b	render/source/nearest	ok w=1 h=3 opaque=3	3e154ba823adc172
 netcdf/record_single_short_cdf1.nc	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/record_single_short_cdf1.nc#s	combine/a_minus_b/render/source/nearest	ok w=3 h=3 opaque=9	e851e17a453e7b1e
-netcdf/record_single_short_cdf1.nc#s	meta	family=source ni=3 nj=3 reprojectable=false	35b3d1595817190e
+netcdf/record_single_short_cdf1.nc#s	meta	family=source ni=3 nj=3 reprojectable=false	83ba89bb3bfa7398
 netcdf/record_single_short_cdf1.nc#s	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/record_single_short_cdf1.nc#s	render/source/nearest	ok w=3 h=3 opaque=9	b748e47999551ba4
 netcdf/record_single_short_cdf2.nc	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/record_single_short_cdf2.nc#s	combine/a_minus_b/render/source/nearest	ok w=3 h=3 opaque=9	e851e17a453e7b1e
-netcdf/record_single_short_cdf2.nc#s	meta	family=source ni=3 nj=3 reprojectable=false	35b3d1595817190e
+netcdf/record_single_short_cdf2.nc#s	meta	family=source ni=3 nj=3 reprojectable=false	83ba89bb3bfa7398
 netcdf/record_single_short_cdf2.nc#s	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/record_single_short_cdf2.nc#s	render/source/nearest	ok w=3 h=3 opaque=9	b748e47999551ba4
 netcdf/record_single_short_cdf5.nc	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/record_single_short_cdf5.nc#s	combine/a_minus_b/render/source/nearest	ok w=3 h=3 opaque=9	e851e17a453e7b1e
-netcdf/record_single_short_cdf5.nc#s	meta	family=source ni=3 nj=3 reprojectable=false	35b3d1595817190e
+netcdf/record_single_short_cdf5.nc#s	meta	family=source ni=3 nj=3 reprojectable=false	83ba89bb3bfa7398
 netcdf/record_single_short_cdf5.nc#s	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/record_single_short_cdf5.nc#s	render/source/nearest	ok w=3 h=3 opaque=9	b748e47999551ba4
 netcdf/record_single_ubyte_cdf5.nc	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/record_single_ubyte_cdf5.nc#s	combine/a_minus_b/render/source/nearest	ok w=3 h=3 opaque=9	e851e17a453e7b1e
-netcdf/record_single_ubyte_cdf5.nc#s	meta	family=source ni=3 nj=3 reprojectable=false	35b3d1595817190e
+netcdf/record_single_ubyte_cdf5.nc#s	meta	family=source ni=3 nj=3 reprojectable=false	83ba89bb3bfa7398
 netcdf/record_single_ubyte_cdf5.nc#s	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/record_single_ubyte_cdf5.nc#s	render/source/nearest	ok w=3 h=3 opaque=9	b748e47999551ba4
 netcdf/rtofs_tripolar_arctic.nc	file	parsed=true fields=3	fc2e419795c31eaa

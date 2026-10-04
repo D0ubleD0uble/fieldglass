@@ -31,6 +31,8 @@ const HAND: &[u8] = include_bytes!("fixtures/hdf5_szip_hand.h5");
 const HAND_ORACLE: &str = include_str!("fixtures/hdf5_szip_hand.h5.oracle.json");
 const LONG: &[u8] = include_bytes!("fixtures/hdf5_szip_long_stream.h5");
 const LONG_ORACLE: &str = include_str!("fixtures/hdf5_szip_long_stream.h5.oracle.json");
+const GROWTH: &[u8] = include_bytes!("fixtures/hdf5_szip_growth.h5");
+const GROWTH_ORACLE: &str = include_str!("fixtures/hdf5_szip_growth.h5.oracle.json");
 
 /// Datasets in each fixture. A regenerated fixture that lost one fails here
 /// rather than quietly testing less.
@@ -96,6 +98,19 @@ fn every_libhdf5_written_szip_dataset_matches_h5py() {
 #[test]
 fn every_hand_built_szip_dataset_matches_h5py() {
     assert_matches_oracle(HAND, HAND_ORACLE, HAND_DATASETS);
+}
+
+/// A `[szip, deflate]` chunk whose szip stream is 107,268 bytes for a
+/// 4,096-byte chunk, which libhdf5 reads (#813). Deflate's output is bounded
+/// by szip's worst-case growth, so this fails if that factor is ever set
+/// below what libsz really produces; the chunk plus an eighth plus 4 KiB
+/// would refuse it.
+#[test]
+fn a_codec_behind_szip_decodes_a_stream_26_times_its_chunk() {
+    let oracle: Value = serde_json::from_str(GROWTH_ORACLE).expect("oracle is JSON");
+    let note = oracle["note"].as_str().expect("note");
+    assert!(note.contains("107268 bytes"), "{note}");
+    assert_matches_oracle(GROWTH, GROWTH_ORACLE, 1);
 }
 
 /// The fixtures cover the matrix the issue asks for. Read from the oracle,

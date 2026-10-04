@@ -35,8 +35,10 @@ import {
   type VectorLayer,
 } from "./overlay";
 import {
+  composeDefaultPngName,
   composeTitleLine,
   renderImagePanelHtml,
+  reprojectionNote,
   sanitizePngName,
   type PanelField,
   type SlicePanelData,
@@ -1274,15 +1276,31 @@ export class FieldglassEditorProvider
 
     const initial = defaultSliceSpec(initialVar);
     // The slice's own answers — its family, and whether it can be reprojected —
-    // asked of the placement the handle renders from (#574). A slice the handle
-    // cannot place at all still opens, on the source view alone.
-    let grid: SliceGrid | null = null;
-    try {
-      grid = handle.sliceGrid(initial.variableIndex, initial.yDim, initial.xDim);
-    } catch (err) {
-      console.error("[Fieldglass] sliceGrid failed:", err);
-    }
-    const meta = sliceField(initialVar, grid);
+    // asked of the placement the handle renders from (#574), once per variable
+    // and axis pair. A slice the handle cannot place at all still opens, on the
+    // source view alone. Keyed by handle as well, since a document reopened
+    // under the panel brings a new one.
+    const grids = new WeakMap<SlicePanelHandle, Map<string, SliceGrid | null>>();
+    const gridOf = (h: SlicePanelHandle, spec: SliceSpec): SliceGrid | null => {
+      let known = grids.get(h);
+      if (!known) grids.set(h, (known = new Map()));
+      const key = `${spec.variableIndex}:${spec.yDim}:${spec.xDim}`;
+      if (!known.has(key)) {
+        let grid: SliceGrid | null = null;
+        try {
+          grid = h.sliceGrid(spec.variableIndex, spec.yDim, spec.xDim);
+        } catch (err) {
+          console.error("[Fieldglass] sliceGrid failed:", err);
+        }
+        known.set(key, grid);
+      }
+      return known.get(key) ?? null;
+    };
+    const openedGrid = gridOf(handle, initial);
+    // What a rebuilt panel is written from. The slice drawn last rather than the
+    // one the panel opened on: a rebuild restores the picker's saved selection,
+    // and a map target the opening slice could not take would not survive it.
+    let shown = { meta: sliceField(initialVar, openedGrid), grid: openedGrid };
     const title = `Render: ${sanitizeTitlePart(initialVar.name) || "variable"}`;
     const panel = vscode.window.createWebviewPanel(
       "fieldglass.render",
@@ -1294,8 +1312,8 @@ export class FieldglassEditorProvider
     this.trackRenderPanel(panel, () => {
       panel.webview.html = renderImagePanelHtml(
         panel.webview,
-        meta,
-        sliceCaption(subject.container, grid),
+        shown.meta,
+        sliceCaption(subject.container, shown.grid),
         colormapRegistry(),
         combineOpRegistry(),
         slice,
@@ -1309,7 +1327,7 @@ export class FieldglassEditorProvider
     const renderedVar = (spec: SliceSpec): NetcdfVariableMeta =>
       variables.find((v) => v.variableIndex === spec.variableIndex) ?? initialVar;
 
-    const paint = (options: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare) => {
+    const paint = (requested: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare) => {
       const docHandle = subject.handle();
       if (!docHandle) {
         panel.webview.postMessage({
@@ -1319,6 +1337,15 @@ export class FieldglassEditorProvider
         });
         return;
       }
+      // The picker offers the map targets for the slice it last drew (#822). A
+      // request for one that this slice cannot take — the picker has just moved
+      // onto it — is drawn in the source view, and the answer goes back with
+      // the render so the picker follows.
+      const grid = gridOf(docHandle, spec);
+      const options: RenderOptions =
+        grid?.reprojectable || requested.projection === "source"
+          ? requested
+          : { ...requested, projection: "source" };
       try {
         // A difference map combines this slice (A) with a second slice (B) —
         // the same or another variable at its own indices; otherwise a plain
@@ -1341,9 +1368,15 @@ export class FieldglassEditorProvider
               spec.sliceIndices,
               options,
             );
-        panel.webview.postMessage(
-          buildGridReadyMessage(rendered, sliceTitle(renderedVar(spec), spec.variableIndex), options),
-        );
+        shown = { meta: sliceField(renderedVar(spec), grid), grid };
+        panel.webview.postMessage({
+          ...buildGridReadyMessage(rendered, sliceTitle(renderedVar(spec), spec.variableIndex), options),
+          sliceGrid: {
+            label: grid?.label ?? null,
+            reprojectable: grid?.reprojectable ?? false,
+            note: reprojectionNote(grid?.reprojectable ?? false, grid?.label ?? null),
+          },
+        } satisfies GridReadyMessage);
       } catch (err) {
         panel.webview.postMessage({
           type: "gridError",
@@ -1610,6 +1643,17 @@ export interface GridReadyMessage {
    *  {@link GridReadyMessage.titleLine}: frozen units put one variable's unit
    *  against another variable's numbers. */
   parameterUnits: string;
+  /** The PNG export's default filename for the field actually drawn. Same
+   *  reason as {@link GridReadyMessage.titleLine}: a slice panel's export was
+   *  named after the variable it opened on (#822). */
+  defaultPngName: string;
+  /** A slice panel's answer for the slice actually drawn (#822): its grid
+   *  family (`null` when it could not be placed) and whether it can be
+   *  reprojected. The projection picker follows it, because the picker can
+   *  move onto a variable or axis pair with a different answer. `note` is
+   *  {@link reprojectionNote} for it, the text shown beside the picker. Absent
+   *  for a GRIB panel, which draws one field. */
+  sliceGrid?: { label: string | null; reprojectable: boolean; note: string };
 }
 
 /** `overlayRequest` posted by the render panel when an overlay layer is
@@ -1941,6 +1985,7 @@ export function buildGridReadyMessage(
     options,
     titleLine: composeTitleLine(meta),
     parameterUnits: meta.units ?? "",
+    defaultPngName: composeDefaultPngName(meta),
   };
 }
 
@@ -1991,9 +2036,9 @@ function defaultSliceSpec(v: NetcdfVariableMeta): SliceSpec {
  *  `grid` is `null` when the handle could not place the slice at all; the panel
  *  then offers the source view alone.
  *
- *  The answers are the slice's the panel opened on. The picker can move onto
- *  axes with a different answer (a level against latitude, say), and there the
- *  map targets stay offered and the render reports why it cannot draw one. */
+ *  This is what the panel is written from. The picker can then move onto a
+ *  variable or axes with a different answer, so every slice render sends its
+ *  own in `GridReadyMessage.sliceGrid` and the picker follows that (#822). */
 export function sliceField(
   v: NetcdfVariableMeta,
   grid: SliceGrid | null,

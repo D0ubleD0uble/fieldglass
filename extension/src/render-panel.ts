@@ -300,6 +300,80 @@ export function isMapSlice(
   return yDim === detectedYDim && xDim === detectedXDim;
 }
 
+/** The map targets the projection picker offers beside the source view, in
+ *  picker order. The provider's `PROJECTIONS` must list every one. */
+export const MAP_PROJECTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "equirectangular", label: "Equirectangular" },
+  { value: "web_mercator", label: "Web Mercator" },
+  { value: "orthographic", label: "Orthographic" },
+  { value: "polar_stereographic", label: "Polar stereographic" },
+  { value: "mollweide", label: "Mollweide" },
+  { value: "robinson", label: "Robinson" },
+  { value: "equal_earth", label: "Equal Earth" },
+];
+
+/** The projection picker's options: the source view always, and the map
+ *  targets only for a field that can be reprojected.
+ *
+ *  Built here for the panel's first HTML and again by the panel script each
+ *  time a slice render says the answer changed (#822), so the two cannot offer
+ *  different lists. `targets` is {@link MAP_PROJECTIONS}, whose labels are
+ *  constants. Serialized into the panel script, so it must not reference
+ *  anything outside itself. */
+export function projectionOptionsHtml(
+  targets: ReadonlyArray<{ value: string; label: string }>,
+  reprojectable: boolean,
+): string {
+  let html = '<option value="source">Source projection</option>';
+  if (reprojectable) {
+    for (const t of targets) html += '<option value="' + t.value + '">' + t.label + "</option>";
+  }
+  return html;
+}
+
+/** The projection `<select>` and its note, moved to a slice render's answer to
+ *  whether it can be reprojected (#822). `offered` is whether the select
+ *  currently lists the map targets; the options are rebuilt only when that
+ *  changes, keeping the selection where it is still offered and going back to
+ *  `source` where it is not — which is what the provider drew it in. The note
+ *  takes the text the provider composed.
+ *
+ *  Returns the new `offered`, and whether the selection moved. Takes its
+ *  elements as arguments, so a test can run it against stand-ins. Serialized
+ *  into the panel script, so it must not reference anything outside itself but
+ *  {@link projectionOptionsHtml}, which is serialized beside it. */
+export function applyReprojectable(
+  projection: { value: string; innerHTML: string; options: ArrayLike<{ value: string }> } | null,
+  note: { textContent: string | null; toggleAttribute(name: string, force: boolean): unknown } | null,
+  sliceGrid: { reprojectable: boolean; note?: string },
+  offered: boolean,
+  targets: ReadonlyArray<{ value: string; label: string }>,
+): { offered: boolean; moved: boolean } {
+  const reprojectable = sliceGrid.reprojectable === true;
+  let moved = false;
+  if (projection && reprojectable !== offered) {
+    const keep = projection.value;
+    projection.innerHTML = projectionOptionsHtml(targets, reprojectable);
+    const still = Array.from(projection.options).some((o) => o.value === keep);
+    projection.value = still ? keep : "source";
+    moved = !still;
+  }
+  if (note) {
+    note.textContent = typeof sliceGrid.note === "string" ? sliceGrid.note : "";
+    note.toggleAttribute("hidden", reprojectable);
+  }
+  return { offered: reprojectable, moved };
+}
+
+/** The note beside the projection picker: why there is nothing but the source
+ *  view, or nothing at all for a field that can be reprojected. `label` is the
+ *  grid's family, `null` when the field could not be placed at all. A slice
+ *  render sends it composed (`GridReadyMessage.sliceGrid`), so the panel script
+ *  carries no copy of the wording. */
+export function reprojectionNote(reprojectable: boolean, label: string | null): string {
+  return reprojectable ? "" : "Reprojection isn't available for " + (label ?? "this") + " grids yet.";
+}
+
 /** Up to `count` evenly spaced indices along an axis of `length` points, always
  *  including the first and last. Where a cross-section puts its tick labels.
  *
@@ -487,6 +561,13 @@ export function panMapWindow(
   };
 }
 
+/** The PNG export's default filename (#243), from the parameter and message
+ *  index; the provider sanitises it again before writing. Sent with every
+ *  render for the reason {@link composeTitleLine} is. */
+export function composeDefaultPngName(meta: Pick<PanelField, "index" | "parameter">): string {
+  return sanitizePngName(`${meta.parameter ? meta.parameter + "-" : ""}message-${meta.index}.png`);
+}
+
 /** The panel's heading: which message/variable is drawn, and in what units.
  *
  *  Exported because the heading has to be rebuilt whenever the drawn field
@@ -564,11 +645,7 @@ export function renderImagePanelHtml(
     composeTruncationNote(meta),
   ]
     .filter((s) => !!s).join(" · ");
-  // A sensible default filename for the PNG export (#243), from the parameter
-  // and message index; the provider sanitises it again before writing.
-  const defaultPngName = sanitizePngName(
-    `${meta.parameter ? meta.parameter + "-" : ""}message-${meta.index}.png`,
-  );
+  const defaultPngName = composeDefaultPngName(meta);
 
   const script = `
     <script nonce="${cspNonce}">
@@ -602,7 +679,9 @@ export function renderImagePanelHtml(
         // TITLE_LINE tracks the drawn field for the same reason as UNITS.
         let TITLE_LINE = ${JSON.stringify(titleLine)};
         const SUB_LINE = ${JSON.stringify(subLine)};
-        const DEFAULT_PNG_NAME = ${JSON.stringify(defaultPngName)};
+        // Tracks the drawn field too: a slice panel's export was named after the
+        // variable it opened on (#822).
+        let DEFAULT_PNG_NAME = ${JSON.stringify(defaultPngName)};
         // Whether this message's u/v run along the grid's axes (#241). The file
         // says so; the panel passes it on rather than asking the user.
         const UV_GRID_RELATIVE = ${JSON.stringify(meta.uvRelativeToGrid === true)};
@@ -614,6 +693,14 @@ export function renderImagePanelHtml(
         ${nextFrame.toString()}
         ${defaultAnimationDim.toString()}
         ${isMapSlice.toString()}
+        ${projectionOptionsHtml.toString()}
+        ${applyReprojectable.toString()}
+        const MAP_PROJECTIONS = ${JSON.stringify(MAP_PROJECTIONS)};
+        // Whether the picker offers the map targets. It starts as the answer
+        // for the field the panel opened on; a slice panel replaces it with the
+        // answer for each slice it draws (#822), since the picker can move onto
+        // a variable or an axis pair with a different one.
+        let mapsOffered = ${JSON.stringify(meta.reprojectable)};
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
         ${composeProbeValue.toString()}
@@ -850,10 +937,28 @@ export function renderImagePanelHtml(
           caption.textContent = 'x: ' + name(axisX, sliceState.xDim) + ' · y: ' + name(axisY, sliceState.yDim);
         }
 
+        // Take a slice render's own answer to whether it can be reprojected
+        // (#822); see applyReprojectable. Returns whether the selection moved.
+        function applySliceGrid(sliceGrid) {
+          const next = applyReprojectable(
+            document.getElementById('picker-projection'),
+            document.getElementById('reproject-note'),
+            sliceGrid,
+            mapsOffered,
+            MAP_PROJECTIONS,
+          );
+          mapsOffered = next.offered;
+          return next.moved;
+        }
+
         // A cross-section has no projection and no coastlines to draw on it.
         function syncCrossSectionMode() {
           const cross = isCrossSection();
           const note = document.getElementById('cross-section-note');
+          // The cross-section note says why there is no map; the reprojection
+          // note would only repeat it for an axis pair that is not a grid.
+          const reprojectNote = document.getElementById('reproject-note');
+          if (reprojectNote) reprojectNote.toggleAttribute('hidden', cross || mapsOffered);
           const projection = document.getElementById('picker-projection');
           const overlays = document.getElementById('overlay-fieldset');
           if (note) {
@@ -1301,6 +1406,14 @@ export function renderImagePanelHtml(
             if (h1) h1.textContent = TITLE_LINE;
           }
           if (typeof msg.parameterUnits === 'string') UNITS = msg.parameterUnits;
+          if (typeof msg.defaultPngName === 'string') DEFAULT_PNG_NAME = msg.defaultPngName;
+          // A slice panel's picker follows the slice on screen (#822). Before the
+          // overlay key below is read, so overlays are asked for in the
+          // projection the image was drawn in.
+          if (msg.sliceGrid && applySliceGrid(msg.sliceGrid)) {
+            syncProjectionControls();
+            snapshotState();
+          }
           blit(msg);
           updateLogAvailability();
           animationFrameArrived();
@@ -2359,6 +2472,16 @@ export function renderImagePanelHtml(
             const el = document.querySelector('input[name="' + name + '"][value="' + v + '"]');
             if (el) el.checked = true;
           };
+          // A slice panel's options are the ones for the slice it was written
+          // for, which a hide and show brings back even after the picker moved
+          // on (#822). A saved map target is offered again here, and the
+          // provider's first render — which draws it, or the source view if the
+          // restored slice cannot take it — says which, through applySliceGrid.
+          if (SLICE && !mapsOffered && MAP_PROJECTIONS.some((t) => t.value === s.projection)) {
+            const projection = document.getElementById('picker-projection');
+            if (projection) projection.innerHTML = projectionOptionsHtml(MAP_PROJECTIONS, true);
+            mapsOffered = true;
+          }
           setVal('picker-projection', s.projection);
           setVal('picker-center-lon', s.centerLon);
           setVal('picker-center-lat', s.centerLat);
@@ -2658,6 +2781,10 @@ export function renderImagePanelHtml(
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; margin-bottom: 0.5rem; }
     .projection { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
+    /* An author display rule beats the UA stylesheet's [hidden] by origin, and
+       a note inside a <label> is out of reach of the toolbar-row rule below
+       (#822). */
+    .picker-note[hidden] { display: none; }
     #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.1em; }
     .contour-status {
       font-size: 0.85rem;
@@ -2773,7 +2900,7 @@ export function renderImagePanelHtml(
       display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
       border: none; padding: 0; margin: 0;
     }
-    /* The fieldset display:flex rule above out-specifies the UA hidden rule, so
+    /* The fieldset display:flex rule above overrides the UA hidden rule, so
        restore it explicitly — the Bounds row hides for projections without a
        manual lat/lon window (see syncProjectionControls). */
     .toolbar fieldset[hidden] { display: none; }
@@ -2783,7 +2910,7 @@ export function renderImagePanelHtml(
       color: var(--vscode-descriptionForeground);
     }
     .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; }
-    /* The rule above sets display, out-specifying the UA stylesheet's hidden
+    /* The rule above sets display, overriding the UA stylesheet's hidden
        rule (display:none); without this the preset selectors never hide when
        syncProjectionControls toggles them off. */
     .toolbar label[hidden] { display: none; }
@@ -2791,7 +2918,7 @@ export function renderImagePanelHtml(
        hemisphere + central meridian) bundle their fields in a span so
        syncProjectionControls can toggle the whole group; inline-flex spaces the
        fields like the other groups, and the explicit hidden rule restores the
-       toggle the display above would otherwise out-specify. */
+       toggle the display above would otherwise override. */
     .toolbar-row > span { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem; }
     .toolbar-row > span[hidden] { display: none; }
     /* The graticule-spacing field hides without reflowing: visibility:hidden
@@ -2898,21 +3025,10 @@ ${slice
     <div class="toolbar-row">
       <span id="cross-section-note" class="picker-note" hidden></span>
       <label>Projection
-        <select id="picker-projection">
-          <option value="source" selected>Source projection</option>
-${meta.reprojectable
-          ? `          <option value="equirectangular">Equirectangular</option>
-          <option value="web_mercator">Web Mercator</option>
-          <option value="orthographic">Orthographic</option>
-          <option value="polar_stereographic">Polar stereographic</option>
-          <option value="mollweide">Mollweide</option>
-          <option value="robinson">Robinson</option>
-          <option value="equal_earth">Equal Earth</option>`
-          : ""}
-        </select>
-${meta.reprojectable
-        ? ""
-        : `        <span class="picker-note">Reprojection isn't available for ${escapeHtml(meta.grid?.label ?? "this")} grids yet.</span>`}
+        <select id="picker-projection">${projectionOptionsHtml(MAP_PROJECTIONS, meta.reprojectable)}</select>
+        <span class="picker-note" id="reproject-note"${meta.reprojectable ? " hidden" : ""}>${
+          // The label is the grid family the file names; the rest is constant.
+          reprojectionNote(meta.reprojectable, meta.grid ? escapeHtml(meta.grid.label) : null)}</span>
       </label>
       <span id="preset-ortho" hidden>
         <label>Center lon

@@ -640,11 +640,34 @@ h5py 3.16, after allocating that much; the same on `deflate_szip` also reads
 back. The reader refuses both, before allocating. When only shuffle precedes
 szip the prefix must equal the chunk's length; behind a length-changing filter
 it may be at most the chunk's length plus an eighth plus 4 KiB (4,168 bytes
-for `deflate_szip`), which covers deflate's, zstd's and fletcher32's growth.
+for `deflate_szip`), which covers deflate's, zstd's and fletcher32's growth,
+and 33 times the chunk plus 4 KiB behind an szip (#813,
+`hdf5_szip_growth.h5`).
 A prefix of 511 or 513 on the 512-byte chunk fails in libhdf5 as well.
 `a_chunk_whose_size_prefix_is_wrong_is_refused` and
 `behind_deflate_the_prefix_is_bounded_by_the_chunk` in
 `tests/hdf5_szip.rs` pin both; ADR-0012 decision 4 lists the divergence.
+
+## szip growth fixture (`hdf5_szip_growth.h5`)
+
+One `[szip, deflate]` chunk that libhdf5 reads, built by `build_szip_growth`
+in `tools/build_hdf5_fixtures.py` with the same h5py, libhdf5 and libaec
+(#813). `i2_growth` is a single 2,048-value `<i2` chunk (4,096 bytes) of
+-1s (all bits set, the worst of a sweep of libsz over every 16-bit value),
+`cd_values` 141, 32, 16, **1**: entropy coding without the NN
+preprocessor, which would predict a constant chunk exactly, at 32 pixels per
+block, with pixels per scanline patched from 2,048 to 1 the way
+`hdf5_szip_hand.h5` patches its RSI-1 datasets (so `libver='earliest'`).
+libsz pads each one-pixel scanline to a 32-pixel block, so the szip stream is
+107,268 bytes, 26 times the chunk; deflate stores it in about a kilobyte, and
+the chunk is written with `write_direct_chunk`. libhdf5's read-back is the
+oracle, and the builder checks it equals the source and that the stream
+still grows past the chunk plus an eighth plus 4 KiB.
+
+The reader bounds deflate's output behind an szip by the chunk times 33 plus
+4 KiB (139,264 bytes here). Any factor below 26 refuses this chunk, which is
+what `a_codec_behind_szip_decodes_a_stream_26_times_its_chunk` in
+`tests/hdf5_szip.rs` pins.
 
 ## szip long-stream fixture (`hdf5_szip_long_stream.h5`)
 

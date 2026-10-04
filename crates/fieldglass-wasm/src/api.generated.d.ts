@@ -958,7 +958,8 @@ export type Placement =
    * There is a raster, and nothing places any of it on the Earth: a
    * polar stereographic grid stating a zero grid step, a Lambert cone
    * whose standard parallels are both on the equator, a first point the
-   * forward map sends to infinity, a §3.90 camera that sees no Earth, or
+   * forward map sends to infinity, a §3.90 camera that sees no Earth, a
+   * GRIB2 rotation or scale factor that is not a finite number (#823), or
    * a NetCDF, HDF5 or Zarr slice with no coordinates to place it by. The
    * grid still renders in its own grid coordinates; it has no position on
    * a map.
@@ -1354,6 +1355,13 @@ export interface VectorOptions {
    * pair points wrong by the grid's convergence angle: up to tens of degrees
    * away from the projection's central meridian. When this is set the
    * components are rotated through the grid's own north, per cell.
+   *
+   * **One frame for both components.** GRIB states it per message, so a
+   * caller pairing two messages must check they agree before setting it: a
+   * grid-relative u with an earth-relative v lines up cell for cell and
+   * would be drawn at the wrong bearing everywhere.
+   * `component_frame` refuses such a pair and
+   * resolves this from the frames the two messages state (#805).
    */
   gridRelative?: boolean;
   /**
