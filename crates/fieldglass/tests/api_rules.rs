@@ -1768,9 +1768,12 @@ fn the_checked_in_schema_is_what_the_types_describe() {
     );
 }
 
-/// Every property of every object a returned definition describes, `Type.field`
-/// (or `Type.Variant.field` inside a tagged enum), that the schema does not list
-/// as `required`.
+/// Every property of every object a returned definition describes, `Type.field`,
+/// that the schema does not list as `required`.
+///
+/// Inside an internally tagged enum (`#[serde(tag = "…")]`, the shape `Error`
+/// takes) each variant is an object whose tag property holds a `const`, and the
+/// path names it, `Type[code=Variant].field`, so a finding says which variant.
 ///
 /// Walks the whole definition, so an object nested inline, such as a struct
 /// variant of an enum, is held to the same rule as the top level.
@@ -1778,6 +1781,18 @@ fn optional_returned_fields(name: &str, schema: &serde_json::Value) -> Vec<Strin
     fn walk(path: &str, v: &serde_json::Value, out: &mut Vec<String>) {
         match v {
             serde_json::Value::Object(map) => {
+                // An internally tagged variant names itself by its tag's const.
+                let tagged = map
+                    .get("properties")
+                    .and_then(|p| p.as_object())
+                    .and_then(|props| {
+                        props.iter().find_map(|(key, sub)| {
+                            sub.get("const")
+                                .and_then(|c| c.as_str())
+                                .map(|value| format!("{path}[{key}={value}]"))
+                        })
+                    });
+                let path = tagged.as_deref().unwrap_or(path);
                 if let Some(props) = map.get("properties").and_then(|p| p.as_object()) {
                     let required: BTreeSet<&str> = map
                         .get("required")
@@ -1826,17 +1841,16 @@ fn optional_returned_fields(name: &str, schema: &serde_json::Value) -> Vec<Strin
 /// the #288 shape. The source scanner refuses `skip_serializing` by name, but a
 /// field can drop out of `required` other ways (a hand-written `JsonSchema`, an
 /// attribute the scanner does not know), and the schema is what the
-/// declarations are built from, so this checks the schema itself. Option types
-/// a host sends ([`SENT`]) are the deserialize contract and are exempt.
+/// declarations are built from, so this checks the schema itself. A type only a
+/// host sends ([`SENT`]) never reaches the returned generator and is not walked:
+/// it is the deserialize contract. A type both sent and returned is walked,
+/// since it is returned, and `api_schema` already holds its two shapes equal.
 #[test]
 fn every_returned_field_is_required_in_the_schema() {
     let (schema, _, returned_names) = api_schema();
     let defs = schema["$defs"].as_object().expect("the schema has $defs");
     let mut optional = Vec::new();
     for name in &returned_names {
-        if SENT.contains(&name.as_str()) {
-            continue;
-        }
         optional.extend(optional_returned_fields(name, &defs[name.as_str()]));
     }
     assert!(
@@ -1886,5 +1900,26 @@ fn the_required_rule_rejects_a_skipped_field() {
     assert!(
         found.iter().any(|f| f.ends_with(".inner")),
         "a struct variant's skipped field is found: {found:?}"
+    );
+
+    // An internally tagged enum, the shape `Error` takes: the path names the
+    // variant through its tag.
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    #[serde(tag = "code", rename_all = "camelCase")]
+    #[allow(dead_code)]
+    enum Coded {
+        First {
+            kept: u32,
+        },
+        Second {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            dropped: Option<u32>,
+        },
+    }
+    let schema =
+        serde_json::to_value(generator.root_schema_for::<Coded>()).expect("the schema serialises");
+    assert_eq!(
+        optional_returned_fields("Coded", &schema),
+        ["Coded[code=second].dropped"]
     );
 }
