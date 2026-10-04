@@ -57,11 +57,12 @@ fn session(bytes: Vec<u8>) -> fieldglass::Session {
 fn grib2_names_the_codes_that_went_unresolved() {
     let s = session(patched(GRIB2, GRIB2_DISCIPLINE, UNASSIGNED_DISCIPLINE));
     let info = s.message(0).expect("message 0");
-    assert_eq!(info.parameter, "Parameter 209/0/0");
+    assert_eq!(info.parameter.as_deref(), Some("Parameter 209/0/0"));
     // The name is the only field that gains anything: there is no abbreviation
-    // and no unit to state for a parameter no table defines.
-    assert_eq!(info.abbreviation, "");
-    assert_eq!(info.units, "");
+    // and no unit to state for a parameter no table defines, and both say so
+    // with `None` (#775).
+    assert_eq!(info.abbreviation, None);
+    assert_eq!(info.units, None);
 }
 
 #[test]
@@ -70,9 +71,9 @@ fn grib1_names_the_codes_that_went_unresolved() {
     let info = s.message(0).expect("message 0");
     // Centre 98, local table 128, id 0 — outermost first, so the string names
     // the table the id was looked up in as well as the id.
-    assert_eq!(info.parameter, "Parameter 98/128/0");
-    assert_eq!(info.abbreviation, "");
-    assert_eq!(info.units, "");
+    assert_eq!(info.parameter.as_deref(), Some("Parameter 98/128/0"));
+    assert_eq!(info.abbreviation, None);
+    assert_eq!(info.units, None);
 }
 
 /// `Session::decode` and `Session::message` build the parameter through
@@ -93,8 +94,13 @@ fn decode_and_message_agree_on_the_unresolved_name() {
             from_decode.parameter, from_message,
             "the two seams disagree about an unresolved parameter"
         );
-        assert!(from_decode.parameter.starts_with("Parameter "));
-        assert_eq!(from_decode.units, "");
+        assert!(
+            from_decode
+                .parameter
+                .as_deref()
+                .is_some_and(|p| p.starts_with("Parameter "))
+        );
+        assert_eq!(from_decode.units, None);
     }
 }
 
@@ -104,10 +110,13 @@ fn decode_and_message_agree_on_the_unresolved_name() {
 #[test]
 fn a_resolved_parameter_is_untouched() {
     let g2 = session(GRIB2.to_vec());
-    assert_eq!(g2.message(0).expect("message 0").parameter, "Temperature");
+    assert_eq!(
+        g2.message(0).expect("message 0").parameter.as_deref(),
+        Some("Temperature")
+    );
 
     let g1 = session(GRIB1.to_vec());
     let info = g1.message(0).expect("message 0");
-    assert_eq!(info.parameter, "2 metre temperature");
-    assert_eq!(info.abbreviation, "2t");
+    assert_eq!(info.parameter.as_deref(), Some("2 metre temperature"));
+    assert_eq!(info.abbreviation.as_deref(), Some("2t"));
 }

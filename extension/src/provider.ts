@@ -1911,10 +1911,11 @@ export function resolveNetcdfCompare(m: unknown): NetcdfCompare | undefined {
 export function gribFieldLabel(
   m: Pick<MessageInfo, "index" | "abbreviation" | "parameter" | "level" | "forecast">,
 ): string {
+  // A field the message does not state is `null` (#775) and is left out.
   const parts = [
     `#${m.index}`,
     m.abbreviation || m.parameter,
-    m.level && m.level !== "—" ? m.level : "",
+    m.level,
     m.forecast,
   ].filter((s) => !!s);
   return parts.join(" · ");
@@ -2068,11 +2069,11 @@ export function sliceField(
     parameter: v.name,
     // Typeset by the native side (ADR-0007), so a NetCDF slice's title line and
     // probe readout carry units the way a GRIB message's do.
-    units: v.units ?? "",
-    level: "",
-    levelType: "",
+    units: v.units,
+    level: null,
+    levelType: null,
     referenceTime: null,
-    forecast: "",
+    forecast: null,
     uvRelativeToGrid: null,
     reprojectable: grid?.reprojectable ?? false,
     // A slice is never a band-limited spectral field (#637).
@@ -2086,7 +2087,7 @@ function sliceTitle(
   v: NetcdfVariableMeta,
   index: number,
 ): Pick<PanelField, "index" | "parameter" | "units"> {
-  return { index, parameter: v.name, units: v.units ?? "" };
+  return { index, parameter: v.name, units: v.units };
 }
 
 /** The slice panel's projection caption: the container and the slice's family. */
@@ -2097,11 +2098,12 @@ export function sliceCaption(container: string, grid: SliceGrid | null): string 
 /** How a message table or a panel caption states a message's size: the size
  *  label the file gives it where it has one (a truncation, an Nside, a reduced
  *  Gaussian's `N32`), else the raster's `ni×nj`, else `fallback`. A grid with
- *  no raster of its own reports `0×0`, which is not a size. */
+ *  no raster of its own has no `ni`/`nj` (`null`, #775), and a declared `0×0`
+ *  is not a size either. */
 function messageSize(m: MessageInfo, fallback: string): string {
   const g = m.grid;
   return m.sizeLabel
-    ?? (g != null && g.ni > 0 && g.nj > 0 ? `${g.ni}×${g.nj}` : fallback);
+    ?? (g?.ni != null && g.nj != null && g.ni > 0 && g.nj > 0 ? `${g.ni}×${g.nj}` : fallback);
 }
 
 function describeProjection(meta: MessageInfo): string {
@@ -2294,6 +2296,18 @@ export function refreshedP1Value(m: Pick<MessageInfo, "identification">): string
   }
 }
 
+/** The Packing cell: the binding's friendly label for the identifier, the
+ *  identifier itself without a binding, and "unknown" — the word the library
+ *  used to send in band — where the data section's header could not be read
+ *  (`packing` is `null`, #775). */
+function packingCell(
+  packing: string | null,
+  native: { packingLabel(id: string): string } | null | undefined,
+): string {
+  if (packing == null) return "unknown";
+  return native?.packingLabel(packing) ?? packing;
+}
+
 function messageIsRenderable(m: Pick<MessageInfo, "placement">): boolean {
   return m.placement === "placed" || m.placement === "unplaceable";
 }
@@ -2357,7 +2371,7 @@ export function renderHtml(
       const p1 = refreshedP1Value(m);
       const fcstCell = editable && p1 != null
         ? `<input type="number" class="p1-input" data-message-index="${m.index}" min="0" max="255" step="1" value="${p1}" />`
-        : escapeHtml(m.forecast);
+        : escapeHtml(m.forecast ?? "—");
       const canRender = messageIsRenderable(m);
       const idx = m.index;
       const expansionInner = canRender
@@ -2373,17 +2387,17 @@ export function renderHtml(
       return `
       <tr class="msg-row" data-message-index="${idx}">
         <td>${idx}</td>
-        <td>${escapeHtml(m.parameter)}</td>
-        <td>${escapeHtml(m.abbreviation)}</td>
-        <td>${escapeHtml(m.units)}</td>
-        <td>${escapeHtml(m.level)}</td>
-        <td>${escapeHtml(m.levelType)}</td>
+        <td>${escapeHtml(m.parameter ?? "")}</td>
+        <td>${escapeHtml(m.abbreviation ?? "")}</td>
+        <td>${escapeHtml(m.units ?? "")}</td>
+        <td>${escapeHtml(m.level ?? "—")}</td>
+        <td>${escapeHtml(m.levelType ?? "—")}</td>
         <td>${escapeHtml(m.referenceTime ?? "")}</td>
         <td>${fcstCell}</td>
         <td>${escapeHtml(m.grid?.label ?? "—")}</td>
         <td>${escapeHtml(gridDims)}</td>
         <td>${gridBounds}</td>
-        <td>${escapeHtml(native?.packingLabel(m.packing) ?? m.packing)}</td>
+        <td>${escapeHtml(packingCell(m.packing, native))}</td>
         <td>${escapeHtml(formatCentreCell(m))}</td>
       </tr>
       <tr class="expand-row" id="expand-${idx}" hidden>

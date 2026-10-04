@@ -1165,16 +1165,18 @@ pub fn level_unit(level_type: u8) -> Option<&'static str> {
     }
 }
 
-/// Format the PDS level value (without unit) for display. Returns `"—"` for
-/// fixed-surface / whole-column types where the value is meaningless, a
-/// `"<lo> – <hi>"` range for layer types, and a scalar otherwise. The unit
-/// belongs in the level-type column — see [`level_unit`].
-pub fn level_value_str(pds: &ProductDefinition) -> String {
+/// Format the PDS level value (without unit) for display. `None` for
+/// fixed-surface / whole-column types, where the value octets mean nothing, and
+/// for level type 255, which Code Table 3 defines as missing; a host chooses its
+/// own placeholder (#775). A `"<lo> – <hi>"` range for layer types, and a
+/// scalar otherwise. The unit belongs in the level-type column — see
+/// [`level_unit`].
+pub fn level_value_str(pds: &ProductDefinition) -> Option<String> {
     let lv1 = pds.level_value_1 as i32;
     let lv2 = pds.level_value_2 as i32;
     let combined = ((pds.level_value_1 as u16) << 8 | pds.level_value_2 as u16) as i32;
 
-    match pds.level_type {
+    Some(match pds.level_type {
         // Fixed surfaces / whole-column types: value byte is meaningless.
         1
         | 2
@@ -1193,7 +1195,8 @@ pub fn level_value_str(pds: &ProductDefinition) -> String {
         | 209
         | 210..=221
         | 241
-        | 242 => "—".to_string(),
+        | 242
+        | 255 => return None,
 
         // Single 16-bit value, integer.
         100 | 103 | 105 | 111 | 113 | 115 | 126 | 160 => format!("{combined}"),
@@ -1220,7 +1223,7 @@ pub fn level_value_str(pds: &ProductDefinition) -> String {
         141 => format!("{lv1} – {}", 1100 - lv2),
 
         _ => format!("{combined}"),
-    }
+    })
 }
 
 /// Format the level type as `"(<unit>) <name>"` when a unit applies, or just
@@ -1276,28 +1279,28 @@ mod level_display_tests {
     fn isobaric_300_value_only() {
         // 300 = 1*256 + 44
         let p = pds(100, 1, 44);
-        assert_eq!(level_value_str(&p), "300");
+        assert_eq!(level_value_str(&p).as_deref(), Some("300"));
         assert_eq!(level_type_str(&p), "(hPa) Isobaric level");
     }
 
     #[test]
     fn isobaric_50_low_byte() {
         let p = pds(100, 0, 50);
-        assert_eq!(level_value_str(&p), "50");
+        assert_eq!(level_value_str(&p).as_deref(), Some("50"));
         assert_eq!(level_type_str(&p), "(hPa) Isobaric level");
     }
 
     #[test]
     fn cloud_base_level_has_no_value_and_no_unit() {
         let p = pds(1, 0, 0);
-        assert_eq!(level_value_str(&p), "—");
+        assert_eq!(level_value_str(&p), None);
         assert_eq!(level_type_str(&p), "Cloud base level");
     }
 
     #[test]
     fn height_above_ground_2m() {
         let p = pds(105, 0, 2);
-        assert_eq!(level_value_str(&p), "2");
+        assert_eq!(level_value_str(&p).as_deref(), Some("2"));
         assert_eq!(level_type_str(&p), "(m) Specified height above ground");
     }
 
@@ -1305,7 +1308,7 @@ mod level_display_tests {
     fn isobaric_layer_uses_two_bounds() {
         // Layer between 100 kPa and 85 kPa (1000 hPa – 850 hPa).
         let p = pds(101, 100, 85);
-        assert_eq!(level_value_str(&p), "100 – 85");
+        assert_eq!(level_value_str(&p).as_deref(), Some("100 – 85"));
         assert_eq!(
             level_type_str(&p),
             "(kPa) Layer between two isobaric levels"
@@ -1315,19 +1318,21 @@ mod level_display_tests {
     #[test]
     fn potential_vorticity_2_pvu() {
         let p = pds(117, 7, 208);
-        assert_eq!(level_value_str(&p), "2.000");
+        assert_eq!(level_value_str(&p).as_deref(), Some("2.000"));
         assert_eq!(level_type_str(&p), "(PVU) Potential vorticity surface");
     }
 
     #[test]
     fn unknown_level_type_falls_back_to_raw_with_no_unit() {
         let p = pds(250, 1, 0);
-        assert_eq!(level_value_str(&p), "256");
+        assert_eq!(level_value_str(&p).as_deref(), Some("256"));
         // The code survives into the column, rather than a placeholder every
         // unnamed type shares (#774).
         assert_eq!(level_type_str(&p), "Level type 250");
         // 255 is the table's own missing code, and is named so.
         assert_eq!(level_type_str(&pds(255, 0, 0)), "Missing");
+        // A missing level type has no level value either (#775).
+        assert_eq!(level_value_str(&pds(255, 0, 50)), None);
         // A named type, for the known half of the same rule.
         assert_eq!(level_type_str(&pds(102, 0, 0)), "Mean sea level");
     }

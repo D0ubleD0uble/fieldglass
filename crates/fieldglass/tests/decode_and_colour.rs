@@ -75,7 +75,7 @@ fn a_decode_fills_the_raster_its_geometry_describes() {
         assert_eq!(field.mask.len(), cells, "{label}: mask length");
         assert_eq!(
             (field.georef.ni, field.georef.nj),
-            (field.ni, field.nj),
+            (Some(field.ni), Some(field.nj)),
             "{label}: the georef and the field disagree about the raster"
         );
         assert!(

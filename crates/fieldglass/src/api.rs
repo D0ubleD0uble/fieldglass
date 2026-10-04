@@ -152,8 +152,9 @@ api_type! {
         pub dims: Vec<DimensionInfo>,
         /// The element type as the file declares it, named.
         pub dtype: String,
-        /// Units from the variable's own attributes, empty when it states none.
-        pub units: String,
+        /// Units from the variable's own attributes, or `None` when it states
+        /// none (#775).
+        pub units: Option<String>,
         /// Which axis the file's own conventions say is latitude, when they say
         /// so. `None` for a WRF or satellite file, whose horizontal axes are
         /// projected and carry no CF axis attribute — the caller picks, which is
@@ -183,9 +184,10 @@ api_type! {
         pub length: u64,
         /// The coordinate value at each index, in index order.
         pub coordinates: Option<Vec<f64>>,
-        /// The coordinate array's own `units`, empty when it states none. For a
-        /// time axis this is the CF form, `hours since 2020-01-01`.
-        pub units: String,
+        /// The coordinate array's own `units`, or `None` when it states none or
+        /// the axis has no coordinate array (#775). For a time axis this is the
+        /// CF form, `hours since 2020-01-01`.
+        pub units: Option<String>,
     }
 
     /// Which element type a caller wants back from a decode.
@@ -351,10 +353,14 @@ api_type! {
         /// [`MessageInfo::grid`](crate::api::MessageInfo::grid) for the other
         /// half of that split.
         pub label: String,
-        /// Grid columns (west-to-east point count of one row).
-        pub ni: u32,
-        /// Grid rows.
-        pub nj: u32,
+        /// Grid columns (west-to-east point count of one row). `None` for a
+        /// grid with no raster shape — spherical-harmonic or bi-Fourier
+        /// coefficients, HEALPix pixels, a template this build does not read
+        /// — where it used to be `0` (#775). `Some(0)` is a grid that declares
+        /// zero columns.
+        pub ni: Option<u32>,
+        /// Grid rows, under the same rule as [`ni`](Self::ni).
+        pub nj: Option<u32>,
         /// `[lat_min, lat_max, lon_min, lon_max]` in degrees. `lon_min` may
         /// fall below -180 (or `lon_max` above 180) to describe a window
         /// spanning the antimeridian; do not normalise it into range without
@@ -517,8 +523,9 @@ api_type! {
         pub stats: Stats,
         /// The array's name.
         pub variable: String,
-        /// The array's units, as its attributes state them.
-        pub units: String,
+        /// The array's units, as its attributes state them, or `None` when they
+        /// state none (#775).
+        pub units: Option<String>,
         /// The axis the line runs along, named as the array names it.
         pub dimension: String,
         /// The axis's coordinate values, in index order — the times or levels to
@@ -581,14 +588,16 @@ api_type! {
         /// wasm binding and the napi binding all render it from the format
         /// crate's own `unresolved_parameter` (#633).
         ///
-        /// Empty only when the message has no parameter codes to name at all,
+        /// `None` only when the message has no parameter codes to name at all,
         /// which is a GRIB2 product template carrying no horizontal product
-        /// common. [`units`](Self::units) is empty in both cases — an
+        /// common (#775). [`units`](Self::units) is `None` in both cases — an
         /// unresolved parameter has a name to show but no unit to state.
-        pub parameter: String,
-        /// The parameter's units as its table states them. Empty when the
-        /// parameter did not resolve, or is dimensionless.
-        pub units: String,
+        pub parameter: Option<String>,
+        /// The parameter's units as its table states them. `None` when the
+        /// parameter did not resolve, when the table states no units for it
+        /// (a dimensionless quantity, in most tables), or when the array's
+        /// attributes state none (#775).
+        pub units: Option<String>,
     }
 
     /// One message's metadata, built on demand.
@@ -606,27 +615,38 @@ api_type! {
         pub offset_bytes: u64,
         /// The parameter's name, under the same contract as
         /// [`Field::parameter`]: the table's name, or `Parameter <codes>`
-        /// naming the codes no table in this build resolved.
-        pub parameter: String,
-        /// The table's short name for the parameter, e.g. `"2t"`. Empty when
-        /// the parameter did not resolve.
-        pub abbreviation: String,
-        /// Units as the parameter's table states them.
-        pub units: String,
-        /// The level, rendered — `"500 hPa"`, `"2 m above ground"`.
-        pub level: String,
+        /// naming the codes no table in this build resolved. `None` for a GRIB2
+        /// product template that carries no parameter codes.
+        pub parameter: Option<String>,
+        /// The table's short name for the parameter, e.g. `"2t"`. `None` when
+        /// the parameter did not resolve, or the table that resolved it gives
+        /// no short name (#775).
+        pub abbreviation: Option<String>,
+        /// Units as the parameter's table states them, under the same rule as
+        /// [`Field::units`].
+        pub units: Option<String>,
+        /// The level, rendered — `"500 hPa"`, `"2 m above ground"`. `None`
+        /// when the message states no level value: a GRIB1 surface or
+        /// whole-column type, a GRIB2 surface coded missing, or a GRIB2
+        /// product template that carries no surface (#775). A GRIB2 surface
+        /// with no scaled value is named here instead (`"Ground or water
+        /// surface"`), because Code Table 4.5's entry is the description.
+        pub level: Option<String>,
         /// The level's surface type on its own, for grouping messages that
-        /// share a surface at different values.
-        pub level_type: String,
+        /// share a surface at different values. `None` for a GRIB2 product
+        /// template that carries no surface.
+        pub level_type: Option<String>,
         /// Reference (analysis) time as RFC 3339. Every GRIB message states
         /// one, in its §1 (GRIB2) or PDS (GRIB1).
         pub reference_time: String,
         /// Forecast time relative to `reference_time`, rendered — `"+6h"`, or
         /// `"+30 Minute"` for a unit the edition does not convert to hours.
-        pub forecast: String,
+        /// `None` for a GRIB2 product template that carries no forecast time.
+        pub forecast: Option<String>,
         /// Which packing the data section uses, named — what decodes it, and
-        /// the first thing to look at when a decode is wrong.
-        pub packing: String,
+        /// the first thing to look at when a decode is wrong. `None` when the
+        /// GRIB1 data section's header could not be read (#775).
+        pub packing: Option<String>,
         /// The grid the message **declares**, not the one its field is decoded
         /// onto.
         ///
@@ -1210,7 +1230,12 @@ impl Georef {
             without_geometry != Placement::Placed,
             "a grid with no geometry cannot be placed"
         );
-        let (ni, nj) = geom.dims().or(raster).unwrap_or((0, 0));
+        // No shape is `None`, not a zero a host would have to know means
+        // "none" (#775).
+        let (ni, nj) = geom
+            .dims()
+            .or(raster)
+            .map_or((None, None), |(i, j)| (Some(i), Some(j)));
         // One question, asked of `core`: a family that has a plane reports its
         // origin and step in that plane's own units, and one that has none (a
         // list of cell centres, an unmodelled grid) reports nothing rather

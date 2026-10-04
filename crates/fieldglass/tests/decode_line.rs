@@ -60,7 +60,7 @@ fn a_line_along_time_matches_netcdf4_python() {
     assert_eq!(points(&line), vec![Some(6.0), Some(18.0)]);
     assert_eq!(line.dimension, "time");
     assert_eq!(line.variable, "temperature");
-    assert_eq!(line.units, "K");
+    assert_eq!(line.units.as_deref(), Some("K"));
     assert_eq!(line.coordinates, Some(vec![0.0, 6.0]));
     assert_eq!(
         line.coordinate_units.as_deref(),

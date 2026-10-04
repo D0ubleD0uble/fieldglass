@@ -339,7 +339,8 @@ impl Subject<'_> {
     /// raster shape it paints.
     fn placement(&self) -> napi::Result<(fieldglass::Georef, u32, u32)> {
         let georef = |g: fieldglass::Georef| {
-            let (ni, nj) = (g.ni, g.nj);
+            // A display placement always states its shape (see `placed`).
+            let (ni, nj) = (g.ni.unwrap_or_default(), g.nj.unwrap_or_default());
             (g, ni, nj)
         };
         match self {

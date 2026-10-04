@@ -267,8 +267,8 @@ mod tests {
                 max: Some(0.0),
                 valid_count: 32,
             },
-            parameter: String::new(),
-            units: String::new(),
+            parameter: None,
+            units: None,
         };
         assert_eq!(source_of(&field(georef.clone())).family, "reduced_gaussian");
 
@@ -315,8 +315,8 @@ mod tests {
                 max: present.iter().copied().reduce(f64::max),
                 valid_count: present.len() as u32,
             },
-            parameter: "Temperature".to_string(),
-            units: "K".to_string(),
+            parameter: Some("Temperature".to_string()),
+            units: Some("K".to_string()),
         }
     }
 
@@ -618,8 +618,8 @@ mod tests {
             assert_eq!(out.ni, 2);
             assert_eq!(out.nj, 2);
             assert_eq!(out.georef, a.georef, "{op:?}: A's placement is kept");
-            assert_eq!(out.parameter, "Temperature", "{op:?}");
-            assert_eq!(out.units, "K", "{op:?}");
+            assert_eq!(out.parameter.as_deref(), Some("Temperature"), "{op:?}");
+            assert_eq!(out.units.as_deref(), Some("K"), "{op:?}");
         }
     }
 

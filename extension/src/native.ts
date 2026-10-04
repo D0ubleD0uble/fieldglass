@@ -45,11 +45,11 @@ export interface VariableMeta {
   name: string;
   ncType: string;
   dimensions: string[];
-  /** The variable's CF `units`, typeset by the native side (ADR-0007). Empty
-   *  when the variable declares none. Lifted out of `attributes` so the
+  /** The variable's CF `units`, typeset by the native side (ADR-0007); `null`
+   *  when the variable declares none (#775). Lifted out of `attributes` so the
    *  metadata table can show units without them being lost to the
    *  three-attribute preview. */
-  units: string;
+  units: string | null;
   attributes: AttributeMeta[];
 }
 
@@ -256,7 +256,8 @@ export interface LineResult {
   min: number | null;
   max: number | null;
   variable: string;
-  units: string;
+  /** `null` when the variable states no units (#775). */
+  units: string | null;
   dimension: string;
   /** The axis's coordinate values, in index order; `null` when the axis has no
    *  coordinate array, or when one of its values is missing or not finite. Fall
@@ -480,8 +481,8 @@ export interface NetcdfVariableMeta {
    *  (#170); `null` when the variable has none. Never an image axis. */
   detectedTimeDim: number | null;
   /** The variable's CF `units`, typeset for display the way a GRIB unit is
-   *  (ADR-0007). Empty string when the variable declares none. */
-  units: string;
+   *  (ADR-0007); `null` when the variable declares none (#775). */
+  units: string | null;
 }
 
 /** Where one slice sits, as the render panel asks it (#574): the family to

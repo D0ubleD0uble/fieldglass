@@ -32,14 +32,17 @@ fn an_axis_reports_its_coordinates_and_their_units() {
     let time = session.axis_values(temperature, 0).expect("time axis");
     assert_eq!(time.dimension, "time");
     assert_eq!(time.length, 2);
-    assert_eq!(time.units, "hours since 2020-01-01 00:00:00");
+    assert_eq!(
+        time.units.as_deref(),
+        Some("hours since 2020-01-01 00:00:00")
+    );
     let coordinates = time.coordinates.expect("time has a coordinate array");
     assert_eq!(coordinates.len(), 2, "one value per index");
 
     // The horizontal axes answer the same way, in degrees.
     let lat = session.axis_values(temperature, 1).expect("lat axis");
     assert_eq!(lat.dimension, "lat");
-    assert_eq!(lat.units, "degrees_north");
+    assert_eq!(lat.units.as_deref(), Some("degrees_north"));
     assert_eq!(
         lat.coordinates.as_ref().map(Vec::len),
         Some(lat.length as usize)
@@ -55,7 +58,7 @@ fn an_axis_with_no_coordinate_array_is_still_an_axis() {
     for dim in 0..3 {
         let axis = session.axis_values(t2, dim).expect("an axis");
         assert_eq!(axis.coordinates, None, "dim {dim}");
-        assert_eq!(axis.units, "", "dim {dim}");
+        assert_eq!(axis.units, None, "dim {dim}");
         assert!(axis.length >= 1, "dim {dim}");
     }
 }
@@ -164,7 +167,10 @@ fn a_non_finite_coordinate_is_a_hole() {
             axis.coordinates, None,
             "{bad}: a non-finite value is a hole"
         );
-        assert_eq!(axis.units, "", "{bad}: no coordinates, so no units either");
+        assert_eq!(
+            axis.units, None,
+            "{bad}: no coordinates, so no units either"
+        );
         // A line along the same axis reads the same coordinates, so it falls
         // back to indices too.
         let line = session
