@@ -726,8 +726,11 @@
           "description": "The values along the axis, in index order. Read `mask` before a\nvalue: an absent point still occupies its slot."
         },
         "variable": {
-          "description": "The array's name.",
-          "type": "string"
+          "description": "The array's name, or the parameter's for a zonal mean. `None` for the\nzonal mean of a GRIB2 message whose product template carries no\nparameter codes (#775).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

@@ -333,7 +333,7 @@ fn zonal(path: &str) -> (Line, fieldglass::Field, Vec<Option<f64>>) {
         .zonal_mean(
             &field.source(),
             &values,
-            field.parameter.as_deref().unwrap_or_default(),
+            field.parameter.as_deref(),
             field.units.as_deref(),
         )
         .unwrap_or_else(|e| panic!("{path}: {e}"));
@@ -465,7 +465,8 @@ fn a_uniform_field_is_constant_and_an_empty_row_is_a_gap() {
         points_per_row: None,
     };
     let uniform = vec![Some(7.0); 12];
-    let line = fieldglass::render::zonal_mean(&source, &uniform, "t", Some("K")).expect("mean");
+    let line =
+        fieldglass::render::zonal_mean(&source, &uniform, Some("t"), Some("K")).expect("mean");
     assert_eq!(values_of(&line.values, &line.mask), vec![Some(7.0); 3]);
     assert_eq!(line.coordinates, Some(vec![10.0, 0.0, -10.0]));
 
@@ -484,7 +485,7 @@ fn a_uniform_field_is_constant_and_an_empty_row_is_a_gap() {
         Some(2.0),
         Some(2.0),
     ];
-    let line = fieldglass::render::zonal_mean(&source, &holes, "t", Some("K")).expect("mean");
+    let line = fieldglass::render::zonal_mean(&source, &holes, Some("t"), Some("K")).expect("mean");
     assert_eq!(
         values_of(&line.values, &line.mask),
         vec![Some(3.0), None, Some(2.0)]
@@ -513,7 +514,7 @@ fn a_grid_whose_rows_are_not_latitude_circles_is_refused() {
         family: "rotated_ll",
         points_per_row: None,
     };
-    match fieldglass::render::zonal_mean(&source, &[Some(1.0); 4], "t", Some("K")) {
+    match fieldglass::render::zonal_mean(&source, &[Some(1.0); 4], Some("t"), Some("K")) {
         Err(Error::Unsupported { detail }) => assert!(detail.contains("rotated_ll"), "{detail}"),
         other => panic!("a rotated grid must be refused, got {other:?}"),
     }

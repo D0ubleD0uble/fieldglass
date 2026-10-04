@@ -2103,7 +2103,7 @@ export function renderImagePanelHtml(
           const units = line.units ? ' ' + line.units : '';
           const along = line.dimension + (line.coordinateUnits ? ' (' + line.coordinateUnits + ')' : '');
           if (!present.length) {
-            caption.textContent = line.variable + ' along ' + along + ': no data at this cell.';
+            caption.textContent = (line.variable || 'Values') + ' along ' + along + ': no data at this cell.';
             return;
           }
 
@@ -2154,7 +2154,8 @@ export function renderImagePanelHtml(
           axisLabel.textContent = String(xs[0]) + ' … ' + String(xs[n - 1]);
           svg.appendChild(axisLabel);
 
-          caption.textContent = line.variable + ' along ' + along + ' · ' +
+          // A line with no name (#775) is captioned as values, not as nothing.
+          caption.textContent = (line.variable || 'Values') + ' along ' + along + ' · ' +
             Number(ymin).toPrecision(5) + '–' + Number(ymax).toPrecision(5) + units +
             ' · ' + present.length + ' of ' + n + ' points';
         }

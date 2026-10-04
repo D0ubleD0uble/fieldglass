@@ -255,7 +255,9 @@ export interface LineResult {
   mask: number[];
   min: number | null;
   max: number | null;
-  variable: string;
+  /** `null` for the zonal mean of a GRIB2 message that carries no parameter
+   *  codes (#775). */
+  variable: string | null;
   /** `null` when the variable states no units (#775). */
   units: string | null;
   dimension: string;

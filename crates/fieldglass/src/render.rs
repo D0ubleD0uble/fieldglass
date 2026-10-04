@@ -2376,7 +2376,7 @@ pub fn probe_pixel(
 pub fn zonal_mean(
     source: &Source<'_>,
     values: &[Option<f64>],
-    variable: &str,
+    variable: Option<&str>,
     units: Option<&str>,
 ) -> Result<crate::Line, Error> {
     let geometry = source.geometry.as_ref().map_err(Clone::clone)?;
@@ -2439,7 +2439,7 @@ pub fn zonal_mean(
         values,
         mask,
         stats,
-        variable: variable.to_string(),
+        variable: variable.map(str::to_string),
         units: units.map(str::to_string),
         dimension: "latitude".to_string(),
         coordinates: Some(latitudes),
@@ -2563,7 +2563,7 @@ impl crate::Session {
         &self,
         source: &Source<'_>,
         values: &[Option<f64>],
-        variable: &str,
+        variable: Option<&str>,
         units: Option<&str>,
     ) -> Result<crate::Line, Error> {
         zonal_mean(source, values, variable, units)

@@ -766,7 +766,7 @@ pub fn line_through(
         values,
         mask,
         stats,
-        variable: var.name.clone(),
+        variable: Some(var.name.clone()),
         units: array_units(source, &var.name),
         coordinate_units: coordinates
             .as_ref()
@@ -850,15 +850,15 @@ fn axis_coordinates(source: &dyn ArraySource, dimension: &str, length: u64) -> O
 }
 
 /// An array's `units`, as the container spells them, or `None` when it states
-/// none (#775). An empty `units` attribute states none either, which is how
-/// [`Line::coordinate_units`] already read it.
+/// none (#775). An empty or all-blank `units` attribute states none either,
+/// which is how [`Line::coordinate_units`] already read it.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_units(source: &dyn ArraySource, array: &str) -> Option<String> {
     source
         .array(array)
         .and_then(|d| attribute(&d.attributes, "units"))
         .and_then(AttributeValue::text)
-        .filter(|u| !u.is_empty())
+        .filter(|u| !u.trim().is_empty())
         .map(str::to_string)
 }
 
@@ -2436,21 +2436,18 @@ fn decoded_scan(i_negative: bool, j_positive: bool) -> Scan {
     Scan::new(i_negative, j_positive, false)
 }
 
-/// `(abbreviation, name, units)` for one GRIB1 message.
-///
-/// Split out of [`grib1_message`] so [`Session::decode`] does not build a whole
-/// `MessageInfo` for the two strings it needs: that would build the `Georef`
-/// too, and a projected family's `lonlat_bbox` walks its perimeter 512 times
-/// per edge.
-/// `(abbreviation, name, units)` as a parameter table states them, each `None`
-/// where the table states nothing: the tables encode "no short name" and "no
-/// units" as an empty string, which is how a dimensionless quantity or an entry
-/// with no short name is written in them. That is the table's encoding, not a
-/// display placeholder, so it is read once here rather than handed to hosts
-/// (#775). Units are normalised at the same seam (see [`grib1_parameter`]).
+/// `(abbreviation, name, units)` for one message, each `None` where the
+/// message or its table states none (#775).
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 type ParameterNames = (Option<String>, Option<String>, Option<String>);
 
+/// A resolved parameter's table entry, as [`ParameterNames`].
+///
+/// The tables encode "no short name" and "no units" as an empty string, which
+/// is how a dimensionless quantity or an entry with no short name is written in
+/// them. That is the table's encoding, not a display placeholder, so it is read
+/// once here rather than handed to hosts. Units are normalised first, so a
+/// spelling the normaliser empties is `None` too.
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 fn stated(abbreviation: &str, name: &str, units: &str) -> ParameterNames {
     let some = |s: &str| (!s.is_empty()).then(|| s.to_string());
@@ -2462,6 +2459,12 @@ fn stated(abbreviation: &str, name: &str, units: &str) -> ParameterNames {
     )
 }
 
+/// `(abbreviation, name, units)` for one GRIB1 message.
+///
+/// Split out of [`grib1_message`] so [`Session::decode`] does not build a whole
+/// `MessageInfo` for the two strings it needs: that would build the `Georef`
+/// too, and a projected family's `lonlat_bbox` walks its perimeter 512 times
+/// per edge.
 #[cfg(feature = "grib1")]
 fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> ParameterNames {
     match fieldglass_grib1::tables::lookup_parameter(

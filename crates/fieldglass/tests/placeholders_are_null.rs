@@ -143,11 +143,33 @@ fn a_resolved_parameter_without_units_or_a_short_name_states_none() {
     assert!(info.parameter.is_some(), "{no_short_name:?}");
 }
 
+/// The same through GRIB1's tables: WMO Table 2 parameter 28, wave spectra,
+/// has a short name and no units. Read from a CMC message (centre 54, table
+/// version 2) with its parameter octet changed.
+#[test]
+fn a_grib1_parameter_without_units_states_none() {
+    let mut bytes = read(&format!("{G1}cmc_wind_300_2010052400_p012.grib"));
+    // PDS octet 9 is the parameter, after the 8-octet §0.
+    const PARAMETER: usize = 8 + 8;
+    assert_eq!(bytes[PARAMETER], 32, "fixture precondition: wind speed");
+    bytes[PARAMETER] = 28;
+    let info = message(bytes);
+    assert_eq!(info.abbreviation.as_deref(), Some("WVSP1"));
+    assert_eq!(info.parameter.as_deref(), Some("Wave Spectra (1)"));
+    assert_eq!(info.units, None);
+}
+
 /// A GRIB1 fixed surface has no level value: the octets that would carry it
-/// mean nothing for a cloud-base level. The level type still names it.
+/// mean nothing for level type 1, the Earth's surface. The level type is still
+/// stated. Its *name* is not pinned here: the GRIB1 level-type table reads one
+/// code off for 0-9 (it calls type 1 a cloud-base level), which is a separate
+/// defect with its own oracle, eccodes' `grib1/3.table`.
 #[test]
 fn a_grib1_surface_level_has_no_value() {
-    let info = message(read(&format!("{G1}j_consecutive_latlon.grib1")));
+    let bytes = read(&format!("{G1}j_consecutive_latlon.grib1"));
+    // PDS octet 10, after the 8-octet §0.
+    assert_eq!(bytes[8 + 9], 1, "fixture precondition: level type 1");
+    let info = message(bytes);
     assert_eq!(info.level, None);
-    assert_eq!(info.level_type.as_deref(), Some("Cloud base level"));
+    assert!(info.level_type.is_some());
 }

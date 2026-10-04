@@ -680,9 +680,11 @@ export interface Line {
    */
   stats: Stats;
   /**
-   * The array's name.
+   * The array's name, or the parameter's for a zonal mean. `None` for the
+   * zonal mean of a GRIB2 message whose product template carries no
+   * parameter codes (#775).
    */
-  variable: string;
+  variable: string | null;
   /**
    * The array's units, as its attributes state them, or `None` when they
    * state none (#775).

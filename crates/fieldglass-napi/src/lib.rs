@@ -254,8 +254,10 @@ fn units_from(attributes: &[AttributeMeta]) -> Option<String> {
     attributes
         .iter()
         .find(|a| a.name == "units")
-        .filter(|a| !a.value.is_empty())
         .map(|a| normalize_units(&a.value).into_owned())
+        // After normalising, as `fieldglass`'s own seam does: an all-blank
+        // attribute states no units either (#775).
+        .filter(|units| !units.trim().is_empty())
 }
 
 /// Top-level NetCDF dataset metadata. Covers what's exposable from the
@@ -1064,11 +1066,10 @@ impl MessageStream {
     }
 
     /// Message `index`'s parameter name and units, which label a zonal mean.
-    /// A message with no parameter codes labels its line with an empty name;
-    /// `Line::variable` is a name the line always carries.
-    fn parameter(&self, index: u32) -> napi::Result<(String, Option<String>)> {
+    /// Either is `None` where the message states none (#775).
+    fn parameter(&self, index: u32) -> napi::Result<(Option<String>, Option<String>)> {
         let info = self.session.message(index).into_napi()?;
-        Ok((info.parameter.unwrap_or_default(), info.units))
+        Ok((info.parameter, info.units))
     }
 
     /// The full-detail value at cell `(grid_i, grid_j)` of message `index`'s
@@ -1332,7 +1333,7 @@ impl Grib1Handle {
     pub fn zonal_mean(&self, message_index: u32) -> napi::Result<LineResult> {
         let (raw, placed) = self.resolved(message_index)?;
         let (name, units) = self.stream.parameter(message_index)?;
-        zonal_mean_of(&raw, &placed, &name, units.as_deref())
+        zonal_mean_of(&raw, &placed, name.as_deref(), units.as_deref())
     }
 
     /// Patch the PDS `p1` (forecast period) octet of one message and
@@ -1642,7 +1643,7 @@ impl Grib2Handle {
     pub fn zonal_mean(&self, message_index: u32) -> napi::Result<LineResult> {
         let (raw, placed) = self.resolved(message_index)?;
         let (name, units) = self.stream.parameter(message_index)?;
-        zonal_mean_of(&raw, &placed, &name, units.as_deref())
+        zonal_mean_of(&raw, &placed, name.as_deref(), units.as_deref())
     }
 
     /// Decode one message and paint it into a raster under `options`. A
@@ -2035,8 +2036,8 @@ impl NetcdfHandle {
                     .view
                     .var(v.decode_index)
                     .and_then(|source| source.units())
-                    .filter(|units| !units.is_empty())
-                    .map(|units| normalize_units(units).into_owned()),
+                    .map(|units| normalize_units(units).into_owned())
+                    .filter(|units| !units.trim().is_empty()),
             })
             .collect()
     }
@@ -2145,7 +2146,7 @@ impl NetcdfHandle {
         zonal_mean_of(
             &plane,
             &placed,
-            &var.name,
+            Some(&var.name),
             self.slice_units(&var).as_deref(),
         )
     }
@@ -2642,8 +2643,8 @@ impl NetcdfHandle {
         self.view
             .var(var.decode_index)
             .and_then(|v| v.units())
-            .filter(|units| !units.is_empty())
             .map(|units| normalize_units(units).into_owned())
+            .filter(|units| !units.trim().is_empty())
     }
 }
 
@@ -3087,7 +3088,7 @@ impl ZarrHandle {
         fieldglass::render::zonal_mean(
             &field.source(),
             &values,
-            field.parameter.as_deref().unwrap_or_default(),
+            field.parameter.as_deref(),
             field.units.as_deref(),
         )
         .map(LineResult::from)
@@ -3530,7 +3531,7 @@ fn csv_buffer(csv: String) -> napi::bindgen_prelude::Buffer {
 fn zonal_mean_of(
     values: &[Option<f64>],
     placed: &Placed,
-    name: &str,
+    name: Option<&str>,
     units: Option<&str>,
 ) -> napi::Result<LineResult> {
     fieldglass::render::zonal_mean(&placed.source(), values, name, units)
@@ -3618,8 +3619,9 @@ pub struct LineResult {
     pub min: Option<f64>,
     /// Largest present value, `null` when no point is present.
     pub max: Option<f64>,
-    /// The variable's name.
-    pub variable: String,
+    /// The variable's name, `null` for the zonal mean of a GRIB2 message that
+    /// carries no parameter codes (#775).
+    pub variable: Option<String>,
     /// The variable's units, `null` when it states none (#775).
     pub units: Option<String>,
     /// The axis the line runs along.

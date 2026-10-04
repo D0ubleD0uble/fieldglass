@@ -521,8 +521,10 @@ api_type! {
         pub mask: Vec<u8>,
         /// Range and count over the present points.
         pub stats: Stats,
-        /// The array's name.
-        pub variable: String,
+        /// The array's name, or the parameter's for a zonal mean. `None` for the
+        /// zonal mean of a GRIB2 message whose product template carries no
+        /// parameter codes (#775).
+        pub variable: Option<String>,
         /// The array's units, as its attributes state them, or `None` when they
         /// state none (#775).
         pub units: Option<String>,
