@@ -895,9 +895,11 @@ impl<S: ByteSource> Grib2Reader<S> {
     /// grid's coarsest step (a 0.25° grid carries T719, a 1° grid T179). A gap
     /// between two regions the grid samples, such as two latitude bands or two
     /// longitude sectors, each at least three rows or columns deep, is not a
-    /// step, so each region is synthesised at its own spacing (#812). Thinner
-    /// regions are not told apart from stray points, and the grid falls back to
-    /// its coarsest step. A coarse regular sample resolves only what its step
+    /// step: the grid is limited by the coarsest step *within* its regions
+    /// rather than by the gap between them (#812). That holds while such
+    /// regions hold most of the grid's rows or columns; a thinner run is read
+    /// as a stray point, and a grid made mostly of strays falls back to its
+    /// coarsest step, gaps between regions included. A coarse regular sample resolves only what its step
     /// carries: three longitudes round the circle carry T0, the field's mean,
     /// so to read a handful of places ask for the full sum. An
     /// axis counts only when it has at least three distinct points, so a
