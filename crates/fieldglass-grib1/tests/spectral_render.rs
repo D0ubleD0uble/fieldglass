@@ -211,3 +211,26 @@ fn a_grid_of_two_regions_is_synthesised_at_its_own_spacing() {
         assert_eq!(values, t359);
     }
 }
+
+/// A coarse regional sector is judged by its own steps, however short the gap
+/// outside it: three longitudes 90° apart carry T1, as on master, not the T0
+/// (the field's mean) a rule that charged the outside would give (#812 review).
+#[test]
+fn a_coarse_regional_sector_is_judged_by_its_steps() {
+    let reader = Grib1Reader::from_bytes(SPECTRAL_T383.to_vec()).expect("parse");
+    let lats: Vec<f64> = (0..=360).map(|k| -90.0 + 0.5 * f64::from(k)).collect();
+    let lons = [0.0, 90.0, 180.0];
+    assert_eq!(
+        fieldglass_core::sht::points_band_limit(&lats, &lons),
+        Some(1)
+    );
+    let values = reader
+        .synthesize_spectral_message(0, &lats, &lons)
+        .expect("synthesises");
+    let (lo, hi) = values
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
+            (lo.min(v), hi.max(v))
+        });
+    assert!(hi > lo, "a constant field: {lo} .. {hi}");
+}

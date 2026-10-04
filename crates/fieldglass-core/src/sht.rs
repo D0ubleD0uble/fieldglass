@@ -383,12 +383,22 @@ const REGION_BREAK: f64 = 4.0;
 /// gap that separates them is not the spacing either region is sampled at, and
 /// charging it would band-limit both regions to the separation — two dense
 /// polar caps 140° apart would read as a 140° step and synthesise as the
-/// field's global mean (#812). So a gap more than four times each
-/// gap beside it is a break between regions, and only the other gaps are
-/// steps. A smaller jump is still a step: a regular grid with a row or two
-/// missing is charged for the hole, because it is one sampling with a coarse
-/// stretch rather than two samplings. The smallest gap on an axis is never a
-/// break, so an axis that has steps keeps at least one.
+/// field's global mean (#812). So:
+///
+/// - a ring's single largest gap is always a break: it is the outside of a
+///   regional grid, however few steps that outside spans, or one of a global
+///   grid's equal steps, which the next one repeats;
+/// - any other gap more than four times each gap beside it is a break too, as
+///   long as every region the breaks leave still holds three points, the same
+///   bar an axis has to clear. A pair or a lone point is not a place the grid
+///   samples, so it cannot set the step of the rest: latitudes in pairs 1°
+///   apart every 6° are one sampling with a 5° step, not regions of 1°;
+/// - every other gap is a step. A smaller jump stays a step, so a regular
+///   grid with up to three rows missing is charged for the hole, because it is
+///   one sampling with a coarse stretch rather than two samplings.
+///
+/// Latitudes outside ±90° sample nothing and are left out, as non-finite
+/// coordinates are.
 ///
 /// **A coarse regular sample stays band-limited to what it resolves.** Three
 /// longitudes 120° apart carry T0, as [`grid_band_limit`] says of a three-point
@@ -404,8 +414,8 @@ const REGION_BREAK: f64 = 4.0;
 /// round a whole circle of longitudes, would otherwise read as a 180° or 90°
 /// step and collapse the field to its mean. Such an axis leaves the other to
 /// decide, and when neither axis constrains anything — a single point, a 2 × 2
-/// grid — the grid is evaluated in full, as a point is. Non-finite coordinates
-/// are ignored here; the transform evaluates them as it evaluates any other.
+/// grid — the grid is evaluated in full, as a point is. Coordinates ignored
+/// here are still evaluated by the transform, as any other is.
 #[must_use]
 pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Option<u32> {
     let limit_of_step = |step: f64| -> u32 {
@@ -423,8 +433,17 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
     let sorted = |values: &[f64], wrap: bool| -> Vec<f64> {
         let mut v: Vec<f64> = values
             .iter()
-            .filter(|x| x.is_finite())
-            .map(|&x| if wrap { x.rem_euclid(360.0) } else { x })
+            .filter(|x| x.is_finite() && (wrap || x.abs() <= 90.0))
+            .map(|&x| {
+                if wrap {
+                    // `rem_euclid` rounds a tiny negative longitude up to 360
+                    // itself, which is 0 again round the circle.
+                    let r = x.rem_euclid(360.0);
+                    if r >= 360.0 { 0.0 } else { r }
+                } else {
+                    x
+                }
+            })
             .collect();
         v.sort_by(f64::total_cmp);
         v.dedup();
@@ -433,34 +452,78 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
     // Fewer than this many distinct points on an axis do not sample it.
     const MIN_POINTS: usize = 3;
     // The coarsest of an axis's gaps that are steps rather than breaks between
-    // regions. `ring` closes the gaps round the circle, so the first and last
-    // gaps are each other's neighbours; a line's end gaps have one neighbour.
+    // regions. A line has `gaps.len() + 1` points, gap `i` between points `i`
+    // and `i + 1`; a ring has `gaps.len()` points and its last gap closes the
+    // circle, so its first and last gaps are each other's neighbours.
     let coarsest_step = |gaps: &[f64], ring: bool| -> Option<f64> {
         let n = gaps.len();
-        let neighbours = |i: usize| -> [Option<f64>; 2] {
-            let before = if i > 0 {
-                Some(gaps[i - 1])
-            } else if ring {
-                Some(gaps[n - 1])
-            } else {
-                None
+        if n == 0 {
+            return None;
+        }
+        // A candidate break is a gap more than `REGION_BREAK` times each gap
+        // beside it. A line's end gap has one neighbour.
+        let beside = |i: usize| -> [Option<f64>; 2] {
+            let before = match (i, ring) {
+                (0, true) => Some(gaps[n - 1]),
+                (0, false) => None,
+                _ => Some(gaps[i - 1]),
             };
-            let after = if i + 1 < n {
-                Some(gaps[i + 1])
-            } else if ring {
-                Some(gaps[0])
-            } else {
-                None
+            let after = match (i + 1 < n, ring) {
+                (true, _) => Some(gaps[i + 1]),
+                (false, true) => Some(gaps[0]),
+                (false, false) => None,
             };
             [before, after]
         };
+        let is_candidate = |i: usize| {
+            let b = beside(i);
+            b.iter().any(Option::is_some) && b.iter().flatten().all(|&g| gaps[i] > REGION_BREAK * g)
+        };
+        // Points per region when the breaks are `breaks` (sorted gap indices).
+        let regions_hold = |breaks: &[usize]| -> bool {
+            if breaks.is_empty() {
+                return true;
+            }
+            let sizes: Vec<usize> = if ring {
+                let mut sizes: Vec<usize> = breaks.windows(2).map(|w| w[1] - w[0]).collect();
+                sizes.push(n - breaks[breaks.len() - 1] + breaks[0]);
+                sizes
+            } else {
+                let mut sizes = vec![breaks[0] + 1];
+                sizes.extend(breaks.windows(2).map(|w| w[1] - w[0]));
+                sizes.push(n - breaks[breaks.len() - 1]);
+                sizes
+            };
+            sizes.iter().all(|&k| k >= MIN_POINTS)
+        };
+        // A ring's largest gap is always a break: it is the outside of a
+        // regional grid, or one of a global grid's equal steps, which the next
+        // one repeats.
+        let mut breaks: Vec<usize> = Vec::new();
+        if ring {
+            let largest = (0..n)
+                .max_by(|&i, &j| gaps[i].total_cmp(&gaps[j]))
+                .expect("n > 0");
+            breaks.push(largest);
+        }
+        // Then the candidates, largest first, each kept only while every region
+        // still holds `MIN_POINTS` points: one or two points do not sample a
+        // place, any more than they sample an axis, so a pair or a lone point
+        // cannot set the step of the rest.
+        let mut candidates: Vec<usize> = (0..n)
+            .filter(|&i| is_candidate(i) && !breaks.contains(&i))
+            .collect();
+        candidates.sort_by(|&i, &j| gaps[j].total_cmp(&gaps[i]));
+        for i in candidates {
+            let mut trial = breaks.clone();
+            trial.push(i);
+            trial.sort_unstable();
+            if regions_hold(&trial) {
+                breaks = trial;
+            }
+        }
         (0..n)
-            .filter(|&i| {
-                let beside = neighbours(i);
-                let is_break = beside.iter().any(Option::is_some)
-                    && beside.iter().flatten().all(|&b| gaps[i] > REGION_BREAK * b);
-                !is_break
-            })
+            .filter(|i| !breaks.contains(i))
             .map(|i| gaps[i])
             .reduce(f64::max)
     };
@@ -1639,6 +1702,69 @@ mod tests {
         assert_eq!(points_band_limit(&without(1), &global_lons), Some(179));
         assert_eq!(points_band_limit(&without(3), &global_lons), Some(89));
         assert_eq!(points_band_limit(&without(4), &global_lons), Some(359));
+
+        // A ring's outside is always a break, however few steps it spans: a
+        // coarse regional sector is judged by its steps, as `grid_band_limit`
+        // judges a ring.
+        assert_eq!(
+            points_band_limit(&global_lats, &[0.0, 90.0, 180.0]),
+            Some(1)
+        );
+        assert_eq!(
+            points_band_limit(&global_lats, &axis(0.0, 180.0, 45.0)),
+            Some(3)
+        );
+        assert_eq!(
+            points_band_limit(&global_lats, &axis(0.0, 240.0, 60.0)),
+            Some(2)
+        );
+        assert_eq!(
+            points_band_limit(&global_lats, &axis(0.0, 320.0, 10.0)),
+            Some(17)
+        );
+        assert_eq!(
+            points_band_limit(&global_lats, &axis(0.0, 358.0, 1.0)),
+            Some(179)
+        );
+
+        // A region needs three points, as an axis does: a pair or a lone point
+        // is not a place the grid samples, so it cannot set the step.
+        let doubled = |v: &[f64]| -> Vec<f64> { v.iter().flat_map(|&x| [x, x + 1e-6]).collect() };
+        assert_eq!(
+            points_band_limit(
+                &doubled(&axis(-90.0, 89.0, 1.0)),
+                &doubled(&axis(0.0, 359.0, 1.0))
+            ),
+            Some(179)
+        );
+        let pairs = |step: f64, width: f64, count: usize| -> Vec<f64> {
+            (0..count)
+                .flat_map(|k| [k as f64 * step, k as f64 * step + width])
+                .collect()
+        };
+        // Latitude pairs 1° apart every 6°: one periodic sampling, judged by
+        // its coarsest step, 5°.
+        let lat_pairs: Vec<f64> = pairs(6.0, 1.0, 15).iter().map(|x| x - 45.0).collect();
+        assert_eq!(points_band_limit(&lat_pairs, &global_lons), Some(35));
+        // Longitude pairs 1.5° apart every 10°: steps of 8.5°.
+        assert_eq!(
+            points_band_limit(&global_lats, &pairs(10.0, 1.5, 36)),
+            Some(20)
+        );
+        // Two close latitudes and one far one: three points, one sampling.
+        assert_eq!(points_band_limit(&[0.0, 1.0, 11.0], &global_lons), Some(17));
+
+        // A latitude outside ±90 samples nothing, and a longitude a rounding
+        // below 0 is 0, not a second point at 360.
+        assert_eq!(
+            points_band_limit(&[-200.0, -60.0, 0.0, 60.0, 200.0], &axis(0.0, 300.0, 60.0)),
+            Some(2)
+        );
+        assert_eq!(points_band_limit(&[-1e308, 1e308], &global_lons), Some(359));
+        assert_eq!(
+            points_band_limit(&global_lats, &[-1e-14, 0.0, 10.0, 20.0]),
+            points_band_limit(&global_lats, &[0.0, 10.0, 20.0])
+        );
 
         // A coarse regular sample is not two regions: it resolves what its step
         // carries, and three longitudes round the circle carry T0, as
