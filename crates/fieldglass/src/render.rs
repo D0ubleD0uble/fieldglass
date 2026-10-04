@@ -1901,6 +1901,12 @@ pub struct VectorOptions {
     /// pair points wrong by the grid's convergence angle: up to tens of degrees
     /// away from the projection's central meridian. When this is set the
     /// components are rotated through the grid's own north, per cell.
+    ///
+    /// **One frame for both components.** GRIB states it per message, so a
+    /// caller pairing two messages must check they agree before setting it: a
+    /// grid-relative u with an earth-relative v lines up cell for cell and
+    /// would be drawn at the wrong bearing everywhere. The Node binding refuses
+    /// such a pair (#805).
     #[serde(default)]
     pub grid_relative: bool,
     /// The speed the longest arrow stands for.

@@ -20,7 +20,9 @@
 
 use fieldglass_core::{CornerPair, GridGeometry, LonLatBox, PlaneUnits};
 
-/// Scan order of the decoded raster, as the message's own flags state it.
+/// Scan order of the decoded values: the order a field's `values` are stored
+/// in, which for a column-major message is not the order the message stored
+/// (#792). See [`Georef::scan`].
 ///
 /// `core`'s type, re-exported rather than restated: it is what
 /// [`GridGeometry::reprojectable`] is asked alongside, so a second copy here
