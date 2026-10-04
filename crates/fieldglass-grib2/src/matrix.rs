@@ -29,10 +29,6 @@ pub fn decode_matrix_of_values(
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    debug_assert!(
-        bitmap.is_none_or(|b| b.len() == expected_count),
-        "primary bitmap length must equal the grid-point count"
-    );
     let datum = (t.nr as usize)
         .checked_mul(t.nc as usize)
         .filter(|d| *d > 0)
@@ -49,6 +45,18 @@ pub fn decode_matrix_of_values(
         return Err(FieldglassError::Parse(format!(
             "grid_simple_matrix bits_per_value {} is unsupported (expected 1..=32)",
             t.bits_per_value
+        )));
+    }
+    // A public entry point, so the bitmap is a caller's as much as the file's:
+    // one bit per grid point, or a parse error with the wording every other
+    // decoder in both editions uses, at the step GRIB1's matrix decoder checks
+    // it (#824). It was a `debug_assert!`, a panic in a debug build.
+    if let Some(b) = bitmap
+        && b.len() != expected_count
+    {
+        return Err(FieldglassError::Parse(format!(
+            "bitmap length {} != grid-point count {expected_count}",
+            b.len()
         )));
     }
     // The flattened output has `expected_count · datum` cells (a `None` even for
@@ -233,6 +241,38 @@ mod tests {
     fn rejects_zero_datum() {
         let t = template(0, 2, 0.0, 0, 0, 8, 0);
         assert!(decode_matrix_of_values(&[0u8; 8], &t, None, 2).is_err());
+    }
+
+    /// A bitmap that is not one bit per grid point is a parse error with the
+    /// wording every other decoder in both editions uses (#824). It used to be
+    /// a `debug_assert!`: a panic in a debug build, and in a release build a
+    /// secondary-bitmap count sized from the wrong bitmap.
+    #[test]
+    fn a_bitmap_that_is_not_one_bit_per_point_is_refused() {
+        let t = template(1, 2, 0.0, 0, 0, 8, 0);
+        for len in [1, 3] {
+            let bitmap = vec![true; len];
+            let err = decode_matrix_of_values(&[0u8; 8], &t, Some(&bitmap), 2).unwrap_err();
+            assert!(
+                matches!(&err, FieldglassError::Parse(m)
+                    if *m == format!("bitmap length {len} != grid-point count 2")),
+                "got {err:?}"
+            );
+        }
+    }
+
+    /// The bitmap is checked where GRIB1 checks it, before the cell cap, so a
+    /// wrong-length bitmap on an oversized matrix names the bitmap in both
+    /// editions.
+    #[test]
+    fn a_wrong_length_bitmap_is_named_before_the_cell_cap() {
+        let t = template(u16::MAX, u16::MAX, 0.0, 0, 0, 8, 0);
+        let err = decode_matrix_of_values(&[0u8; 8], &t, Some(&[true; 3]), 2).unwrap_err();
+        assert!(
+            matches!(&err, FieldglassError::Parse(m)
+                if m == "bitmap length 3 != grid-point count 2"),
+            "got {err:?}"
+        );
     }
 
     #[test]

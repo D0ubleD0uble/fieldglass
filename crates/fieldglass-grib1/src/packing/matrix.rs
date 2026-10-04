@@ -340,7 +340,9 @@ pub(crate) fn decode_matrix_of_values(
     // N = 0 leaves the secondary bitmaps and the coded stream empty, so every
     // section-length check below passes whatever NR·NC says (#802). Bound it
     // here by the rule GRIB2 and `expand_matrix` apply, before anything is
-    // unpacked.
+    // unpacked. The bitmap first, as GRIB2's matrix decoder checks it, so a
+    // wrong-length one is named the same way in both editions (#824).
+    super::check_bitmap_len(bitmap, expected_count)?;
     fieldglass_core::matrix::matrix_cell_count(expected_count, datum)?;
 
     // `octetAtWichPackedDataBegins` is repurposed as N, the count of present
