@@ -78,9 +78,13 @@ pub const MAX_FIELD_POINTS: usize = 64 * 1024 * 1024;
 ///
 /// Larger than [`MAX_FIELD_POINTS`] because it is a larger question. A
 /// reanalysis variable is routinely an order of magnitude bigger than any one
-/// slice of it, and this path hands back typed values — eight bytes an element,
-/// so 1.6 GiB — rather than the `Option<f64>` per point a field decode builds.
-/// A shape out of a corrupt header is still the thing being bounded.
+/// slice of it. A shape out of a corrupt header is still the thing being
+/// bounded.
+///
+/// The bound is on elements, not bytes. A whole-variable read returns one
+/// `Option<f64>` per element, sixteen bytes, so at the cap its output is
+/// 3.2 GB, and the reader also holds the stored bytes while it assembles
+/// them.
 pub const MAX_VARIABLE_ELEMENTS: usize = 200_000_000;
 
 /// What the arithmetic here refuses.
