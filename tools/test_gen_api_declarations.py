@@ -213,13 +213,13 @@ class TheDriftGate(unittest.TestCase):
 
     def test_a_hand_edit_to_the_extension_file_is_caught(self):
         text = gen.EXTENSION_OUT.read_text(encoding="utf-8")
-        edited = text.replace("edition: number | null;", "edition?: number;")
+        edited = text.replace("forecastHours: number | null;", "forecastHours?: number;")
         self.assertNotEqual(text, edited, "the edit must land for the test to mean anything")
         gen.EXTENSION_OUT.write_text(edited, encoding="utf-8")
         problems = gen.check(self.schema)
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("api.generated.ts", problems[0])
-        self.assertIn("-  edition?: number;", problems[0])
+        self.assertIn("-  forecastHours?: number;", problems[0])
 
     def test_a_hand_edit_to_the_wasm_file_is_caught(self):
         with gen.WASM_OUT.open("a", encoding="utf-8") as f:
