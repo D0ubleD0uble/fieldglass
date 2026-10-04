@@ -1047,6 +1047,19 @@ impl MessageStream {
         Ok((values, Placed::from_georef(placed)))
     }
 
+    /// The frame a u/v pair's components are in, for `project_vectors` (#805):
+    /// along the grid's axes (`true`) or east and north.
+    ///
+    /// Each message states its own (GRIB1 GDS octet 17, GRIB2 Flag Table 3.3,
+    /// bit 5); [`fieldglass::component_frame`] refuses a pair whose two differ
+    /// and otherwise resolves `requested` against them.
+    fn component_frame(&self, u: u32, v: u32, requested: Option<bool>) -> napi::Result<bool> {
+        let stated = |i: u32| -> napi::Result<Option<bool>> {
+            Ok(self.session.message(i).into_napi()?.uv_relative_to_grid)
+        };
+        fieldglass::component_frame(stated(u)?, stated(v)?, requested).into_napi()
+    }
+
     /// Message `index`'s parameter name and units, which label a zonal mean.
     fn parameter(&self, index: u32) -> napi::Result<(String, String)> {
         let info = self.session.message(index).into_napi()?;
@@ -1424,13 +1437,16 @@ impl Grib1Handle {
     }
 
     /// Arrows for a vector field built from two messages (#241): `u` eastward
-    /// and `v` northward, or the grid's own axes under `gridRelative` — which is
-    /// what this file's resolution flag says, and what HRRR and NAM set.
+    /// and `v` northward, or along the grid's own axes, as each message's
+    /// resolution and component flags say (HRRR and NAM say the grid's axes).
     ///
     /// One arrow is one run of five vertices (tail, tip, barb, tip, barb), in
     /// the same pixel space the coastlines come back in, for the same canvas.
     /// The two messages are paired cell by cell, so a pair that is not on the
-    /// same grid is refused, in the words a refused combine uses (#793).
+    /// same grid is refused, in the words a refused combine uses (#793), and so
+    /// is a pair whose two messages state different component frames (#805).
+    /// `gridRelative` overrides the frame the pair states; left out, the pair's
+    /// own is used.
     #[napi]
     pub fn project_vectors(
         &self,
@@ -1442,6 +1458,11 @@ impl Grib1Handle {
     ) -> napi::Result<ProjectedVectors> {
         let (u, placed_u) = self.resolved(message_index_u)?;
         let (v, placed_v) = self.resolved(message_index_v)?;
+        // Two grids are the more basic mismatch, so they are named first.
+        fieldglass::aligned(&placed_u.source(), &placed_v.source()).into_napi()?;
+        let grid_relative =
+            self.stream
+                .component_frame(message_index_u, message_index_v, grid_relative)?;
         project_vectors_impl(
             (&placed_u, u.as_ref()),
             (&placed_v, v.as_ref()),
@@ -1696,6 +1717,11 @@ impl Grib2Handle {
     ) -> napi::Result<ProjectedVectors> {
         let (u, placed_u) = self.resolved(message_index_u)?;
         let (v, placed_v) = self.resolved(message_index_v)?;
+        // Two grids are the more basic mismatch, so they are named first.
+        fieldglass::aligned(&placed_u.source(), &placed_v.source()).into_napi()?;
+        let grid_relative =
+            self.stream
+                .component_frame(message_index_u, message_index_v, grid_relative)?;
         project_vectors_impl(
             (&placed_u, u.as_ref()),
             (&placed_v, v.as_ref()),
@@ -3519,20 +3545,22 @@ fn project_contours_impl(
 /// `u` and `v` each come with their own placement, and
 /// `fieldglass::render::vector_polylines` refuses a pair that does not line up
 /// cell for cell, in the words a refused combine uses (#793). The arrows are
-/// drawn on `u`'s placement. `grid_relative` says the components run along the
+/// drawn on `u`'s placement. `grid_relative` says both components run along the
 /// grid's own axes rather than east and north, which is what GRIB's resolution
-/// flag reports and what HRRR and NAM set.
+/// flag reports and what HRRR and NAM set: the handles resolve it, and refuse a
+/// pair that states two different frames, in `MessageStream::component_frame`
+/// (#805).
 fn project_vectors_impl(
     (placed_u, u): (&Placed, &[Option<f64>]),
     (placed_v, v): (&Placed, &[Option<f64>]),
     options: &RenderOptions,
     spacing: Option<u32>,
-    grid_relative: Option<bool>,
+    grid_relative: bool,
 ) -> napi::Result<fieldglass::render::VectorArrows> {
     let engine = engine_options(options);
     let mut vectors = fieldglass::render::VectorOptions::new();
     vectors.spacing = spacing;
-    vectors.grid_relative = grid_relative.unwrap_or(false);
+    vectors.grid_relative = grid_relative;
     fieldglass::render::vector_polylines(
         &placed_u.source(),
         u,
@@ -8629,6 +8657,172 @@ mod paired_field_tests {
         assert_scan_refusal(
             g1.project_vectors(0, 3, opts("source"), None, None),
             "jPositive",
+        );
+    }
+}
+
+/// The second property a u/v pair must share, after its cells (#793): the
+/// component frame. GRIB1 GDS octet 17 and GRIB2 Flag Table 3.3 bit 5 say
+/// whether u and v run along the grid's axes or east and north, per message
+/// (#805).
+#[cfg(test)]
+mod component_frame_tests {
+    use super::*;
+    use crate::netcdf_slice_tests::opts;
+
+    const HRRR: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/hrrr_complex_spd_lambert.grib2");
+    const GRIB1: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
+
+    /// Bit 5 of the resolution and component flags, from the most significant.
+    const GRID_RELATIVE: u8 = 0x08;
+
+    /// §3 octet 47, template 3.30's resolution and component flags.
+    fn lambert_flags_octet(bytes: &[u8]) -> usize {
+        let mut off = 16;
+        loop {
+            assert_ne!(&bytes[off..off + 4], b"7777", "message has no §3");
+            let len = u32::from_be_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
+            if bytes[off + 4] == 3 {
+                assert_eq!(
+                    &bytes[off + 12..off + 14],
+                    &30u16.to_be_bytes(),
+                    "a Lambert §3"
+                );
+                return off + 14 + 32;
+            }
+            off += len;
+        }
+    }
+
+    /// GDS octet 17, past the 8-byte IS and the PDS whose length leads it.
+    fn grib1_flags_octet(bytes: &[u8]) -> usize {
+        let pds_len =
+            usize::from(bytes[8]) << 16 | usize::from(bytes[9]) << 8 | usize::from(bytes[10]);
+        8 + pds_len + 16
+    }
+
+    /// Two copies of one message: 0 grid-relative, 1 earth-relative, 2
+    /// grid-relative again, whatever the original said.
+    fn frames(original: &[u8], at: usize) -> Vec<u8> {
+        let with = |grid: bool| {
+            let mut copy = original.to_vec();
+            copy[at] = if grid {
+                copy[at] | GRID_RELATIVE
+            } else {
+                copy[at] & !GRID_RELATIVE
+            };
+            copy
+        };
+        [with(true), with(false), with(true)].concat()
+    }
+
+    fn assert_frame_refusal(result: napi::Result<ProjectedVectors>) {
+        let Err(e) = result else {
+            panic!("a grid-relative u was paired with an earth-relative v");
+        };
+        assert!(
+            e.reason.contains("their component frame differs")
+                && e.reason.contains("grid-relative")
+                && e.reason.contains("earth-relative")
+                && !e.reason.contains("different grids"),
+            "{}",
+            e.reason
+        );
+    }
+
+    /// A Lambert u that runs along the grid's axes and a v that runs north
+    /// line up cell for cell, so before #805 v was rotated as if it ran along
+    /// the grid, every arrow's bearing was wrong, and nothing said so.
+    #[test]
+    fn a_pair_whose_component_frames_differ_is_refused() {
+        let h = Grib2Handle::from_vec(frames(HRRR, lambert_flags_octet(HRRR))).expect("opens");
+        for explicit in [None, Some(true), Some(false)] {
+            assert_frame_refusal(h.project_vectors(0, 1, opts("source"), Some(8), explicit));
+            assert_frame_refusal(h.project_vectors(1, 0, opts("source"), Some(8), explicit));
+        }
+        // Agreeing pairs, either frame, still draw.
+        h.project_vectors(0, 2, opts("source"), Some(8), None)
+            .expect("both grid-relative");
+        h.project_vectors(1, 1, opts("source"), Some(8), None)
+            .expect("both earth-relative");
+
+        // The GRIB1 fixture is 8 × 5, so every cell is sampled; an agreeing
+        // pair is drawn, not just accepted.
+        let g1 = Grib1Handle::from_vec(frames(GRIB1, grib1_flags_octet(GRIB1))).expect("opens");
+        assert_frame_refusal(g1.project_vectors(0, 1, opts("source"), Some(1), None));
+        let drawn = g1
+            .project_vectors(0, 2, opts("source"), Some(1), None)
+            .expect("both grid-relative");
+        assert!(!drawn.xy.is_empty(), "the agreeing GRIB1 pair draws arrows");
+    }
+
+    /// A pair on two grids that also states two frames is refused for the
+    /// grids: that is the more basic mismatch, and the frame is meaningless
+    /// across them.
+    #[test]
+    fn a_pair_on_two_grids_is_refused_for_the_grids_first() {
+        const LATLON: &[u8] =
+            include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2");
+        let mut lambert = HRRR.to_vec();
+        lambert[lambert_flags_octet(HRRR)] |= GRID_RELATIVE;
+        // The lat/lon fixture states earth-relative components (§3 octet 55).
+        let h = Grib2Handle::from_vec([lambert, LATLON.to_vec()].concat()).expect("opens");
+        let frame = |i| h.stream.session.message(i).unwrap().uv_relative_to_grid;
+        assert_eq!((frame(0), frame(1)), (Some(true), Some(false)));
+        let Err(e) = h.project_vectors(0, 1, opts("source"), Some(8), None) else {
+            panic!("a Lambert u and a lat/lon v were paired");
+        };
+        assert!(
+            e.reason.contains("different grids") && !e.reason.contains("component frame"),
+            "{}",
+            e.reason
+        );
+
+        // The GRIB1 handle, an 8 × 5 grid stating grid-relative against a
+        // 240 × 121 one stating earth-relative.
+        const LFPW: &[u8] =
+            include_bytes!("../../fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1");
+        let mut small = GRIB1.to_vec();
+        small[grib1_flags_octet(GRIB1)] |= GRID_RELATIVE;
+        let mut large = LFPW.to_vec();
+        large[grib1_flags_octet(LFPW)] &= !GRID_RELATIVE;
+        let g1 = Grib1Handle::from_vec([small, large].concat()).expect("opens");
+        let frame = |i| g1.stream.session.message(i).unwrap().uv_relative_to_grid;
+        assert_eq!((frame(0), frame(1)), (Some(true), Some(false)));
+        let Err(e) = g1.project_vectors(0, 1, opts("source"), Some(8), None) else {
+            panic!("two GRIB1 grids were paired");
+        };
+        assert!(
+            e.reason.contains("different grids") && !e.reason.contains("component frame"),
+            "{}",
+            e.reason
+        );
+    }
+
+    /// Left out, the frame is the one the pair states, not east and north
+    /// whatever the file says: a grid-relative Lambert pair drawn with no
+    /// argument comes out as it does when the caller says so.
+    #[test]
+    fn an_omitted_frame_is_the_pairs_own() {
+        let h = Grib2Handle::from_vec(frames(HRRR, lambert_flags_octet(HRRR))).expect("opens");
+        let derived = h
+            .project_vectors(0, 2, opts("source"), Some(8), None)
+            .unwrap();
+        let grid = h
+            .project_vectors(0, 2, opts("source"), Some(8), Some(true))
+            .unwrap();
+        let earth = h
+            .project_vectors(0, 2, opts("source"), Some(8), Some(false))
+            .unwrap();
+        assert!(
+            derived.xy.to_vec() == grid.xy.to_vec(),
+            "drawn as grid-relative"
+        );
+        assert!(
+            derived.xy.to_vec() != earth.xy.to_vec(),
+            "the frame changes the arrows"
         );
     }
 }
