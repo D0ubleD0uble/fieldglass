@@ -844,7 +844,7 @@ suite("rerenderRequest option clamp", () => {
     );
   });
 
-  test("gribFieldLabel: concise, skips placeholder level", () => {
+  test("gribFieldLabel: concise, skips a level or forecast the message does not state", () => {
     const base = {
       index: 3,
       abbreviation: "TMP",
@@ -853,11 +853,12 @@ suite("rerenderRequest option clamp", () => {
       forecast: "+6h",
     };
     assert.strictEqual(gribFieldLabel(base), "#3 · TMP · 500 · +6h");
-    // A placeholder level ("—") is dropped rather than shown.
-    assert.strictEqual(gribFieldLabel({ ...base, level: "—" }), "#3 · TMP · +6h");
+    // A level the message does not state is `null` (#775), and is left out.
+    assert.strictEqual(gribFieldLabel({ ...base, level: null }), "#3 · TMP · +6h");
+    assert.strictEqual(gribFieldLabel({ ...base, forecast: null }), "#3 · TMP · 500");
     // Falls back to the full name when there is no abbreviation.
     assert.strictEqual(
-      gribFieldLabel({ ...base, abbreviation: "" }),
+      gribFieldLabel({ ...base, abbreviation: null }),
       "#3 · Temperature · 500 · +6h",
     );
   });
@@ -973,12 +974,12 @@ suite("render-panel HTML", () => {
   function fakeMeta(): PanelField {
     return {
       index: 0,
-      parameter: "",
-      units: "",
-      level: "",
-      levelType: "",
+      parameter: null,
+      units: null,
+      level: null,
+      levelType: null,
       referenceTime: null,
-      forecast: "",
+      forecast: null,
       uvRelativeToGrid: null,
       reprojectable: true,
       truncation: null,
@@ -2127,6 +2128,46 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(!/String\(m\.forecastHours\)/.test(editable), "never from the normalised hours");
   });
 
+  // A field the message does not state is `null` (#775), and the table writes
+  // its own placeholder for it: the same text the library used to send in
+  // band, so what a reader sees does not change.
+  test("the metadata table writes its own placeholder for a field the message does not state", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
+    const [message] = listMessages(native.Grib2Handle.fromBytes(bytes));
+    const blank: MessageInfo = {
+      ...message,
+      parameter: null,
+      abbreviation: null,
+      units: null,
+      level: null,
+      levelType: null,
+      forecast: null,
+      packing: null,
+      sizeLabel: null,
+      grid: message.grid ? { ...message.grid, ni: null, nj: null } : null,
+    };
+    const html = renderHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      "grib2",
+      "/tmp/example.grib2",
+      [blank],
+      undefined,
+      undefined,
+      false,
+    );
+    const row = /<tr class="msg-row"[^>]*>([\s\S]*?)<\/tr>/.exec(html);
+    assert.ok(row, "the message has a row");
+    const cells = [...row[1].matchAll(/<td>([\s\S]*?)<\/td>/g)].map((m) => m[1].trim());
+    // index, parameter, abbreviation, units, level, levelType, reference
+    // time, forecast, grid type, size, bounds, packing, centre.
+    assert.deepStrictEqual(
+      [cells[1], cells[2], cells[3], cells[4], cells[5], cells[7], cells[9], cells[11]],
+      ["", "", "", "—", "—", "—", "—", "unknown"],
+    );
+  });
+
   // A code no table names arrives as its number (#774), and the Center cell
   // shows it rather than dropping it; only the table's own "Missing" is left
   // out of the cell.
@@ -2190,6 +2231,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     );
     const subtitle = /<div class="subtitle">([^<]*)<\/div>/.exec(html);
     assert.ok(subtitle, "the panel header has a subtitle line");
+    assert.ok(meta.levelType, "fixture precondition: the message states a level type");
     const repeats = subtitle[1].split(meta.levelType).length - 1;
     assert.strictEqual(repeats, 1, `the subtitle repeats the level: ${subtitle[1]}`);
   });
@@ -2285,10 +2327,10 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       index: 0,
       parameter: "sst",
       units: "degree_C",
-      level: "",
-      levelType: "",
+      level: null,
+      levelType: null,
       referenceTime: null,
-      forecast: "",
+      forecast: null,
       uvRelativeToGrid: null,
       reprojectable: true,
       truncation: null,

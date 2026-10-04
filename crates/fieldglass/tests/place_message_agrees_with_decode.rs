@@ -176,8 +176,8 @@ fn the_placement_is_the_georef_decode_puts_on_the_field() {
                         ("label", placed.label.clone(), field.georef.label.clone()),
                         (
                             "dims",
-                            format!("{}x{}", placed.ni, placed.nj),
-                            format!("{}x{}", field.ni, field.nj),
+                            format!("{:?}x{:?}", placed.ni, placed.nj),
+                            format!("{:?}x{:?}", Some(field.ni), Some(field.nj)),
                         ),
                         (
                             "scan",
@@ -218,7 +218,11 @@ fn the_placement_is_the_georef_decode_puts_on_the_field() {
                 // The carve-out: a grid that is real, holding values that are
                 // not one per point.
                 (Ok(placed), Err(d)) => {
-                    let packing = session.message(i).map(|m| m.packing).unwrap_or_default();
+                    let packing = session
+                        .message(i)
+                        .ok()
+                        .and_then(|m| m.packing)
+                        .unwrap_or_default();
                     if MULTI_VALUE_PACKINGS.contains(&packing.as_str()) {
                         carved_out += 1;
                     } else {

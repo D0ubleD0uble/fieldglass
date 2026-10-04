@@ -6,7 +6,7 @@
 //! twice, and two differences are worth knowing before reading one as the
 //! other:
 //!
-//! * GRIB1 prints `"—"` for a fixed-surface type, where GRIB2 prints the
+//! * GRIB1 has no level value for a fixed-surface type, where GRIB2 prints the
 //!   surface's own name ("Ground or water surface"): GRIB2's Code Table 4.5
 //!   entry *is* the description, and blanking it would lose the only thing the
 //!   column has to say.
@@ -33,23 +33,24 @@ use crate::tables::{lookup_fixed_surface, lookup_time_range_unit};
 
 /// The first fixed surface's value, rendered.
 ///
-/// `"—"` when the surface type is the WMO missing sentinel, the decoded value
-/// when the surface carries one, and the surface's own name when it does not:
-/// "Ground or water surface" has no height to print. The unit hint is in
-/// [`level_type_str`], which is the column beside it.
+/// `None` when the surface type is the WMO missing sentinel, so a host chooses
+/// its own placeholder (#775); the decoded value when the surface carries one;
+/// and the surface's own name when it does not: "Ground or water surface" has
+/// no height to print. The unit hint is in [`level_type_str`], which is the
+/// column beside it.
 ///
 /// Reads `first_surface` only. For a layer product that is the *top* surface;
 /// the bottom is in `second_surface` and no host renders it today.
 #[must_use]
-pub fn level_value_str(common: &HorizontalProductCommon) -> String {
+pub fn level_value_str(common: &HorizontalProductCommon) -> Option<String> {
     let surface = &common.first_surface;
     if surface.is_missing() {
-        return "—".to_string();
+        return None;
     }
-    match surface.value() {
+    Some(match surface.value() {
         Some(v) => format!("{v}"),
         None => surface_name(surface.surface_type),
-    }
+    })
 }
 
 /// A Code Table 4.5 surface type's name, or `"Fixed surface <n>"` for a code
@@ -278,7 +279,7 @@ mod tests {
     #[test]
     fn a_missing_surface_has_no_level_to_print() {
         let c = at_surface(surface(255, None, None));
-        assert_eq!(level_value_str(&c), "—");
+        assert_eq!(level_value_str(&c), None);
         assert_eq!(level_type_str(&c), "Missing");
     }
 
@@ -291,7 +292,10 @@ mod tests {
         for code in [50u8, 242] {
             let c = at_surface(surface(code, None, None));
             assert_eq!(level_type_str(&c), format!("Fixed surface {code}"));
-            assert_eq!(level_value_str(&c), format!("Fixed surface {code}"));
+            assert_eq!(
+                level_value_str(&c).as_deref(),
+                Some(format!("Fixed surface {code}").as_str())
+            );
         }
     }
 
@@ -308,7 +312,10 @@ mod tests {
     #[test]
     fn a_valueless_surface_is_named_in_the_value_column() {
         let c = at_surface(surface(1, None, None));
-        assert_eq!(level_value_str(&c), "Ground or water surface");
+        assert_eq!(
+            level_value_str(&c).as_deref(),
+            Some("Ground or water surface")
+        );
         assert_eq!(level_type_str(&c), "Ground or water surface");
     }
 
@@ -316,10 +323,10 @@ mod tests {
     fn a_scaled_surface_value_is_decoded_before_it_is_printed() {
         // 2 m above ground, and a 850 hPa isobaric surface stated in pascals.
         let c = at_surface(surface(103, Some(0), Some(2)));
-        assert_eq!(level_value_str(&c), "2");
+        assert_eq!(level_value_str(&c).as_deref(), Some("2"));
         assert_eq!(level_type_str(&c), "Specified height above ground (m)");
         let c = at_surface(surface(100, Some(-2), Some(850)));
-        assert_eq!(level_value_str(&c), "85000");
+        assert_eq!(level_value_str(&c).as_deref(), Some("85000"));
         assert_eq!(level_type_str(&c), "Isobaric surface (Pa)");
     }
 
@@ -352,7 +359,7 @@ mod tests {
                 .pds
                 .common()
                 .expect("fixture uses a horizontal product template");
-            assert_eq!(level_value_str(common), level);
+            assert_eq!(level_value_str(common).as_deref(), Some(level));
             assert_eq!(level_type_str(common), level_type);
             assert_eq!(forecast_hours(common), hours);
             assert_eq!(forecast_display(common), display);

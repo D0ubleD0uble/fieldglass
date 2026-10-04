@@ -32,6 +32,12 @@ const PARTS: &[&str] = &[
 ];
 
 /// The concatenated object, and the offset each part starts at.
+/// A field the fixture's messages all state: every message here has a resolved
+/// parameter and a level value.
+fn stated(field: &Option<String>) -> &str {
+    field.as_deref().expect("the fixture states this field")
+}
+
 fn object() -> (Vec<u8>, Vec<u64>) {
     let mut bytes = Vec::new();
     let mut offsets = Vec::new();
@@ -70,8 +76,8 @@ fn sidecar(offsets: &[u64], infos: &[MessageInfo]) -> String {
                     .filter(char::is_ascii_digit)
                     .take(10)
                     .collect::<String>(),
-                info.abbreviation,
-                info.level,
+                info.abbreviation.as_deref().unwrap_or_default(),
+                info.level.as_deref().unwrap_or_default(),
             )
         })
         .collect()
@@ -146,9 +152,9 @@ fn selecting_a_field_by_name_yields_the_bytes_that_decode_to_it() {
     // Whatever the second fixture's parameter is, ask for it by the sidecar's
     // own name. Read from the corpus rather than written down, so a fixture
     // swap does not silently turn this into a test of nothing.
-    let wanted = infos[1].abbreviation.clone();
+    let wanted = stated(&infos[1].abbreviation);
     let hits = idx.select(
-        &Query::abbreviation(&wanted).at_level_text(&infos[1].level),
+        &Query::abbreviation(wanted).at_level_text(stated(&infos[1].level)),
         &NoResolver,
     );
     assert_eq!(
@@ -169,7 +175,7 @@ fn selecting_a_field_by_name_yields_the_bytes_that_decode_to_it() {
         .unwrap();
     let session = Session::open(slice.to_vec()).unwrap();
     let info = session.message(0).unwrap();
-    assert_eq!(info.abbreviation, wanted);
+    assert_eq!(info.abbreviation.as_deref(), Some(wanted));
     // …and it really decodes, not just parses.
     let field = session
         .decode(0, &fieldglass::DecodeOptions::default())
@@ -275,7 +281,7 @@ fn a_stored_wmo_request_selects_through_the_table_resolver() {
     // Take the codes from the first message's own abbreviation, so the test
     // does not hard-code which parameter the fixture happens to carry.
     let codes = resolver
-        .resolve(&infos[0].abbreviation, &infos[0].level)
+        .resolve(stated(&infos[0].abbreviation), stated(&infos[0].level))
         .unwrap_or_else(|| {
             panic!(
                 "the tables should name {:?}, which the decoder itself produced",
@@ -286,7 +292,7 @@ fn a_stored_wmo_request_selects_through_the_table_resolver() {
     let hits = idx.select(&Query::parameter(codes), &resolver);
     assert!(
         hits.iter()
-            .any(|h| h.expect.abbreviation.as_deref() == Some(infos[0].abbreviation.as_str())),
+            .any(|h| h.expect.abbreviation.as_deref() == infos[0].abbreviation.as_deref()),
         "a stored request for {codes:?} should reach {:?}",
         infos[0].abbreviation
     );
@@ -302,8 +308,8 @@ fn an_expectation_can_be_built_by_hand_and_checked() {
     let slice = &bytes[..end as usize];
 
     let expect = Expect::new()
-        .with_abbreviation(&infos[0].abbreviation)
-        .with_level(&infos[0].level);
+        .with_abbreviation(stated(&infos[0].abbreviation))
+        .with_level(stated(&infos[0].level));
     let range = PlanRange::Exact {
         offset: 0,
         length: end,

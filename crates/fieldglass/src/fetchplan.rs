@@ -221,22 +221,24 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
         // A numeric fallback name is not an abbreviation the decoder can match;
         // the `parameter` check below is the one that applies to it.
         && !promised.starts_with("var ")
-        && !equivalent(promised, &info.abbreviation)
+        && !equivalent(promised, info.abbreviation.as_deref().unwrap_or(""))
     {
         return Err(Mismatch::Field {
             field: "abbreviation",
             expected: promised.to_string(),
-            actual: info.abbreviation.clone(),
+            // A message with no short name is reported as the empty string it
+            // compared as: `actual` is prose for a person, not wire data.
+            actual: info.abbreviation.clone().unwrap_or_default(),
         });
     }
 
     if let Some(promised) = expect.level.as_deref()
-        && !equivalent(promised, &info.level)
+        && !equivalent(promised, info.level.as_deref().unwrap_or(""))
     {
         return Err(Mismatch::Field {
             field: "level",
             expected: promised.to_string(),
-            actual: info.level.clone(),
+            actual: info.level.clone().unwrap_or_default(),
         });
     }
 
@@ -365,14 +367,14 @@ mod tests {
         MessageInfo {
             index: 0,
             offset_bytes: 0,
-            parameter: "Temperature".into(),
-            abbreviation: abbrev.into(),
-            units: "K".into(),
-            level: level.into(),
-            level_type: "Specified height level above ground".into(),
+            parameter: Some("Temperature".into()),
+            abbreviation: Some(abbrev.into()),
+            units: Some("K".into()),
+            level: Some(level.into()),
+            level_type: Some("Specified height level above ground".into()),
             reference_time: "2026-09-04T00:00:00Z".into(),
-            forecast: "analysis".into(),
-            packing: "grid_simple".into(),
+            forecast: Some("analysis".into()),
+            packing: Some("grid_simple".into()),
             grid: None,
             placement: crate::api::Placement::NoRaster,
             reprojectable: false,

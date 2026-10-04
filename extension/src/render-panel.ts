@@ -400,7 +400,7 @@ export function axisTickIndices(length: number, count: number): number[] {
  *
  *  Serialized into the panel script, so it must not reference anything outside
  *  itself. */
-export function formatAxisValue(value: number, units: string): string {
+export function formatAxisValue(value: number, units: string | null): string {
   if (!Number.isFinite(value)) return "";
   const since = /^\s*(\w+)\s+since\s+(.+?)\s*$/i.exec(units || "");
   const perUnit: Record<string, number> = {
@@ -629,16 +629,16 @@ export function renderImagePanelHtml(
     `img-src ${webview.cspSource} blob: data:`,
   ].join("; ");
   const titleLine = composeTitleLine(meta);
-  // `level` is the bare value ("300", "—", "100 – 85"); `levelType` carries
-  // the unit and surface name ("(hPa) Isobaric level", "Cloud base level").
+  // `level` is the bare value ("300", "100 – 85"); `levelType` carries the
+  // unit and surface name ("(hPa) Isobaric level", "Cloud base level").
   // Together they read naturally as "300 (hPa) Isobaric level". For surface
-  // types whose value is meaningless (level === "—") only the levelType is
-  // informative, so drop the placeholder.
+  // types whose value is meaningless `level` is `null` (#775) and only the
+  // levelType is informative.
   // Some level types have no meaningful value, and the decoder then reports the
   // surface name in *both* fields (a spectral message reads level = levelType =
   // "Ground or water surface"). Joining them blind printed it twice, in the
   // panel header and the exported PNG alike.
-  const levelDescription = meta.level && meta.level !== "—" && meta.level !== meta.levelType
+  const levelDescription = meta.level && meta.level !== meta.levelType
     ? [meta.level, meta.levelType].filter((s) => !!s).join(" ")
     : meta.levelType;
   const subLine = [
@@ -2103,7 +2103,7 @@ export function renderImagePanelHtml(
           const units = line.units ? ' ' + line.units : '';
           const along = line.dimension + (line.coordinateUnits ? ' (' + line.coordinateUnits + ')' : '');
           if (!present.length) {
-            caption.textContent = line.variable + ' along ' + along + ': no data at this cell.';
+            caption.textContent = (line.variable || 'Values') + ' along ' + along + ': no data at this cell.';
             return;
           }
 
@@ -2154,7 +2154,8 @@ export function renderImagePanelHtml(
           axisLabel.textContent = String(xs[0]) + ' … ' + String(xs[n - 1]);
           svg.appendChild(axisLabel);
 
-          caption.textContent = line.variable + ' along ' + along + ' · ' +
+          // A line with no name (#775) is captioned as values, not as nothing.
+          caption.textContent = (line.variable || 'Values') + ' along ' + along + ' · ' +
             Number(ymin).toPrecision(5) + '–' + Number(ymax).toPrecision(5) + units +
             ' · ' + present.length + ' of ' + n + ' points';
         }

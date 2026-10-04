@@ -493,8 +493,8 @@ fn build_field(
     geometry: &GridGeometry,
     scan: Scan,
     declared: &str,
-    parameter: String,
-    units: String,
+    parameter: Option<String>,
+    units: Option<String>,
     options: &DecodeOptions,
 ) -> Field {
     let (values, mask, stats) = pack_values(raw, options);
@@ -766,12 +766,11 @@ pub fn line_through(
         values,
         mask,
         stats,
-        variable: var.name.clone(),
+        variable: Some(var.name.clone()),
         units: array_units(source, &var.name),
         coordinate_units: coordinates
             .as_ref()
-            .map(|_| array_units(source, &dimension))
-            .filter(|u| !u.is_empty()),
+            .and_then(|_| array_units(source, &dimension)),
         coordinates,
         dimension,
     })
@@ -811,8 +810,7 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
     Ok(AxisValues {
         units: coordinates
             .as_ref()
-            .map(|_| array_units(source, &axis.name))
-            .unwrap_or_default(),
+            .and_then(|_| array_units(source, &axis.name)),
         dimension: axis.name.clone(),
         length: axis.length,
         coordinates,
@@ -851,15 +849,17 @@ fn axis_coordinates(source: &dyn ArraySource, dimension: &str, length: u64) -> O
         .collect()
 }
 
-/// An array's `units`, as the container spells them, or empty.
+/// An array's `units`, as the container spells them, or `None` when it states
+/// none (#775). An empty or all-blank `units` attribute states none either,
+/// which is how [`Line::coordinate_units`] already read it.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
-fn array_units(source: &dyn ArraySource, array: &str) -> String {
+fn array_units(source: &dyn ArraySource, array: &str) -> Option<String> {
     source
         .array(array)
         .and_then(|d| attribute(&d.attributes, "units"))
         .and_then(AttributeValue::text)
+        .filter(|u| !u.trim().is_empty())
         .map(str::to_string)
-        .unwrap_or_default()
 }
 
 /// One 2-D plane of an array, raw, as `nj` rows (along `y`) of `ni` values
@@ -1651,7 +1651,7 @@ impl Session {
                     &placement.geometry,
                     placement.scan.unwrap_or_else(Scan::north_down),
                     &declared,
-                    var.name.clone(),
+                    Some(var.name.clone()),
                     units,
                     options,
                 ))
@@ -2436,6 +2436,29 @@ fn decoded_scan(i_negative: bool, j_positive: bool) -> Scan {
     Scan::new(i_negative, j_positive, false)
 }
 
+/// `(abbreviation, name, units)` for one message, each `None` where the
+/// message or its table states none (#775).
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+type ParameterNames = (Option<String>, Option<String>, Option<String>);
+
+/// A resolved parameter's table entry, as [`ParameterNames`].
+///
+/// The tables encode "no short name" and "no units" as an empty string, which
+/// is how a dimensionless quantity or an entry with no short name is written in
+/// them. That is the table's encoding, not a display placeholder, so it is read
+/// once here rather than handed to hosts. Units are normalised first, so a
+/// spelling the normaliser empties is `None` too.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn stated(abbreviation: &str, name: &str, units: &str) -> ParameterNames {
+    let some = |s: &str| (!s.is_empty()).then(|| s.to_string());
+    let units = normalize_units(units);
+    (
+        some(abbreviation),
+        some(name),
+        (!units.is_empty()).then(|| units.into_owned()),
+    )
+}
+
 /// `(abbreviation, name, units)` for one GRIB1 message.
 ///
 /// Split out of [`grib1_message`] so [`Session::decode`] does not build a whole
@@ -2443,7 +2466,7 @@ fn decoded_scan(i_negative: bool, j_positive: bool) -> Scan {
 /// too, and a projected family's `lonlat_bbox` walks its perimeter 512 times
 /// per edge.
 #[cfg(feature = "grib1")]
-fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String, String) {
+fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> ParameterNames {
     match fieldglass_grib1::tables::lookup_parameter(
         msg.pds.parameter_id,
         msg.pds.table_version,
@@ -2454,21 +2477,17 @@ fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String, Str
         // does it: the ECMWF local tables are generated from eccodes'
         // Fortran-style exponents and ON388 chains solidi, so the raw strings
         // disagree about the same unit.
-        Some(param) => (
-            param.abbreviation.to_string(),
-            param.name.to_string(),
-            normalize_units(param.units).into_owned(),
-        ),
+        Some(param) => stated(param.abbreviation, param.name, param.units),
         // The format crate owns the fallback rendering, so this seam and the
         // napi one cannot disagree about it (#633).
         None => (
-            String::new(),
-            fieldglass_grib1::tables::unresolved_parameter(
+            None,
+            Some(fieldglass_grib1::tables::unresolved_parameter(
                 msg.pds.originating_centre,
                 msg.pds.table_version,
                 msg.pds.parameter_id,
-            ),
-            String::new(),
+            )),
+            None,
         ),
     }
 }
@@ -2619,10 +2638,11 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         abbreviation,
         units,
         level: fieldglass_grib1::level_value_str(&msg.pds),
-        level_type: fieldglass_grib1::level_type_str(&msg.pds),
+        level_type: Some(fieldglass_grib1::level_type_str(&msg.pds)),
         reference_time: fieldglass_grib1::reference_time(&msg.pds),
-        forecast: fieldglass_grib1::forecast_display(&msg.pds),
-        packing: reader.packing_label(index).unwrap_or("unknown").to_string(),
+        forecast: Some(fieldglass_grib1::forecast_display(&msg.pds)),
+        // `None` when the data section's header could not be read (#775).
+        packing: reader.packing_label(index).map(str::to_string),
         size_label: msg.gds.as_ref().and_then(|g| g.size_label()),
         truncation: reader.synthesis_truncation(index).map(Into::into),
         grid,
@@ -2650,14 +2670,14 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
 /// `(abbreviation, name, units)` for one GRIB2 message. Split out for the
 /// reason [`grib1_parameter`] is.
 #[cfg(feature = "grib2")]
-fn grib2_parameter(msg: &fieldglass_grib2::Grib2Message) -> (String, String, String) {
+fn grib2_parameter(msg: &fieldglass_grib2::Grib2Message) -> ParameterNames {
     let discipline = msg.is.discipline;
     // A template with no horizontal product common carries no category and no
     // number, so there is nothing to name and nothing to report as unresolved
-    // either — every field stays empty. Only a message that *has* the codes and
-    // finds no table for them gets the fallback (#633).
+    // either — every field is `None` (#775). Only a message that *has* the
+    // codes and finds no table for them gets the fallback (#633).
     let Some(common) = msg.pds.common() else {
-        return (String::new(), String::new(), String::new());
+        return (None, None, None);
     };
     match fieldglass_grib2::lookup_parameter(
         msg.ids.originator(),
@@ -2665,21 +2685,17 @@ fn grib2_parameter(msg: &fieldglass_grib2::Grib2Message) -> (String, String, Str
         common.parameter_category,
         common.parameter_number,
     ) {
-        Some((abbr, long, units)) => (
-            abbr.to_string(),
-            long.to_string(),
-            normalize_units(units).into_owned(),
-        ),
+        Some((abbr, long, units)) => stated(abbr, long, units),
         // The format crate owns the fallback rendering, so this seam and the
         // napi one cannot disagree about it (#633).
         None => (
-            String::new(),
-            fieldglass_grib2::unresolved_parameter(
+            None,
+            Some(fieldglass_grib2::unresolved_parameter(
                 discipline,
                 common.parameter_category,
                 common.parameter_number,
-            ),
-            String::new(),
+            )),
+            None,
         ),
     }
 }
@@ -2690,13 +2706,15 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
     let common = msg.pds.common();
     let (abbreviation, parameter, units) = grib2_parameter(msg);
     // The format crate owns every display rule (#545); a template with no
-    // horizontal product common has none of the three fields to render.
+    // horizontal product common has none of the three fields to render, and
+    // says so with `None` rather than a placeholder of the library's choosing
+    // (#775).
     let (level, level_type) = match common {
         Some(c) => (
             fieldglass_grib2::level_value_str(c),
-            fieldglass_grib2::level_type_str(c),
+            Some(fieldglass_grib2::level_type_str(c)),
         ),
-        None => ("—".to_string(), "—".to_string()),
+        None => (None, None),
     };
     let grid = Georef::from_container(
         &GridGeometry::from(&msg.gds),
@@ -2725,10 +2743,8 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         level,
         level_type,
         reference_time: msg.ids.reference_time_iso8601(),
-        forecast: common
-            .map(fieldglass_grib2::forecast_display)
-            .unwrap_or_else(|| "—".to_string()),
-        packing: msg.drs.template_name(),
+        forecast: common.map(fieldglass_grib2::forecast_display),
+        packing: Some(msg.drs.template_name()),
         grid: Some(grid),
         placement,
         reprojectable,
@@ -2800,8 +2816,8 @@ mod tests {
                 max: None,
                 valid_count: 0,
             },
-            parameter: String::new(),
-            units: String::new(),
+            parameter: None,
+            units: None,
         };
         // The session is irrelevant to `probe`; it reads only the field.
         assert!(grib2_session().probe(&field, 0.0, 0.0).is_none());
@@ -2856,8 +2872,8 @@ mod tests {
                 max: Some(15.0),
                 valid_count: 128,
             },
-            parameter: String::new(),
-            units: String::new(),
+            parameter: None,
+            units: None,
         }
     }
 

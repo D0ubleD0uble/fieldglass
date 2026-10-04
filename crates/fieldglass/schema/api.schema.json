@@ -55,8 +55,11 @@
           "type": "integer"
         },
         "units": {
-          "description": "The coordinate array's own `units`, empty when it states none. For a\ntime axis this is the CF form, `hours since 2020-01-01`.",
-          "type": "string"
+          "description": "The coordinate array's own `units`, or `None` when it states none or\nthe axis has no coordinate array (#775). For a time axis this is the\nCF form, `hours since 2020-01-01`.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -327,8 +330,11 @@
           "type": "integer"
         },
         "parameter": {
-          "description": "The parameter's name, as the table that resolved it states it.\n\n# The unresolved-parameter contract\n\nWhen no table in this build resolves the message's parameter codes,\nthis is `Parameter <codes>` — the numeric codes that went\nunresolved, slash-separated, outermost first:\n\n| Format | Rendering | Codes |\n|---|---|---|\n| GRIB2 | `Parameter 209/10/0` | discipline / category / number |\n| GRIB1 | `Parameter 98/128/210` | centre / table version / id |\n\nThe codes rather than a bare `\"Unknown\"` because they are the only\nthing that tells a user *which* table is missing, and no other field\ncarries them all: the discipline is a Code Table 0.0 *name*, and\nonly `Discipline <n>` for a discipline no table defines. This is\nthe string every host shows — the umbrella, the\nwasm binding and the napi binding all render it from the format\ncrate's own `unresolved_parameter` (#633).\n\nEmpty only when the message has no parameter codes to name at all,\nwhich is a GRIB2 product template carrying no horizontal product\ncommon. [`units`](Self::units) is empty in both cases — an\nunresolved parameter has a name to show but no unit to state.",
-          "type": "string"
+          "description": "The parameter's name, as the table that resolved it states it.\n\n# The unresolved-parameter contract\n\nWhen no table in this build resolves the message's parameter codes,\nthis is `Parameter <codes>` — the numeric codes that went\nunresolved, slash-separated, outermost first:\n\n| Format | Rendering | Codes |\n|---|---|---|\n| GRIB2 | `Parameter 209/10/0` | discipline / category / number |\n| GRIB1 | `Parameter 98/128/210` | centre / table version / id |\n\nThe codes rather than a bare `\"Unknown\"` because they are the only\nthing that tells a user *which* table is missing, and no other field\ncarries them all: the discipline is a Code Table 0.0 *name*, and\nonly `Discipline <n>` for a discipline no table defines. This is\nthe string every host shows — the umbrella, the\nwasm binding and the napi binding all render it from the format\ncrate's own `unresolved_parameter` (#633).\n\n`None` only when the message has no parameter codes to name at all,\nwhich is a GRIB2 product template carrying no horizontal product\ncommon (#775). [`units`](Self::units) is `None` in both cases — an\nunresolved parameter has a name to show but no unit to state.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "stats": {
           "$ref": "#/$defs/Stats",
@@ -346,8 +352,11 @@
           "description": "Set when the values are a spectral field band-limited to what the\ngrid can carry, below the truncation the message declares (#637);\n`None` for every other field, including a spectral one the grid\ncarries in full. A host shows it beside the field."
         },
         "units": {
-          "description": "The parameter's units as its table states them. Empty when the\nparameter did not resolve, or is dimensionless.",
-          "type": "string"
+          "description": "The parameter's units as its table states them. `None` when the\nparameter did not resolve, when the table states no units for it\n(a dimensionless quantity, in most tables), or when the array's\nattributes state none (#775).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "values": {
           "$ref": "#/$defs/Values",
@@ -457,16 +466,22 @@
           "type": "string"
         },
         "ni": {
-          "description": "Grid columns (west-to-east point count of one row).",
+          "description": "Grid columns (west-to-east point count of one row). `None` for a\ngrid with no raster shape — spherical-harmonic or bi-Fourier\ncoefficients, HEALPix pixels, a template this build does not read\n— where it used to be `0` (#775). `Some(0)` is a grid that declares\nzero columns.",
           "format": "uint32",
           "minimum": 0,
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "nj": {
-          "description": "Grid rows.",
+          "description": "Grid rows, under the same rule as [`ni`](Self::ni).",
           "format": "uint32",
           "minimum": 0,
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "periodicX": {
           "description": "The grid closes on itself in the column axis: one column step past\nthe last column lands back on the first. A renderer wraps rather\nthan clamping there, or the seam meridian draws as a hole.",
@@ -700,16 +715,22 @@
           "description": "Range and count over the present points."
         },
         "units": {
-          "description": "The array's units, as its attributes state them.",
-          "type": "string"
+          "description": "The array's units, as its attributes state them, or `None` when they\nstate none (#775).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "values": {
           "$ref": "#/$defs/Values",
           "description": "The values along the axis, in index order. Read `mask` before a\nvalue: an absent point still occupies its slot."
         },
         "variable": {
-          "description": "The array's name.",
-          "type": "string"
+          "description": "The array's name, or the parameter's for a zonal mean. `None` for the\nzonal mean of a GRIB2 message whose product template carries no\nparameter codes (#775).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -728,12 +749,18 @@
       "description": "One message's metadata, built on demand.\n\nLazy by design: a thousand-message file should not serialise a thousand\nof these to open.",
       "properties": {
         "abbreviation": {
-          "description": "The table's short name for the parameter, e.g. `\"2t\"`. Empty when\nthe parameter did not resolve.",
-          "type": "string"
+          "description": "The table's short name for the parameter, e.g. `\"2t\"`. `None` when\nthe parameter did not resolve, or the table that resolved it gives\nno short name (#775).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "forecast": {
-          "description": "Forecast time relative to `reference_time`, rendered — `\"+6h\"`, or\n`\"+30 Minute\"` for a unit the edition does not convert to hours.",
-          "type": "string"
+          "description": "Forecast time relative to `reference_time`, rendered — `\"+6h\"`, or\n`\"+30 Minute\"` for a unit the edition does not convert to hours.\n`None` for a GRIB2 product template that carries no forecast time.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "forecastHours": {
           "description": "Forecast lead time in whole hours, `None` for a template that states\nnone.\n\n[`forecast`](Self::forecast) is the same fact rendered for display\n(\"+6 h\", an averaging interval, \"analysis\"); this is the number, for\na host that sorts or animates by it.",
@@ -765,12 +792,18 @@
           "type": "integer"
         },
         "level": {
-          "description": "The level, rendered — `\"500 hPa\"`, `\"2 m above ground\"`.",
-          "type": "string"
+          "description": "The level, rendered — `\"500 hPa\"`, `\"2 m above ground\"`. `None`\nwhen the message states no level value: a GRIB1 surface or\nwhole-column type, a GRIB2 surface coded missing, or a GRIB2\nproduct template that carries no surface (#775). A GRIB2 surface\nwith no scaled value is named here instead (`\"Ground or water\nsurface\"`), because Code Table 4.5's entry is the description.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "levelType": {
-          "description": "The level's surface type on its own, for grouping messages that\nshare a surface at different values.",
-          "type": "string"
+          "description": "The level's surface type on its own, for grouping messages that\nshare a surface at different values. `None` for a GRIB2 product\ntemplate that carries no surface.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "offsetBytes": {
           "description": "Byte offset of the message's first byte within the container, so a\nhost can range-fetch this message alone on a later visit.",
@@ -783,12 +816,18 @@
           "type": "string"
         },
         "packing": {
-          "description": "Which packing the data section uses, named — what decodes it, and\nthe first thing to look at when a decode is wrong.",
-          "type": "string"
+          "description": "Which packing the data section uses, named — what decodes it, and\nthe first thing to look at when a decode is wrong. `None` when the\nGRIB1 data section's header could not be read (#775).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "parameter": {
-          "description": "The parameter's name, under the same contract as\n[`Field::parameter`]: the table's name, or `Parameter <codes>`\nnaming the codes no table in this build resolved.",
-          "type": "string"
+          "description": "The parameter's name, under the same contract as\n[`Field::parameter`]: the table's name, or `Parameter <codes>`\nnaming the codes no table in this build resolved. `None` for a GRIB2\nproduct template that carries no parameter codes.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "placement": {
           "$ref": "#/$defs/Placement",
@@ -834,8 +873,11 @@
           "description": "What [`crate::Session::decode`] will set as\n[`Field::truncation`] for this message: the map of a spectral\nmessage declaring more wavenumbers than the synthesis grid carries\nis band-limited, and says so (#637). Read from the declaration, so a\nmessage list can show it before anything is decoded. `None` for\neverything else."
         },
         "units": {
-          "description": "Units as the parameter's table states them.",
-          "type": "string"
+          "description": "Units as the parameter's table states them, under the same rule as\n[`Field::units`].",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "uvRelativeToGrid": {
           "description": "Whether this message's `u`/`v` components are resolved along the\ngrid's own axes rather than east and north (GRIB1 GDS octet 17 bit 5,\nGRIB2 §3 Flag Table 3.3 bit 5).\n\nWhat a vector plot must know before it draws an arrow (#241): a\ngrid-relative pair drawn as east/north points wrong by the grid's\nconvergence angle, which over a continental Lambert domain is tens of\ndegrees. HRRR and NAM set it. `None` for a message whose family\nstates no resolution flags, and for a container that is not GRIB.",
@@ -1411,8 +1453,11 @@
           "type": "string"
         },
         "units": {
-          "description": "Units from the variable's own attributes, empty when it states none.",
-          "type": "string"
+          "description": "Units from the variable's own attributes, or `None` when it states\nnone (#775).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

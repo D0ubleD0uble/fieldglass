@@ -223,7 +223,8 @@ pub struct AttributeMeta {
 /// One NetCDF variable, flattened for the JS boundary. `dimensions` lists
 /// resolved dimension names (in declared order) so the provider doesn't need
 /// to cross-reference dim ids itself.
-#[napi(object)]
+// `use_nullable` so `units` crosses as `null`, not as a missing key (#574).
+#[napi(object, use_nullable = true)]
 #[derive(Debug)]
 pub struct VariableMeta {
     /// The variable's name as the file declares it.
@@ -234,7 +235,7 @@ pub struct VariableMeta {
     /// varying first.
     pub dimensions: Vec<String>,
     /// The variable's CF `units`, typeset for display the way a GRIB unit is
-    /// (ADR-0007). Empty when the variable declares none.
+    /// (ADR-0007). `null` when the variable declares none (#775).
     ///
     /// Lifted out of `attributes` because the metadata view has no room to
     /// print them all: it previews the first three and hides the rest behind
@@ -243,18 +244,20 @@ pub struct VariableMeta {
     /// the variable, which is not where a reader looks for them. Normalised
     /// here rather than in the view so the table and the render panel cannot
     /// print the same units two different ways.
-    pub units: String,
+    pub units: Option<String>,
     /// Every attribute on the variable, in file order, `units` included.
     pub attributes: Vec<AttributeMeta>,
 }
 
 /// The CF `units` attribute, typeset (ADR-0007), or empty when absent.
-fn units_from(attributes: &[AttributeMeta]) -> String {
+fn units_from(attributes: &[AttributeMeta]) -> Option<String> {
     attributes
         .iter()
         .find(|a| a.name == "units")
         .map(|a| normalize_units(&a.value).into_owned())
-        .unwrap_or_default()
+        // After normalising, as `fieldglass`'s own seam does: an all-blank
+        // attribute states no units either (#775).
+        .filter(|units| !units.trim().is_empty())
 }
 
 /// Top-level NetCDF dataset metadata. Covers what's exposable from the
@@ -1016,15 +1019,17 @@ impl MessageStream {
             // A raster the section declares and nothing places (#823) has its
             // dimensions, so "no declared dimensions" would contradict the
             // message table; say what is missing instead.
-            return Err(if placed.ni > 0 && placed.nj > 0 {
-                napi::Error::from_reason(format!(
-                    "the {} grid is {}: its geometry places no point on the Earth",
-                    placed.label,
-                    placed.placement.as_str(),
-                ))
-            } else {
-                no_display_raster()
-            });
+            return Err(
+                if matches!((placed.ni, placed.nj), (Some(i), Some(j)) if i > 0 && j > 0) {
+                    napi::Error::from_reason(format!(
+                        "the {} grid is {}: its geometry places no point on the Earth",
+                        placed.label,
+                        placed.placement.as_str(),
+                    ))
+                } else {
+                    no_display_raster()
+                },
+            );
         }
         Ok(Placed::from_georef(placed))
     }
@@ -1061,7 +1066,8 @@ impl MessageStream {
     }
 
     /// Message `index`'s parameter name and units, which label a zonal mean.
-    fn parameter(&self, index: u32) -> napi::Result<(String, String)> {
+    /// Either is `None` where the message states none (#775).
+    fn parameter(&self, index: u32) -> napi::Result<(Option<String>, Option<String>)> {
         let info = self.session.message(index).into_napi()?;
         Ok((info.parameter, info.units))
     }
@@ -1327,7 +1333,7 @@ impl Grib1Handle {
     pub fn zonal_mean(&self, message_index: u32) -> napi::Result<LineResult> {
         let (raw, placed) = self.resolved(message_index)?;
         let (name, units) = self.stream.parameter(message_index)?;
-        zonal_mean_of(&raw, &placed, &name, &units)
+        zonal_mean_of(&raw, &placed, name.as_deref(), units.as_deref())
     }
 
     /// Patch the PDS `p1` (forecast period) octet of one message and
@@ -1637,7 +1643,7 @@ impl Grib2Handle {
     pub fn zonal_mean(&self, message_index: u32) -> napi::Result<LineResult> {
         let (raw, placed) = self.resolved(message_index)?;
         let (name, units) = self.stream.parameter(message_index)?;
-        zonal_mean_of(&raw, &placed, &name, &units)
+        zonal_mean_of(&raw, &placed, name.as_deref(), units.as_deref())
     }
 
     /// Decode one message and paint it into a raster under `options`. A
@@ -1905,13 +1911,13 @@ pub struct NetcdfVariableMeta {
     /// `detected_x_dim`.
     pub detected_time_dim: Option<i32>,
     /// The variable's CF `units`, typeset for display the way a GRIB unit is
-    /// (ADR-0007). Empty when the variable declares none.
+    /// (ADR-0007). `null` when the variable declares none (#775).
     ///
     /// Carried here because the render panel labels a slice from this list and
     /// had nowhere else to read units from, so its title line and probe readout
     /// showed none at all — the normalisation would have been correct and
     /// invisible (#453).
-    pub units: String,
+    pub units: Option<String>,
 }
 
 /// Persistent NetCDF reader handle, sibling to [`Grib1Handle`]/[`Grib2Handle`].
@@ -2031,7 +2037,7 @@ impl NetcdfHandle {
                     .var(v.decode_index)
                     .and_then(|source| source.units())
                     .map(|units| normalize_units(units).into_owned())
-                    .unwrap_or_default(),
+                    .filter(|units| !units.trim().is_empty()),
             })
             .collect()
     }
@@ -2137,7 +2143,12 @@ impl NetcdfHandle {
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
         let placed = self.slice_placed(&var, y, x)?;
-        zonal_mean_of(&plane, &placed, &var.name, &self.slice_units(&var))
+        zonal_mean_of(
+            &plane,
+            &placed,
+            Some(&var.name),
+            self.slice_units(&var).as_deref(),
+        )
     }
 
     /// Serialize one decoded slice as CSV — `"matrix"` (a 2-D grid of values) or
@@ -2628,12 +2639,12 @@ impl NetcdfHandle {
 
     /// A variable's CF `units`, typeset for display the way a GRIB unit is
     /// (ADR-0007, #453). Empty when the variable declares none.
-    fn slice_units(&self, var: &RenderableVariable) -> String {
+    fn slice_units(&self, var: &RenderableVariable) -> Option<String> {
         self.view
             .var(var.decode_index)
             .and_then(|v| v.units())
             .map(|units| normalize_units(units).into_owned())
-            .unwrap_or_default()
+            .filter(|units| !units.trim().is_empty())
     }
 }
 
@@ -3074,9 +3085,14 @@ impl ZarrHandle {
             )
             .into_napi()?;
         let values = field_values(&field);
-        fieldglass::render::zonal_mean(&field.source(), &values, &field.parameter, &field.units)
-            .map(LineResult::from)
-            .into_napi()
+        fieldglass::render::zonal_mean(
+            &field.source(),
+            &values,
+            field.parameter.as_deref(),
+            field.units.as_deref(),
+        )
+        .map(LineResult::from)
+        .into_napi()
     }
 
     /// One decoded slice as CSV — `"matrix"` or `"long"` (`lat,lon,value`).
@@ -3445,10 +3461,14 @@ struct Placed {
 
 impl Placed {
     /// A GRIB message's placement, as `Session` reports it.
+    ///
+    /// Called only for a placement that has a raster — `placed` refuses one
+    /// whose geometry has no dimensions, and `resolved` decodes first — so the
+    /// shape is always stated; `0` is never what a display reads.
     fn from_georef(georef: fieldglass::Georef) -> Self {
         Self {
-            ni: georef.ni,
-            nj: georef.nj,
+            ni: georef.ni.unwrap_or_default(),
+            nj: georef.nj.unwrap_or_default(),
             scan: georef.scan,
             family: georef.label,
             points_per_row: georef.points_per_row,
@@ -3511,8 +3531,8 @@ fn csv_buffer(csv: String) -> napi::bindgen_prelude::Buffer {
 fn zonal_mean_of(
     values: &[Option<f64>],
     placed: &Placed,
-    name: &str,
-    units: &str,
+    name: Option<&str>,
+    units: Option<&str>,
 ) -> napi::Result<LineResult> {
     fieldglass::render::zonal_mean(&placed.source(), values, name, units)
         .map(LineResult::from)
@@ -3599,10 +3619,11 @@ pub struct LineResult {
     pub min: Option<f64>,
     /// Largest present value, `null` when no point is present.
     pub max: Option<f64>,
-    /// The variable's name.
-    pub variable: String,
-    /// The variable's units.
-    pub units: String,
+    /// The variable's name, `null` for the zonal mean of a GRIB2 message that
+    /// carries no parameter codes (#775).
+    pub variable: Option<String>,
+    /// The variable's units, `null` when it states none (#775).
+    pub units: Option<String>,
     /// The axis the line runs along.
     pub dimension: String,
     /// The axis's coordinate values, in index order — `null` when the axis has
@@ -4165,9 +4186,10 @@ mod friendly_packing_tests {
         .expect("opens")
         .info(0)
         .expect("message 0");
-        let label = packing_label(info.packing.clone());
-        assert_ne!(label, info.packing, "{:?} has no label", info.packing);
-        assert_eq!(label, friendly_packing(&info.packing));
+        let packing = info.packing.expect("the data section names its packing");
+        let label = packing_label(packing.clone());
+        assert_ne!(label, packing, "{packing:?} has no label");
+        assert_eq!(label, friendly_packing(&packing));
     }
 
     #[test]
@@ -4712,7 +4734,7 @@ mod netcdf_slice_tests {
 
         // A plain one-octet P1: the edit box can show the byte it writes.
         let m = grib1_handle(ECMWF_GRIB1).info(0).expect("message 0");
-        assert_eq!(m.forecast, "+24h");
+        assert_eq!(m.forecast.as_deref(), Some("+24h"));
         assert_eq!(
             m.identification,
             Identification::Grib1 { p1_octet: Some(24) }
@@ -4722,7 +4744,7 @@ mod netcdf_slice_tests {
         // octet 19 alone would shift the lead by multiples of 256. No octet is
         // offered, and the message stays read-only.
         let m = grib1_handle(CMC_WIND).info(0).expect("message 0");
-        assert_eq!(m.forecast, "+12h");
+        assert_eq!(m.forecast.as_deref(), Some("+12h"));
         assert_eq!(m.forecast_hours, Some(12));
         assert_eq!(m.identification, Identification::Grib1 { p1_octet: None });
 
@@ -4750,20 +4772,20 @@ mod netcdf_slice_tests {
         // A mean-sea-level field at +24h. The value is a scaled zero, which is
         // not the same as a surface carrying no value at all.
         let m = grib2_handle(ETA_LAMBERT).info(0).expect("message 0");
-        assert_eq!(m.level, "0");
-        assert_eq!(m.level_type, "Mean sea level");
+        assert_eq!(m.level.as_deref(), Some("0"));
+        assert_eq!(m.level_type.as_deref(), Some("Mean sea level"));
         assert_eq!(m.forecast_hours, Some(24));
-        assert_eq!(m.forecast, "+24h");
+        assert_eq!(m.forecast.as_deref(), Some("+24h"));
 
         // A long lead, so the hours value and the display string agree on a
         // number neither could have produced from the other's default.
         let m = grib2_handle(GFS_C255).info(0).expect("message 0");
-        assert_eq!(m.level, "0");
+        assert_eq!(m.level.as_deref(), Some("0"));
         // NCEP's local-use surface 242: Code Table 4.5 names the range, not
         // the code, so the code is what the column shows (#774).
-        assert_eq!(m.level_type, "Fixed surface 242");
+        assert_eq!(m.level_type.as_deref(), Some("Fixed surface 242"));
         assert_eq!(m.forecast_hours, Some(204));
-        assert_eq!(m.forecast, "+204h");
+        assert_eq!(m.forecast.as_deref(), Some("+204h"));
     }
 
     #[test]
@@ -6990,7 +7012,7 @@ mod reduced_grid_render_tests {
             assert_eq!(placed.family, "reduced_gaussian", "{label}");
             let meta = handle.resolved_georef(0).expect("resolves");
             assert_eq!(meta.label, "reduced_gaussian", "{label}");
-            assert_eq!(meta.ni, width, "{label}");
+            assert_eq!(meta.ni, Some(width), "{label}");
         }
 
         let (raw, placed) = grib1_handle(GRIB1_N32).resolved(0).expect("resolves");
@@ -7305,7 +7327,7 @@ mod curvilinear_render_tests {
             assert_eq!((got_ni, got_nj), (ni, nj), "{label}");
             assert_eq!(
                 (meta.ni, meta.nj),
-                (ni, nj),
+                (Some(ni), Some(nj)),
                 "{label}: the index's own shape"
             );
             assert!(meta.reprojectable, "{label}: it can be put on a map");
@@ -7679,7 +7701,7 @@ mod healpix_render_tests {
         assert!(handle().info(0).expect("message 0").reprojectable);
         let [lat_first, _, lat_last, lon_last] = meta.corners.expect("corners");
         assert_eq!((lat_first, lat_last), (90.0, -90.0));
-        assert_eq!((meta.ni, meta.nj), (26, 14));
+        assert_eq!((meta.ni, meta.nj), (Some(26), Some(14)));
         // The eastern corner is the last longitude the field was evaluated at,
         // bit for bit — not a second spelling of it (#546).
         let wire = serde_json::to_value(&*placed.geometry).expect("a geometry serialises");
@@ -8002,15 +8024,19 @@ mod message_wire_tests {
                 let (ni, nj) = (field.ni, field.nj);
                 assert!(ni > 1 && nj > 1, "{path} = {value}: {ni} x {nj}");
                 let placed = session.place_message(0).expect("places");
-                assert_eq!((placed.ni, placed.nj), (ni, nj), "{path} = {value}");
+                assert_eq!(
+                    (placed.ni, placed.nj),
+                    (Some(ni), Some(nj)),
+                    "{path} = {value}"
+                );
                 assert_eq!(
                     (
                         read_back.grid.as_ref().unwrap().ni,
                         read_back.grid.as_ref().unwrap().nj
                     ),
-                    (ni, nj)
+                    (Some(ni), Some(nj))
                 );
-                assert_eq!((field.georef.ni, field.georef.nj), (ni, nj));
+                assert_eq!((field.georef.ni, field.georef.nj), (Some(ni), Some(nj)));
                 let opts = super::netcdf_slice_tests::opts;
                 let g = handle.render_grid(0, opts("source")).expect("renders");
                 assert_eq!(
@@ -8360,7 +8386,12 @@ mod placement_tests {
             "../../fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2"
         ));
         assert_eq!(meta.placement, Placement::Unplaceable);
-        assert!(meta.grid.expect("a declared grid").ni > 0);
+        assert!(
+            meta.grid
+                .expect("a declared grid")
+                .ni
+                .is_some_and(|ni| ni > 0)
+        );
         assert!(!meta.reprojectable);
     }
 

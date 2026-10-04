@@ -84,10 +84,11 @@ export interface AxisValues {
    */
   coordinates: number[] | null;
   /**
-   * The coordinate array's own `units`, empty when it states none. For a
-   * time axis this is the CF form, `hours since 2020-01-01`.
+   * The coordinate array's own `units`, or `None` when it states none or
+   * the axis has no coordinate array (#775). For a time axis this is the
+   * CF form, `hours since 2020-01-01`.
    */
-  units: string;
+  units: string | null;
 }
 
 /**
@@ -345,17 +346,19 @@ export interface Field {
    * wasm binding and the napi binding all render it from the format
    * crate's own `unresolved_parameter` (#633).
    *
-   * Empty only when the message has no parameter codes to name at all,
+   * `None` only when the message has no parameter codes to name at all,
    * which is a GRIB2 product template carrying no horizontal product
-   * common. `units` is empty in both cases — an
+   * common (#775). `units` is `None` in both cases — an
    * unresolved parameter has a name to show but no unit to state.
    */
-  parameter: string;
+  parameter: string | null;
   /**
-   * The parameter's units as its table states them. Empty when the
-   * parameter did not resolve, or is dimensionless.
+   * The parameter's units as its table states them. `None` when the
+   * parameter did not resolve, when the table states no units for it
+   * (a dimensionless quantity, in most tables), or when the array's
+   * attributes state none (#775).
    */
-  units: string;
+  units: string | null;
 }
 
 /**
@@ -438,13 +441,17 @@ export interface Georef {
    */
   label: string;
   /**
-   * Grid columns (west-to-east point count of one row).
+   * Grid columns (west-to-east point count of one row). `None` for a
+   * grid with no raster shape — spherical-harmonic or bi-Fourier
+   * coefficients, HEALPix pixels, a template this build does not read
+   * — where it used to be `0` (#775). `Some(0)` is a grid that declares
+   * zero columns.
    */
-  ni: number;
+  ni: number | null;
   /**
-   * Grid rows.
+   * Grid rows, under the same rule as `ni`.
    */
-  nj: number;
+  nj: number | null;
   /**
    * `[lat_min, lat_max, lon_min, lon_max]` in degrees. `lon_min` may
    * fall below -180 (or `lon_max` above 180) to describe a window
@@ -673,13 +680,16 @@ export interface Line {
    */
   stats: Stats;
   /**
-   * The array's name.
+   * The array's name, or the parameter's for a zonal mean. `None` for the
+   * zonal mean of a GRIB2 message whose product template carries no
+   * parameter codes (#775).
    */
-  variable: string;
+  variable: string | null;
   /**
-   * The array's units, as its attributes state them.
+   * The array's units, as its attributes state them, or `None` when they
+   * state none (#775).
    */
-  units: string;
+  units: string | null;
   /**
    * The axis the line runs along, named as the array names it.
    */
@@ -720,27 +730,36 @@ export interface MessageInfo {
   /**
    * The parameter's name, under the same contract as
    * `Field::parameter`: the table's name, or `Parameter <codes>`
-   * naming the codes no table in this build resolved.
+   * naming the codes no table in this build resolved. `None` for a GRIB2
+   * product template that carries no parameter codes.
    */
-  parameter: string;
+  parameter: string | null;
   /**
-   * The table's short name for the parameter, e.g. `"2t"`. Empty when
-   * the parameter did not resolve.
+   * The table's short name for the parameter, e.g. `"2t"`. `None` when
+   * the parameter did not resolve, or the table that resolved it gives
+   * no short name (#775).
    */
-  abbreviation: string;
+  abbreviation: string | null;
   /**
-   * Units as the parameter's table states them.
+   * Units as the parameter's table states them, under the same rule as
+   * `Field::units`.
    */
-  units: string;
+  units: string | null;
   /**
-   * The level, rendered — `"500 hPa"`, `"2 m above ground"`.
+   * The level, rendered — `"500 hPa"`, `"2 m above ground"`. `None`
+   * when the message states no level value: a GRIB1 surface or
+   * whole-column type, a GRIB2 surface coded missing, or a GRIB2
+   * product template that carries no surface (#775). A GRIB2 surface
+   * with no scaled value is named here instead (`"Ground or water
+   * surface"`), because Code Table 4.5's entry is the description.
    */
-  level: string;
+  level: string | null;
   /**
    * The level's surface type on its own, for grouping messages that
-   * share a surface at different values.
+   * share a surface at different values. `None` for a GRIB2 product
+   * template that carries no surface.
    */
-  levelType: string;
+  levelType: string | null;
   /**
    * Reference (analysis) time as RFC 3339. Every GRIB message states
    * one, in its §1 (GRIB2) or PDS (GRIB1).
@@ -749,13 +768,15 @@ export interface MessageInfo {
   /**
    * Forecast time relative to `reference_time`, rendered — `"+6h"`, or
    * `"+30 Minute"` for a unit the edition does not convert to hours.
+   * `None` for a GRIB2 product template that carries no forecast time.
    */
-  forecast: string;
+  forecast: string | null;
   /**
    * Which packing the data section uses, named — what decodes it, and
-   * the first thing to look at when a decode is wrong.
+   * the first thing to look at when a decode is wrong. `None` when the
+   * GRIB1 data section's header could not be read (#775).
    */
-  packing: string;
+  packing: string | null;
   /**
    * The grid the message **declares**, not the one its field is decoded
    * onto.
@@ -1348,9 +1369,10 @@ export interface VariableInfo {
    */
   dtype: string;
   /**
-   * Units from the variable's own attributes, empty when it states none.
+   * Units from the variable's own attributes, or `None` when it states
+   * none (#775).
    */
-  units: string;
+  units: string | null;
   /**
    * Which axis the file's own conventions say is latitude, when they say
    * so. `None` for a WRF or satellite file, whose horizontal axes are

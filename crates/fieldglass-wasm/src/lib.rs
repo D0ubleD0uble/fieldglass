@@ -88,6 +88,14 @@ fn throw(e: fieldglass::Error) -> JsValue {
 const WIRE: serde_wasm_bindgen::Serializer =
     serde_wasm_bindgen::Serializer::new().serialize_missing_as_null(true);
 
+/// A string the API may not have, as JavaScript reads it: the text, or `null`.
+///
+/// Not `Option<String>` as a return type, which `wasm-bindgen` crosses as
+/// `undefined` — the #288 shape the wire contract rules out (#574).
+fn nullable_text(text: Option<&str>) -> JsValue {
+    text.map_or(JsValue::NULL, JsValue::from_str)
+}
+
 fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
     value
         .serialize(&WIRE)
@@ -548,15 +556,19 @@ impl WasmField {
     /// resolves the message's parameter codes, this is `Parameter <codes>`
     /// naming the codes that went unresolved — `Parameter 209/10/0` for GRIB2,
     /// `Parameter 98/128/210` for GRIB1. See `fieldglass::api::Field` for the
-    /// contract in full (#633).
-    pub fn parameter(&self) -> String {
-        self.field.parameter.clone()
+    /// contract in full (#633). `null` for a GRIB2 product template that
+    /// carries no parameter codes (#775).
+    #[wasm_bindgen(unchecked_return_type = "string | null")]
+    pub fn parameter(&self) -> JsValue {
+        nullable_text(self.field.parameter.as_deref())
     }
 
     /// The parameter's units as the originating table states them, e.g.
-    /// `"K"`. Empty when the parameter did not resolve, or is dimensionless.
-    pub fn units(&self) -> String {
-        self.field.units.clone()
+    /// `"K"`. `null` when the parameter did not resolve, the table states no
+    /// units for it, or the array's attributes state none (#775).
+    #[wasm_bindgen(unchecked_return_type = "string | null")]
+    pub fn units(&self) -> JsValue {
+        nullable_text(self.field.units.as_deref())
     }
 
     /// `{ declared, truncatedTo }` when the values are a spectral field

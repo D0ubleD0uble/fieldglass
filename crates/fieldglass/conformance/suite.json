@@ -13581,8 +13581,8 @@
           "dy": null,
           "kind": "unsupported",
           "label": "spherical_harmonic",
-          "ni": 0,
-          "nj": 0,
+          "ni": null,
+          "nj": null,
           "periodicX": false,
           "placement": "no_raster",
           "pointsPerRow": null,
@@ -15466,8 +15466,8 @@
           "dy": null,
           "kind": "unsupported",
           "label": "healpix",
-          "ni": 0,
-          "nj": 0,
+          "ni": null,
+          "nj": null,
           "periodicX": false,
           "placement": "no_raster",
           "pointsPerRow": null,
@@ -17383,7 +17383,7 @@
           "p1Octet": 0
         },
         "index": 0,
-        "level": "—",
+        "level": null,
         "levelType": "Cloud base level",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium-Range Weather Forecasts (ECMWF) (RSMC)",
@@ -22557,8 +22557,8 @@
           "dy": null,
           "kind": "unsupported",
           "label": "spherical_harmonic",
-          "ni": 0,
-          "nj": 0,
+          "ni": null,
+          "nj": null,
           "periodicX": false,
           "placement": "no_raster",
           "pointsPerRow": null,
@@ -25682,7 +25682,7 @@
           "validCount": 100
         },
         "truncation": null,
-        "units": ""
+        "units": null
       }
     },
     {
