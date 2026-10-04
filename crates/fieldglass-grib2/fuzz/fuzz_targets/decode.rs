@@ -40,8 +40,13 @@ use fieldglass_grib2::Grib2Reader;
 /// transform's cost is `O(points × coefficients)` and the coefficient count
 /// comes from the file, so a large grid here would turn a legitimate
 /// high-truncation input into a fuzzer timeout rather than a finding.
+///
+/// Six longitudes, not three: the band-limited call sums what the grid
+/// resolves, and three longitudes round the circle resolve T0 (#812), which
+/// would leave that call nothing to sum. Six at 60° and three latitudes 60°
+/// apart carry T2.
 const PROBE_LATS: [f64; 3] = [-60.0, 0.0, 60.0];
-const PROBE_LONS: [f64; 3] = [0.0, 120.0, 240.0];
+const PROBE_LONS: [f64; 6] = [0.0, 60.0, 120.0, 180.0, 240.0, 300.0];
 
 /// Whether message `i` declares a spherical-harmonic truncation past a bound
 /// chosen for fuzzer throughput rather than for correctness — the GRIB1

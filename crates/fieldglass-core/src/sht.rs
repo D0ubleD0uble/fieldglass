@@ -356,6 +356,16 @@ pub const fn grid_band_limit(ni: usize, nj: usize) -> u32 {
     }
 }
 
+/// How many times larger than each gap beside it a gap must be before
+/// [`points_band_limit`] reads it as a break between two regions of a grid
+/// rather than a step of one.
+///
+/// Four lets a regular grid lose up to three consecutive rows or columns and
+/// still be charged for the hole as one coarse stretch, while the separation
+/// between two sampled regions, which is tens or hundreds of steps, is never
+/// mistaken for a step.
+const REGION_BREAK: f64 = 4.0;
+
 /// The highest total wavenumber a caller's grid resolves — [`grid_band_limit`]
 /// for axes that need not be global, regular or ordered — or `None` when
 /// neither axis has three distinct points, so neither limits anything.
@@ -364,9 +374,29 @@ pub const fn grid_band_limit(ni: usize, nj: usize) -> u32 {
 /// carries wavenumbers below `180/Δ`, so the limit is `⌊180/Δ⌋ − 1`, and the
 /// grid carries the smaller of its two axes' limits. On the pinned global grid
 /// that is T359 again, and it is MIR's linear rule for a regular lat/lon
-/// target (0.25° gives T719, 1° T179). Longitudes are read round the circle,
-/// and the one gap a regional grid leaves outside itself — the largest — is
-/// not a step; latitudes are read as a line.
+/// target (0.25° gives T719, 1° T179). Longitudes are read round the circle and
+/// latitudes as a line.
+///
+/// **A gap between two regions is not a step.** A grid can sample more than one
+/// place: two latitude bands, two longitude sectors, or the one region a
+/// regional grid covers, whose outside is the long way round the circle. The
+/// gap that separates them is not the spacing either region is sampled at, and
+/// charging it would band-limit both regions to the separation — two dense
+/// polar caps 140° apart would read as a 140° step and synthesise as the
+/// field's global mean (#812). So a gap more than four times each
+/// gap beside it is a break between regions, and only the other gaps are
+/// steps. A smaller jump is still a step: a regular grid with a row or two
+/// missing is charged for the hole, because it is one sampling with a coarse
+/// stretch rather than two samplings. The smallest gap on an axis is never a
+/// break, so an axis that has steps keeps at least one.
+///
+/// **A coarse regular sample stays band-limited to what it resolves.** Three
+/// longitudes 120° apart carry T0, as [`grid_band_limit`] says of a three-point
+/// ring, so `[−60, 0, 60] × [0, 120, 240]` synthesises the field's mean at
+/// every point. That is what the grid can show of the field, not a defect; a
+/// caller who wants the field's value at a handful of places wants the full
+/// sum, which `synthesize_spectral_message_full` and `evaluate_spectral_point`
+/// in the format crates give.
 ///
 /// **An axis constrains the limit only when it has at least three distinct
 /// points.** One or two points on an axis are a handful of places, not a
@@ -402,24 +432,49 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
     };
     // Fewer than this many distinct points on an axis do not sample it.
     const MIN_POINTS: usize = 3;
+    // The coarsest of an axis's gaps that are steps rather than breaks between
+    // regions. `ring` closes the gaps round the circle, so the first and last
+    // gaps are each other's neighbours; a line's end gaps have one neighbour.
+    let coarsest_step = |gaps: &[f64], ring: bool| -> Option<f64> {
+        let n = gaps.len();
+        let neighbours = |i: usize| -> [Option<f64>; 2] {
+            let before = if i > 0 {
+                Some(gaps[i - 1])
+            } else if ring {
+                Some(gaps[n - 1])
+            } else {
+                None
+            };
+            let after = if i + 1 < n {
+                Some(gaps[i + 1])
+            } else if ring {
+                Some(gaps[0])
+            } else {
+                None
+            };
+            [before, after]
+        };
+        (0..n)
+            .filter(|&i| {
+                let beside = neighbours(i);
+                let is_break = beside.iter().any(Option::is_some)
+                    && beside.iter().flatten().all(|&b| gaps[i] > REGION_BREAK * b);
+                !is_break
+            })
+            .map(|i| gaps[i])
+            .reduce(f64::max)
+    };
     let lats = sorted(latitudes_deg, false);
     let by_latitude = (lats.len() >= MIN_POINTS)
-        .then_some(&lats)
-        .into_iter()
-        .flat_map(|lats| lats.windows(2))
-        .map(|w| w[1] - w[0])
-        .reduce(f64::max)
+        .then(|| lats.windows(2).map(|w| w[1] - w[0]).collect::<Vec<f64>>())
+        .and_then(|gaps| coarsest_step(&gaps, false))
         .map(limit_of_step);
     let lons = sorted(longitudes_deg, true);
     let by_longitude = match (lons.first(), lons.last()) {
         (Some(&first), Some(&last)) if lons.len() >= MIN_POINTS => {
             let mut gaps: Vec<f64> = lons.windows(2).map(|w| w[1] - w[0]).collect();
             gaps.push(first + 360.0 - last);
-            gaps.sort_by(f64::total_cmp);
-            // Drop the largest: the outside of a regional grid, or one of a
-            // global grid's equal steps, which the next one repeats.
-            gaps.pop();
-            gaps.last().copied().map(limit_of_step)
+            coarsest_step(&gaps, true).map(limit_of_step)
         }
         _ => None,
     };
@@ -1548,6 +1603,57 @@ mod tests {
         assert_eq!(points_band_limit(&[30.0], &global_lons), Some(359));
         assert_eq!(points_band_limit(&[-45.0, 45.0], &[0.0, 180.0]), None);
         assert_eq!(points_band_limit(&[30.0], &[120.0]), None);
+    }
+
+    /// A grid of two sampled regions is judged by how each region is sampled,
+    /// not by the gap between them (#812).
+    #[test]
+    fn a_gap_between_two_regions_is_not_a_step() {
+        let axis = |from: f64, to: f64, step: f64| -> Vec<f64> {
+            let n = ((to - from) / step).round() as usize;
+            (0..=n).map(|k| from + k as f64 * step).collect()
+        };
+        let global_lons = axis(0.0, 359.5, 0.5);
+        let global_lats = axis(-90.0, 90.0, 0.5);
+        // Two polar caps at 0.5°: the 140° between them used to be the step,
+        // and T0 is the field's global mean.
+        let caps: Vec<f64> = [axis(-80.0, -70.0, 0.5), axis(70.0, 80.0, 0.5)].concat();
+        assert_eq!(points_band_limit(&caps, &global_lons), Some(359));
+        // Two longitude sectors at 0.5°, 170° apart either way round.
+        let sectors: Vec<f64> = [axis(0.0, 10.0, 0.5), axis(180.0, 190.0, 0.5)].concat();
+        assert_eq!(points_band_limit(&global_lats, &sectors), Some(359));
+        // A sector that crosses the meridian is still one region.
+        let across: Vec<f64> = [axis(350.0, 359.5, 0.5), axis(0.0, 10.0, 0.5)].concat();
+        assert_eq!(points_band_limit(&global_lats, &across), Some(359));
+
+        // One sampling with a hole is charged for it: up to three missing rows
+        // are a coarse stretch, four or more separate two regions.
+        let without = |missing: usize| -> Vec<f64> {
+            global_lats
+                .iter()
+                .enumerate()
+                .filter(|&(k, _)| !(100..100 + missing).contains(&k))
+                .map(|(_, &x)| x)
+                .collect()
+        };
+        assert_eq!(points_band_limit(&without(1), &global_lons), Some(179));
+        assert_eq!(points_band_limit(&without(3), &global_lons), Some(89));
+        assert_eq!(points_band_limit(&without(4), &global_lons), Some(359));
+
+        // A coarse regular sample is not two regions: it resolves what its step
+        // carries, and three longitudes round the circle carry T0, as
+        // `grid_band_limit` says of a three-point ring. The full sum is the
+        // reader's `_full` call (decided on #812).
+        assert_eq!(
+            points_band_limit(&[-60.0, 0.0, 60.0], &[0.0, 120.0, 240.0]),
+            Some(0)
+        );
+        assert_eq!(grid_band_limit(3, 3), 0);
+        // Six longitudes at 60° carry T2, as do three latitudes 60° apart.
+        assert_eq!(
+            points_band_limit(&[-60.0, 0.0, 60.0], &axis(0.0, 300.0, 60.0)),
+            Some(2)
+        );
     }
 
     /// A column whose sectoral term is in range but whose next term is not —
