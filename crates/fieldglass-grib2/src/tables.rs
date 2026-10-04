@@ -3,14 +3,22 @@
 //! These are the single source of truth for human-readable names of GRIB2
 //! coded values. Extend the tables here rather than hardcoding strings at
 //! the napi or TypeScript layer.
+//!
+//! Every `lookup_*` answers `None` for a code it has no name for: one WMO
+//! leaves unassigned, and one in a range WMO delegates to centres for local
+//! use, where the table names the range and not the code (#774). A caller that
+//! shows the answer keeps the number instead, as `"Discipline 99"`, so an
+//! unknown code and an absent one never read alike. `"Missing"` is a name like
+//! any other: each table that defines a missing code (255, or 65535 for
+//! Table 3.1) names it so.
 
 /// Look up the human-readable name for a GRIB2 discipline (WMO Code Table 0.0).
 ///
 /// Covers all currently-defined disciplines as of the WMO Manual on Codes
-/// Vol I.2 (FM 92 GRIB Edition 2). Returns `"Unknown discipline"` for codes
-/// that fall outside the table or land in reserved ranges.
-pub fn lookup_discipline(discipline: u8) -> &'static str {
-    match discipline {
+/// Vol I.2 (FM 92 GRIB Edition 2). `None` for a code that falls outside the
+/// table or in a reserved range.
+pub fn lookup_discipline(discipline: u8) -> Option<&'static str> {
+    Some(match discipline {
         0 => "Meteorological products",
         1 => "Hydrological products",
         2 => "Land surface products",
@@ -22,19 +30,19 @@ pub fn lookup_discipline(discipline: u8) -> &'static str {
         // Code Table 0.0 assigns it, and `tables_wmo.rs` carries six parameters
         // under it (SPPT, SPP, SKEB, STC, SHUM, STTP — the stochastic
         // perturbation fields an ensemble system writes). Missing here meant a
-        // message whose parameters resolve reported "Unknown discipline" beside
+        // message whose parameters resolve reported an unknown discipline beside
         // them, and meant `fieldglass::fetchplan`'s reverse index skipped the
         // whole discipline, since it scans the disciplines this table names
         // (#461).
         191 => "Computational parameters",
         255 => "Missing",
-        _ => "Unknown discipline",
-    }
+        _ => return None,
+    })
 }
 
 /// Significance of reference time (WMO Code Table 1.2).
-pub fn lookup_reference_time_significance(value: u8) -> &'static str {
-    match value {
+pub fn lookup_reference_time_significance(value: u8) -> Option<&'static str> {
+    Some(match value {
         0 => "Analysis",
         1 => "Start of forecast",
         2 => "Verifying time of forecast",
@@ -43,13 +51,13 @@ pub fn lookup_reference_time_significance(value: u8) -> &'static str {
         5 => "Simulation start",
         6 => "Start of data assimilation",
         255 => "Missing",
-        _ => "Unknown",
-    }
+        _ => return None,
+    })
 }
 
 /// Production status of processed data (WMO Code Table 1.3).
-pub fn lookup_production_status(value: u8) -> &'static str {
-    match value {
+pub fn lookup_production_status(value: u8) -> Option<&'static str> {
+    Some(match value {
         0 => "Operational products",
         1 => "Operational test products",
         2 => "Research products",
@@ -69,8 +77,8 @@ pub fn lookup_production_status(value: u8) -> &'static str {
         16 => "MLMIP",
         17 => "MLMIP test",
         255 => "Missing",
-        _ => "Unknown",
-    }
+        _ => return None,
+    })
 }
 
 /// Grid definition template number (WMO Code Table 3.1) — short label.
@@ -82,13 +90,13 @@ pub fn lookup_production_status(value: u8) -> &'static str {
 /// the number, and the string a host puts in its grid-type column is
 /// [`crate::gds::GridDefinitionSection::template_name`], which is derived from
 /// that enum. So the rule for this table is simply to name every code WMO
-/// assigns — leaving one out reports `Unknown grid template` for a grid whose
+/// assigns — leaving one out reports no name for a grid whose
 /// name the standard states, which is a worse answer whether or not the
 /// decoder models it, and which for §3.61-63 and §3.150 was wrong outright:
 /// this crate parses all four of those templates — §3.150 renders, and the
 /// bi-Fourier three decode to coefficients — and named none of them (#653).
-pub fn lookup_grid_template(template: u16) -> &'static str {
-    match template {
+pub fn lookup_grid_template(template: u16) -> Option<&'static str> {
+    Some(match template {
         0 => "Latitude/longitude",
         1 => "Rotated latitude/longitude",
         2 => "Stretched latitude/longitude",
@@ -125,13 +133,13 @@ pub fn lookup_grid_template(template: u16) -> &'static str {
         1100 => "Hovmöller diagram grid",
         1200 => "Time section grid",
         65535 => "Missing",
-        _ => "Unknown grid template",
-    }
+        _ => return None,
+    })
 }
 
 /// Shape of the reference Earth (WMO Code Table 3.2).
-pub fn lookup_earth_shape(shape: u8) -> &'static str {
-    match shape {
+pub fn lookup_earth_shape(shape: u8) -> Option<&'static str> {
+    Some(match shape {
         0 => "Spherical (radius 6 367 470.0 m)",
         1 => "Spherical (custom radius)",
         2 => "Oblate spheroid (IAU 1965)",
@@ -147,13 +155,13 @@ pub fn lookup_earth_shape(shape: u8) -> &'static str {
         // weather product on a Stonyhurst heliographic frame.
         11 => "Sun, spherical (radius 695 990 000 m)",
         255 => "Missing",
-        _ => "Unknown earth shape",
-    }
+        _ => return None,
+    })
 }
 
 /// Generating-process type (WMO Code Table 4.3).
-pub fn lookup_generating_process_type(value: u8) -> &'static str {
-    match value {
+pub fn lookup_generating_process_type(value: u8) -> Option<&'static str> {
+    Some(match value {
         0 => "Analysis",
         1 => "Initialization",
         2 => "Forecast",
@@ -178,10 +186,9 @@ pub fn lookup_generating_process_type(value: u8) -> &'static str {
         21 => "Initialization increment for analysis",
         22 => "Blended forecast",
         23 => "Anomaly",
-        192..=254 => "Reserved for local use",
         255 => "Missing",
-        _ => "Unknown generating process",
-    }
+        _ => return None,
+    })
 }
 
 /// Indicator of unit of time range (WMO Code Table 4.4) — short label.
@@ -189,8 +196,8 @@ pub fn lookup_generating_process_type(value: u8) -> &'static str {
 /// A hybrid: the curated arms below shadow the generated `tables_wmo` entry for
 /// the same code, and every one of them is held equal to it, or recorded as a
 /// reasoned divergence, by `curated_arms_agree_with_the_generated_table`.
-pub fn lookup_time_range_unit(value: u8) -> &'static str {
-    match value {
+pub fn lookup_time_range_unit(value: u8) -> Option<&'static str> {
+    Some(match value {
         0 => "Minute",
         1 => "Hour",
         2 => "Day",
@@ -206,21 +213,20 @@ pub fn lookup_time_range_unit(value: u8) -> &'static str {
         12 => "12 hours",
         13 => "Second",
         255 => "Missing",
-        other => crate::tables_wmo::time_range_unit(other).unwrap_or("Unknown time-range unit"),
-    }
+        other => return crate::tables_wmo::time_range_unit(other),
+    })
 }
 
 /// Type of fixed surface (WMO Code Table 4.5) — short label covering the
-/// surface types commonly emitted by NCEP / ECMWF / DWD. Unrecognised codes
-/// fall back to `"Unknown fixed surface"` so callers can render the numeric
-/// type with the same shape as other tables.
+/// surface types commonly emitted by NCEP / ECMWF / DWD, and the generated
+/// table for the rest. `None` for an unassigned or local-use code.
 ///
 /// A hybrid, like [`lookup_time_range_unit`]: most of these arms shadow a
 /// generated `tables_wmo` entry for the same code, and
 /// `curated_arms_agree_with_the_generated_table` holds each one equal to what
 /// it shadows or records why it differs.
-pub fn lookup_fixed_surface(value: u8) -> &'static str {
-    match value {
+pub fn lookup_fixed_surface(value: u8) -> Option<&'static str> {
+    Some(match value {
         1 => "Ground or water surface",
         2 => "Cloud base level",
         3 => "Cloud top level",
@@ -256,16 +262,16 @@ pub fn lookup_fixed_surface(value: u8) -> &'static str {
         201 => "Entire ocean as a single layer",
         // 192..=254 is the local-use range — NCEP uses several codes here
         // (e.g. 242 "Convective cloud bottom level"). We don't try to
-        // enumerate centre extensions; surface them as the WMO range label.
-        192..=254 => "Reserved for local use",
+        // enumerate centre extensions: they answer `None`, and a caller shows
+        // the code (#774).
         255 => "Missing",
-        other => crate::tables_wmo::fixed_surface(other).unwrap_or("Unknown fixed surface"),
-    }
+        other => return crate::tables_wmo::fixed_surface(other),
+    })
 }
 
 /// Type of ensemble forecast (WMO Code Table 4.6).
-pub fn lookup_ensemble_type(value: u8) -> &'static str {
-    match value {
+pub fn lookup_ensemble_type(value: u8) -> Option<&'static str> {
+    Some(match value {
         0 => "Unperturbed high-resolution control forecast",
         1 => "Unperturbed low-resolution control forecast",
         2 => "Negatively perturbed forecast",
@@ -276,16 +282,15 @@ pub fn lookup_ensemble_type(value: u8) -> &'static str {
         7 => "Initial conditions perturbations",
         8 => "Model physics perturbations",
         9 => "Initial conditions and model physics perturbations",
-        192..=254 => "Reserved for local use",
         255 => "Missing",
-        _ => "Unknown ensemble type",
-    }
+        _ => return None,
+    })
 }
 
 /// Statistical process applied to derive a field over a time interval
 /// (WMO Code Table 4.10).
-pub fn lookup_statistical_process(value: u8) -> &'static str {
-    match value {
+pub fn lookup_statistical_process(value: u8) -> Option<&'static str> {
+    Some(match value {
         0 => "Average",
         1 => "Accumulation",
         2 => "Maximum",
@@ -303,10 +308,9 @@ pub fn lookup_statistical_process(value: u8) -> &'static str {
         100 => "Severity",
         101 => "Mode",
         102 => "Index processing",
-        192..=254 => "Reserved for local use",
         255 => "Missing",
-        _ => "Unknown statistical process",
-    }
+        _ => return None,
+    })
 }
 
 /// Who wrote the message and which of their tables to read, for resolving
@@ -526,8 +530,8 @@ fn resolve_parameter(
 }
 
 /// Type of processed data (WMO Code Table 1.4).
-pub fn lookup_data_type(value: u8) -> &'static str {
-    match value {
+pub fn lookup_data_type(value: u8) -> Option<&'static str> {
+    Some(match value {
         0 => "Analysis products",
         1 => "Forecast products",
         2 => "Analysis and forecast products",
@@ -539,10 +543,9 @@ pub fn lookup_data_type(value: u8) -> &'static str {
         8 => "Event probability",
         9 => "Experimental data",
         10 => "ML based forecast",
-        192..=254 => "Reserved for local use",
         255 => "Missing",
-        _ => "Unknown",
-    }
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -609,7 +612,7 @@ mod tests {
     /// divergence could hide.
     #[test]
     fn curated_arms_agree_with_the_generated_table() {
-        type Curated = fn(u8) -> &'static str;
+        type Curated = fn(u8) -> Option<&'static str>;
         type Generated = fn(u8) -> Option<&'static str>;
         let mut wrong = Vec::new();
         let mut diverged: Vec<(&str, u8)> = Vec::new();
@@ -632,7 +635,12 @@ mod tests {
                     continue;
                 };
                 shadowed += 1;
-                let ours = curated(code);
+                let Some(ours) = curated(code) else {
+                    wrong.push(format!(
+                        "  {table}/{code}: ours names nothing, generated {theirs:?}"
+                    ));
+                    continue;
+                };
                 if ours == theirs {
                     identical += 1;
                     continue;
@@ -688,17 +696,20 @@ mod tests {
 
     #[test]
     fn known_disciplines() {
-        assert_eq!(lookup_discipline(0), "Meteorological products");
-        assert_eq!(lookup_discipline(1), "Hydrological products");
-        assert_eq!(lookup_discipline(2), "Land surface products");
-        assert_eq!(lookup_discipline(3), "Satellite remote sensing products");
-        assert_eq!(lookup_discipline(4), "Space weather products");
-        assert_eq!(lookup_discipline(10), "Oceanographic products");
+        assert_eq!(lookup_discipline(0), Some("Meteorological products"));
+        assert_eq!(lookup_discipline(1), Some("Hydrological products"));
+        assert_eq!(lookup_discipline(2), Some("Land surface products"));
+        assert_eq!(
+            lookup_discipline(3),
+            Some("Satellite remote sensing products")
+        );
+        assert_eq!(lookup_discipline(4), Some("Space weather products"));
+        assert_eq!(lookup_discipline(10), Some("Oceanographic products"));
     }
 
     #[test]
     fn unknown_falls_back() {
-        assert_eq!(lookup_discipline(99), "Unknown discipline");
+        assert_eq!(lookup_discipline(99), None);
     }
 
     /// A stand-in centre table, so the resolution *order* can be proven while
@@ -841,32 +852,35 @@ mod tests {
 
     #[test]
     fn missing_sentinel() {
-        assert_eq!(lookup_discipline(255), "Missing");
+        assert_eq!(lookup_discipline(255), Some("Missing"));
     }
 
     #[test]
     fn reference_time_significance_table() {
-        assert_eq!(lookup_reference_time_significance(0), "Analysis");
-        assert_eq!(lookup_reference_time_significance(1), "Start of forecast");
-        assert_eq!(lookup_reference_time_significance(255), "Missing");
-        assert_eq!(lookup_reference_time_significance(99), "Unknown");
+        assert_eq!(lookup_reference_time_significance(0), Some("Analysis"));
+        assert_eq!(
+            lookup_reference_time_significance(1),
+            Some("Start of forecast")
+        );
+        assert_eq!(lookup_reference_time_significance(255), Some("Missing"));
+        assert_eq!(lookup_reference_time_significance(99), None);
     }
 
     #[test]
     fn production_status_table() {
-        assert_eq!(lookup_production_status(0), "Operational products");
-        assert_eq!(lookup_production_status(3), "Re-analysis products");
-        assert_eq!(lookup_production_status(255), "Missing");
-        assert_eq!(lookup_production_status(99), "Unknown");
+        assert_eq!(lookup_production_status(0), Some("Operational products"));
+        assert_eq!(lookup_production_status(3), Some("Re-analysis products"));
+        assert_eq!(lookup_production_status(255), Some("Missing"));
+        assert_eq!(lookup_production_status(99), None);
     }
 
     #[test]
     fn data_type_table() {
-        assert_eq!(lookup_data_type(1), "Forecast products");
-        assert_eq!(lookup_data_type(2), "Analysis and forecast products");
-        assert_eq!(lookup_data_type(200), "Reserved for local use");
-        assert_eq!(lookup_data_type(255), "Missing");
-        assert_eq!(lookup_data_type(99), "Unknown");
+        assert_eq!(lookup_data_type(1), Some("Forecast products"));
+        assert_eq!(lookup_data_type(2), Some("Analysis and forecast products"));
+        assert_eq!(lookup_data_type(200), None);
+        assert_eq!(lookup_data_type(255), Some("Missing"));
+        assert_eq!(lookup_data_type(99), None);
     }
 
     #[test]
@@ -881,7 +895,7 @@ mod tests {
             (20, "Health and socioeconomic impacts"),
             (191, "Computational parameters"),
         ] {
-            assert_eq!(lookup_discipline(id), expected, "discipline {id}");
+            assert_eq!(lookup_discipline(id), Some(expected), "discipline {id}");
         }
     }
 
@@ -896,7 +910,7 @@ mod tests {
             (5, "Simulation start"),
             (6, "Start of data assimilation"),
         ] {
-            assert_eq!(lookup_reference_time_significance(id), expected);
+            assert_eq!(lookup_reference_time_significance(id), Some(expected));
         }
     }
 
@@ -922,7 +936,7 @@ mod tests {
             (16, "MLMIP"),
             (17, "MLMIP test"),
         ] {
-            assert_eq!(lookup_production_status(id), expected, "status {id}");
+            assert_eq!(lookup_production_status(id), Some(expected), "status {id}");
         }
     }
 
@@ -941,34 +955,28 @@ mod tests {
             (9, "Experimental data"),
             (10, "ML based forecast"),
         ] {
-            assert_eq!(lookup_data_type(id), expected, "data_type {id}");
+            assert_eq!(lookup_data_type(id), Some(expected), "data_type {id}");
         }
     }
 
     #[test]
     fn generating_process_type_table() {
-        assert_eq!(lookup_generating_process_type(0), "Analysis");
-        assert_eq!(lookup_generating_process_type(2), "Forecast");
-        assert_eq!(lookup_generating_process_type(4), "Ensemble forecast");
-        assert_eq!(
-            lookup_generating_process_type(200),
-            "Reserved for local use"
-        );
-        assert_eq!(lookup_generating_process_type(255), "Missing");
-        assert_eq!(
-            lookup_generating_process_type(99),
-            "Unknown generating process"
-        );
+        assert_eq!(lookup_generating_process_type(0), Some("Analysis"));
+        assert_eq!(lookup_generating_process_type(2), Some("Forecast"));
+        assert_eq!(lookup_generating_process_type(4), Some("Ensemble forecast"));
+        assert_eq!(lookup_generating_process_type(200), None);
+        assert_eq!(lookup_generating_process_type(255), Some("Missing"));
+        assert_eq!(lookup_generating_process_type(99), None);
     }
 
     #[test]
     fn time_range_unit_table() {
-        assert_eq!(lookup_time_range_unit(0), "Minute");
-        assert_eq!(lookup_time_range_unit(1), "Hour");
-        assert_eq!(lookup_time_range_unit(11), "6 hours");
-        assert_eq!(lookup_time_range_unit(13), "Second");
-        assert_eq!(lookup_time_range_unit(255), "Missing");
-        assert_eq!(lookup_time_range_unit(99), "Unknown time-range unit");
+        assert_eq!(lookup_time_range_unit(0), Some("Minute"));
+        assert_eq!(lookup_time_range_unit(1), Some("Hour"));
+        assert_eq!(lookup_time_range_unit(11), Some("6 hours"));
+        assert_eq!(lookup_time_range_unit(13), Some("Second"));
+        assert_eq!(lookup_time_range_unit(255), Some("Missing"));
+        assert_eq!(lookup_time_range_unit(99), None);
     }
 
     #[test]
@@ -979,39 +987,41 @@ mod tests {
             (101, "Mean sea level"),
             (103, "Specified height above ground (m)"),
             (200, "Entire atmosphere as a single layer"),
-            (242, "Reserved for local use"),
             (255, "Missing"),
         ] {
-            assert_eq!(lookup_fixed_surface(id), expected, "surface {id}");
+            assert_eq!(lookup_fixed_surface(id), Some(expected), "surface {id}");
         }
-        // 190 falls outside both the curated list and the local-use range.
-        assert_eq!(lookup_fixed_surface(190), "Unknown fixed surface");
+        // 190 falls outside both the curated list and the local-use range, and
+        // 242 inside the local-use range names a centre's code, not WMO's: the
+        // table has a name for neither, so a caller shows the code (#774).
+        assert_eq!(lookup_fixed_surface(190), None);
+        assert_eq!(lookup_fixed_surface(242), None);
     }
 
     #[test]
     fn ensemble_type_table() {
         assert_eq!(
             lookup_ensemble_type(0),
-            "Unperturbed high-resolution control forecast"
+            Some("Unperturbed high-resolution control forecast")
         );
-        assert_eq!(lookup_ensemble_type(3), "Positively perturbed forecast");
-        assert_eq!(lookup_ensemble_type(200), "Reserved for local use");
-        assert_eq!(lookup_ensemble_type(255), "Missing");
-        assert_eq!(lookup_ensemble_type(99), "Unknown ensemble type");
+        assert_eq!(
+            lookup_ensemble_type(3),
+            Some("Positively perturbed forecast")
+        );
+        assert_eq!(lookup_ensemble_type(200), None);
+        assert_eq!(lookup_ensemble_type(255), Some("Missing"));
+        assert_eq!(lookup_ensemble_type(99), None);
     }
 
     #[test]
     fn statistical_process_table() {
-        assert_eq!(lookup_statistical_process(0), "Average");
-        assert_eq!(lookup_statistical_process(1), "Accumulation");
-        assert_eq!(lookup_statistical_process(2), "Maximum");
-        assert_eq!(lookup_statistical_process(11), "Summation");
-        assert_eq!(lookup_statistical_process(200), "Reserved for local use");
-        assert_eq!(lookup_statistical_process(255), "Missing");
-        assert_eq!(
-            lookup_statistical_process(99),
-            "Unknown statistical process"
-        );
+        assert_eq!(lookup_statistical_process(0), Some("Average"));
+        assert_eq!(lookup_statistical_process(1), Some("Accumulation"));
+        assert_eq!(lookup_statistical_process(2), Some("Maximum"));
+        assert_eq!(lookup_statistical_process(11), Some("Summation"));
+        assert_eq!(lookup_statistical_process(200), None);
+        assert_eq!(lookup_statistical_process(255), Some("Missing"));
+        assert_eq!(lookup_statistical_process(99), None);
     }
 
     #[test]
@@ -1183,7 +1193,7 @@ mod tests {
         ] {
             assert_eq!(
                 lookup_generating_process_type(id),
-                expected,
+                Some(expected),
                 "generating process {id}"
             );
         }
@@ -1205,7 +1215,11 @@ mod tests {
             (12, "12 hours"),
             (13, "Second"),
         ] {
-            assert_eq!(lookup_time_range_unit(id), expected, "time-range unit {id}");
+            assert_eq!(
+                lookup_time_range_unit(id),
+                Some(expected),
+                "time-range unit {id}"
+            );
         }
     }
 
@@ -1240,7 +1254,11 @@ mod tests {
             (200, "Entire atmosphere as a single layer"),
             (201, "Entire ocean as a single layer"),
         ] {
-            assert_eq!(lookup_fixed_surface(id), expected, "fixed surface {id}");
+            assert_eq!(
+                lookup_fixed_surface(id),
+                Some(expected),
+                "fixed surface {id}"
+            );
         }
     }
 
@@ -1258,7 +1276,11 @@ mod tests {
             (8, "Model physics perturbations"),
             (9, "Initial conditions and model physics perturbations"),
         ] {
-            assert_eq!(lookup_ensemble_type(id), expected, "ensemble type {id}");
+            assert_eq!(
+                lookup_ensemble_type(id),
+                Some(expected),
+                "ensemble type {id}"
+            );
         }
     }
 
@@ -1285,7 +1307,7 @@ mod tests {
         ] {
             assert_eq!(
                 lookup_statistical_process(id),
-                expected,
+                Some(expected),
                 "stat process {id}"
             );
         }

@@ -40,10 +40,10 @@ fn gfs_latlon_decodes_template_3_0() {
 
     assert_eq!(msg.gds.dimensions(), Some((144, 73)));
     assert_eq!(msg.gds.template_name(), "latlon");
-    assert_eq!(lookup_grid_template(0), "Latitude/longitude");
+    assert_eq!(lookup_grid_template(0), Some("Latitude/longitude"));
     assert_eq!(
         lookup_earth_shape(t.shape_of_earth),
-        "Spherical (radius 6 371 229.0 m)"
+        Some("Spherical (radius 6 371 229.0 m)")
     );
 }
 
@@ -74,7 +74,7 @@ fn eta_lambert_decodes_template_3_30() {
 
     assert_eq!(msg.gds.dimensions(), Some((93, 65)));
     assert_eq!(msg.gds.template_name(), "lambert");
-    assert_eq!(lookup_grid_template(30), "Lambert conformal");
+    assert_eq!(lookup_grid_template(30), Some("Lambert conformal"));
 
     // §3.30 states only the first grid point, so `bounds()` derives the last
     // one from the projection (#472) rather than reporting `LaD`/`LoV` in its
@@ -137,7 +137,10 @@ fn ecmwf_gaussian_decodes_template_3_40_reduced() {
     // `reduced_gaussian`; one template number covers both variants, but the
     // message table shows this string and the two are not the same grid (#503).
     assert_eq!(msg.gds.template_name(), "reduced_gaussian");
-    assert_eq!(lookup_grid_template(40), "Gaussian latitude/longitude");
+    assert_eq!(
+        lookup_grid_template(40),
+        Some("Gaussian latitude/longitude")
+    );
 }
 
 #[test]
@@ -163,10 +166,10 @@ fn rotated_latlon_decodes_template_3_1() {
 
     assert_eq!(msg.gds.dimensions(), Some((16, 31)));
     assert_eq!(msg.gds.template_name(), "rotated_latlon");
-    assert_eq!(lookup_grid_template(1), "Rotated latitude/longitude");
+    assert_eq!(lookup_grid_template(1), Some("Rotated latitude/longitude"));
     assert_eq!(
         lookup_earth_shape(t.shape_of_earth),
-        "Spherical (radius 6 371 229.0 m)"
+        Some("Spherical (radius 6 371 229.0 m)")
     );
 }
 
@@ -191,7 +194,7 @@ fn polar_stereographic_decodes_template_3_20() {
 
     assert_eq!(msg.gds.dimensions(), Some((16, 31)));
     assert_eq!(msg.gds.template_name(), "polar_stereo");
-    assert_eq!(lookup_grid_template(20), "Polar stereographic");
+    assert_eq!(lookup_grid_template(20), Some("Polar stereographic"));
 }
 
 /// §3.12 — transverse Mercator, the template UKV is published on.
@@ -254,7 +257,7 @@ fn ukv_decodes_template_3_12() {
     assert_eq!(msg.gds.dimensions(), Some((24, 30)));
     assert_eq!(msg.gds.scanning_mode(), Some(0));
     assert_eq!(msg.gds.template_name(), "transverse_mercator");
-    assert_eq!(lookup_grid_template(12), "Transverse Mercator");
+    assert_eq!(lookup_grid_template(12), Some("Transverse Mercator"));
     // §3.12 carries no corner latitudes, and substituting the projection
     // parameters would put a 400 000 m false easting in a field the message
     // table prints as a longitude. Corners come from the projector instead.
@@ -432,7 +435,10 @@ fn efas_decodes_template_3_140() {
     assert_eq!(msg.gds.dimensions(), Some((20, 16)));
     assert_eq!(msg.gds.scanning_mode(), Some(64));
     assert_eq!(msg.gds.template_name(), "lambert_azimuthal");
-    assert_eq!(lookup_grid_template(140), "Lambert azimuthal equal area");
+    assert_eq!(
+        lookup_grid_template(140),
+        Some("Lambert azimuthal equal area")
+    );
 }
 
 /// The §3.140 grid geolocates to what eccodes' own

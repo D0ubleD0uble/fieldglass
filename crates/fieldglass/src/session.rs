@@ -1921,7 +1921,7 @@ impl Session {
                     Ok(Georef::from_container(
                         &GridGeometry::from(gds),
                         grib1_scan(msg),
-                        gds.grid_type_name(),
+                        &gds.grid_type_name(),
                         gds.raster_bounds(),
                         grib1_without_geometry(gds),
                         gds.dimensions(),
@@ -2559,6 +2559,30 @@ fn raster_without_geometry(dims: Option<(u32, u32)>) -> Placement {
     }
 }
 
+/// A sub-centre's name from WMO Common Code Table C-12, keyed on the pair.
+///
+/// `None` only for code 0, which GRIB writes to mean "no sub-centre". Any other
+/// code the table does not assign under this centre keeps its number, as
+/// `"Sub-centre <n>"`, so "none" and "one we cannot name" never read alike
+/// (#774). C-12 defines no missing-value code for the field, so there is no
+/// `"Missing"` here: 255 (GRIB1) and 65535 (GRIB2) are codes like any other.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn sub_centre_name(centre: u16, sub_centre: u16) -> Option<String> {
+    (sub_centre != 0).then(|| {
+        fieldglass_core::cct_tables::lookup_sub_centre(centre, sub_centre)
+            .map_or_else(|| format!("Sub-centre {sub_centre}"), str::to_string)
+    })
+}
+
+/// A GRIB2 code table's name for a code, or `"<what> <code>"` where the table
+/// has none — unassigned, or in a range WMO delegates to centres — so the code
+/// survives into the string (#774), as `originating_centre`'s `"Centre <n>"`
+/// does. `"Missing"` is the table's own name for its missing code.
+#[cfg(feature = "grib2")]
+fn named(name: Option<&'static str>, what: &str, code: u8) -> String {
+    name.map_or_else(|| format!("{what} {code}"), str::to_string)
+}
+
 #[cfg(feature = "grib1")]
 fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -> MessageInfo {
     let msg = &reader.messages[index];
@@ -2568,7 +2592,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         Georef::from_container(
             &GridGeometry::from(gds),
             grib1_scan(msg),
-            gds.grid_type_name(),
+            &gds.grid_type_name(),
             gds.bounds(),
             grib1_without_geometry(gds),
             gds.dimensions(),
@@ -2609,11 +2633,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         originating_centre: fieldglass_grib1::tables_cct::lookup_centre(msg.pds.originating_centre)
             .map(str::to_string)
             .unwrap_or_else(|| format!("Centre {}", msg.pds.originating_centre)),
-        sub_centre: fieldglass_core::cct_tables::lookup_sub_centre(
-            msg.pds.originating_centre.into(),
-            msg.pds.sub_centre.into(),
-        )
-        .map(str::to_string),
+        sub_centre: sub_centre_name(msg.pds.originating_centre.into(), msg.pds.sub_centre.into()),
         // GRIB1 has no discipline, production status or data type: these are
         // §0 and §1 fields that arrived with edition 2, so its variant does not
         // carry them (#773).
@@ -2719,19 +2739,24 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         originating_centre: fieldglass_grib2::tables_cct::lookup_centre(msg.ids.centre)
             .map(str::to_string)
             .unwrap_or_else(|| format!("Centre {}", msg.ids.centre)),
-        sub_centre: fieldglass_core::cct_tables::lookup_sub_centre(
-            msg.ids.centre,
-            msg.ids.sub_centre,
-        )
-        .map(str::to_string),
+        sub_centre: sub_centre_name(msg.ids.centre, msg.ids.sub_centre),
         // The reader only yields messages whose §0 octet 8 is 2.
         identification: Identification::Grib2 {
-            discipline: fieldglass_grib2::lookup_discipline(msg.is.discipline).to_string(),
-            production_status: fieldglass_grib2::lookup_production_status(
+            discipline: named(
+                fieldglass_grib2::lookup_discipline(msg.is.discipline),
+                "Discipline",
+                msg.is.discipline,
+            ),
+            production_status: named(
+                fieldglass_grib2::lookup_production_status(msg.ids.production_status),
+                "Production status",
                 msg.ids.production_status,
-            )
-            .to_string(),
-            data_type: fieldglass_grib2::lookup_data_type(msg.ids.data_type).to_string(),
+            ),
+            data_type: named(
+                fieldglass_grib2::lookup_data_type(msg.ids.data_type),
+                "Data type",
+                msg.ids.data_type,
+            ),
         },
         total_length_bytes: msg.is.total_length,
     }

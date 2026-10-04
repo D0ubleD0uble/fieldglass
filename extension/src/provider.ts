@@ -2004,13 +2004,15 @@ function isNonNegativeInt(n: unknown): n is number {
 /// without adding another column.
 ///
 /// `subCentre` is `null` when the file names none; the check is nullish, so it
-/// holds for `undefined` too (#288).
+/// holds for `undefined` too (#288). A code no table names arrives as
+/// `"Sub-centre 105"` or `"Production status 99"` (#774) and is shown as such;
+/// only the table's own `"Missing"` is left out.
 function formatCentreCell(m: MessageInfo): string {
   const centre = m.subCentre != null && m.subCentre !== ""
     ? `${m.originatingCentre} (${m.subCentre})`
     : m.originatingCentre;
   const status = productionStatus(m.identification);
-  if (status && status !== "Missing" && status !== "Unknown") {
+  if (status && status !== "Missing") {
     return `${centre} · ${status}`;
   }
   return centre;

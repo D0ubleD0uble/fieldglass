@@ -99,20 +99,15 @@ use crate::api::MessageInfo;
 /// work, for code space no table defines. A discipline WMO adds later is picked
 /// up when that table gains it, without this list being touched.
 ///
-/// The filter reads a *string*, because `lookup_discipline` reports an
-/// unassigned code as `"Unknown discipline"` rather than as `None`.
+/// `lookup_discipline` answers `None` for an unassigned or local-use code
+/// (#774), and the range stops short of 255, the one code it names `"Missing"`.
 /// `scan_bounds::no_parameter_lives_outside_the_named_disciplines` is what
 /// stops that being a silent assumption — and it earned its place immediately,
 /// by catching discipline 191, which carries six parameters and which Code
 /// Table 0.0 assigns but `lookup_discipline` did not name.
 fn disciplines() -> Vec<u8> {
     (0u8..=254)
-        .filter(|&d| {
-            !matches!(
-                fieldglass_grib2::lookup_discipline(d),
-                "Unknown discipline" | "Missing"
-            )
-        })
+        .filter(|&d| fieldglass_grib2::lookup_discipline(d).is_some())
         .collect()
 }
 
@@ -482,8 +477,8 @@ mod scan_bounds {
     /// a 36× saving (879 ms of `lookup_parameter` calls becomes ~25 ms) and an
     /// assumption: that no parameter table defines a triple under a discipline
     /// the code table does not name. Asserted rather than relied on, because
-    /// the filter reads a *string* out of `lookup_discipline` and a reworded
-    /// fallback would silently narrow or widen the scan.
+    /// the filter is only as good as `lookup_discipline`'s idea of which codes
+    /// it names, and a change there would silently narrow or widen the scan.
     ///
     /// The full sweep is the slow part of this crate's test run and is worth
     /// it: without it, a local discipline added to a centre's table would drop

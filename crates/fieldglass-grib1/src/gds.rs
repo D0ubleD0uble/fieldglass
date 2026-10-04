@@ -458,8 +458,17 @@ pub struct SphericalHarmonicGrid {
 impl GridDescription {
     /// The grid family's stable name — `"latlon"`, `"lambert"`,
     /// `"polar_stereo"`, … — as every other crate in the workspace spells it.
-    pub fn grid_type_name(&self) -> &'static str {
-        match self {
+    ///
+    /// A grid type this parser does not read is `"unsupported(<n>)"`, naming
+    /// its ON388 Table 6 code, as GRIB2's `template_name` names an unread
+    /// template `"unsupported(3.<n>)"`, so the code reaches the message list
+    /// (#774).
+    ///
+    /// Borrowed for every family this crate reads, so naming a grid allocates
+    /// only for a grid type it does not: the perf gate counts allocations on
+    /// the decode and place paths, which call this for every message.
+    pub fn grid_type_name(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed(match self {
             Self::LatLon(_) => "latlon",
             Self::RotatedLatLon(_) => "rotated_latlon",
             Self::ReducedLatLon(_) => "reduced_latlon",
@@ -468,8 +477,10 @@ impl GridDescription {
             Self::PolarStereographic(_) => "polar_stereo",
             Self::LambertConformal(_) => "lambert",
             Self::SphericalHarmonic(_) => "spherical_harmonic",
-            Self::Unsupported { .. } => "unsupported",
-        }
+            Self::Unsupported { grid_type } => {
+                return std::borrow::Cow::Owned(format!("unsupported({grid_type})"));
+            }
+        })
     }
 
     /// The scanning-mode flags (GDS octet 28), for the grids that have them.
@@ -1724,6 +1735,7 @@ mod grid_variant_tests {
         let body = vec![0u8; 22];
         let gds = build_gds(13, &body);
         let parsed = parse_grid_description(&gds).expect("unsupported parses cleanly");
+        assert_eq!(parsed.grid_type_name(), "unsupported(13)");
         let GridDescription::Unsupported { grid_type } = parsed else {
             panic!("expected Unsupported variant");
         };

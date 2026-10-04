@@ -15,7 +15,10 @@ fn parses_fixture_indicator_section() {
     assert_eq!(is.edition, 2);
     // The reduced-Gaussian fixture is a meteorological pressure-level field.
     assert_eq!(is.discipline, 0);
-    assert_eq!(lookup_discipline(is.discipline), "Meteorological products");
+    assert_eq!(
+        lookup_discipline(is.discipline),
+        Some("Meteorological products")
+    );
     assert_eq!(is.total_length, FIXTURE.len() as u64);
 }
 

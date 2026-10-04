@@ -4759,7 +4759,9 @@ mod netcdf_slice_tests {
         // number neither could have produced from the other's default.
         let m = grib2_handle(GFS_C255).info(0).expect("message 0");
         assert_eq!(m.level, "0");
-        assert_eq!(m.level_type, "Reserved for local use");
+        // NCEP's local-use surface 242: Code Table 4.5 names the range, not
+        // the code, so the code is what the column shows (#774).
+        assert_eq!(m.level_type, "Fixed surface 242");
         assert_eq!(m.forecast_hours, Some(204));
         assert_eq!(m.forecast, "+204h");
     }

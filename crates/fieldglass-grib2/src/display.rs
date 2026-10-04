@@ -48,8 +48,21 @@ pub fn level_value_str(common: &HorizontalProductCommon) -> String {
     }
     match surface.value() {
         Some(v) => format!("{v}"),
-        None => lookup_fixed_surface(surface.surface_type).to_string(),
+        None => surface_name(surface.surface_type),
     }
+}
+
+/// A Code Table 4.5 surface type's name, or `"Fixed surface <n>"` for a code
+/// the table does not name (an unassigned or local-use one), so the code
+/// survives into the column (#774).
+fn surface_name(code: u8) -> String {
+    lookup_fixed_surface(code).map_or_else(|| format!("Fixed surface {code}"), str::to_string)
+}
+
+/// A Code Table 4.4 unit's label, or `"time-range unit <n>"` for a code the
+/// table does not name, so a lead stated in it still says which unit (#774).
+fn unit_label(code: u8) -> String {
+    lookup_time_range_unit(code).map_or_else(|| format!("time-range unit {code}"), str::to_string)
 }
 
 /// The first fixed surface's name (Code Table 4.5).
@@ -59,14 +72,14 @@ pub fn level_value_str(common: &HorizontalProductCommon) -> String {
 /// columns, so there is no GRIB2 counterpart to that function.
 #[must_use]
 pub fn level_type_str(common: &HorizontalProductCommon) -> String {
-    lookup_fixed_surface(common.first_surface.surface_type).to_string()
+    surface_name(common.first_surface.surface_type)
 }
 
 /// The lead time in whole hours, or `None` for a unit with no fixed length in
 /// hours: the calendar units (month, year, decade, normal, century), the
 /// missing sentinel, and every code Table 4.4 reserves or leaves to local use.
 /// [`forecast_display`] renders those with whatever label the table gives them,
-/// which for an unmodelled code is "Unknown time-range unit".
+/// and with the code itself (`"time-range unit 99"`) where it gives none.
 ///
 /// A **coarse** sort key, not the exact lead: a sub-hour unit truncates toward
 /// zero, so a 0/15/30/45-minute nowcast series — MRMS states its lead in
@@ -114,7 +127,7 @@ pub fn forecast_display(common: &HorizontalProductCommon) -> String {
         lead_label(
             hours,
             common.forecast_time,
-            lookup_time_range_unit(common.forecast_time_unit),
+            &unit_label(common.forecast_time_unit),
         )
     )
 }
@@ -267,6 +280,27 @@ mod tests {
         let c = at_surface(surface(255, None, None));
         assert_eq!(level_value_str(&c), "—");
         assert_eq!(level_type_str(&c), "Missing");
+    }
+
+    /// A surface type the table does not name keeps its code in both columns,
+    /// whether WMO leaves it unassigned (50) or delegates it to centres for
+    /// local use (242, NCEP's convective cloud bottom), rather than reading as
+    /// the same placeholder for every such code (#774).
+    #[test]
+    fn an_unnamed_surface_keeps_its_code() {
+        for code in [50u8, 242] {
+            let c = at_surface(surface(code, None, None));
+            assert_eq!(level_type_str(&c), format!("Fixed surface {code}"));
+            assert_eq!(level_value_str(&c), format!("Fixed surface {code}"));
+        }
+    }
+
+    /// A lead in a unit Table 4.4 does not name keeps the unit's code (#774).
+    #[test]
+    fn an_unnamed_time_unit_keeps_its_code() {
+        assert_eq!(forecast_hours(&common(99, 5)), None);
+        assert_eq!(forecast_display(&common(99, 5)), "+5 time-range unit 99");
+        assert_eq!(forecast_display(&common(200, 5)), "+5 time-range unit 200");
     }
 
     /// A surface with no scaled value is named rather than numbered, in both
