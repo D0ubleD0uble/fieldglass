@@ -84,6 +84,7 @@ dependencies = [
 name = "fieldglass-grib2-fuzz"
 version = "0.0.0"
 dependencies = [
+ "fieldglass-core",
  "fieldglass-grib2",
  "libfuzzer-sys",
 ]

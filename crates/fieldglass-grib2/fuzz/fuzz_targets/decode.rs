@@ -59,6 +59,50 @@ fn declares_a_large_truncation(reader: &Grib2Reader, i: usize) -> bool {
         .is_some_and(|sh| sh.j > FUZZ_MAX_TRUNCATION)
 }
 
+/// The grid points above which a message's scalar and matrix decodes are not
+/// run, unless the reader refuses them outright.
+///
+/// Both are bounded by `MAX_FIELD_POINTS` (64 Mi points), sized for a real
+/// grid rather than for a fuzz run. A constant field (zero bits per value)
+/// needs no §7 data, so a 196-byte message declaring an 8192 × 8192 grid
+/// decodes to a gigabyte of `Option<f64>`, about a second of writes; a dozen
+/// such messages in one input exceed the run's ten-second timeout. That is the
+/// reader working as designed. The bit unpacking, the bitmap and the matrix
+/// reshape are all reached at small sizes, so nothing is lost below this, and a
+/// declared size past the cap is still decoded so the refusal stays fuzzed.
+const FUZZ_MAX_FIELD_POINTS: u64 = 1 << 22;
+
+/// Whether a decode of `points` should run: small enough to afford, or past
+/// the cap and so refused before anything is allocated.
+fn affordable(points: u64) -> bool {
+    points <= FUZZ_MAX_FIELD_POINTS || points > fieldglass_core::MAX_FIELD_POINTS as u64
+}
+
+/// The most grid points message `i` declares, from every count that sizes a
+/// decode: §3's own count, the raster its template states, and §5's value
+/// count.
+fn declared_points(reader: &Grib2Reader, i: usize) -> u64 {
+    let Some(m) = reader.messages.get(i) else {
+        return 0;
+    };
+    let raster = m
+        .gds
+        .dimensions()
+        .map_or(0, |(ni, nj)| u64::from(ni) * u64::from(nj));
+    u64::from(m.gds.num_data_points)
+        .max(u64::from(m.drs.num_data_points))
+        .max(raster)
+}
+
+/// `NR·NC`, the cells per point a template 5.1 matrix holds; one otherwise.
+fn matrix_cells(reader: &Grib2Reader, i: usize) -> u64 {
+    reader
+        .messages
+        .get(i)
+        .and_then(|m| m.drs.matrix_simple())
+        .map_or(1, |t| u64::from(t.nr) * u64::from(t.nc))
+}
+
 fuzz_target!(|data: &[u8]| {
     // A malformed buffer must surface a structured error, never panic.
     if let Ok(reader) = Grib2Reader::from_bytes(data.to_vec()) {
@@ -67,8 +111,13 @@ fuzz_target!(|data: &[u8]| {
             // over-read. Errors on individual messages are expected and fine —
             // most inputs are the wrong packing for most of these entry points,
             // and a clean rejection is the correct outcome there.
-            let _ = reader.decode_message_values(i);
-            let _ = reader.decode_matrix_message(i);
+            let points = declared_points(&reader, i);
+            if affordable(points) {
+                let _ = reader.decode_message_values(i);
+            }
+            if affordable(points.saturating_mul(matrix_cells(&reader, i))) {
+                let _ = reader.decode_matrix_message(i);
+            }
             let _ = reader.decode_bifourier_message(i);
             // The resolve seam's cheap half (#580): reads §3 and decodes
             // nothing, so it is total by construction and the assertion is that

@@ -18,6 +18,13 @@ the nightly-only libFuzzer target.
 cargo +nightly fuzz run decode
 ```
 
-The seed corpus under `corpus/decode/` is the crate's GRIB2 test fixtures. CI
+The seed corpus under `corpus/decode/` is the crate's GRIB2 test fixtures, plus
+`constant_field_8192x8192.grib2`: `regular_latlon_surface.grib2` with Ni = Nj =
+8192, the §3 and §5 point counts set to 8192², zero bits per value and §7 cut to
+its 5-byte header, 196 bytes in all. It is a constant field, so it needs no
+data, and it decodes to a gigabyte, about a second of writes per message; a
+dozen of them in one input passed the time-boxed run's ten-second timeout. The
+target skips a decode that size (see `FUZZ_MAX_FIELD_POINTS`), and the seed
+keeps that skip in place. CI
 runs this target time-boxed on pull requests that touch the crate; see
 `.github/workflows/fuzz.yml`.

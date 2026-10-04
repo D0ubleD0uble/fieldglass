@@ -40,7 +40,7 @@
 
 use libfuzzer_sys::fuzz_target;
 
-use fieldglass_grib1::{Grib1Reader, GridDescription};
+use fieldglass_grib1::{Grib1Reader, GridDescription, MAX_FIELD_POINTS};
 
 /// Latitudes/longitudes for the synthesis probe, tiny for the reason the GRIB2
 /// target gives: the coefficient count comes from the file.
@@ -60,13 +60,48 @@ fn declares_a_large_truncation(reader: &Grib1Reader, i: usize) -> bool {
     )
 }
 
+/// The grid points above which a message's scalar and matrix decodes are not
+/// run, unless the reader refuses them outright.
+///
+/// Both are bounded by `MAX_FIELD_POINTS` (64 Mi points), sized for a real
+/// grid rather than for a fuzz run. A constant field (zero bits per value)
+/// needs no BDS data, so an 84-byte message declaring an 8192 × 8192 grid
+/// decodes to a gigabyte of `Option<f64>`, about a second of writes; a dozen
+/// such messages in one input exceed the run's ten-second timeout. That is the
+/// reader working as designed. The bit unpacking and the bitmap are reached at
+/// small sizes, so nothing is lost below this, and a declared size past the cap
+/// is still decoded so the refusal stays fuzzed.
+///
+/// A matrix field's `NR·NC` is read from the BDS during the decode, so only its
+/// grid is gated here; its cell cap is the reader's.
+const FUZZ_MAX_FIELD_POINTS: u64 = 1 << 22;
+
+/// The grid points message `i` declares: its GDS's own count (the `PL` sum for
+/// a reduced grid) or the raster it states, whichever is larger. A message with
+/// no GDS uses a predefined grid, which is small.
+fn declared_points(reader: &Grib1Reader, i: usize) -> u64 {
+    let Some(gds) = reader.messages.get(i).and_then(|m| m.gds.as_ref()) else {
+        return 0;
+    };
+    let raster = gds
+        .dimensions()
+        .map_or(0, |(ni, nj)| u64::from(ni) * u64::from(nj));
+    gds.num_data_points()
+        .map_or(u64::MAX, |n| n as u64)
+        .max(raster)
+}
+
 fuzz_target!(|data: &[u8]| {
     // A malformed buffer must surface a structured error, never panic.
     if let Ok(reader) = Grib1Reader::from_bytes(data.to_vec()) {
         for i in 0..reader.message_count() {
             // Ignore the result: we only care that decoding cannot panic or
             // over-read. Errors on individual messages are expected and fine.
-            let _ = reader.decode_message_values(i);
+            let points = declared_points(&reader, i);
+            let affordable = points <= FUZZ_MAX_FIELD_POINTS || points > MAX_FIELD_POINTS as u64;
+            if affordable {
+                let _ = reader.decode_message_values(i);
+            }
             // The spherical-harmonic decode path, which `decode_message_values`
             // refuses outright. `MAX_TRUNCATION` bounds it, so a declared
             // truncation can no longer turn a short input into an allocation
@@ -88,7 +123,9 @@ fuzz_target!(|data: &[u8]| {
             }
             // The true matrix-of-values path, which `decode_message_values`
             // refuses. `MAX_FIELD_POINTS` bounds its output at 64 Mi cells.
-            let _ = reader.decode_matrix_message(i);
+            if affordable {
+                let _ = reader.decode_matrix_message(i);
+            }
             // Total by construction, so the assertion is that it stays total.
             let _ = reader.synthesis_grid(i);
             let _ = reader.synthesis_truncation(i);
