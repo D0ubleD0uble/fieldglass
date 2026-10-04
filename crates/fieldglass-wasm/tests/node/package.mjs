@@ -117,7 +117,8 @@ try {
   for (const [what, text] of [
     ['MessageInfo is declared', 'export interface MessageInfo {'],
     ['message(i) returns a MessageInfo', 'message(index: number): MessageInfo;'],
-    ['an absent field is declared as a present null', '  referenceTime: string | null;'],
+    ['an absent field is declared as a present null', '  truncation: SpectralTruncation | null;'],
+    ['the edition-tagged identification is declared (#773)', 'export type Identification ='],
     ['probe answers null off the grid', '): Probe | null;'],
     ['grid() returns a Georef', 'grid(): Georef;'],
   ]) {
@@ -136,9 +137,22 @@ try {
   check('format', handle.format() === 'grib2', handle.format());
   check('addressing', handle.addressing() === 'messages', handle.addressing());
   check('message count', handle.count() === 1, handle.count());
-  // GRIB2 has no P1 octet: the key is there, and it is `null` (#574).
+  // Not band-limited: the key is there, and it is `null` (#574).
   const info = handle.message(0);
-  check('an absent field is a present null', 'p1Octet' in info && info.p1Octet === null, info.p1Octet);
+  check(
+    'an absent field is a present null',
+    'truncation' in info && info.truncation === null,
+    info.truncation,
+  );
+  // GRIB2 has no P1 octet, and its identification says so by not having the
+  // key at all, rather than a null (#773).
+  check(
+    'the identification is tagged grib2 and carries no P1 octet',
+    info.identification?.edition === 'grib2' &&
+      !('p1Octet' in info.identification) &&
+      !('p1Octet' in info),
+    JSON.stringify(info.identification),
+  );
 
   const field = handle.decode(0, {});
   check('raster', field.ni() === 16 && field.nj() === 31, `${field.ni()}x${field.nj()}`);
