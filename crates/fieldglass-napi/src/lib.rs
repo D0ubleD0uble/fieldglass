@@ -4708,10 +4708,15 @@ mod netcdf_slice_tests {
         const ECMWF_GRIB1: &[u8] =
             include_bytes!("../../fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1");
 
+        use fieldglass::Identification;
+
         // A plain one-octet P1: the edit box can show the byte it writes.
         let m = grib1_handle(ECMWF_GRIB1).info(0).expect("message 0");
         assert_eq!(m.forecast, "+24h");
-        assert_eq!(m.p1_octet, Some(24));
+        assert_eq!(
+            m.identification,
+            Identification::Grib1 { p1_octet: Some(24) }
+        );
 
         // Time range 10 spends octets 19 and 20 on one 16-bit P1, so writing
         // octet 19 alone would shift the lead by multiples of 256. No octet is
@@ -4719,11 +4724,11 @@ mod netcdf_slice_tests {
         let m = grib1_handle(CMC_WIND).info(0).expect("message 0");
         assert_eq!(m.forecast, "+12h");
         assert_eq!(m.forecast_hours, Some(12));
-        assert_eq!(m.p1_octet, None);
+        assert_eq!(m.identification, Identification::Grib1 { p1_octet: None });
 
-        // GRIB2 has no P1 at all.
+        // GRIB2 has no P1 at all: its variant has no such field (#773).
         let m = grib2_handle(SPECTRAL_T63).info(0).expect("message 0");
-        assert_eq!(m.p1_octet, None);
+        assert!(matches!(m.identification, Identification::Grib2 { .. }));
     }
 
     /// The four GRIB2 display fields, on real messages, as they cross this
@@ -7811,13 +7816,26 @@ mod message_wire_tests {
     #[test]
     fn an_absent_field_is_a_null_under_its_own_key() {
         let info = message();
-        // GRIB1 has no discipline, production status or data type.
-        for key in ["discipline", "productionStatus", "dataType"] {
-            assert_eq!(
-                info.get(key),
-                Some(&serde_json::Value::Null),
-                "{key} must be present and null, not left out"
-            );
+        // GRIB1 has no discipline, production status or data type. They are
+        // not null on its message, they are not there: the edition tag says
+        // which fields exist (#773).
+        let id = info["identification"]
+            .as_object()
+            .expect("an identification");
+        assert_eq!(id["edition"], "grib1");
+        assert_eq!(
+            id.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["edition", "p1Octet"],
+            "only GRIB1's own identification"
+        );
+        for key in [
+            "discipline",
+            "productionStatus",
+            "dataType",
+            "p1Octet",
+            "edition",
+        ] {
+            assert!(!info.contains_key(key), "{key} is not a top-level key");
         }
         let grid = info["grid"].as_object().expect("a declared grid");
         // A spherical-harmonic grid places no point, so it has no extent, no

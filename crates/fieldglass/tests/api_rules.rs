@@ -35,8 +35,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
     Addressing, AxisUnits, AxisValues, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype, Error,
-    Field, FullDetail, Georef, Isoline, LeftOutArray, Line, MessageInfo, MessageProbe,
-    PaletteOptions, PixelProbe, Placement, Probe, Projected, Raster, RenderOptions,
+    Field, FullDetail, Georef, Identification, Isoline, LeftOutArray, Line, MessageInfo,
+    MessageProbe, PaletteOptions, PixelProbe, Placement, Probe, Projected, Raster, RenderOptions,
     ResolvedOptions, SourceFormat, SpectralTruncation, Stats, TargetKind, Values, VariableInfo,
     VectorOptions, WarpOptions, WarpTarget, Warped,
 };
@@ -100,6 +100,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     // A line through an array (#172): a profile or time series at a cell.
     ("Line", Class::Wire, ""),
     ("MessageInfo", Class::Wire, ""),
+    // The edition and the identification only that edition carries (#773).
+    ("Identification", Class::Wire, ""),
     // The second addressing mode (#662): how a container is addressed, and the
     // variables and dimensions that addressing names.
     ("Addressing", Class::Wire, ""),
@@ -426,6 +428,11 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<Dtype>("Dtype", r#""auto""#);
     round_trip::<AxisUnits>("AxisUnits", r#""metres""#);
     round_trip::<Placement>("Placement", r#""predefined_unresolved""#);
+    round_trip::<Identification>("Identification", r#"{"edition":"grib1","p1Octet":null}"#);
+    round_trip::<Identification>(
+        "Identification",
+        r#"{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"}"#,
+    );
     round_trip::<SpectralTruncation>(
         "SpectralTruncation",
         r#"{"declared":7999,"truncatedTo":359}"#,
@@ -506,7 +513,7 @@ const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
-const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"forecastHours":6,"p1Octet":null,"originatingCentre":"Centre 98","subCentre":null,"edition":2,"discipline":"Meteorological products","totalLengthBytes":1234,"productionStatus":"Operational products","dataType":"Analysis and forecast products","uvRelativeToGrid":null}"#;
+const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
 
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a
@@ -520,6 +527,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "Dtype",
     "AxisUnits",
     "Placement",
+    "Identification",
     "SpectralTruncation",
     "Values",
     "Stats",
@@ -1485,6 +1493,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<Dtype>("Dtype");
     check_schema::<AxisUnits>("AxisUnits");
     check_schema::<Placement>("Placement");
+    check_schema::<Identification>("Identification");
     check_schema::<SpectralTruncation>("SpectralTruncation");
     check_schema::<Addressing>("Addressing");
     check_schema::<DimensionInfo>("DimensionInfo");
@@ -1523,6 +1532,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "Dtype",
     "AxisUnits",
     "Placement",
+    "Identification",
     "SpectralTruncation",
     "Addressing",
     "DimensionInfo",
@@ -1673,7 +1683,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     }
     register!(returned:
         SourceFormat, Dtype, AxisUnits, Placement, Georef, Values, Stats, Field, Line,
-        MessageInfo, Addressing, DimensionInfo, VariableInfo, AxisValues, LeftOutArray,
+        MessageInfo, Identification, Addressing, DimensionInfo, VariableInfo, AxisValues, LeftOutArray,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
         Error, Raster,
     );

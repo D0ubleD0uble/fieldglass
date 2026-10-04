@@ -618,9 +618,9 @@ api_type! {
         /// The level's surface type on its own, for grouping messages that
         /// share a surface at different values.
         pub level_type: String,
-        /// Reference (analysis) time as RFC 3339. `None` when the message
-        /// carries no usable date.
-        pub reference_time: Option<String>,
+        /// Reference (analysis) time as RFC 3339. Every GRIB message states
+        /// one, in its §1 (GRIB2) or PDS (GRIB1).
+        pub reference_time: String,
         /// Forecast time relative to `reference_time`, rendered — `"+6h"`, or
         /// `"+30 Minute"` for a unit the edition does not convert to hours.
         pub forecast: String,
@@ -699,33 +699,21 @@ api_type! {
         /// ("+6 h", an averaging interval, "analysis"); this is the number, for
         /// a host that sorts or animates by it.
         pub forecast_hours: Option<i32>,
-        /// GRIB1's `P1` octet, when the time-range indicator is one that makes
-        /// it a lead time rather than the second half of an interval.
-        ///
-        /// `None` for GRIB2, which has no such octet, and for GRIB1 time range
-        /// 10, where `P1` is a two-octet value and not this field.
-        pub p1_octet: Option<i32>,
         /// The originating centre, named from the CCT common code table, or
         /// `Centre <n>` when the table has no entry.
         pub originating_centre: String,
         /// The sub-centre, named from the originating centre's own table, and
         /// `None` when there is no entry — which is the common case.
         pub sub_centre: Option<String>,
-        /// The GRIB edition: 1 or 2.
-        pub edition: Option<i32>,
-        /// The GRIB2 discipline, named. `None` for GRIB1, which has no
-        /// discipline.
-        pub discipline: Option<String>,
+        /// The edition, and the identification only that edition carries
+        /// (#773). A field one edition does not have is not on the other's
+        /// variant, so a host never reads "not applicable" as "absent".
+        pub identification: Identification,
         /// The length the message declares for itself, in bytes.
         ///
         /// Distinct from [`offset_bytes`](Self::offset_bytes), which says where
         /// it starts. Together they are the range a host would re-fetch.
-        pub total_length_bytes: Option<u64>,
-        /// The GRIB2 production status, named. `None` for GRIB1.
-        pub production_status: Option<String>,
-        /// The GRIB2 data type — analysis, forecast, reanalysis — named. `None`
-        /// for GRIB1.
-        pub data_type: Option<String>,
+        pub total_length_bytes: u64,
         /// Whether this message's `u`/`v` components are resolved along the
         /// grid's own axes rather than east and north (GRIB1 GDS octet 17 bit 5,
         /// GRIB2 §3 Flag Table 3.3 bit 5).
@@ -736,6 +724,35 @@ api_type! {
         /// degrees. HRRR and NAM set it. `None` for a message whose family
         /// states no resolution flags, and for a container that is not GRIB.
         pub uv_relative_to_grid: Option<bool>,
+    }
+
+    /// The identification fields that belong to one GRIB edition, tagged with
+    /// it: `{"edition": "grib1", ...}` or `{"edition": "grib2", ...}` on the
+    /// wire (#773).
+    ///
+    /// A field exists only on the edition that has it. GRIB1 has no
+    /// discipline, production status or data type (they are §0 and §1 fields
+    /// edition 2 introduced), and GRIB2 has no one-octet `P1`.
+    #[serde(tag = "edition", rename_all = "snake_case", rename_all_fields = "camelCase")]
+    pub enum Identification {
+        /// WMO FM 92 GRIB edition 1.
+        Grib1 {
+            /// The PDS `P1` octet, when the time-range indicator is one that
+            /// makes it a lead time rather than the second half of an
+            /// interval. `None` for time range 10, where `P1` is a two-octet
+            /// value and not this field.
+            p1_octet: Option<i32>,
+        },
+        /// WMO FM 92 GRIB edition 2.
+        Grib2 {
+            /// The discipline (§0 octet 7), named from Code Table 0.0.
+            discipline: String,
+            /// The production status (§1 octet 20), named from Code Table 1.3.
+            production_status: String,
+            /// The data type — analysis, forecast, reanalysis — (§1 octet 21),
+            /// named from Code Table 1.4.
+            data_type: String,
+        },
     }
 
     /// A resampled raster: [`crate::Session::warp`] without the paint step.

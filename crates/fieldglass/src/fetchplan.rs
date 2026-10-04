@@ -246,11 +246,10 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
     }
 
     if let Some(promised) = &expect.reference_time
-        && let Some(actual) = &info.reference_time
         // The sidecar writes `YYYYMMDDHH`; the message states RFC 3339. Compared
         // as the ten digits both can produce, so this is a real check and not a
         // format comparison that always fails.
-        && let Some(actual) = ten_digit_reference_time(actual)
+        && let Some(actual) = ten_digit_reference_time(&info.reference_time)
         && promised.len() == 10
         && *promised != actual
     {
@@ -376,7 +375,7 @@ mod tests {
             units: "K".into(),
             level: level.into(),
             level_type: "Specified height level above ground".into(),
-            reference_time: Some("2026-09-04T00:00:00Z".into()),
+            reference_time: "2026-09-04T00:00:00Z".into(),
             forecast: "analysis".into(),
             packing: "grid_simple".into(),
             grid: None,
@@ -389,14 +388,15 @@ mod tests {
             // message's parameter and level, which is the whole of
             // `verify_message`.
             forecast_hours: None,
-            p1_octet: None,
             originating_centre: String::new(),
             sub_centre: None,
-            edition: None,
-            discipline: None,
-            total_length_bytes: None,
-            production_status: None,
-            data_type: None,
+            // A plan is built from an NCEP index over GRIB2.
+            identification: crate::api::Identification::Grib2 {
+                discipline: String::new(),
+                production_status: String::new(),
+                data_type: String::new(),
+            },
+            total_length_bytes: 0,
             // A plan is built from an index, which does not carry the
             // resolution flags a vector plot would read (#241).
             uv_relative_to_grid: None,

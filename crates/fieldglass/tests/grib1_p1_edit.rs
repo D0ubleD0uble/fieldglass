@@ -14,7 +14,7 @@ use fieldglass::{Session, grib1::with_p1_octet};
 /// using this function. Time range 10 spends `P1` as the *high* octet of a
 /// two-octet value, so setting it to 24 on such a file moves the forecast to
 /// `24 × 256 + P2`. The CMC fixture is exactly that case — I picked it first and
-/// it read back 6,156 hours. `MessageInfo::p1_octet` is `Some` only where the
+/// it read back 6,156 hours. `Identification::Grib1::p1_octet` is `Some` only where the
 /// octet really is the lead time, which is how to tell the two apart.
 const FIXTURE: &str = "../fieldglass-grib1/tests/fixtures/hand_second_order_SPD1.grib1";
 
@@ -47,7 +47,10 @@ fn the_edit_changes_one_octet_and_the_reread_reports_it() {
     let reread = Session::open(after).expect("the edited file still opens");
     let edited = reread.message(0).expect("a message");
     assert_eq!(edited.forecast_hours, Some(36));
-    assert_eq!(edited.p1_octet, Some(36));
+    assert_eq!(
+        edited.identification,
+        fieldglass::Identification::Grib1 { p1_octet: Some(36) }
+    );
 }
 
 /// The refusals, each naming what was wrong.

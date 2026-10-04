@@ -66,8 +66,6 @@ fn sidecar(offsets: &[u64], infos: &[MessageInfo]) -> String {
                 "{}:{offset}:d={}:{}:{}:anl:\n",
                 n + 1,
                 info.reference_time
-                    .as_deref()
-                    .unwrap_or("1970010100")
                     .chars()
                     .filter(char::is_ascii_digit)
                     .take(10)
