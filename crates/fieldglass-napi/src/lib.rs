@@ -1051,36 +1051,13 @@ impl MessageStream {
     /// along the grid's axes (`true`) or east and north.
     ///
     /// Each message states its own (GRIB1 GDS octet 17, GRIB2 Flag Table 3.3,
-    /// bit 5), and a pair whose two differ is refused in the words a refused
-    /// combine uses: `render::vector_polylines` rotates both components through
-    /// the one frame it is given, so a grid-relative u paired with an
-    /// earth-relative v would draw every arrow at the wrong bearing. Otherwise
-    /// a caller's `requested` frame is used as it stands, and a caller that
-    /// leaves it out gets the pair's own rather than east and north whatever
-    /// the file says.
+    /// bit 5); [`fieldglass::component_frame`] refuses a pair whose two differ
+    /// and otherwise resolves `requested` against them.
     fn component_frame(&self, u: u32, v: u32, requested: Option<bool>) -> napi::Result<bool> {
         let stated = |i: u32| -> napi::Result<Option<bool>> {
             Ok(self.session.message(i).into_napi()?.uv_relative_to_grid)
         };
-        let (frame_u, frame_v) = (stated(u)?, stated(v)?);
-        if let (Some(a), Some(b)) = (frame_u, frame_v)
-            && a != b
-        {
-            let name = |grid: bool| {
-                if grid {
-                    "grid-relative"
-                } else {
-                    "earth-relative"
-                }
-            };
-            return Err(napi::Error::from_reason(format!(
-                "the two fields are on different grids and cannot be combined: their \
-                 component frame differs (A: {}, B: {})",
-                name(a),
-                name(b)
-            )));
-        }
-        Ok(requested.or(frame_u).or(frame_v).unwrap_or(false))
+        fieldglass::component_frame(stated(u)?, stated(v)?, requested).into_napi()
     }
 
     /// Message `index`'s parameter name and units, which label a zonal mean.
@@ -8744,7 +8721,8 @@ mod component_frame_tests {
         assert!(
             e.reason.contains("their component frame differs")
                 && e.reason.contains("grid-relative")
-                && e.reason.contains("earth-relative"),
+                && e.reason.contains("earth-relative")
+                && !e.reason.contains("different grids"),
             "{}",
             e.reason
         );
@@ -8766,10 +8744,14 @@ mod component_frame_tests {
         h.project_vectors(1, 1, opts("source"), Some(8), None)
             .expect("both earth-relative");
 
+        // The GRIB1 fixture is 8 × 5, so every cell is sampled; an agreeing
+        // pair is drawn, not just accepted.
         let g1 = Grib1Handle::from_vec(frames(GRIB1, grib1_flags_octet(GRIB1))).expect("opens");
-        assert_frame_refusal(g1.project_vectors(0, 1, opts("source"), Some(8), None));
-        g1.project_vectors(0, 2, opts("source"), Some(8), None)
+        assert_frame_refusal(g1.project_vectors(0, 1, opts("source"), Some(1), None));
+        let drawn = g1
+            .project_vectors(0, 2, opts("source"), Some(1), None)
             .expect("both grid-relative");
+        assert!(!drawn.xy.is_empty(), "the agreeing GRIB1 pair draws arrows");
     }
 
     /// Left out, the frame is the one the pair states, not east and north

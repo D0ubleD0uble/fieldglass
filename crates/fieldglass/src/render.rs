@@ -1905,8 +1905,9 @@ pub struct VectorOptions {
     /// **One frame for both components.** GRIB states it per message, so a
     /// caller pairing two messages must check they agree before setting it: a
     /// grid-relative u with an earth-relative v lines up cell for cell and
-    /// would be drawn at the wrong bearing everywhere. The Node binding refuses
-    /// such a pair (#805).
+    /// would be drawn at the wrong bearing everywhere.
+    /// [`component_frame`](crate::component_frame) refuses such a pair and
+    /// resolves this from the frames the two messages state (#805).
     #[serde(default)]
     pub grid_relative: bool,
     /// The speed the longest arrow stands for.

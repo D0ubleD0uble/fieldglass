@@ -1026,8 +1026,9 @@ impl Placement {
 }
 
 impl Georef {
-    /// Flatten a [`GridGeometry`] and the message's scan flags into the
-    /// scalar form a host consumes.
+    /// Flatten a [`GridGeometry`] and the scan order of its decoded values
+    /// (what [`Georef::scan`] reports, not the flags the message stored; #792)
+    /// into the scalar form a host consumes.
     ///
     /// The projected families report their origin and spacing in the
     /// projection plane, which is what [`GridGeometry::proj4`] describes — the
@@ -1268,7 +1269,7 @@ fn scan_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
             "jConsecutive": { "type": "boolean" }
         },
         "additionalProperties": false,
-        "description": "The scanning-mode direction flags the message states for itself."
+        "description": "The scan order of the decoded values, which for a column-major message is not the order the message stored."
     })
 }
 

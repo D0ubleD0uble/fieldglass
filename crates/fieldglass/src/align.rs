@@ -111,6 +111,52 @@ pub(crate) fn same_grid(a: &GridGeometry, b: &GridGeometry) -> bool {
     }
 }
 
+/// The component frame a u and a v field are drawn in, from the frame each
+/// message states and the one a caller asks for.
+///
+/// GRIB states it per message (GRIB1 GDS octet 17 bit 5, GRIB2 Flag Table 3.3
+/// bit 5): whether the components run along the grid's axes or east and
+/// north. `render::VectorOptions::grid_relative` is one frame for both, so a
+/// grid-relative u and an earth-relative v, which [`aligned`] passes when they
+/// share a grid, would have v rotated as if it ran along the grid and every
+/// arrow drawn at the wrong bearing (#805). Such a pair is refused, whatever
+/// `requested` says.
+///
+/// Otherwise `requested` is used as it stands, so a caller can still correct
+/// a mislabelled file, and a caller that leaves it out gets the frame the pair
+/// states rather than east and north. A message that states no frame (`None`)
+/// takes the other's; neither stating one is earth-relative.
+///
+/// # Errors
+///
+/// [`Error::Unsupported`] when both messages state a frame and they differ.
+pub fn component_frame(
+    u: Option<bool>,
+    v: Option<bool>,
+    requested: Option<bool>,
+) -> Result<bool, Error> {
+    if let (Some(a), Some(b)) = (u, v)
+        && a != b
+    {
+        let name = |grid: bool| {
+            if grid {
+                "grid-relative"
+            } else {
+                "earth-relative"
+            }
+        };
+        return Err(Error::Unsupported {
+            detail: format!(
+                "u and v cannot be drawn as one vector: their component frame differs \
+                 (u: {}, v: {})",
+                name(a),
+                name(b)
+            ),
+        });
+    }
+    Ok(requested.or(u).or(v).unwrap_or(false))
+}
+
 /// How a grid that would not resolve is named in a refusal.
 fn unplaceable(e: &Error) -> String {
     format!("a grid that states no usable geometry ({})", e.message())
@@ -180,4 +226,58 @@ fn scan_label(s: crate::api::Scan) -> String {
         "iNegative={} jPositive={} jConsecutive={}",
         s.i_negative, s.j_positive, s.j_consecutive
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const G: Option<bool> = Some(true);
+    const E: Option<bool> = Some(false);
+
+    /// A pair that states two frames is refused whatever the caller asks, and
+    /// the refusal says which component is in which (#805).
+    #[test]
+    fn a_pair_stating_two_frames_is_refused() {
+        for requested in [None, E, G] {
+            let Err(Error::Unsupported { detail }) = component_frame(G, E, requested) else {
+                panic!("grid-relative u with earth-relative v was accepted");
+            };
+            assert!(
+                detail.contains("(u: grid-relative, v: earth-relative)"),
+                "{detail}"
+            );
+            let Err(Error::Unsupported { detail }) = component_frame(E, G, requested) else {
+                panic!("earth-relative u with grid-relative v was accepted");
+            };
+            assert!(
+                detail.contains("(u: earth-relative, v: grid-relative)"),
+                "{detail}"
+            );
+        }
+    }
+
+    /// Otherwise the caller's request wins, then the frame the pair states,
+    /// then east and north.
+    #[test]
+    fn an_agreeing_pair_resolves_to_the_request_or_its_own_frame() {
+        let cases = [
+            // (u, v, requested, frame)
+            (G, G, None, true),
+            (E, E, None, false),
+            (G, None, None, true),
+            (None, G, None, true),
+            (None, None, None, false),
+            (G, G, E, false),
+            (E, E, G, true),
+            (None, None, G, true),
+        ];
+        for (u, v, requested, frame) in cases {
+            assert_eq!(
+                component_frame(u, v, requested).ok(),
+                Some(frame),
+                "{u:?}/{v:?}/{requested:?}"
+            );
+        }
+    }
 }

@@ -319,7 +319,7 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Fixed
 
-- **Wind arrows are no longer drawn wrong when u and v disagree about their direction frame.** A GRIB file says, per message, whether its u and v run along the grid's own axes or east and north. The Node binding's `projectVectors` took that from the caller alone and applied it to both, so pairing a grid-relative u with an earth-relative v on a projected grid drew every arrow at the wrong angle with no warning. Such a pair is now refused, like a pair on two different grids. When `gridRelative` is left out, the arrows use the frame the two messages state instead of assuming east and north.
+- **Wind arrows are no longer drawn wrong when u and v disagree about their direction frame.** A GRIB file says, per message, whether its u and v run along the grid's own axes or east and north. The Node binding's `projectVectors` took that from the caller alone and applied it to both, so pairing a grid-relative u with an earth-relative v on a projected grid drew every arrow at the wrong angle with no warning. Such a pair is now refused, like a pair on two different grids. When `gridRelative` is left out, the arrows use the frame the two messages state instead of assuming east and north. A Rust host gets the same check from `fieldglass::component_frame`.
 
 - **`fieldglass_grib2::matrix::decode_matrix_of_values` returns an error for a bitmap of the wrong length.** Given a bitmap that is not one bit per grid point, it panicked in a debug build. It now returns the same `bitmap length … != grid-point count …` error as every other GRIB decoder.
 

@@ -1420,7 +1420,7 @@
       "properties": {
         "gridRelative": {
           "default": false,
-          "description": "**Are the components along the grid's axes rather than east and north?**\n\nGRIB says so in its resolution flags, and the common projected files —\nHRRR, NAM — set it. Drawn as if they were east and north, a grid-relative\npair points wrong by the grid's convergence angle: up to tens of degrees\naway from the projection's central meridian. When this is set the\ncomponents are rotated through the grid's own north, per cell.\n\n**One frame for both components.** GRIB states it per message, so a\ncaller pairing two messages must check they agree before setting it: a\ngrid-relative u with an earth-relative v lines up cell for cell and\nwould be drawn at the wrong bearing everywhere. The Node binding refuses\nsuch a pair (#805).",
+          "description": "**Are the components along the grid's axes rather than east and north?**\n\nGRIB says so in its resolution flags, and the common projected files —\nHRRR, NAM — set it. Drawn as if they were east and north, a grid-relative\npair points wrong by the grid's convergence angle: up to tens of degrees\naway from the projection's central meridian. When this is set the\ncomponents are rotated through the grid's own north, per cell.\n\n**One frame for both components.** GRIB states it per message, so a\ncaller pairing two messages must check they agree before setting it: a\ngrid-relative u with an earth-relative v lines up cell for cell and\nwould be drawn at the wrong bearing everywhere.\n[`component_frame`](crate::component_frame) refuses such a pair and\nresolves this from the frames the two messages state (#805).",
           "type": "boolean"
         },
         "referenceSpeed": {
