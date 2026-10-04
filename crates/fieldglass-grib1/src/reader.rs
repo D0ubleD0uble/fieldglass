@@ -1414,3 +1414,49 @@ mod forecast_display_tests {
         assert_eq!(forecast_display(&pds_time(2, 0, 1, 0)), "+24h");
     }
 }
+
+#[cfg(test)]
+mod matrix_bitmap_tests {
+    use super::*;
+
+    const FIXTURE: &[u8] = include_bytes!("../tests/fixtures/hand_matrix_of_values.grib1");
+
+    /// A bitmap that is not one bit per grid point is refused before the cell
+    /// cap, with the wording GRIB2's matrix decoder uses, so both editions
+    /// reject it at the same step (#824). Over the committed matrix fixture as
+    /// it is, and with NR and NC set to 0xFFFF, where the cell cap would
+    /// otherwise speak first.
+    #[test]
+    fn a_wrong_length_bitmap_is_named_before_the_cell_cap() {
+        for oversized in [false, true] {
+            let mut bytes = FIXTURE.to_vec();
+            if oversized {
+                let bds = Grib1Reader::from_bytes(FIXTURE.to_vec())
+                    .expect("parses")
+                    .messages[0]
+                    .bds_range
+                    .start as usize;
+                bytes[bds + 14..bds + 18].fill(0xFF); // NR, NC
+            }
+            let reader = Grib1Reader::from_bytes(bytes).expect("the edit keeps the framing");
+            let inputs = reader.decode_inputs(0).expect("inputs");
+            let n = inputs.expected_count;
+            for len in [n - 1, n + 1] {
+                let bitmap = vec![true; len];
+                let err = decode_matrix_of_values(
+                    &inputs.bds_bytes,
+                    &inputs.header,
+                    inputs.decimal_scale,
+                    Some(&bitmap),
+                    n,
+                )
+                .unwrap_err();
+                assert!(
+                    matches!(&err, FieldglassError::Parse(m)
+                        if *m == format!("bitmap length {len} != grid-point count {n}")),
+                    "oversized {oversized}, {len} bits: got {err:?}"
+                );
+            }
+        }
+    }
+}
