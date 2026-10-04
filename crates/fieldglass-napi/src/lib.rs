@@ -160,10 +160,16 @@ pub fn packing_label(packing: String) -> String {
 /// - A non-finite float becomes `null`, where the browser passes `NaN`. No
 ///   field of `AxisValues` can hold one, because a coordinate that is not finite
 ///   is a hole and the axis reports none (`fieldglass::Session::axis_values`).
-///   No field of `MessageInfo` does either: the geometry parameters are GRIB
-///   integers scaled, and `core` withholds an origin or extent it cannot compute
-///   rather than returning one. `no_message_carries_a_non_finite_float` holds
-///   that over every committed GRIB message.
+///   No field of `MessageInfo` does either. Its floats are all in its grid,
+///   and the grid's parameters are GRIB integers scaled, IBM floats (GRIB1,
+///   which cannot encode a NaN or an infinity), or GRIB2 IEEE floats, §3.1's
+///   angle of rotation and §3.12's scale factor, a non-finite one of which
+///   declines the grid rather than building it (#823); and `core` withholds an
+///   origin or extent it cannot compute rather than returning one.
+///   `no_message_carries_a_non_finite_float` holds that over every committed
+///   GRIB message, and
+///   `a_non_finite_grid_parameter_crosses_as_the_session_holds_it` over the two
+///   IEEE parameters set to NaN and both infinities.
 /// - An integer above 2^53 becomes a `BigInt`. The byte offsets and lengths of
 ///   any GRIB file this can hold in memory are far below it.
 fn to_js(dto: Result<serde_json::Value, serde_json::Error>) -> napi::Result<serde_json::Value> {
@@ -1007,7 +1013,18 @@ impl MessageStream {
     fn placed(&self, index: u32) -> napi::Result<Placed> {
         let placed = self.session.place_message(index).into_napi()?;
         if placed.geometry.dims().is_none() {
-            return Err(no_display_raster());
+            // A raster the section declares and nothing places (#823) has its
+            // dimensions, so "no declared dimensions" would contradict the
+            // message table; say what is missing instead.
+            return Err(if placed.ni > 0 && placed.nj > 0 {
+                napi::Error::from_reason(format!(
+                    "the {} grid is {}: its geometry places no point on the Earth",
+                    placed.label,
+                    placed.placement.as_str(),
+                ))
+            } else {
+                no_display_raster()
+            });
         }
         Ok(Placed::from_georef(placed))
     }
@@ -7826,8 +7843,9 @@ mod message_wire_tests {
     /// value fails on any non-finite float, wherever it is: a `null` in a
     /// required float or inside the corner array does not deserialise, a
     /// `Some(NaN)` read back as `None` differs, and `NaN` is not equal to
-    /// itself. The geometry parameters are GRIB integers scaled, and `core`
-    /// withholds an origin or extent it cannot compute rather than returning one
+    /// itself. The geometry parameters are GRIB integers scaled, or IEEE floats
+    /// a non-finite one of which declines the grid, and `core` withholds an
+    /// origin or extent it cannot compute rather than returning one
     /// (`GridGeometry::plane_affine`, `lonlat_bbox`).
     #[test]
     fn no_message_carries_a_non_finite_float() {
@@ -7874,6 +7892,165 @@ mod message_wire_tests {
             }
         }
         assert!(checked >= 70, "only {checked} messages checked");
+    }
+
+    /// The fixtures above can only show what they hold, and none holds a
+    /// non-finite float. Two §3 parameters are IEEE floats a file can state as
+    /// NaN or an infinity, §3.1's angle of rotation and §3.12's scale factor
+    /// (#823): their messages, edited to each, cross this binding as the
+    /// session holds them, so the two hosts send the same values.
+    #[test]
+    fn a_non_finite_grid_parameter_crosses_as_the_session_holds_it() {
+        fn with_template_float(path: &str, payload_offset: usize, value: f32) -> Vec<u8> {
+            let mut bytes = std::fs::read(path).expect("fixture");
+            let mut at = 16; // past §0
+            while &bytes[at..at + 4] != b"7777" {
+                let len =
+                    u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+                        as usize;
+                if bytes[at + 4] == 3 {
+                    let field = at + 14 + payload_offset;
+                    bytes[field..field + 4].copy_from_slice(&value.to_be_bytes());
+                    return bytes;
+                }
+                at += len;
+            }
+            panic!("{path}: no §3");
+        }
+        for (path, offset) in [
+            (
+                "../fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+                66,
+            ),
+            (
+                "../fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+                33,
+            ),
+        ] {
+            for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                let bytes = with_template_float(path, offset, value);
+                let handle = Grib2Handle::from_vec(bytes.clone()).expect("opens");
+                let wire = handle.stream.message_info(0).expect("message 0");
+                let read_back: fieldglass::MessageInfo = serde_json::from_value(wire)
+                    .unwrap_or_else(|e| panic!("{path} = {value}: does not read back ({e})"));
+                let session = fieldglass::Session::open(bytes).expect("opens");
+                assert_eq!(
+                    read_back,
+                    session.message(0).expect("message 0"),
+                    "{path} = {value}: a value changed crossing the wire"
+                );
+                assert_eq!(read_back.placement, fieldglass::Placement::Unplaceable);
+
+                // Declined, the grid is still a raster, and this binding draws
+                // it at the size the session decodes it, which is what the
+                // browser binding paints from. Every display call here sizes
+                // itself from `place_message`'s georef, which reported 0 x 0
+                // when only the geometry's own dimensions counted: a blank
+                // render, no probe and an empty CSV, where the browser drew the
+                // whole grid (#823 review).
+                let field = session
+                    .decode(0, &fieldglass::DecodeOptions::default())
+                    .expect("decodes in grid coordinates");
+                let (ni, nj) = (field.ni, field.nj);
+                assert!(ni > 1 && nj > 1, "{path} = {value}: {ni} x {nj}");
+                let placed = session.place_message(0).expect("places");
+                assert_eq!((placed.ni, placed.nj), (ni, nj), "{path} = {value}");
+                assert_eq!(
+                    (
+                        read_back.grid.as_ref().unwrap().ni,
+                        read_back.grid.as_ref().unwrap().nj
+                    ),
+                    (ni, nj)
+                );
+                assert_eq!((field.georef.ni, field.georef.nj), (ni, nj));
+                let opts = super::netcdf_slice_tests::opts;
+                let g = handle.render_grid(0, opts("source")).expect("renders");
+                assert_eq!(
+                    (g.width as u64, g.height as u64),
+                    (u64::from(ni), u64::from(nj)),
+                    "{path} = {value}"
+                );
+                let d = handle.decode_grid(0).expect("decodes");
+                assert_eq!(
+                    (d.width as u64, d.height as u64),
+                    (u64::from(ni), u64::from(nj)),
+                    "{path} = {value}"
+                );
+                assert!(
+                    handle
+                        .probe(0, opts("source"), ni / 2, nj / 2)
+                        .expect("probes")
+                        .is_some(),
+                    "{path} = {value}: the middle cell has a value"
+                );
+                // An overlay needs the geometry, which a declined grid has not
+                // got; the refusal says so rather than "no declared dimensions",
+                // which the message table's 16 x 31 would contradict.
+                let refused = handle.stream.placed(0).expect_err("no overlay geometry");
+                assert!(
+                    refused.reason.contains("places no point on the Earth"),
+                    "{path} = {value}: {}",
+                    refused.reason
+                );
+                let csv = handle.stream.csv(0, "matrix").expect("exports");
+                assert_eq!(
+                    csv.lines().count(),
+                    nj as usize,
+                    "{path} = {value}: one line per row"
+                );
+            }
+        }
+    }
+
+    /// The third grid that reaches the same refusal: a §3.90 whose camera sees
+    /// no Earth (`Nr` of one Earth radius). Built from the lat/lon fixture with
+    /// its §3 rewritten as template 3.90, as the umbrella's test builds it.
+    #[test]
+    fn a_space_view_that_sees_no_earth_draws_unplaced_and_takes_no_overlay() {
+        let path = "../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2";
+        let bytes = std::fs::read(path).expect("fixture");
+        let mut at = 16;
+        let bytes = loop {
+            let len = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+                as usize;
+            if bytes[at + 4] == 3 {
+                let mut p = vec![0u8; 66];
+                p[0] = 6; // a sphere of radius 6,371,229 m
+                p[16..24].copy_from_slice(&bytes[at + 30..at + 38]); // Ni, Nj
+                p[33..37].copy_from_slice(&1_000u32.to_be_bytes()); // Dx
+                p[37..41].copy_from_slice(&1_000u32.to_be_bytes()); // Dy
+                p[54..58].copy_from_slice(&1_000_000u32.to_be_bytes()); // Nr
+                let mut section = bytes[at..at + 14].to_vec();
+                section[12..14].copy_from_slice(&90u16.to_be_bytes());
+                section.extend_from_slice(&p);
+                let section_len = section.len() as u32;
+                section[0..4].copy_from_slice(&section_len.to_be_bytes());
+                let mut out = bytes[..at].to_vec();
+                out.extend_from_slice(&section);
+                out.extend_from_slice(&bytes[at + len..]);
+                let total = out.len() as u64;
+                out[8..16].copy_from_slice(&total.to_be_bytes());
+                break out;
+            }
+            at += len;
+        };
+        let handle = Grib2Handle::from_vec(bytes.clone()).expect("opens");
+        let session = fieldglass::Session::open(bytes).expect("opens");
+        let field = session
+            .decode(0, &fieldglass::DecodeOptions::default())
+            .expect("decodes in grid coordinates");
+        let g = handle
+            .render_grid(0, super::netcdf_slice_tests::opts("source"))
+            .expect("renders");
+        assert_eq!(
+            (g.width as u64, g.height as u64),
+            (u64::from(field.ni), u64::from(field.nj))
+        );
+        let refused = handle.stream.placed(0).expect_err("no overlay geometry");
+        assert_eq!(
+            refused.reason,
+            "the space_view grid is unplaceable: its geometry places no point on the Earth"
+        );
     }
 }
 

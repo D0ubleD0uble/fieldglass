@@ -1154,6 +1154,28 @@ impl Session {
         u32::try_from(n).unwrap_or(u32::MAX)
     }
 
+    /// The rows and columns message `i`'s grid section states, when it states
+    /// them: what [`decode`](Self::decode) lays values onto when the geometry
+    /// could not be built from the section (#823).
+    ///
+    /// The same answer [`grib2_without_geometry`] and
+    /// [`grib1_without_geometry`] read to call such a grid `unplaceable`, so a
+    /// message `message` reports as a raster nothing places decodes as one. A
+    /// template this build does not model states none, and still refuses.
+    #[cfg(any(feature = "grib1", feature = "grib2"))]
+    fn declared_raster(&self, i: usize) -> Option<(u32, u32)> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(r) => r.messages[i].gds.as_ref().and_then(|g| g.dimensions()),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(r) => r.messages[i].gds.dimensions(),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(_) => None,
+        }
+        // As `raster_without_geometry` reads them: a side of zero is no raster.
+        .filter(|&(ni, nj)| ni > 0 && nj > 0)
+    }
+
     /// Message `i`'s points per row, when its grid is reduced (#244).
     #[cfg(any(feature = "grib1", feature = "grib2"))]
     fn message_points_per_row(&self, i: usize) -> Option<Vec<u32>> {
@@ -1370,9 +1392,22 @@ impl Session {
                 },
             };
 
-            let (ni, nj) = geometry.dims().ok_or_else(|| Error::Unsupported {
-                detail: format!("a {} field has no raster to decode onto", geometry.label()),
-            })?;
+            // A modelled grid whose geometry could not be built — a §3.90
+            // camera that sees no Earth, a rotation or scale factor that is not
+            // a finite number (#823) — still states its rows and columns, and
+            // its values are laid out on them in grid coordinates: the
+            // `unplaceable` raster `message` reports. `from_slice` in
+            // `build_field` gives such a field that placement.
+            let (ni, nj) = geometry
+                .dims()
+                .or_else(|| {
+                    (!was_synthesised)
+                        .then(|| self.declared_raster(i))
+                        .flatten()
+                })
+                .ok_or_else(|| Error::Unsupported {
+                    detail: format!("a {} field has no raster to decode onto", geometry.label()),
+                })?;
             let expected = (ni as usize).saturating_mul(nj as usize);
             if raw.len() != expected {
                 return Err(Error::Decode {
@@ -1886,6 +1921,7 @@ impl Session {
                         gds.grid_type_name(),
                         gds.raster_bounds(),
                         grib1_without_geometry(gds),
+                        gds.dimensions(),
                     )
                     .with_points_per_row(gds.points_per_row()))
                 }
@@ -1898,6 +1934,7 @@ impl Session {
                         &msg.gds.template_name(),
                         msg.gds.raster_bounds(),
                         grib2_without_geometry(&msg.gds),
+                        msg.gds.dimensions(),
                     )
                     .with_points_per_row(msg.gds.points_per_row()))
                 }
@@ -2531,6 +2568,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
             gds.grid_type_name(),
             gds.bounds(),
             grib1_without_geometry(gds),
+            gds.dimensions(),
         )
         .with_points_per_row(gds.points_per_row())
     });
@@ -2644,6 +2682,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         &msg.gds.template_name(),
         msg.gds.bounds(),
         grib2_without_geometry(&msg.gds),
+        msg.gds.dimensions(),
     )
     .with_points_per_row(msg.gds.points_per_row());
     // Every GRIB2 message carries a §3, so the no-grid answer is unreachable;

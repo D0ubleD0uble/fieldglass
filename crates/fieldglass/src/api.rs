@@ -274,7 +274,8 @@ api_type! {
         /// There is a raster, and nothing places any of it on the Earth: a
         /// polar stereographic grid stating a zero grid step, a Lambert cone
         /// whose standard parallels are both on the equator, a first point the
-        /// forward map sends to infinity, a §3.90 camera that sees no Earth, or
+        /// forward map sends to infinity, a §3.90 camera that sees no Earth, a
+        /// GRIB2 rotation or scale factor that is not a finite number (#823), or
         /// a NetCDF, HDF5 or Zarr slice with no coordinates to place it by. The
         /// grid still renders in its own grid coordinates; it has no position on
         /// a map.
@@ -1085,7 +1086,7 @@ impl Georef {
         declared: &str,
         corners: Option<CornerPair>,
     ) -> Self {
-        Self::from_container(geom, scan, declared, corners, Placement::NoRaster)
+        Self::from_container(geom, scan, declared, corners, Placement::NoRaster, None)
     }
 
     /// The placement of a raster whose shape the **caller** states: a slice of
@@ -1109,6 +1110,7 @@ impl Georef {
             declared,
             None,
             Placement::raster_without_geometry(ni, nj),
+            Some((ni, nj)),
         )
     }
 
@@ -1118,14 +1120,20 @@ impl Georef {
     /// build does not model, [`Placement::Unplaceable`] for a raster the
     /// container declares and nothing places, [`Placement::NoRaster`] when
     /// there really are no points.
+    ///
+    /// `raster` is the columns and rows the container states, read only when
+    /// the geometry has none of its own: a raster nothing places still has
+    /// that shape, and a host sizes everything it draws from these two fields
+    /// (#823).
     pub(crate) fn from_container(
         geom: &GridGeometry,
         scan: Scan,
         declared: &str,
         corners: Option<CornerPair>,
         without_geometry: Placement,
+        raster: Option<(u32, u32)>,
     ) -> Self {
-        let computed = Self::build(geom, scan, declared, without_geometry);
+        let computed = Self::build(geom, scan, declared, without_geometry, raster);
         Self {
             // `.or`, not a plain assignment: naming the field in a struct
             // update replaces what `from_declared` computed, so a container
@@ -1160,17 +1168,24 @@ impl Georef {
     /// A geometry with no grid points is reported [`Placement::NoRaster`]; see
     /// [`from_declared_corners`](Self::from_declared_corners).
     pub fn from_declared(geom: &GridGeometry, scan: Scan, declared: &str) -> Self {
-        Self::build(geom, scan, declared, Placement::NoRaster)
+        Self::build(geom, scan, declared, Placement::NoRaster, None)
     }
 
     /// The one constructor body. `without_geometry` is what a geometry with no
-    /// grid points reports; see [`from_container`](Self::from_container).
-    fn build(geom: &GridGeometry, scan: Scan, declared: &str, without_geometry: Placement) -> Self {
+    /// grid points reports, and `raster` the shape it has all the same; see
+    /// [`from_container`](Self::from_container).
+    fn build(
+        geom: &GridGeometry,
+        scan: Scan,
+        declared: &str,
+        without_geometry: Placement,
+        raster: Option<(u32, u32)>,
+    ) -> Self {
         debug_assert!(
             without_geometry != Placement::Placed,
             "a grid with no geometry cannot be placed"
         );
-        let (ni, nj) = geom.dims().unwrap_or((0, 0));
+        let (ni, nj) = geom.dims().or(raster).unwrap_or((0, 0));
         // One question, asked of `core`: a family that has a plane reports its
         // origin and step in that plane's own units, and one that has none (a
         // list of cell centres, an unmodelled grid) reports nothing rather

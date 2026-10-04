@@ -985,7 +985,7 @@
         },
         {
           "const": "unplaceable",
-          "description": "There is a raster, and nothing places any of it on the Earth: a\npolar stereographic grid stating a zero grid step, a Lambert cone\nwhose standard parallels are both on the equator, a first point the\nforward map sends to infinity, a §3.90 camera that sees no Earth, or\na NetCDF, HDF5 or Zarr slice with no coordinates to place it by. The\ngrid still renders in its own grid coordinates; it has no position on\na map.",
+          "description": "There is a raster, and nothing places any of it on the Earth: a\npolar stereographic grid stating a zero grid step, a Lambert cone\nwhose standard parallels are both on the equator, a first point the\nforward map sends to infinity, a §3.90 camera that sees no Earth, a\nGRIB2 rotation or scale factor that is not a finite number (#823), or\na NetCDF, HDF5 or Zarr slice with no coordinates to place it by. The\ngrid still renders in its own grid coordinates; it has no position on\na map.",
           "type": "string"
         },
         {
