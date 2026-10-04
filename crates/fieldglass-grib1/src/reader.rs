@@ -545,8 +545,10 @@ impl<S: ByteSource> Grib1Reader<S> {
     /// [`points_band_limit`](fieldglass_core::sht::points_band_limit), from the
     /// grid's coarsest step (a 0.25° grid carries T719, a 1° grid T179). A gap
     /// between two regions the grid samples, such as two latitude bands or two
-    /// longitude sectors, is not a step, so each region is synthesised at its
-    /// own spacing (#812). A coarse regular sample resolves only what its step
+    /// longitude sectors, each at least three rows or columns deep, is not a
+    /// step, so each region is synthesised at its own spacing (#812). Thinner
+    /// regions are not told apart from stray points, and the grid falls back to
+    /// its coarsest step. A coarse regular sample resolves only what its step
     /// carries: three longitudes round the circle carry T0, the field's mean,
     /// so to read a handful of places ask for the full sum. An
     /// axis counts only when it has at least three distinct points, so a

@@ -385,9 +385,12 @@ const REGION_BREAK: f64 = 4.0;
 /// polar caps 140° apart would read as a 140° step and synthesise as the
 /// field's global mean (#812). The rule, as a contract:
 ///
-/// 1. **Sites.** Points closer than the step that carries
-///    [`MAX_TRUNCATION`] are one site. No field the readers accept can tell
-///    them apart, so any number of near-copies of a point count once.
+/// 1. **Sites.** A run of consecutive points, each closer to the next than
+///    `180 / (MAX_TRUNCATION + 2)` degrees (a step finer than any
+///    [`MAX_TRUNCATION`] field resolves), is one site, so any number of
+///    near-copies of a point count once. The run chains: a grid sampled finer
+///    than that throughout is a single site, and evaluated in full, which is
+///    what its resolution allows anyway.
 /// 2. **Breaks.** A ring's single largest gap is always a break: the outside
 ///    of a regional grid, however few steps it spans, or one of a global
 ///    grid's equal steps, which the next repeats. Any other gap more than four
@@ -396,7 +399,10 @@ const REGION_BREAK: f64 = 4.0;
 ///    a region, the same bar an axis has to clear; a shorter run is a stray.
 ///    When regions hold most of the axis's sites, each is judged by its own
 ///    steps and the strays set none, so a lone point or a pair between two
-///    polar caps does not coarsen them. Otherwise the axis is one sampling:
+///    polar caps does not coarsen them. A region needs three sites, so two
+///    caps of two rows each are strays like any pair, not regions: the axis
+///    falls back to its coarsest step, as the coarsest-step rule always did,
+///    and that step can be the separation. Otherwise the axis is one sampling:
 ///    the candidate breaks are dropped and every gap but a ring's outside is a
 ///    step, so latitudes in pairs 1° apart every 6° resolve their 5° step.
 /// 4. **Never coarser than the coarsest-step rule.** The rule only ever stops
@@ -1785,6 +1791,19 @@ mod tests {
             Some(2)
         );
         assert_eq!(points_band_limit(&[-1e308, 1e308], &global_lons), Some(359));
+        // Known and stated (#812, round 3): a region needs three sites, so
+        // regions only two rows or columns deep are strays, and the axis falls
+        // back to its coarsest step, which here is the separation. The same
+        // as the coarsest-step rule gives, not a regression; recorded on #812.
+        assert_eq!(
+            points_band_limit(&[-70.5, -70.0, 70.0, 70.5], &global_lons),
+            Some(0)
+        );
+        assert_eq!(
+            points_band_limit(&global_lats, &[0.0, 180.0, 180.5]),
+            Some(0)
+        );
+
         // Folded, these are two longitudes, which do not sample the ring.
         assert_eq!(points_band_limit(&[45.0], &[-1e-14, 0.0, 120.0]), None);
 
