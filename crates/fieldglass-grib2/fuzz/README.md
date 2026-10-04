@@ -25,7 +25,7 @@ its 5-byte header, 196 bytes in all. It is a constant field, so it needs no
 data, and it decodes to a gigabyte, about a second of writes per message; a
 dozen of them in one input passed the time-boxed run's ten-second timeout. The
 target skips a decode that size (see `FUZZ_MAX_FIELD_POINTS`), and the seed
-keeps that skip in place. Three more seeds are the same kind of message for the
+keeps that skip in place. Four more seeds are the same kind of message for the
 other decode entry points, each zero bits per value with §7 cut to its header:
 
 - `constant_field_healpix_nside2364.grib2` (149 bytes): `healpix_n2_ring.grib2`
@@ -44,6 +44,14 @@ other decode entry points, each zero bits per value with §7 cut to its header:
   count of 80. The reader builds and walks the 134 MB truncation layout before
   it finds §5 disagrees, about 0.3 s, so the target gates bi-Fourier on that
   layout rather than on §5.
+
+`jpeg2000_codestream_8192x8192_on_1x1.grib2` (300 bytes) is
+`jpeg2000_regular_latlon.grib2` with a 1 × 1 grid, both counts 1, no bitmap,
+and §7 replaced by a 102-byte single-tile codestream whose SIZ states an
+8192 × 8192 image (5 decomposition levels, empty packets). The reader decodes
+the whole codestream before it compares the sample count with the field's,
+about 14 s, so the target reads SIZ and skips an image past
+`FUZZ_MAX_J2K_SAMPLES`.
 
 The target also decodes at most eight messages per input
 (`MAX_DECODED_MESSAGES`): each gate bounds one message, but the run's timeout
