@@ -1646,14 +1646,15 @@ fn canonical(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
-/// The schema of every wire type, as the file on disk should hold it, and the
-/// names of the types it was built from.
+/// The schema of every wire type, as the file on disk should hold it, the
+/// names of the types it was built from, and the names of the definitions the
+/// returned (serialize-contract) generator produced.
 ///
 /// Two generators, one per direction (see [`SENT`]), feeding one `$defs` table.
 /// A type reachable from both directions must describe the same way in both, or
 /// one name would mean two shapes. That is asserted rather than resolved,
 /// because the fix is a decision about the type, not about the schema.
-fn api_schema() -> (serde_json::Value, Vec<&'static str>) {
+fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     use schemars::generate::SchemaSettings;
 
     let mut returned = SchemaSettings::draft2020_12()
@@ -1681,7 +1682,9 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>) {
     );
 
     let mut defs = sent.take_definitions(true);
-    for (name, schema) in returned.take_definitions(true) {
+    let returned_defs = returned.take_definitions(true);
+    let returned_names: BTreeSet<String> = returned_defs.keys().cloned().collect();
+    for (name, schema) in returned_defs {
         if let Some(other) = defs.get(&name) {
             assert_eq!(
                 other, &schema,
@@ -1703,7 +1706,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>) {
             out takes its default).",
         "$defs": defs,
     });
-    (canonical(document), roots)
+    (canonical(document), roots, returned_names)
 }
 
 /// The checked-in schema is exactly what the Rust types describe, and it
@@ -1715,7 +1718,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>) {
 /// the gate into a no-op.
 #[test]
 fn the_checked_in_schema_is_what_the_types_describe() {
-    let (schema, roots) = api_schema();
+    let (schema, roots, _) = api_schema();
     let text = serde_json::to_string_pretty(&schema).expect("the schema serialises") + "\n";
 
     assert_covers_every_wire_type("the_checked_in_schema_is_what_the_types_describe", &roots);
@@ -1762,5 +1765,161 @@ fn the_checked_in_schema_is_what_the_types_describe() {
         "{SCHEMA_PATH} is not what the wire types describe. Regenerate it with \
          `{UPDATE_SCHEMA_ENV}=1 cargo test -p fieldglass --test api_rules`, then run \
          `python3 tools/gen_api_declarations.py`."
+    );
+}
+
+/// Every property of every object a returned definition describes, `Type.field`,
+/// that the schema does not list as `required`.
+///
+/// Inside an internally tagged enum (`#[serde(tag = "…")]`, the shape `Error`
+/// takes) each variant is an object whose tag property holds a `const`, and the
+/// path names it, `Type[code=Variant].field`, so a finding says which variant.
+///
+/// Walks the whole definition, so an object nested inline, such as a struct
+/// variant of an enum, is held to the same rule as the top level.
+fn optional_returned_fields(name: &str, schema: &serde_json::Value) -> Vec<String> {
+    fn walk(path: &str, v: &serde_json::Value, out: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(map) => {
+                // An internally tagged variant names itself by its tag's const.
+                let tagged = map
+                    .get("properties")
+                    .and_then(|p| p.as_object())
+                    .and_then(|props| {
+                        props.iter().find_map(|(key, sub)| {
+                            sub.get("const")
+                                .and_then(|c| c.as_str())
+                                .map(|value| format!("{path}[{key}={value}]"))
+                        })
+                    });
+                let path = tagged.as_deref().unwrap_or(path);
+                if let Some(props) = map.get("properties").and_then(|p| p.as_object()) {
+                    let required: BTreeSet<&str> = map
+                        .get("required")
+                        .and_then(|r| r.as_array())
+                        .map(|r| r.iter().filter_map(|k| k.as_str()).collect())
+                        .unwrap_or_default();
+                    for key in props.keys() {
+                        if !required.contains(key.as_str()) {
+                            out.push(format!("{path}.{key}"));
+                        }
+                    }
+                }
+                for (key, child) in map {
+                    // A property's own schema is reached through `properties`,
+                    // so name the path after the property rather than the key.
+                    if key == "properties" {
+                        if let Some(props) = child.as_object() {
+                            for (field, sub) in props {
+                                walk(&format!("{path}.{field}"), sub, out);
+                            }
+                        }
+                    } else {
+                        walk(path, child, out);
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    walk(path, item, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(name, schema, &mut out);
+    out
+}
+
+/// Every field of a returned type is `required` in the schema (#817).
+///
+/// A returned DTO carries every key, with `null` for a `None` (#574, decided
+/// 2026-09-29), and the TypeScript both hosts ship is generated from this
+/// schema, so a field the schema leaves out of `required` becomes an optional
+/// property: `undefined` in JavaScript where a `!== null` guard expects `null`,
+/// the #288 shape. The source scanner refuses `skip_serializing` by name, but a
+/// field can drop out of `required` other ways (a hand-written `JsonSchema`, an
+/// attribute the scanner does not know), and the schema is what the
+/// declarations are built from, so this checks the schema itself. A type only a
+/// host sends ([`SENT`]) never reaches the returned generator and is not walked:
+/// it is the deserialize contract. A type both sent and returned is walked,
+/// since it is returned, and `api_schema` already holds its two shapes equal.
+#[test]
+fn every_returned_field_is_required_in_the_schema() {
+    let (schema, _, returned_names) = api_schema();
+    let defs = schema["$defs"].as_object().expect("the schema has $defs");
+    let mut optional = Vec::new();
+    for name in &returned_names {
+        optional.extend(optional_returned_fields(name, &defs[name.as_str()]));
+    }
+    assert!(
+        optional.is_empty(),
+        "returned wire fields the schema makes optional, so the generated TypeScript \
+         would read them as `undefined` rather than `null` (#574): {optional:?}"
+    );
+}
+
+/// The rule above catches what it is for: a returned field that skips
+/// serialising its `None`, described by the serialize contract the way
+/// [`api_schema`] describes every returned type.
+#[test]
+fn the_required_rule_rejects_a_skipped_field() {
+    use schemars::generate::SchemaSettings;
+
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    #[serde(rename_all = "camelCase")]
+    #[allow(dead_code)]
+    struct Returned {
+        kept: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        skipped: Option<u32>,
+    }
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    #[serde(rename_all = "camelCase")]
+    #[allow(dead_code)]
+    enum Tagged {
+        Variant {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            inner: Option<u32>,
+        },
+    }
+
+    let mut generator = SchemaSettings::draft2020_12()
+        .for_serialize()
+        .into_generator();
+    let schema = serde_json::to_value(generator.root_schema_for::<Returned>())
+        .expect("the schema serialises");
+    assert_eq!(
+        optional_returned_fields("Returned", &schema),
+        ["Returned.skipped"]
+    );
+    let schema =
+        serde_json::to_value(generator.root_schema_for::<Tagged>()).expect("the schema serialises");
+    let found = optional_returned_fields("Tagged", &schema);
+    assert!(
+        found.iter().any(|f| f.ends_with(".inner")),
+        "a struct variant's skipped field is found: {found:?}"
+    );
+
+    // An internally tagged enum, the shape `Error` takes: the path names the
+    // variant through its tag.
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    #[serde(tag = "code", rename_all = "camelCase")]
+    #[allow(dead_code)]
+    enum Coded {
+        First {
+            kept: u32,
+        },
+        Second {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            dropped: Option<u32>,
+        },
+    }
+    let schema =
+        serde_json::to_value(generator.root_schema_for::<Coded>()).expect("the schema serialises");
+    assert_eq!(
+        optional_returned_fields("Coded", &schema),
+        ["Coded[code=second].dropped"]
     );
 }
