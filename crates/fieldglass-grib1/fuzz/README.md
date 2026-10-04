@@ -31,6 +31,10 @@ run's ten-second timeout. The target skips a decode that size (see
 above with NR = NC = 367 instead of 0xFFFF: its 496 points times 367² cells are
 66,805,744, inside the cap, so it decodes to a gigabyte in about 1.5 s. The
 target multiplies the grid by the `NR·NC` it reads from BDS octets 15-18 and
-skips it. CI
+skips it. The target also decodes at most eight messages per input
+(`MAX_DECODED_MESSAGES`): each gate bounds one message, but the run's timeout
+bounds a whole input, and 200 copies of `constant_field_8192x8192.grib1` with
+Ni = Nj = 2048, each inside the gate, took 11.8 s without it. That input is not
+a seed, since each mutant of it would pay the cap's full cost. CI
 runs this target time-boxed on pull requests that touch the crate; see
 `.github/workflows/fuzz.yml`.

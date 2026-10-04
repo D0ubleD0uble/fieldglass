@@ -112,10 +112,32 @@ fn matrix_cells(reader: &Grib2Reader, i: usize) -> u64 {
         .map_or(1, |t| u64::from(t.nr) * u64::from(t.nc))
 }
 
+/// Whether message `i`'s bi-Fourier decode should run: its truncation layout
+/// is within the budget or past the reader's cap, or it has no bi-Fourier grid
+/// at all, which the reader refuses at once.
+fn bifourier_affordable(reader: &Grib2Reader, i: usize) -> bool {
+    let Some(t) = reader.messages.get(i).and_then(|m| m.gds.bifourier()) else {
+        return true;
+    };
+    let layout = (u64::from(t.bif_i) + 1)
+        .saturating_mul(u64::from(t.bif_j) + 1)
+        .saturating_mul(4);
+    layout <= FUZZ_MAX_FIELD_POINTS || layout > fieldglass_core::sht::MAX_COEFFICIENTS as u64
+}
+
+/// Messages decoded per input. The gates above bound one message; libFuzzer's
+/// `-timeout` bounds one input, and a 10 KB input holds dozens of messages at
+/// the budget. Measured on the costliest path the gates admit, a constant
+/// bi-Fourier field at 1023 × 1023 (4,194,304 coefficients), one message takes
+/// about 280 ms and eight about 2.2 s; HEALPix at Nside 591 (4,191,372 points,
+/// decoded and then resampled) is about 150 ms. The committed seeds are all
+/// single messages.
+const MAX_DECODED_MESSAGES: usize = 8;
+
 fuzz_target!(|data: &[u8]| {
     // A malformed buffer must surface a structured error, never panic.
     if let Ok(reader) = Grib2Reader::from_bytes(data.to_vec()) {
-        for i in 0..reader.message_count() {
+        for i in 0..reader.message_count().min(MAX_DECODED_MESSAGES) {
             // Ignore the results: we only care that decoding cannot panic or
             // over-read. Errors on individual messages are expected and fine —
             // most inputs are the wrong packing for most of these entry points,
@@ -128,11 +150,11 @@ fuzz_target!(|data: &[u8]| {
             if affordable(grid, values, matrix_cells(&reader, i)) {
                 let _ = reader.decode_matrix_message(i);
             }
-            // Sized by the truncation, which must reconstruct §5's count before
-            // the coefficients are allocated; at zero bits per value it needs
-            // no data either. Only §5's count is gated: its refusal of a count
-            // the truncation does not reconstruct is reached at small sizes.
-            if values <= FUZZ_MAX_FIELD_POINTS {
+            // Sized by the §3 truncation: the reader builds and walks its
+            // `4·(N+1)·(M+1)`-coefficient layout before it compares that with
+            // §5's count, so §5 bounds nothing here. A layout past
+            // `MAX_COEFFICIENTS` is refused before anything is built.
+            if bifourier_affordable(&reader, i) {
                 let _ = reader.decode_bifourier_message(i);
             }
             // The resolve seam's cheap half (#580): reads §3 and decodes

@@ -38,6 +38,18 @@ other decode entry points, each zero bits per value with §7 cut to its header:
 - `constant_field_bifourier_4095.grib2` (1,294 bytes):
   `bifourier_rectangle_keepaxes.grib2` with both truncations 4095, so §5 counts
   4·4096² = 67,108,864 coefficients, about 4.5 s.
+- `constant_field_bifourier_ellipse_wide.grib2` (145 bytes): the message above
+  with §3 cut to its bi-Fourier head (N = 16,783,359, M = 0, an ellipse
+  truncation), a minimal §4 (template 4.0), §6 = 255, an empty §7 and a §5
+  count of 80. The reader builds and walks the 134 MB truncation layout before
+  it finds §5 disagrees, about 0.3 s, so the target gates bi-Fourier on that
+  layout rather than on §5.
+
+The target also decodes at most eight messages per input
+(`MAX_DECODED_MESSAGES`): each gate bounds one message, but the run's timeout
+bounds a whole input. At the budget a bi-Fourier message at 1023 × 1023 costs
+about 280 ms and a HEALPix message at Nside 591 about 150 ms, and 68 of the
+latter in one 10 KB input took 9.5 s; with the cap, 70 take 1.2 s.
 
 CI
 runs this target time-boxed on pull requests that touch the crate; see

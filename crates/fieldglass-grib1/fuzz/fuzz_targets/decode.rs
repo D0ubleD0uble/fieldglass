@@ -93,11 +93,13 @@ fn declared_points(reader: &Grib1Reader, i: usize) -> u64 {
 /// `NR·NC` as BDS octets 15-18 state it, which is where the matrix decoder
 /// reads it; one when the section is too short to hold them, or states zero.
 ///
-/// Read whatever the BDS flags say, so this is an upper bound: for a message
-/// that is not a matrix those octets mean something else, and the only cost is
-/// skipping a `decode_matrix_message` the reader would refuse anyway. Reading
-/// the flags here instead would mean restating which octet-4 bits select the
-/// matrix packing and which `extendedFlag` bit marks it in that context.
+/// Read whatever the BDS flags say, so for a message that is not a matrix it is
+/// a number those octets happen to hold. That either skips a
+/// `decode_matrix_message` the reader would refuse anyway, or sends one past
+/// the cap arm, where the reader refuses it on the matrix flag before sizing
+/// anything. Reading the flags here instead would mean restating which octet-4
+/// bits select the matrix packing and which `extendedFlag` bit marks it in that
+/// context.
 fn matrix_cells(reader: &Grib1Reader, data: &[u8], i: usize) -> u64 {
     let Some(range) = reader.messages.get(i).map(|m| m.bds_range) else {
         return 1;
@@ -113,10 +115,18 @@ fn matrix_cells(reader: &Grib1Reader, data: &[u8], i: usize) -> u64 {
     (u64::from(nr) * u64::from(nc)).max(1)
 }
 
+/// Messages decoded per input. The gates above bound one message; libFuzzer's
+/// `-timeout` bounds one input, and an input holds hundreds of messages at the
+/// budget. Measured on a constant field at 2048 × 2048 (4,194,304 points), one
+/// message takes about 90 ms and an input of 200 of them, cut to eight, about
+/// 0.5 s; a matrix field at the budget is about the same. The committed seeds
+/// are all single messages.
+const MAX_DECODED_MESSAGES: usize = 8;
+
 fuzz_target!(|data: &[u8]| {
     // A malformed buffer must surface a structured error, never panic.
     if let Ok(reader) = Grib1Reader::from_bytes(data.to_vec()) {
-        for i in 0..reader.message_count() {
+        for i in 0..reader.message_count().min(MAX_DECODED_MESSAGES) {
             // Ignore the result: we only care that decoding cannot panic or
             // over-read. Errors on individual messages are expected and fine.
             let points = declared_points(&reader, i);
