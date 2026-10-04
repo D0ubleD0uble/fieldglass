@@ -1456,11 +1456,13 @@ impl Grib1Handle {
         spacing: Option<u32>,
         grid_relative: Option<bool>,
     ) -> napi::Result<ProjectedVectors> {
+        let (u, placed_u) = self.resolved(message_index_u)?;
+        let (v, placed_v) = self.resolved(message_index_v)?;
+        // Two grids are the more basic mismatch, so they are named first.
+        fieldglass::aligned(&placed_u.source(), &placed_v.source()).into_napi()?;
         let grid_relative =
             self.stream
                 .component_frame(message_index_u, message_index_v, grid_relative)?;
-        let (u, placed_u) = self.resolved(message_index_u)?;
-        let (v, placed_v) = self.resolved(message_index_v)?;
         project_vectors_impl(
             (&placed_u, u.as_ref()),
             (&placed_v, v.as_ref()),
@@ -1713,11 +1715,13 @@ impl Grib2Handle {
         spacing: Option<u32>,
         grid_relative: Option<bool>,
     ) -> napi::Result<ProjectedVectors> {
+        let (u, placed_u) = self.resolved(message_index_u)?;
+        let (v, placed_v) = self.resolved(message_index_v)?;
+        // Two grids are the more basic mismatch, so they are named first.
+        fieldglass::aligned(&placed_u.source(), &placed_v.source()).into_napi()?;
         let grid_relative =
             self.stream
                 .component_frame(message_index_u, message_index_v, grid_relative)?;
-        let (u, placed_u) = self.resolved(message_index_u)?;
-        let (v, placed_v) = self.resolved(message_index_v)?;
         project_vectors_impl(
             (&placed_u, u.as_ref()),
             (&placed_v, v.as_ref()),
@@ -8752,6 +8756,49 @@ mod component_frame_tests {
             .project_vectors(0, 2, opts("source"), Some(1), None)
             .expect("both grid-relative");
         assert!(!drawn.xy.is_empty(), "the agreeing GRIB1 pair draws arrows");
+    }
+
+    /// A pair on two grids that also states two frames is refused for the
+    /// grids: that is the more basic mismatch, and the frame is meaningless
+    /// across them.
+    #[test]
+    fn a_pair_on_two_grids_is_refused_for_the_grids_first() {
+        const LATLON: &[u8] =
+            include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2");
+        let mut lambert = HRRR.to_vec();
+        lambert[lambert_flags_octet(HRRR)] |= GRID_RELATIVE;
+        // The lat/lon fixture states earth-relative components (§3 octet 55).
+        let h = Grib2Handle::from_vec([lambert, LATLON.to_vec()].concat()).expect("opens");
+        let frame = |i| h.stream.session.message(i).unwrap().uv_relative_to_grid;
+        assert_eq!((frame(0), frame(1)), (Some(true), Some(false)));
+        let Err(e) = h.project_vectors(0, 1, opts("source"), Some(8), None) else {
+            panic!("a Lambert u and a lat/lon v were paired");
+        };
+        assert!(
+            e.reason.contains("different grids") && !e.reason.contains("component frame"),
+            "{}",
+            e.reason
+        );
+
+        // The GRIB1 handle, an 8 × 5 grid stating grid-relative against a
+        // 240 × 121 one stating earth-relative.
+        const LFPW: &[u8] =
+            include_bytes!("../../fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1");
+        let mut small = GRIB1.to_vec();
+        small[grib1_flags_octet(GRIB1)] |= GRID_RELATIVE;
+        let mut large = LFPW.to_vec();
+        large[grib1_flags_octet(LFPW)] &= !GRID_RELATIVE;
+        let g1 = Grib1Handle::from_vec([small, large].concat()).expect("opens");
+        let frame = |i| g1.stream.session.message(i).unwrap().uv_relative_to_grid;
+        assert_eq!((frame(0), frame(1)), (Some(true), Some(false)));
+        let Err(e) = g1.project_vectors(0, 1, opts("source"), Some(8), None) else {
+            panic!("two GRIB1 grids were paired");
+        };
+        assert!(
+            e.reason.contains("different grids") && !e.reason.contains("component frame"),
+            "{}",
+            e.reason
+        );
     }
 
     /// Left out, the frame is the one the pair states, not east and north

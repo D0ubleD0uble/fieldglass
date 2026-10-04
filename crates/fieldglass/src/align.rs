@@ -11,6 +11,11 @@
 //!
 //! The `combine` module docs say why the gate compares the geometry rather
 //! than a flat key, and which properties travel beside it.
+//!
+//! A u and a v field must also agree on the frame their components are in,
+//! which [`component_frame`] decides (#805). That is a property of the two
+//! messages rather than of their cells, so it is a second question beside
+//! [`aligned`], asked after it.
 
 use fieldglass_core::GridGeometry;
 

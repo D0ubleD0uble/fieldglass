@@ -132,7 +132,9 @@ pub mod shader;
 /// Whether two fields line up cell for cell: the gate `combine` and
 /// `render::vector_polylines` both ask before pairing two value arrays.
 #[cfg(any(feature = "render", feature = "analysis"))]
-pub use align::{aligned, component_frame};
+pub use align::aligned;
+#[cfg(any(feature = "render", feature = "analysis"))]
+pub use align::component_frame;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{
