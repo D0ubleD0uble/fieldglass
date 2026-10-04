@@ -81,9 +81,6 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "dataType": "Missing",
-        "discipline": "Meteorological products",
-        "edition": 2,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -119,16 +116,20 @@
           "x0": 0.0,
           "y0": 60.0
         },
+        "identification": {
+          "dataType": "Missing",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
         "index": 0,
         "level": "2",
         "levelType": "Specified height above ground (m)",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
-        "p1Octet": null,
         "packing": "simple",
         "parameter": "Temperature",
         "placement": "placed",
-        "productionStatus": "Operational products",
         "referenceTime": "2008-02-06T12:00:00Z",
         "reprojectable": true,
         "sizeLabel": null,
@@ -1957,9 +1958,6 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "dataType": "Analysis and forecast products",
-        "discipline": "Meteorological products",
-        "edition": 2,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -1995,16 +1993,20 @@
           "x0": 0.0,
           "y0": 87.863799
         },
+        "identification": {
+          "dataType": "Analysis and forecast products",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
         "index": 0,
         "level": "Ground or water surface",
         "levelType": "Ground or water surface",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
-        "p1Octet": null,
         "packing": "simple",
         "parameter": "Temperature",
         "placement": "placed",
-        "productionStatus": "Operational products",
         "referenceTime": "2007-03-23T12:00:00Z",
         "reprojectable": true,
         "sizeLabel": null,
@@ -3821,9 +3823,6 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "dataType": "Missing",
-        "discipline": "Meteorological products",
-        "edition": 2,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -3924,16 +3923,20 @@
           "x0": 0.0,
           "y0": 87.863799
         },
+        "identification": {
+          "dataType": "Missing",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
         "index": 0,
         "level": "100000",
         "levelType": "Isobaric surface (Pa)",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
-        "p1Octet": null,
         "packing": "simple",
         "parameter": "Temperature",
         "placement": "placed",
-        "productionStatus": "Operational products",
         "referenceTime": "2008-02-06T12:00:00Z",
         "reprojectable": true,
         "sizeLabel": "N32",
@@ -6288,9 +6291,6 @@
       },
       "expect": {
         "abbreviation": "MSLET",
-        "dataType": "Forecast products",
-        "discipline": "Meteorological products",
-        "edition": 2,
         "forecast": "+24h",
         "forecastHours": 24,
         "grid": {
@@ -6326,16 +6326,20 @@
           "x0": -4226106.99691547,
           "y0": -832698.2610175647
         },
+        "identification": {
+          "dataType": "Forecast products",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
         "index": 0,
         "level": "0",
         "levelType": "Mean sea level",
         "offsetBytes": 0,
         "originatingCentre": "US National Weather Service, National Centres for Environmental Prediction (NCEP)",
-        "p1Octet": null,
         "packing": "simple",
         "parameter": "MSLP (Eta model reduction)",
         "placement": "placed",
-        "productionStatus": "Operational products",
         "referenceTime": "2004-12-08T12:00:00Z",
         "reprojectable": true,
         "sizeLabel": null,
@@ -8170,9 +8174,6 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "dataType": "Analysis and forecast products",
-        "discipline": "Meteorological products",
-        "edition": 2,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -8208,16 +8209,20 @@
           "x0": -238000.0,
           "y0": 1222000.0
         },
+        "identification": {
+          "dataType": "Analysis and forecast products",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
         "index": 0,
         "level": "Ground or water surface",
         "levelType": "Ground or water surface",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
-        "p1Octet": null,
         "packing": "simple",
         "parameter": "Temperature",
         "placement": "placed",
-        "productionStatus": "Operational products",
         "referenceTime": "2007-03-23T12:00:00Z",
         "reprojectable": true,
         "sizeLabel": null,
@@ -10044,9 +10049,6 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "dataType": "Analysis and forecast products",
-        "discipline": "Meteorological products",
-        "edition": 2,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -10082,16 +10084,20 @@
           "x0": 0.0,
           "y0": 60.0
         },
+        "identification": {
+          "dataType": "Analysis and forecast products",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
         "index": 0,
         "level": "Ground or water surface",
         "levelType": "Ground or water surface",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
-        "p1Octet": null,
         "packing": "simple",
         "parameter": "Temperature",
         "placement": "placed",
-        "productionStatus": "Operational products",
         "referenceTime": "2007-03-23T12:00:00Z",
         "reprojectable": true,
         "sizeLabel": null,
@@ -11896,9 +11902,6 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "dataType": "Analysis products",
-        "discipline": "Meteorological products",
-        "edition": 2,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -11929,16 +11932,20 @@
           "x0": null,
           "y0": null
         },
+        "identification": {
+          "dataType": "Analysis products",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
         "index": 0,
         "level": "Ground or water surface",
         "levelType": "Ground or water surface",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
-        "p1Octet": null,
         "packing": "simple",
         "parameter": "Temperature",
         "placement": "unplaceable",
-        "productionStatus": "Operational products",
         "referenceTime": "2007-03-23T12:00:00Z",
         "reprojectable": false,
         "sizeLabel": null,
@@ -13564,9 +13571,6 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "dataType": "Missing",
-        "discipline": "Meteorological products",
-        "edition": 2,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -13592,16 +13596,20 @@
           "x0": null,
           "y0": null
         },
+        "identification": {
+          "dataType": "Missing",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
         "index": 0,
         "level": "Ground or water surface",
         "levelType": "Ground or water surface",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
-        "p1Octet": null,
         "packing": "spectral_simple",
         "parameter": "Temperature",
         "placement": "placed",
-        "productionStatus": "Operational products",
         "referenceTime": "2007-04-24T12:00:00Z",
         "reprojectable": true,
         "sizeLabel": "T63",
@@ -15448,9 +15456,6 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "dataType": "Analysis and forecast products",
-        "discipline": "Meteorological products",
-        "edition": 2,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -15476,16 +15481,20 @@
           "x0": null,
           "y0": null
         },
+        "identification": {
+          "dataType": "Analysis and forecast products",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
         "index": 0,
         "level": "Ground or water surface",
         "levelType": "Ground or water surface",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
-        "p1Octet": null,
         "packing": "simple",
         "parameter": "Temperature",
         "placement": "placed",
-        "productionStatus": "Operational products",
         "referenceTime": "2007-03-23T12:00:00Z",
         "reprojectable": true,
         "sizeLabel": "Nside 4",
@@ -17334,9 +17343,6 @@
       },
       "expect": {
         "abbreviation": "2t",
-        "dataType": null,
-        "discipline": null,
-        "edition": 1,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -17372,16 +17378,18 @@
           "x0": 0.0,
           "y0": 60.0
         },
+        "identification": {
+          "edition": "grib1",
+          "p1Octet": 0
+        },
         "index": 0,
         "level": "—",
         "levelType": "Cloud base level",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium-Range Weather Forecasts (ECMWF) (RSMC)",
-        "p1Octet": 0,
         "packing": "grid_simple",
         "parameter": "2 metre temperature",
         "placement": "placed",
-        "productionStatus": null,
         "referenceTime": "2007-03-23T12:00:00Z",
         "reprojectable": true,
         "sizeLabel": null,
@@ -19206,9 +19214,6 @@
       },
       "expect": {
         "abbreviation": "WIND",
-        "dataType": null,
-        "discipline": null,
-        "edition": 1,
         "forecast": "+12h",
         "forecastHours": 12,
         "grid": {
@@ -19244,16 +19249,18 @@
           "x0": -2974382.2815761063,
           "y0": -6614286.574716486
         },
+        "identification": {
+          "edition": "grib1",
+          "p1Octet": null
+        },
         "index": 0,
         "level": "300",
         "levelType": "(hPa) Isobaric level",
         "offsetBytes": 0,
         "originatingCentre": "Montreal (RSMC) - CMC",
-        "p1Octet": null,
         "packing": "grid_simple",
         "parameter": "Wind speed",
         "placement": "placed",
-        "productionStatus": null,
         "referenceTime": "2010-05-24T00:00:00Z",
         "reprojectable": true,
         "sizeLabel": null,
@@ -22540,9 +22547,6 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "dataType": "Missing",
-        "discipline": "Meteorological products",
-        "edition": 2,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -22568,16 +22572,20 @@
           "x0": null,
           "y0": null
         },
+        "identification": {
+          "dataType": "Missing",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
         "index": 0,
         "level": "Ground or water surface",
         "levelType": "Ground or water surface",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
-        "p1Octet": null,
         "packing": "spectral_simple",
         "parameter": "Temperature",
         "placement": "placed",
-        "productionStatus": "Operational products",
         "referenceTime": "2007-04-24T12:00:00Z",
         "reprojectable": true,
         "sizeLabel": "T383",

@@ -54,6 +54,9 @@ use crate::api::{
 // The band-limit label only a spectral message carries (#637).
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use crate::api::SpectralTruncation;
+// The edition-tagged identification only a GRIB message carries (#773).
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+use crate::api::Identification;
 // The axis a cross-section labels itself from: only an array container has one
 // (#171), so the import is gated the way its readers are.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
@@ -2593,7 +2596,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         units,
         level: fieldglass_grib1::level_value_str(&msg.pds),
         level_type: fieldglass_grib1::level_type_str(&msg.pds),
-        reference_time: Some(fieldglass_grib1::reference_time(&msg.pds)),
+        reference_time: fieldglass_grib1::reference_time(&msg.pds),
         forecast: fieldglass_grib1::forecast_display(&msg.pds),
         packing: reader.packing_label(index).unwrap_or("unknown").to_string(),
         size_label: msg.gds.as_ref().and_then(|g| g.size_label()),
@@ -2602,9 +2605,6 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         placement,
         reprojectable,
         forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds),
-        // Time range 10 spends `P1` as the high octet of a two-octet value, so
-        // reporting it as a lead time there would be reporting half a number.
-        p1_octet: (msg.pds.time_range != 10).then_some(i32::from(msg.pds.p1)),
         uv_relative_to_grid: msg.gds.as_ref().and_then(|g| g.uv_relative_to_grid()),
         originating_centre: fieldglass_grib1::tables_cct::lookup_centre(msg.pds.originating_centre)
             .map(str::to_string)
@@ -2614,14 +2614,16 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
             msg.pds.sub_centre.into(),
         )
         .map(str::to_string),
-        edition: Some(1),
         // GRIB1 has no discipline, production status or data type: these are
-        // §1 fields that arrived with edition 2. `None` is the answer, not a
-        // gap — see the field docs on `MessageInfo`.
-        discipline: None,
-        total_length_bytes: Some(u64::from(msg.is.total_length)),
-        production_status: None,
-        data_type: None,
+        // §0 and §1 fields that arrived with edition 2, so its variant does not
+        // carry them (#773).
+        identification: Identification::Grib1 {
+            // Time range 10 spends `P1` as the high octet of a two-octet value,
+            // so reporting it as a lead time there would be reporting half a
+            // number.
+            p1_octet: (msg.pds.time_range != 10).then_some(i32::from(msg.pds.p1)),
+        },
+        total_length_bytes: u64::from(msg.is.total_length),
     }
 }
 
@@ -2702,7 +2704,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         units,
         level,
         level_type,
-        reference_time: Some(msg.ids.reference_time_iso8601()),
+        reference_time: msg.ids.reference_time_iso8601(),
         forecast: common
             .map(fieldglass_grib2::forecast_display)
             .unwrap_or_else(|| "—".to_string()),
@@ -2713,8 +2715,6 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         size_label: msg.gds.size_label(),
         truncation: reader.synthesis_truncation(index).map(Into::into),
         forecast_hours: common.and_then(fieldglass_grib2::forecast_hours),
-        // A GRIB1 octet, and edition 2 does not have it.
-        p1_octet: None,
         uv_relative_to_grid: msg.gds.uv_relative_to_grid(),
         originating_centre: fieldglass_grib2::tables_cct::lookup_centre(msg.ids.centre)
             .map(str::to_string)
@@ -2724,13 +2724,16 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
             msg.ids.sub_centre,
         )
         .map(str::to_string),
-        edition: Some(i32::from(msg.is.edition)),
-        discipline: Some(fieldglass_grib2::lookup_discipline(msg.is.discipline).to_string()),
-        total_length_bytes: Some(msg.is.total_length),
-        production_status: Some(
-            fieldglass_grib2::lookup_production_status(msg.ids.production_status).to_string(),
-        ),
-        data_type: Some(fieldglass_grib2::lookup_data_type(msg.ids.data_type).to_string()),
+        // The reader only yields messages whose §0 octet 8 is 2.
+        identification: Identification::Grib2 {
+            discipline: fieldglass_grib2::lookup_discipline(msg.is.discipline).to_string(),
+            production_status: fieldglass_grib2::lookup_production_status(
+                msg.ids.production_status,
+            )
+            .to_string(),
+            data_type: fieldglass_grib2::lookup_data_type(msg.ids.data_type).to_string(),
+        },
+        total_length_bytes: msg.is.total_length,
     }
 }
 

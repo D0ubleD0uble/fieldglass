@@ -559,6 +559,61 @@
       ],
       "type": "object"
     },
+    "Identification": {
+      "description": "The identification fields that belong to one GRIB edition, tagged with\nit: `{\"edition\": \"grib1\", ...}` or `{\"edition\": \"grib2\", ...}` on the\nwire (#773).\n\nA field exists only on the edition that has it. GRIB1 has no\ndiscipline, production status or data type (they are §0 and §1 fields\nedition 2 introduced), and GRIB2 has no one-octet `P1`.",
+      "oneOf": [
+        {
+          "description": "WMO FM 92 GRIB edition 1.",
+          "properties": {
+            "edition": {
+              "const": "grib1",
+              "type": "string"
+            },
+            "p1Octet": {
+              "description": "The PDS `P1` octet, when the time-range indicator is one that\nmakes it a lead time rather than the second half of an\ninterval. `None` for time range 10, where `P1` is a two-octet\nvalue and not this field.",
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "edition",
+            "p1Octet"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "WMO FM 92 GRIB edition 2.",
+          "properties": {
+            "dataType": {
+              "description": "The data type — analysis, forecast, reanalysis — (§1 octet 21),\nnamed from Code Table 1.4.",
+              "type": "string"
+            },
+            "discipline": {
+              "description": "The discipline (§0 octet 7), named from Code Table 0.0.",
+              "type": "string"
+            },
+            "edition": {
+              "const": "grib2",
+              "type": "string"
+            },
+            "productionStatus": {
+              "description": "The production status (§1 octet 20), named from Code Table 1.3.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "edition",
+            "discipline",
+            "productionStatus",
+            "dataType"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Isoline": {
       "description": "One level's isoline segments, in grid coordinates.",
       "properties": {
@@ -676,28 +731,6 @@
           "description": "The table's short name for the parameter, e.g. `\"2t\"`. Empty when\nthe parameter did not resolve.",
           "type": "string"
         },
-        "dataType": {
-          "description": "The GRIB2 data type — analysis, forecast, reanalysis — named. `None`\nfor GRIB1.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "discipline": {
-          "description": "The GRIB2 discipline, named. `None` for GRIB1, which has no\ndiscipline.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "edition": {
-          "description": "The GRIB edition: 1 or 2.",
-          "format": "int32",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
         "forecast": {
           "description": "Forecast time relative to `reference_time`, rendered — `\"+6h\"`, or\n`\"+30 Minute\"` for a unit the edition does not convert to hours.",
           "type": "string"
@@ -720,6 +753,10 @@
             }
           ],
           "description": "The grid the message **declares**, not the one its field is decoded\nonto.\n\nThe two differ for the families that carry no raster of their own:\na spectral message declares a `\"spherical_harmonic\"` grid and a\nHEALPix one a `\"healpix\"` grid, both of kind `\"unsupported\"` —\nnothing places a point on either — while\n[`crate::Session::decode`] hands back a field on the synthesised\n`\"latlon\"` grid (#580). This is the message list's answer, so it\ndescribes the file; [`Field::georef`] is the field's, so it\ndescribes where the values are. [`size_label`](Self::size_label)\nnames the native shape beside it.\n\n`None` only for a GRIB1 message that carries no §2 at all and whose\n`pds.grid_number` is not a predefined grid this build's catalogue\nresolves — either 255, \"no predefined grid\", or a number outside the\ncatalogue. [`placement`](Self::placement) tells the two apart."
+        },
+        "identification": {
+          "$ref": "#/$defs/Identification",
+          "description": "The edition, and the identification only that edition carries\n(#773). A field one edition does not have is not on the other's\nvariant, so a host never reads \"not applicable\" as \"absent\"."
         },
         "index": {
           "description": "Position in `0..Session::count()`; the handle every other call\ntakes.",
@@ -745,14 +782,6 @@
           "description": "The originating centre, named from the CCT common code table, or\n`Centre <n>` when the table has no entry.",
           "type": "string"
         },
-        "p1Octet": {
-          "description": "GRIB1's `P1` octet, when the time-range indicator is one that makes\nit a lead time rather than the second half of an interval.\n\n`None` for GRIB2, which has no such octet, and for GRIB1 time range\n10, where `P1` is a two-octet value and not this field.",
-          "format": "int32",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
         "packing": {
           "description": "Which packing the data section uses, named — what decodes it, and\nthe first thing to look at when a decode is wrong.",
           "type": "string"
@@ -765,19 +794,9 @@
           "$ref": "#/$defs/Placement",
           "description": "Whether this message's **values** can be placed on the Earth, and\nwhy not (#776) — the answer a message list reads to decide whether\nit can draw the message at all.\n\nWhere the values land rather than what the file declares, which is\nthe difference from `grid.placement`. The two differ only for the\nfamilies whose values are synthesised onto a raster: a spectral or\nHEALPix message declares a `no_raster` grid, and its values land on\na global lat/lon one, so this is [`Placement::Placed`]. Always the\n[`Georef::placement`] [`crate::Session::place_message`] reports when\nthat call succeeds; `place_message_agrees_with_decode.rs` holds the\ntwo together over the corpus.\n\nWith no `grid`, this is [`Placement::PredefinedUnresolved`] when the\nmessage names a predefined grid this build cannot resolve, and\n[`Placement::NoRaster`] when it names none (grid number 255).\n\nPlaced is not decodable: a GRIB1 matrix-of-values or GRIB2\nbi-Fourier message is refused by [`crate::Session::decode`]\nwhatever this says, and the refusal names the call that reads it."
         },
-        "productionStatus": {
-          "description": "The GRIB2 production status, named. `None` for GRIB1.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "referenceTime": {
-          "description": "Reference (analysis) time as RFC 3339. `None` when the message\ncarries no usable date.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "description": "Reference (analysis) time as RFC 3339. Every GRIB message states\none, in its §1 (GRIB2) or PDS (GRIB1).",
+          "type": "string"
         },
         "reprojectable": {
           "description": "Whether the grid this message's values land on can be reprojected —\nthe answer a projection picker reads, and\n[`Georef::reprojectable`] of the same grid\n[`placement`](Self::placement) describes. `false` when there is no\ngrid.\n\nLike `placement`, it is about the values: a spectral message's\ndeclared grid does not reproject and its synthesised lat/lon field\ndoes, so this is `true`.",
@@ -801,10 +820,7 @@
           "description": "The length the message declares for itself, in bytes.\n\nDistinct from [`offset_bytes`](Self::offset_bytes), which says where\nit starts. Together they are the range a host would re-fetch.",
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": "integer"
         },
         "truncation": {
           "anyOf": [
@@ -846,14 +862,10 @@
         "sizeLabel",
         "truncation",
         "forecastHours",
-        "p1Octet",
         "originatingCentre",
         "subCentre",
-        "edition",
-        "discipline",
+        "identification",
         "totalLengthBytes",
-        "productionStatus",
-        "dataType",
         "uvRelativeToGrid"
       ],
       "type": "object"

@@ -490,9 +490,6 @@ if (missingCodes.length) {
   try {
     const info = handle.message(0);
     const wanted = [
-      [info, 'discipline'],
-      [info, 'productionStatus'],
-      [info, 'dataType'],
       [info.grid, 'boundsLonlat'],
       [info.grid, 'corners'],
       [info.grid, 'x0'],
@@ -504,6 +501,36 @@ if (missingCodes.length) {
           `FAIL spectral_simple_t63.grib1: ${key} is ${key in object ? String(object[key]) : 'missing'}, not a present null (#574)`,
         );
       }
+    }
+  } finally {
+    handle.free();
+  }
+}
+
+// The edition tag (#773), through this host, on a real message of each
+// edition: the tag is present, and the other edition's fields are not there
+// at all, rather than null.
+for (const [file, edition, keys] of [
+  ['crates/fieldglass-grib1/tests/fixtures/spectral_simple_t63.grib1', 'grib1', ['edition', 'p1Octet']],
+  [
+    'crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2',
+    'grib2',
+    ['dataType', 'discipline', 'edition', 'productionStatus'],
+  ],
+]) {
+  const handle = wasm.open(new Uint8Array(readFileSync(join(repoRoot, file))));
+  try {
+    const info = handle.message(0);
+    const id = info.identification;
+    const got = id ? Object.keys(id).sort() : [];
+    const stray = ['edition', 'p1Octet', 'discipline', 'productionStatus', 'dataType'].filter(
+      (key) => key in info,
+    );
+    if (id?.edition !== edition || got.join() !== keys.join() || stray.length) {
+      failures += 1;
+      console.error(
+        `FAIL ${file}: identification ${JSON.stringify(id)}, top-level ${stray.join(', ') || 'none'} (#773)`,
+      );
     }
   } finally {
     handle.free();

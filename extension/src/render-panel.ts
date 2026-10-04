@@ -36,12 +36,15 @@ export type PanelField = Pick<
   | "units"
   | "level"
   | "levelType"
-  | "referenceTime"
   | "forecast"
   | "uvRelativeToGrid"
   | "reprojectable"
   | "truncation"
-> & { grid: Pick<Georef, "label"> | null };
+> & {
+  grid: Pick<Georef, "label"> | null;
+  /** Every GRIB message states one; a NetCDF or Zarr slice has none. */
+  referenceTime: string | null;
+};
 
 /** Which 2-D plane of an N-D NetCDF variable to draw: the variable, the two
  *  image axes (positions into the variable's dimensions), and the held index

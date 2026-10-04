@@ -35,6 +35,7 @@ interface SchemaNode {
   anyOf?: SchemaNode[];
   oneOf?: SchemaNode[];
   $ref?: string;
+  const?: unknown;
   properties?: Record<string, SchemaNode>;
   required?: string[];
 }
@@ -71,21 +72,42 @@ function referenced(node: SchemaNode): string | undefined {
   return undefined;
 }
 
+/** The variant of a tagged union (`oneOf` of objects, each pinning its tag
+ *  with a `const`) that an object's tag selects. */
+function variantOf(
+  def: SchemaNode | undefined,
+  object: Record<string, unknown>,
+): SchemaNode | undefined {
+  return def?.oneOf?.find(
+    (member) =>
+      member.properties !== undefined &&
+      Object.entries(member.properties).some(([, node]) => node.const !== undefined) &&
+      Object.entries(member.properties).every(
+        ([key, node]) => node.const === undefined || object[key] === node.const,
+      ),
+  );
+}
+
 /** Every disagreement between a returned object and its schema definition:
- *  a required key missing, an `undefined` anywhere, or a `null` where the
- *  schema does not admit one. Recurses into nested definitions (`grid`). */
+ *  a required key missing, a key the definition does not name, an `undefined`
+ *  anywhere, or a `null` where the schema does not admit one. Recurses into
+ *  nested definitions (`grid`), and into the variant a tagged union's tag
+ *  selects (`identification`, #773). */
 function disagreements(
   value: unknown,
   name: string,
   defs: Record<string, SchemaNode>,
   where: string,
 ): string[] {
-  const def = defs[name];
-  assert.ok(def?.properties, `the schema defines ${name} as an object`);
   const object = value as Record<string, unknown>;
+  const def = defs[name]?.properties ? defs[name] : variantOf(defs[name], object);
+  assert.ok(def?.properties, `the schema defines ${name} as an object, or a variant matches ${where}`);
   const out: string[] = [];
   for (const key of def.required ?? []) {
     if (!(key in object)) out.push(`${where}.${key} is missing`);
+  }
+  for (const key of Object.keys(object)) {
+    if (!(key in def.properties)) out.push(`${where}.${key} is not in the schema`);
   }
   for (const [key, node] of Object.entries(def.properties)) {
     if (!(key in object)) continue;
@@ -96,7 +118,7 @@ function disagreements(
       if (!nullable(node)) out.push(`${where}.${key} is null, which the schema does not admit`);
     } else {
       const inner = referenced(node);
-      if (inner && defs[inner]?.properties) {
+      if (inner && typeof v === "object" && (defs[inner]?.properties || defs[inner]?.oneOf)) {
         out.push(...disagreements(v, inner, defs, `${where}.${key}`));
       }
     }
@@ -114,9 +136,16 @@ suite("API wire contract (#574)", () => {
       fixture("spectral_simple_t63.grib1"),
     ).message(0);
 
-    for (const key of ["discipline", "productionStatus", "dataType"] as const) {
-      assert.ok(key in info, `${key} is present`);
-      assert.strictEqual(info[key], null, `${key} is null, not undefined`);
+    // GRIB2's identification is not "null" on a GRIB1 message, it is not
+    // there: the edition tag says which fields exist (#773).
+    assert.strictEqual(info.identification.edition, "grib1");
+    assert.deepStrictEqual(
+      Object.keys(info.identification).sort(),
+      ["edition", "p1Octet"],
+      "only GRIB1's own identification",
+    );
+    for (const key of ["discipline", "productionStatus", "dataType", "p1Octet", "edition"]) {
+      assert.ok(!(key in info), `${key} is not a top-level key (#773)`);
     }
     assert.ok(info.grid, "the message declares a grid");
     for (const key of ["boundsLonlat", "corners", "proj4", "x0", "dx"] as const) {
@@ -126,6 +155,30 @@ suite("API wire contract (#574)", () => {
     // The strict guard the declaration asks for is the right one: this is the
     // shape of the check that failed open in #288.
     assert.ok(info.grid.boundsLonlat === null, "=== null sees the absence");
+  });
+
+  // The other half of #773: a GRIB2 message carries its own identification,
+  // and GRIB1's P1 octet is not on it.
+  test("a GRIB2 message's identification is tagged grib2 and holds only its own fields", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const info: MessageInfo = native.Grib2Handle.fromBytes(
+      fixture("regular_latlon_surface.grib2"),
+    ).message(0);
+    const id = info.identification;
+    assert.strictEqual(id.edition, "grib2");
+    assert.deepStrictEqual(Object.keys(id).sort(), [
+      "dataType",
+      "discipline",
+      "edition",
+      "productionStatus",
+    ]);
+    if (id.edition === "grib2") {
+      assert.strictEqual(typeof id.discipline, "string");
+      assert.ok(id.discipline.length > 0, "the discipline is named");
+    }
+    assert.strictEqual(typeof info.referenceTime, "string");
+    assert.strictEqual(typeof info.totalLengthBytes, "number");
   });
 
   test("every message agrees with the schema its declaration came from", () => {

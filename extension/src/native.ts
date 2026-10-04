@@ -23,7 +23,7 @@ import * as vscode from "vscode";
 
 import type { AxisValues, MessageInfo, Placement } from "./api.generated";
 
-export type { AxisValues, Georef, MessageInfo, Placement } from "./api.generated";
+export type { AxisValues, Georef, Identification, MessageInfo, Placement } from "./api.generated";
 
 // ---------------------------------------------------------------------------
 // NetCDF dataset types (returned from the native module)

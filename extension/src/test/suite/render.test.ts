@@ -2068,7 +2068,11 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     // This fixture is time range 10: P1 spans octets 19 and 20 as one 16-bit
     // value, so no single octet can be offered and the cell stays read-only.
     assert.strictEqual(messages[0].forecast, "+12h");
-    assert.ok(messages[0].p1Octet == null, "no writable octet for a 16-bit P1");
+    assert.deepStrictEqual(
+      messages[0].identification,
+      { edition: "grib1", p1Octet: null },
+      "no writable octet for a 16-bit P1",
+    );
 
     const html = renderHtml(
       { cspSource: "" } as unknown as vscode.Webview,
@@ -2084,7 +2088,11 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(/\+12h/.test(html), "and shows the forecast instead");
 
     // A one-octet P1 does get a box, carrying the octet itself.
-    const patched = messages.map((m) => ({ ...m, p1Octet: 4, forecastHours: 12 }));
+    const patched = messages.map((m) => ({
+      ...m,
+      identification: { edition: "grib1" as const, p1Octet: 4 },
+      forecastHours: 12,
+    }));
     const editable = renderHtml(
       { cspSource: "" } as unknown as vscode.Webview,
       "grib1",
@@ -2105,6 +2113,13 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     // the lead.
     assert.strictEqual(refreshedP1Value(patched[0]), "4", "the refresh writes the octet");
     assert.strictEqual(refreshedP1Value(messages[0]), null, "and leaves a 16-bit P1 alone");
+    assert.strictEqual(
+      refreshedP1Value({
+        identification: { edition: "grib2", discipline: "", productionStatus: "", dataType: "" },
+      }),
+      null,
+      "and GRIB2, which has no P1 octet (#773)",
+    );
     assert.ok(
       editable.includes("function refreshedP1Value") && /const p1 = refreshedP1Value\(m\)/.test(editable),
       "the table's update handler refreshes the box through it",

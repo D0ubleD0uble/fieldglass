@@ -19,6 +19,7 @@ import {
   type DatasetMeta,
   type Grib1Handle,
   type Grib2Handle,
+  type Identification,
   type MessageInfo,
   type NetcdfHandle,
   type NetcdfVariableMeta,
@@ -2008,11 +2009,27 @@ function formatCentreCell(m: MessageInfo): string {
   const centre = m.subCentre != null && m.subCentre !== ""
     ? `${m.originatingCentre} (${m.subCentre})`
     : m.originatingCentre;
-  const status = m.productionStatus;
+  const status = productionStatus(m.identification);
   if (status && status !== "Missing" && status !== "Unknown") {
     return `${centre} · ${status}`;
   }
   return centre;
+}
+
+/** The GRIB2 production status, or `null` for an edition that has none: GRIB1
+ *  carries no Code Table 1.3 field at all (#773). */
+function productionStatus(id: Identification): string | null {
+  switch (id.edition) {
+    case "grib1":
+      return null;
+    case "grib2":
+      return id.productionStatus;
+    default: {
+      const unreachable: never = id;
+      void unreachable;
+      return null;
+    }
+  }
 }
 
 /** The slice the render panel opens on: the variable's CF-detected horizontal
@@ -2259,8 +2276,20 @@ function renderDatasetBody(
  *  box untouched tripled the lead. Serialized into the table's script
  *  (`refreshedP1Value.toString()`), so it must not reference anything outside
  *  itself. */
-export function refreshedP1Value(m: Pick<MessageInfo, "p1Octet">): string | null {
-  return m.p1Octet != null ? String(m.p1Octet) : null;
+export function refreshedP1Value(m: Pick<MessageInfo, "identification">): string | null {
+  const id = m.identification;
+  switch (id.edition) {
+    case "grib1":
+      return id.p1Octet != null ? String(id.p1Octet) : null;
+    case "grib2":
+      // Edition 2 has no P1 octet (#773).
+      return null;
+    default: {
+      const unreachable: never = id;
+      void unreachable;
+      return null;
+    }
+  }
 }
 
 function messageIsRenderable(m: Pick<MessageInfo, "placement">): boolean {
@@ -2320,11 +2349,12 @@ export function renderHtml(
       // The edit writes the raw P1 octet, so the box has to show that octet —
       // not `forecastHours`, which is normalised (a 3-hourly unit reports 12
       // for a P1 of 4, and saving the untouched box would have tripled the
-      // lead). `p1Octet` is `null` wherever a one-octet edit is meaningless,
-      // and those messages stay read-only. A nullish check, so it holds for
-      // `undefined` too.
-      const fcstCell = editable && m.p1Octet != null
-        ? `<input type="number" class="p1-input" data-message-index="${m.index}" min="0" max="255" step="1" value="${m.p1Octet}" />`
+      // lead). There is no octet wherever a one-octet edit is meaningless (a
+      // GRIB2 message, or a GRIB1 16-bit P1), and those messages stay
+      // read-only.
+      const p1 = refreshedP1Value(m);
+      const fcstCell = editable && p1 != null
+        ? `<input type="number" class="p1-input" data-message-index="${m.index}" min="0" max="255" step="1" value="${p1}" />`
         : escapeHtml(m.forecast);
       const canRender = messageIsRenderable(m);
       const idx = m.index;
