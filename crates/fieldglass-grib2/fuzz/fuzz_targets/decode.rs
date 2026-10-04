@@ -26,8 +26,9 @@
 //! * `synthesize_spectral_message`, `synthesize_spectral_message_full` and
 //!   `evaluate_spectral_point` — the inverse spherical-harmonic transform on a
 //!   grid (band-limited, then in full) and at one point, whose cost is driven
-//!   by the truncation the *file* declares. They run only below
-//!   `FUZZ_MAX_TRUNCATION`, as in the GRIB1 target.
+//!   by the truncation the *file* declares. They, and the coefficient decode
+//!   in front of them, run only below `FUZZ_MAX_TRUNCATION`, as in the GRIB1
+//!   target.
 
 #![no_main]
 
@@ -59,6 +60,58 @@ fn declares_a_large_truncation(reader: &Grib2Reader, i: usize) -> bool {
         .is_some_and(|sh| sh.j > FUZZ_MAX_TRUNCATION)
 }
 
+/// The value count above which a message's scalar, matrix and bi-Fourier
+/// decodes (and the HEALPix resample, which decodes first) are not run, unless
+/// the reader refuses them outright.
+///
+/// Both are bounded by `MAX_FIELD_POINTS` (64 Mi points), sized for a real
+/// grid rather than for a fuzz run. A constant field (zero bits per value)
+/// needs no §7 data, so a 196-byte message declaring an 8192 × 8192 grid
+/// decodes to a gigabyte of `Option<f64>`, about a second of writes; a dozen
+/// such messages in one input exceed the run's ten-second timeout. That is the
+/// reader working as designed. The bit unpacking, the bitmap and the matrix
+/// reshape are all reached at small sizes, so nothing is lost below this, and a
+/// declared size past the cap is still decoded so the refusal stays fuzzed.
+const FUZZ_MAX_FIELD_POINTS: u64 = 1 << 22;
+
+/// What message `i` declares about its size: the grid (§3's own count or the
+/// raster its template states, whichever is larger) and §5's value count.
+///
+/// They are kept apart because the reader treats them differently. It refuses
+/// a grid past `MAX_FIELD_POINTS`, or a §3 count the geometry disagrees with,
+/// before it allocates anything; §5's count it checks only against what it
+/// has already sized from the grid. So a decode is skipped when any count is
+/// past the budget, and run anyway only when the *grid* is past the cap.
+fn declared(reader: &Grib2Reader, i: usize) -> (u64, u64) {
+    let Some(m) = reader.messages.get(i) else {
+        return (0, 0);
+    };
+    let raster = m
+        .gds
+        .dimensions()
+        .map_or(0, |(ni, nj)| u64::from(ni) * u64::from(nj));
+    (
+        u64::from(m.gds.num_data_points).max(raster),
+        u64::from(m.drs.num_data_points),
+    )
+}
+
+/// Whether a decode should run: everything it is sized by is within the
+/// budget, or the grid is past the reader's cap and so refused first.
+fn affordable(grid: u64, values: u64, cells: u64) -> bool {
+    grid.max(values).saturating_mul(cells) <= FUZZ_MAX_FIELD_POINTS
+        || grid.saturating_mul(cells) > fieldglass_core::MAX_FIELD_POINTS as u64
+}
+
+/// `NR·NC`, the cells per point a template 5.1 matrix holds; one otherwise.
+fn matrix_cells(reader: &Grib2Reader, i: usize) -> u64 {
+    reader
+        .messages
+        .get(i)
+        .and_then(|m| m.drs.matrix_simple())
+        .map_or(1, |t| u64::from(t.nr) * u64::from(t.nc))
+}
+
 fuzz_target!(|data: &[u8]| {
     // A malformed buffer must surface a structured error, never panic.
     if let Ok(reader) = Grib2Reader::from_bytes(data.to_vec()) {
@@ -67,9 +120,21 @@ fuzz_target!(|data: &[u8]| {
             // over-read. Errors on individual messages are expected and fine —
             // most inputs are the wrong packing for most of these entry points,
             // and a clean rejection is the correct outcome there.
-            let _ = reader.decode_message_values(i);
-            let _ = reader.decode_matrix_message(i);
-            let _ = reader.decode_bifourier_message(i);
+            let (grid, values) = declared(&reader, i);
+            let field = affordable(grid, values, 1);
+            if field {
+                let _ = reader.decode_message_values(i);
+            }
+            if affordable(grid, values, matrix_cells(&reader, i)) {
+                let _ = reader.decode_matrix_message(i);
+            }
+            // Sized by the truncation, which must reconstruct §5's count before
+            // the coefficients are allocated; at zero bits per value it needs
+            // no data either. Only §5's count is gated: its refusal of a count
+            // the truncation does not reconstruct is reached at small sizes.
+            if values <= FUZZ_MAX_FIELD_POINTS {
+                let _ = reader.decode_bifourier_message(i);
+            }
             // The resolve seam's cheap half (#580): reads §3 and decodes
             // nothing, so it is total by construction and the assertion is that
             // it stays total on a template whose fields are arbitrary.
@@ -83,18 +148,25 @@ fuzz_target!(|data: &[u8]| {
             // T359 whatever the file declares, so its cost is bounded too, but
             // that bound is 1.4e8 terms over the full 720x361 grid: a tenth of
             // a second per exec, which the fuzzer would pay on every input.
-            if reader
-                .messages
-                .get(i)
-                .is_some_and(|m| m.gds.spherical_harmonic().is_none())
+            //
+            // Its HEALPix arm decodes the message's values first, through
+            // `decode_message_values`, so it is gated as that call is.
+            if field
+                && reader
+                    .messages
+                    .get(i)
+                    .is_some_and(|m| m.gds.spherical_harmonic().is_none())
             {
                 let _ = reader.synthesize_message_global(i);
             }
-            // Only attempt the synthesis when the coefficients themselves
-            // decoded, so a failure here is a transform bug rather than a
-            // re-run of the decode error above.
-            let decoded = reader.decode_spectral_message(i).is_ok();
-            if decoded && !declares_a_large_truncation(&reader, i) {
+            // The coefficient decode is sized by the declared truncation, not
+            // by §5, and a constant field needs no §7 data, so it is skipped
+            // past `FUZZ_MAX_TRUNCATION` as the GRIB1 target skips it: at the
+            // cap it is 537 MB. Below it, the synthesis runs only when the
+            // coefficients decoded, so a failure there is a transform bug
+            // rather than a re-run of the decode error.
+            if !declares_a_large_truncation(&reader, i) && reader.decode_spectral_message(i).is_ok()
+            {
                 // Band-limited to what the probe grid resolves (#637), then in
                 // full, which is the range-safe kernel at every declared T.
                 let _ = reader.synthesize_spectral_message(i, &PROBE_LATS, &PROBE_LONS);

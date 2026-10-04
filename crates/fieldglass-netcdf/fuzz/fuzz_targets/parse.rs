@@ -33,8 +33,14 @@ fuzz_target!(|data: &[u8]| {
     // shuffle, fletcher32, zstd, szip), which the walk above never touches.
     // The first few variables are enough to reach it from the seeds.
     for index in 0..MAX_DECODED_VARIABLES {
-        if reader.decode_variable_raw(index).is_err() && reader.variable_shape(index).is_err() {
+        // The shape is read first so a decode is never started that the run
+        // cannot afford; without one there is nothing to bound it by, and an
+        // error here is also how the loop finds the last variable.
+        let Ok(shape) = reader.variable_shape(index) else {
             break;
+        };
+        if within_decode_budget(&shape) {
+            let _ = reader.decode_variable_raw(index);
         }
     }
 });
@@ -42,3 +48,33 @@ fuzz_target!(|data: &[u8]| {
 /// Variables decoded per input, so one input with thousands of datasets
 /// cannot turn a fuzz iteration into a long decode.
 const MAX_DECODED_VARIABLES: usize = 16;
+
+/// The declared element count above which a variable's values are not decoded,
+/// unless the reader refuses it outright.
+///
+/// A whole-variable decode is bounded by `MAX_VARIABLE_ELEMENTS`, but that cap
+/// is sized for a real reanalysis variable, not for libFuzzer's 2 GB RSS limit:
+/// the decode returns one `Option<f64>` per element (16 bytes) and holds the
+/// stored bytes alongside while it assembles them. A chunked dataset need not
+/// store its chunks (one it omits reads as the fill value), so a 13 KB HDF5
+/// file declares 146,800,704 elements, inside the cap, and its decode needs
+/// about 2.9 GB (`corpus/parse/oom_large_fill_dataset.h5`). That is the reader
+/// working as designed, and libFuzzer reporting it as out-of-memory ends the
+/// run at the first such input.
+///
+/// Nothing the decode does needs a large shape: the chunk indexes, the filter
+/// pipeline and the fill path are all reached at small sizes. A shape past the
+/// cap is still decoded, so the refusal itself stays fuzzed; it fails before
+/// the values are allocated.
+const MAX_FUZZ_DECODE_ELEMENTS: u64 = 1 << 22;
+
+fn within_decode_budget(shape: &[u64]) -> bool {
+    match shape.iter().try_fold(1u64, |acc, &d| acc.checked_mul(d)) {
+        Some(total) => {
+            total <= MAX_FUZZ_DECODE_ELEMENTS
+                || total > fieldglass_netcdf::MAX_VARIABLE_ELEMENTS as u64
+        }
+        // Overflows: refused by the reader before it allocates the values.
+        None => true,
+    }
+}
