@@ -1083,8 +1083,11 @@ fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
 /// rather than collapsing to P1 only.
 pub fn forecast_display(pds: &ProductDefinition) -> String {
     // An unnamed unit keeps its code, so a lead in it says which (#774).
-    let unit = crate::tables::lookup_time_unit(pds.time_unit)
-        .map_or_else(|| format!("time unit {}", pds.time_unit), str::to_string);
+    let unit: std::borrow::Cow<'static, str> = match crate::tables::lookup_time_unit(pds.time_unit)
+    {
+        Some(unit) => unit.into(),
+        None => format!("time unit {}", pds.time_unit).into(),
+    };
     let p1 = forecast_p1(pds);
     let p2 = pds.p2 as i32;
 
@@ -1226,11 +1229,14 @@ pub fn level_value_str(pds: &ProductDefinition) -> String {
 /// level`.
 pub fn level_type_str(pds: &ProductDefinition) -> String {
     // An unnamed level type keeps its code (#774).
-    let name = crate::tables::lookup_level_type(pds.level_type)
-        .map_or_else(|| format!("Level type {}", pds.level_type), str::to_string);
+    let name: std::borrow::Cow<'static, str> =
+        match crate::tables::lookup_level_type(pds.level_type) {
+            Some(name) => name.into(),
+            None => format!("Level type {}", pds.level_type).into(),
+        };
     match level_unit(pds.level_type) {
         Some(unit) => format!("({unit}) {name}"),
-        None => name.to_string(),
+        None => name.into_owned(),
     }
 }
 

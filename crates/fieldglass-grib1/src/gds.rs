@@ -466,7 +466,7 @@ impl GridDescription {
     ///
     /// Borrowed for every family this crate reads, so naming a grid allocates
     /// only for a grid type it does not: the perf gate counts allocations on
-    /// the open and place paths, which call this for every message.
+    /// the decode and place paths, which call this for every message.
     pub fn grid_type_name(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed(match self {
             Self::LatLon(_) => "latlon",
