@@ -72,8 +72,7 @@ fn declares_a_large_truncation(reader: &Grib1Reader, i: usize) -> bool {
 /// small sizes, so nothing is lost below this, and a declared size past the cap
 /// is still decoded so the refusal stays fuzzed.
 ///
-/// A matrix field's `NR·NC` is read from the BDS during the decode, so only its
-/// grid is gated here; its cell cap is the reader's.
+/// A matrix field multiplies its grid by `NR·NC` (see [`matrix_cells`]).
 const FUZZ_MAX_FIELD_POINTS: u64 = 1 << 22;
 
 /// The grid points message `i` declares: its GDS's own count (the `PL` sum for
@@ -91,6 +90,29 @@ fn declared_points(reader: &Grib1Reader, i: usize) -> u64 {
         .max(raster)
 }
 
+/// `NR·NC` as BDS octets 15-18 state it, which is where the matrix decoder
+/// reads it; one when the section is too short to hold them, or states zero.
+///
+/// Read whatever the BDS flags say, so this is an upper bound: for a message
+/// that is not a matrix those octets mean something else, and the only cost is
+/// skipping a `decode_matrix_message` the reader would refuse anyway. Reading
+/// the flags here instead would mean restating which octet-4 bits select the
+/// matrix packing and which `extendedFlag` bit marks it in that context.
+fn matrix_cells(reader: &Grib1Reader, data: &[u8], i: usize) -> u64 {
+    let Some(range) = reader.messages.get(i).map(|m| m.bds_range) else {
+        return 1;
+    };
+    let Some(bds) = usize::try_from(range.start)
+        .ok()
+        .and_then(|start| data.get(start..start.checked_add(18)?))
+    else {
+        return 1;
+    };
+    let nr = u16::from_be_bytes([bds[14], bds[15]]);
+    let nc = u16::from_be_bytes([bds[16], bds[17]]);
+    (u64::from(nr) * u64::from(nc)).max(1)
+}
+
 fuzz_target!(|data: &[u8]| {
     // A malformed buffer must surface a structured error, never panic.
     if let Ok(reader) = Grib1Reader::from_bytes(data.to_vec()) {
@@ -98,8 +120,8 @@ fuzz_target!(|data: &[u8]| {
             // Ignore the result: we only care that decoding cannot panic or
             // over-read. Errors on individual messages are expected and fine.
             let points = declared_points(&reader, i);
-            let affordable = points <= FUZZ_MAX_FIELD_POINTS || points > MAX_FIELD_POINTS as u64;
-            if affordable {
+            let affordable = |n: u64| n <= FUZZ_MAX_FIELD_POINTS || n > MAX_FIELD_POINTS as u64;
+            if affordable(points) {
                 let _ = reader.decode_message_values(i);
             }
             // The spherical-harmonic decode path, which `decode_message_values`
@@ -123,7 +145,7 @@ fuzz_target!(|data: &[u8]| {
             }
             // The true matrix-of-values path, which `decode_message_values`
             // refuses. `MAX_FIELD_POINTS` bounds its output at 64 Mi cells.
-            if affordable {
+            if affordable(points.saturating_mul(matrix_cells(&reader, data, i))) {
                 let _ = reader.decode_matrix_message(i);
             }
             // Total by construction, so the assertion is that it stays total.

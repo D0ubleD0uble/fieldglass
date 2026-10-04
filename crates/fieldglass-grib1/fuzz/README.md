@@ -26,6 +26,11 @@ stating Ni = Nj = 8192 and a 12-byte BDS at zero bits per value, 84 bytes in
 all. A constant field needs no data, so it decodes to a gigabyte, about a
 second of writes per message, and a dozen in one input passed the time-boxed
 run's ten-second timeout. The target skips a decode that size (see
-`FUZZ_MAX_FIELD_POINTS`), and the seed keeps that skip in place. CI
+`FUZZ_MAX_FIELD_POINTS`), and the seed keeps that skip in place.
+`hand_matrix_of_values_all_absent_367x367.grib1` is the all-absent matrix seed
+above with NR = NC = 367 instead of 0xFFFF: its 496 points times 367² cells are
+66,805,744, inside the cap, so it decodes to a gigabyte in about 1.5 s. The
+target multiplies the grid by the `NR·NC` it reads from BDS octets 15-18 and
+skips it. CI
 runs this target time-boxed on pull requests that touch the crate; see
 `.github/workflows/fuzz.yml`.
