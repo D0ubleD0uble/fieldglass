@@ -1996,7 +1996,7 @@ export function buildGridReadyMessage(
     titleLine: composeTitleLine(meta),
     parameterUnits: meta.units ?? "",
     defaultPngName: composeDefaultPngName(meta),
-    truncationNote: composeTruncationNote({ truncation: rendered.truncation ?? null }),
+    truncationNote: composeTruncationNote(rendered),
   };
 }
 

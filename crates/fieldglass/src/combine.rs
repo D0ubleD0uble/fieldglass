@@ -238,6 +238,9 @@ fn source_of(f: &Field) -> Source<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::align::{describe, same_grid};
+    use crate::api::{Georef, Scan};
+    use fieldglass_core::{GridGeometry, LambertParams, LatLonParams};
 
     /// Either side's label survives a combine, and of two the larger
     /// declaration wins whichever side it is on (#637, #814).
@@ -255,9 +258,6 @@ mod tests {
         assert_eq!(combine_truncation(t(383, 359), t(7999, 359)), t(7999, 359));
         assert_eq!(combine_truncation(t(7999, 359), t(383, 359)), t(7999, 359));
     }
-    use crate::align::{describe, same_grid};
-    use crate::api::{Georef, Scan};
-    use fieldglass_core::{GridGeometry, LambertParams, LatLonParams};
 
     fn latlon(ni: u32, nj: u32) -> GridGeometry {
         GridGeometry::LatLon(LatLonParams {
