@@ -79,6 +79,31 @@ fn an_axis_outside_the_variable_is_refused() {
     assert_eq!(err.code(), "no_such_message");
 }
 
+/// The functions keyed by name refuse a name the source does not list, and say
+/// which name (#872). They used to answer `no_such_message` for message 0,
+/// which tells a NetCDF caller about a position its call never named.
+#[test]
+fn an_array_name_the_source_does_not_list_is_refused_by_name() {
+    use fieldglass::netcdf::{NetcdfArrays, NetcdfReader};
+    use fieldglass::{DecodeOptions, Dtype, axis_values, line_through};
+
+    let bytes = std::fs::read(format!("{NETCDF}/netcdf4_dimscale.nc")).expect("fixture");
+    let arrays =
+        NetcdfArrays::open(NetcdfReader::from_bytes(bytes).expect("reader")).expect("arrays");
+    // The same source answers for a name it does list, so the refusals below
+    // are about the name and not the source.
+    axis_values(&arrays, "temperature", 0).expect("a listed name answers");
+
+    let opts = DecodeOptions::new(Dtype::Auto);
+    for err in [
+        axis_values(&arrays, "salinity", 0).expect_err("axis of an unlisted name"),
+        line_through(&arrays, "salinity", 0, &[0, 0, 0], &opts).expect_err("line of one"),
+    ] {
+        assert_eq!(err.code(), "invalid_option", "{err:?}");
+        assert!(err.to_string().contains("`salinity`"), "{err}");
+    }
+}
+
 /// A GRIB file is addressed by messages, so it has no variable axes to read.
 #[test]
 fn a_message_addressed_file_says_so() {
