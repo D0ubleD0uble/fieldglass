@@ -17384,7 +17384,7 @@
         },
         "index": 0,
         "level": null,
-        "levelType": "Cloud base level",
+        "levelType": "Ground or water surface",
         "offsetBytes": 0,
         "originatingCentre": "European Centre for Medium-Range Weather Forecasts (ECMWF) (RSMC)",
         "packing": "grid_simple",

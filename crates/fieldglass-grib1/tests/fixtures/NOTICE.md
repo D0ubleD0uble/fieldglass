@@ -427,3 +427,41 @@ record.
 
 Its `.eccodes.ref.json` metadata snapshot is the pinned 2.34.1, written by
 `tools/regenerate-eccodes-snapshots.py` like every other fixture's.
+
+## `code_tables.eccodes.ref.json` and `code_tables.on388.ref.json` (#869)
+
+The oracles `tests/code_tables.rs` holds GRIB1 Code Tables 3 (level types),
+4 (time units) and 5 (time-range indicators) to. Both are written by
+`tools/gen_grib1_code_table_snapshot.py`; regenerate with
+`python3 tools/gen_grib1_code_table_snapshot.py` (needs the pinned eccodes and
+network access).
+
+`code_tables.eccodes.ref.json` is what the **pinned CLI eccodes 2.34.1**
+decodes, not a parse of its `.table` files: the script stamps
+`/usr/share/eccodes/samples/GRIB1.tmpl` with each code 0-255 in PDS octets 10,
+18 and 21, for centres 74 (no local tables, so the master tables), 7 (NCEP),
+34 (JMA) and 98 (ECMWF), and records the title `grib_dump -O` prints for each
+named code. So the oracle includes which file eccodes selects as well as what
+the row says: `grib1/section.1.def` reads Tables 3 and 5 from
+`grib1/local/<centre>/` before the master table, and Table 4 from the master
+only. Two things it shows about eccodes, both handled in the test:
+
+- eccodes' codetable reader treats a parenthesised group as units and stops the
+  title there, so level type 4 decodes as `0 deg (C)` without "isotherm level".
+  The test accepts ON388's wording for a WMO code as well as eccodes', so the
+  label is still held.
+- eccodes 2.34.1 ships no NCEP (`kwbc`) Table 3, so it decodes a centre-7
+  message exactly as a centre-74 one. The test asserts that, so an eccodes that
+  adds the table fails it.
+
+`code_tables.on388.ref.json` is NCEP Office Note 388, Table 3 and 3a, parsed
+from <https://www.nco.ncep.noaa.gov/pmb/docs/on388/table3.html> on 2026-10-04
+(a NOAA publication, public domain): each assigned code's meaning and the
+octet 11-12 contents column. It is the only source for NCEP's local level types
+(126 and 204-254) and the second, independent transcription of the WMO codes.
+
+**Known divergence from ON388: level type 141.** ON388 gives the top of this
+mixed-precision layer in hPa. WMO's Code Table 3, as eccodes transcribes it,
+gives it in kPa, with the bottom as 1100 hPa minus the pressure. The crate
+follows WMO and shows the top as octet 11 × 10 hPa; one octet of hPa could not
+reach below 255 hPa, which defeats a mixed-precision layer.

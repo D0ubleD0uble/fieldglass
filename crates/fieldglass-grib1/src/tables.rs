@@ -423,71 +423,323 @@ pub fn lookup_parameter(
     })
 }
 
-/// Look up a level type name from WMO ON388 Table 3.
+/// WMO originating-centre code for NCEP (Common Code Table C-1).
+const CENTRE_NCEP: u8 = 7;
+
+/// WMO originating-centre code for JMA (Common Code Table C-1).
+const CENTRE_JMA: u8 = 34;
+
+/// A level type from Code Table 3: its name, and how PDS octets 11 and 12 read
+/// for it.
 ///
-/// `None` for a code the table does not name; a caller that shows the answer
-/// keeps the code instead (#774).
-pub fn lookup_level_type(id: u8) -> Option<&'static str> {
-    Some(match id {
-        0 => "Ground or water surface",
-        1 => "Cloud base level",
-        2 => "Cloud top level",
-        3 => "0°C isotherm level",
-        4 => "Adiabatic condensation level",
-        5 => "Maximum wind speed level",
-        6 => "Tropopause level",
-        7 => "Nominal atmosphere top",
-        8 => "Sea bottom",
-        100 => "Isobaric level",
-        101 => "Layer between two isobaric levels",
-        102 => "Mean sea level",
-        103 => "Specified altitude above MSL",
-        104 => "Layer between two altitudes above MSL",
-        105 => "Specified height above ground",
-        106 => "Layer between two heights above ground",
-        107 => "Sigma level",
-        108 => "Layer between two sigma levels",
-        109 => "Hybrid level",
-        110 => "Layer between two hybrid levels",
-        111 => "Depth below land surface",
-        112 => "Layer between two depths below land surface",
-        113 => "Isentropic (theta) level",
-        114 => "Layer between two isentropic levels",
-        115 => "Level at specified pressure difference from ground",
-        116 => "Layer between two pressure difference levels",
-        117 => "Potential vorticity surface",
-        119 => "NAM level",
-        120 => "Layer between two NAM levels",
-        121 => "Isobaric layer (high precision)",
-        125 => "Specified height above ground (high precision)",
-        126 => "Isobaric level (Pa, high precision)",
-        128 => "Sigma layer (high precision)",
-        141 => "Layer between two isobaric surfaces (mixed precision)",
-        160 => "Subsurface depth",
-        200 => "Entire atmosphere",
-        201 => "Entire ocean",
-        204 => "Highest tropospheric freezing level",
-        205 => "Cloud ceiling",
-        209 => "Maximum wind level",
-        210 => "Boundary layer cloud bottom level",
-        211 => "Boundary layer cloud top level",
-        212 => "Boundary layer cloud layer",
-        213 => "Low cloud bottom level",
-        214 => "Low cloud top level",
-        215 => "Low cloud layer",
-        216 => "Medium cloud bottom level",
-        217 => "Medium cloud top level",
-        218 => "Medium cloud layer",
-        219 => "High cloud bottom level",
-        220 => "High cloud top level",
-        221 => "High cloud layer",
-        241 => "Convective cloud bottom level",
-        242 => "Convective cloud top level",
-        // WMO FM 92 GRIB edition 1, Code Table 3, as eccodes transcribes it
-        // (`grib1/3.table`: "255 Indicates a missing value").
-        255 => "Missing",
+/// One row carries both because the table does: a row's contents column is
+/// what says whether a level has a value, and in which unit. Keeping the two in
+/// separate lists is how they drifted (#869).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct LevelType {
+    /// The level's name, without its unit.
+    pub(crate) name: &'static str,
+    /// What octets 11 and 12 hold.
+    pub(crate) value: LevelValue,
+}
+
+/// What PDS octets 11 and 12 hold for a level type.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum LevelValue {
+    /// Nothing: a surface, a whole column or a cloud level. The octets are
+    /// ignored, whatever they hold.
+    None,
+    /// One 16-bit value, `octets / divisor`, shown to `decimals` places.
+    Single {
+        unit: Option<&'static str>,
+        divisor: u32,
+        decimals: usize,
+    },
+    /// Two one-octet bounds, top (octet 11) then bottom (octet 12).
+    Layer {
+        unit: Option<&'static str>,
+        top: Bound,
+        bottom: Bound,
+    },
+}
+
+/// How one octet of a layer reads.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Bound {
+    /// The octet as it stands.
+    Raw,
+    /// The octet times ten: kPa shown in hPa.
+    Tenfold,
+    /// The octet in hundredths.
+    Hundredths,
+    /// 475 K minus the octet.
+    Below475,
+    /// 1100 hPa minus the octet.
+    Below1100,
+    /// 1.1 minus the octet in thousandths.
+    BelowSigma1_1,
+}
+
+impl Bound {
+    pub(crate) fn show(self, octet: u8) -> String {
+        let v = i32::from(octet);
+        match self {
+            Bound::Raw => v.to_string(),
+            Bound::Tenfold => (v * 10).to_string(),
+            Bound::Hundredths => format!("{:.2}", f64::from(v) / 100.0),
+            Bound::Below475 => (475 - v).to_string(),
+            Bound::Below1100 => (1100 - v).to_string(),
+            Bound::BelowSigma1_1 => format!("{:.3}", 1.1 - f64::from(v) * 0.001),
+        }
+    }
+}
+
+const fn none(name: &'static str) -> LevelType {
+    LevelType {
+        name,
+        value: LevelValue::None,
+    }
+}
+
+const fn single(name: &'static str, unit: Option<&'static str>) -> LevelType {
+    scaled(name, unit, 1, 0)
+}
+
+const fn scaled(
+    name: &'static str,
+    unit: Option<&'static str>,
+    divisor: u32,
+    decimals: usize,
+) -> LevelType {
+    LevelType {
+        name,
+        value: LevelValue::Single {
+            unit,
+            divisor,
+            decimals,
+        },
+    }
+}
+
+const fn layer(
+    name: &'static str,
+    unit: Option<&'static str>,
+    top: Bound,
+    bottom: Bound,
+) -> LevelType {
+    LevelType {
+        name,
+        value: LevelValue::Layer { unit, top, bottom },
+    }
+}
+
+/// Code Table 3 as it applies to a message from `centre`.
+///
+/// Which table that is follows eccodes (`grib1/section.1.def` reads
+/// `grib1/local/<centre>/3.table` before the master table), with one addition:
+/// eccodes ships no NCEP table, so NCEP's local levels come from its Office
+/// Note 388, Table 3. The sub-centre plays no part, in eccodes or here.
+///
+/// * NCEP (7): ON388, which redefines 210 and adds 126 and 204-254.
+/// * ECMWF (98): the master table plus 211 and 212.
+/// * JMA (34): the master table plus 211-213 (JRA-55's land levels).
+/// * Every other centre: the master table, WMO's codes plus 210, an ECMWF
+///   extension eccodes applies to all centres.
+///
+/// `tests/code_tables.rs` holds every row to eccodes' decode and to ON388.
+pub(crate) fn level_type(code: u8, centre: u8) -> Option<LevelType> {
+    let local = match centre {
+        CENTRE_NCEP => ncep_level_type(code),
+        CENTRE_ECMWF => ecmwf_level_type(code),
+        CENTRE_JMA => jma_level_type(code),
+        _ => None,
+    };
+    local.or_else(|| wmo_level_type(code))
+}
+
+/// The WMO codes of Code Table 3, plus 210 as eccodes' master table carries it.
+fn wmo_level_type(code: u8) -> Option<LevelType> {
+    use Bound::*;
+    Some(match code {
+        1 => none("Ground or water surface"),
+        2 => none("Cloud base level"),
+        3 => none("Cloud top level"),
+        4 => none("0°C isotherm level"),
+        5 => none("Adiabatic condensation level"),
+        6 => none("Maximum wind speed level"),
+        7 => none("Tropopause level"),
+        8 => none("Nominal top of atmosphere"),
+        9 => none("Sea bottom"),
+        20 => scaled("Isothermal level", Some("K"), 100, 2),
+        100 => single("Isobaric level", Some("hPa")),
+        101 => layer("Layer between two isobaric levels", Some("kPa"), Raw, Raw),
+        102 => none("Mean sea level"),
+        103 => single("Specified altitude above MSL", Some("m")),
+        104 => layer(
+            "Layer between two altitudes above MSL",
+            Some("hm"),
+            Raw,
+            Raw,
+        ),
+        105 => single("Specified height above ground", Some("m")),
+        106 => layer(
+            "Layer between two heights above ground",
+            Some("hm"),
+            Raw,
+            Raw,
+        ),
+        107 => scaled("Sigma level", Some("σ"), 10_000, 4),
+        108 => layer(
+            "Layer between two sigma levels",
+            Some("σ"),
+            Hundredths,
+            Hundredths,
+        ),
+        109 => single("Hybrid level", None),
+        110 => layer("Layer between two hybrid levels", None, Raw, Raw),
+        111 => single("Depth below land surface", Some("cm")),
+        112 => layer(
+            "Layer between two depths below land surface",
+            Some("cm"),
+            Raw,
+            Raw,
+        ),
+        113 => single("Isentropic (theta) level", Some("K")),
+        114 => layer(
+            "Layer between two isentropic levels",
+            Some("K"),
+            Below475,
+            Below475,
+        ),
+        115 => single(
+            "Level at specified pressure difference from ground",
+            Some("hPa"),
+        ),
+        116 => layer(
+            "Layer between two pressure difference levels",
+            Some("hPa"),
+            Raw,
+            Raw,
+        ),
+        117 => scaled("Potential vorticity surface", Some("PVU"), 1_000, 3),
+        119 => scaled("Eta level", None, 10_000, 4),
+        120 => layer("Layer between two eta levels", None, Hundredths, Hundredths),
+        121 => layer(
+            "Layer between two isobaric surfaces (high precision)",
+            Some("hPa"),
+            Below1100,
+            Below1100,
+        ),
+        125 => single("Specified height above ground (high precision)", Some("cm")),
+        128 => layer(
+            "Layer between two sigma levels (high precision)",
+            Some("σ"),
+            BelowSigma1_1,
+            BelowSigma1_1,
+        ),
+        // WMO and eccodes give the top in kPa and the bottom as 1100 hPa
+        // minus it; ON388 says the top is in hPa too. One octet of hPa cannot
+        // reach the lower troposphere, which is the point of the mixed form,
+        // so this follows WMO and shows both bounds in hPa.
+        141 => layer(
+            "Layer between two isobaric surfaces (mixed precision)",
+            Some("hPa"),
+            Tenfold,
+            Below1100,
+        ),
+        160 => single("Depth below sea level", Some("m")),
+        200 => none("Entire atmosphere"),
+        201 => none("Entire ocean"),
+        210 => single("Isobaric surface", Some("Pa")),
+        255 => none("Missing"),
         _ => return None,
     })
+}
+
+/// ECMWF's additions, from eccodes' `grib1/local/ecmf/3.table`.
+fn ecmwf_level_type(code: u8) -> Option<LevelType> {
+    Some(match code {
+        211 => none("Ocean wave level"),
+        212 => none("Ocean mixed layer"),
+        _ => return None,
+    })
+}
+
+/// JMA's additions for JRA-55, from eccodes' `grib1/local/rjtd/3.table`.
+fn jma_level_type(code: u8) -> Option<LevelType> {
+    Some(match code {
+        211 => none("Entire soil"),
+        212 => none("Bottom of land surface model"),
+        213 => single("Underground layer number of land surface model", None),
+        _ => return None,
+    })
+}
+
+/// NCEP's local levels, from ON388 Table 3 and 3a. ON388 gives a contents
+/// column only for codes 100-201; a special level below carries a value only
+/// where its meaning says so (235, 236 and 241).
+fn ncep_level_type(code: u8) -> Option<LevelType> {
+    Some(match code {
+        126 => single("Isobaric level", Some("Pa")),
+        204 => none("Highest tropospheric freezing level"),
+        206 => none("Grid scale cloud bottom level"),
+        207 => none("Grid scale cloud top level"),
+        209 => none("Boundary layer cloud bottom level"),
+        210 => none("Boundary layer cloud top level"),
+        211 => none("Boundary layer cloud layer"),
+        212 => none("Low cloud bottom level"),
+        213 => none("Low cloud top level"),
+        214 => none("Low cloud layer"),
+        215 => none("Cloud ceiling"),
+        216 => none("Cumulonimbus base"),
+        217 => none("Cumulonimbus top"),
+        220 => none("Planetary boundary layer"),
+        222 => none("Middle cloud bottom level"),
+        223 => none("Middle cloud top level"),
+        224 => none("Middle cloud layer"),
+        232 => none("High cloud bottom level"),
+        233 => none("High cloud top level"),
+        234 => none("High cloud layer"),
+        235 => scaled("Ocean isotherm level", Some("°C"), 10, 1),
+        236 => layer(
+            "Layer between two depths below ocean surface",
+            Some("dam"),
+            Bound::Raw,
+            Bound::Raw,
+        ),
+        237 => none("Bottom of ocean mixed layer"),
+        238 => none("Bottom of ocean isothermal layer"),
+        239 => none("Layer: ocean surface to 26°C isothermal level"),
+        240 => none("Ocean mixed layer"),
+        241 => single("Ordered sequence of data", None),
+        242 => none("Convective cloud bottom level"),
+        243 => none("Convective cloud top level"),
+        244 => none("Convective cloud layer"),
+        245 => none("Lowest level of the wet bulb zero"),
+        246 => none("Maximum equivalent potential temperature level"),
+        247 => none("Equilibrium level"),
+        248 => none("Shallow convective cloud bottom level"),
+        249 => none("Shallow convective cloud top level"),
+        251 => none("Deep convective cloud bottom level"),
+        252 => none("Deep convective cloud top level"),
+        253 => none("Lowest bottom level of supercooled liquid water layer"),
+        254 => none("Highest top level of supercooled liquid water layer"),
+        _ => return None,
+    })
+}
+
+/// The name of a level type in Code Table 3, as it applies to a message from
+/// `centre`.
+///
+/// The table is WMO's for every centre, plus the centre's own local levels
+/// where it has them: NCEP's from its Office Note 388 (which also gives 210
+/// its own meaning), and ECMWF's and JMA's from eccodes. A local code from
+/// another centre is not named.
+///
+/// `None` for a code that table does not name; a caller that shows the answer
+/// keeps the code instead (#774).
+pub fn lookup_level_type(code: u8, centre: u8) -> Option<&'static str> {
+    level_type(code, centre).map(|t| t.name)
 }
 
 /// Unit of time (WMO ON388 Table 4).
