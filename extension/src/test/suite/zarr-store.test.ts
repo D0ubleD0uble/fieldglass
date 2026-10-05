@@ -113,10 +113,11 @@ suite("Zarr store", () => {
     );
     assert.ok(grid.width > 0 && grid.height > 0, "a raster was produced");
     assert.strictEqual(grid.rgba.length, grid.width * grid.height * 4);
-    assert.ok(grid.usedMax > grid.usedMin, "a real range was resolved");
+    const [lo, hi] = [grid.usedMin, grid.usedMax];
+    assert.ok(lo != null && hi != null && hi > lo, "a real range was resolved");
     // Physical units, so the CF scale/offset ran: the fixture is packed int16
     // around 240-290 K.
-    assert.ok(grid.usedMin > 100 && grid.usedMax < 400, `range looks unscaled: ${grid.usedMin}..${grid.usedMax}`);
+    assert.ok(lo > 100 && hi < 400, `range looks unscaled: ${lo}..${hi}`);
   });
 
   test("a folder that is not a store is reported, not opened", async () => {

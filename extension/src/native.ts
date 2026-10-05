@@ -184,19 +184,22 @@ export interface ParsedColorTable {
 }
 
 /** Projected vector arrows plus the speed a full-length arrow stands for
- *  (#241). The runs are the overlay's shape — five vertices per arrow. */
+ *  (#241). The runs are the overlay's shape — five vertices per arrow.
+ *  `referenceSpeed` is `null` when no arrow was drawn (#871). */
 export interface ProjectedVectors {
   xy: Float64Array;
   segLengths: Uint32Array;
-  referenceSpeed: number;
+  referenceSpeed: number | null;
 }
 
 export interface RenderedGrid {
   rgba: Buffer;
   width: number;
   height: number;
-  usedMin: number;
-  usedMax: number;
+  /** The range the field was painted over; `null` when the range was
+   *  automatic and no cell had a value, so there is none to show (#871). */
+  usedMin: number | null;
+  usedMax: number | null;
   /** Geographic extent actually rendered (degrees), echoed back so the
    *  panel can pre-fill the manual-bounds inputs. Present for the warped
    *  lat/lon targets (equirectangular, web_mercator); `null` for the

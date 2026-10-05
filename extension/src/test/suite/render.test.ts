@@ -590,7 +590,7 @@ suite("Render pipeline", () => {
     );
     // A realistic ~281 K temperature field, not garbage.
     assert.ok(
-      rendered.usedMin > 200 && rendered.usedMax < 350,
+      (rendered.usedMin ?? NaN) > 200 && (rendered.usedMax ?? NaN) < 350,
       `spectral field range ${rendered.usedMin}..${rendered.usedMax} K`,
     );
   });
@@ -610,7 +610,7 @@ suite("Render pipeline", () => {
     assert.strictEqual(rendered.height, 361);
     assert.strictEqual(rendered.rgba.length, rendered.width * rendered.height * 4);
     assert.ok(
-      rendered.usedMin > 200 && rendered.usedMax < 350,
+      (rendered.usedMin ?? NaN) > 200 && (rendered.usedMax ?? NaN) < 350,
       `spectral field range ${rendered.usedMin}..${rendered.usedMax} K`,
     );
   });

@@ -175,8 +175,8 @@ a returned object present, `null` for a Rust `None` (serde-wasm-bindgen with
 optional field is declared `T | null`. The `api-declarations` pre-commit hook
 fails when either file differs from what the schema generates. The addon's own
 returned `#[napi(object)]` types keep the same contract: the ones with an
-`Option` field (`DatasetMeta`, `RenderedGrid`, `NetcdfVariableMeta`,
-`LineResult`, `ProbeResult`) are marked `use_nullable = true`, so napi writes
+`Option` field (`DatasetMeta`, `RenderedGrid`, `ProjectedVectors`,
+`NetcdfVariableMeta`, `LineResult`, `ProbeResult`) are marked `use_nullable = true`, so napi writes
 `null` and declares `T | null`, and `tools/check_native_declarations.py` holds
 `native.ts` to what napi generates and refuses a returned object that leaves a
 key out. Only `RenderOptions`, which the extension sends rather than receives,

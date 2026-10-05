@@ -817,8 +817,8 @@ fn rendered_row(result: napi::Result<RenderedGrid>) -> Row {
     support::fnv(&mut h, &rendered.width.to_le_bytes());
     support::fnv(&mut h, &rendered.height.to_le_bytes());
     support::fnv(&mut h, &rendered.rgba);
-    mix_opt_f64(&mut h, Some(rendered.used_min));
-    mix_opt_f64(&mut h, Some(rendered.used_max));
+    mix_opt_f64(&mut h, rendered.used_min);
+    mix_opt_f64(&mut h, rendered.used_max);
     mix_opt_f64(&mut h, rendered.used_lat_min);
     mix_opt_f64(&mut h, rendered.used_lat_max);
     mix_opt_f64(&mut h, rendered.used_lon_min);

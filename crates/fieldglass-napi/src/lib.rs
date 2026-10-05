@@ -798,10 +798,12 @@ pub struct RenderedGrid {
     pub height: i32,
     /// The min/max range actually used to paint, echoed back so the
     /// webview can pre-fill the manual-range inputs when the user
-    /// switches to manual mode.
-    pub used_min: f64,
+    /// switches to manual mode. `null` when the auto range had no present
+    /// value to come from — every cell masked — so a legend shows no range
+    /// rather than one this binding made up (#871).
+    pub used_min: Option<f64>,
     /// High end of the range actually used to paint — see `used_min`.
-    pub used_max: f64,
+    pub used_max: Option<f64>,
     /// Equirectangular extent actually rendered (degrees), echoed back so the
     /// webview can pre-fill the manual-bounds inputs. `null` for the
     /// source-projection target, which has no geographic extent. `lonMin`/
@@ -849,16 +851,17 @@ impl ProjectedOverlay {
 ///
 /// The runs are [`ProjectedOverlay`]'s shape — five vertices per arrow — so the
 /// same canvas code draws them. `referenceSpeed` is what a legend puts beside a
-/// full-length reference arrow, in the components' own units; `0` when nothing
-/// was drawn.
-#[napi(object)]
+/// full-length reference arrow, in the components' own units; `null` when no
+/// arrow was drawn (#871).
+// `use_nullable`, like `RenderedGrid`: the key is always present.
+#[napi(object, use_nullable = true)]
 pub struct ProjectedVectors {
     /// Flat `[x0, y0, …]` vertex coordinates, five vertices per arrow.
     pub xy: napi::bindgen_prelude::Float64Array,
     /// Vertex count of each run.
     pub seg_lengths: napi::bindgen_prelude::Uint32Array,
-    /// The speed a full-length arrow stands for.
-    pub reference_speed: f64,
+    /// The speed a full-length arrow stands for; `null` when no arrow was drawn.
+    pub reference_speed: Option<f64>,
 }
 
 impl ProjectedVectors {
@@ -920,6 +923,17 @@ impl std::fmt::Debug for RenderedGrid {
             .field("used_lon_max", &self.used_lon_max)
             .field("projection_summary", &self.projection_summary)
             .finish()
+    }
+}
+
+#[cfg(test)]
+impl RenderedGrid {
+    /// The painted range, for a test that rendered a field with values in it.
+    fn used(&self) -> (f64, f64) {
+        match (self.used_min, self.used_max) {
+            (Some(min), Some(max)) => (min, max),
+            other => panic!("no range was painted: {other:?}"),
+        }
     }
 }
 
@@ -3321,16 +3335,17 @@ fn render_from_source(
         resolved.flip_y
     };
 
-    let (used_min, used_max) = match (resolved.range_min, resolved.range_max) {
-        (Some(min), Some(max)) if max > min => (min, max),
+    // `None` when the range is automatic and no cell is present: there is no
+    // range to report, and none is invented for the legend (#871).
+    let used = match (resolved.range_min, resolved.range_max) {
+        (Some(min), Some(max)) if max > min => Some((min, max)),
         _ => fieldglass::min_max_ignoring_mask(values.iter().enumerate().map(|(i, &v)| {
             if mask.get(i).copied().unwrap_or(0) == 0 {
                 None
             } else {
                 Some(v)
             }
-        }))
-        .unwrap_or((0.0, 1.0)),
+        })),
     };
 
     // Log10 has no logarithm for a non-positive lower bound. Rather than paint
@@ -3339,7 +3354,10 @@ fn render_from_source(
     // exactly what to do. A field with a positive floor — or a positive manual
     // minimum over data that dips to/below zero — renders fine; the sub-zero
     // cells simply drop out as missing in the painter.
-    if resolved.scale == fieldglass::ScaleMode::Log10 && used_min <= 0.0 {
+    if let Some((used_min, _)) = used
+        && resolved.scale == fieldglass::ScaleMode::Log10
+        && used_min <= 0.0
+    {
         return Err(napi::Error::from_reason(format!(
             "log10 scaling needs a positive minimum, but the range starts at \
              {used_min}; set a manual minimum > 0 or pick a field with \
@@ -3347,11 +3365,14 @@ fn render_from_source(
         )));
     }
 
+    // With no range every cell is masked and paints transparent, so the
+    // palette's domain is never read; `1.0..10.0` is positive for log10 too.
+    let (paint_min, paint_max) = used.unwrap_or((1.0, 10.0));
     let rgba = fieldglass::Palette::build(
         &resolved.colormap,
         resolved.reverse_colormap,
-        used_min,
-        used_max,
+        paint_min,
+        paint_max,
         resolved.scale,
     )
     .paint(&values, Some(&mask), width, height, flip_y);
@@ -3383,8 +3404,8 @@ fn render_from_source(
         rgba: rgba.into(),
         width: width as i32,
         height: height as i32,
-        used_min,
-        used_max,
+        used_min: used.map(|(min, _)| min),
+        used_max: used.map(|(_, max)| max),
         used_lat_min,
         used_lat_max,
         used_lon_min,
@@ -4518,7 +4539,8 @@ mod zarr_handle_tests {
             pixels.iter().any(|px| px != first),
             "the raster is uniform, so nothing was painted"
         );
-        assert!(grid.used_max > grid.used_min, "a real range was resolved");
+        let (lo, hi) = grid.used();
+        assert!(hi > lo, "a real range was resolved");
         // Nothing was left out of this store, and the accessor says so.
         assert!(handle.left_out().is_empty());
     }
@@ -4713,11 +4735,10 @@ mod netcdf_slice_tests {
             .expect("grib1 spectral renders");
         assert_eq!((g.width, g.height), (720, 361));
         assert_eq!(g.rgba.len(), (g.width * g.height * 4) as usize);
+        let (lo, hi) = g.used();
         assert!(
-            g.used_min > 200.0 && g.used_max < 350.0,
-            "grib1 spectral field range {}..{} K",
-            g.used_min,
-            g.used_max
+            lo > 200.0 && hi < 350.0,
+            "grib1 spectral field range {lo}..{hi} K"
         );
     }
 
@@ -4796,11 +4817,10 @@ mod netcdf_slice_tests {
         assert_eq!((g.width, g.height), (720, 361));
         assert_eq!(g.rgba.len(), (g.width * g.height * 4) as usize);
         // The synthesized field is a realistic ~281 K temperature field.
+        let (lo, hi) = g.used();
         assert!(
-            g.used_min > 200.0 && g.used_max < 350.0,
-            "spectral field range {}..{} K",
-            g.used_min,
-            g.used_max
+            lo > 200.0 && hi < 350.0,
+            "spectral field range {lo}..{hi} K"
         );
         // The synthesized global lat/lon grid also reprojects.
         let w = h
@@ -4867,11 +4887,7 @@ mod netcdf_slice_tests {
         let d = h
             .render_grid_combined(0, 0, "a_minus_b".to_string(), opts("source"))
             .expect("spectral difference renders");
-        assert_eq!(
-            (d.used_min, d.used_max),
-            (0.0, 0.0),
-            "A−A is zero everywhere"
-        );
+        assert_eq!(d.used(), (0.0, 0.0), "A−A is zero everywhere");
     }
 
     /// A T383 field, past the T359 the 0.5° grid carries (#637).
@@ -5190,7 +5206,7 @@ mod netcdf_slice_tests {
                 log_opts(1.0, 40.0),
             )
             .expect("log10 with a positive range renders");
-        assert_eq!((ok.used_min, ok.used_max), (1.0, 40.0));
+        assert_eq!(ok.used(), (1.0, 40.0));
         assert_eq!(ok.rgba.len(), (ok.width * ok.height * 4) as usize);
     }
 
@@ -5345,7 +5361,7 @@ mod netcdf_slice_tests {
                 opts("source"),
             )
             .expect("self-difference renders");
-        assert_eq!((combined.used_min, combined.used_max), (0.0, 0.0));
+        assert_eq!(combined.used(), (0.0, 0.0));
         assert_eq!(
             combined.rgba.len(),
             (combined.width * combined.height * 4) as usize
@@ -7121,12 +7137,10 @@ mod reduced_grid_render_tests {
         // The fixture is a 1000 hPa temperature field: 235.012 K to 312.074 K
         // per its eccodes snapshot. A raster expanded from the wrong offsets
         // would still paint, but the range it painted over would not be this.
+        let (lo, hi) = rendered.used();
         assert!(
-            (235.0..=236.0).contains(&rendered.used_min)
-                && (312.0..=313.0).contains(&rendered.used_max),
-            "painted over {}..{}",
-            rendered.used_min,
-            rendered.used_max
+            (235.0..=236.0).contains(&lo) && (312.0..=313.0).contains(&hi),
+            "painted over {lo}..{hi}"
         );
 
         let probed = handle
@@ -7426,12 +7440,8 @@ mod curvilinear_render_tests {
                 rendered.rgba.as_chunks::<4>().0.iter().any(|px| px[3] > 0),
                 "{label}: the reprojection painted something"
             );
-            assert!(
-                rendered.used_min >= low && rendered.used_max <= high,
-                "{label}: painted over {}..{}",
-                rendered.used_min,
-                rendered.used_max
-            );
+            let (lo, hi) = rendered.used();
+            assert!(lo >= low && hi <= high, "{label}: painted over {lo}..{hi}");
         }
     }
 
@@ -8957,5 +8967,80 @@ mod placement_ts_type_tests {
             let wire = serde_json::to_value(placement).expect("serialises");
             assert_eq!(wire, placement.as_str(), "as_str is the serde tag");
         }
+    }
+}
+
+/// A render result reports `null` for what was not computed, rather than a
+/// default this binding chose (#871): the painted range of a field with no
+/// present cell, and the reference speed when no arrow was drawn.
+#[cfg(test)]
+mod nothing_computed_tests {
+    use super::*;
+    use crate::netcdf_slice_tests::opts;
+
+    const HRRR: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/hrrr_complex_spd_lambert.grib2");
+
+    /// A window over the southern Indian Ocean, which a CONUS grid never reaches.
+    fn off_the_grid() -> RenderOptions {
+        RenderOptions {
+            bounds_lat_min: Some(-50.0),
+            bounds_lat_max: Some(-30.0),
+            bounds_lon_min: Some(60.0),
+            bounds_lon_max: Some(90.0),
+            ..opts("equirectangular")
+        }
+    }
+
+    fn hrrr() -> Grib2Handle {
+        Grib2Handle::from_bytes(HRRR.to_vec().into()).expect("HRRR opens")
+    }
+
+    #[test]
+    fn a_field_with_no_present_cell_reports_no_range() {
+        let h = hrrr();
+        let rendered = h.render_grid(0, off_the_grid()).expect("renders");
+        assert_eq!((rendered.used_min, rendered.used_max), (None, None));
+        assert!(
+            rendered.rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 0),
+            "nothing is painted"
+        );
+
+        // A log10 scale has nothing to refuse when there is no range.
+        let log = RenderOptions {
+            scale_mode: Some("log10".to_string()),
+            ..off_the_grid()
+        };
+        let rendered = h.render_grid(0, log).expect("renders under log10");
+        assert_eq!((rendered.used_min, rendered.used_max), (None, None));
+
+        // A manual range is the caller's, so it is echoed even over no data.
+        let manual = RenderOptions {
+            range_min: Some(250.0),
+            range_max: Some(300.0),
+            ..off_the_grid()
+        };
+        let rendered = h.render_grid(0, manual).expect("renders");
+        assert_eq!(rendered.used(), (250.0, 300.0));
+
+        // The same message over its own domain does have a range.
+        let (lo, hi) = h.render_grid(0, opts("source")).expect("renders").used();
+        assert!(hi >= lo);
+    }
+
+    #[test]
+    fn vectors_that_draw_no_arrow_report_no_reference_speed() {
+        let h = hrrr();
+        let none = h
+            .project_vectors(0, 0, off_the_grid(), Some(8), None)
+            .expect("projects");
+        assert_eq!(none.seg_lengths.len(), 0, "no arrow is on the window");
+        assert_eq!(none.reference_speed, None);
+
+        let some = h
+            .project_vectors(0, 0, opts("source"), Some(8), None)
+            .expect("projects");
+        assert!(!some.seg_lengths.is_empty());
+        assert!(some.reference_speed.is_some_and(|s| s > 0.0));
     }
 }

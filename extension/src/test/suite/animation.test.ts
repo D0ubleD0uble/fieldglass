@@ -85,7 +85,9 @@ suite("Time animation", () => {
       "the two steps have their own extremes, or a lock proves nothing",
     );
     // What playback sends: the first frame's range, for every frame.
-    const lock = { ...base, rangeMin: frames[0].usedMin, rangeMax: frames[0].usedMax };
+    const [lo, hi] = [frames[0].usedMin, frames[0].usedMax];
+    assert.ok(lo != null && hi != null, "the first frame has a range to hold");
+    const lock = { ...base, rangeMin: lo, rangeMax: hi };
     for (const t of [0, 1]) {
       const r = handle.renderSlice(v.variableIndex, y, x, [t, 0, 0], lock);
       assert.deepStrictEqual([r.usedMin, r.usedMax], [frames[0].usedMin, frames[0].usedMax], `step ${t}`);

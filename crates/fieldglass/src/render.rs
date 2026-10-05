@@ -1999,9 +1999,10 @@ pub struct VectorArrows {
     pub runs: ProjectedPolylines,
     /// The speed a full-length arrow stands for, in the components' own units:
     /// what a legend puts beside its reference arrow. The fastest cell drawn,
-    /// or [`VectorOptions::reference_speed`] when the caller pinned one. `0.0`
-    /// when nothing was drawn.
-    pub reference_speed: f64,
+    /// or [`VectorOptions::reference_speed`] when the caller pinned one. `None`
+    /// when no arrow survives onto the raster, so a legend has no scale to show
+    /// and none is made up for it (#871).
+    pub reference_speed: Option<f64>,
 }
 
 #[cfg(feature = "render")]
@@ -2010,7 +2011,7 @@ impl Default for VectorArrows {
     fn default() -> Self {
         Self {
             runs: ProjectedPolylines::default(),
-            reference_speed: 0.0,
+            reference_speed: None,
         }
     }
 }
@@ -2196,9 +2197,13 @@ pub fn vector_polylines(
         ring_lengths.push(ARROW_VERTICES);
     }
 
+    let runs = overlay_polylines(source, options, &latlon, &ring_lengths)?;
+    // Every arrow can clip off the raster, as when the view is a window the
+    // field does not reach. Then nothing was drawn to a scale.
+    let reference_speed = (!runs.seg_lengths.is_empty()).then_some(fastest);
     Ok(VectorArrows {
-        runs: overlay_polylines(source, options, &latlon, &ring_lengths)?,
-        reference_speed: fastest,
+        runs,
+        reference_speed,
     })
 }
 

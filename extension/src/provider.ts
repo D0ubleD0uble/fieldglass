@@ -1625,8 +1625,9 @@ export interface GridReadyMessage {
   rgba: Uint8Array;
   width: number;
   height: number;
-  usedMin: number;
-  usedMax: number;
+  /** `null` when no cell had a value to take a range from (#871). */
+  usedMin: number | null;
+  usedMax: number | null;
   /** Equirectangular extent actually rendered, echoed so the panel can
    *  pre-fill the manual-bounds inputs. `null` for source projection. */
   usedLatMin: number | null;

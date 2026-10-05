@@ -612,6 +612,24 @@ export function composeProbeValue(
   return shown + " shown · " + format(r.fullDetailValue) + " at full detail" + truncation;
 }
 
+/** The status line's range part: the range the field was painted over, or
+ *  `"no values"` when Rust reported none (`RenderedGrid.usedMin` is `null`
+ *  when every cell is masked, #871). Serialized into the panel script
+ *  (`composeRangeText.toString()`), so it must not reference anything outside
+ *  itself. */
+export function composeRangeText(usedMin: number | null, usedMax: number | null): string {
+  if (usedMin == null || usedMax == null) return "no values";
+  return "range " + usedMin.toPrecision(4) + " … " + usedMax.toPrecision(4);
+}
+
+/** The arrow key beside the Vectors row: what a full-length arrow stands for,
+ *  or nothing when no arrow was drawn (`ProjectedVectors.referenceSpeed` is
+ *  `null`, #871). Serialized into the panel script like `composeRangeText`. */
+export function composeVectorScale(referenceSpeed: number | null | undefined, units: string): string {
+  if (referenceSpeed == null) return "";
+  return "\u27F6 " + Number(referenceSpeed).toPrecision(3) + (units ? " " + units : "");
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: PanelField,
@@ -707,6 +725,8 @@ export function renderImagePanelHtml(
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
         ${composeProbeValue.toString()}
+        ${composeRangeText.toString()}
+        ${composeVectorScale.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -1049,7 +1069,10 @@ export function renderImagePanelHtml(
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const auto = !mode || mode.value !== 'manual';
           animation = {
-            lock: auto && lastPayload ? [lastPayload.usedMin, lastPayload.usedMax] : null,
+            // No range to hold when the last frame had no values (#871).
+            lock: auto && lastPayload && lastPayload.usedMin != null
+              ? [lastPayload.usedMin, lastPayload.usedMax]
+              : null,
             awaiting: false,
             timer: 0,
             requestedAt: 0,
@@ -1328,10 +1351,15 @@ export function renderImagePanelHtml(
           );
           const img = new ImageData(rgba, payload.width, payload.height);
           ctx.putImageData(img, 0, 0);
+          // A field with no values has no range, so the colorbar is hidden
+          // rather than labelled with one (#871).
+          const hasRange = payload.usedMin != null && payload.usedMax != null;
+          const colorbar = document.getElementById('colorbar');
+          if (colorbar) colorbar.hidden = !hasRange;
           const cbMin = document.getElementById('cb-min');
           const cbMax = document.getElementById('cb-max');
-          if (cbMin) cbMin.textContent = payload.usedMin.toPrecision(4);
-          if (cbMax) cbMax.textContent = payload.usedMax.toPrecision(4);
+          if (cbMin) cbMin.textContent = hasRange ? payload.usedMin.toPrecision(4) : '—';
+          if (cbMax) cbMax.textContent = hasRange ? payload.usedMax.toPrecision(4) : '—';
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = payload.projectionSummary || '';
           // When a compare operation is active, name it up front so the status
@@ -1341,15 +1369,15 @@ export function renderImagePanelHtml(
             ? opEl.options[opEl.selectedIndex].text + ' · '
             : '';
           setStatus(
-            opText + payload.width + '×' + payload.height + ' · range ' +
-            payload.usedMin.toPrecision(4) + ' … ' + payload.usedMax.toPrecision(4),
+            opText + payload.width + '×' + payload.height + ' · ' +
+            composeRangeText(payload.usedMin, payload.usedMax),
           );
           // Pre-fill the manual-range inputs once so the user can switch
-          // to Manual mode without typing.
+          // to Manual mode without typing. Nothing to offer without a range.
           const minIn = document.getElementById('range-min');
           const maxIn = document.getElementById('range-max');
-          if (minIn && !minIn.value) minIn.value = payload.usedMin.toPrecision(6);
-          if (maxIn && !maxIn.value) maxIn.value = payload.usedMax.toPrecision(6);
+          if (hasRange && minIn && !minIn.value) minIn.value = payload.usedMin.toPrecision(6);
+          if (hasRange && maxIn && !maxIn.value) maxIn.value = payload.usedMax.toPrecision(6);
           // Pre-fill the manual-bounds inputs from the extent Rust actually
           // used (present for the warped lat/lon targets — equirectangular and
           // Web Mercator). The empty guard means we never clobber a value the
@@ -1706,10 +1734,7 @@ export function renderImagePanelHtml(
           // reference a reader needs to take a speed off the picture.
           const scale = document.getElementById('vector-scale');
           if (scale) {
-            const speed = lastVectors && lastVectors.referenceSpeed;
-            scale.textContent = speed
-              ? '\u27F6 ' + Number(speed).toPrecision(3) + (UNITS ? ' ' + UNITS : '')
-              : '';
+            scale.textContent = composeVectorScale(lastVectors && lastVectors.referenceSpeed, UNITS);
           }
           drawOverlay();
         }
@@ -2320,7 +2345,8 @@ export function renderImagePanelHtml(
             g.drawImage(overlay, margin, mapY, W, H);
           }
           // Colorbar: gradient (bottom = min, top = max) + min/mid/max labels.
-          try {
+          // Left off when the field had no values to take a range from (#871).
+          if (lastPayload && lastPayload.usedMin != null && lastPayload.usedMax != null) try {
             const name = (document.getElementById('picker-colormap') || {}).value;
             const entry = COLORMAPS.find((c) => c.name === name) || COLORMAPS[0];
             if (entry) {
@@ -2854,6 +2880,9 @@ export function renderImagePanelHtml(
       border: 1px solid transparent;
       pointer-events: none;
     }
+    /* Hidden for a field with no values (#871); see the .picker-note[hidden]
+       rule for why an author display rule needs this. */
+    .colorbar-wrap[hidden] { display: none; }
     .colorbar-wrap {
       display: flex;
       align-items: stretch;
@@ -3150,7 +3179,7 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
       <div class="axis-rail axis-x" id="axis-x" hidden></div>
       <div class="axis-caption" id="axis-caption" hidden></div>
     </div>
-    <div class="colorbar-wrap">
+    <div class="colorbar-wrap" id="colorbar">
       <div class="cb" aria-label="colormap"></div>
       <div class="colorbar-labels">
         <div id="cb-max">—</div>
