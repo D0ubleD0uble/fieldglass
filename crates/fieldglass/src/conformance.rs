@@ -921,6 +921,26 @@ pub fn cases() -> Vec<Case> {
         },
     });
 
+    // A curvilinear slice: NOAA-21 MiRS total precipitable water, 100 scanlines
+    // by 96 fields of view, placed by its 2-D latitude and longitude arrays.
+    // Its georef's `label` is the caption every host shows and every refusal
+    // quotes, and the hosts used to disagree about it (`curvilinear` in VS
+    // Code, `lookup` in the browser, #808), so all three runners are held to
+    // one recording here.
+    out.push(Case {
+        id: "curvilinear/decode_slice".to_string(),
+        fixture: format!("{NC}mirs_swath_n21.nc"),
+        op: Op::DecodeSlice,
+        args: Args {
+            dtype: Some(Dtype::Auto),
+            variable: Some(2),
+            y_dim: Some(0),
+            x_dim: Some(1),
+            slice_indices: Some(vec![0, 0]),
+            ..Args::default()
+        },
+    });
+
     // The two ways a slice request is refused on a file that has the variable
     // mode. One position per dimension, always: a short list is refused rather
     // than padded with zeros, which is how a viewer shows the first time step

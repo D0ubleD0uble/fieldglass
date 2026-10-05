@@ -2575,11 +2575,10 @@ impl NetcdfHandle {
                 let south_to_north = lookup_index(&geometry)
                     .and_then(rows_run_south_to_north)
                     .unwrap_or(false);
-                (
-                    geometry,
-                    Scan::new(false, south_to_north, false),
-                    "curvilinear".to_string(),
-                )
+                // The family is the geometry's own display name, the one
+                // `Session` and the browser host caption the slice with (#808).
+                let family = geometry.label().to_string();
+                (geometry, Scan::new(false, south_to_north, false), family)
             }
             SliceSource::Resolved {
                 placement,
@@ -7308,6 +7307,57 @@ mod curvilinear_render_tests {
             width: None,
             height: None,
         }
+    }
+
+    /// A curvilinear slice's refusal reads the same through this binding and
+    /// through `fieldglass::Session`, which is the browser host's path: both
+    /// name the grid `"curvilinear"`, where this one used to and the other said
+    /// `"lookup"` (#808). A zonal mean is the refusal a lookup grid reaches —
+    /// its rows are scanlines, not circles of latitude.
+    #[test]
+    fn a_curvilinear_slices_refusal_reads_the_same_on_both_paths() {
+        let (handle, var, y, x, indices) = slice(SWATH, "TPW");
+        let here = handle
+            .zonal_mean(var.decode_index as u32, y as u32, x as u32, indices.clone())
+            .expect_err("a swath has no latitude rows")
+            .reason;
+
+        // `Session` numbers a container's arrays in its own order, where this
+        // handle uses the file's variable index; each path is asked by its own.
+        let session = fieldglass::Session::open(SWATH.to_vec()).expect("opens");
+        let index = session
+            .variables()
+            .iter()
+            .position(|v| v.name == var.name)
+            .expect("TPW is listed") as u32;
+        let field = session
+            .decode_slice(
+                index,
+                y as u32,
+                x as u32,
+                &indices,
+                &fieldglass::DecodeOptions::default(),
+            )
+            .expect("decodes");
+        let placed = session
+            .place_slice(index, y as u32, x as u32)
+            .expect("places");
+        let values = field_values(&field);
+        let there = session
+            .zonal_mean(
+                &placed.source(),
+                &values,
+                Some("TPW"),
+                field.units.as_deref(),
+            )
+            .expect_err("a swath has no latitude rows")
+            .message();
+
+        assert_eq!(
+            here, there,
+            "the two hosts refuse the same slice in different words"
+        );
+        assert!(here.contains("\"curvilinear\""), "{here}");
     }
 
     /// The slice reports itself as a lookup grid, with the extent of its cells.
