@@ -125,6 +125,72 @@ try {
     check(what, dts.includes(text));
   }
 
+  // The names those declarations use are declared (#818). wasm-bindgen copies
+  // each `unchecked_return_type` / `unchecked_param_type` into the `.d.ts` as
+  // free text, so a typo there — `FullDetails` for `FullDetail` — ships a
+  // method typed against a name nothing declares, and every string check above
+  // still passes. `tsc --strict` over a consumer that imports the installed
+  // package checks the whole `.d.ts` (library checking stays on), which is the
+  // check a TypeScript consumer's own build would make. The compiler is the
+  // extension's, at the exact version its lockfile resolves, so this gate and
+  // the extension's own type-checking cannot drift apart.
+  const lock = JSON.parse(readFileSync(join(repoRoot, 'extension', 'package-lock.json'), 'utf8'));
+  const tscVersion = lock.packages['node_modules/typescript'].version;
+  // `--ignore-scripts`: the compiler needs none, and release.yml runs this in
+  // the job that holds publish rights.
+  execFileSync('npm', ['install', '--no-audit', '--no-fund', '--ignore-scripts', `typescript@${tscVersion}`], {
+    cwd: project,
+    stdio: 'pipe',
+  });
+  writeFileSync(
+    join(project, 'consumer.ts'),
+    [
+      "import init, { open, type FullDetail, type MessageInfo, type MessageProbe } from '@fieldglass/wasm';",
+      '',
+      '// Typed against the published names, so a method whose declared return',
+      '// type names nothing fails here rather than in a consumer.',
+      'export async function use(',
+      '  bytes: Uint8Array,',
+      '): Promise<[MessageInfo, MessageProbe | null, FullDetail | null]> {',
+      '  await init();',
+      '  const handle = open(bytes);',
+      '  return [handle.message(0), handle.probeMessage(0, 45.5, 120), handle.fullDetail(0, 45.5, 120)];',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  let tscOutput = '';
+  try {
+    execFileSync(
+      join(project, 'node_modules', '.bin', 'tsc'),
+      [
+        '--noEmit',
+        '--strict',
+        '--skipLibCheck',
+        'false',
+        '--module',
+        'nodenext',
+        '--moduleResolution',
+        'nodenext',
+        // `esnext`, not a dated target: wasm-bindgen declares each handle's
+        // `[Symbol.dispose]()`, which TypeScript types only from the
+        // `esnext.disposable` lib. A consumer on an older `lib` sees two
+        // errors in this file that are wasm-bindgen's, not this package's.
+        '--target',
+        'esnext',
+        'consumer.ts',
+      ],
+      { cwd: project, stdio: 'pipe' },
+    );
+  } catch (e) {
+    tscOutput = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim();
+  }
+  check(
+    `the published declarations type-check under tsc ${tscVersion} --strict`,
+    tscOutput === '',
+    `\n${tscOutput}`,
+  );
+
   await init({ module_or_path: await readFile(wasmPath) });
 
   // GRIB2, the message-addressed half.
