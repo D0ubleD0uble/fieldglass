@@ -136,7 +136,9 @@ try {
   // the extension's own type-checking cannot drift apart.
   const lock = JSON.parse(readFileSync(join(repoRoot, 'extension', 'package-lock.json'), 'utf8'));
   const tscVersion = lock.packages['node_modules/typescript'].version;
-  execFileSync('npm', ['install', '--no-audit', '--no-fund', `typescript@${tscVersion}`], {
+  // `--ignore-scripts`: the compiler needs none, and release.yml runs this in
+  // the job that holds publish rights.
+  execFileSync('npm', ['install', '--no-audit', '--no-fund', '--ignore-scripts', `typescript@${tscVersion}`], {
     cwd: project,
     stdio: 'pipe',
   });

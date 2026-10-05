@@ -54,13 +54,12 @@
 //! binding too, where before only direct host-to-host tests pinned them.
 //!
 //! `warp`, `palette`, `probe`, `probe_message`, `full_detail` and `contours`
-//! are **not**
-//! compared, and each for a reason that is a task rather than an oversight:
+//! are **not** compared, and each for a reason that is a task rather than an
+//! oversight:
 //!
 //! * `probe`, `probe_message` and `full_detail` — napi probes an output
-//!   *pixel*; the suite
-//!   probes a geographic point. Two different questions, not two answers to
-//!   one.
+//!   *pixel*; the suite probes a geographic point. Two different questions,
+//!   not two answers to one.
 //! * `warp`, `palette`, `contours`, `combine` — napi exposes no operation with
 //!   these shapes; its render does the warp inline, its contours come back as
 //!   projected polylines, and its combine paints in the same call, so there is
@@ -125,7 +124,8 @@ const SKIPPED: &[(Op, &str)] = &[
     ),
     (
         Op::FullDetail,
-        "napi probes a pixel, the suite probes a point; its full-detail value rides          on the pixel probe, pinned with `ProbeMessage`'s",
+        "napi probes a pixel, the suite probes a point; its full-detail value rides \
+         on the pixel probe, pinned with `ProbeMessage`'s",
     ),
     (
         Op::Contours,
