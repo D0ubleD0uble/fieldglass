@@ -333,7 +333,7 @@ const SUBJECTS: &[(&str, &str)] = &[
     // read the family off the geometry instead of off the message would match
     // every other subject here and fail only this one (#645).
     ("reduced_gaussian", "reduced_gaussian_pressure_level.grib2"),
-    // A projected family: `axisUnits` is metres and the affine is in the
+    // A projected family: `affine.units` is metres and the affine is in the
     // projection plane, not in degrees. Also `jScansPositively` — it and
     // `grib1_polar` are the two subjects whose render cases pin the row flip
     // `Session::render` composes (#573).

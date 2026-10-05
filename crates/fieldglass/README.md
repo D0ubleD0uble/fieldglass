@@ -47,8 +47,9 @@ projected ones. Its `units` says which, and it is the CRS that says what the
 degrees are degrees *of* — a rotated lat/lon grid reports degrees too, in its
 own rotated frame. A family that cannot state something says `None` rather than
 guessing — a Gaussian grid's rows are Gauss–Legendre nodes, so its `dy` is
-absent, and inventing a mean one would misplace every row but the middle. A grid with no
-plane, such as spectral coefficients, has no `affine` at all, and so no units.
+absent, and inventing a mean one would misplace every row but the middle. A
+grid with no plane, such as spectral coefficients, has no `affine` at all, and
+so no units.
 
 ## Colour is decided once, here
 
