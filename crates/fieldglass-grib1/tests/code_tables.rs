@@ -392,12 +392,10 @@ fn time_range_indicators_are_read_as_eccodes_defines_them() {
 fn a_surface_field_reads_as_the_surface() {
     // ECMWF table 128 parameter 167, 2 m temperature, at level type 1. Its own
     // `.eccodes.ref.json` records `indicatorOfTypeOfLevel` 1.
-    let bytes = std::fs::read(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/j_consecutive_latlon.grib1"
-    ))
-    .expect("fixture");
-    let reader = fieldglass_grib1::Grib1Reader::from_bytes(bytes).expect("reader");
+    // Embedded, not read from disk: the wasm32-wasip1 job runs this under
+    // wasmtime, which sees no absolute paths.
+    let bytes = include_bytes!("fixtures/j_consecutive_latlon.grib1");
+    let reader = fieldglass_grib1::Grib1Reader::from_bytes(bytes.to_vec()).expect("reader");
     let msg = reader.messages.first().expect("one message");
     assert_eq!(msg.pds.level_type, 1);
     assert_eq!(
