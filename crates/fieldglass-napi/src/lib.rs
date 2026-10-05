@@ -7913,8 +7913,8 @@ mod message_wire_tests {
         }
         let grid = info["grid"].as_object().expect("a declared grid");
         // A spherical-harmonic grid places no point, so it has no extent, no
-        // corners and no affine.
-        for key in ["boundsLonlat", "corners", "proj4", "x0", "y0", "dx", "dy"] {
+        // corners and no affine, and so no axis units either (#870).
+        for key in ["boundsLonlat", "corners", "proj4", "affine"] {
             assert_eq!(
                 grid.get(key),
                 Some(&serde_json::Value::Null),

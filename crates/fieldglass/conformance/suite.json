@@ -84,7 +84,13 @@
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             0.0,
             60.0,
@@ -97,8 +103,6 @@
             0.0,
             30.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 16,
@@ -112,9 +116,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "identification": {
           "dataType": "Missing",
@@ -173,7 +175,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             0.0,
             60.0,
@@ -186,8 +194,6 @@
             0.0,
             30.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 16,
@@ -201,9 +207,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -280,7 +284,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             0.0,
             60.0,
@@ -293,8 +303,6 @@
             0.0,
             30.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 16,
@@ -308,9 +316,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -387,7 +393,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             0.0,
             60.0,
@@ -400,8 +412,6 @@
             0.0,
             30.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 16,
@@ -415,9 +425,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -1388,7 +1396,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             0.0,
             60.0,
@@ -1401,8 +1415,6 @@
             0.0,
             30.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 16,
@@ -1416,9 +1428,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -1495,7 +1505,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             0.0,
             60.0,
@@ -1508,8 +1524,6 @@
             0.0,
             30.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 16,
@@ -1523,9 +1537,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -1602,7 +1614,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             0.0,
             60.0,
@@ -1615,8 +1633,6 @@
             0.0,
             30.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 16,
@@ -1630,9 +1646,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -1709,7 +1723,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             0.0,
             60.0,
@@ -1722,8 +1742,6 @@
             0.0,
             30.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 16,
@@ -1737,9 +1755,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -1816,7 +1832,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             0.0,
             60.0,
@@ -1829,8 +1851,6 @@
             0.0,
             30.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 16,
@@ -1844,9 +1864,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -1961,7 +1979,13 @@
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -1974,8 +1998,6 @@
             -87.863799,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "gaussian",
           "ni": 128,
@@ -1989,9 +2011,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "identification": {
           "dataType": "Analysis and forecast products",
@@ -2050,7 +2070,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -2063,8 +2089,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "gaussian",
           "ni": 128,
@@ -2078,9 +2102,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -2157,7 +2179,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -2170,8 +2198,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "gaussian",
           "ni": 128,
@@ -2185,9 +2211,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -2264,7 +2288,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -2277,8 +2307,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "gaussian",
           "ni": 128,
@@ -2292,9 +2320,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -3253,7 +3279,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -3266,8 +3298,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "gaussian",
           "ni": 128,
@@ -3281,9 +3311,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -3360,7 +3388,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -3373,8 +3407,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "gaussian",
           "ni": 128,
@@ -3388,9 +3420,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -3467,7 +3497,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -3480,8 +3516,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "gaussian",
           "ni": 128,
@@ -3495,9 +3529,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -3574,7 +3606,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -3587,8 +3625,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "gaussian",
           "ni": 128,
@@ -3602,9 +3638,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -3681,7 +3715,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -3694,8 +3734,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "gaussian",
           "ni": 128,
@@ -3709,9 +3747,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -3826,7 +3862,13 @@
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -3839,8 +3881,6 @@
             -87.863799,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "reduced_gaussian",
           "ni": 128,
@@ -3919,9 +3959,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "identification": {
           "dataType": "Missing",
@@ -3980,7 +4018,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -3993,8 +4037,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "reduced_gaussian",
           "ni": 128,
@@ -4073,9 +4115,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -4152,7 +4192,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -4165,8 +4211,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "reduced_gaussian",
           "ni": 128,
@@ -4245,9 +4289,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -4324,7 +4366,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -4337,8 +4385,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "reduced_gaussian",
           "ni": 128,
@@ -4417,9 +4463,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -5396,7 +5440,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -5409,8 +5459,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "reduced_gaussian",
           "ni": 128,
@@ -5489,9 +5537,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -5568,7 +5614,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -5581,8 +5633,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "reduced_gaussian",
           "ni": 128,
@@ -5661,9 +5711,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -5740,7 +5788,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -5753,8 +5807,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "reduced_gaussian",
           "ni": 128,
@@ -5833,9 +5885,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -5912,7 +5962,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -5925,8 +5981,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "reduced_gaussian",
           "ni": 128,
@@ -6005,9 +6059,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -6084,7 +6136,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.8125,
+            "dy": null,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 87.863799
+          },
           "boundsLonlat": [
             -87.863799,
             87.863799,
@@ -6097,8 +6155,6 @@
             -87.86379883923263,
             357.1875
           ],
-          "dx": 2.8125,
-          "dy": null,
           "kind": "gaussian",
           "label": "reduced_gaussian",
           "ni": 128,
@@ -6177,9 +6233,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 87.863799
+          }
         },
         "len": 8192,
         "maskLen": 8192,
@@ -6294,7 +6348,13 @@
         "forecast": "+24h",
         "forecastHours": 24,
         "grid": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 81271.0,
+            "dy": 81271.0,
+            "units": "metres",
+            "x0": -4226106.99691547,
+            "y0": -832698.2610175647
+          },
           "boundsLonlat": [
             12.190000000000017,
             61.279829031543585,
@@ -6307,8 +6367,6 @@
             57.28940394945336,
             -49.38509724968685
           ],
-          "dx": 81271.0,
-          "dy": 81271.0,
           "kind": "lambert",
           "label": "lambert",
           "ni": 93,
@@ -6322,9 +6380,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -4226106.99691547,
-          "y0": -832698.2610175647
+          }
         },
         "identification": {
           "dataType": "Forecast products",
@@ -6383,7 +6439,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 81271.0,
+            "dy": 81271.0,
+            "units": "metres",
+            "x0": -4226106.99691547,
+            "y0": -832698.2610175647
+          },
           "boundsLonlat": [
             12.190000000000017,
             61.279829031543585,
@@ -6396,8 +6458,6 @@
             57.28940394945336,
             310.61490275031315
           ],
-          "dx": 81271.0,
-          "dy": 81271.0,
           "kind": "lambert",
           "label": "lambert",
           "ni": 93,
@@ -6411,9 +6471,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -4226106.99691547,
-          "y0": -832698.2610175647
+          }
         },
         "len": 6045,
         "maskLen": 6045,
@@ -6490,7 +6548,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 81271.0,
+            "dy": 81271.0,
+            "units": "metres",
+            "x0": -4226106.99691547,
+            "y0": -832698.2610175647
+          },
           "boundsLonlat": [
             12.190000000000017,
             61.279829031543585,
@@ -6503,8 +6567,6 @@
             57.28940394945336,
             310.61490275031315
           ],
-          "dx": 81271.0,
-          "dy": 81271.0,
           "kind": "lambert",
           "label": "lambert",
           "ni": 93,
@@ -6518,9 +6580,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -4226106.99691547,
-          "y0": -832698.2610175647
+          }
         },
         "len": 6045,
         "maskLen": 6045,
@@ -6597,7 +6657,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 81271.0,
+            "dy": 81271.0,
+            "units": "metres",
+            "x0": -4226106.99691547,
+            "y0": -832698.2610175647
+          },
           "boundsLonlat": [
             12.190000000000017,
             61.279829031543585,
@@ -6610,8 +6676,6 @@
             57.28940394945336,
             310.61490275031315
           ],
-          "dx": 81271.0,
-          "dy": 81271.0,
           "kind": "lambert",
           "label": "lambert",
           "ni": 93,
@@ -6625,9 +6689,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -4226106.99691547,
-          "y0": -832698.2610175647
+          }
         },
         "len": 6045,
         "maskLen": 6045,
@@ -7604,7 +7666,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 81271.0,
+            "dy": 81271.0,
+            "units": "metres",
+            "x0": -4226106.99691547,
+            "y0": -832698.2610175647
+          },
           "boundsLonlat": [
             12.190000000000017,
             61.279829031543585,
@@ -7617,8 +7685,6 @@
             57.28940394945336,
             310.61490275031315
           ],
-          "dx": 81271.0,
-          "dy": 81271.0,
           "kind": "lambert",
           "label": "lambert",
           "ni": 93,
@@ -7632,9 +7698,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -4226106.99691547,
-          "y0": -832698.2610175647
+          }
         },
         "len": 6045,
         "maskLen": 6045,
@@ -7711,7 +7775,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 81271.0,
+            "dy": 81271.0,
+            "units": "metres",
+            "x0": -4226106.99691547,
+            "y0": -832698.2610175647
+          },
           "boundsLonlat": [
             12.190000000000017,
             61.279829031543585,
@@ -7724,8 +7794,6 @@
             57.28940394945336,
             310.61490275031315
           ],
-          "dx": 81271.0,
-          "dy": 81271.0,
           "kind": "lambert",
           "label": "lambert",
           "ni": 93,
@@ -7739,9 +7807,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -4226106.99691547,
-          "y0": -832698.2610175647
+          }
         },
         "len": 6045,
         "maskLen": 6045,
@@ -7818,7 +7884,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 81271.0,
+            "dy": 81271.0,
+            "units": "metres",
+            "x0": -4226106.99691547,
+            "y0": -832698.2610175647
+          },
           "boundsLonlat": [
             12.190000000000017,
             61.279829031543585,
@@ -7831,8 +7903,6 @@
             57.28940394945336,
             310.61490275031315
           ],
-          "dx": 81271.0,
-          "dy": 81271.0,
           "kind": "lambert",
           "label": "lambert",
           "ni": 93,
@@ -7846,9 +7916,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -4226106.99691547,
-          "y0": -832698.2610175647
+          }
         },
         "len": 6045,
         "maskLen": 6045,
@@ -7925,7 +7993,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 81271.0,
+            "dy": 81271.0,
+            "units": "metres",
+            "x0": -4226106.99691547,
+            "y0": -832698.2610175647
+          },
           "boundsLonlat": [
             12.190000000000017,
             61.279829031543585,
@@ -7938,8 +8012,6 @@
             57.28940394945336,
             310.61490275031315
           ],
-          "dx": 81271.0,
-          "dy": 81271.0,
           "kind": "lambert",
           "label": "lambert",
           "ni": 93,
@@ -7953,9 +8025,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -4226106.99691547,
-          "y0": -832698.2610175647
+          }
         },
         "len": 6045,
         "maskLen": 6045,
@@ -8032,7 +8102,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 81271.0,
+            "dy": 81271.0,
+            "units": "metres",
+            "x0": -4226106.99691547,
+            "y0": -832698.2610175647
+          },
           "boundsLonlat": [
             12.190000000000017,
             61.279829031543585,
@@ -8045,8 +8121,6 @@
             57.28940394945336,
             310.61490275031315
           ],
-          "dx": 81271.0,
-          "dy": 81271.0,
           "kind": "lambert",
           "label": "lambert",
           "ni": 93,
@@ -8060,9 +8134,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -4226106.99691547,
-          "y0": -832698.2610175647
+          }
         },
         "len": 6045,
         "maskLen": 6045,
@@ -8177,7 +8249,13 @@
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 48000.0,
+            "dy": -48000.0,
+            "units": "metres",
+            "x0": -238000.0,
+            "y0": 1222000.0
+          },
           "boundsLonlat": [
             48.04996351439769,
             60.881363042045734,
@@ -8190,8 +8268,6 @@
             48.19878711803334,
             4.273157485185877
           ],
-          "dx": 48000.0,
-          "dy": -48000.0,
           "kind": "transverse_mercator",
           "label": "transverse_mercator",
           "ni": 24,
@@ -8205,9 +8281,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": -238000.0,
-          "y0": 1222000.0
+          }
         },
         "identification": {
           "dataType": "Analysis and forecast products",
@@ -8266,7 +8340,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 48000.0,
+            "dy": -48000.0,
+            "units": "metres",
+            "x0": -238000.0,
+            "y0": 1222000.0
+          },
           "boundsLonlat": [
             48.04996351439769,
             60.881363042045734,
@@ -8279,8 +8359,6 @@
             48.19878711803334,
             4.273157485185877
           ],
-          "dx": 48000.0,
-          "dy": -48000.0,
           "kind": "transverse_mercator",
           "label": "transverse_mercator",
           "ni": 24,
@@ -8294,9 +8372,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": -238000.0,
-          "y0": 1222000.0
+          }
         },
         "len": 720,
         "maskLen": 720,
@@ -8373,7 +8449,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 48000.0,
+            "dy": -48000.0,
+            "units": "metres",
+            "x0": -238000.0,
+            "y0": 1222000.0
+          },
           "boundsLonlat": [
             48.04996351439769,
             60.881363042045734,
@@ -8386,8 +8468,6 @@
             48.19878711803334,
             4.273157485185877
           ],
-          "dx": 48000.0,
-          "dy": -48000.0,
           "kind": "transverse_mercator",
           "label": "transverse_mercator",
           "ni": 24,
@@ -8401,9 +8481,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": -238000.0,
-          "y0": 1222000.0
+          }
         },
         "len": 720,
         "maskLen": 720,
@@ -8480,7 +8558,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 48000.0,
+            "dy": -48000.0,
+            "units": "metres",
+            "x0": -238000.0,
+            "y0": 1222000.0
+          },
           "boundsLonlat": [
             48.04996351439769,
             60.881363042045734,
@@ -8493,8 +8577,6 @@
             48.19878711803334,
             4.273157485185877
           ],
-          "dx": 48000.0,
-          "dy": -48000.0,
           "kind": "transverse_mercator",
           "label": "transverse_mercator",
           "ni": 24,
@@ -8508,9 +8590,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": -238000.0,
-          "y0": 1222000.0
+          }
         },
         "len": 720,
         "maskLen": 720,
@@ -9479,7 +9559,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 48000.0,
+            "dy": -48000.0,
+            "units": "metres",
+            "x0": -238000.0,
+            "y0": 1222000.0
+          },
           "boundsLonlat": [
             48.04996351439769,
             60.881363042045734,
@@ -9492,8 +9578,6 @@
             48.19878711803334,
             4.273157485185877
           ],
-          "dx": 48000.0,
-          "dy": -48000.0,
           "kind": "transverse_mercator",
           "label": "transverse_mercator",
           "ni": 24,
@@ -9507,9 +9591,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": -238000.0,
-          "y0": 1222000.0
+          }
         },
         "len": 720,
         "maskLen": 720,
@@ -9586,7 +9668,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 48000.0,
+            "dy": -48000.0,
+            "units": "metres",
+            "x0": -238000.0,
+            "y0": 1222000.0
+          },
           "boundsLonlat": [
             48.04996351439769,
             60.881363042045734,
@@ -9599,8 +9687,6 @@
             48.19878711803334,
             4.273157485185877
           ],
-          "dx": 48000.0,
-          "dy": -48000.0,
           "kind": "transverse_mercator",
           "label": "transverse_mercator",
           "ni": 24,
@@ -9614,9 +9700,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": -238000.0,
-          "y0": 1222000.0
+          }
         },
         "len": 720,
         "maskLen": 720,
@@ -9693,7 +9777,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 48000.0,
+            "dy": -48000.0,
+            "units": "metres",
+            "x0": -238000.0,
+            "y0": 1222000.0
+          },
           "boundsLonlat": [
             48.04996351439769,
             60.881363042045734,
@@ -9706,8 +9796,6 @@
             48.19878711803334,
             4.273157485185877
           ],
-          "dx": 48000.0,
-          "dy": -48000.0,
           "kind": "transverse_mercator",
           "label": "transverse_mercator",
           "ni": 24,
@@ -9721,9 +9809,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": -238000.0,
-          "y0": 1222000.0
+          }
         },
         "len": 720,
         "maskLen": 720,
@@ -9800,7 +9886,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 48000.0,
+            "dy": -48000.0,
+            "units": "metres",
+            "x0": -238000.0,
+            "y0": 1222000.0
+          },
           "boundsLonlat": [
             48.04996351439769,
             60.881363042045734,
@@ -9813,8 +9905,6 @@
             48.19878711803334,
             4.273157485185877
           ],
-          "dx": 48000.0,
-          "dy": -48000.0,
           "kind": "transverse_mercator",
           "label": "transverse_mercator",
           "ni": 24,
@@ -9828,9 +9918,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": -238000.0,
-          "y0": 1222000.0
+          }
         },
         "len": 720,
         "maskLen": 720,
@@ -9907,7 +9995,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 48000.0,
+            "dy": -48000.0,
+            "units": "metres",
+            "x0": -238000.0,
+            "y0": 1222000.0
+          },
           "boundsLonlat": [
             48.04996351439769,
             60.881363042045734,
@@ -9920,8 +10014,6 @@
             48.19878711803334,
             4.273157485185877
           ],
-          "dx": 48000.0,
-          "dy": -48000.0,
           "kind": "transverse_mercator",
           "label": "transverse_mercator",
           "ni": 24,
@@ -9935,9 +10027,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": -238000.0,
-          "y0": 1222000.0
+          }
         },
         "len": 720,
         "maskLen": 720,
@@ -10052,7 +10142,13 @@
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             25.658906273255294,
             90.0,
@@ -10065,8 +10161,6 @@
             0.0,
             30.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
@@ -10080,9 +10174,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "identification": {
           "dataType": "Analysis and forecast products",
@@ -10141,7 +10233,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             25.658906273255294,
             90.0,
@@ -10154,8 +10252,6 @@
             60.00000000000001,
             90.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
@@ -10169,9 +10265,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -10248,7 +10342,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             25.658906273255294,
             90.0,
@@ -10261,8 +10361,6 @@
             60.00000000000001,
             90.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
@@ -10276,9 +10374,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -10355,7 +10451,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             25.658906273255294,
             90.0,
@@ -10368,8 +10470,6 @@
             60.00000000000001,
             90.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
@@ -10383,9 +10483,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -11332,7 +11430,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             25.658906273255294,
             90.0,
@@ -11345,8 +11449,6 @@
             60.00000000000001,
             90.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
@@ -11360,9 +11462,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -11439,7 +11539,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             25.658906273255294,
             90.0,
@@ -11452,8 +11558,6 @@
             60.00000000000001,
             90.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
@@ -11467,9 +11571,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -11546,7 +11648,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             25.658906273255294,
             90.0,
@@ -11559,8 +11667,6 @@
             60.00000000000001,
             90.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
@@ -11574,9 +11680,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -11653,7 +11757,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             25.658906273255294,
             90.0,
@@ -11666,8 +11776,6 @@
             60.00000000000001,
             90.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
@@ -11681,9 +11789,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -11760,7 +11866,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             25.658906273255294,
             90.0,
@@ -11773,8 +11885,6 @@
             60.00000000000001,
             90.0
           ],
-          "dx": 2.0,
-          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
@@ -11788,9 +11898,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -11905,7 +12013,7 @@
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": [
             60.0,
@@ -11913,8 +12021,6 @@
             59.99999999999999,
             0.0
           ],
-          "dx": null,
-          "dy": null,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 16,
@@ -11928,9 +12034,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "identification": {
           "dataType": "Analysis products",
@@ -11989,11 +12093,9 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 16,
@@ -12007,9 +12109,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -12086,11 +12186,9 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 16,
@@ -12104,9 +12202,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -12183,11 +12279,9 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 16,
@@ -12201,9 +12295,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -13051,11 +13143,9 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 16,
@@ -13069,9 +13159,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -13148,11 +13236,9 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 16,
@@ -13166,9 +13252,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -13245,11 +13329,9 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 16,
@@ -13263,9 +13345,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -13342,11 +13422,9 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 16,
@@ -13360,9 +13438,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -13439,11 +13515,9 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 16,
@@ -13457,9 +13531,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "len": 496,
         "maskLen": 496,
@@ -13574,11 +13646,9 @@
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "unsupported",
           "label": "spherical_harmonic",
           "ni": null,
@@ -13592,9 +13662,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "identification": {
           "dataType": "Missing",
@@ -13653,7 +13721,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 0.5,
+            "dy": -0.5,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -13666,8 +13740,6 @@
             -90.0,
             359.5
           ],
-          "dx": 0.5,
-          "dy": -0.5,
           "kind": "latlon",
           "label": "latlon",
           "ni": 720,
@@ -13681,9 +13753,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 259920,
         "maskLen": 259920,
@@ -13760,7 +13830,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 0.5,
+            "dy": -0.5,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -13773,8 +13849,6 @@
             -90.0,
             359.5
           ],
-          "dx": 0.5,
-          "dy": -0.5,
           "kind": "latlon",
           "label": "latlon",
           "ni": 720,
@@ -13788,9 +13862,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 259920,
         "maskLen": 259920,
@@ -13867,7 +13939,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 0.5,
+            "dy": -0.5,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -13880,8 +13958,6 @@
             -90.0,
             359.5
           ],
-          "dx": 0.5,
-          "dy": -0.5,
           "kind": "latlon",
           "label": "latlon",
           "ni": 720,
@@ -13895,9 +13971,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 259920,
         "maskLen": 259920,
@@ -14886,7 +14960,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 0.5,
+            "dy": -0.5,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -14899,8 +14979,6 @@
             -90.0,
             359.5
           ],
-          "dx": 0.5,
-          "dy": -0.5,
           "kind": "latlon",
           "label": "latlon",
           "ni": 720,
@@ -14914,9 +14992,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 259920,
         "maskLen": 259920,
@@ -14993,7 +15069,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 0.5,
+            "dy": -0.5,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -15006,8 +15088,6 @@
             -90.0,
             359.5
           ],
-          "dx": 0.5,
-          "dy": -0.5,
           "kind": "latlon",
           "label": "latlon",
           "ni": 720,
@@ -15021,9 +15101,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 259920,
         "maskLen": 259920,
@@ -15100,7 +15178,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 0.5,
+            "dy": -0.5,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -15113,8 +15197,6 @@
             -90.0,
             359.5
           ],
-          "dx": 0.5,
-          "dy": -0.5,
           "kind": "latlon",
           "label": "latlon",
           "ni": 720,
@@ -15128,9 +15210,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 259920,
         "maskLen": 259920,
@@ -15207,7 +15287,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 0.5,
+            "dy": -0.5,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -15220,8 +15306,6 @@
             -90.0,
             359.5
           ],
-          "dx": 0.5,
-          "dy": -0.5,
           "kind": "latlon",
           "label": "latlon",
           "ni": 720,
@@ -15235,9 +15319,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 259920,
         "maskLen": 259920,
@@ -15314,7 +15396,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 0.5,
+            "dy": -0.5,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -15327,8 +15415,6 @@
             -90.0,
             359.5
           ],
-          "dx": 0.5,
-          "dy": -0.5,
           "kind": "latlon",
           "label": "latlon",
           "ni": 720,
@@ -15342,9 +15428,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 259920,
         "maskLen": 259920,
@@ -15459,11 +15543,9 @@
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "unsupported",
           "label": "healpix",
           "ni": null,
@@ -15477,9 +15559,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "identification": {
           "dataType": "Analysis and forecast products",
@@ -15538,7 +15618,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 13.846153846153845,
+            "dy": -13.846153846153847,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -15551,8 +15637,6 @@
             -90.0,
             346.15384615384613
           ],
-          "dx": 13.846153846153845,
-          "dy": -13.846153846153847,
           "kind": "latlon",
           "label": "latlon",
           "ni": 26,
@@ -15566,9 +15650,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 364,
         "maskLen": 364,
@@ -15645,7 +15727,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 13.846153846153845,
+            "dy": -13.846153846153847,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -15658,8 +15746,6 @@
             -90.0,
             346.15384615384613
           ],
-          "dx": 13.846153846153845,
-          "dy": -13.846153846153847,
           "kind": "latlon",
           "label": "latlon",
           "ni": 26,
@@ -15673,9 +15759,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 364,
         "maskLen": 364,
@@ -15752,7 +15836,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 13.846153846153845,
+            "dy": -13.846153846153847,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -15765,8 +15855,6 @@
             -90.0,
             346.15384615384613
           ],
-          "dx": 13.846153846153845,
-          "dy": -13.846153846153847,
           "kind": "latlon",
           "label": "latlon",
           "ni": 26,
@@ -15780,9 +15868,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 364,
         "maskLen": 364,
@@ -16773,7 +16859,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 13.846153846153845,
+            "dy": -13.846153846153847,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -16786,8 +16878,6 @@
             -90.0,
             346.15384615384613
           ],
-          "dx": 13.846153846153845,
-          "dy": -13.846153846153847,
           "kind": "latlon",
           "label": "latlon",
           "ni": 26,
@@ -16801,9 +16891,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 364,
         "maskLen": 364,
@@ -16880,7 +16968,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 13.846153846153845,
+            "dy": -13.846153846153847,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -16893,8 +16987,6 @@
             -90.0,
             346.15384615384613
           ],
-          "dx": 13.846153846153845,
-          "dy": -13.846153846153847,
           "kind": "latlon",
           "label": "latlon",
           "ni": 26,
@@ -16908,9 +17000,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 364,
         "maskLen": 364,
@@ -16987,7 +17077,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 13.846153846153845,
+            "dy": -13.846153846153847,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -17000,8 +17096,6 @@
             -90.0,
             346.15384615384613
           ],
-          "dx": 13.846153846153845,
-          "dy": -13.846153846153847,
           "kind": "latlon",
           "label": "latlon",
           "ni": 26,
@@ -17015,9 +17109,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 364,
         "maskLen": 364,
@@ -17094,7 +17186,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 13.846153846153845,
+            "dy": -13.846153846153847,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -17107,8 +17205,6 @@
             -90.0,
             346.15384615384613
           ],
-          "dx": 13.846153846153845,
-          "dy": -13.846153846153847,
           "kind": "latlon",
           "label": "latlon",
           "ni": 26,
@@ -17122,9 +17218,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 364,
         "maskLen": 364,
@@ -17201,7 +17295,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 13.846153846153845,
+            "dy": -13.846153846153847,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -17214,8 +17314,6 @@
             -90.0,
             346.15384615384613
           ],
-          "dx": 13.846153846153845,
-          "dy": -13.846153846153847,
           "kind": "latlon",
           "label": "latlon",
           "ni": 26,
@@ -17229,9 +17327,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 364,
         "maskLen": 364,
@@ -17346,7 +17442,13 @@
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 5.0,
+            "dy": -5.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             40.0,
             60.0,
@@ -17359,8 +17461,6 @@
             40.0,
             35.0
           ],
-          "dx": 5.0,
-          "dy": -5.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 8,
@@ -17374,9 +17474,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "identification": {
           "edition": "grib1",
@@ -17433,7 +17531,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 5.0,
+            "dy": -5.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             40.0,
             60.0,
@@ -17446,8 +17550,6 @@
             40.0,
             35.0
           ],
-          "dx": 5.0,
-          "dy": -5.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 8,
@@ -17461,9 +17563,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 40,
         "maskLen": 40,
@@ -17540,7 +17640,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 5.0,
+            "dy": -5.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             40.0,
             60.0,
@@ -17553,8 +17659,6 @@
             40.0,
             35.0
           ],
-          "dx": 5.0,
-          "dy": -5.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 8,
@@ -17568,9 +17672,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 40,
         "maskLen": 40,
@@ -17647,7 +17749,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 5.0,
+            "dy": -5.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             40.0,
             60.0,
@@ -17660,8 +17768,6 @@
             40.0,
             35.0
           ],
-          "dx": 5.0,
-          "dy": -5.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 8,
@@ -17675,9 +17781,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 40,
         "maskLen": 40,
@@ -18644,7 +18748,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 5.0,
+            "dy": -5.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             40.0,
             60.0,
@@ -18657,8 +18767,6 @@
             40.0,
             35.0
           ],
-          "dx": 5.0,
-          "dy": -5.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 8,
@@ -18672,9 +18780,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 40,
         "maskLen": 40,
@@ -18751,7 +18857,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 5.0,
+            "dy": -5.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             40.0,
             60.0,
@@ -18764,8 +18876,6 @@
             40.0,
             35.0
           ],
-          "dx": 5.0,
-          "dy": -5.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 8,
@@ -18779,9 +18889,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 40,
         "maskLen": 40,
@@ -18858,7 +18966,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 5.0,
+            "dy": -5.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             40.0,
             60.0,
@@ -18871,8 +18985,6 @@
             40.0,
             35.0
           ],
-          "dx": 5.0,
-          "dy": -5.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 8,
@@ -18886,9 +18998,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 40,
         "maskLen": 40,
@@ -18965,7 +19075,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 5.0,
+            "dy": -5.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             40.0,
             60.0,
@@ -18978,8 +19094,6 @@
             40.0,
             35.0
           ],
-          "dx": 5.0,
-          "dy": -5.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 8,
@@ -18993,9 +19107,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 40,
         "maskLen": 40,
@@ -19072,7 +19184,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 5.0,
+            "dy": -5.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
           "boundsLonlat": [
             40.0,
             60.0,
@@ -19085,8 +19203,6 @@
             40.0,
             35.0
           ],
-          "dx": 5.0,
-          "dy": -5.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 8,
@@ -19100,9 +19216,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 60.0
+          }
         },
         "len": 40,
         "maskLen": 40,
@@ -19217,7 +19331,13 @@
         "forecast": "+12h",
         "forecastHours": 12,
         "grid": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 60000.0,
+            "dy": 60000.0,
+            "units": "metres",
+            "x0": -2974382.2815761063,
+            "y0": -6614286.574716486
+          },
           "boundsLonlat": [
             19.925909679472877,
             80.62451028740276,
@@ -19230,8 +19350,6 @@
             43.06424804074924,
             -31.886937598141174
           ],
-          "dx": 60000.0,
-          "dy": 60000.0,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 135,
@@ -19245,9 +19363,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -2974382.2815761063,
-          "y0": -6614286.574716486
+          }
         },
         "identification": {
           "edition": "grib1",
@@ -19304,7 +19420,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 60000.0,
+            "dy": 60000.0,
+            "units": "metres",
+            "x0": -2974382.2815761063,
+            "y0": -6614286.574716486
+          },
           "boundsLonlat": [
             19.925909679472877,
             80.62451028740276,
@@ -19317,8 +19439,6 @@
             43.06424804074924,
             328.1130624018588
           ],
-          "dx": 60000.0,
-          "dy": 60000.0,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 135,
@@ -19332,9 +19452,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -2974382.2815761063,
-          "y0": -6614286.574716486
+          }
         },
         "len": 12825,
         "maskLen": 12825,
@@ -19411,7 +19529,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 60000.0,
+            "dy": 60000.0,
+            "units": "metres",
+            "x0": -2974382.2815761063,
+            "y0": -6614286.574716486
+          },
           "boundsLonlat": [
             19.925909679472877,
             80.62451028740276,
@@ -19424,8 +19548,6 @@
             43.06424804074924,
             328.1130624018588
           ],
-          "dx": 60000.0,
-          "dy": 60000.0,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 135,
@@ -19439,9 +19561,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -2974382.2815761063,
-          "y0": -6614286.574716486
+          }
         },
         "len": 12825,
         "maskLen": 12825,
@@ -19518,7 +19638,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 60000.0,
+            "dy": 60000.0,
+            "units": "metres",
+            "x0": -2974382.2815761063,
+            "y0": -6614286.574716486
+          },
           "boundsLonlat": [
             19.925909679472877,
             80.62451028740276,
@@ -19531,8 +19657,6 @@
             43.06424804074924,
             328.1130624018588
           ],
-          "dx": 60000.0,
-          "dy": 60000.0,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 135,
@@ -19546,9 +19670,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -2974382.2815761063,
-          "y0": -6614286.574716486
+          }
         },
         "len": 12825,
         "maskLen": 12825,
@@ -20517,7 +20639,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 60000.0,
+            "dy": 60000.0,
+            "units": "metres",
+            "x0": -2974382.2815761063,
+            "y0": -6614286.574716486
+          },
           "boundsLonlat": [
             19.925909679472877,
             80.62451028740276,
@@ -20530,8 +20658,6 @@
             43.06424804074924,
             328.1130624018588
           ],
-          "dx": 60000.0,
-          "dy": 60000.0,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 135,
@@ -20545,9 +20671,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -2974382.2815761063,
-          "y0": -6614286.574716486
+          }
         },
         "len": 12825,
         "maskLen": 12825,
@@ -20624,7 +20748,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 60000.0,
+            "dy": 60000.0,
+            "units": "metres",
+            "x0": -2974382.2815761063,
+            "y0": -6614286.574716486
+          },
           "boundsLonlat": [
             19.925909679472877,
             80.62451028740276,
@@ -20637,8 +20767,6 @@
             43.06424804074924,
             328.1130624018588
           ],
-          "dx": 60000.0,
-          "dy": 60000.0,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 135,
@@ -20652,9 +20780,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -2974382.2815761063,
-          "y0": -6614286.574716486
+          }
         },
         "len": 12825,
         "maskLen": 12825,
@@ -20731,7 +20857,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 60000.0,
+            "dy": 60000.0,
+            "units": "metres",
+            "x0": -2974382.2815761063,
+            "y0": -6614286.574716486
+          },
           "boundsLonlat": [
             19.925909679472877,
             80.62451028740276,
@@ -20744,8 +20876,6 @@
             43.06424804074924,
             328.1130624018588
           ],
-          "dx": 60000.0,
-          "dy": 60000.0,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 135,
@@ -20759,9 +20889,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -2974382.2815761063,
-          "y0": -6614286.574716486
+          }
         },
         "len": 12825,
         "maskLen": 12825,
@@ -20838,7 +20966,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 60000.0,
+            "dy": 60000.0,
+            "units": "metres",
+            "x0": -2974382.2815761063,
+            "y0": -6614286.574716486
+          },
           "boundsLonlat": [
             19.925909679472877,
             80.62451028740276,
@@ -20851,8 +20985,6 @@
             43.06424804074924,
             328.1130624018588
           ],
-          "dx": 60000.0,
-          "dy": 60000.0,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 135,
@@ -20866,9 +20998,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -2974382.2815761063,
-          "y0": -6614286.574716486
+          }
         },
         "len": 12825,
         "maskLen": 12825,
@@ -20945,7 +21075,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "metres",
+          "affine": {
+            "dx": 60000.0,
+            "dy": 60000.0,
+            "units": "metres",
+            "x0": -2974382.2815761063,
+            "y0": -6614286.574716486
+          },
           "boundsLonlat": [
             19.925909679472877,
             80.62451028740276,
@@ -20958,8 +21094,6 @@
             43.06424804074924,
             328.1130624018588
           ],
-          "dx": 60000.0,
-          "dy": 60000.0,
           "kind": "polar_stereo",
           "label": "polar_stereo",
           "ni": 135,
@@ -20973,9 +21107,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": -2974382.2815761063,
-          "y0": -6614286.574716486
+          }
         },
         "len": 12825,
         "maskLen": 12825,
@@ -21229,7 +21361,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": 2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": -88.0
+          },
           "boundsLonlat": [
             -88.0,
             88.0,
@@ -21242,8 +21380,6 @@
             88.0,
             358.0
           ],
-          "dx": 2.0,
-          "dy": 2.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 180,
@@ -21257,9 +21393,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": 0.0,
-          "y0": -88.0
+          }
         },
         "len": 16020,
         "maskLen": 16020,
@@ -21574,7 +21708,13 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 2.0,
+            "dy": 2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": -88.0
+          },
           "boundsLonlat": [
             -88.0,
             88.0,
@@ -21587,8 +21727,6 @@
             88.0,
             358.0
           ],
-          "dx": 2.0,
-          "dy": 2.0,
           "kind": "latlon",
           "label": "latlon",
           "ni": 180,
@@ -21602,9 +21740,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": 0.0,
-          "y0": -88.0
+          }
         },
         "len": 16020,
         "maskLen": 16020,
@@ -22091,7 +22227,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 0.25,
+            "dy": 0.25,
+            "units": "degrees",
+            "x0": 278.125,
+            "y0": 58.125
+          },
           "boundsLonlat": [
             58.125,
             65.875,
@@ -22104,8 +22246,6 @@
             65.875,
             285.875
           ],
-          "dx": 0.25,
-          "dy": 0.25,
           "kind": "latlon",
           "label": "latlon",
           "ni": 32,
@@ -22119,9 +22259,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": 278.125,
-          "y0": 58.125
+          }
         },
         "len": 1024,
         "maskLen": 1024,
@@ -22322,7 +22460,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 0.25,
+            "dy": 0.25,
+            "units": "degrees",
+            "x0": 278.125,
+            "y0": 58.125
+          },
           "boundsLonlat": [
             58.125,
             65.875,
@@ -22335,8 +22479,6 @@
             65.875,
             285.875
           ],
-          "dx": 0.25,
-          "dy": 0.25,
           "kind": "latlon",
           "label": "latlon",
           "ni": 32,
@@ -22350,9 +22492,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
-          },
-          "x0": 278.125,
-          "y0": 58.125
+          }
         },
         "len": 1024,
         "maskLen": 1024,
@@ -22550,11 +22690,9 @@
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "unsupported",
           "label": "spherical_harmonic",
           "ni": null,
@@ -22568,9 +22706,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "identification": {
           "dataType": "Missing",
@@ -22632,7 +22768,13 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": {
+            "dx": 0.5,
+            "dy": -0.5,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 90.0
+          },
           "boundsLonlat": [
             -90.0,
             90.0,
@@ -22645,8 +22787,6 @@
             -90.0,
             359.5
           ],
-          "dx": 0.5,
-          "dy": -0.5,
           "kind": "latlon",
           "label": "latlon",
           "ni": 720,
@@ -22660,9 +22800,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": 0.0,
-          "y0": 90.0
+          }
         },
         "len": 259920,
         "maskLen": 259920,
@@ -25729,11 +25867,9 @@
       "expect": {
         "dtype": "f32",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": null,
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "unsupported",
           "label": "source",
           "ni": 10,
@@ -25747,9 +25883,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "len": 100,
         "maskLen": 100,
@@ -25829,7 +25963,7 @@
       "expect": {
         "dtype": "f64",
         "georef": {
-          "axisUnits": "degrees",
+          "affine": null,
           "boundsLonlat": [
             -89.93000030517352,
             -66.58000183105469,
@@ -25837,8 +25971,6 @@
             322.9799995422363
           ],
           "corners": null,
-          "dx": null,
-          "dy": null,
           "kind": "lookup",
           "label": "curvilinear",
           "ni": 96,
@@ -25852,9 +25984,7 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
-          },
-          "x0": null,
-          "y0": null
+          }
         },
         "len": 9600,
         "maskLen": 9600,

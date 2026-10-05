@@ -267,7 +267,7 @@ classDiagram
         +String kind
         +bounds_lonlat
         +Option~String~ proj4
-        +x0, y0, dx, dy
+        +Option~Affine~ affine x0, y0, dx, dy, units
         +bool periodic_x from GridGeometry#58;#58;is_periodic_x
         +Scan scan core type, #571
     }

@@ -540,7 +540,7 @@ impl WasmField {
     }
 
     /// Where the field sits on the Earth: `kind`, `boundsLonlat`, `proj4`,
-    /// `x0`, `y0`, `dx`, `dy`, `periodicX`, `scan`.
+    /// `affine`, `periodicX`, `scan`.
     #[wasm_bindgen(unchecked_return_type = "Georef")]
     pub fn grid(&self) -> Result<JsValue, JsValue> {
         to_js(&self.field.georef)

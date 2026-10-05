@@ -218,12 +218,12 @@ api_type! {
         F64,
     }
 
-    /// Units the [`Georef`] origin and spacing are expressed in.
+    /// Units an [`Affine`] origin and spacing are expressed in.
     #[serde(rename_all = "snake_case")]
     pub enum AxisUnits {
         /// Degrees **in the plane [`Georef::proj4`] names**, which for
-        /// `latlon`, `gaussian` and `lookup` is geographic — `x0`/`dx` are
-        /// longitudes, `y0`/`dy` latitudes.
+        /// `latlon` and `gaussian` is geographic — `x0`/`dx` are longitudes,
+        /// `y0`/`dy` latitudes.
         ///
         /// `rotated_latlon` also reports degrees, and they are **not**
         /// geographic: its CRS is a PROJ `ob_tran` and its corners are
@@ -304,14 +304,41 @@ api_type! {
         PredefinedUnresolved,
     }
 
+    /// Where a grid's raster sits in the plane [`Georef::proj4`] names: the
+    /// first scanned point's cell centre, the step from it along each axis,
+    /// and the units all four are measured in.
+    ///
+    /// One object rather than five sibling fields so that they cannot disagree
+    /// (#870). A grid with no plane has no affine at all, and so no units; it
+    /// does not report "degrees" beside a missing origin.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct Affine {
+        /// Plane coordinate of the first grid point's cell centre, along the
+        /// column axis.
+        pub x0: f64,
+        /// Plane coordinate of the first grid point's cell centre, along the
+        /// row axis.
+        pub y0: f64,
+        /// Signed step between columns. `None` for an axis with no constant
+        /// step, such as a single column.
+        pub dx: Option<f64>,
+        /// Signed step between rows. Negative for the usual north-to-south
+        /// scan, so `y0 + j * dy` walks the rows as stored. `None` for a
+        /// Gaussian grid, whose rows are not uniformly spaced: inventing a mean
+        /// step would misplace every row but the middle.
+        pub dy: Option<f64>,
+        /// What `x0` / `y0` / `dx` / `dy` are measured in.
+        pub units: AxisUnits,
+    }
+
     /// Where a decoded field sits on the Earth, flattened to scalars.
     ///
     /// A browser map library needs two things and this carries both: a CRS it
-    /// can name ([`proj4`](Self::proj4)) and an affine placing the raster in
-    /// that CRS (`x0`, `y0`, `dx`, `dy`). Everything is `Option` because a
-    /// family that cannot state it says so rather than guessing — a Gaussian
-    /// grid's rows are not uniformly spaced, so its `dy` is absent, and a grid
-    /// this build does not model has none of it.
+    /// can name ([`proj4`](Self::proj4)) and an [`affine`](Self::affine)
+    /// placing the raster in that CRS. Everything is `Option` because a family
+    /// that cannot state it says so rather than guessing, and a grid this build
+    /// does not model has none of it.
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Georef {
@@ -421,19 +448,11 @@ api_type! {
         /// A PROJ string for the grid's own plane, for a map library that
         /// takes one. `None` for a family this build does not name a CRS for.
         pub proj4: Option<String>,
-        /// What `x0` / `y0` / `dx` / `dy` are measured in.
-        pub axis_units: AxisUnits,
-        /// Plane coordinate of the first grid point's cell centre, along the
-        /// column axis. `None` when the family has no affine.
-        pub x0: Option<f64>,
-        /// Plane coordinate of the first grid point's cell centre, along the
-        /// row axis.
-        pub y0: Option<f64>,
-        /// Signed step between columns, in [`Georef::axis_units`].
-        pub dx: Option<f64>,
-        /// Signed step between rows. Negative for the usual north-to-south
-        /// scan, so `y0 + j * dy` walks the rows as stored.
-        pub dy: Option<f64>,
+        /// Where the raster sits in the [`proj4`](Self::proj4) plane. `None`
+        /// for a family with no plane — a list of cell centres, spectral
+        /// coefficients, HEALPix, a template this build does not model — and
+        /// for a grid whose plane states no extent to place it in.
+        pub affine: Option<Affine>,
         /// The grid closes on itself in the column axis: one column step past
         /// the last column lands back on the first. A renderer wraps rather
         /// than clamping there, or the seam meridian draws as a hole.
@@ -1242,16 +1261,19 @@ impl Georef {
             .map_or((None, None), |(i, j)| (Some(i), Some(j)));
         // One question, asked of `core`: a family that has a plane reports its
         // origin and step in that plane's own units, and one that has none (a
-        // list of cell centres, an unmodelled grid) reports nothing rather
-        // than a plausible-looking zero. A rotated lat/lon grid has a plane —
+        // list of cell centres, an unmodelled grid) reports nothing, units
+        // included, rather than a plausible-looking zero (#870). A rotated lat/lon grid has a plane —
         // its own rotated frame, measured in degrees — so it reports one.
-        let affine = geom.plane_affine();
-        let axis_units = match affine.map(|a| a.units) {
-            Some(PlaneUnits::Metres) => AxisUnits::Metres,
-            Some(PlaneUnits::Degrees) | None => AxisUnits::Degrees,
-        };
-        let (x0, y0) = (affine.map(|a| a.x0), affine.map(|a| a.y0));
-        let (dx, dy) = (affine.and_then(|a| a.dx), affine.and_then(|a| a.dy));
+        let affine = geom.plane_affine().map(|a| Affine {
+            x0: a.x0,
+            y0: a.y0,
+            dx: a.dx,
+            dy: a.dy,
+            units: match a.units {
+                PlaneUnits::Metres => AxisUnits::Metres,
+                PlaneUnits::Degrees => AxisUnits::Degrees,
+            },
+        });
         // Walked once and read twice: the extent is what `placement` asks
         // about, and the perimeter walk is the expensive half of this call.
         let bbox = geom.lonlat_bbox();
@@ -1272,11 +1294,7 @@ impl Georef {
             reprojectable: geom.reprojectable(scan),
             points_per_row: None,
             proj4: geom.proj4(),
-            axis_units,
-            x0,
-            y0,
-            dx,
-            dy,
+            affine,
             periodic_x: geom.is_periodic_x(),
             scan,
         }
@@ -1467,13 +1485,14 @@ mod tests {
         };
         let geom = GridGeometry::Lambert(p);
         let g = Georef::from_geometry(&geom, scan());
-        assert!(matches!(g.axis_units, AxisUnits::Metres));
+        let a = g.affine.expect("a Lambert grid has a plane");
+        assert!(matches!(a.units, AxisUnits::Metres));
         let proj = LambertProjector::new(p);
         for (i, j) in [(0u32, 0u32), (7, 3), (99, 79)] {
             let (lat, lon) = geom.forward(i, j).expect("grid point");
             let (x, y) = proj.forward_xy(lat, lon);
-            let want_x = g.x0.unwrap() + f64::from(i) * g.dx.unwrap();
-            let want_y = g.y0.unwrap() + f64::from(j) * g.dy.unwrap();
+            let want_x = a.x0 + f64::from(i) * a.dx.unwrap();
+            let want_y = a.y0 + f64::from(j) * a.dy.unwrap();
             assert!((x - want_x).abs() < 1e-3, "x at ({i},{j}): {x} != {want_x}");
             assert!((y - want_y).abs() < 1e-3, "y at ({i},{j}): {y} != {want_y}");
         }
@@ -1499,7 +1518,8 @@ mod tests {
             angle_of_rotation: 0.0,
         };
         let g = Georef::from_geometry(&GridGeometry::RotatedLatLon(p), scan());
-        assert!(matches!(g.axis_units, AxisUnits::Degrees));
+        let a = g.affine.expect("a rotated grid has a plane");
+        assert!(matches!(a.units, AxisUnits::Degrees));
         assert!(
             g.proj4
                 .as_deref()
@@ -1507,8 +1527,8 @@ mod tests {
             "{:?}",
             g.proj4
         );
-        assert_eq!((g.x0, g.y0), (Some(-18.0), Some(-20.0)));
-        assert_eq!((g.dx, g.dy), (Some(1.0), Some(1.0)));
+        assert_eq!((a.x0, a.y0), (-18.0, -20.0));
+        assert_eq!((a.dx, a.dy), (Some(1.0), Some(1.0)));
         // And it is not the geographic corner: the first point is over the
         // Atlantic off Morocco, nowhere near (-20, -18).
         let (lat, lon) = GridGeometry::RotatedLatLon(p)
@@ -1533,8 +1553,28 @@ mod tests {
             n_parallels: 32,
         });
         let g = Georef::from_geometry(&geom, scan());
-        assert!(g.dx.is_some());
-        assert_eq!(g.dy, None);
+        let a = g.affine.expect("a Gaussian grid has a plane");
+        assert!(a.dx.is_some());
+        assert_eq!(a.dy, None);
+        assert!(matches!(a.units, AxisUnits::Degrees));
+    }
+
+    /// A grid with no plane states no units for one (#870). Before, it
+    /// reported `"degrees"` beside a null origin, which read as if the units
+    /// described something. On the wire the whole affine is a present `null`,
+    /// so a strict `=== null` guard sees it.
+    #[test]
+    fn a_grid_with_no_plane_states_no_affine_and_no_units() {
+        let geom = GridGeometry::Unsupported {
+            label: "spherical harmonics".to_string(),
+        };
+        let g = Georef::from_geometry(&geom, scan());
+        assert_eq!(g.affine, None);
+        let wire = serde_json::to_value(&g).expect("serialises");
+        assert_eq!(wire.get("affine"), Some(&serde_json::Value::Null));
+        for gone in ["axisUnits", "x0", "y0", "dx", "dy"] {
+            assert!(wire.get(gone).is_none(), "{gone} is not a Georef key");
+        }
     }
 
     /// The wire spelling a napi host maps through [`Placement::as_str`] is the

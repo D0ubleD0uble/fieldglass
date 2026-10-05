@@ -148,7 +148,7 @@ suite("API wire contract (#574)", () => {
       assert.ok(!(key in info), `${key} is not a top-level key (#773)`);
     }
     assert.ok(info.grid, "the message declares a grid");
-    for (const key of ["boundsLonlat", "corners", "proj4", "x0", "dx"] as const) {
+    for (const key of ["boundsLonlat", "corners", "proj4", "affine"] as const) {
       assert.ok(key in info.grid, `grid.${key} is present`);
       assert.strictEqual(info.grid[key], null, `grid.${key} is null, not undefined`);
     }

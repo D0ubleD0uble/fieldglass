@@ -37,13 +37,51 @@ export type Addressing =
   | "variables";
 
 /**
- * Units the `Georef` origin and spacing are expressed in.
+ * Where a grid's raster sits in the plane `Georef::proj4` names: the
+ * first scanned point's cell centre, the step from it along each axis,
+ * and the units all four are measured in.
+ *
+ * One object rather than five sibling fields so that they cannot disagree
+ * (#870). A grid with no plane has no affine at all, and so no units; it
+ * does not report "degrees" beside a missing origin.
+ */
+export interface Affine {
+  /**
+   * Plane coordinate of the first grid point's cell centre, along the
+   * column axis.
+   */
+  x0: number;
+  /**
+   * Plane coordinate of the first grid point's cell centre, along the
+   * row axis.
+   */
+  y0: number;
+  /**
+   * Signed step between columns. `None` for an axis with no constant
+   * step, such as a single column.
+   */
+  dx: number | null;
+  /**
+   * Signed step between rows. Negative for the usual north-to-south
+   * scan, so `y0 + j * dy` walks the rows as stored. `None` for a
+   * Gaussian grid, whose rows are not uniformly spaced: inventing a mean
+   * step would misplace every row but the middle.
+   */
+  dy: number | null;
+  /**
+   * What `x0` / `y0` / `dx` / `dy` are measured in.
+   */
+  units: AxisUnits;
+}
+
+/**
+ * Units an `Affine` origin and spacing are expressed in.
  */
 export type AxisUnits =
   /**
    * Degrees **in the plane `Georef::proj4` names**, which for
-   * `latlon`, `gaussian` and `lookup` is geographic — `x0`/`dx` are
-   * longitudes, `y0`/`dy` latitudes.
+   * `latlon` and `gaussian` is geographic — `x0`/`dx` are longitudes,
+   * `y0`/`dy` latitudes.
    *
    * `rotated_latlon` also reports degrees, and they are **not**
    * geographic: its CRS is a PROJ `ob_tran` and its corners are
@@ -386,11 +424,10 @@ export interface FullDetail {
  * Where a decoded field sits on the Earth, flattened to scalars.
  *
  * A browser map library needs two things and this carries both: a CRS it
- * can name (`proj4`) and an affine placing the raster in
- * that CRS (`x0`, `y0`, `dx`, `dy`). Everything is `Option` because a
- * family that cannot state it says so rather than guessing — a Gaussian
- * grid's rows are not uniformly spaced, so its `dy` is absent, and a grid
- * this build does not model has none of it.
+ * can name (`proj4`) and an `affine`
+ * placing the raster in that CRS. Everything is `Option` because a family
+ * that cannot state it says so rather than guessing, and a grid this build
+ * does not model has none of it.
  */
 export interface Georef {
   /**
@@ -524,28 +561,12 @@ export interface Georef {
    */
   proj4: string | null;
   /**
-   * What `x0` / `y0` / `dx` / `dy` are measured in.
+   * Where the raster sits in the `proj4` plane. `None`
+   * for a family with no plane — a list of cell centres, spectral
+   * coefficients, HEALPix, a template this build does not model — and
+   * for a grid whose plane states no extent to place it in.
    */
-  axisUnits: AxisUnits;
-  /**
-   * Plane coordinate of the first grid point's cell centre, along the
-   * column axis. `None` when the family has no affine.
-   */
-  x0: number | null;
-  /**
-   * Plane coordinate of the first grid point's cell centre, along the
-   * row axis.
-   */
-  y0: number | null;
-  /**
-   * Signed step between columns, in `Georef::axis_units`.
-   */
-  dx: number | null;
-  /**
-   * Signed step between rows. Negative for the usual north-to-south
-   * scan, so `y0 + j * dy` walks the rows as stored.
-   */
-  dy: number | null;
+  affine: Affine | null;
   /**
    * The grid closes on itself in the column axis: one column step past
    * the last column lands back on the first. A renderer wraps rather

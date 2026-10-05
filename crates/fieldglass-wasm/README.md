@@ -65,7 +65,7 @@ handle.message(0);                 // one message's metadata, built on demand
 const field = handle.decode(0, {});           // { dtype?: 'auto' | 'f32' | 'f64' }
 field.values();                    // Float32Array or Float64Array — see `dtype()`
 field.mask();                      // Uint8Array, 1 present / 0 absent
-field.grid();                      // kind, boundsLonlat, placement, proj4, x0/y0/dx/dy, scan
+field.grid();                      // kind, boundsLonlat, placement, proj4, affine, scan
 
 const palette = handle.palette(field, {});    // { lut, t0, t1, span, scale, maskedRgba }
 handle.shaderValues(field, {});    // Float32Array: transformed and rebased by t0

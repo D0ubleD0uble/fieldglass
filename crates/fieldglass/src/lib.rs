@@ -138,7 +138,7 @@ pub use align::component_frame;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{
-    Addressing, AxisUnits, AxisValues, DimensionInfo, Dtype, Field, FullDetail, Georef,
+    Addressing, Affine, AxisUnits, AxisValues, DimensionInfo, Dtype, Field, FullDetail, Georef,
     Identification, LeftOutArray, Line, MessageInfo, MessageProbe, Placement, Probe, Scan,
     SourceFormat, SpectralTruncation, Stats, Values, VariableInfo,
 };

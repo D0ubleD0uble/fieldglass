@@ -303,10 +303,9 @@ fn a_degenerate_grid_is_declined() {
         .expect("the values are still decodable");
     assert_eq!(field.georef.kind, "polar_stereo");
     assert_eq!(
-        field.georef.dx, None,
-        "the file says zero, so there is no spacing to report"
+        field.georef.affine, None,
+        "the file says zero, so there is no spacing, no origin and no unit to report"
     );
-    assert_eq!(field.georef.x0, None, "and no origin to measure it from");
     assert!(
         field.georef.proj4.is_some(),
         "the plane is still `+proj=stere`; it is this grid that cannot be put in it",
