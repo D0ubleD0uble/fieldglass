@@ -422,7 +422,7 @@ export interface FullDetail {
 }
 
 /**
- * Where a decoded field sits on the Earth, flattened to scalars.
+ * Where a decoded field sits on the Earth, flattened to what a host reads.
  *
  * A browser map library needs two things and this carries both: a CRS it
  * can name (`proj4`) and an `affine`
@@ -434,7 +434,7 @@ export interface Georef {
   /**
    * The grid itself, as `core` models it.
    *
-   * The scalars below are a flattened *view* of this, which is what a
+   * The fields below are a flattened *view* of this, which is what a
    * host reads; this field is what the engine needs back to place a
    * point — `warp`, `probe`, and `contours` all invert through it, and
    * the inverse is a projection, not something four scalars reconstruct.

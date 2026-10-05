@@ -439,7 +439,7 @@
       "type": "object"
     },
     "Georef": {
-      "description": "Where a decoded field sits on the Earth, flattened to scalars.\n\nA browser map library needs two things and this carries both: a CRS it\ncan name ([`proj4`](Self::proj4)) and an [`affine`](Self::affine)\nplacing the raster in that CRS. Everything is `Option` because a family\nthat cannot state it says so rather than guessing, and a grid this build\ndoes not model has none of it.",
+      "description": "Where a decoded field sits on the Earth, flattened to what a host reads.\n\nA browser map library needs two things and this carries both: a CRS it\ncan name ([`proj4`](Self::proj4)) and an [`affine`](Self::affine)\nplacing the raster in that CRS. Everything is `Option` because a family\nthat cannot state it says so rather than guessing, and a grid this build\ndoes not model has none of it.",
       "properties": {
         "affine": {
           "anyOf": [
@@ -480,7 +480,7 @@
         },
         "geometry": {
           "additionalProperties": true,
-          "description": "The grid itself, as `core` models it.\n\nThe scalars below are a flattened *view* of this, which is what a\nhost reads; this field is what the engine needs back to place a\npoint — `warp`, `probe`, and `contours` all invert through it, and\nthe inverse is a projection, not something four scalars reconstruct.\nKeeping the two together means a field carries everything an\noperation on it needs, which is the whole point of the host owning\nthe memory. It serialises, so a `Field` still survives a JSON round\ntrip whole.\n\n`core` does not derive `JsonSchema` (it is a decode-side crate and\nthe derive would follow it everywhere), so under the `schema`\nfeature this field is described as the tagged object it serialises\nto. A generated `.d.ts` types it loosely and a host does not read it.",
+          "description": "The grid itself, as `core` models it.\n\nThe fields below are a flattened *view* of this, which is what a\nhost reads; this field is what the engine needs back to place a\npoint — `warp`, `probe`, and `contours` all invert through it, and\nthe inverse is a projection, not something four scalars reconstruct.\nKeeping the two together means a field carries everything an\noperation on it needs, which is the whole point of the host owning\nthe memory. It serialises, so a `Field` still survives a JSON round\ntrip whole.\n\n`core` does not derive `JsonSchema` (it is a decode-side crate and\nthe derive would follow it everywhere), so under the `schema`\nfeature this field is described as the tagged object it serialises\nto. A generated `.d.ts` types it loosely and a host does not read it.",
           "properties": {
             "kind": {
               "type": "string"
