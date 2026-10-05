@@ -354,18 +354,15 @@ fn the_reference_speed_is_the_scale_the_arrows_were_drawn_to() {
     )
     .expect("arrows");
     // `u = cos(lat)`, so the fastest sampled cell is on the equator.
-    assert!(
-        (arrows.reference_speed - 1.0).abs() < 0.01,
-        "got {}",
-        arrows.reference_speed
-    );
+    let speed = arrows.reference_speed.expect("arrows were drawn");
+    assert!((speed - 1.0).abs() < 0.01, "got {speed}");
 
     // Pinned: the arrows scale to it instead, so a slower field draws shorter
     // arrows rather than filling the plot again.
     let mut pinned = VectorOptions::new();
     pinned.reference_speed = Some(4.0);
     let held = one_grid(&source(&geometry, "latlon"), &u, &v, &options, &pinned).expect("arrows");
-    assert_eq!(held.reference_speed, 4.0);
+    assert_eq!(held.reference_speed, Some(4.0));
     // The median shaft, not the first: a shaft that crosses the antimeridian
     // comes back as a run spanning the raster, and one sample could be it.
     let length = |a: &fieldglass::render::VectorArrows| {
@@ -393,7 +390,53 @@ fn the_reference_speed_is_the_scale_the_arrows_were_drawn_to() {
         &VectorOptions::new(),
     )
     .expect("arrows");
-    assert_eq!(none.reference_speed, 0.0);
+    assert_eq!(none.reference_speed, None);
+}
+
+/// A window the field does not reach clips every arrow away. Then nothing was
+/// drawn, so there is no scale to report, even though the field has wind (#871).
+#[test]
+fn arrows_clipped_off_the_window_report_no_reference_speed() {
+    let geometry = global();
+    let (u, v) = solid_rotation();
+    // A narrow equatorial band of the globe, viewed only over the far south.
+    let band = GridGeometry::LatLon(LatLonParams {
+        ni: NI,
+        nj: NJ,
+        lat_first: 10.0,
+        lon_first: 0.0,
+        lat_last: -10.0,
+        lon_last: 20.0,
+    });
+    let mut window = options("equirectangular");
+    window.bounds_lat_min = Some(-80.0);
+    window.bounds_lat_max = Some(-60.0);
+    window.bounds_lon_min = Some(100.0);
+    window.bounds_lon_max = Some(140.0);
+    let arrows = one_grid(
+        &source(&band, "latlon"),
+        &u,
+        &v,
+        &window,
+        &VectorOptions::new(),
+    )
+    .expect("arrows");
+    assert!(
+        arrows.runs.seg_lengths.is_empty(),
+        "every arrow is off the window"
+    );
+    assert_eq!(arrows.reference_speed, None);
+
+    // The same field over the whole globe does draw, so the window is the cause.
+    let drawn = one_grid(
+        &source(&geometry, "latlon"),
+        &u,
+        &v,
+        &options("equirectangular"),
+        &VectorOptions::new(),
+    )
+    .expect("arrows");
+    assert!(drawn.reference_speed.is_some());
 }
 
 #[test]

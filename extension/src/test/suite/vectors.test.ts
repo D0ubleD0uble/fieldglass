@@ -14,7 +14,13 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
-import { renderImagePanelHtml, type CompareFieldOption, type PanelField } from "../../render-panel";
+import {
+  composeRangeText,
+  composeVectorScale,
+  renderImagePanelHtml,
+  type CompareFieldOption,
+  type PanelField,
+} from "../../render-panel";
 
 /** One arrow is one run of five vertices: tail, tip, barb, tip, barb. */
 const ARROW_VERTICES = 5;
@@ -44,6 +50,18 @@ function cmcWind() {
 }
 
 const SOURCE = { projection: "source" as const, resampling: "nearest" as const, flipY: false };
+
+/** A window over the southern Indian Ocean, which this northern polar grid
+ *  never reaches: every cell of the render is masked and every arrow clips. */
+const OFF_THE_GRID = {
+  projection: "equirectangular" as const,
+  resampling: "nearest" as const,
+  flipY: false,
+  boundsLatMin: -50,
+  boundsLatMax: -30,
+  boundsLonMin: 60,
+  boundsLonMax: 90,
+};
 
 suite("Vector arrows", () => {
   test("the addon reports which convention a file's components use", () => {
@@ -82,11 +100,38 @@ suite("Vector arrows", () => {
     // The scale a legend puts beside its reference arrow, in the field's units:
     // the fastest cell *drawn*, so the plot fills itself at any spacing. The
     // sparse sample is a subset of the dense one here, so it cannot be faster.
-    assert.ok(sparse.referenceSpeed > 0, `got ${sparse.referenceSpeed}`);
+    assert.ok((sparse.referenceSpeed ?? NaN) > 0, `got ${sparse.referenceSpeed}`);
     assert.ok(
-      dense.referenceSpeed >= sparse.referenceSpeed,
+      (dense.referenceSpeed ?? NaN) >= (sparse.referenceSpeed ?? NaN),
       `${dense.referenceSpeed} dense vs ${sparse.referenceSpeed} sparse`,
     );
+  });
+
+  test("nothing drawn reports null, and the panel shows no made-up range or speed (#871)", () => {
+    const handle = cmcWind();
+    // The binding: `null`, present as a key, where nothing was computed.
+    const rendered = handle.renderGrid(0, OFF_THE_GRID);
+    assert.strictEqual(rendered.usedMin, null, "no range for a field with no present cell");
+    assert.strictEqual(rendered.usedMax, null);
+    assert.ok(rendered.rgba.every((b, i) => i % 4 !== 3 || b === 0), "nothing is painted");
+    const arrows = handle.projectVectors(0, 0, OFF_THE_GRID, 8, true);
+    assert.strictEqual(arrows.segLengths.length, 0, "no arrow is on the window");
+    assert.strictEqual(arrows.referenceSpeed, null, "no speed when no arrow was drawn");
+
+    // The panel's text for those results: no range, and an empty arrow key.
+    assert.strictEqual(composeRangeText(rendered.usedMin, rendered.usedMax), "no values");
+    assert.strictEqual(composeVectorScale(arrows.referenceSpeed, "m s**-1"), "");
+
+    // Over the grid's own domain both are numbers, and the panel shows them.
+    const drawn = handle.renderGrid(0, SOURCE);
+    assert.ok(drawn.usedMin != null && drawn.usedMax != null);
+    assert.strictEqual(
+      composeRangeText(drawn.usedMin, drawn.usedMax),
+      `range ${drawn.usedMin.toPrecision(4)} … ${drawn.usedMax.toPrecision(4)}`,
+    );
+    const speed = handle.projectVectors(0, 0, SOURCE, 8, true).referenceSpeed;
+    assert.ok(speed != null && speed > 0, `got ${speed}`);
+    assert.strictEqual(composeVectorScale(speed, "kt"), `\u27F6 ${speed.toPrecision(3)} kt`);
   });
 
   test("the two conventions point differently on a projected grid", () => {
@@ -162,6 +207,9 @@ suite("Vector arrows", () => {
       /else if \(msg\.type === 'vectorResult'\) handleVectorResult\(msg\);/,
       /strokeRuns\(lastVectors\.xy \|\| \[\], lastVectors\.segLengths \|\| \[\]\);/,
       /lastVectors && lastVectors\.referenceSpeed/,
+      /function composeVectorScale\(/,
+      /function composeRangeText\(/,
+      /colorbar\.hidden = !hasRange;/,
     ]) {
       assert.ok(wiring.test(paired), `the panel script wires ${wiring}`);
     }

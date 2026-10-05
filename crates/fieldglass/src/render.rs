@@ -1840,10 +1840,14 @@ pub fn contour_polylines(
 
     // Levels span the same range the image is painted over, so contours line up
     // with the colours: a manual range override wins, else the present-cell
-    // min/max.
-    let (used_min, used_max) = match (options.range_min, options.range_max) {
-        (Some(min), Some(max)) if max > min => (min, max),
-        _ => min_max_ignoring_mask(values.iter().copied()).unwrap_or((0.0, 1.0)),
+    // min/max. A field with no present cell has no range and no isoline, so
+    // it answers no runs rather than levels over a range made up for it (#871).
+    let range = match (options.range_min, options.range_max) {
+        (Some(min), Some(max)) if max > min => Some((min, max)),
+        _ => min_max_ignoring_mask(values.iter().copied()),
+    };
+    let Some((used_min, used_max)) = range else {
+        return Ok(ProjectedPolylines::default());
     };
     let levels = match interval {
         Some(step) if step > 0.0 => levels_by_interval(used_min, used_max, step),
@@ -1999,9 +2003,10 @@ pub struct VectorArrows {
     pub runs: ProjectedPolylines,
     /// The speed a full-length arrow stands for, in the components' own units:
     /// what a legend puts beside its reference arrow. The fastest cell drawn,
-    /// or [`VectorOptions::reference_speed`] when the caller pinned one. `0.0`
-    /// when nothing was drawn.
-    pub reference_speed: f64,
+    /// or [`VectorOptions::reference_speed`] when the caller pinned one. `None`
+    /// when no arrow survives onto the raster, so a legend has no scale to show
+    /// and none is made up for it (#871).
+    pub reference_speed: Option<f64>,
 }
 
 #[cfg(feature = "render")]
@@ -2010,7 +2015,7 @@ impl Default for VectorArrows {
     fn default() -> Self {
         Self {
             runs: ProjectedPolylines::default(),
-            reference_speed: 0.0,
+            reference_speed: None,
         }
     }
 }
@@ -2196,9 +2201,13 @@ pub fn vector_polylines(
         ring_lengths.push(ARROW_VERTICES);
     }
 
+    let runs = overlay_polylines(source, options, &latlon, &ring_lengths)?;
+    // Every arrow can clip off the raster, as when the view is a window the
+    // field does not reach. Then nothing was drawn to a scale.
+    let reference_speed = (!runs.seg_lengths.is_empty()).then_some(fastest);
     Ok(VectorArrows {
-        runs: overlay_polylines(source, options, &latlon, &ring_lengths)?,
-        reference_speed: fastest,
+        runs,
+        reference_speed,
     })
 }
 
