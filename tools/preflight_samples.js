@@ -26,7 +26,12 @@ function grib(HandleName, buf, label) {
     return console.log(`  ${label}: ${msgs.length} msgs; grid=${mm.gridType} packing=${mm.packing}  RENDER FAILED: ${e.message}`);
   }
   console.log(`  ${label}: ${msgs.length} msgs | msg#${idx} ${mm.parameterName} | grid=${mm.gridType} ${mm.gridNi}x${mm.gridNj} | packing=${mm.packing} | reproj=${mm.reprojectable}`);
-  console.log(`         render: ${r.width}x${r.height} | ${r.projectionSummary} | range ${r.usedMin.toFixed(2)}..${r.usedMax.toFixed(2)}`);
+  console.log(`         render: ${r.width}x${r.height} | ${r.projectionSummary} | ${range(r)}`);
+}
+
+// `usedMin`/`usedMax` are `null` when every cell is masked (#871).
+function range(r) {
+  return r.usedMin == null ? 'no values' : `range ${r.usedMin.toFixed(2)}..${r.usedMax.toFixed(2)}`;
 }
 
 function netcdf(buf, label) {
@@ -42,7 +47,7 @@ function netcdf(buf, label) {
   const slice = v.dims.map(() => 0);
   try {
     const r = h.renderSlice(v.variableIndex, v.detectedYDim, v.detectedXDim, slice, opts);
-    console.log(`         render: ${r.width}x${r.height} | ${r.projectionSummary} | range ${r.usedMin.toFixed(2)}..${r.usedMax.toFixed(2)}`);
+    console.log(`         render: ${r.width}x${r.height} | ${r.projectionSummary} | ${range(r)}`);
   } catch (e) {
     console.log(`         RENDER FAILED: ${e.message}`);
   }

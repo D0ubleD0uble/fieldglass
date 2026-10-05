@@ -1840,10 +1840,14 @@ pub fn contour_polylines(
 
     // Levels span the same range the image is painted over, so contours line up
     // with the colours: a manual range override wins, else the present-cell
-    // min/max.
-    let (used_min, used_max) = match (options.range_min, options.range_max) {
-        (Some(min), Some(max)) if max > min => (min, max),
-        _ => min_max_ignoring_mask(values.iter().copied()).unwrap_or((0.0, 1.0)),
+    // min/max. A field with no present cell has no range and no isoline, so
+    // it answers no runs rather than levels over a range made up for it (#871).
+    let range = match (options.range_min, options.range_max) {
+        (Some(min), Some(max)) if max > min => Some((min, max)),
+        _ => min_max_ignoring_mask(values.iter().copied()),
+    };
+    let Some((used_min, used_max)) = range else {
+        return Ok(ProjectedPolylines::default());
     };
     let levels = match interval {
         Some(step) if step > 0.0 => levels_by_interval(used_min, used_max, step),
