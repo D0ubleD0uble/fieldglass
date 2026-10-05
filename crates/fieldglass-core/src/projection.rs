@@ -856,9 +856,17 @@ impl GridGeometry {
     /// The most specific name available: [`kind`](Self::kind) for a modelled
     /// family, and the decoder's own grid-type string for an unmodelled one.
     /// What a message saying which grid was declined should read.
+    ///
+    /// The one family whose display name is not its kind is a lookup grid,
+    /// which reads `"curvilinear"`: the name a NetCDF or Zarr user knows it by
+    /// (CF's 2-D coordinate grid), and the one every refusal's list of
+    /// geolocatable families spells. `kind` stays `"lookup"`, the mechanism, so
+    /// code that dispatches on the family is unaffected. Both hosts caption a
+    /// slice from this, so they cannot name the same grid two ways (#808).
     pub fn label(&self) -> &str {
         match self {
             Self::Unsupported { label } => label,
+            Self::Lookup(_) => "curvilinear",
             other => other.kind(),
         }
     }

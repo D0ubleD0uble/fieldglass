@@ -25794,6 +25794,111 @@
       }
     },
     {
+      "id": "curvilinear/decode_slice",
+      "fixture": "fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc",
+      "op": "decodeSlice",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 2,
+        "yDim": 0,
+        "xDim": 1,
+        "sliceIndices": [
+          0,
+          0
+        ],
+        "alongDim": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -89.93000030517352,
+            -66.58000183105469,
+            -30.1200008392334,
+            322.9799995422363
+          ],
+          "corners": null,
+          "dx": null,
+          "dy": null,
+          "kind": "lookup",
+          "label": "curvilinear",
+          "ni": 96,
+          "nj": 100,
+          "periodicX": false,
+          "placement": "placed",
+          "pointsPerRow": null,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "reprojectable": true,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 9600,
+        "maskLen": 9600,
+        "maskOnes": 9600,
+        "ni": 96,
+        "nj": 100,
+        "parameter": "TPW",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 2.7
+          },
+          {
+            "i": 2400,
+            "m": 1,
+            "v": 1.9000000000000001
+          },
+          {
+            "i": 4800,
+            "m": 1,
+            "v": 2.1
+          },
+          {
+            "i": 7200,
+            "m": 1,
+            "v": 1.1
+          },
+          {
+            "i": 9599,
+            "m": 1,
+            "v": 0.5
+          }
+        ],
+        "stats": {
+          "max": 6.5,
+          "min": 0.1,
+          "validCount": 9600
+        },
+        "truncation": null,
+        "units": "mm"
+      }
+    },
+    {
       "id": "ersst/decode_slice/short_slice_indices",
       "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
       "op": "decodeSlice",

@@ -3004,7 +3004,9 @@ mod tests {
             let placed = session
                 .place_slice(i as u32, y, x)
                 .unwrap_or_else(|e| panic!("{}: {e}", v.name));
-            assert_eq!(placed.family(), "lookup", "{} is curvilinear", v.name);
+            // Placed by a coordinate lookup, and captioned by the name a user
+            // knows it by (#808).
+            assert_eq!(placed.family(), "curvilinear", "{} is curvilinear", v.name);
         }
 
         let keys = memo(&session);
@@ -3047,7 +3049,7 @@ mod tests {
             .expect("a third axis");
 
         let image = session.place_slice(index, y, x).expect("the image slice");
-        assert_eq!(image.family(), "lookup");
+        assert_eq!(image.family(), "curvilinear");
 
         // The same array, cut the other way: the third axis against X.
         let cross = session
@@ -3055,7 +3057,7 @@ mod tests {
             .expect("the cross-section places");
         assert_ne!(
             cross.family(),
-            "lookup",
+            "curvilinear",
             "the coordinate pair does not span these axes, so it cannot place them"
         );
 

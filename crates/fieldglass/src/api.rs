@@ -346,7 +346,9 @@ api_type! {
         /// onto their regular sibling's raster before anything reads them:
         /// a `reduced_gg` message is `kind` `gaussian` and `label`
         /// `reduced_gaussian`, which is what eccodes calls it and what the
-        /// other host shows (#645).
+        /// other host shows (#645). A slice placed by its 2-D coordinate
+        /// arrays is `kind` `lookup` and `label` `curvilinear`, the name a
+        /// NetCDF or Zarr user knows it by, in both hosts (#808).
         ///
         /// A field's own georef reports the grid its *values* are on, so a
         /// synthesised raster is `latlon` in both — see
