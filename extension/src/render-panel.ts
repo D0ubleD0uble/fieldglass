@@ -594,6 +594,16 @@ export function composeTruncationNote(meta: Pick<PanelField, "truncation">): str
   return t != null ? `shown at T${t.truncatedTo} of T${t.declared}` : null;
 }
 
+/** The panel subtitle: the field's level, times and forecast (`base`), then
+ *  the band-limit note of the map on screen. The note moves with every render,
+ *  since a Compare map takes the label of whichever operand is band-limited
+ *  (#814), while the base stays field A's. The PNG export draws the same line.
+ *  Serialized into the panel script (`composeSubtitle.toString()`), so it must
+ *  not reference anything outside itself. */
+export function composeSubtitle(base: string, truncationNote: string | null): string {
+  return [base, truncationNote].filter((s) => !!s).join(" · ");
+}
+
 /** The value part of the point-probe readout (#172): the value under the
  *  cursor, and for a band-limited spectral map the full-detail value at the
  *  same cell beside it (#637), `"325.60 K shown · 318.40 K at full detail
@@ -659,13 +669,9 @@ export function renderImagePanelHtml(
   const levelDescription = meta.level && meta.level !== meta.levelType
     ? [meta.level, meta.levelType].filter((s) => !!s).join(" ")
     : meta.levelType;
-  const subLine = [
-    levelDescription,
-    meta.referenceTime,
-    meta.forecast,
-    composeTruncationNote(meta),
-  ]
+  const subBase = [levelDescription, meta.referenceTime, meta.forecast]
     .filter((s) => !!s).join(" · ");
+  const subLine = composeSubtitle(subBase, composeTruncationNote(meta));
   const defaultPngName = composeDefaultPngName(meta);
 
   const script = `
@@ -699,7 +705,12 @@ export function renderImagePanelHtml(
         // Title / subtitle / default filename for the PNG export (#243).
         // TITLE_LINE tracks the drawn field for the same reason as UNITS.
         let TITLE_LINE = ${JSON.stringify(titleLine)};
-        const SUB_LINE = ${JSON.stringify(subLine)};
+        // SUB_LINE's band-limit note follows the map on screen: a Compare map
+        // is labelled by whichever operand is band-limited (#814), so every
+        // gridReady recomposes it over SUB_BASE.
+        const SUB_BASE = ${JSON.stringify(subBase)};
+        let SUB_LINE = ${JSON.stringify(subLine)};
+        ${composeSubtitle.toString()}
         // Tracks the drawn field too: a slice panel's export was named after the
         // variable it opened on (#822).
         let DEFAULT_PNG_NAME = ${JSON.stringify(defaultPngName)};
@@ -1436,6 +1447,11 @@ export function renderImagePanelHtml(
             const h1 = document.getElementById('title-line');
             if (h1) h1.textContent = TITLE_LINE;
           }
+          // Applied when null too: turning Compare off must drop a label that
+          // only field B carried.
+          SUB_LINE = composeSubtitle(SUB_BASE, msg.truncationNote ?? null);
+          const subtitle = document.querySelector('.subtitle');
+          if (subtitle) subtitle.textContent = SUB_LINE;
           if (typeof msg.parameterUnits === 'string') UNITS = msg.parameterUnits;
           if (typeof msg.defaultPngName === 'string') DEFAULT_PNG_NAME = msg.defaultPngName;
           // A slice panel's picker follows the slice on screen (#822). Before the

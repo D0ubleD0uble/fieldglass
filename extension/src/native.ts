@@ -21,7 +21,7 @@ import * as path from "path";
 
 import * as vscode from "vscode";
 
-import type { AxisValues, MessageInfo, Placement } from "./api.generated";
+import type { AxisValues, MessageInfo, Placement, SpectralTruncation } from "./api.generated";
 
 export type { AxisValues, Georef, Identification, MessageInfo, Placement } from "./api.generated";
 
@@ -209,6 +209,11 @@ export interface RenderedGrid {
   usedLonMin: number | null;
   usedLonMax: number | null;
   projectionSummary: string;
+  /** The band limit of a spectral map drawn below what its message declares
+   *  (#637); for a combined map, the label either operand carries (#814).
+   *  Absent for every other map: napi sends `None` as `undefined`, so read it
+   *  with `!= null`. */
+  truncation?: SpectralTruncation | null;
 }
 
 export interface DecodedGrid {

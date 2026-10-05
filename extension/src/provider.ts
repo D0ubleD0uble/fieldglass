@@ -38,6 +38,7 @@ import {
 import {
   composeDefaultPngName,
   composeTitleLine,
+  composeTruncationNote,
   renderImagePanelHtml,
   reprojectionNote,
   sanitizePngName,
@@ -1649,6 +1650,12 @@ export interface GridReadyMessage {
    *  reason as {@link GridReadyMessage.titleLine}: a slice panel's export was
    *  named after the variable it opened on (#822). */
   defaultPngName: string;
+  /** The band-limit note for the map actually drawn, composed by
+   *  {@link composeTruncationNote} from `RenderedGrid.truncation`, or `null`
+   *  when the map carries every wavenumber its file holds. Sent with every
+   *  render, null included, because a Compare map takes the label of either
+   *  operand (#814): the note baked into the initial HTML is field A's alone. */
+  truncationNote: string | null;
   /** A slice panel's answer for the slice actually drawn (#822): its grid
    *  family (`null` when it could not be placed) and whether it can be
    *  reprojected. The projection picker follows it, because the picker can
@@ -1989,6 +1996,7 @@ export function buildGridReadyMessage(
     titleLine: composeTitleLine(meta),
     parameterUnits: meta.units ?? "",
     defaultPngName: composeDefaultPngName(meta),
+    truncationNote: composeTruncationNote({ truncation: rendered.truncation ?? null }),
   };
 }
 
