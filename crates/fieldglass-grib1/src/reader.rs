@@ -7,6 +7,7 @@ use crate::is::{IndicatorSection, parse_indicator};
 use crate::packing::matrix::{decode_matrix_of_values, is_matrix_of_values};
 use crate::packing::spherical::{SpectralCoefficients, decode_spectral};
 use crate::pds::{ProductDefinition, parse_product_definition};
+use crate::tables::LevelValue;
 use fieldglass_core::bytes::{
     ByteRange, ByteSource, FileCursor, find_forward, read_at, read_exact, read_up_to,
 };
@@ -1143,86 +1144,44 @@ pub fn level_value(pds: &ProductDefinition) -> f64 {
     ((pds.level_value_1 as u16) << 8 | pds.level_value_2 as u16) as f64
 }
 
-/// Unit string for a given WMO ON388 Table 3 level type, if one applies to
-/// the level value encoded in the PDS. Returns `None` for surface / fixed
-/// levels where the value byte is meaningless and for level types whose
-/// "value" is a dimensionless index (model level, NAM level).
-pub fn level_unit(level_type: u8) -> Option<&'static str> {
-    match level_type {
-        // Single-value types with direct units.
-        100 | 115 | 116 | 121 | 141 => Some("hPa"),
-        103 | 105 | 160 => Some("m"),
-        111 | 112 | 125 => Some("cm"),
-        113 | 114 => Some("K"),
-        126 => Some("Pa"),
-        117 => Some("PVU"),
-        107 | 108 | 128 => Some("σ"),
-        // Layer types whose bounds are in their own units.
-        101 => Some("kPa"),
-        104 | 106 => Some("hm"),
-        // Dimensionless / surface / index types.
-        _ => None,
+/// Unit of the level value for a Code Table 3 level type at `centre`, if the
+/// type has one. `None` for a surface or whole-column type, whose value octets
+/// mean nothing, and for a type whose value is a dimensionless index (model
+/// level, eta level).
+pub fn level_unit(level_type: u8, centre: u8) -> Option<&'static str> {
+    match crate::tables::level_type(level_type, centre)?.value {
+        LevelValue::None => None,
+        LevelValue::Single { unit, .. } | LevelValue::Layer { unit, .. } => unit,
     }
 }
 
-/// Format the PDS level value (without unit) for display. `None` for
-/// fixed-surface / whole-column types, where the value octets mean nothing, and
-/// for level type 255, which Code Table 3 defines as missing; a host chooses its
-/// own placeholder (#775). A `"<lo> – <hi>"` range for layer types, and a
-/// scalar otherwise. The unit belongs in the level-type column — see
-/// [`level_unit`].
+/// Format the PDS level value (without unit) for display.
+///
+/// `None` for a type whose value octets mean nothing: a surface, a whole
+/// column, a cloud level, and level type 255, which Code Table 3 defines as
+/// missing. A host chooses its own placeholder (#775). A `"<top> – <bottom>"`
+/// range for a layer type, and a scalar otherwise. How each type reads comes
+/// from its row in Code Table 3, the same row that names it. The unit belongs
+/// in the level-type column; see [`level_unit`].
+///
+/// A code the table does not name shows the 16-bit value, since nothing says
+/// whether it means anything.
 pub fn level_value_str(pds: &ProductDefinition) -> Option<String> {
-    let lv1 = pds.level_value_1 as i32;
-    let lv2 = pds.level_value_2 as i32;
-    let combined = ((pds.level_value_1 as u16) << 8 | pds.level_value_2 as u16) as i32;
-
-    Some(match pds.level_type {
-        // Fixed surfaces / whole-column types: value byte is meaningless.
-        1
-        | 2
-        | 3
-        | 4
-        | 5
-        | 6
-        | 7
-        | 8
-        | 9
-        | 102
-        | 200
-        | 201
-        | 204
-        | 205
-        | 209
-        | 210..=221
-        | 241
-        | 242
-        | 255 => return None,
-
-        // Single 16-bit value, integer.
-        100 | 103 | 105 | 111 | 113 | 115 | 126 | 160 => format!("{combined}"),
-
-        // Single value with scaling.
-        125 => format!("{:.2}", combined as f64 / 100.0),
-        107 => format!("{:.4}", combined as f64 / 10000.0),
-        117 => format!("{:.3}", combined as f64 / 1000.0),
-
-        // Index-only level numbers.
-        109 => format!("{combined}"),
-        119 => format!("{combined}"),
-
-        // Layer types: lv1 / lv2 are independent bounds.
-        101 | 104 | 106 | 110 | 112 | 116 | 120 => format!("{lv1} – {lv2}"),
-        108 => format!("{:.2} – {:.2}", lv1 as f64 / 100.0, lv2 as f64 / 100.0),
-        114 => format!("{} – {}", 475 - lv1, 475 - lv2),
-        121 => format!("{} – {}", 1100 - lv1, 1100 - lv2),
-        128 => format!(
-            "{:.3} – {:.3}",
-            1.1 - lv1 as f64 * 0.001,
-            1.1 - lv2 as f64 * 0.001
+    let combined = u32::from(pds.level_value_1) << 8 | u32::from(pds.level_value_2);
+    let Some(row) = crate::tables::level_type(pds.level_type, pds.originating_centre) else {
+        return Some(combined.to_string());
+    };
+    Some(match row.value {
+        LevelValue::None => return None,
+        LevelValue::Single { divisor: 1, .. } => combined.to_string(),
+        LevelValue::Single {
+            divisor, decimals, ..
+        } => format!("{:.*}", decimals, f64::from(combined) / f64::from(divisor)),
+        LevelValue::Layer { top, bottom, .. } => format!(
+            "{} – {}",
+            top.show(pds.level_value_1),
+            bottom.show(pds.level_value_2)
         ),
-        141 => format!("{lv1} – {}", 1100 - lv2),
-
-        _ => format!("{combined}"),
     })
 }
 
@@ -1233,11 +1192,11 @@ pub fn level_value_str(pds: &ProductDefinition) -> Option<String> {
 pub fn level_type_str(pds: &ProductDefinition) -> String {
     // An unnamed level type keeps its code (#774).
     let name: std::borrow::Cow<'static, str> =
-        match crate::tables::lookup_level_type(pds.level_type) {
+        match crate::tables::lookup_level_type(pds.level_type, pds.originating_centre) {
             Some(name) => name.into(),
             None => format!("Level type {}", pds.level_type).into(),
         };
-    match level_unit(pds.level_type) {
+    match level_unit(pds.level_type, pds.originating_centre) {
         Some(unit) => format!("({unit}) {name}"),
         None => name.into_owned(),
     }
@@ -1291,10 +1250,49 @@ mod level_display_tests {
     }
 
     #[test]
-    fn cloud_base_level_has_no_value_and_no_unit() {
-        let p = pds(1, 0, 0);
-        assert_eq!(level_value_str(&p), None);
-        assert_eq!(level_type_str(&p), "Cloud base level");
+    fn surface_and_cloud_base_have_no_value_and_no_unit() {
+        // Code Table 3 numbers its fixed surfaces from 1: 1 is the surface and
+        // 2 the cloud base. Read one code off, every surface field was a cloud
+        // base (#869). Nonzero octets, so ignoring them is what is shown.
+        let surface = pds(1, 3, 7);
+        assert_eq!(level_value_str(&surface), None);
+        assert_eq!(level_type_str(&surface), "Ground or water surface");
+        let cloud_base = pds(2, 3, 7);
+        assert_eq!(level_value_str(&cloud_base), None);
+        assert_eq!(level_type_str(&cloud_base), "Cloud base level");
+    }
+
+    #[test]
+    fn values_read_in_the_unit_their_table_row_states() {
+        // 125: height in centimetres, shown in centimetres. It was divided by
+        // 100 and shown under a "(cm)" label.
+        let p = pds(125, 0x01, 0xf4);
+        assert_eq!(level_value_str(&p).as_deref(), Some("500"));
+        assert_eq!(
+            level_type_str(&p),
+            "(cm) Specified height above ground (high precision)"
+        );
+        // 119: eta in 1/10000, like sigma at 107.
+        assert_eq!(
+            level_value_str(&pds(119, 0x26, 0xac)).as_deref(),
+            Some("0.9900")
+        );
+        // 120: a layer of eta in 1/100 per octet, like sigma at 108.
+        assert_eq!(
+            level_value_str(&pds(120, 50, 99)).as_deref(),
+            Some("0.50 – 0.99")
+        );
+        // 141: top in kPa, bottom as 1100 hPa minus it; both shown in hPa.
+        let p = pds(141, 50, 100);
+        assert_eq!(level_value_str(&p).as_deref(), Some("500 – 1000"));
+        assert_eq!(
+            level_type_str(&p),
+            "(hPa) Layer between two isobaric surfaces (mixed precision)"
+        );
+        // 20: temperature in 1/100 K.
+        let p = pds(20, 0x6a, 0xb5);
+        assert_eq!(level_value_str(&p).as_deref(), Some("273.17"));
+        assert_eq!(level_type_str(&p), "(K) Isothermal level");
     }
 
     #[test]

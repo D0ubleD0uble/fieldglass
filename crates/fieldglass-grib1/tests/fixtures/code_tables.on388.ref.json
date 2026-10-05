@@ -1,0 +1,379 @@
+{
+ "source": "https://www.nco.ncep.noaa.gov/pmb/docs/on388/table3.html",
+ "note": "NCEP Office Note 388, Table 3 and 3a: meaning and octet-11/12 contents per assigned code (contents is empty for Table 3a, which has no such column). Written by tools/gen_grib1_code_table_snapshot.py.",
+ "3": {
+  "100": {
+   "meaning": "isobaric level",
+   "contents": [
+    "pressure in hectoPascals (hPa) (2 octets)"
+   ]
+  },
+  "101": {
+   "meaning": "layer between two isobaric levels",
+   "contents": [
+    "pressure of top (kPa)",
+    "pressure of bottom (kPa)"
+   ]
+  },
+  "102": {
+   "meaning": "mean sea level",
+   "contents": [
+    "0",
+    "0"
+   ]
+  },
+  "103": {
+   "meaning": "Specified altitude above MSL",
+   "contents": [
+    "altitude in meters"
+   ]
+  },
+  "104": {
+   "meaning": "layer between two specified altitudes above MSL",
+   "contents": [
+    "altitude of top (hm)",
+    "altitude of bottom (hm)"
+   ]
+  },
+  "105": {
+   "meaning": "specified height level above ground",
+   "contents": [
+    "height in meters (2 octets)"
+   ]
+  },
+  "106": {
+   "meaning": "layer between two specified height levels above ground",
+   "contents": [
+    "height of top (hm)",
+    "height of bottom (hm)"
+   ]
+  },
+  "107": {
+   "meaning": "sigma level",
+   "contents": [
+    "sigma value in 1/10000 (2 octets)"
+   ]
+  },
+  "108": {
+   "meaning": "layer between two sigma levels",
+   "contents": [
+    "sigma value at top in 1/100",
+    "sigma value at bottom in 1/100"
+   ]
+  },
+  "109": {
+   "meaning": "Hybrid level",
+   "contents": [
+    "level number (2 octets)"
+   ]
+  },
+  "110": {
+   "meaning": "layer between two hybrid levels",
+   "contents": [
+    "level number at top",
+    "level number at bottom"
+   ]
+  },
+  "111": {
+   "meaning": "depth below land surface",
+   "contents": [
+    "centimeters (2 octets)"
+   ]
+  },
+  "112": {
+   "meaning": "layer between two depths below land surface",
+   "contents": [
+    "depth of upper surface (cm)",
+    "depth of lower surface (cm)"
+   ]
+  },
+  "113": {
+   "meaning": "isentropic (theta) level",
+   "contents": [
+    "Potential Temperature (K) (2 octets)"
+   ]
+  },
+  "114": {
+   "meaning": "layer between two isentropic levels",
+   "contents": [
+    "475 K minus theta of top in K",
+    "475 K minus theta of bottom in K"
+   ]
+  },
+  "115": {
+   "meaning": "level at specified pressure difference from ground to level",
+   "contents": [
+    "Pressure difference in hPa (2 octets)"
+   ]
+  },
+  "116": {
+   "meaning": "layer between two levels at specified pressure difference from ground to level",
+   "contents": [
+    "pressure difference from ground to top level in hPa",
+    "pressure difference from ground to bottom level in hPa"
+   ]
+  },
+  "117": {
+   "meaning": "potential vorticity(pv) surface",
+   "contents": [
+    "pv value in units of 10-9Km2/kgs (2 octets)"
+   ]
+  },
+  "119": {
+   "meaning": "NAM level",
+   "contents": [
+    "NAM value in 1/10000 (2 octets)"
+   ]
+  },
+  "120": {
+   "meaning": "layer between two NAM levels",
+   "contents": [
+    "NAM value at top of layer in 1/100",
+    "NAM value at bottom of layer in 1/100"
+   ]
+  },
+  "121": {
+   "meaning": "layer between two isobaric surfaces (high precision)",
+   "contents": [
+    "1100 hPa minus pressure of top, in hPa",
+    "1100 hPa minus pressure of bottom, in hPa"
+   ]
+  },
+  "125": {
+   "meaning": "specified height level above ground (high precision)",
+   "contents": [
+    "Height in centimeters (2 octets)"
+   ]
+  },
+  "126": {
+   "meaning": "isobaric level",
+   "contents": [
+    "pressure in Pascals (Pa) (2 octets)"
+   ]
+  },
+  "128": {
+   "meaning": "layer between two sigma levels (high precision)",
+   "contents": [
+    "1.1 minus sigma of top, in 1/1000 of sigma",
+    "1.1 minus sigma of bottom, in 1/1000 of sigma"
+   ]
+  },
+  "141": {
+   "meaning": "layer between two isobaric surfaces (mixed precision)",
+   "contents": [
+    "pressure of top, in hPa",
+    "1100hPa minus pressure of bottom, in hPa"
+   ]
+  },
+  "160": {
+   "meaning": "depth below sea level",
+   "contents": [
+    "Depth in meters (2 octets)"
+   ]
+  },
+  "200": {
+   "meaning": "entire atmosphere (considered as a single layer)",
+   "contents": [
+    "0 (2 octets)"
+   ]
+  },
+  "201": {
+   "meaning": "entire ocean (considered as a single layer)",
+   "contents": [
+    "0 (2 octets)"
+   ]
+  },
+  "1": {
+   "meaning": "Ground or water surface",
+   "contents": []
+  },
+  "2": {
+   "meaning": "Cloud base level",
+   "contents": []
+  },
+  "3": {
+   "meaning": "Cloud top level",
+   "contents": []
+  },
+  "4": {
+   "meaning": "Level of 0 deg (C) isotherm",
+   "contents": []
+  },
+  "5": {
+   "meaning": "Level of adiabatic condensation lifted from the surface",
+   "contents": []
+  },
+  "6": {
+   "meaning": "Maximum wind level",
+   "contents": []
+  },
+  "7": {
+   "meaning": "Tropopause",
+   "contents": []
+  },
+  "8": {
+   "meaning": "Nominal top of atmosphere",
+   "contents": []
+  },
+  "9": {
+   "meaning": "Sea bottom",
+   "contents": []
+  },
+  "20": {
+   "meaning": "Isothermal level (temperature in 1/100 K in octets 11 and 12)",
+   "contents": []
+  },
+  "204": {
+   "meaning": "Highest tropospheric freezing level",
+   "contents": []
+  },
+  "206": {
+   "meaning": "Grid scale cloud bottom level",
+   "contents": []
+  },
+  "207": {
+   "meaning": "Grid scale cloud top level",
+   "contents": []
+  },
+  "209": {
+   "meaning": "Boundary layer cloud bottom level",
+   "contents": []
+  },
+  "210": {
+   "meaning": "Boundary layer cloud top level",
+   "contents": []
+  },
+  "211": {
+   "meaning": "Boundary layer cloud layer",
+   "contents": []
+  },
+  "212": {
+   "meaning": "Low cloud bottom level",
+   "contents": []
+  },
+  "213": {
+   "meaning": "Low cloud top level",
+   "contents": []
+  },
+  "214": {
+   "meaning": "Low cloud layer",
+   "contents": []
+  },
+  "215": {
+   "meaning": "Cloud ceiling",
+   "contents": []
+  },
+  "216": {
+   "meaning": "Cumulonimbus Base (m)",
+   "contents": []
+  },
+  "217": {
+   "meaning": "Cumulonimbus Top (m)",
+   "contents": []
+  },
+  "220": {
+   "meaning": "Planetary Boundary Layer (derived from Richardson number)",
+   "contents": []
+  },
+  "222": {
+   "meaning": "Middle cloud bottom level",
+   "contents": []
+  },
+  "223": {
+   "meaning": "Middle cloud top level",
+   "contents": []
+  },
+  "224": {
+   "meaning": "Middle cloud layer",
+   "contents": []
+  },
+  "232": {
+   "meaning": "High cloud bottom level",
+   "contents": []
+  },
+  "233": {
+   "meaning": "High cloud top level",
+   "contents": []
+  },
+  "234": {
+   "meaning": "High cloud layer",
+   "contents": []
+  },
+  "235": {
+   "meaning": "Ocean Isotherm Level (1/10 deg C)",
+   "contents": []
+  },
+  "236": {
+   "meaning": "Layer between two depths below ocean surface depth of upper surface (dam) (octet 11) depth of lower surface (dam) (octet 12)",
+   "contents": []
+  },
+  "237": {
+   "meaning": "Bottom of Ocean Mixed Layer (m)",
+   "contents": []
+  },
+  "238": {
+   "meaning": "Bottom of Ocean Isothermal Layer (m)",
+   "contents": []
+  },
+  "239": {
+   "meaning": "Layer Ocean Surface and 26C Ocean Isothermal Level",
+   "contents": []
+  },
+  "240": {
+   "meaning": "Ocean Mixed Layer",
+   "contents": []
+  },
+  "241": {
+   "meaning": "Ordered Sequence of Data",
+   "contents": []
+  },
+  "242": {
+   "meaning": "Convective cloud bottom level",
+   "contents": []
+  },
+  "243": {
+   "meaning": "Convective cloud top level",
+   "contents": []
+  },
+  "244": {
+   "meaning": "Convective cloud layer",
+   "contents": []
+  },
+  "245": {
+   "meaning": "Lowest level of the wet bulb zero",
+   "contents": []
+  },
+  "246": {
+   "meaning": "Maximum equivalent potential temperature level",
+   "contents": []
+  },
+  "247": {
+   "meaning": "Equilibrium level",
+   "contents": []
+  },
+  "248": {
+   "meaning": "Shallow convective cloud bottom level",
+   "contents": []
+  },
+  "249": {
+   "meaning": "Shallow convective cloud top level",
+   "contents": []
+  },
+  "251": {
+   "meaning": "Deep convective cloud bottom level",
+   "contents": []
+  },
+  "252": {
+   "meaning": "Deep convective cloud top level",
+   "contents": []
+  },
+  "253": {
+   "meaning": "Lowest bottom level of supercooled liquid water layer",
+   "contents": []
+  },
+  "254": {
+   "meaning": "Highest top level of supercooled liquid water layer",
+   "contents": []
+  }
+ }
+}
