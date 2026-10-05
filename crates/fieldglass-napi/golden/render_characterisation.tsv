@@ -112,7 +112,7 @@ grib1/j_consecutive_latlon.grib1#00	render/equal_earth/nearest	ok w=720 h=360 op
 grib1/j_consecutive_latlon.grib1#00	render/equirectangular/bilinear	ok w=720 h=450 opaque=324000	a98eb556c37c50f0
 grib1/j_consecutive_latlon.grib1#00	render/equirectangular/nearest	ok w=720 h=450 opaque=324000	0868eaf576462a7e
 grib1/j_consecutive_latlon.grib1#00	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=450 opaque=280	1fc9e4f1728f4e21
-grib1/j_consecutive_latlon.grib1#00	render/equirectangular/nearest+window/conus	ok w=720 h=450 opaque=0	96af6507e4a55692
+grib1/j_consecutive_latlon.grib1#00	render/equirectangular/nearest+window/conus	ok w=720 h=450 opaque=0	ed6a64ef2fdb9e11
 grib1/j_consecutive_latlon.grib1#00	render/equirectangular/nearest+window/world	ok w=720 h=450 opaque=3500	97a71114b82b7ae3
 grib1/j_consecutive_latlon.grib1#00	render/mollweide/bilinear	ok w=720 h=360 opaque=2225	56ab6e779e44afc0
 grib1/j_consecutive_latlon.grib1#00	render/mollweide/nearest	ok w=720 h=360 opaque=2225	37a37b2f3fdd8cc5
@@ -448,7 +448,7 @@ grib2/eta_lambert_msg0.grib2#00	render/equal_earth/bilinear	ok w=720 h=351 opaqu
 grib2/eta_lambert_msg0.grib2#00	render/equal_earth/nearest	ok w=720 h=351 opaque=15118	6e2bb50df71f9ad6
 grib2/eta_lambert_msg0.grib2#00	render/equirectangular/bilinear	ok w=720 h=503 opaque=264754	192917dc53d0101c
 grib2/eta_lambert_msg0.grib2#00	render/equirectangular/nearest	ok w=720 h=503 opaque=264754	91ac07ec05e0fb64
-grib2/eta_lambert_msg0.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=503 opaque=0	393c29a4d0fdb3d6
+grib2/eta_lambert_msg0.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=503 opaque=0	53f7e012971269ff
 grib2/eta_lambert_msg0.grib2#00	render/equirectangular/nearest+window/conus	ok w=720 h=503 opaque=362160	ff58e955b07dca7a
 grib2/eta_lambert_msg0.grib2#00	render/equirectangular/nearest+window/world	ok w=720 h=503 opaque=20758	a2ec66dc31a58c57
 grib2/eta_lambert_msg0.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=13816	f9334d7d6a44dc8e
@@ -627,7 +627,7 @@ grib2/lambert_azimuthal_efas.grib2#00	render/equal_earth/nearest	ok w=720 h=351 
 grib2/lambert_azimuthal_efas.grib2#00	render/equirectangular/bilinear	ok w=720 h=576 opaque=289635	a6f43e1e7b2c0784
 grib2/lambert_azimuthal_efas.grib2#00	render/equirectangular/nearest	ok w=720 h=576 opaque=289635	6a5120f342e03719
 grib2/lambert_azimuthal_efas.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=576 opaque=12363	9884918dbcaa42ac
-grib2/lambert_azimuthal_efas.grib2#00	render/equirectangular/nearest+window/conus	ok w=720 h=576 opaque=0	515b403958bbdaff
+grib2/lambert_azimuthal_efas.grib2#00	render/equirectangular/nearest+window/conus	ok w=720 h=576 opaque=0	b2613013859e08ce
 grib2/lambert_azimuthal_efas.grib2#00	render/equirectangular/nearest+window/world	ok w=720 h=576 opaque=9372	e2f08404498e6d2f
 grib2/lambert_azimuthal_efas.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=4518	eec99aff515bd08f
 grib2/lambert_azimuthal_efas.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=4518	b9cd4fdacbf29b17
@@ -927,13 +927,13 @@ grib2/rotated_latlon_surface.grib2#00	render/equal_earth/bilinear	ok w=720 h=349
 grib2/rotated_latlon_surface.grib2#00	render/equal_earth/nearest	ok w=720 h=349 opaque=8333	bf2bd192645850b9
 grib2/rotated_latlon_surface.grib2#00	render/equirectangular/bilinear	ok w=372 h=720 opaque=90506	7d2013972f15bce2
 grib2/rotated_latlon_surface.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=90506	59eb3189df0c6d00
-grib2/rotated_latlon_surface.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=372 h=720 opaque=0	a59a09a281912fb5
-grib2/rotated_latlon_surface.grib2#00	render/equirectangular/nearest+window/conus	ok w=372 h=720 opaque=0	ac1026276ad54388
+grib2/rotated_latlon_surface.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=372 h=720 opaque=0	feec75e1e4cd6bc6
+grib2/rotated_latlon_surface.grib2#00	render/equirectangular/nearest+window/conus	ok w=372 h=720 opaque=0	9ba9ea03dd35e107
 grib2/rotated_latlon_surface.grib2#00	render/equirectangular/nearest+window/world	ok w=372 h=720 opaque=16715	7eb2bccfa4ed170a
 grib2/rotated_latlon_surface.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=7314	bab911865d6611a1
 grib2/rotated_latlon_surface.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=7314	38c6522fe28aa63e
-grib2/rotated_latlon_surface.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=0	cdb369ce870c6ae0
-grib2/rotated_latlon_surface.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=0	a3a6ef5086fc3321
+grib2/rotated_latlon_surface.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=0	af6aa7db5fb148a3
+grib2/rotated_latlon_surface.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=0	f6e54de07ec3d4ac
 grib2/rotated_latlon_surface.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=18110	2f0d8a0cbf3e58ba
 grib2/rotated_latlon_surface.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=18110	abc9ae5642b542c3
 grib2/rotated_latlon_surface.grib2#00	render/robinson/bilinear	ok w=720 h=366 opaque=10919	a3785a3472c8e945
@@ -992,7 +992,7 @@ grib2/runlength_4bit_regular_latlon.grib2#00	render/equal_earth/nearest	ok w=720
 grib2/runlength_4bit_regular_latlon.grib2#00	render/equirectangular/bilinear	ok w=372 h=720 opaque=202392	fe1b6c11a83fb610
 grib2/runlength_4bit_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=211896	976fccd1b85628ef
 grib2/runlength_4bit_regular_latlon.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=372 h=720 opaque=40872	d3f15ed113345423
-grib2/runlength_4bit_regular_latlon.grib2#00	render/equirectangular/nearest+window/conus	ok w=372 h=720 opaque=0	258a1f46fb2fdd72
+grib2/runlength_4bit_regular_latlon.grib2#00	render/equirectangular/nearest+window/conus	ok w=372 h=720 opaque=0	90dde49db52aa0a9
 grib2/runlength_4bit_regular_latlon.grib2#00	render/equirectangular/nearest+window/world	ok w=372 h=720 opaque=5880	f0a32cb391202943
 grib2/runlength_4bit_regular_latlon.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=5466	4bcc093d64598c21
 grib2/runlength_4bit_regular_latlon.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=5714	d9d64c1589800366
@@ -1159,8 +1159,8 @@ grib2/transverse_mercator_ukv.grib2#00	render/equal_earth/bilinear	ok w=720 h=34
 grib2/transverse_mercator_ukv.grib2#00	render/equal_earth/nearest	ok w=720 h=348 opaque=660	0f1a90e57b34175d
 grib2/transverse_mercator_ukv.grib2#00	render/equirectangular/bilinear	ok w=576 h=720 opaque=343836	d49fb3a73eab631a
 grib2/transverse_mercator_ukv.grib2#00	render/equirectangular/nearest	ok w=576 h=720 opaque=343836	099129e129356b12
-grib2/transverse_mercator_ukv.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=576 h=720 opaque=0	a22e372269276600
-grib2/transverse_mercator_ukv.grib2#00	render/equirectangular/nearest+window/conus	ok w=576 h=720 opaque=0	16e303160565a1db
+grib2/transverse_mercator_ukv.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=576 h=720 opaque=0	614249f33dc0b645
+grib2/transverse_mercator_ukv.grib2#00	render/equirectangular/nearest+window/conus	ok w=576 h=720 opaque=0	e401f4d6f74d0326
 grib2/transverse_mercator_ukv.grib2#00	render/equirectangular/nearest+window/world	ok w=576 h=720 opaque=1370	79ec4dbbb9dc29af
 grib2/transverse_mercator_ukv.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=610	17da9e75f08d4f24
 grib2/transverse_mercator_ukv.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=610	44b103f1ddc2b790
@@ -1264,8 +1264,8 @@ netcdf/goes_geostationary.nc#Rad	render/equal_earth/bilinear	ok w=720 h=360 opaq
 netcdf/goes_geostationary.nc#Rad	render/equal_earth/nearest	ok w=720 h=360 opaque=928	66f09bab7ea93cdd
 netcdf/goes_geostationary.nc#Rad	render/equirectangular/bilinear	ok w=720 h=720 opaque=513608	52be0918a7ea58cf
 netcdf/goes_geostationary.nc#Rad	render/equirectangular/nearest	ok w=720 h=720 opaque=513608	973ac7952ca26c91
-netcdf/goes_geostationary.nc#Rad	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=720 opaque=0	417561d9b27e1061
-netcdf/goes_geostationary.nc#Rad	render/equirectangular/nearest+window/conus	ok w=720 h=720 opaque=0	579a70c6bc8e0cec
+netcdf/goes_geostationary.nc#Rad	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=720 opaque=0	34c938dbad0fe69a
+netcdf/goes_geostationary.nc#Rad	render/equirectangular/nearest+window/conus	ok w=720 h=720 opaque=0	07d893328d7ea40b
 netcdf/goes_geostationary.nc#Rad	render/equirectangular/nearest+window/world	ok w=720 h=720 opaque=1352	1988ef1b9886f312
 netcdf/goes_geostationary.nc#Rad	render/mollweide/bilinear	ok w=720 h=360 opaque=824	1dffec8bee75fdab
 netcdf/goes_geostationary.nc#Rad	render/mollweide/nearest	ok w=720 h=360 opaque=824	ef788bc6b2187ee2
@@ -1521,10 +1521,10 @@ netcdf/hdf5_zstd.h5#zstd_high	meta	family=source ni=8 nj=8 reprojectable=false	4
 netcdf/hdf5_zstd.h5#zstd_high	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#zstd_high	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/mirs_swath_n21.nc	file	parsed=true fields=4	fc2e3c9795c3162b
-netcdf/mirs_swath_n21.nc#RR	combine/a_minus_b/render/source/nearest	ok w=96 h=100 opaque=0	34621fadc8b1f0d0
+netcdf/mirs_swath_n21.nc#RR	combine/a_minus_b/render/source/nearest	ok w=96 h=100 opaque=0	0fc9dd5563def1ab
 netcdf/mirs_swath_n21.nc#RR	meta	family=curvilinear ni=96 nj=100 reprojectable=true	54c051e8344b0783
-netcdf/mirs_swath_n21.nc#RR	render/equirectangular/nearest	ok w=720 h=50 opaque=0	ff8ff0aaa4ba2f21
-netcdf/mirs_swath_n21.nc#RR	render/source/nearest	ok w=96 h=100 opaque=0	34621fadc8b1f0d0
+netcdf/mirs_swath_n21.nc#RR	render/equirectangular/nearest	ok w=720 h=50 opaque=0	af989a79142eb996
+netcdf/mirs_swath_n21.nc#RR	render/source/nearest	ok w=96 h=100 opaque=0	0fc9dd5563def1ab
 netcdf/mirs_swath_n21.nc#SIce	combine/a_minus_b/render/source/nearest	ok w=96 h=100 opaque=175	192a7127a74e5f4d
 netcdf/mirs_swath_n21.nc#SIce	meta	family=curvilinear ni=96 nj=100 reprojectable=true	54c051e8344b0783
 netcdf/mirs_swath_n21.nc#SIce	render/equirectangular/nearest	ok w=720 h=50 opaque=357	0fc428dea8621de8
@@ -1576,15 +1576,15 @@ netcdf/mirs_swath_n21.nc#TPW	render/equal_earth/bilinear	ok w=720 h=351 opaque=2
 netcdf/mirs_swath_n21.nc#TPW	render/equal_earth/nearest	ok w=720 h=351 opaque=2266	69c33f043e10163f
 netcdf/mirs_swath_n21.nc#TPW	render/equirectangular/bilinear	ok w=720 h=50 opaque=14146	fa501d3552f3c71c
 netcdf/mirs_swath_n21.nc#TPW	render/equirectangular/nearest	ok w=720 h=50 opaque=14146	fa501d3552f3c71c
-netcdf/mirs_swath_n21.nc#TPW	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=482 opaque=0	134c0112f921703a
-netcdf/mirs_swath_n21.nc#TPW	render/equirectangular/nearest+window/conus	ok w=720 h=302 opaque=0	a5ac572763089f2b
+netcdf/mirs_swath_n21.nc#TPW	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=482 opaque=0	357ad30487c58695
+netcdf/mirs_swath_n21.nc#TPW	render/equirectangular/nearest+window/conus	ok w=720 h=302 opaque=0	7e099580e5430760
 netcdf/mirs_swath_n21.nc#TPW	render/equirectangular/nearest+window/world	ok w=720 h=360 opaque=13394	aa1cbf266c2a208c
 netcdf/mirs_swath_n21.nc#TPW	render/mollweide/bilinear	ok w=720 h=360 opaque=1893	a2de3edf8fcb5335
 netcdf/mirs_swath_n21.nc#TPW	render/mollweide/nearest	ok w=720 h=360 opaque=1893	a2de3edf8fcb5335
 netcdf/mirs_swath_n21.nc#TPW	render/orthographic/bilinear	ok w=720 h=720 opaque=671	da8a6fd1e434a6a7
 netcdf/mirs_swath_n21.nc#TPW	render/orthographic/nearest	ok w=720 h=720 opaque=671	da8a6fd1e434a6a7
-netcdf/mirs_swath_n21.nc#TPW	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=0	a880d3c2353652d3
-netcdf/mirs_swath_n21.nc#TPW	render/polar_stereographic/nearest	ok w=720 h=720 opaque=0	a880d3c2353652d3
+netcdf/mirs_swath_n21.nc#TPW	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=0	2224db17d1fa56f4
+netcdf/mirs_swath_n21.nc#TPW	render/polar_stereographic/nearest	ok w=720 h=720 opaque=0	2224db17d1fa56f4
 netcdf/mirs_swath_n21.nc#TPW	render/robinson/bilinear	ok w=720 h=365 opaque=4998	fbd3854d0e878905
 netcdf/mirs_swath_n21.nc#TPW	render/robinson/nearest	ok w=720 h=365 opaque=4998	fbd3854d0e878905
 netcdf/mirs_swath_n21.nc#TPW	render/source/bilinear	ok w=96 h=100 opaque=9600	f7c9982b1e14de00
@@ -1635,30 +1635,30 @@ netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/source/nearest	ok w=4 h=3 opa
 netcdf/netcdf4_hdf5_dummy.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf4_unsupported_type.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf_classic_dummy.nc	file	parsed=true fields=6	fc2e3e9795c31991
-netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
+netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
 netcdf/netcdf_classic_dummy.nc#AGC_1202	meta	family=source ni=8 nj=0 reprojectable=false	63b57d91918e0032
 netcdf/netcdf_classic_dummy.nc#AGC_1202	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#AGC_1202	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
-netcdf/netcdf_classic_dummy.nc#CD_310	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
+netcdf/netcdf_classic_dummy.nc#AGC_1202	render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
+netcdf/netcdf_classic_dummy.nc#CD_310	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
 netcdf/netcdf_classic_dummy.nc#CD_310	meta	family=source ni=8 nj=0 reprojectable=false	63b57d91918e0032
 netcdf/netcdf_classic_dummy.nc#CD_310	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#CD_310	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
-netcdf/netcdf_classic_dummy.nc#CS_300	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
+netcdf/netcdf_classic_dummy.nc#CD_310	render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
+netcdf/netcdf_classic_dummy.nc#CS_300	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
 netcdf/netcdf_classic_dummy.nc#CS_300	meta	family=source ni=8 nj=0 reprojectable=false	63b57d91918e0032
 netcdf/netcdf_classic_dummy.nc#CS_300	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#CS_300	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
-netcdf/netcdf_classic_dummy.nc#u_1205	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
+netcdf/netcdf_classic_dummy.nc#CS_300	render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
+netcdf/netcdf_classic_dummy.nc#u_1205	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
 netcdf/netcdf_classic_dummy.nc#u_1205	meta	family=source ni=8 nj=0 reprojectable=false	63b57d91918e0032
 netcdf/netcdf_classic_dummy.nc#u_1205	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#u_1205	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
-netcdf/netcdf_classic_dummy.nc#v_1206	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
+netcdf/netcdf_classic_dummy.nc#u_1205	render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
+netcdf/netcdf_classic_dummy.nc#v_1206	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
 netcdf/netcdf_classic_dummy.nc#v_1206	meta	family=source ni=8 nj=0 reprojectable=false	63b57d91918e0032
 netcdf/netcdf_classic_dummy.nc#v_1206	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#v_1206	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
-netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
+netcdf/netcdf_classic_dummy.nc#v_1206	render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
+netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
 netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=source ni=8 nj=0 reprojectable=false	63b57d91918e0032
 netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	ok w=8 h=0 opaque=0	448cff97d855582f
+netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
 netcdf/oisst_avhrr_v2.nc	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/oisst_avhrr_v2.nc#ice	combine/a_minus_b/render/source/nearest	ok w=32 h=32 opaque=540	edf3a76c72bfedbc
 netcdf/oisst_avhrr_v2.nc#ice	meta	family=latlon ni=32 nj=32 reprojectable=true	7f1ffa1ea934f164
@@ -1784,8 +1784,8 @@ netcdf/wrf_mercator.nc#T2	render/equal_earth/bilinear	ok w=720 h=360 opaque=5	f5
 netcdf/wrf_mercator.nc#T2	render/equal_earth/nearest	ok w=720 h=360 opaque=5	80e458d3410643a3
 netcdf/wrf_mercator.nc#T2	render/equirectangular/bilinear	ok w=720 h=600 opaque=432000	3432f8e0c88b7488
 netcdf/wrf_mercator.nc#T2	render/equirectangular/nearest	ok w=720 h=600 opaque=432000	2736a4e62ecc70bd
-netcdf/wrf_mercator.nc#T2	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=600 opaque=0	643a1a57a1b8d4c7
-netcdf/wrf_mercator.nc#T2	render/equirectangular/nearest+window/conus	ok w=720 h=600 opaque=0	1522f1855132daea
+netcdf/wrf_mercator.nc#T2	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=600 opaque=0	4389a63d5dbb7b14
+netcdf/wrf_mercator.nc#T2	render/equirectangular/nearest+window/conus	ok w=720 h=600 opaque=0	aaacfe121d9b9e4d
 netcdf/wrf_mercator.nc#T2	render/equirectangular/nearest+window/world	ok w=720 h=600 opaque=9	3b4f70c198cc6c24
 netcdf/wrf_mercator.nc#T2	render/mollweide/bilinear	ok w=720 h=360 opaque=6	00af0a1722051e95
 netcdf/wrf_mercator.nc#T2	render/mollweide/nearest	ok w=720 h=360 opaque=6	08065ebea796a55c

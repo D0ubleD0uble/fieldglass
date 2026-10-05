@@ -1708,6 +1708,9 @@ export function renderImagePanelHtml(
         function requestVectors() {
           if (!lastPayload || !vectorsEnabled()) {
             lastVectors = null;
+            // No arrows, so no key for them (#871).
+            const scale = document.getElementById('vector-scale');
+            if (scale) scale.textContent = '';
             drawOverlay();
             return;
           }
@@ -2306,7 +2309,9 @@ export function renderImagePanelHtml(
           if (!raster) { setStatus('Export failed: no image.'); return; }
           const W = lastPayload.width, H = lastPayload.height;
           const margin = 14, titleH = SUB_LINE ? 46 : 30, gap = 16, cbW = 18, labelW = 64;
-          const mapBlockW = margin + W + gap + cbW + labelW + margin;
+          // No colour bar for a field with no range (#871), so no room for one.
+          const hasRange = lastPayload.usedMin != null && lastPayload.usedMax != null;
+          const mapBlockW = margin + W + (hasRange ? gap + cbW + labelW : 0) + margin;
           // Measure the header with the exact fonts fillText will use below;
           // the title is bold 18px and the subtitle 12px.
           let headerW = 0;
@@ -2346,10 +2351,10 @@ export function renderImagePanelHtml(
           }
           // Colorbar: gradient (bottom = min, top = max) + min/mid/max labels.
           // Left off when the field had no values to take a range from (#871).
-          if (lastPayload && lastPayload.usedMin != null && lastPayload.usedMax != null) try {
+          try {
             const name = (document.getElementById('picker-colormap') || {}).value;
             const entry = COLORMAPS.find((c) => c.name === name) || COLORMAPS[0];
-            if (entry) {
+            if (entry && hasRange) {
               const rev = !!(document.getElementById('reverse-colormap')
                 && document.getElementById('reverse-colormap').checked);
               const stops = rev ? entry.stops.slice().reverse() : entry.stops;
