@@ -695,8 +695,9 @@ fn dtype_name(element_type: &ElementType) -> String {
 ///
 /// See [`Session::decode_line`] for the meaning of every argument and the
 /// errors, with one difference: an array this source does not list as renderable
-/// is [`Error::NoSuchMessage`] with `index` 0, since there is no position to
-/// report.
+/// is [`Error::InvalidOption`] naming it, as an axis it does not have is. It is
+/// not [`Error::NoSuchMessage`], which is about a position, and a name has none
+/// to report (#872).
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 pub fn line_through(
     source: &dyn ArraySource,
@@ -709,10 +710,7 @@ pub fn line_through(
     let var = vars
         .iter()
         .find(|v| v.name == array)
-        .ok_or(Error::NoSuchMessage {
-            index: 0,
-            count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
-        })?;
+        .ok_or_else(|| no_such_array(array, vars.len()))?;
     let rank = var.dims.len();
     let along = along_dim as usize;
     if along >= rank {
@@ -785,7 +783,8 @@ pub fn line_through(
 ///
 /// # Errors
 ///
-/// An array this source does not list as renderable, or a `dim` outside its
+/// [`Error::InvalidOption`] for an array this source does not list as
+/// renderable, named as [`line_through`] names it, or for a `dim` outside its
 /// axes. A coordinate array that fails to read is not an error — the axis comes
 /// back without coordinates, which is the same answer as having none, because
 /// an axis a host cannot label is still an axis it can draw.
@@ -795,10 +794,7 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
     let var = vars
         .iter()
         .find(|v| v.name == array)
-        .ok_or(Error::NoSuchMessage {
-            index: 0,
-            count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
-        })?;
+        .ok_or_else(|| no_such_array(array, vars.len()))?;
     let axis = var.dims.get(dim as usize).ok_or(Error::InvalidOption {
         detail: format!(
             "`{}` has {} dimensions, so dim {dim} is outside them",
@@ -815,6 +811,18 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
         length: axis.length,
         coordinates,
     })
+}
+
+/// The refusal for an array name `line_through` and `axis_values` do not find
+/// among the renderable ones. The name is the caller's own argument, so it is
+/// reported back, beside how many arrays there were to choose from.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn no_such_array(array: &str, renderable: usize) -> Error {
+    Error::InvalidOption {
+        detail: format!(
+            "no renderable array is named `{array}`; the source lists {renderable} renderable arrays"
+        ),
+    }
 }
 
 /// The coordinate values of an axis, from the 1-D array CF names after it

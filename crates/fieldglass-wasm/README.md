@@ -129,7 +129,9 @@ Treat the Worker as disposable and start another.
 
 Every failure throws a JS `Error` with a stable `code` property —
 `unsupported_format`, `decode`, `no_such_message`, `unsupported`,
-`invalid_option`. Branch on `code`; the `message` is prose and may be reworded.
+`wrong_addressing`, `invalid_option`. Branch on `code`; the `message` is prose
+and may be reworded. (`short_read` is a code too, but only a ranged source
+produces it, and this binding opens from a buffer.)
 
 ## Values first, pixels second
 
