@@ -306,12 +306,19 @@ declares (#823), added 429 raw bytes and 236 gzipped to the baseline build,
 and 429 and 162 to `+simd128`, measured with binaryen 132 against a build of #832's merge on the
 same machine, which itself measured exactly the figures recorded before it.
 
+Folding `Georef`'s origin, step and units into one nullable `affine` (#870)
+added 193 raw bytes and 172 gzipped to the baseline build, and 197 and 194 to
+`+simd128`, measured with binaryen 132 against a build of #877's merge on the
+same machine. That build was itself 5,342 raw bytes and 560 gzipped above the
+figures recorded before it, from merges that did not re-record the table, so
+the table now records the measured build rather than adding to a stale one.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,529,521 | 583,415 |
-| `+simd128` | 1,513,584 | 577,320 |
+| baseline | 1,535,056 | 584,147 |
+| `+simd128` | 1,519,161 | 579,864 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

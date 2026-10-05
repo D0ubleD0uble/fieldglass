@@ -1262,8 +1262,9 @@ impl Georef {
         // One question, asked of `core`: a family that has a plane reports its
         // origin and step in that plane's own units, and one that has none (a
         // list of cell centres, an unmodelled grid) reports nothing, units
-        // included, rather than a plausible-looking zero (#870). A rotated lat/lon grid has a plane —
-        // its own rotated frame, measured in degrees — so it reports one.
+        // included, rather than a plausible-looking zero (#870). A rotated
+        // lat/lon grid has a plane — its own rotated frame, measured in
+        // degrees — so it reports one.
         let affine = geom.plane_affine().map(|a| Affine {
             x0: a.x0,
             y0: a.y0,
