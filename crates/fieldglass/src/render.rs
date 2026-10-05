@@ -270,10 +270,12 @@ pub struct Source<'a> {
     /// What to call the family in a picker caption.
     ///
     /// The decoder's own name, which the geometry deliberately collapses: a
-    /// reduced grid arrives widened to its regular sibling and a 2-D coordinate
-    /// grid is a [`GridGeometry::Lookup`], so `geometry.label()` would name a
-    /// different family than the message declares. It is also what a refusal
-    /// quotes, so `reprojection not yet supported for grid type "healpix"` says
+    /// reduced grid arrives widened to its regular sibling, so
+    /// `geometry.label()` would name a different family than the message
+    /// declares. (A 2-D coordinate grid is a [`GridGeometry::Lookup`], whose
+    /// label is already the decoder's `curvilinear`, #808.) It is also what a
+    /// refusal quotes, so `reprojection not yet supported for grid type
+    /// "healpix"` says
     /// the grid the file named — unless the geometry is one this build does not
     /// place, whose own label is quoted instead, since a host may caption such a
     /// raster with a family name the refusal would contradict.
