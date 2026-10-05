@@ -22755,6 +22755,82 @@
       }
     },
     {
+      "id": "spectral_truncated/full_detail",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t383.grib2",
+      "op": "fullDetail",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.5,
+        "lon": 120.0,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null
+      },
+      "expect": {
+        "truncation": {
+          "declared": 383,
+          "truncatedTo": 359
+        },
+        "value": 318.3964243314801
+      }
+    },
+    {
+      "id": "spectral_truncated/full_detail_south_west",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t383.grib2",
+      "op": "fullDetail",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -30.0,
+        "lon": -0.5,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null
+      },
+      "expect": {
+        "truncation": {
+          "declared": 383,
+          "truncatedTo": 359
+        },
+        "value": 330.3755425174581
+      }
+    },
+    {
       "id": "spectral/probe_message",
       "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
       "op": "probeMessage",
@@ -22792,6 +22868,38 @@
         "lon": 120.0,
         "value": 287.10102033969326
       }
+    },
+    {
+      "id": "spectral/full_detail",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "fullDetail",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.5,
+        "lon": 120.0,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null
+      },
+      "expect": null
     },
     {
       "id": "palette/colormap_table",

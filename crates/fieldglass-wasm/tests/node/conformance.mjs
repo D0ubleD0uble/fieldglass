@@ -290,6 +290,14 @@ function withHandle(caseSpec, handle) {
     return wire(p, `${current}: probeMessage`);
   }
 
+  // The full-detail value alone (#818): `Handle.fullDetail(index, lat, lon)`,
+  // which nothing else drives. `wire` refuses an `undefined` where the suite
+  // records `null`, and the recorded points are not symmetric under a swap.
+  if (op === 'fullDetail') {
+    const d = handle.fullDetail(args.index, args.lat ?? 0, args.lon ?? 0);
+    return wire(d, `${current}: fullDetail`);
+  }
+
   // Everything else decodes first. The field is owned by this side, so it is
   // freed as soon as the observation is built.
   const field = handle.decode(args.index, decodeOptions(args));

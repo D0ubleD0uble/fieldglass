@@ -132,6 +132,13 @@ pub enum Op {
     /// [`Args::lon`]: the decoded field's value at a point and, for a
     /// band-limited spectral message, the full-detail value beside it (#637).
     ProbeMessage,
+    /// [`Session::probe_full_detail`], with [`Args::index`], [`Args::lat`] and
+    /// [`Args::lon`]: the full-detail value alone, `null` for every message but
+    /// a band-limited spectral one, and off the grid (#637, #818). A host binds
+    /// it separately from `probe_message` (the browser's `fullDetail`), so it
+    /// is a case of its own: a binding that swapped the point's axes, or
+    /// answered `undefined` for `null`, would otherwise pass.
+    FullDetail,
     /// [`Session::contours`].
     Contours,
     /// [`Session::combine`].
@@ -701,6 +708,32 @@ pub fn cases() -> Vec<Case> {
                 ..Args::default()
             },
         ),
+        // The full-detail value at the same node, asked for on its own. The
+        // point is not symmetric under a swap: latitude 120 is off the grid,
+        // so a binding that passed `(lon, lat)` answers `null` here.
+        (
+            "spectral_truncated/full_detail",
+            Op::FullDetail,
+            Args {
+                lat: Some(45.5),
+                lon: Some(120.0),
+                ..Args::default()
+            },
+        ),
+        // A second node, in the southern hemisphere and just west of the
+        // meridian, so a sign or wrap error in either coordinate lands on
+        // another cell. It is one of the points
+        // `spectral_simple_t383.truncation.oracle.json` evaluates independently
+        // (as longitude 359.5), so the recording has an oracle beside it.
+        (
+            "spectral_truncated/full_detail_south_west",
+            Op::FullDetail,
+            Args {
+                lat: Some(-30.0),
+                lon: Some(-0.5),
+                ..Args::default()
+            },
+        ),
     ] {
         out.push(Case {
             id: id.to_string(),
@@ -710,17 +743,23 @@ pub fn cases() -> Vec<Case> {
         });
     }
     // And below the limit, where `probe_message` is `probe` of the decoded
-    // field with no second value.
-    out.push(Case {
-        id: "spectral/probe_message".to_string(),
-        fixture: format!("{G2}spectral_simple_t63.grib2"),
-        op: Op::ProbeMessage,
-        args: Args {
-            lat: Some(45.5),
-            lon: Some(120.0),
-            ..Args::default()
-        },
-    });
+    // field with no second value, and `full_detail` is `null`: the field
+    // already holds every wavenumber the file does.
+    for (id, op) in [
+        ("spectral/probe_message", Op::ProbeMessage),
+        ("spectral/full_detail", Op::FullDetail),
+    ] {
+        out.push(Case {
+            id: id.to_string(),
+            fixture: format!("{G2}spectral_simple_t63.grib2"),
+            op,
+            args: Args {
+                lat: Some(45.5),
+                lon: Some(120.0),
+                ..Args::default()
+            },
+        });
+    }
 
     let latlon = format!("{G2}regular_latlon_surface.grib2");
     for (id, op) in [
@@ -1307,6 +1346,11 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             value_of(&probe)
         }
         Op::ProbeMessage => value_of(&session.probe_message(
+            case.args.index,
+            case.args.lat.unwrap_or(0.0),
+            case.args.lon.unwrap_or(0.0),
+        )?),
+        Op::FullDetail => value_of(&session.probe_full_detail(
             case.args.index,
             case.args.lat.unwrap_or(0.0),
             case.args.lon.unwrap_or(0.0),

@@ -53,10 +53,12 @@
 //! lead time, identification and grid) are held to the recording through this
 //! binding too, where before only direct host-to-host tests pinned them.
 //!
-//! `warp`, `palette`, `probe`, `probe_message` and `contours` are **not**
+//! `warp`, `palette`, `probe`, `probe_message`, `full_detail` and `contours`
+//! are **not**
 //! compared, and each for a reason that is a task rather than an oversight:
 //!
-//! * `probe` and `probe_message` — napi probes an output *pixel*; the suite
+//! * `probe`, `probe_message` and `full_detail` — napi probes an output
+//!   *pixel*; the suite
 //!   probes a geographic point. Two different questions, not two answers to
 //!   one.
 //! * `warp`, `palette`, `contours`, `combine` — napi exposes no operation with
@@ -120,6 +122,10 @@ const SKIPPED: &[(Op, &str)] = &[
         Op::ProbeMessage,
         "napi probes a pixel, the suite probes a point; its two-value spectral probe \
          (#637) is pinned by `lib.rs` tests and the characterisation golden's T383 rows",
+    ),
+    (
+        Op::FullDetail,
+        "napi probes a pixel, the suite probes a point; its full-detail value rides          on the pixel probe, pinned with `ProbeMessage`'s",
     ),
     (
         Op::Contours,
@@ -466,7 +472,13 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
         // `COMPARED` gates the entry, so nothing else reaches here. Written as
         // an explicit arm rather than a wildcard so that adding an op to
         // `COMPARED` without adding its adapter fails to compile.
-        Op::Warp | Op::Palette | Op::Probe | Op::ProbeMessage | Op::Contours | Op::Combine => None,
+        Op::Warp
+        | Op::Palette
+        | Op::Probe
+        | Op::ProbeMessage
+        | Op::FullDetail
+        | Op::Contours
+        | Op::Combine => None,
     }
 }
 
