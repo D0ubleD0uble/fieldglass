@@ -145,7 +145,9 @@ pub use api::{
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};
 #[cfg(feature = "analysis")]
-pub use combine::{CombineOp, combine_cell, combine_ops, combine_values, op_from_wire};
+pub use combine::{
+    CombineOp, combine_cell, combine_ops, combine_truncation, combine_values, op_from_wire,
+};
 pub use error::Error;
 /// Pixel-space runs, which `render::overlay_polylines` and
 /// `render::contour_polylines` return — named so a host can take the return

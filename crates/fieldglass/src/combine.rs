@@ -36,7 +36,7 @@
 
 use fieldglass_core::combine_fields;
 
-use crate::api::{CombineOpInfo, Field, Stats, Values};
+use crate::api::{CombineOpInfo, Field, SpectralTruncation, Stats, Values};
 use crate::error::Error;
 use crate::render::Source;
 
@@ -138,6 +138,25 @@ pub fn combine_values(
     Ok(combine_fields(values_a, values_b, op))
 }
 
+/// The band-limit label a combine of two fields carries (#637).
+///
+/// Either operand band-limited makes the result band-limited, so it carries a
+/// label whenever one does: the one that removed more (the larger `declared`),
+/// since that is the one a host has to warn about. A host that combines two
+/// fields itself — a render or a probe of a difference map — labels the result
+/// with this, so the label agrees with the one [`crate::Session::combine`]
+/// puts on [`Field::truncation`].
+#[must_use]
+pub fn combine_truncation(
+    a: Option<SpectralTruncation>,
+    b: Option<SpectralTruncation>,
+) -> Option<SpectralTruncation> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(if y.declared > x.declared { y } else { x }),
+        (x, y) => x.or(y),
+    }
+}
+
 /// [`crate::Session::combine`]'s body, over the API DTO.
 pub(crate) fn combine_api_fields(a: &Field, b: &Field, op: CombineOp) -> Result<Field, Error> {
     // The same gate the low seam runs, asked through the same function: a
@@ -186,13 +205,7 @@ pub(crate) fn combine_api_fields(a: &Field, b: &Field, op: CombineOp) -> Result<
         ni: a.ni,
         nj: a.nj,
         georef: a.georef.clone(),
-        // Either operand band-limited makes the result band-limited, so it
-        // carries a label whenever one does: the one that removed more, since
-        // that is the one a host has to warn about (#637).
-        truncation: match (a.truncation.clone(), b.truncation.clone()) {
-            (Some(x), Some(y)) => Some(if y.declared > x.declared { y } else { x }),
-            (x, y) => x.or(y),
-        },
+        truncation: combine_truncation(a.truncation.clone(), b.truncation.clone()),
         stats: Stats {
             min: (valid_count > 0).then_some(min),
             max: (valid_count > 0).then_some(max),
@@ -225,6 +238,23 @@ fn source_of(f: &Field) -> Source<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Either side's label survives a combine, and of two the larger
+    /// declaration wins whichever side it is on (#637, #814).
+    #[test]
+    fn a_combine_keeps_the_label_that_removed_more() {
+        let t = |declared, truncated_to| {
+            Some(SpectralTruncation {
+                declared,
+                truncated_to,
+            })
+        };
+        assert_eq!(combine_truncation(None, None), None);
+        assert_eq!(combine_truncation(t(383, 359), None), t(383, 359));
+        assert_eq!(combine_truncation(None, t(383, 359)), t(383, 359));
+        assert_eq!(combine_truncation(t(383, 359), t(7999, 359)), t(7999, 359));
+        assert_eq!(combine_truncation(t(7999, 359), t(383, 359)), t(7999, 359));
+    }
     use crate::align::{describe, same_grid};
     use crate::api::{Georef, Scan};
     use fieldglass_core::{GridGeometry, LambertParams, LatLonParams};
