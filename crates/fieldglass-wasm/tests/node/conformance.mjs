@@ -500,7 +500,7 @@ if (missingCodes.length) {
     const wanted = [
       [info.grid, 'boundsLonlat'],
       [info.grid, 'corners'],
-      [info.grid, 'x0'],
+      [info.grid, 'affine'],
     ];
     for (const [object, key] of wanted) {
       if (!(key in object) || object[key] !== null) {

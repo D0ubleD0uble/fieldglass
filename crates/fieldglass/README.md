@@ -41,13 +41,15 @@ non-zero, making the quantum a negative power of ten — the ordinals fitting an
 `R32F` texture regardless asks for `Dtype::F32` and gets the loss it chose.
 
 **`Georef` carries both halves of the placement.** A CRS it can name (`proj4`)
-and an affine placing the raster in that CRS (`x0`, `y0`, `dx`, `dy`), in
+and an `affine` placing the raster in that CRS (`x0`, `y0`, `dx`, `dy`), in
 degrees for the geographic families and projection-plane metres for the
-projected ones. `axisUnits` says which, and it is the CRS that says what the
+projected ones. Its `units` says which, and it is the CRS that says what the
 degrees are degrees *of* — a rotated lat/lon grid reports degrees too, in its
 own rotated frame. A family that cannot state something says `None` rather than
 guessing — a Gaussian grid's rows are Gauss–Legendre nodes, so its `dy` is
-absent, and inventing a mean one would misplace every row but the middle.
+absent, and inventing a mean one would misplace every row but the middle. A
+grid with no plane, such as spectral coefficients, has no `affine` at all, and
+so no units.
 
 ## Colour is decided once, here
 

@@ -15,12 +15,55 @@
         }
       ]
     },
+    "Affine": {
+      "description": "Where a grid's raster sits in the plane [`Georef::proj4`] names: the\nfirst scanned point's cell centre, the step from it along each axis,\nand the units all four are measured in.\n\nOne object rather than five sibling fields so that they cannot disagree\n(#870). A grid with no plane has no affine at all, and so no units; it\ndoes not report \"degrees\" beside a missing origin.",
+      "properties": {
+        "dx": {
+          "description": "Signed step between columns. `None` for an axis with no constant\nstep, such as a single column.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "dy": {
+          "description": "Signed step between rows. Negative for the usual north-to-south\nscan, so `y0 + j * dy` walks the rows as stored. `None` for a\nGaussian grid, whose rows are not uniformly spaced: inventing a mean\nstep would misplace every row but the middle.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "units": {
+          "$ref": "#/$defs/AxisUnits",
+          "description": "What `x0` / `y0` / `dx` / `dy` are measured in."
+        },
+        "x0": {
+          "description": "Plane coordinate of the first grid point's cell centre, along the\ncolumn axis.",
+          "format": "double",
+          "type": "number"
+        },
+        "y0": {
+          "description": "Plane coordinate of the first grid point's cell centre, along the\nrow axis.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "dx",
+        "dy",
+        "units"
+      ],
+      "type": "object"
+    },
     "AxisUnits": {
-      "description": "Units the [`Georef`] origin and spacing are expressed in.",
+      "description": "Units an [`Affine`] origin and spacing are expressed in.",
       "oneOf": [
         {
           "const": "degrees",
-          "description": "Degrees **in the plane [`Georef::proj4`] names**, which for\n`latlon`, `gaussian` and `lookup` is geographic — `x0`/`dx` are\nlongitudes, `y0`/`dy` latitudes.\n\n`rotated_latlon` also reports degrees, and they are **not**\ngeographic: its CRS is a PROJ `ob_tran` and its corners are\nrotated-frame coordinates, which is the whole reason the frame is\nnamed. A host that read them as longitude and latitude would put a\nCOSMO domain in the Sahara. The unit is not enough on its own; the\nCRS beside it is what says what the degrees measure.",
+          "description": "Degrees **in the plane [`Georef::proj4`] names**, which for\n`latlon` and `gaussian` is geographic — `x0`/`dx` are longitudes,\n`y0`/`dy` latitudes.\n\n`rotated_latlon` also reports degrees, and they are **not**\ngeographic: its CRS is a PROJ `ob_tran` and its corners are\nrotated-frame coordinates, which is the whole reason the frame is\nnamed. A host that read them as longitude and latitude would put a\nCOSMO domain in the Sahara. The unit is not enough on its own; the\nCRS beside it is what says what the degrees measure.",
           "type": "string"
         },
         {
@@ -396,11 +439,18 @@
       "type": "object"
     },
     "Georef": {
-      "description": "Where a decoded field sits on the Earth, flattened to scalars.\n\nA browser map library needs two things and this carries both: a CRS it\ncan name ([`proj4`](Self::proj4)) and an affine placing the raster in\nthat CRS (`x0`, `y0`, `dx`, `dy`). Everything is `Option` because a\nfamily that cannot state it says so rather than guessing — a Gaussian\ngrid's rows are not uniformly spaced, so its `dy` is absent, and a grid\nthis build does not model has none of it.",
+      "description": "Where a decoded field sits on the Earth, flattened to what a host reads.\n\nA browser map library needs two things and this carries both: a CRS it\ncan name ([`proj4`](Self::proj4)) and an [`affine`](Self::affine)\nplacing the raster in that CRS. Everything is `Option` because a family\nthat cannot state it says so rather than guessing, and a grid this build\ndoes not model has none of it.",
       "properties": {
-        "axisUnits": {
-          "$ref": "#/$defs/AxisUnits",
-          "description": "What `x0` / `y0` / `dx` / `dy` are measured in."
+        "affine": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Affine"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the raster sits in the [`proj4`](Self::proj4) plane. `None`\nfor a family with no plane — a list of cell centres, spectral\ncoefficients, HEALPix, a template this build does not model — and\nfor a grid whose plane states no extent to place it in."
         },
         "boundsLonlat": {
           "description": "`[lat_min, lat_max, lon_min, lon_max]` in degrees. `lon_min` may\nfall below -180 (or `lon_max` above 180) to describe a window\nspanning the antimeridian; do not normalise it into range without\ncollapsing the span.",
@@ -428,25 +478,9 @@
             "null"
           ]
         },
-        "dx": {
-          "description": "Signed step between columns, in [`Georef::axis_units`].",
-          "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "dy": {
-          "description": "Signed step between rows. Negative for the usual north-to-south\nscan, so `y0 + j * dy` walks the rows as stored.",
-          "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
-        },
         "geometry": {
           "additionalProperties": true,
-          "description": "The grid itself, as `core` models it.\n\nThe scalars below are a flattened *view* of this, which is what a\nhost reads; this field is what the engine needs back to place a\npoint — `warp`, `probe`, and `contours` all invert through it, and\nthe inverse is a projection, not something four scalars reconstruct.\nKeeping the two together means a field carries everything an\noperation on it needs, which is the whole point of the host owning\nthe memory. It serialises, so a `Field` still survives a JSON round\ntrip whole.\n\n`core` does not derive `JsonSchema` (it is a decode-side crate and\nthe derive would follow it everywhere), so under the `schema`\nfeature this field is described as the tagged object it serialises\nto. A generated `.d.ts` types it loosely and a host does not read it.",
+          "description": "The grid itself, as `core` models it.\n\nThe fields below are a flattened *view* of this, which is what a\nhost reads; this field is what the engine needs back to place a\npoint — `warp`, `probe`, and `contours` all invert through it, and\nthe inverse is a projection, not something four scalars reconstruct.\nKeeping the two together means a field carries everything an\noperation on it needs, which is the whole point of the host owning\nthe memory. It serialises, so a `Field` still survives a JSON round\ntrip whole.\n\n`core` does not derive `JsonSchema` (it is a decode-side crate and\nthe derive would follow it everywhere), so under the `schema`\nfeature this field is described as the tagged object it serialises\nto. A generated `.d.ts` types it loosely and a host does not read it.",
           "properties": {
             "kind": {
               "type": "string"
@@ -534,22 +568,6 @@
             "jConsecutive"
           ],
           "type": "object"
-        },
-        "x0": {
-          "description": "Plane coordinate of the first grid point's cell centre, along the\ncolumn axis. `None` when the family has no affine.",
-          "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "y0": {
-          "description": "Plane coordinate of the first grid point's cell centre, along the\nrow axis.",
-          "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
         }
       },
       "required": [
@@ -564,11 +582,7 @@
         "reprojectable",
         "pointsPerRow",
         "proj4",
-        "axisUnits",
-        "x0",
-        "y0",
-        "dx",
-        "dy",
+        "affine",
         "periodicX",
         "scan"
       ],
