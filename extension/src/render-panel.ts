@@ -588,7 +588,8 @@ export function composeTitleLine(meta: Pick<PanelField, "index" | "parameter" | 
  *  message declares (#637): `"shown at T359 of T7999"`, or `null` when the map
  *  carries every wavenumber the file holds. Goes in the subtitle, which the PNG
  *  export also draws, so the note travels with the picture. The numbers are
- *  Rust's (`MessageInfo.truncation`). */
+ *  Rust's: `MessageInfo.truncation` for the panel a field opens on, and the
+ *  rendered map's own `RenderedGrid.truncation` for every render after. */
 export function composeTruncationNote(meta: Pick<PanelField, "truncation">): string | null {
   const t = meta.truncation;
   return t != null ? `shown at T${t.truncatedTo} of T${t.declared}` : null;

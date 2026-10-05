@@ -300,6 +300,8 @@ suite("Compare map band-limit label (#814)", () => {
       );
     } finally {
       editor.dispose();
+      doc.dispose();
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 
@@ -323,7 +325,14 @@ suite("Compare map band-limit label (#814)", () => {
       fs.readFileSync(path.join(fixtures, "spectral_simple_t383.grib2"))).message(0);
     const html = renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, meta, "summary", [], []);
     assert.ok(html.includes("function composeSubtitle("), "the panel script defines composeSubtitle");
-    assert.match(html, /SUB_LINE = composeSubtitle\(SUB_BASE, msg\.truncationNote \?\? null\)/);
+    // Unconditional: at the handler's own indentation, not inside an `if`,
+    // which would keep a label only field B carried after Compare is off.
+    const handler = /\n( *)function handleGridReady\(msg\) \{\n( *)lastPayload = msg;/.exec(html);
+    assert.ok(handler, "the panel script defines handleGridReady");
+    assert.ok(
+      html.includes("\n" + handler[2] + "SUB_LINE = composeSubtitle(SUB_BASE, msg.truncationNote ?? null);\n"),
+      "handleGridReady recomposes SUB_LINE on every render, null included",
+    );
     const subtitle = /<div class="subtitle">([^<]*)<\/div>/.exec(html);
     assert.ok(subtitle && subtitle[1].endsWith("shown at T359 of T383"), subtitle?.[1] ?? "no subtitle");
   });

@@ -141,8 +141,10 @@ pub fn combine_values(
 /// The band-limit label a combine of two fields carries (#637).
 ///
 /// Either operand band-limited makes the result band-limited, so it carries a
-/// label whenever one does: the one that removed more (the larger `declared`),
-/// since that is the one a host has to warn about. A host that combines two
+/// label whenever one does: the one that removed more, since that is the one
+/// a host has to warn about. Two aligned operands were synthesised onto the
+/// same grid and share `truncated_to`, so that is the larger `declared`; on a
+/// tie, `a`'s. A host that combines two
 /// fields itself — a render or a probe of a difference map — labels the result
 /// with this, so the label agrees with the one [`crate::Session::combine`]
 /// puts on [`Field::truncation`].
