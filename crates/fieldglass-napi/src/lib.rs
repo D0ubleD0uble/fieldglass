@@ -819,6 +819,33 @@ pub struct RenderedGrid {
     /// Human-readable summary of the source→target projection chain,
     /// e.g. `"lambert → equirectangular (nearest)"`.
     pub projection_summary: String,
+    /// Set when the map is a spectral field band-limited below the truncation
+    /// its message declares (#637): the label a host shows beside it, "shown
+    /// at T359 of T7999". For a combined map it is the operands' label under
+    /// [`fieldglass::combine_truncation`], so a difference map keeps the label
+    /// of either side that is band-limited. `null` for every other map.
+    pub truncation: Option<SpectralTruncation>,
+}
+
+/// The band limit of a rendered spectral map (#637): `fieldglass`'s
+/// [`SpectralTruncation`](fieldglass::SpectralTruncation) as this host's
+/// object.
+#[napi(object)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpectralTruncation {
+    /// The truncation `T` the message declares — what its coefficients hold.
+    pub declared: u32,
+    /// The truncation the map was synthesised at, always below `declared`.
+    pub truncated_to: u32,
+}
+
+impl From<fieldglass::SpectralTruncation> for SpectralTruncation {
+    fn from(t: fieldglass::SpectralTruncation) -> Self {
+        Self {
+            declared: t.declared,
+            truncated_to: t.truncated_to,
+        }
+    }
 }
 
 /// Projected overlay geometry returned by `project_overlay` — coastline /
@@ -922,6 +949,7 @@ impl std::fmt::Debug for RenderedGrid {
             .field("used_lon_min", &self.used_lon_min)
             .field("used_lon_max", &self.used_lon_max)
             .field("projection_summary", &self.projection_summary)
+            .field("truncation", &self.truncation)
             .finish()
     }
 }
@@ -1066,6 +1094,53 @@ impl MessageStream {
         Ok((values, Placed::from_georef(placed)))
     }
 
+    /// Message `index` painted under `options`, labelled with its band limit
+    /// when it is a band-limited spectral map (#637). Both GRIB handles'
+    /// `render_grid`.
+    fn render(&self, index: u32, options: &RenderOptions) -> napi::Result<RenderedGrid> {
+        // A spectral message has no grid of its own; `resolved` synthesizes one
+        // onto a global lat/lon grid and hands it back like any decoded field
+        // (#330), so this path never special-cases it.
+        let (raw, placed) = self.resolved(index)?;
+        let mut rendered = render_from_source(&placed.source(), &raw, options)?;
+        rendered.truncation = self.truncation(index)?.map(Into::into);
+        Ok(rendered)
+    }
+
+    /// [`render`](Self::render) for a combined map: `index_a` combined with
+    /// `index_b` under `op`, labelled with the band limit either operand
+    /// carries (#814). Both GRIB handles' `render_grid_combined`.
+    fn render_combined(
+        &self,
+        index_a: u32,
+        index_b: u32,
+        op: &str,
+        options: &RenderOptions,
+    ) -> napi::Result<RenderedGrid> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(op).into_napi()?;
+        let (raw_a, placed_a) = self.resolved(index_a)?;
+        let (raw_b, placed_b) = self.resolved(index_b)?;
+        let mut rendered = render_combined(
+            &placed_a,
+            raw_a.as_ref(),
+            &placed_b,
+            raw_b.as_ref(),
+            op.as_str(),
+            options,
+        )?;
+        rendered.truncation =
+            fieldglass::combine_truncation(self.truncation(index_a)?, self.truncation(index_b)?)
+                .map(Into::into);
+        Ok(rendered)
+    }
+
+    /// Message `index`'s band limit as the message list states it (#637):
+    /// `Some` for a spectral message its synthesis grid cannot carry in full.
+    fn truncation(&self, index: u32) -> napi::Result<Option<fieldglass::SpectralTruncation>> {
+        Ok(self.session.message(index).into_napi()?.truncation)
+    }
+
     /// The frame a u/v pair's components are in, for `project_vectors` (#805):
     /// along the grid's axes (`true`) or east and north.
     ///
@@ -1100,13 +1175,7 @@ impl MessageStream {
         grid_i: Option<i32>,
         grid_j: Option<i32>,
     ) -> napi::Result<Option<fieldglass::FullDetail>> {
-        if self
-            .session
-            .message(index)
-            .into_napi()?
-            .truncation
-            .is_none()
-        {
+        if self.truncation(index)?.is_none() {
             return Ok(None);
         }
         let (Some(i), Some(j)) = (
@@ -1191,12 +1260,14 @@ impl MessageStream {
                         .map_or_else(|| map(raw_b.as_ref()), |d| Some(d.value)),
                     op,
                 );
-                // The label names the most detail either side carries.
-                p.full_detail_truncation = detail_a
-                    .iter()
-                    .chain(&detail_b)
-                    .map(|d| d.truncation.declared)
-                    .max();
+                // The label names the most detail either side carries: the
+                // combined map's own label, so the readout and the subtitle
+                // name the same truncation.
+                p.full_detail_truncation = fieldglass::combine_truncation(
+                    detail_a.as_ref().map(|d| d.truncation.clone()),
+                    detail_b.as_ref().map(|d| d.truncation.clone()),
+                )
+                .map(|t| t.declared);
             }
         }
         Ok(probed)
@@ -1382,11 +1453,7 @@ impl Grib1Handle {
         message_index: u32,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
-        // A spectral message has no grid of its own; `resolved` synthesizes one
-        // onto a global lat/lon grid and hands it back like any decoded field
-        // (#330), so this path never special-cases it.
-        let (raw, placed) = self.resolved(message_index)?;
-        render_from_source(&placed.source(), &raw, &options)
+        self.stream.render(message_index, &options)
     }
 
     /// Render `message_index_a` combined element-wise with `message_index_b`
@@ -1403,18 +1470,8 @@ impl Grib1Handle {
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
-        // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(&op).into_napi()?;
-        let (raw_a, placed_a) = self.resolved(message_index_a)?;
-        let (raw_b, placed_b) = self.resolved(message_index_b)?;
-        render_combined(
-            &placed_a,
-            raw_a.as_ref(),
-            &placed_b,
-            raw_b.as_ref(),
-            op.as_str(),
-            &options,
-        )
+        self.stream
+            .render_combined(message_index_a, message_index_b, &op, &options)
     }
 
     /// Project geographic polylines (coastline / graticule / user shapes)
@@ -1669,11 +1726,7 @@ impl Grib2Handle {
         message_index: u32,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
-        // A spectral message has no grid of its own; `resolved` synthesizes one
-        // onto a global lat/lon grid and hands it back like any decoded field
-        // (#330), so this path never special-cases it.
-        let (raw, placed) = self.resolved(message_index)?;
-        render_from_source(&placed.source(), &raw, &options)
+        self.stream.render(message_index, &options)
     }
 
     /// Render `message_index_a` combined element-wise with `message_index_b`
@@ -1690,18 +1743,8 @@ impl Grib2Handle {
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
-        // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(&op).into_napi()?;
-        let (raw_a, placed_a) = self.resolved(message_index_a)?;
-        let (raw_b, placed_b) = self.resolved(message_index_b)?;
-        render_combined(
-            &placed_a,
-            raw_a.as_ref(),
-            &placed_b,
-            raw_b.as_ref(),
-            op.as_str(),
-            &options,
-        )
+        self.stream
+            .render_combined(message_index_a, message_index_b, &op, &options)
     }
 
     /// Project geographic polylines onto the same raster `render_grid`
@@ -3411,6 +3454,8 @@ fn render_from_source(
         used_lon_min,
         used_lon_max,
         projection_summary: summary,
+        // Only a GRIB handle's spectral message has one, and it sets it.
+        truncation: None,
     })
 }
 
@@ -5020,6 +5065,36 @@ mod netcdf_slice_tests {
             sum.full_detail_value,
             single.full_detail_value.map(|v| v + v)
         );
+    }
+
+    /// A rendered map carries its band limit, and a combined map the one
+    /// either operand does (#814): T63 against T383 is shown at T359 of T383
+    /// whichever side the T383 message is on, and T63 alone is unlabelled.
+    #[test]
+    fn a_combined_render_keeps_the_band_limited_operands_label() {
+        let h = grib2_handle(&[SPECTRAL_T63, SPECTRAL_T383].concat());
+        let t383 = Some(SpectralTruncation {
+            declared: 383,
+            truncated_to: 359,
+        });
+        let render = |a: u32, b: Option<u32>| {
+            match b {
+                Some(b) => h.render_grid_combined(a, b, "a_minus_b".to_string(), opts("source")),
+                None => h.render_grid(a, opts("source")),
+            }
+            .expect("renders")
+            .truncation
+        };
+        assert_eq!(render(0, None), None, "T63 alone");
+        assert_eq!(render(1, None), t383, "T383 alone");
+        assert_eq!(render(0, Some(1)), t383, "T63 − T383");
+        assert_eq!(render(1, Some(0)), t383, "T383 − T63");
+        assert_eq!(render(0, Some(0)), None, "T63 − T63");
+        let g1 = grib1_handle(SPECTRAL_T383_GRIB1);
+        let r = g1
+            .render_grid_combined(0, 0, "a_minus_b".to_string(), opts("source"))
+            .expect("renders");
+        assert_eq!(r.truncation, t383, "grib1");
     }
 
     pub(crate) fn opts(projection: &str) -> RenderOptions {

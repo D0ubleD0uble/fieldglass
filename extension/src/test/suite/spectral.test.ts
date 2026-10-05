@@ -5,7 +5,9 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import type { FieldglassApi } from "../../extension";
+import { loadNative, type MessageInfo } from "../../native";
 import type { FieldglassDocument, FieldglassEditorProvider } from "../../provider";
+import { composeSubtitle, renderImagePanelHtml } from "../../render-panel";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -193,5 +195,145 @@ suite("GRIB2 HEALPix editor opens", () => {
     } finally {
       panel.dispose();
     }
+  });
+});
+
+// A Compare map is labelled by whichever operand is band-limited (#814). The
+// panel subtitle and the PNG header came from field A's MessageInfo alone, so
+// T63 − T383 was drawn smoothed with no "shown at T359" label. Drives the
+// render panel's real message routing: the provider's `gridReady` must carry
+// the combined map's note, and drop it again when Compare is turned off.
+suite("Compare map band-limit label (#814)", () => {
+  test("T63 − T383 is labelled shown at T359 of T383, and the label follows Compare", async () => {
+    const provider = (await activateExtension()).provider;
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+
+    // Compare picks field B from the same file, so put both messages in one.
+    const fixtures = path.join(
+      vscode.extensions.getExtension(EXT_ID)!.extensionPath, "src", "test", "fixtures");
+    const bytes = Buffer.concat([
+      fs.readFileSync(path.join(fixtures, "spectral_simple_t63.grib2")),
+      fs.readFileSync(path.join(fixtures, "spectral_simple_t383.grib2")),
+    ]);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-compare-"));
+    const file = path.join(dir, "t63_t383.grib2");
+    fs.writeFileSync(file, bytes);
+    const doc = (await provider.openCustomDocument(
+      vscode.Uri.file(file),
+      {} as vscode.CustomDocumentOpenContext,
+      new vscode.CancellationTokenSource().token,
+    )) as FieldglassDocument;
+    // Resolving the editor caches the reader handle the render panel paints from.
+    const editor = vscode.window.createWebviewPanel("fieldglass.viewer", "t63_t383", vscode.ViewColumn.One, {});
+    await provider.resolveCustomEditor(doc, editor);
+
+    const handle = native.Grib2Handle.fromBytes(bytes);
+    const [t63, t383] = [handle.message(0), handle.message(1)];
+    assert.strictEqual(t63.truncation, null, "T63 fits the 0.5° grid");
+    assert.deepStrictEqual(t383.truncation, { declared: 383, truncatedTo: 359 });
+
+    // Open a render panel on `meta` and return what it posts for one request.
+    const open = (meta: MessageInfo) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let onMessage: ((m: any) => void) | undefined;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const posted: any[] = [];
+      const fakePanel = {
+        webview: {
+          html: "",
+          cspSource: "vscode-webview:",
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          onDidReceiveMessage: (cb: (m: any) => void) => {
+            onMessage = cb;
+            return { dispose: () => undefined };
+          },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          postMessage: (m: any) => {
+            posted.push(m);
+            return Promise.resolve(true);
+          },
+        },
+        onDidDispose: () => ({ dispose: () => undefined }),
+        dispose: () => undefined,
+      };
+      const origCreate = vscode.window.createWebviewPanel;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (vscode.window as any).createWebviewPanel = () => fakePanel;
+      try {
+        provider.openRenderPanel(doc, meta);
+      } finally {
+        vscode.window.createWebviewPanel = origCreate;
+      }
+      assert.ok(onMessage, "the render panel registers a message handler");
+      const send = onMessage;
+      return {
+        html: () => fakePanel.webview.html,
+        note: (type: string, compare?: { op: string; messageIndexB: number }) => {
+          posted.length = 0;
+          send({ type, projection: "source", ...(compare ? { compare } : {}) });
+          const ready = posted.find((m) => m.type === "gridReady");
+          assert.ok(ready, `a ${type} paints: ${JSON.stringify(posted.map((m) => m.error ?? m.type))}`);
+          return ready.truncationNote;
+        },
+      };
+    };
+
+    try {
+      const a = open(t63);
+      // Field A alone: no label, and the panel opens with none.
+      assert.ok(!a.html().includes("shown at T"), "T63 opens unlabelled");
+      assert.strictEqual(a.note("ready"), null);
+      // Compare on: field B's label, on the first paint and on a rerender.
+      const compare = { op: "a_minus_b", messageIndexB: 1 };
+      assert.strictEqual(a.note("ready", compare), "shown at T359 of T383");
+      assert.strictEqual(a.note("rerenderRequest", compare), "shown at T359 of T383");
+      // Compare off: the label goes with it.
+      assert.strictEqual(a.note("rerenderRequest"), null);
+
+      // Field A band-limited, B not: A's label stays through Compare.
+      const b = open(t383);
+      assert.strictEqual(b.note("ready"), "shown at T359 of T383");
+      assert.strictEqual(
+        b.note("rerenderRequest", { op: "a_minus_b", messageIndexB: 0 }),
+        "shown at T359 of T383",
+      );
+    } finally {
+      editor.dispose();
+      doc.dispose();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The webview can't run headlessly, so the subtitle the gridReady handler
+  // writes, and the PNG export draws (`SUB_LINE`), is pinned through the
+  // function the panel script embeds.
+  test("the panel script recomposes its subtitle from each render's note", () => {
+    assert.strictEqual(composeSubtitle("500 (hPa) Isobaric level · 2024-01-01", null), "500 (hPa) Isobaric level · 2024-01-01");
+    assert.strictEqual(
+      composeSubtitle("500 (hPa) Isobaric level", "shown at T359 of T383"),
+      "500 (hPa) Isobaric level · shown at T359 of T383",
+    );
+    assert.strictEqual(composeSubtitle("", "shown at T359 of T383"), "shown at T359 of T383");
+    assert.strictEqual(composeSubtitle("", null), "");
+
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const fixtures = path.join(
+      vscode.extensions.getExtension(EXT_ID)!.extensionPath, "src", "test", "fixtures");
+    const meta = native.Grib2Handle.fromBytes(
+      fs.readFileSync(path.join(fixtures, "spectral_simple_t383.grib2"))).message(0);
+    const html = renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, meta, "summary", [], []);
+    assert.ok(html.includes("function composeSubtitle("), "the panel script defines composeSubtitle");
+    // Unconditional: at the handler's own indentation, not inside an `if`,
+    // which would keep a label only field B carried after Compare is off.
+    const handler = /\n( *)function handleGridReady\(msg\) \{\n( *)lastPayload = msg;/.exec(html);
+    assert.ok(handler, "the panel script defines handleGridReady");
+    assert.ok(
+      html.includes("\n" + handler[2] + "SUB_LINE = composeSubtitle(SUB_BASE, msg.truncationNote ?? null);\n"),
+      "handleGridReady recomposes SUB_LINE on every render, null included",
+    );
+    const subtitle = /<div class="subtitle">([^<]*)<\/div>/.exec(html);
+    assert.ok(subtitle && subtitle[1].endsWith("shown at T359 of T383"), subtitle?.[1] ?? "no subtitle");
   });
 });

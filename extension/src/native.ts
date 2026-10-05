@@ -209,6 +209,18 @@ export interface RenderedGrid {
   usedLonMin: number | null;
   usedLonMax: number | null;
   projectionSummary: string;
+  /** The band limit of a spectral map drawn below what its message declares
+   *  (#637); for a combined map, the label either operand carries (#814).
+   *  `null` for every other map. */
+  truncation: SpectralTruncation | null;
+}
+
+/** A rendered spectral map's band limit (#637): the truncation its message
+ *  declares and the one the map was synthesised at. The same shape as the
+ *  API's `SpectralTruncation` on `MessageInfo`. */
+export interface SpectralTruncation {
+  declared: number;
+  truncatedTo: number;
 }
 
 export interface DecodedGrid {
