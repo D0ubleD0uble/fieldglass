@@ -210,6 +210,20 @@ def main() -> None:
     shared_read = build_shared(shared)
     assert shared_read == [7] * 16, shared_read
     (CORPUS / shared.name).write_bytes(shared.read_bytes())
+    (FIXTURES / f"{shared.name}.oracle.json").write_text(
+        json.dumps(
+            {
+                "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), "
+                "libver='earliest', chunk B-tree leaf appended by hand",
+                "note": "one stored chunk named at origins (i, 0) for i < 16 (#837)",
+                "shape": [16, 1],
+                "libhdf5_values": shared_read,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     print(f"wrote {shared} ({shared.stat().st_size} B); libhdf5 reads {shared_read}; seed copied")
 
     conflicting = FIXTURES / "hdf5_conflicting_chunk_records.h5"
