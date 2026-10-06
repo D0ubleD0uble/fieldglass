@@ -289,6 +289,8 @@ pub fn decode_spectral_complex(
     let mut scals = Vec::with_capacity(maxv0);
     scals.push(0.0f64);
     for n in 1..maxv0 {
+        // `n <= J <= MAX_TRUNCATION` (8,192, checked by `triangular_value_count`
+        // above), so `n·(n+1)` fits even a 32-bit `usize`.
         let operator = ((n * (n + 1)) as f64).powf(p);
         scals.push(if operator != 0.0 { 1.0 / operator } else { 0.0 });
     }
@@ -650,7 +652,13 @@ pub fn decode_bifourier(
                     out.push(v);
                 }
             } else {
-                let scale = ((i * i + j * j) as f64).powf(p);
+                // `i` and `j` reach the truncation's `N` and `M`, which the
+                // coefficient cap leaves at up to about 16.7 M, so the squares
+                // are taken in `u64`: `usize` is 32 bits on wasm32, where
+                // `i * i` overflowed at 65,536 (#889). The sum stays far below
+                // 2^53, so it converts to `f64` exactly, as on a 64-bit target.
+                let (iu, ju) = (i as u64, j as u64);
+                let scale = ((iu * iu + ju * ju) as f64).powf(p);
                 if scale == 0.0 {
                     // (0,0) is normally always in the unpacked subset; a packed
                     // (0,0) with P > 0 would divide by zero.
@@ -933,6 +941,27 @@ mod tests {
             format!("{err:?}").contains("reconstructs 67133440"),
             "{err:?}"
         );
+    }
+
+    /// The Laplacian operator `(i² + j²)^P` for a coefficient past `i = 65,536`
+    /// (#889): on a 32-bit target `i * i` in `usize` overflowed there, a panic
+    /// in a debug build and, in release, a square that wrapped to exactly 0 and
+    /// refused the layout. The `wasm32-wasip1` CI run is the one that bites.
+    #[test]
+    fn bifourier_laplacian_does_not_overflow_a_32_bit_usize() {
+        let mut t = bf_template(TRUNC_RECTANGLE, 0, 1_000_000, 0, 1); // P = 1, sub 0×0
+        t.bits_per_value = 0;
+        t.reference_value = 1.0;
+        let g = bf_gds(70_000, 0, TRUNC_RECTANGLE);
+        let c = decode_bifourier(&[0u8; 16], &t, &g, 4 * 70_001).expect("decodes");
+        assert_eq!(c.coefficients.len(), 4 * 70_001);
+        // The last pair is (70,000, 0); at 65,536 the old square wrapped to 0.
+        assert_eq!(
+            *c.coefficients.last().unwrap(),
+            1.0 / (70_000f64 * 70_000f64)
+        );
+        let at = |i: usize| c.coefficients[4 * i];
+        assert_eq!(at(65_536), 1.0 / (65_536f64 * 65_536f64));
     }
 
     #[test]
