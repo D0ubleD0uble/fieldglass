@@ -1279,6 +1279,9 @@ fn source_projection_summary(source: &Source<'_>) -> String {
 /// `"source"` target paints the array as stored, everything else inverse-warps
 /// through the geometry. Painting the result is the caller's — the values and
 /// the mask come back so a GPU host never pays for a CPU paint it discards.
+///
+/// The `"source"` target is a buffer of the grid's `ni × nj` shape, so it
+/// refuses `values` that do not hold one entry per cell (#913).
 #[cfg(feature = "render")]
 pub fn project(
     source: &Source<'_>,
@@ -1287,8 +1290,32 @@ pub fn project(
 ) -> Result<Projected, Error> {
     let resolved = ResolvedOptions::parse(options)?;
     match resolved.target {
-        TargetKind::Source => Ok(paint_source(source, values)),
+        TargetKind::Source => {
+            // The source paint is a buffer of the stated shape (#913).
+            require_values_for_shape(source, values)?;
+            Ok(paint_source(source, values))
+        }
         TargetKind::Warp(target) => warp_field(source, values, target, &resolved),
+    }
+}
+
+/// Refuse `values` that do not hold one entry per point of `source`'s stated
+/// `ni × nj` grid, or a grid whose cell count overflows (#913). An operation
+/// whose output is the shape of the grid, a source paint or a CSV export,
+/// would otherwise size it from the caller's numbers alone: four values on a
+/// stated 70,000 × 70,000 grid asked for gigabytes.
+#[cfg(any(feature = "render", feature = "analysis"))]
+fn require_values_for_shape(source: &Source<'_>, values: &[Option<f64>]) -> Result<(), Error> {
+    let (ni, nj) = (source.ni as usize, source.nj as usize);
+    match ni.checked_mul(nj) {
+        Some(cells) if cells == values.len() => Ok(()),
+        cells => Err(Error::InvalidOption {
+            detail: format!(
+                "a {ni}×{nj} grid has {} cells, and {} values were given",
+                cells.map_or_else(|| "too many".to_string(), |n| n.to_string()),
+                values.len()
+            ),
+        }),
     }
 }
 
@@ -2475,12 +2502,19 @@ pub fn zonal_mean(
 /// unmodelled family are refused, and the message reads out what is left; the
 /// `"matrix"` format needs no coordinates and works for any grid with declared
 /// dimensions.
+///
+/// Both formats write a row or cell per grid point, so `values` must hold one
+/// entry per cell of the `ni × nj` grid; otherwise the call is refused before
+/// anything is allocated (#913).
 #[cfg(feature = "analysis")]
 pub fn field_csv(
     source: &Source<'_>,
     values: &[Option<f64>],
     format: &str,
 ) -> Result<String, Error> {
+    // Both layouts write a cell for every grid point, so the output scales
+    // with the stated shape, not with `values` (#913).
+    require_values_for_shape(source, values)?;
     let (ni, nj) = (source.ni, source.nj);
     match format {
         "matrix" => Ok(field_to_csv_matrix(values, ni as usize, nj as usize)),
@@ -4008,8 +4042,8 @@ mod warp_target_tests {
     #[test]
     fn field_csv_rejects_unknown_format() {
         let geometry = GridGeometry::LatLon(latlon_2x2());
-        let err =
-            field_csv(&source(&geometry, "latlon"), &[Some(1.0)], "tsv").expect_err("bad format");
+        let err = field_csv(&source(&geometry, "latlon"), &[Some(1.0); 4], "tsv")
+            .expect_err("bad format");
         assert!(format!("{err}").contains("unknown CSV format"));
     }
 

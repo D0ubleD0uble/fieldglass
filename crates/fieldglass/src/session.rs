@@ -1974,7 +1974,9 @@ impl Session {
     /// This is the render pipeline split at the paint step: a GPU host wants
     /// the resampled *values*, so restyling never re-decodes. The output raster
     /// is [`WarpOptions::width`] × [`WarpOptions::height`] when the caller names
-    /// one (#465), and the source `ni × nj` otherwise.
+    /// one (#465), and the source `ni × nj` otherwise. That default needs a
+    /// field holding one value per cell of its stated shape; one that does not
+    /// is refused as [`Error::InvalidOption`] (#913).
     #[cfg(feature = "render")]
     pub fn warp(&self, field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         warp_field(field, options)
@@ -1989,7 +1991,8 @@ impl Session {
     }
 
     /// Paint a field to RGBA on the CPU. The fallback path: a GPU host colours
-    /// from [`Session::palette`] instead.
+    /// from [`Session::palette`] instead. The raster is the field's `ni × nj`,
+    /// so a field not holding one value per cell is refused (#913).
     ///
     /// **`flip_y` composes with the field's own row order, it does not replace
     /// it.** Grid point `(i, j)` paints at pixel `(i, j)`, so a field
@@ -2008,6 +2011,9 @@ impl Session {
         options: &PaletteOptions,
         flip_y: bool,
     ) -> Result<Raster, Error> {
+        // The raster is the field's stated shape, so that has to be the shape
+        // of the values it holds (#913).
+        require_field_shape(field)?;
         let palette = build_palette(field, options)?;
         let values = field.values.to_f64();
         let flip = field.georef.scan.flips_source_rows(flip_y);
@@ -2274,6 +2280,27 @@ fn optional_values(field: &Field) -> Vec<Option<f64>> {
         .collect()
 }
 
+/// Refuse a field whose values are not one per point of its stated
+/// `ni × nj` grid (#913), before an output of that shape is allocated.
+/// `Field`'s members are public, so a caller can hand back one stating
+/// 70,000 × 70,000 with four values, and a raster that size is gigabytes of
+/// nothing.
+#[cfg(feature = "render")]
+fn require_field_shape(field: &Field) -> Result<(), Error> {
+    let cells = usize::try_from(u64::from(field.ni) * u64::from(field.nj)).ok();
+    if cells == Some(field.values.len()) {
+        return Ok(());
+    }
+    Err(Error::InvalidOption {
+        detail: format!(
+            "a {}×{} field holds {} values, not one per cell",
+            field.ni,
+            field.nj,
+            field.values.len()
+        ),
+    })
+}
+
 #[cfg(feature = "render")]
 fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     let geometry = &field.georef.geometry;
@@ -2336,6 +2363,12 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     // no display floor here the way there is for the render targets: this call
     // returns values, not pixels, and upsampling values a caller did not ask
     // for would cost linear memory the browser host never gets back.
+    // That default is the field's stated shape, so it must be the shape of
+    // the values the field holds (#913). A named raster samples by index and
+    // needs no such check.
+    if size.is_none() {
+        require_field_shape(field)?;
+    }
     let (width, height) = size.unwrap_or((field.ni, field.nj));
     let target = TargetRaster {
         width,

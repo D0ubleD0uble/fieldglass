@@ -7,8 +7,16 @@
 //! 70,000 x 70,000 field: a debug panic, in release the wrong cell. These
 //! tests bite under `wasm32-wasip1`, which CI's wasm32 job runs; natively they
 //! pin that nothing past the four values is read.
+//!
+//! An output that is the field's own shape, a CSV export, a source-target
+//! paint, a CPU render or a warp with no named size, is refused instead
+//! (#913): it would size a 70,000 x 70,000 buffer from four values, a
+//! capacity-overflow panic on wasm32 and a many-gigabyte allocation natively.
 
-use fieldglass::{DecodeOptions, Field, GridGeometry, Session, Values, WarpOptions};
+use fieldglass::{
+    DecodeOptions, Error, Field, GridGeometry, PaletteOptions, RenderOptions, Session, Values,
+    WarpOptions,
+};
 use fieldglass_core::LatLonParams;
 
 const FIXTURE: &str = "../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2";
@@ -56,4 +64,91 @@ fn a_huge_field_probes_contours_and_warps() {
     let warped = session.warp(&field, &options).expect("warps");
     let present = warped.mask.iter().filter(|&&m| m != 0).count();
     assert!(present <= 4, "only cells the field holds: {present}");
+}
+
+/// Assert `result` is the shape refusal, naming the stated grid.
+fn refused<T: std::fmt::Debug>(result: Result<T, Error>, what: &str) {
+    match result {
+        Err(Error::InvalidOption { detail }) => {
+            assert!(detail.contains("70000×70000"), "{what}: {detail}");
+        }
+        other => panic!("{what}: expected a shape refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_output_of_a_huge_fields_own_shape_is_refused() {
+    let session = Session::open(std::fs::read(FIXTURE).expect("fixture")).expect("opens");
+    let field = huge_field(&session);
+    let values = vec![Some(1.0); 4];
+
+    for format in ["matrix", "long"] {
+        refused(session.field_csv(&field.source(), &values, format), format);
+    }
+    refused(
+        session.project(&field.source(), &values, &RenderOptions::default()),
+        "source target",
+    );
+    refused(
+        session.render(&field, &PaletteOptions::default(), false),
+        "render",
+    );
+    refused(
+        session.warp(&field, &WarpOptions::new(false)),
+        "warp to its own shape",
+    );
+}
+
+#[test]
+fn a_grid_whose_cell_count_overflows_is_refused() {
+    let session = Session::open(std::fs::read(FIXTURE).expect("fixture")).expect("opens");
+    let mut field = huge_field(&session);
+    // `u32::MAX²` overflows a 32-bit `usize`, and a 64-bit one only just
+    // holds it; either way four values are not one per cell.
+    field.ni = u32::MAX;
+    field.nj = u32::MAX;
+    let values = vec![Some(1.0); 4];
+    let mut source = field.source();
+    source.ni = u32::MAX;
+    source.nj = u32::MAX;
+    for format in ["matrix", "long"] {
+        assert!(matches!(
+            session.field_csv(&source, &values, format),
+            Err(Error::InvalidOption { .. })
+        ));
+    }
+    assert!(matches!(
+        session.project(&source, &values, &RenderOptions::default()),
+        Err(Error::InvalidOption { .. })
+    ));
+    assert!(matches!(
+        session.warp(&field, &WarpOptions::new(false)),
+        Err(Error::InvalidOption { .. })
+    ));
+}
+
+#[test]
+fn a_field_holding_its_shape_still_exports_and_paints() {
+    let session = Session::open(std::fs::read(FIXTURE).expect("fixture")).expect("opens");
+    let field = session
+        .decode(0, &DecodeOptions::default())
+        .expect("decodes");
+    let values: Vec<Option<f64>> = (0..field.values.len())
+        .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
+        .collect();
+    let csv = session
+        .field_csv(&field.source(), &values, "matrix")
+        .expect("exports");
+    assert_eq!(csv.lines().count(), field.nj as usize);
+    let projected = session
+        .project(&field.source(), &values, &RenderOptions::default())
+        .expect("paints");
+    assert_eq!(projected.values.len(), values.len());
+    session
+        .render(&field, &PaletteOptions::default(), false)
+        .expect("renders");
+    let warped = session
+        .warp(&field, &WarpOptions::new(false))
+        .expect("warps");
+    assert_eq!(warped.mask.len(), values.len());
 }
