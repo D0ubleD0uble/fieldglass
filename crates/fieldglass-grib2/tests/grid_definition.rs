@@ -792,9 +792,9 @@ fn an_earth_smaller_than_a_grid_cell_places_no_point_in_any_planar_template() {
 }
 
 /// `rotated_latlon_surface.grib2` with §3.1's angle of rotation (template
-/// payload octets 66..70, message octets 81-84) overwritten.
+/// payload octets 66..70, §3 octets 81-84) overwritten.
 fn rotated_with_angle(angle: f32) -> Grib2Reader {
-    let mut bytes = std::fs::read("tests/fixtures/rotated_latlon_surface.grib2").expect("fixture");
+    let mut bytes = ROTATED_LATLON.to_vec();
     let mut at = 16; // past §0
     loop {
         let len =
