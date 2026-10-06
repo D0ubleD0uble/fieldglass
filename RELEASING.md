@@ -227,9 +227,9 @@ loop, so a missed bootstrap fails the job before any other crate goes out, and
 the re-run skips whatever is already published.
 
 **`fieldglass-zarr`, `fieldglass-fetchplan` and `fieldglass` need it once too**
-(#851). They join the loop at 0.6.0, after the readers, in that order. Each pins
-the ones before it with `=`, so publish them in that order, after the five
-readers of the same version are on the index:
+(#851). They join the end of the loop at 0.6.0, in that order. Each pins the
+ones before it with `=`, so publish them in that order, once the five crates
+ahead of them in the loop are on the index at the same version:
 
 ```sh
 cargo publish -p fieldglass-zarr        # with a scoped API token
@@ -238,10 +238,10 @@ cargo publish -p fieldglass
 ```
 
 then add a Trusted Publishing entry for each, as above. The simplest order is to
-let the tag's `publish-crates` job publish the five readers and fail on
+let the tag's `publish-crates` job publish the first five crates and fail on
 `fieldglass-zarr`, run the three commands from a checkout of the tag, add the
 entries, and re-run the job, which then skips all eight. Unlike `fieldglass-aec`,
-a missed bootstrap here fails the job *after* the readers are out, so the
+a missed bootstrap here fails the job *after* those five are out, so the
 failure is partial; the re-run is still safe.
 
 To check all eight package and build before a release, without uploading
