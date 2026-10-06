@@ -11,7 +11,7 @@
 //!
 //! A tracking global allocator records the largest single allocation, only
 //! while this thread has armed it, so tests on other threads cannot add to it.
-//! The file is read and parsed before arming.
+//! The message is parsed before arming.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -78,11 +78,10 @@ fn largest_allocation_in<R>(f: impl FnOnce() -> R) -> (usize, R) {
 
 #[test]
 fn wide_ellipse_seed_is_refused_before_its_layout_is_allocated() {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/fuzz/corpus/decode/constant_field_bifourier_ellipse_wide.grib2"
-    );
-    let bytes = std::fs::read(path).expect("committed fuzz seed");
+    // Embedded rather than read at run time: the wasm32-wasip1 run preopens
+    // only the working directory and its parent.
+    let bytes = include_bytes!("../fuzz/corpus/decode/constant_field_bifourier_ellipse_wide.grib2")
+        .to_vec();
     let reader = Grib2Reader::from_bytes(bytes).expect("parse");
     let bf = reader.messages[0].gds.bifourier().expect("§3 bi-Fourier");
     assert_eq!(
