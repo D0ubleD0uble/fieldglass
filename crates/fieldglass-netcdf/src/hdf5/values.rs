@@ -933,7 +933,7 @@ fn collect_v2_btree_chunks<S: ByteSource + ?Sized>(
             BTREE_V2_TYPE_CHUNK_UNFILTERED if size == fixed => Ok(()),
             BTREE_V2_TYPE_CHUNK_FILTERED
                 if size
-                    .checked_sub(fixed + 4)
+                    .checked_sub(fixed.saturating_add(4))
                     .is_some_and(|w| (1..=8).contains(&w)) =>
             {
                 Ok(())
