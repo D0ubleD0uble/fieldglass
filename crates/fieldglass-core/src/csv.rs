@@ -17,14 +17,18 @@ use std::fmt::Write as _;
 /// Serialize `values` (grid scan order, `i` fastest) as a 2-D matrix: `nj`
 /// rows, each `ni` comma-separated cells. A missing point is an empty cell.
 ///
-/// `values` must hold exactly `ni · nj` entries; extra entries are ignored and
-/// a short slice stops early (the caller owns the shape).
+/// The shape is the caller's: the output has `nj` rows of `ni` cells whatever
+/// `values` holds, a point past its end an empty cell, so it scales with
+/// `ni · nj`, not with `values`. `fieldglass::field_csv` checks the two agree
+/// before calling this (#913).
 pub fn field_to_csv_matrix(values: &[Option<f64>], ni: usize, nj: usize) -> String {
     // Reserve up front (≈8 chars per cell plus its comma/newline) and format
     // each value straight into the buffer with `write!`, so a million-point
     // export doesn't churn a temporary `String` per cell or repeatedly double
-    // and re-copy the output.
-    let mut out = String::with_capacity(ni.saturating_mul(nj).saturating_mul(9).saturating_add(nj));
+    // and re-copy the output. The reservation counts only the cells `values`
+    // can fill, so an oversized stated shape cannot ask for memory up front.
+    let cells = ni.saturating_mul(nj).min(values.len());
+    let mut out = String::with_capacity(cells.saturating_mul(9).saturating_add(nj.min(cells)));
     for j in 0..nj {
         for i in 0..ni {
             if i > 0 {
@@ -63,8 +67,9 @@ pub fn field_to_csv_long(
     // Reserve for the header plus ≈28 chars per row (lat, lon, value, commas,
     // newline) and format straight into the buffer with `write!` — no temporary
     // `String` per coordinate or value, no doubling reallocs.
-    let mut out =
-        String::with_capacity(ni.saturating_mul(nj).saturating_mul(28).saturating_add(16));
+    // Bounded by `values`, as the matrix writer's is.
+    let cells = ni.saturating_mul(nj).min(values.len());
+    let mut out = String::with_capacity(cells.saturating_mul(28).saturating_add(16));
     out.push_str("lat,lon,value\n");
     for j in 0..nj {
         for i in 0..ni {

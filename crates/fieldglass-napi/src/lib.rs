@@ -5785,12 +5785,16 @@ mod netcdf_slice_tests {
     /// and finding `used_lon_min` absent. The sampling half is below.
     #[test]
     fn the_framed_window_is_the_geometrys_own_answer() {
-        let raw: Vec<Option<f64>> = (0..16 * 8).map(|k| Some((k % 16) as f64)).collect();
         for (label, placed) in [
             ("periodic rotated", periodic_rotated()),
             ("periodic latlon", latlon_spanning(8, 4, 315.0)),
             ("regional latlon", latlon_placed(8, 4)),
         ] {
+            // One value per cell: a raster the warp sizes from the grid
+            // refuses a slice of any other length (#913).
+            let ni = placed.source().ni;
+            let cells = ni * placed.source().nj;
+            let raw: Vec<Option<f64>> = (0..cells).map(|k| Some((k % ni) as f64)).collect();
             let rendered = render_from_source(&placed.source(), &raw, &opts("equirectangular"))
                 .unwrap_or_else(|e| panic!("{label} renders: {e}"));
             let window = placed

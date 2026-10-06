@@ -494,7 +494,7 @@ const WIDEST_RASTER_ELEMENT: u64 = size_of::<f64>() as u64;
 /// `limit` is a parameter rather than `isize::MAX` read inside, so a test can
 /// drive the branch that a 64-bit host can never reach.
 #[cfg(feature = "render")]
-fn raster_is_allocatable(width: u32, height: u32, limit: u64) -> bool {
+pub(crate) fn raster_is_allocatable(width: u32, height: u32, limit: u64) -> bool {
     // `u64` throughout: two `u32`s multiply without overflow, and the byte count
     // then saturates rather than wrapping into a value that looks small.
     u64::from(width)
@@ -869,20 +869,36 @@ fn build_warp_target(
     // The caller's output raster, for the box targets (#465). `None` keeps the
     // derived shape and the display floor.
     let size = resolved.size;
+    // A raster derived from the source's shape gets the allocation check a
+    // named one gets in [`resolve_output_size`] (#913): the world and
+    // azimuthal targets scale with `max(ni, nj)²`, so even a field holding
+    // its stated values can ask for a raster no `Vec` can hold on wasm32.
+    let derived = |(width, height): (u32, u32)| -> Result<(u32, u32), Error> {
+        if raster_is_allocatable(width, height, isize::MAX as u64) {
+            Ok((width, height))
+        } else {
+            Err(Error::InvalidOption {
+                detail: format!(
+                    "a {ni}×{nj} grid draws on a {width} × {height} raster, larger than this \
+                     target can allocate"
+                ),
+            })
+        }
+    };
 
     // The two box arms ask the same question, so it is answered once here
     // rather than twice below.
-    let box_dims = |window: LonLatBox| -> (u32, u32) {
+    let box_dims = |window: LonLatBox| -> Result<(u32, u32), Error> {
         match size {
-            Some(dims) => dims,
+            Some(dims) => Ok(dims),
             // The window's shape, then floored so the seam, the map body edge
             // and the overlays that must register against them resolve at
             // display scale rather than at the data's (#514).
-            None => raise_to_min_raster(if shapeless_axes {
+            None => derived(raise_to_min_raster(if shapeless_axes {
                 box_raster_dims(ni, nj, window)
             } else {
                 (ni, nj)
-            }),
+            })),
         }
     };
     match target_kind {
@@ -894,7 +910,7 @@ fn build_warp_target(
                 lon_min,
                 lon_max,
             } = window;
-            let (width, height) = box_dims(window);
+            let (width, height) = box_dims(window)?;
             let target = TargetRaster {
                 width,
                 height,
@@ -914,7 +930,7 @@ fn build_warp_target(
                 lon_min,
                 lon_max,
             } = window;
-            let (width, height) = box_dims(window);
+            let (width, height) = box_dims(window)?;
             let merc = WebMercator::new(
                 width,
                 height,
@@ -947,7 +963,7 @@ fn build_warp_target(
         WarpTarget::Orthographic { lat0, lon0 } => {
             // Square so the globe stays circular, floored so its limb is a
             // curve rather than a staircase (#514).
-            let (side, _) = raise_to_min_raster((ni.max(nj), ni.max(nj)));
+            let (side, _) = derived(raise_to_min_raster((ni.max(nj), ni.max(nj))))?;
             Ok((
                 BuiltTarget::Ortho(Orthographic::new(side, side, lat0, lon0)),
                 None,
@@ -956,22 +972,34 @@ fn build_warp_target(
         WarpTarget::PolarStereographic { south_pole, lon0 } => {
             // Square so the globe stays circular, floored so its limb is a
             // curve rather than a staircase (#514).
-            let (side, _) = raise_to_min_raster((ni.max(nj), ni.max(nj)));
+            let (side, _) = derived(raise_to_min_raster((ni.max(nj), ni.max(nj))))?;
             Ok((
                 BuiltTarget::Polar(PolarStereographic::new(side, side, south_pole, lon0)),
                 None,
             ))
         }
         WarpTarget::Mollweide { lon0 } => {
-            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, Mollweide::ASPECT_RATIO));
+            let (w, h) = derived(raise_to_min_raster(world_raster_dims(
+                ni,
+                nj,
+                Mollweide::ASPECT_RATIO,
+            )))?;
             Ok((BuiltTarget::Moll(Mollweide::new(w, h, lon0)), None))
         }
         WarpTarget::Robinson { lon0 } => {
-            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, Robinson::ASPECT_RATIO));
+            let (w, h) = derived(raise_to_min_raster(world_raster_dims(
+                ni,
+                nj,
+                Robinson::ASPECT_RATIO,
+            )))?;
             Ok((BuiltTarget::Robin(Robinson::new(w, h, lon0)), None))
         }
         WarpTarget::EqualEarth { lon0 } => {
-            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, EqualEarth::ASPECT_RATIO));
+            let (w, h) = derived(raise_to_min_raster(world_raster_dims(
+                ni,
+                nj,
+                EqualEarth::ASPECT_RATIO,
+            )))?;
             Ok((BuiltTarget::EqEarth(EqualEarth::new(w, h, lon0)), None))
         }
     }
@@ -1279,6 +1307,11 @@ fn source_projection_summary(source: &Source<'_>) -> String {
 /// `"source"` target paints the array as stored, everything else inverse-warps
 /// through the geometry. Painting the result is the caller's — the values and
 /// the mask come back so a GPU host never pays for a CPU paint it discards.
+///
+/// The `"source"` target is a buffer of the grid's `ni × nj` shape, and a
+/// warp raster the caller did not size is derived from it, so either refuses
+/// `values` that do not hold one entry per cell (#913). Only a box target
+/// with a named width and height samples a slice of another length.
 #[cfg(feature = "render")]
 pub fn project(
     source: &Source<'_>,
@@ -1286,9 +1319,42 @@ pub fn project(
     options: &RenderOptions,
 ) -> Result<Projected, Error> {
     let resolved = ResolvedOptions::parse(options)?;
+    // The source paint is a buffer of the stated shape, and so is any warp
+    // raster the caller did not size: a box target with no width and height,
+    // or an azimuthal or world target, which always derives its own (#913).
+    // A box target the caller sized samples by index and needs no such check
+    // (#902).
+    let sized_by_caller = resolved.size.is_some()
+        && matches!(
+            resolved.target,
+            TargetKind::Warp(WarpTarget::Equirectangular | WarpTarget::WebMercator)
+        );
+    if !sized_by_caller {
+        require_values_for_shape(source, values)?;
+    }
     match resolved.target {
         TargetKind::Source => Ok(paint_source(source, values)),
         TargetKind::Warp(target) => warp_field(source, values, target, &resolved),
+    }
+}
+
+/// Refuse `values` that do not hold one entry per point of `source`'s stated
+/// `ni × nj` grid, or a grid whose cell count overflows (#913). An operation
+/// whose output is the shape of the grid, a source paint or a CSV export,
+/// would otherwise size it from the caller's numbers alone: four values on a
+/// stated 70,000 × 70,000 grid asked for gigabytes.
+#[cfg(any(feature = "render", feature = "analysis"))]
+fn require_values_for_shape(source: &Source<'_>, values: &[Option<f64>]) -> Result<(), Error> {
+    let (ni, nj) = (source.ni as usize, source.nj as usize);
+    match ni.checked_mul(nj) {
+        Some(cells) if cells == values.len() => Ok(()),
+        cells => Err(Error::InvalidOption {
+            detail: format!(
+                "a {ni}×{nj} grid has {} cells, and {} values were given",
+                cells.map_or_else(|| "too many".to_string(), |n| n.to_string()),
+                values.len()
+            ),
+        }),
     }
 }
 
@@ -2416,16 +2482,8 @@ pub fn zonal_mean(
             });
         }
     }
+    require_values_for_shape(source, values)?;
     let (ni, nj) = (source.ni as usize, source.nj as usize);
-    if values.len() != ni.saturating_mul(nj) {
-        return Err(Error::InvalidOption {
-            detail: format!(
-                "a {ni}×{nj} grid has {} cells, and {} values were given",
-                ni.saturating_mul(nj),
-                values.len()
-            ),
-        });
-    }
     let reduced = source.points_per_row.filter(|pl| pl.len() == nj);
     let place = geometry.forward_at();
     let mut means = Vec::with_capacity(nj);
@@ -2475,12 +2533,19 @@ pub fn zonal_mean(
 /// unmodelled family are refused, and the message reads out what is left; the
 /// `"matrix"` format needs no coordinates and works for any grid with declared
 /// dimensions.
+///
+/// Both formats write a row or cell per grid point, so `values` must hold one
+/// entry per cell of the `ni × nj` grid; otherwise the call is refused before
+/// anything is allocated (#913).
 #[cfg(feature = "analysis")]
 pub fn field_csv(
     source: &Source<'_>,
     values: &[Option<f64>],
     format: &str,
 ) -> Result<String, Error> {
+    // Both layouts write a cell for every grid point, so the output scales
+    // with the stated shape, not with `values` (#913).
+    require_values_for_shape(source, values)?;
     let (ni, nj) = (source.ni, source.nj);
     match format {
         "matrix" => Ok(field_to_csv_matrix(values, ni as usize, nj as usize)),
@@ -4008,8 +4073,8 @@ mod warp_target_tests {
     #[test]
     fn field_csv_rejects_unknown_format() {
         let geometry = GridGeometry::LatLon(latlon_2x2());
-        let err =
-            field_csv(&source(&geometry, "latlon"), &[Some(1.0)], "tsv").expect_err("bad format");
+        let err = field_csv(&source(&geometry, "latlon"), &[Some(1.0); 4], "tsv")
+            .expect_err("bad format");
         assert!(format!("{err}").contains("unknown CSV format"));
     }
 
