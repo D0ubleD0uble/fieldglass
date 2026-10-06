@@ -549,12 +549,8 @@ pub fn decode_bifourier(
         )));
     }
 
-    // Only `itrunc[j]` is needed for the `for_ij` bounds, and it is no longer
-    // than the coefficient buffer about to be allocated. The sub-truncation
-    // needs both limit arrays for `insub`; its axes are `u16`.
-    let itrunc_bif: Vec<i64> = (0..=bif_j)
-        .map(|j| bifourier_limit(gds.truncation_type, bif_i, bif_j, j))
-        .collect();
+    // The sub-truncation needs both limit arrays for `insub`; its axes are
+    // `u16`, so they are small whatever the message says.
     let (itrunc_sub, jtrunc_sub) = bifourier_truncation(t.sub_truncation_type, sub_i, sub_j)?;
 
     // Whether coefficient (i, j) lives in the unpacked subset. Preserve eccodes'
@@ -570,17 +566,29 @@ pub fn decode_bifourier(
         if keepaxes { r || i == 0 || j == 0 } else { r }
     };
 
-    // Reconstruct size_sub from the geometry; a `-1` diamond limit contributes
-    // zero.
+    // Reconstruct size_sub from the geometry, row by row and without building
+    // the full limit array, so §7's length can refuse a message before that
+    // array is allocated (#849). A `-1` diamond limit contributes zero. Past
+    // the sub-truncation `insub` is only `keepaxes` on an axis, so each row
+    // tests at most `sub_i+1` pairs and counts the rest in one step.
     let mut size_sub = 0usize;
-    for (j, &itr_j) in itrunc_bif.iter().enumerate() {
+    for j in 0..=bif_j {
         // A truncation limit clamped to `>= 0` and bounded by `ni`, which
         // `bifourier_max_count` already capped, so this fits `usize` anywhere.
-        let icount = (itr_j + 1).max(0) as usize;
-        for i in 0..icount {
-            if insub(i, j) {
+        let icount = (bifourier_limit(gds.truncation_type, bif_i, bif_j, j) + 1).max(0) as usize;
+        if j > sub_j {
+            // Only (0, j) can be in the subset, and only by `keepaxes`.
+            if keepaxes && icount > 0 {
                 size_sub += 4;
             }
+            continue;
+        }
+        let tested = icount.min(sub_i + 1);
+        size_sub += 4 * (0..tested).filter(|&i| insub(i, j)).count();
+        // Every i past `sub_i` is outside the sub-truncation (and not 0), so it
+        // is in the subset only on the j = 0 axis under `keepaxes`.
+        if keepaxes && j == 0 {
+            size_sub += 4 * (icount - tested);
         }
     }
 
@@ -608,6 +616,12 @@ pub fn decode_bifourier(
                 .into(),
         ));
     }
+
+    // Only `itrunc[j]` is needed for the `for_ij` bounds. §7 holds every
+    // coefficient by now, so this is no longer than the buffer it fills.
+    let itrunc_bif: Vec<i64> = (0..=bif_j)
+        .map(|j| bifourier_limit(gds.truncation_type, bif_i, bif_j, j))
+        .collect();
 
     let scaling = packing_scaling(
         t.reference_value,

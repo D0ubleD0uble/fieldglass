@@ -1,5 +1,6 @@
-//! A bi-Fourier message whose truncation disagrees with §5 is refused before
-//! anything proportional to the truncation is allocated (#849).
+//! A bi-Fourier message whose truncation disagrees with §5, or whose §7 is
+//! too short for it, is refused before anything proportional to the
+//! truncation is allocated (#849).
 //!
 //! The seed is the committed fuzz input
 //! `fuzz/corpus/decode/constant_field_bifourier_ellipse_wide.grib2` (145
@@ -16,6 +17,9 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
 use fieldglass_grib2::Grib2Reader;
+use fieldglass_grib2::drs::BiFourierPackingTemplate;
+use fieldglass_grib2::gds::BiFourierTemplate;
+use fieldglass_grib2::spectral::decode_bifourier;
 
 struct Tracking;
 
@@ -94,5 +98,37 @@ fn wide_ellipse_seed_is_refused_before_its_layout_is_allocated() {
     );
     // The limit array would be 8·(N+1) = 134,266,880 bytes. Nothing near the
     // truncation's size may be allocated; the error message is the largest.
+    assert!(largest < 4096, "largest allocation {largest} bytes");
+}
+
+#[test]
+fn matching_count_with_an_empty_section_7_is_refused_before_its_layout() {
+    // The seed with its axes swapped and §5 set to match: an ellipse with
+    // N = 0 and M = 16,783,359 holds one pair per row, 4·(M+1) coefficients,
+    // so the count agrees and only §7's length can refuse it. Its full limit
+    // array would again be 8·(M+1) bytes.
+    let gds = BiFourierTemplate {
+        spectral_type: 2,
+        bif_i: 0,
+        bif_j: 16_783_359,
+        truncation_type: 88,
+    };
+    let packing = BiFourierPackingTemplate {
+        reference_value: 0.0,
+        binary_scale_factor: 0,
+        decimal_scale_factor: 0,
+        bits_per_value: 12,
+        sub_truncation_type: 77,
+        packing_mode_for_axes: 0,
+        laplacian_scaling_factor: 0,
+        sub_i: 2,
+        sub_j: 2,
+        total_values_in_unpacked_subset: 0,
+        unpacked_subset_precision: 1,
+    };
+    let (largest, result) =
+        largest_allocation_in(|| decode_bifourier(&[], &packing, &gds, 67_133_440));
+    let err = result.expect_err("§7 is empty");
+    assert!(format!("{err:?}").contains("§7 holds only 0"), "{err:?}");
     assert!(largest < 4096, "largest allocation {largest} bytes");
 }
