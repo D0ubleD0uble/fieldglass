@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Build the three HDF5 fixtures behind #837: an oversized chunk, a chunk
-B-tree that names that chunk sixteen times, and one that names two different
-chunks at one origin.
+"""Build the four HDF5 fixtures behind #837: an oversized chunk, a chunk
+B-tree that names that chunk sixteen times, one that names it at sixteen
+different origins, and one that names two different chunks at one origin.
 
   * ``hdf5_oversized_chunk.h5`` — written by ``h5py`` with ``libver='earliest'``
     (superblock v0, a **version-1 chunk B-tree**): a dataset ``v`` of shape
@@ -18,6 +18,12 @@ chunks at one origin.
     the value is not in doubt: libhdf5 reads ``[7]``, and so does the reader,
     which reads the chunk once instead of inflating 16 MB sixteen times (about
     10.6 s on the fuzz build before the fix).
+  * ``hdf5_shared_chunk_records.h5`` — shape ``(16, 1)`` ``uint8`` in gzip
+    chunks of ``(1, 16 Mi)`` with only ``[0, 0] = 7`` written, so one chunk is
+    stored. A hand-built leaf then names that chunk at all sixteen origins
+    ``(i, 0)``. Nothing in the format forbids two origins sharing storage, and
+    libhdf5 reads sixteen 7s. The reader does too, inflating the chunk once
+    rather than once per origin.
   * ``hdf5_conflicting_chunk_records.h5`` — ``(2,)`` ``uint8`` ``[7, 9]`` in
     unfiltered chunks of one element, with a leaf naming chunk A at origin 0,
     then chunk B at origin 0, then chunk B at origin 1. Which value origin 0
@@ -74,52 +80,87 @@ def chunk_btree_address(raw: bytes) -> int:
     return found[0]
 
 
-def key(size: int, mask: int, origin: int) -> bytes:
-    # A rank-1 chunk key: chunk size, filter mask, then rank + 1 offsets (the
-    # last is the element-byte offset, always 0).
-    return struct.pack("<IIQQ", size, mask, origin, 0)
-
-
-# libhdf5 reads a v1 chunk B-tree node at its full allocated size, room for
-# 2K entries with the default K of 32: a 24-byte header, 64 children and 65
-# 24-byte keys.
-NODE_BYTES = 24 + 64 * 8 + 65 * 24
+def key(size: int, mask: int, *origin: int) -> bytes:
+    # A chunk key: chunk size, filter mask, then rank + 1 offsets (the last is
+    # the element-byte offset, always 0).
+    return struct.pack(f"<II{len(origin) + 1}Q", size, mask, *origin, 0)
 
 
 def node(level: int, entries: list[tuple[bytes, int]], last_key: bytes) -> bytes:
+    # libhdf5 reads a v1 chunk B-tree node at its full allocated size, room for
+    # 2K entries with the default K of 32: a 24-byte header, 64 children and 65
+    # keys.
+    node_bytes = 24 + 64 * 8 + 65 * len(last_key)
     undefined = 0xFFFF_FFFF_FFFF_FFFF
     out = b"TREE" + struct.pack("<BBHQQ", 1, level, len(entries), undefined, undefined)
     for k, child in entries:
         out += k + struct.pack("<Q", child)
     out += last_key
-    return out + bytes(NODE_BYTES - len(out))
+    return out + bytes(node_bytes - len(out))
+
+
+def repoint(raw: bytearray, rank: int, old_root: int, root: int) -> None:
+    """Point the Data Layout message (v3, chunked: version 3, class 2,
+    dimensionality rank + 1, then the chunk B-tree address) at `root`."""
+    pattern = bytes([3, 2, rank + 1]) + struct.pack("<Q", old_root)
+    at = raw.find(pattern)
+    assert at > 0 and raw.find(pattern, at + 1) == -1, "layout message not unique"
+    raw[at + 3 : at + 11] = struct.pack("<Q", root)
+
+
+def append(raw: bytearray, block: bytes) -> int:
+    while len(raw) % 8:
+        raw.append(0)
+    at = len(raw)
+    raw += block
+    return at
+
+
+def finish(raw: bytearray, path: Path) -> None:
+    assert struct.unpack_from("<Q", raw, EOF_ADDRESS_AT)[0] <= len(raw), "EOF field"
+    struct.pack_into("<Q", raw, EOF_ADDRESS_AT, len(raw))
+    path.write_bytes(bytes(raw))
 
 
 def build_duplicated(src: Path, dst: Path) -> None:
     raw = bytearray(src.read_bytes())
+    assert struct.unpack_from("<Q", raw, EOF_ADDRESS_AT)[0] == len(raw), "EOF field"
     with h5py.File(src, "r") as f:
         info = f["v"].id.get_chunk_info(0)
         chunk_addr, chunk_size, mask = info.byte_offset, info.size, info.filter_mask
     old_root = chunk_btree_address(raw)
-
-    # Data Layout message v3, chunked class: version 3, class 2, dimensionality
-    # rank + 1 = 2, then the chunk B-tree address.
-    pattern = bytes([3, 2, 2]) + struct.pack("<Q", old_root)
-    at = raw.find(pattern)
-    assert at > 0 and raw.find(pattern, at + 1) == -1, "layout message not unique"
-
-    assert struct.unpack_from("<Q", raw, EOF_ADDRESS_AT)[0] == len(raw), "EOF field"
-    while len(raw) % 8:
-        raw.append(0)
-    leaf_addr = len(raw)
     record = key(chunk_size, mask, 0)
-    raw += node(0, [(record, chunk_addr)] * K, key(0, 0, CHUNK))
-    root_addr = len(raw)
-    raw += node(1, [(key(0, 0, 0), leaf_addr)] * R, key(0, 0, CHUNK))
+    leaf = append(raw, node(0, [(record, chunk_addr)] * K, key(0, 0, CHUNK)))
+    root = append(raw, node(1, [(key(0, 0, 0), leaf)] * R, key(0, 0, CHUNK)))
+    repoint(raw, 1, old_root, root)
+    finish(raw, dst)
 
-    raw[at + 3 : at + 11] = struct.pack("<Q", root_addr)
-    struct.pack_into("<Q", raw, EOF_ADDRESS_AT, len(raw))
-    dst.write_bytes(bytes(raw))
+
+def build_shared(path: Path) -> list:
+    src = path.with_suffix(".src.h5")
+    with h5py.File(src, "w", libver="earliest") as f:
+        v = f.create_dataset(
+            "v",
+            shape=(16, 1),
+            dtype="u1",
+            maxshape=(None, None),
+            chunks=(1, CHUNK),
+            compression="gzip",
+            track_times=False,
+        )
+        v[0, 0] = 7
+    with h5py.File(src, "r") as f:
+        assert f["v"].id.get_num_chunks() == 1
+        info = f["v"].id.get_chunk_info(0)
+    raw = bytearray(src.read_bytes())
+    src.unlink()
+    old_root = chunk_btree_address(raw)
+    entries = [(key(info.size, info.filter_mask, i, 0), info.byte_offset) for i in range(16)]
+    leaf = append(raw, node(0, entries, key(0, 0, 16, 0)))
+    repoint(raw, 2, old_root, leaf)
+    finish(raw, path)
+    with h5py.File(path, "r") as f:
+        return f["v"][...].ravel().tolist()
 
 
 def build_conflicting(path: Path) -> list:
@@ -133,16 +174,11 @@ def build_conflicting(path: Path) -> list:
     raw = bytearray(src.read_bytes())
     src.unlink()
     old_root = chunk_btree_address(raw)
-    pattern = bytes([3, 2, 2]) + struct.pack("<Q", old_root)
-    at = raw.find(pattern)
-    assert at > 0 and raw.find(pattern, at + 1) == -1, "layout message not unique"
-    while len(raw) % 8:
-        raw.append(0)
-    leaf_addr = len(raw)
-    raw += node(0, [(key(1, 0, 0), a), (key(1, 0, 0), b), (key(1, 0, 1), b)], key(0, 0, 2))
-    raw[at + 3 : at + 11] = struct.pack("<Q", leaf_addr)
-    struct.pack_into("<Q", raw, EOF_ADDRESS_AT, len(raw))
-    path.write_bytes(bytes(raw))
+    leaf = append(
+        raw, node(0, [(key(1, 0, 0), a), (key(1, 0, 0), b), (key(1, 0, 1), b)], key(0, 0, 2))
+    )
+    repoint(raw, 1, old_root, leaf)
+    finish(raw, path)
     with h5py.File(path, "r") as f:
         return f["v"][...].tolist()
 
@@ -169,6 +205,12 @@ def main() -> None:
         json.dumps(oracle, indent=2) + "\n", encoding="utf-8"
     )
     print(f"wrote {oversized} ({oversized.stat().st_size} B) + oracle")
+
+    shared = FIXTURES / "hdf5_shared_chunk_records.h5"
+    shared_read = build_shared(shared)
+    assert shared_read == [7] * 16, shared_read
+    (CORPUS / shared.name).write_bytes(shared.read_bytes())
+    print(f"wrote {shared} ({shared.stat().st_size} B); libhdf5 reads {shared_read}; seed copied")
 
     conflicting = FIXTURES / "hdf5_conflicting_chunk_records.h5"
     libhdf5_read = build_conflicting(conflicting)

@@ -381,14 +381,23 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     // known, so the whole variable is one batch resolve followed by reads. The
     // walk that produced the records could not be planned — that is the weak
     // form, and why the traversal above issues none.
-    let chunks = chunks_in_shape(&chunks, shape, &chunked.chunk_dims)?;
-    let plan: Vec<ByteRange> = chunks
+    let mut chunks = chunks_in_shape(&chunks, shape, &chunked.chunk_dims)?;
+    // Records at different origins may name the same stored chunk: nothing in
+    // the format forbids it, and libhdf5 reads such a file. Each stored chunk is
+    // read and reversed once and placed at every origin that names it, so the
+    // cost is the distinct stored chunks, not the records (#837). The sort is
+    // stable, so a group keeps its records in origin order.
+    let storage = |c: &&ChunkRecord| (c.address, c.size, c.filter_mask);
+    chunks.sort_by_key(storage);
+    let groups: Vec<&[&ChunkRecord]> = chunks.chunk_by(|a, b| storage(a) == storage(b)).collect();
+    let plan: Vec<ByteRange> = groups
         .iter()
-        .map(|c| ByteRange::new(c.address, u64::from(c.size)))
+        .map(|g| ByteRange::new(g[0].address, u64::from(g[0].size)))
         .collect();
     source.prefetch(&plan)?;
 
-    for chunk in chunks {
+    for group in groups {
+        let chunk = group[0];
         let stored = read_at(source, chunk.address, chunk.size as usize)?;
         let expanded = if pipeline.filters.is_empty() {
             stored.into_owned()
@@ -406,14 +415,16 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
                 expanded.len()
             )));
         }
-        scatter_chunk(
-            &mut raw,
-            &expanded,
-            shape,
-            &chunked.chunk_dims,
-            &chunk.offset,
-            elem,
-        );
+        for record in group {
+            scatter_chunk(
+                &mut raw,
+                &expanded,
+                shape,
+                &chunked.chunk_dims,
+                &record.offset,
+                elem,
+            );
+        }
     }
     Ok(raw)
 }
@@ -1174,9 +1185,13 @@ fn scatter_chunk(
 /// - **Records at one origin naming different storage** are refused. The value
 ///   is ambiguous: libhdf5's answer depends on the records' order and on its
 ///   tree search, and this is the one case where the reader diverges from it.
-/// - **An origin off the chunk grid** is refused, as libhdf5 refuses it.
 /// - **A record whose origin lies outside the shape** is skipped without being
 ///   read, as libhdf5 never looks such a chunk up.
+/// - **An origin inside the shape but off the chunk grid** is refused, as
+///   libhdf5 refuses it.
+///
+/// Records at *different* origins naming the same storage are legal, and the
+/// caller groups them so that chunk is read once.
 fn chunks_in_shape<'a>(
     chunks: &'a [ChunkRecord],
     shape: &[u64],
@@ -1191,6 +1206,9 @@ fn chunks_in_shape<'a>(
                 chunk_dims.len()
             )));
         }
+        if !chunk.offset.iter().zip(shape).all(|(&o, &s)| o < s) {
+            continue;
+        }
         if let Some(d) =
             (0..chunk_dims.len()).find(|&d| chunk.offset[d] % u64::from(chunk_dims[d]) != 0)
         {
@@ -1199,9 +1217,7 @@ fn chunks_in_shape<'a>(
                 chunk.offset, chunk_dims[d]
             )));
         }
-        if chunk.offset.iter().zip(shape).all(|(&o, &s)| o < s) {
-            kept.push(chunk);
-        }
+        kept.push(chunk);
     }
     kept.sort_unstable_by(|a, b| a.offset.cmp(&b.offset));
     let same_storage = |a: &ChunkRecord, b: &ChunkRecord| {
@@ -1411,10 +1427,16 @@ mod tests {
             assert!(err.to_string().contains("two different chunks"), "{err}");
         }
 
-        // An origin off the chunk grid is refused.
+        // An origin off the chunk grid is refused inside the shape, and
+        // skipped unread outside it like any other record there.
         let off = vec![record(&[2, 0])];
         let err = chunks_in_shape(&off, &shape, &dims).expect_err("off the grid");
         assert!(err.to_string().contains("not on the chunk grid"), "{err}");
+        let off_outside = vec![record(&[0, 0]), record(&[13, 1])];
+        assert_eq!(
+            chunks_in_shape(&off_outside, &shape, &dims).unwrap().len(),
+            1
+        );
 
         // A conflict that lies wholly outside the shape is never read, so it is
         // skipped like any other record there.

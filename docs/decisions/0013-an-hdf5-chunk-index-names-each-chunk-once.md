@@ -40,15 +40,15 @@ Measured with libhdf5 2.0.0 on hand-built files
 | Index | libhdf5 reads |
 | --- | --- |
 | one chunk named 16 times, identically | the value written |
+| one chunk named at 16 different origins | the chunk at every origin |
 | `[7, 9]`; records A@0, B@0, B@1 | `[9, 9]` |
 | the same with A@0 and B@0 swapped | `[7, 9]` |
 | an origin not a multiple of the chunk edge | refuses ("bad coordinate offset") |
 | a record wholly outside the shape | ignores it |
 
 For conflicting records its answer is the last record in index order within a
-leaf. Across leaves it is whatever its key-guided search reaches, which in one
-probe lost a stored chunk to the fill value. That answer comes from how libhdf5
-walks the tree. The file itself does not state it.
+leaf, and across leaves whatever its key-guided search reaches. That answer
+comes from how libhdf5 walks the tree. The file itself does not state it.
 
 ## Decision
 
@@ -63,10 +63,15 @@ any chunk (`chunks_in_shape` in `crates/fieldglass-netcdf/src/hdf5/values.rs`):
    evidence is `tests/fixtures/hdf5_conflicting_chunk_records.h5`, its oracle
    (libhdf5's read), `tests/hdf5_chunk_records.rs` and the fixture's
    `NOTICE.md` entry.
-3. **An origin off the chunk grid is refused**, as libhdf5 refuses it.
+3. **An origin inside the shape but off the chunk grid is refused**, as libhdf5
+   refuses it.
 4. **A record wholly outside the shape is skipped without being read**, as
-   libhdf5 never looks it up. A chunk larger than the shape is legal (an
-   extendable dataset's, for example) and is not refused.
+   libhdf5 never looks it up, whether or not its origin is on the grid. A chunk
+   larger than the shape is legal (an extendable dataset's, for example) and is
+   not refused.
+5. **Records at different origins naming the same storage** are legal, and
+   libhdf5 reads them. The chunk is read and reversed once and placed at every
+   origin that names it.
 
 The check runs on every index, including the ones whose origins cannot repeat
 by construction, because it is one sort over records that each cost a read.
@@ -76,9 +81,9 @@ one contiguous run along the last dimension at a time.
 
 ## Consequences
 
-- The cost of a chunked decode is bounded by the distinct chunks inside the
-  shape times the chunk size, which is what the data actually holds, rather
-  than by the number of index entries.
+- The cost of a chunked decode is the distinct stored chunks times the chunk
+  size, plus copying each in-shape origin's part once, rather than the number
+  of index entries times the chunk size.
 - A file libhdf5 opens can be refused: one whose index names two different
   chunks at one origin. No writer produces such a file, and the value libhdf5
   would show for it is an accident of record order.

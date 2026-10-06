@@ -18,6 +18,8 @@ use fieldglass_netcdf::{ChildKind, NetcdfBacking, NetcdfReader, list_root_childr
 const OVERSIZED: &[u8] = include_bytes!("fixtures/hdf5_oversized_chunk.h5");
 /// The same file with an index naming that chunk 16 times (4 × 4 B-tree).
 const DUPLICATED: &[u8] = include_bytes!("fixtures/hdf5_duplicate_chunk_records.h5");
+/// `(16, 1)` with one stored chunk that the index names at all 16 origins.
+const SHARED: &[u8] = include_bytes!("fixtures/hdf5_shared_chunk_records.h5");
 /// `[7, 9]` with an index naming chunks A and B both at origin 0.
 const CONFLICTING: &[u8] = include_bytes!("fixtures/hdf5_conflicting_chunk_records.h5");
 
@@ -56,6 +58,20 @@ fn identical_chunk_records_are_read_once() {
     let batches = source.prefetches();
     let plan = batches.last().expect("the chunk fetch is planned");
     assert_eq!(plan.len(), 1, "one chunk in the plan: {plan:?}");
+    let reads = source.reads().iter().filter(|r| **r == plan[0]).count();
+    assert_eq!(reads, 1, "the chunk's bytes are read once");
+}
+
+#[test]
+fn a_chunk_named_at_many_origins_is_read_once() {
+    // Legal, and libhdf5 reads sixteen 7s. Each origin gets the chunk's first
+    // element, so every value is 7, but the chunk is inflated once rather than
+    // once per origin.
+    let source = Recording::new(SHARED);
+    assert_eq!(decode_v(SHARED, &source), Ok(vec![Some(7.0); 16]));
+    let batches = source.prefetches();
+    let plan = batches.last().expect("the chunk fetch is planned");
+    assert_eq!(plan.len(), 1, "one stored chunk in the plan: {plan:?}");
     let reads = source.reads().iter().filter(|r| **r == plan[0]).count();
     assert_eq!(reads, 1, "the chunk's bytes are read once");
 }

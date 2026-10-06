@@ -38,6 +38,8 @@ large one (see `MAX_FUZZ_DECODE_ELEMENTS`). The seed keeps that skip in place.
 `tools/build_hdf5_duplicate_chunk_fixture.py`; see `tests/fixtures/NOTICE.md`)
 names one 16 MB gzip chunk 16 times through a hand-built chunk B-tree. It took
 about 10.6 s on the fuzz build when every record was inflated; the reader now
-reads the chunk once (#837). CI
+reads the chunk once (#837). `hdf5_shared_chunk_records.h5` (23 KB, same
+builder) names one such chunk at sixteen different origins, which is legal,
+and is read once too. CI
 runs this target time-boxed on pull requests that touch the crate; see
 `.github/workflows/fuzz.yml`.

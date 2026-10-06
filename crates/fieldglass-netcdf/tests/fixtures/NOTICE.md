@@ -271,13 +271,13 @@ the v2 B-tree rather than a Fixed or Extensible Array. Built by
 `tests/hdf5_value_decode.rs` checks the decoded values against `h5py`. Part of
 #216.
 
-## Chunk-record fixtures (`hdf5_oversized_chunk.h5`, `hdf5_duplicate_chunk_records.h5`, `hdf5_conflicting_chunk_records.h5`)
+## Chunk-record fixtures (`hdf5_oversized_chunk.h5`, `hdf5_duplicate_chunk_records.h5`, `hdf5_shared_chunk_records.h5`, `hdf5_conflicting_chunk_records.h5`)
 
-Three small files for #837, each holding a `uint8` dataset `v` under a
+Four small files for #837, each holding a `uint8` dataset `v` under a
 version-1 chunk B-tree (`libver='earliest'`). Built by
 `tools/build_hdf5_duplicate_chunk_fixture.py` with h5py 3.16.0 (libhdf5 2.0.0);
 the build is reproducible byte for byte. `tests/hdf5_chunk_records.rs` decodes
-all three.
+all four.
 
 - `hdf5_oversized_chunk.h5` (19,814 bytes) is plain h5py output: shape `(1,)`
   holding `7`, `maxshape=(None,)`, one gzip chunk of 16 Mi elements. A chunk
@@ -291,6 +291,12 @@ all three.
   a node at (room for 2K entries, K = 32). libhdf5 reads `[7]` and counts 16
   chunks. Fieldglass reads `[7]`, reading the chunk once. It also seeds the
   NetCDF fuzz corpus.
+- `hdf5_shared_chunk_records.h5` (22,952 bytes) is shape `(16, 1)` in gzip
+  chunks of `(1, 16 Mi)` with only `[0, 0] = 7` written, so one chunk is
+  stored, and a hand-built leaf naming that chunk at all sixteen origins
+  `(i, 0)`. The format does not forbid two origins sharing storage. libhdf5
+  reads sixteen 7s, and so does Fieldglass, inflating the chunk once. It also
+  seeds the NetCDF fuzz corpus.
 - `hdf5_conflicting_chunk_records.h5` (5,600 bytes) holds `[7, 9]` in
   unfiltered chunks of one element, with a hand-built leaf naming chunk A at
   origin 0, chunk B at origin 0, and chunk B at origin 1. **Known divergence
@@ -301,8 +307,8 @@ all three.
   "the range of values represented by child[i] is indicated by key[i] and
   key[i+1]" and, for chunk trees, that "the chunk described by key[i] is the
   least chunk in child[i]". Two equal keys name an empty range, so the index
-  is malformed, and Fieldglass refuses it. The oracle records libhdf5's read. ADR-0013 records
-  the decision.
+  is malformed, and Fieldglass refuses it. The oracle records libhdf5's
+  read, and ADR-0013 records the decision.
 
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 

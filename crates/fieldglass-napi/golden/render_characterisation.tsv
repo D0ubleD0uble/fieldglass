@@ -1335,6 +1335,11 @@ netcdf/hdf5_phony_dims.h5#d_6x4	combine/a_minus_b/render/source/nearest	ok w=4 h
 netcdf/hdf5_phony_dims.h5#d_6x4	meta	family=source ni=4 nj=6 reprojectable=false	d9c692740d65f1a5
 netcdf/hdf5_phony_dims.h5#d_6x4	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_phony_dims.h5#d_6x4	render/source/nearest	ok w=4 h=6 opaque=24	2309a04d0dcf826b
+netcdf/hdf5_shared_chunk_records.h5	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/hdf5_shared_chunk_records.h5#v	combine/a_minus_b/render/source/nearest	ok w=1 h=16 opaque=16	ab2e38a06a81e428
+netcdf/hdf5_shared_chunk_records.h5#v	meta	family=source ni=1 nj=16 reprojectable=false	6b7374117bda3817
+netcdf/hdf5_shared_chunk_records.h5#v	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_shared_chunk_records.h5#v	render/source/nearest	ok w=1 h=16 opaque=16	fe874f44c7228a20
 netcdf/hdf5_szip.h5	file	parsed=true fields=12	2bedaa0631cb8fc5
 netcdf/hdf5_szip.h5#f4_ppb18	combine/a_minus_b/render/source/nearest	ok w=36 h=4 opaque=144	2cb3479a850312b6
 netcdf/hdf5_szip.h5#f4_ppb18	meta	family=source ni=36 nj=4 reprojectable=false	0e2b1ec5574baf35
