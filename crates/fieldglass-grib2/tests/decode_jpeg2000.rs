@@ -144,3 +144,28 @@ fn check_against_oracle(fixture: &str) {
         );
     }
 }
+
+/// A codestream whose SIZ states a far larger image than the field is refused
+/// on that statement, before any of it is decoded (#848).
+///
+/// The committed fuzz seed (provenance in `fuzz/README.md`) is
+/// `jpeg2000_regular_latlon.grib2` on a 1 × 1 grid with a 102-byte codestream
+/// stating 8192 × 8192. Decoding it in full took about 14 s before the sample
+/// count refused it. The refusal now names SIZ, which only the pre-decode
+/// check does; the time bound is loose so a loaded runner cannot flake it.
+#[test]
+fn a_codestream_far_larger_than_its_field_is_refused_before_decoding() {
+    let bytes = include_bytes!("../fuzz/corpus/decode/jpeg2000_codestream_8192x8192_on_1x1.grib2");
+    let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("parse");
+    let start = std::time::Instant::now();
+    let err = reader
+        .decode_message_values(0)
+        .expect_err("SIZ disagrees with the field");
+    let elapsed = start.elapsed();
+    assert!(
+        err.to_string()
+            .contains("SIZ states a 8192×8192 image (67108864 samples) but 1 values are required"),
+        "{err}"
+    );
+    assert!(elapsed.as_millis() < 1000, "took {elapsed:?}");
+}

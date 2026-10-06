@@ -141,13 +141,16 @@ fn bifourier_affordable(reader: &Grib2Reader, i: usize) -> bool {
 
 /// The samples above which a JPEG 2000 codestream (§5.40) is not decoded.
 ///
-/// The codestream states its own image in its SIZ marker, and the reader
-/// decodes all of it before comparing the sample count with the field's, so
-/// the grid and §5 counts bound nothing here: a 300-byte message on a 1 × 1
-/// grid can carry an 8192 × 8192 codestream, about 14 s of wavelet transform.
-/// A single-tile 1024 × 1024 image is about 190 ms, so eight messages stay
-/// near 1.5 s; 2048 × 2048 is 0.8 s each, which is why this is below
-/// `FUZZ_MAX_FIELD_POINTS`.
+/// The codestream states its own image in its SIZ marker. The reader now
+/// refuses an image that disagrees with the field before decoding it (#848),
+/// so a codestream it does decode costs about the field's own sample count;
+/// before, a 300-byte message on a 1 × 1 grid could carry an 8192 × 8192
+/// codestream, about 14 s of wavelet transform. JPEG 2000 costs far more per
+/// sample than the other packings: a single-tile 1024 × 1024 image is about
+/// 190 ms, so eight messages stay near 1.5 s, and 2048 × 2048 is 0.8 s each,
+/// which is why this is below `FUZZ_MAX_FIELD_POINTS`. Gating on SIZ rather
+/// than on the field still admits every small codestream that disagrees with
+/// its field, so the reader's refusal stays fuzzed.
 const FUZZ_MAX_J2K_SAMPLES: u64 = 1 << 20;
 
 /// `rust_j2k`'s own guard on the image area, which its SIZ validation refuses
