@@ -480,7 +480,7 @@ fn link_info_links<S: ByteSource + ?Sized>(
         let id = record
             .get(LINK_RECORD_HEAP_ID_OFFSET..LINK_RECORD_HEAP_ID_OFFSET + heap.heap_id_len)
             .ok_or_else(|| FieldglassError::Parse("link record too small for a heap ID".into()))?;
-        let object = heap.managed_object(source, id)?;
+        let object = heap.object(source, id)?;
         if let Some(link) = parse_link_message(&object, osize)? {
             push_link(&mut links, link.0, link.1)?;
         }

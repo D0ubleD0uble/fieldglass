@@ -1309,6 +1309,7 @@ netcdf/hdf5_fletcher32.h5#plain_deflate	combine/a_minus_b/render/source/nearest	
 netcdf/hdf5_fletcher32.h5#plain_deflate	meta	family=source ni=8 nj=8 reprojectable=false	4d0d1b7eddd01ecd
 netcdf/hdf5_fletcher32.h5#plain_deflate	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#plain_deflate	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
+netcdf/hdf5_huge_link_name.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_implicit_index.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_implicit_index.h5#implicit	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
 netcdf/hdf5_implicit_index.h5#implicit	meta	family=source ni=8 nj=8 reprojectable=false	4d0d1b7eddd01ecd
@@ -1654,6 +1655,7 @@ netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	meta	family=source ni=4 nj=3 reproje
 netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/source/nearest	ok w=4 h=3 opaque=12	a990cf36474913e1
 netcdf/netcdf4_hdf5_dummy.nc	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/netcdf4_huge_attributes.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf4_unsupported_type.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf_classic_dummy.nc	file	parsed=true fields=6	fc2e3e9795c31991
 netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e

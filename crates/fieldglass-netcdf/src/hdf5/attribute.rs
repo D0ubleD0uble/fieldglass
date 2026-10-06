@@ -211,7 +211,7 @@ fn read_dense_attribute_bodies<S: ByteSource + ?Sized>(
             .ok_or_else(|| {
                 FieldglassError::Parse("attribute record too small for a heap ID".into())
             })?;
-        let message = heap.managed_object(source, id)?;
+        let message = heap.object(source, id)?;
         out.push(message);
     }
     Ok(())
