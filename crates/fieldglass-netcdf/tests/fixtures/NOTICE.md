@@ -271,13 +271,13 @@ the v2 B-tree rather than a Fixed or Extensible Array. Built by
 `tests/hdf5_value_decode.rs` checks the decoded values against `h5py`. Part of
 #216.
 
-## Chunk-record fixtures (`hdf5_oversized_chunk.h5`, `hdf5_duplicate_chunk_records.h5`, `hdf5_shared_chunk_records.h5`, `hdf5_conflicting_chunk_records.h5`)
+## Chunk-record fixtures (`hdf5_oversized_chunk.h5`, `hdf5_duplicate_chunk_records.h5`, `hdf5_shared_chunk_records*.h5`, `hdf5_conflicting_chunk_records.h5`)
 
-Four small files for #837, each holding a `uint8` dataset `v` under a
+Six small files for #837, each holding a `uint8` dataset `v` under a
 version-1 chunk B-tree (`libver='earliest'`). Built by
 `tools/build_hdf5_duplicate_chunk_fixture.py` with h5py 3.16.0 (libhdf5 2.0.0);
 the build is reproducible byte for byte. `tests/hdf5_chunk_records.rs` decodes
-all four.
+all six.
 
 - `hdf5_oversized_chunk.h5` (19,814 bytes) is plain h5py output: shape `(1,)`
   holding `7`, `maxshape=(None,)`, one gzip chunk of 16 Mi elements. A chunk
@@ -297,6 +297,15 @@ all four.
   `(i, 0)`. The format does not forbid two origins sharing storage. libhdf5
   reads sixteen 7s, and so does Fieldglass, inflating the chunk once. It also
   seeds the NetCDF fuzz corpus.
+- `hdf5_shared_chunk_records_masks.h5` and `hdf5_shared_chunk_records_sizes.h5`
+  (22,952 bytes each) are that file with record `i`'s filter mask raised by
+  `2i` (bits above the one gzip filter) or its stored size by `i` bytes (past
+  the end of the zlib stream). libhdf5 reads sixteen 7s from both. Fieldglass
+  reads the first with the chunk inflated once, and refuses the second.
+  **Known divergence from libhdf5** (#888): one stored chunk stated at sixteen
+  sizes would decode differently under another pipeline (fletcher32 reads its
+  checksum from the end), and reading each is the per-record cost again.
+  ADR-0013's amendment records it. The masks file seeds the NetCDF fuzz corpus.
 - `hdf5_conflicting_chunk_records.h5` (5,600 bytes) holds `[7, 9]` in
   unfiltered chunks of one element, with a hand-built leaf naming chunk A at
   origin 0, chunk B at origin 0, and chunk B at origin 1. **Known divergence

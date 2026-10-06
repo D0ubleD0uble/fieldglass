@@ -385,11 +385,37 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     // Records at different origins may name the same stored chunk: nothing in
     // the format forbids it, and libhdf5 reads such a file. Each stored chunk is
     // read and reversed once and placed at every origin that names it, so the
-    // cost is the distinct stored chunks, not the records (#837). The sort is
-    // stable, so a group keeps its records in origin order.
-    let storage = |c: &&ChunkRecord| (c.address, c.size, c.filter_mask);
+    // cost is the distinct stored chunks, not the records (#837).
+    //
+    // A stored chunk is its address (#888). The filter mask is compared only
+    // over the filters this pipeline has: `reverse` reads no other bit, so
+    // masks that differ above them name the same decode. Records at one address
+    // that still disagree, on stored size or on a filter actually applied,
+    // would each decode the same bytes differently, and reading each is the
+    // records-times-chunk-size cost again; the index is refused (ADR-0013).
+    // The sort is stable, so a group keeps its records in origin order.
+    let pipeline_bits = match pipeline.filters.len() {
+        n if n >= 32 => u32::MAX,
+        n => (1u32 << n) - 1,
+    };
+    let storage = |c: &&ChunkRecord| (c.address, c.size, c.filter_mask & pipeline_bits);
     chunks.sort_by_key(storage);
     let groups: Vec<&[&ChunkRecord]> = chunks.chunk_by(|a, b| storage(a) == storage(b)).collect();
+    if let Some(pair) = groups
+        .windows(2)
+        .find(|pair| pair[0][0].address == pair[1][0].address)
+    {
+        let (a, b) = (pair[0][0], pair[1][0]);
+        return Err(FieldglassError::Parse(format!(
+            "chunk index names the stored chunk at {} twice with different storage \
+             (size {} and {}, filter mask {:#x} and {:#x})",
+            a.address,
+            a.size,
+            b.size,
+            a.filter_mask & pipeline_bits,
+            b.filter_mask & pipeline_bits
+        )));
+    }
     let plan: Vec<ByteRange> = groups
         .iter()
         .map(|g| ByteRange::new(g[0].address, u64::from(g[0].size)))
@@ -402,7 +428,8 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
         let expanded = if pipeline.filters.is_empty() {
             stored.into_owned()
         } else {
-            pipeline.reverse(stored.into_owned(), chunk.filter_mask, elem, chunk_bytes)?
+            let mask = chunk.filter_mask & pipeline_bits;
+            pipeline.reverse(stored.into_owned(), mask, elem, chunk_bytes)?
         };
         // Exactly one chunk, not at least one: `scatter_chunk` reads only the
         // first `chunk_bytes`, so a longer result would be cut silently, and

@@ -89,3 +89,42 @@ one contiguous run along the last dimension at a time.
   would show for it is an accident of record order.
 - Rule 1 makes the B-tree walk's order irrelevant to the result. The walk visits
   internal nodes' children last-first, and nothing depends on that.
+
+## Amendment (2026-10-06, #888)
+
+Rule 5 grouped records by address, stored size and filter mask together. Two
+fields of that key do not change the work. The filter mask's bits above the
+pipeline's own filters are never read by the pipeline, and a gzip chunk's
+stored size can run past the end of its zlib stream. So records naming one
+chunk with masks `0, 2, 4, …` or sizes `s, s + 1, s + 2, …` each counted as a
+different chunk and were each inflated: a 65 KB file of 1,024 such records
+took 3.2 s, the cost #837 was meant to remove.
+
+| Index | libhdf5 reads |
+| --- | --- |
+| one chunk at 16 origins, masks differing only above the pipeline's filters | the chunk at every origin |
+| one chunk at 16 origins, stored sizes `s` to `s + 15` | the chunk at every origin |
+
+Rule 5 now reads:
+
+5. **Records at different origins naming the same storage** are legal, and
+   libhdf5 reads them. A stored chunk is its **address**. The filter mask is
+   compared only over the filters the pipeline has. The chunk is read and
+   reversed once and placed at every origin that names it.
+6. **Records naming one address with different stored sizes, or with
+   different masks over the pipeline's filters, are refused.** Each would
+   decode the same bytes differently: a stored size moves fletcher32's
+   checksum, a mask bit skips a filter. Reading each is the records-times-chunk
+   cost again. **This is a second known divergence from libhdf5**, which reads
+   `tests/fixtures/hdf5_shared_chunk_records_sizes.h5` as sixteen 7s; the
+   fixture, its oracle and `tests/hdf5_chunk_records.rs` are the evidence. No
+   writer shares storage between chunks at all.
+
+The fractal heap had the same pattern: nothing stopped every direct-block
+entry of an indirect block naming one filtered direct block, decoded once per
+entry. A direct block's own Block Offset field is now checked against the heap
+offset the doubling table names it at, as an indirect block's already was, so
+a block matches at most one entry.
+
+With this, the cost of a chunked decode is the distinct stored addresses
+times the chunk size, plus each in-shape origin's copy.
