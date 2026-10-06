@@ -21,7 +21,7 @@
 
 use super::filter::FilterPipeline;
 use super::object_header::{is_undefined_address, read_uint_le, read_usize_le};
-use super::source::{Fields, FileCursor, read_at};
+use super::source::{ClaimedRanges, Fields, FileCursor, read_at};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::ByteSource;
 
@@ -79,11 +79,19 @@ const BTREE_V2_NODE_OVERHEAD: usize = 6 + 4;
 /// records in key order. Callers slice the fractal-heap ID out of each record at
 /// the offset their record type dictates (link-name records put it after a
 /// 4-byte hash; attribute-name records put it first).
+///
+/// `record_layout` is the caller's word on what a record of each type it reads
+/// must measure, checked against the header before any node is read: the
+/// format fixes the layout per type, and a 65,535-byte record would otherwise
+/// be copied out of every leaf (#895). Each node's bytes are claimed once, so
+/// a tree whose pointers name one node twice, or overlapping nodes, is refused
+/// rather than walked again.
 pub(crate) fn btree_v2_records<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
     osize: u8,
     lsize: u8,
+    record_layout: &dyn Fn(u8, usize) -> Result<(), FieldglassError>,
 ) -> Result<(u8, Vec<Vec<u8>>), FieldglassError> {
     let mut hdr = FileCursor::at(source, addr)?;
     hdr.tag(SIG_BTREE_V2_HDR)?;
@@ -100,6 +108,7 @@ pub(crate) fn btree_v2_records<S: ByteSource + ?Sized>(
     if record_size == 0 {
         return Err(FieldglassError::Parse("zero B-tree v2 record size".into()));
     }
+    record_layout(btree_type, record_size)?;
     if node_size > MAX_BTREE_V2_NODE_SIZE {
         return Err(FieldglassError::Parse(
             "implausible B-tree v2 node size".into(),
@@ -121,6 +130,7 @@ pub(crate) fn btree_v2_records<S: ByteSource + ?Sized>(
     let levels = BTreeV2Levels::compute(node_size, record_size, osize as usize, depth)?;
 
     let mut records = Vec::new();
+    let mut claimed = ClaimedRanges::default();
     walk_btree_v2_node(
         source,
         root_addr,
@@ -129,6 +139,7 @@ pub(crate) fn btree_v2_records<S: ByteSource + ?Sized>(
         record_size,
         osize as usize,
         &levels,
+        (node_size as u64, &mut claimed),
         &mut records,
     )?;
     Ok((btree_type, records))
@@ -222,6 +233,7 @@ fn walk_btree_v2_node<S: ByteSource + ?Sized>(
     record_size: usize,
     osize: usize,
     levels: &BTreeV2Levels,
+    (node_size, claimed): (u64, &mut ClaimedRanges),
     out: &mut Vec<Vec<u8>>,
 ) -> Result<(), FieldglassError> {
     // This guard is also the total-work bound, not just per-node validation:
@@ -249,6 +261,7 @@ fn walk_btree_v2_node<S: ByteSource + ?Sized>(
             "B-tree v2 node record count out of range".into(),
         ));
     }
+    claimed.claim(addr, node_size, "B-tree v2 node")?;
     let mut cur = FileCursor::at(source, addr)?;
 
     if level == 0 {
@@ -295,6 +308,7 @@ fn walk_btree_v2_node<S: ByteSource + ?Sized>(
             record_size,
             osize,
             levels,
+            (node_size, &mut *claimed),
             out,
         )?;
         if let Some(rec) = records.get(i) {
@@ -924,7 +938,7 @@ mod tests {
     fn reads_leaf_records() {
         let records = vec![vec![1u8; 11], vec![2u8; 11]];
         let buf = btree_v2(5, 11, &records);
-        let (btype, got) = btree_v2_records(&buf, 0, 8, 8).unwrap();
+        let (btype, got) = btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())).unwrap();
         assert_eq!(btype, 5);
         assert_eq!(got, records);
     }
@@ -957,8 +971,9 @@ mod tests {
         // Root internal node with one record between two leaves. In-order result
         // is leaf0's record, the root record, then leaf1's record.
         let rs = 11;
-        let (leaf0, leaf1) = (0x100usize, 0x200usize);
-        let mut buf = vec![0u8; 0x400];
+        // Nodes a node size apart: each claims its whole declared size.
+        let (leaf0, leaf1) = (0x40 + NODE_SIZE, 0x40 + 2 * NODE_SIZE);
+        let mut buf = vec![0u8; 0x40 + 3 * NODE_SIZE];
         btree_v2_header(&mut buf, 8, rs, 1, 0x40, 1);
         write_internal(
             &mut buf,
@@ -971,8 +986,64 @@ mod tests {
         write_leaf(&mut buf, leaf0, rs, &[vec![0xAA; rs]]);
         write_leaf(&mut buf, leaf1, rs, &[vec![0xCC; rs]]);
 
-        let (_, got) = btree_v2_records(&buf, 0, 8, 8).unwrap();
+        let (_, got) = btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())).unwrap();
         assert_eq!(got, vec![vec![0xAA; rs], vec![0xBB; rs], vec![0xCC; rs]]);
+    }
+
+    /// Two node pointers naming one leaf: the leaf is read once and the tree
+    /// refused (#895). Every pointer naming the node below used to copy its
+    /// records once per pointer, 4.56 GB from a 4.1 MB file.
+    #[test]
+    fn two_pointers_to_one_node_are_refused() {
+        let rs = 11;
+        let leaf = 0x40 + NODE_SIZE;
+        let mut buf = vec![0u8; 0x40 + 2 * NODE_SIZE];
+        btree_v2_header(&mut buf, 8, rs, 1, 0x40, 1);
+        write_internal(
+            &mut buf,
+            0x40,
+            rs,
+            &[vec![0xBB; rs]],
+            &[(leaf as u64, 1, 0), (leaf as u64, 1, 0)],
+            false,
+        );
+        write_leaf(&mut buf, leaf, rs, &[vec![0xAA; rs]]);
+        let source = fieldglass_core::testing::Recording::new(buf.as_slice());
+        let err = btree_v2_records(&source, 0, 8, 8, &|_, _| Ok(())).expect_err("shared node");
+        assert!(
+            err.to_string().contains("overlaps one already read"),
+            "{err}"
+        );
+        let reads = source
+            .reads()
+            .iter()
+            .filter(|r| r.start == leaf as u64)
+            .count();
+        assert_eq!(reads, 1, "the leaf is read once");
+    }
+
+    /// The caller's record layout is checked against the header before any
+    /// node is read.
+    #[test]
+    fn a_record_size_the_layout_refuses_reads_no_node() {
+        let buf = btree_v2(5, 64, &[vec![0x11; 64]]);
+        let source = fieldglass_core::testing::Recording::new(buf.as_slice());
+        let layout = |t: u8, size: usize| {
+            if (t, size) == (5, 11) {
+                Ok(())
+            } else {
+                Err(FieldglassError::Parse(format!(
+                    "type {t} record of {size} bytes"
+                )))
+            }
+        };
+        let err = btree_v2_records(&source, 0, 8, 8, &layout).expect_err("64 is not 11");
+        assert!(
+            err.to_string().contains("type 5 record of 64 bytes"),
+            "{err}"
+        );
+        let past_header = source.reads().iter().filter(|r| r.start >= 0x40).count();
+        assert_eq!(past_header, 0, "no node is read");
     }
 
     #[test]
@@ -1026,7 +1097,7 @@ mod tests {
         write_leaf(&mut buf, leaves_r[0], rs, &[rec(6)]);
         write_leaf(&mut buf, leaves_r[1], rs, &[rec(8)]);
 
-        let (_, got) = btree_v2_records(&buf, 0, 8, 8).unwrap();
+        let (_, got) = btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())).unwrap();
         assert_eq!(got, (0u8..9).map(rec).collect::<Vec<_>>());
     }
 
@@ -1035,7 +1106,7 @@ mod tests {
         let mut buf = btree_v2(5, 11, &[]);
         put(&mut buf, 12, &1000u16.to_le_bytes()); // depth far past any real tree
         assert!(matches!(
-            btree_v2_records(&buf, 0, 8, 8),
+            btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())),
             Err(FieldglassError::Parse(_))
         ));
     }
@@ -1045,7 +1116,7 @@ mod tests {
         let mut buf = btree_v2(5, 11, &[]);
         // Claim 1000 records but supply none.
         put(&mut buf, 24, &1000u16.to_le_bytes());
-        assert!(btree_v2_records(&buf, 0, 8, 8).is_err());
+        assert!(btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())).is_err());
     }
 
     #[test]
@@ -1053,7 +1124,7 @@ mod tests {
         let mut buf = btree_v2(5, 11, &[]);
         put(&mut buf, 6, &u32::MAX.to_le_bytes()); // 4 GiB node size
         assert!(matches!(
-            btree_v2_records(&buf, 0, 8, 8),
+            btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())),
             Err(FieldglassError::Parse(_))
         ));
     }

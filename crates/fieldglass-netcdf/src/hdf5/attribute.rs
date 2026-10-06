@@ -179,8 +179,26 @@ fn read_dense_attribute_bodies<S: ByteSource + ?Sized>(
     let btree_addr = read_uint_le(body, pos + o, o)?;
 
     let heap = FractalHeap::parse(source, heap_addr, probe.offset_size, probe.length_size)?;
-    let (btree_type, records) =
-        heap::btree_v2_records(source, btree_addr, probe.offset_size, probe.length_size)?;
+    // The format fixes an attribute record's layout: the 8-byte fractal-heap
+    // ID, a message flag byte, a 4-byte creation order, and (type 8) a 4-byte
+    // name hash (#895).
+    let layout = |t: u8, size: usize| match (t, size) {
+        (8, 17) | (9, 13) => Ok(()),
+        (8 | 9, _) => Err(FieldglassError::Parse(format!(
+            "B-tree v2 type {t} attribute records are {size} bytes; the format fixes {}",
+            if t == 8 { 17 } else { 13 }
+        ))),
+        _ => Err(FieldglassError::Parse(format!(
+            "unsupported B-tree v2 type {t} for attributes"
+        ))),
+    };
+    let (btree_type, records) = heap::btree_v2_records(
+        source,
+        btree_addr,
+        probe.offset_size,
+        probe.length_size,
+        &layout,
+    )?;
     if btree_type != 8 && btree_type != 9 {
         return Err(FieldglassError::Parse(format!(
             "unsupported B-tree v2 type {btree_type} for attributes"

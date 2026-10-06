@@ -22,7 +22,7 @@
 //! Reference: HDF5 file format specification version 3, "Disk Format: Level 2A
 //! — Data Object Headers" <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>.
 
-use super::source::{read_at, read_up_to};
+use super::source::{ClaimedRanges, read_at, read_up_to};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteSource, checked_usize};
 use std::collections::VecDeque;
@@ -120,6 +120,11 @@ fn parse_v1<S: ByteSource + ?Sized>(
     let mut messages = Vec::new();
     let mut queue: VecDeque<(u64, usize)> = VecDeque::new();
     queue.push_back((messages_start, header_size));
+    // The prefix and every message run, so a continuation that names one
+    // already followed, or overlaps one, is refused rather than read again.
+    let mut claimed = ClaimedRanges::default();
+    let header_len = (header_size as u64).saturating_add(16);
+    claimed.claim(start, header_len, "object header")?;
 
     let mut chunks = 0usize;
     while let Some((run_start, run_len)) = queue.pop_front() {
@@ -128,6 +133,14 @@ fn parse_v1<S: ByteSource + ?Sized>(
             return Err(FieldglassError::Parse(
                 "too many object-header continuation chunks".into(),
             ));
+        }
+        // The first run is chunk 0's messages, claimed with the prefix above.
+        if chunks > 1 {
+            claimed.claim(
+                run_start,
+                run_len as u64,
+                "object-header continuation chunk",
+            )?;
         }
         // One read for the whole run, then a purely local parse of it.
         let run = read_at(source, run_start, run_len)?;
@@ -217,6 +230,11 @@ fn parse_v2<S: ByteSource + ?Sized>(
         .ok_or_else(|| FieldglassError::Parse("v2 chunk-0 size overflow".into()))?;
     let image = read_at(source, start, image_len)?;
     verify_checksum(&image, checksum_at)?;
+    // Chunk 0 and every continuation, so one named twice, or overlapping
+    // another, is refused rather than read again. A v2 `OCHK` checksum covers
+    // only its own bytes, so a chunk that continues to itself still verifies.
+    let mut claimed = ClaimedRanges::default();
+    claimed.claim(start, image_len as u64, "object header")?;
     parse_v2_run(
         &image[pos..checksum_at],
         track_creation_order,
@@ -234,6 +252,11 @@ fn parse_v2<S: ByteSource + ?Sized>(
                 "too many object-header continuation chunks".into(),
             ));
         }
+        claimed.claim(
+            chunk_start,
+            chunk_len as u64,
+            "object-header continuation chunk",
+        )?;
         // OCHK(4) + messages + checksum(4): at least 8 bytes of framing.
         if chunk_len < 8 {
             return Err(FieldglassError::Parse(
@@ -619,6 +642,69 @@ mod tests {
         let oh = walk(&bytes, 0, 8, 8).unwrap();
         let types: Vec<u16> = oh.messages.iter().map(|m| m.msg_type).collect();
         assert_eq!(types, vec![MSG_CONTINUATION, 0x0011]);
+    }
+
+    /// A continuation message body: `address` then `length`, 8 bytes each.
+    fn cont(address: u64, length: u64) -> Vec<u8> {
+        let mut body = address.to_le_bytes().to_vec();
+        body.extend_from_slice(&length.to_le_bytes());
+        body
+    }
+
+    /// Reads that start at `at`, through a recording source.
+    fn reads_at(source: &fieldglass_core::testing::Recording<&[u8]>, at: u64) -> usize {
+        source.reads().iter().filter(|r| r.start == at).count()
+    }
+
+    /// A v1 continuation chunk that continues to itself is read once and then
+    /// refused (#895): it used to be read 4,096 times, each copy of its
+    /// messages kept, and a 983 KB file peaked at 3.9 GB.
+    #[test]
+    fn a_v1_continuation_back_to_itself_is_read_once() {
+        // Chunk 0 continues to a 24-byte run at 64 (one 8-byte message header
+        // and a 16-byte continuation body), which continues to itself.
+        let mut bytes = v1_header(&[(MSG_CONTINUATION, cont(64, 24))]);
+        bytes.resize(64, 0);
+        push_v1(&mut bytes, MSG_CONTINUATION, &cont(64, 24));
+        let source = fieldglass_core::testing::Recording::new(bytes.as_slice());
+        let err = walk(&source, 0, 8, 8).expect_err("a loop");
+        assert!(
+            err.to_string().contains("overlaps one already read"),
+            "{err}"
+        );
+        assert_eq!(reads_at(&source, 64), 1, "the chunk is read once");
+
+        // A continuation into the middle of one already read is refused too:
+        // distinct addresses, the same bytes.
+        let mut bytes = v1_header(&[(MSG_CONTINUATION, cont(64, 24))]);
+        bytes.resize(64, 0);
+        push_v1(&mut bytes, MSG_CONTINUATION, &cont(72, 24));
+        bytes.resize(96, 0);
+        let err = walk(bytes.as_slice(), 0, 8, 8).expect_err("an overlap");
+        assert!(
+            err.to_string().contains("overlaps one already read"),
+            "{err}"
+        );
+    }
+
+    /// A v2 `OCHK` chunk that continues to itself still verifies, since its
+    /// checksum covers only its own bytes, and is read once and then refused.
+    #[test]
+    fn a_v2_ochk_back_to_itself_is_read_once() {
+        let header_len = v2_header(&[(MSG_CONTINUATION, vec![0u8; 16])]).len() as u64;
+        // OCHK(4) + one message (4-byte header + 16-byte body) + checksum(4).
+        let ochk_len = 28u64;
+        let ochk = ochk_chunk(&[(MSG_CONTINUATION, cont(header_len, ochk_len))]);
+        assert_eq!(ochk.len() as u64, ochk_len);
+        let mut bytes = v2_header(&[(MSG_CONTINUATION, cont(header_len, ochk_len))]);
+        bytes.extend_from_slice(&ochk);
+        let source = fieldglass_core::testing::Recording::new(bytes.as_slice());
+        let err = walk(&source, 0, 8, 8).expect_err("a loop");
+        assert!(
+            err.to_string().contains("overlaps one already read"),
+            "{err}"
+        );
+        assert_eq!(reads_at(&source, header_len), 1, "the chunk is read once");
     }
 
     #[test]
