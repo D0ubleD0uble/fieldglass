@@ -1345,9 +1345,17 @@ fn warp_field(
     require_reprojectable(geometry, source.refused_as())?;
     let (ni, nj) = (source.ni, source.nj);
 
+    // Indexed in `u64`, as `probe_pixel` is: `raw` comes from the caller of
+    // the public `project`, and on wasm32 `j * ni` in `usize` overflowed for a
+    // slice shorter than `ni * nj` (#845). An index `usize` cannot hold is past
+    // the end of any slice.
     let sample = |i: usize, j: usize| -> Option<f64> {
-        let k = j * ni as usize + i;
-        raw.get(k).copied().flatten()
+        let k = (j as u64) * u64::from(ni) + i as u64;
+        usize::try_from(k)
+            .ok()
+            .and_then(|k| raw.get(k))
+            .copied()
+            .flatten()
     };
     let sample_ref: &dyn Fn(usize, usize) -> Option<f64> = &sample;
     let inverse = geometry.inverse_at();
@@ -2260,10 +2268,14 @@ pub fn probe_pixel(
         if gi < 0 || gj < 0 || gi >= i64::from(ni) || gj >= i64::from(nj) {
             return None;
         }
-        // Both are now inside a `u32` grid, so the narrowing is exact even
-        // where `usize` is 32 bits wide.
-        values
-            .get(gj as usize * ni as usize + gi as usize)
+        // Both are inside a `u32` grid, but their product is not: on wasm32
+        // `gj * ni` in `usize` overflowed for a `values` slice shorter than
+        // `ni * nj` (#845). Index in `u64`, and an index `usize` cannot hold
+        // is past the end of any slice.
+        let index = (gj as u64) * u64::from(ni) + gi as u64;
+        usize::try_from(index)
+            .ok()
+            .and_then(|i| values.get(i))
             .copied()
             .flatten()
     };
@@ -3677,6 +3689,74 @@ mod warp_target_tests {
         )
         .expect_err("a source with no geometry cannot be warped");
         assert_eq!(err, refusal, "the host's own words reach the caller intact");
+    }
+
+    /// A values slice shorter than `ni * nj` reports no value rather than
+    /// panicking (#845). On wasm32 the cell index `gj * ni` overflowed `usize`
+    /// at this size; the `wasm32-wasip1` CI run is the one that bites.
+    #[test]
+    fn probe_pixel_on_a_short_slice_reports_no_value() {
+        let geometry = GridGeometry::Unsupported {
+            label: "test".to_string(),
+        };
+        let src = Source {
+            geometry: Ok(&geometry),
+            ni: 70_000,
+            nj: 70_000,
+            scan: Scan::north_down(),
+            family: "test",
+            points_per_row: None,
+        };
+        let values = vec![Some(1.0); 4];
+        let options = RenderOptions::default();
+        let probe = probe_pixel(&src, &values, &options, 0, 69_999)
+            .expect("the source view probes")
+            .expect("on the raster");
+        assert_eq!(probe.value, None);
+        // A north-down grid is painted as stored, so pixel (0, 0) is cell 0,
+        // which the slice does hold.
+        assert!(!Scan::north_down().flips_source_rows(false));
+        let first = probe_pixel(&src, &values, &options, 0, 0).unwrap().unwrap();
+        assert_eq!(first.value, Some(1.0));
+    }
+
+    /// A warp over a values slice shorter than `ni * nj` samples no value
+    /// rather than panicking (#845): `warp_field` indexed `j * ni` in `usize`,
+    /// the same overflow on wasm32 as `probe_pixel`.
+    #[test]
+    fn a_warp_over_a_short_slice_samples_no_value() {
+        let geometry = GridGeometry::LatLon(fieldglass_core::LatLonParams {
+            ni: 70_000,
+            nj: 70_000,
+            lat_first: 89.0,
+            lon_first: -179.0,
+            lat_last: -89.0,
+            lon_last: 179.0,
+        });
+        let src = Source {
+            geometry: Ok(&geometry),
+            ni: 70_000,
+            nj: 70_000,
+            scan: Scan::north_down(),
+            family: "latlon",
+            points_per_row: None,
+        };
+        let values = vec![Some(1.0); 4];
+        // A small output, which still samples rows near `nj`, where `j * ni`
+        // passes `u32::MAX`; the default would size the raster from the source.
+        let options = RenderOptions {
+            projection: "equirectangular".to_string(),
+            width: Some(64),
+            height: Some(32),
+            ..RenderOptions::default()
+        };
+        let projected = project(&src, &values, &options).expect("the warp runs");
+        assert!(!projected.mask.is_empty());
+        let present = projected.mask.iter().filter(|&&m| m != 0).count();
+        assert!(
+            present <= 4,
+            "only cells the slice holds have a value: {present}"
+        );
     }
 
     #[test]
