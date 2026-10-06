@@ -617,7 +617,10 @@ mod tests {
     #[test]
     fn paint_tolerates_slices_of_the_wrong_length() {
         let viridis = Colormap::by_name("viridis").expect("the default colormap");
-        let p = Palette::build(viridis, false, 0.0, 1.0, ScaleMode::Linear);
+        let mut p = Palette::build(viridis, false, 0.0, 1.0, ScaleMode::Linear);
+        // A visible no-data colour, so a cell left as zero bytes cannot pass
+        // for one painted as no data (#903): the default is all zeros.
+        p.masked_rgba = [255, 0, 255, 128];
         let none = p.masked_rgba;
         let px = |buf: &[u8], i: usize| -> [u8; 4] { buf[i * 4..i * 4 + 4].try_into().unwrap() };
 
