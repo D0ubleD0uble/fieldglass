@@ -154,3 +154,56 @@ fn two_records_naming_one_huge_object_read_it_once() {
     let big_reads = source.reads().iter().filter(|r| r.len >= 5000).count();
     assert_eq!(big_reads, 1, "the 5,000-byte object is read once");
 }
+
+const HUGE_ONLY: &[u8] = include_bytes!("fixtures/hdf5_huge_only_heaps.h5");
+const HUGE_ONLY_ORACLE: &str = include_str!("fixtures/hdf5_huge_only_heaps.h5.oracle.json");
+
+/// `(first character, length)` of each string an oracle object records.
+fn shapes(oracle: &Value) -> BTreeMap<String, (char, usize)> {
+    oracle
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| {
+            let first = v[0].as_str().unwrap().chars().next().unwrap();
+            (k.clone(), (first, v[1].as_u64().unwrap() as usize))
+        })
+        .collect()
+}
+
+#[test]
+fn heaps_holding_only_huge_objects_are_read() {
+    // libhdf5 gives a heap its root block on the first managed insert, so a
+    // heap of only huge objects has none, and the reader refused it (#907).
+    let oracle: Value = serde_json::from_str(HUGE_ONLY_ORACLE).unwrap();
+    let p = probe(HUGE_ONLY);
+    let children = list_root_children(HUGE_ONLY, &p).expect("the root lists");
+    for name in ["one", "nine"] {
+        let child = children.iter().find(|c| c.name == name).expect(name);
+        let got: BTreeMap<String, (char, usize)> = attrs_at(HUGE_ONLY, child.object_header_address)
+            .into_iter()
+            .map(|(k, v)| (k, (v.chars().next().unwrap_or(' '), v.len())))
+            .collect();
+        assert_eq!(got, shapes(&oracle[name]), "dataset {name}");
+    }
+    let g = children.iter().find(|c| c.name == "g").expect("group g");
+    let mut links: Vec<(char, usize)> =
+        fieldglass_netcdf::hdf5::group::list_group_children(HUGE_ONLY, g.object_header_address, &p)
+            .expect("g's links list")
+            .into_iter()
+            .map(|c| (c.name.chars().next().unwrap(), c.name.len()))
+            .collect();
+    links.sort();
+    let want: Vec<(char, usize)> = oracle["g_links"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| {
+            (
+                v[0].as_str().unwrap().chars().next().unwrap(),
+                v[1].as_u64().unwrap() as usize,
+            )
+        })
+        .collect();
+    assert_eq!(links, want);
+}

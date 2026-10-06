@@ -25,8 +25,14 @@ heap's blocks, and found through the heap's own huge-object B-tree.
     and refuses the second name, where 15,000 such records made a 1.9 MB file
     use 34 GB (#899 review). libhdf5 refuses the edited node on its checksum.
 
-The first two have an ``.oracle.json`` holding what netCDF4-python / h5py
-read back.
+  * ``hdf5_huge_only_heaps.h5`` — h5py (``libver="latest"``): heaps holding
+    only huge objects, which libhdf5 gives no root block (#907). Dataset
+    ``one`` has a single 70,000-byte attribute (too big for its object header,
+    so its attributes go dense at once); dataset ``nine`` has nine 5,000-byte
+    attributes; group ``g`` has nine links, each named with 5,000 characters.
+
+All but the shared-attribute file have an ``.oracle.json`` holding what
+netCDF4-python or h5py read back.
 
 Run from the repo root (needs ``netCDF4`` and ``h5py``):
 
@@ -114,6 +120,28 @@ def build_shared_huge(path: Path) -> None:
     path.write_bytes(bytes(raw))
 
 
+def build_huge_only(path: Path) -> dict:
+    with h5py.File(path, "w", libver="latest") as f:
+        one = f.create_dataset("one", data=np.arange(12, dtype="f4").reshape(3, 4), track_times=False)
+        one.attrs["big"] = np.bytes_(b"x" * 70000)
+        nine = f.create_dataset("nine", data=np.arange(4, dtype="f4"), track_times=False)
+        for i in range(9):
+            nine.attrs[f"a{i}"] = np.bytes_(bytes([ord("a") + i]) * 5000)
+        g = f.create_group("g", track_order=False)
+        for i in range(9):
+            g.create_group(chr(ord("a") + i) * 5000)
+    with h5py.File(path, "r") as f:
+        return {
+            "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), "
+            "libver='latest'",
+            "note": "fractal heaps holding only huge objects, with no root block (#907); "
+            "string attributes and link names are recorded as (first character, length)",
+            "one": {k: [v.decode()[0], len(v)] for k, v in f["one"].attrs.items()},
+            "nine": {k: [v.decode()[0], len(v)] for k, v in f["nine"].attrs.items()},
+            "g_links": sorted([k[0], len(k)] for k in f["g"].keys()),
+        }
+
+
 def main() -> None:
     nc = FIXTURES / "netcdf4_huge_attributes.nc"
     links = FIXTURES / "hdf5_huge_link_name.h5"
@@ -122,6 +150,11 @@ def main() -> None:
             json.dumps(oracle, indent=2) + "\n", encoding="utf-8"
         )
         print(f"wrote {path} ({path.stat().st_size} B) + oracle")
+    only = FIXTURES / "hdf5_huge_only_heaps.h5"
+    (FIXTURES / f"{only.name}.oracle.json").write_text(
+        json.dumps(build_huge_only(only), indent=2) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {only} ({only.stat().st_size} B) + oracle")
     shared = FIXTURES / "hdf5_shared_huge_attribute.h5"
     build_shared_huge(shared)
     print(f"wrote {shared} ({shared.stat().st_size} B)")

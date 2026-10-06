@@ -480,7 +480,13 @@ impl FractalHeap {
         }
         let length_bytes = heap_id_len - 1 - offset_bytes;
 
-        let blocks = if cur_rows == 0 {
+        let blocks = if is_undefined_address(root_block_addr, osize) {
+            // No root block: libhdf5 allocates it on the first *managed*
+            // insert, so a heap whose objects are all huge (an attribute over
+            // 64 KB, say) has none (#907). Its huge and tiny objects still
+            // dereference; a managed ID finds no block.
+            Vec::new()
+        } else if cur_rows == 0 {
             // A single root direct block of the starting size.
             let content = match &filter {
                 None => {
@@ -1564,6 +1570,29 @@ mod tests {
             .err()
             .expect("refused");
         assert!(err.to_string().contains("runs past end of file"), "{err}");
+    }
+
+    /// A heap with no root block, as libhdf5 leaves one that holds only huge
+    /// objects, parses with no direct blocks (#907): a managed ID finds none,
+    /// and a tiny one still reads from its ID.
+    #[test]
+    fn a_heap_with_no_root_block_has_no_managed_objects() {
+        let mut buf = frhp_indirect();
+        put_undef(&mut buf, 132, 8); // root block address
+        put(&mut buf, 140, &0u16.to_le_bytes()); // and no rows, as libhdf5 writes it
+        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).expect("parses");
+        let err = heap
+            .object(&buf, &[0, 79, 0, 4, 0], &mut HeapReads::default())
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("outside any direct block"),
+            "{err}"
+        );
+        assert_eq!(
+            heap.object(&buf, &[0x21, 7, 8, 0, 0], &mut HeapReads::default())
+                .unwrap(),
+            [7, 8]
+        );
     }
 
     /// A tiny object's bytes are in its heap ID: length less one in the first

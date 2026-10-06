@@ -17,3 +17,17 @@ fn a_file_with_a_huge_dense_attribute_opens() {
     let dims: Vec<String> = session.dimensions().into_iter().map(|d| d.name).collect();
     assert_eq!(dims, ["x"]);
 }
+
+/// A file whose only dense attribute is a single 70 KB one, so its heap holds
+/// no managed object and has no root block, opens (#907).
+#[test]
+fn a_file_whose_heaps_hold_only_huge_objects_opens() {
+    let bytes = std::fs::read("../fieldglass-netcdf/tests/fixtures/hdf5_huge_only_heaps.h5")
+        .expect("fixture");
+    let session = Session::open(bytes).expect("the file opens");
+    let names: Vec<String> = session.variables().into_iter().map(|v| v.name).collect();
+    assert!(
+        names.iter().any(|n| n == "one"),
+        "the 2-D dataset is listed: {names:?}"
+    );
+}
