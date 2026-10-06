@@ -409,76 +409,82 @@ fn bifourier_max_count(bif_i: u32, bif_j: u32) -> Result<usize, FieldglassError>
         })
 }
 
+/// Refuse a bi-Fourier truncation shape that is not in Code Table 3.25.
+fn check_truncation_type(kind: u8) -> Result<(), FieldglassError> {
+    match kind {
+        TRUNC_RECTANGLE | TRUNC_ELLIPSE | TRUNC_DIAMOND => Ok(()),
+        other => Err(FieldglassError::UnsupportedSection(format!(
+            "bi-Fourier truncation type {other} is not 77 (rectangle), 88 (ellipse), \
+             or 99 (diamond)"
+        ))),
+    }
+}
+
+/// The truncation limit along one axis at index `j` of the other, for a shape
+/// `kind` already accepted by [`check_truncation_type`]: `itrunc[j]` is
+/// `bifourier_limit(kind, ni, nj, j)`, and `jtrunc[i]` is the same with the
+/// axes swapped, since every shape is symmetric in them. A faithful port of
+/// eccodes' `rectangle` / `ellipse` / `diamond`; diamond yields `-1` on a zero
+/// axis, so the limit is `i64`. `ni`/`nj` must already be bounded by
+/// [`bifourier_max_count`], so every `as i64` below is exact, and the squares
+/// are taken in `u64` so they cannot overflow a 32-bit `usize`.
+fn bifourier_limit(kind: u8, ni: usize, nj: usize, j: usize) -> i64 {
+    match kind {
+        TRUNC_RECTANGLE => ni as i64,
+        TRUNC_ELLIPSE => {
+            if j == 0 {
+                ni as i64
+            } else if j >= nj {
+                0
+            } else {
+                const ZEPS: f64 = 1e-10;
+                let (nj64, j64) = (nj as u64, j as u64);
+                let zi = ni as f64 / nj as f64 * ((nj64 * nj64 - j64 * j64) as f64).sqrt();
+                (zi + ZEPS) as i64
+            }
+        }
+        // TRUNC_DIAMOND, the only other shape `check_truncation_type` admits.
+        _ => {
+            if nj == 0 {
+                -1
+            } else {
+                ni as i64 - (j as u64 * ni as u64 / nj as u64) as i64
+            }
+        }
+    }
+}
+
 /// Compute the bi-Fourier truncation limit arrays `itrunc[0..=nj]` and
-/// `jtrunc[0..=ni]` for a shape `kind`, a faithful port of eccodes'
-/// `rectangle` / `ellipse` / `diamond`. Diamond can yield `-1` on a zero axis,
-/// so the limits are `i64`. `ni`/`nj` must already be bounded by the caller.
-// The loop index IS the wavenumber the limit is computed from, so range loops
-// mirror eccodes and read clearer than an enumerate over the target array.
-#[allow(clippy::needless_range_loop)]
+/// `jtrunc[0..=ni]` for a shape `kind` (see [`bifourier_limit`]). Each array is
+/// as long as its axis, so call this only once the axes are known to be
+/// affordable: on a sub-truncation (`u16` axes) or after
+/// [`bifourier_count`] has matched §5.
 fn bifourier_truncation(
     kind: u8,
     ni: usize,
     nj: usize,
 ) -> Result<(Vec<i64>, Vec<i64>), FieldglassError> {
-    // `ni` / `nj` are the bi-Fourier truncation limits, already bounded by
-    // `bifourier_max_count`, so every `as i64` below is exact — and so is every
-    // `as usize` narrowing of a limit back to an index.
-    let mut it = vec![0i64; nj + 1];
-    let mut jt = vec![0i64; ni + 1];
-    match kind {
-        TRUNC_RECTANGLE => {
-            it.iter_mut().for_each(|v| *v = ni as i64);
-            jt.iter_mut().for_each(|v| *v = nj as i64);
-        }
-        TRUNC_ELLIPSE => {
-            const ZEPS: f64 = 1e-10;
-            let (nif, njf) = (ni as f64, nj as f64);
-            for j in 1..nj {
-                let zi = nif / njf * (((nj * nj - j * j) as f64).max(0.0)).sqrt();
-                it[j] = (zi + ZEPS) as i64;
-            }
-            if nj == 0 {
-                it[0] = ni as i64;
-            } else {
-                it[0] = ni as i64;
-                it[nj] = 0;
-            }
-            for i in 1..ni {
-                let zj = njf / nif * (((ni * ni - i * i) as f64).max(0.0)).sqrt();
-                jt[i] = (zj + ZEPS) as i64;
-            }
-            if ni == 0 {
-                jt[0] = nj as i64;
-            } else {
-                jt[0] = nj as i64;
-                jt[ni] = 0;
-            }
-        }
-        TRUNC_DIAMOND => {
-            if nj == 0 {
-                it[0] = -1;
-            } else {
-                for j in 0..=nj {
-                    it[j] = ni as i64 - (j * ni / nj) as i64;
-                }
-            }
-            if ni == 0 {
-                jt[0] = -1;
-            } else {
-                for i in 0..=ni {
-                    jt[i] = nj as i64 - (i * nj / ni) as i64;
-                }
-            }
-        }
-        other => {
-            return Err(FieldglassError::UnsupportedSection(format!(
-                "bi-Fourier truncation type {other} is not 77 (rectangle), 88 (ellipse), \
-                 or 99 (diamond)"
-            )));
-        }
-    }
+    check_truncation_type(kind)?;
+    let it = (0..=nj).map(|j| bifourier_limit(kind, ni, nj, j)).collect();
+    let jt = (0..=ni).map(|i| bifourier_limit(kind, nj, ni, i)).collect();
     Ok((it, jt))
+}
+
+/// `size_bif`, the number of coefficients a truncation holds: four per
+/// `(i, j)` pair, `Σ_j 4·(itrunc[j]+1)`, with a `-1` diamond limit counting
+/// zero. Computed without building either limit array, so a message whose
+/// layout disagrees with §5 is refused before anything proportional to its
+/// axes is allocated (#849). The rectangle is closed-form; the other shapes
+/// walk `nj+1` rows and allocate nothing. `ni`/`nj` must already be bounded by
+/// [`bifourier_max_count`], which also bounds the sum.
+fn bifourier_count(kind: u8, ni: usize, nj: usize) -> Result<usize, FieldglassError> {
+    check_truncation_type(kind)?;
+    if kind == TRUNC_RECTANGLE {
+        return Ok(4 * (ni + 1) * (nj + 1));
+    }
+    Ok((0..=nj)
+        .map(|j| 4 * (bifourier_limit(kind, ni, nj, j) + 1).max(0) as usize)
+        .sum())
 }
 
 /// Decode a `bifourier_complex` (template 5.53) data section into coefficients.
@@ -532,9 +538,19 @@ pub fn decode_bifourier(
     // operational set value; 0 = axes packed), so match its truthiness exactly.
     let keepaxes = t.packing_mode_for_axes != 0;
 
-    // Only `itrunc_bif` is needed for the `for_ij` bounds; the sub-truncation
-    // needs both limit arrays for `insub`.
-    let (itrunc_bif, _jtrunc_bif) = bifourier_truncation(gds.truncation_type, bif_i, bif_j)?;
+    // size_bif must match §5. Count it before building any layout: a 145-byte
+    // message can declare a truncation whose layout is 134 MB (#849).
+    let size_bif = bifourier_count(gds.truncation_type, bif_i, bif_j)?;
+    check_truncation_type(t.sub_truncation_type)?;
+    if size_bif != number_of_values {
+        return Err(FieldglassError::Parse(format!(
+            "bifourier_complex: truncation reconstructs {size_bif} coefficients but §5 declares \
+             {number_of_values}"
+        )));
+    }
+
+    // The sub-truncation needs both limit arrays for `insub`; its axes are
+    // `u16`, so they are small whatever the message says.
     let (itrunc_sub, jtrunc_sub) = bifourier_truncation(t.sub_truncation_type, sub_i, sub_j)?;
 
     // Whether coefficient (i, j) lives in the unpacked subset. Preserve eccodes'
@@ -550,26 +566,30 @@ pub fn decode_bifourier(
         if keepaxes { r || i == 0 || j == 0 } else { r }
     };
 
-    // Reconstruct size_bif (Σ 4·(itrunc_bif[j]+1)) and size_sub from the
-    // geometry; a `-1` diamond limit contributes zero. size_bif must match §5.
-    let mut size_bif = 0usize;
+    // Reconstruct size_sub from the geometry, row by row and without building
+    // the full limit array, so §7's length can refuse a message before that
+    // array is allocated (#849). A `-1` diamond limit contributes zero. Past
+    // the sub-truncation `insub` is only `keepaxes` on an axis, so each row
+    // tests at most `sub_i+1` pairs and counts the rest in one step.
     let mut size_sub = 0usize;
-    for (j, &itr_j) in itrunc_bif.iter().enumerate() {
+    for j in 0..=bif_j {
         // A truncation limit clamped to `>= 0` and bounded by `ni`, which
         // `bifourier_max_count` already capped, so this fits `usize` anywhere.
-        let icount = (itr_j + 1).max(0) as usize;
-        size_bif += 4 * icount;
-        for i in 0..icount {
-            if insub(i, j) {
+        let icount = (bifourier_limit(gds.truncation_type, bif_i, bif_j, j) + 1).max(0) as usize;
+        if j > sub_j {
+            // Only (0, j) can be in the subset, and only by `keepaxes`.
+            if keepaxes && icount > 0 {
                 size_sub += 4;
             }
+            continue;
         }
-    }
-    if size_bif != number_of_values {
-        return Err(FieldglassError::Parse(format!(
-            "bifourier_complex: truncation reconstructs {size_bif} coefficients but §5 declares \
-             {number_of_values}"
-        )));
+        let tested = icount.min(sub_i + 1);
+        size_sub += 4 * (0..tested).filter(|&i| insub(i, j)).count();
+        // Every i past `sub_i` is outside the sub-truncation (and not 0), so it
+        // is in the subset only on the j = 0 axis under `keepaxes`.
+        if keepaxes && j == 0 {
+            size_sub += 4 * (icount - tested);
+        }
     }
 
     // §7 layout: `size_sub` unpacked IEEE coefficients (`unpacked_float_bytes`
@@ -596,6 +616,12 @@ pub fn decode_bifourier(
                 .into(),
         ));
     }
+
+    // Only `itrunc[j]` is needed for the `for_ij` bounds. §7 holds every
+    // coefficient by now, so this is no longer than the buffer it fills.
+    let itrunc_bif: Vec<i64> = (0..=bif_j)
+        .map(|j| bifourier_limit(gds.truncation_type, bif_i, bif_j, j))
+        .collect();
 
     let scaling = packing_scaling(
         t.reference_value,
@@ -857,6 +883,56 @@ mod tests {
         let (it, jt) = bifourier_truncation(TRUNC_RECTANGLE, 3, 4).unwrap();
         assert_eq!(it, vec![3, 3, 3, 3, 3]);
         assert_eq!(jt, vec![4, 4, 4, 4]);
+    }
+
+    #[test]
+    fn bifourier_ellipse_and_diamond_limits() {
+        // Ellipse 4×3: itrunc[j] = ⌊4/3·√(9−j²) + ε⌋ inside, ni at j=0, 0 at j=nj.
+        let (it, jt) = bifourier_truncation(TRUNC_ELLIPSE, 4, 3).unwrap();
+        assert_eq!(it, vec![4, 3, 2, 0]);
+        assert_eq!(jt, vec![3, 2, 2, 1, 0]);
+        // Diamond 4×2: itrunc[j] = ni − ⌊j·ni/nj⌋; a zero axis gives −1.
+        let (it, jt) = bifourier_truncation(TRUNC_DIAMOND, 4, 2).unwrap();
+        assert_eq!(it, vec![4, 2, 0]);
+        assert_eq!(jt, vec![2, 2, 1, 1, 0]);
+        let (it, jt) = bifourier_truncation(TRUNC_DIAMOND, 3, 0).unwrap();
+        assert_eq!(it, vec![-1]);
+        assert_eq!(jt, vec![0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn bifourier_count_matches_the_limit_arrays() {
+        // The array-free count is the sum the decoder walks, Σ 4·max(it[j]+1, 0),
+        // for every shape over a spread of axes including the zero ones.
+        for kind in [TRUNC_RECTANGLE, TRUNC_ELLIPSE, TRUNC_DIAMOND] {
+            for ni in 0..12 {
+                for nj in 0..12 {
+                    let (it, _) = bifourier_truncation(kind, ni, nj).unwrap();
+                    let walked: usize = it.iter().map(|&l| 4 * (l + 1).max(0) as usize).sum();
+                    assert_eq!(
+                        bifourier_count(kind, ni, nj).unwrap(),
+                        walked,
+                        "kind {kind} ni {ni} nj {nj}"
+                    );
+                }
+            }
+        }
+        assert!(bifourier_count(42, 2, 2).is_err());
+    }
+
+    #[test]
+    fn bifourier_refuses_a_wide_ellipse_by_count() {
+        // The committed fuzz seed's shape (#849): N = 16,783,359, M = 0, an
+        // ellipse, with §5 declaring 80. Its layout is 4·(N+1) coefficients and
+        // a 134 MB limit array, but the count alone refuses it. The allocation
+        // bound itself is pinned by `tests/bifourier_hostile.rs`.
+        let t = bf_template(TRUNC_RECTANGLE, 1, 0, 2, 1);
+        let g = bf_gds(16_783_359, 0, TRUNC_ELLIPSE);
+        let err = decode_bifourier(&[], &t, &g, 80).expect_err("reject");
+        assert!(
+            format!("{err:?}").contains("reconstructs 67133440"),
+            "{err:?}"
+        );
     }
 
     #[test]

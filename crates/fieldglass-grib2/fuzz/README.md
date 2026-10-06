@@ -41,9 +41,10 @@ other decode entry points, each zero bits per value with §7 cut to its header:
 - `constant_field_bifourier_ellipse_wide.grib2` (145 bytes): the message above
   with §3 cut to its bi-Fourier head (N = 16,783,359, M = 0, an ellipse
   truncation), a minimal §4 (template 4.0), §6 = 255, an empty §7 and a §5
-  count of 80. The reader builds and walks the 134 MB truncation layout before
-  it finds §5 disagrees, about 0.3 s, so the target gates bi-Fourier on that
-  layout rather than on §5.
+  count of 80. The reader used to build and walk the 134 MB truncation layout
+  before it found §5 disagrees, about 0.3 s. It now counts the layout first
+  and refuses at once (#849), so the target gates bi-Fourier on the larger of
+  §5's count and the rows the count walks, and runs this seed.
 
 `jpeg2000_codestream_8192x8192_on_1x1.grib2` (300 bytes) is
 `jpeg2000_regular_latlon.grib2` with a 1 × 1 grid, both counts 1, no bitmap,

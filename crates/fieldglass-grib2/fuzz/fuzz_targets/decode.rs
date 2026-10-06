@@ -117,17 +117,26 @@ fn matrix_cells(reader: &Grib2Reader, i: usize) -> u64 {
         .map_or(1, |t| u64::from(t.nr) * u64::from(t.nc))
 }
 
-/// Whether message `i`'s bi-Fourier decode should run: its truncation layout
-/// is within the budget or past the reader's cap, or it has no bi-Fourier grid
-/// at all, which the reader refuses at once.
+/// Whether message `i`'s bi-Fourier decode should run: what it costs is within
+/// the budget, its truncation layout is past the reader's cap, or it has no
+/// bi-Fourier grid at all, which the reader refuses at once.
+///
+/// The reader counts the layout in `M+1` rows, allocating nothing, and builds
+/// it only when the count matches §5, so a decode costs about the larger of
+/// §5's count and the rows, never the layout itself (#849).
 fn bifourier_affordable(reader: &Grib2Reader, i: usize) -> bool {
-    let Some(t) = reader.messages.get(i).and_then(|m| m.gds.bifourier()) else {
+    let Some(m) = reader.messages.get(i) else {
+        return true;
+    };
+    let Some(t) = m.gds.bifourier() else {
         return true;
     };
     let layout = (u64::from(t.bif_i) + 1)
         .saturating_mul(u64::from(t.bif_j) + 1)
         .saturating_mul(4);
-    layout <= FUZZ_MAX_FIELD_POINTS || layout > fieldglass_core::sht::MAX_COEFFICIENTS as u64
+    let cost = u64::from(m.drs.num_data_points).max((u64::from(t.bif_j) + 1).saturating_mul(4));
+    cost.min(layout) <= FUZZ_MAX_FIELD_POINTS
+        || layout > fieldglass_core::sht::MAX_COEFFICIENTS as u64
 }
 
 /// The samples above which a JPEG 2000 codestream (§5.40) is not decoded.
