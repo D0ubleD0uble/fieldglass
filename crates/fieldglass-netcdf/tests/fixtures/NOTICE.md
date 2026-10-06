@@ -595,7 +595,7 @@ builder refuses to write a dataset whose values are not the ones listed:
 | Dataset | Type | `cd_values` | What it covers |
 | --- | --- | --- | --- |
 | `i2_ppb16` | `<i2` | 169, 16, 16, 32 | Two chunks; the size-prefix test alters the first |
-| `i2_ppb10` | `<i2` | 169, 10, 16, 40 | Block 10, a NASA EOS size outside CCSDS's 8/16/32/64 |
+| `i2_ppb10` | `<i2` | 169, 10, 16, 40 | Block 10, a size HDF5 allows outside CCSDS's 8/16/32/64 |
 | `i4be_ppb32` | `>i4` | 177, 32, 32, 64 | MSB (mask bit 16, set for big-endian data); byte planes |
 | `f4_ppb18` | `<f4` | 169, 18, 32, 36 | Block 18; 32-bit byte planes |
 | `f8_ppb8` | `<f8` | 169, 8, 64, 16 | 64-bit byte planes, two chunks |

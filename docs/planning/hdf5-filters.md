@@ -13,7 +13,7 @@ types plus the v1 B-tree), so filters are the gap that blocks real files.
 | 3 | fletcher32 | ~~A checksum, not compression. Its presence fails files whose compression we handle fine.~~ **Done (#412).** | Not the no-op it looks like: it *appends* 4 bytes, so reading must strip them, and libhdf5 accepts two checksum byte orders (a pre-1.6.3 bug). See below. |
 | 32015 | zstd | ~~netcdf-c ≥ 4.9; DKRZ-recommended for climate archives.~~ **Done (#413)** via `ruzstd` 0.9 (MIT, pure Rust, one transitive dep). | Cross-compile verified to `x86_64-pc-windows-msvc` and `wasm32` with no C toolchain, which is ADR-0001's actual deciding criterion. |
 | 307 | bzip2 | Rare. | Pure-Rust decoder (`bzip2-rs`). Small. |
-| 4 | szip | ~~Common across the NASA EOS archive (AIRS, MODIS).~~ **Done (#421)** via `fieldglass-aec`, the project's own CCSDS 121.0 decoder ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). | Same entropy coder as GRIB2 5.42 (#762); libsz framing in `fieldglass_aec::sz` (#761), HDF5 framing in the reader (#421). See below. |
+| 4 | szip | ~~Unblocks HDF5 files that use szip.~~ **Done (#421)** via `fieldglass-aec`, the project's own CCSDS 121.0 decoder ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). | Same entropy coder as GRIB2 5.42 (#762); libsz framing in `fieldglass_aec::sz` (#761), HDF5 framing in the reader (#421). See below. |
 
 Blosc/LZ4: rare in NetCDF, defer. This set would exceed default netcdf-c
 installs, which frequently lack working szip/zstd plugins at runtime.
@@ -86,8 +86,8 @@ external decoder GRIB2 used first rejected the block sizes HDF5 writes, so the
 project now owns the coder, and szip decodes through `fieldglass-aec` (#421,
 [ADR-0012](../decisions/0012-own-the-aec-decoder.md)), the crate GRIB2 5.42
 already decodes with (#762). It accepts every even block size from 2 to 256
-(HDF5's `pixels_per_block` is any even value 2–32; NASA EOS commonly ships 8,
-10, 16 and 18) and every RSI from 1 to 4096. HDF5 szip RSI is
+(HDF5's `pixels_per_block` is any even value 2–32, so 10 and 18 are as valid
+as CCSDS's 8, 16 and 32) and every RSI from 1 to 4096. HDF5 szip RSI is
 `ceil(pixels_per_scanline / pixels_per_block)`, typically 1–128 and often 1,
 which libaec's own test inputs in the crate's corpus cover.
 
@@ -104,6 +104,12 @@ libhdf5 writes szip with a bundled libaec (`tools/build_hdf5_fixtures.py`,
 
 Once the coder was ours, the HDF5 side was small. What is worth carrying
 forward:
+
+- **szip in HDF4 is not szip in HDF5.** The plan for #421 said it would open
+  AIRS and MODIS. The standard AIRS (v7) and MODIS (Collection 6.1) products
+  are HDF-EOS2, which is HDF4, so they still need HDF4 reading (#248); the
+  release notes had to be corrected before they shipped (#816). Name a product
+  as opening only after a real HDF5 granule of it has been read.
 
 - **The `cd_values` order is a trap.** HDF5 stores `(mask, pixels per block,
   bits per pixel, pixels per scanline)` (`H5Zpublic.h`); libsz's `SZ_com_t`,

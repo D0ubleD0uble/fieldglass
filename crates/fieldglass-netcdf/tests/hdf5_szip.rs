@@ -1,9 +1,8 @@
 //! The szip filter (HDF5 filter id 4, issue #421).
 //!
-//! szip is common across the NASA EOS archive (AIRS, MODIS and relatives). Its
-//! coder is CCSDS 121.0 adaptive entropy coding, decoded by `fieldglass-aec`;
-//! the reader adds HDF5's framing: the `cd_values` order and the 4-byte size
-//! prefix on every chunk.
+//! szip's coder is CCSDS 121.0 adaptive entropy coding, decoded by
+//! `fieldglass-aec`; the reader adds HDF5's framing: the `cd_values` order and
+//! the 4-byte size prefix on every chunk.
 //!
 //! Two fixtures, both built by `tools/build_hdf5_fixtures.py`, each with an
 //! oracle holding the h5py (libhdf5 2.0.0, libaec 1.1.4) read-back of every

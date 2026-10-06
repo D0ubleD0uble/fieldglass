@@ -46,7 +46,7 @@ Four things now make it fall short:
 - **It rejects the block sizes szip uses.** `validate_params`
   (`decoder.rs:1084-1101`) accepts block sizes 8, 16, 32 and 64 only. libaec's
   decoder accepts any even size from 2 to 256 (`decode.c:692-699`), HDF5 writes
-  any even size from 2 to 32, and NASA EOS files use 10 and 18. This blocks
+  any even size from 2 to 32, 10 and 18 among them (#816). This blocks
   #421. A 2026-09-29 spike found no other blocker: stock rust-aec decoded szip
   chunks byte for byte at block sizes 8, 16 and 32.
 - **It allocates per block.** `vec![0u32; n]` for every split block and
