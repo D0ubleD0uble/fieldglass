@@ -393,6 +393,29 @@ of the second shape, 8,192 references to one `SNOD`, made a 197 KB file use
 3.85 GB. `tests/hdf5_shared_snod.rs` checks both refusals through a
 recording source.
 
+## Local heap segment fixtures (`hdf5_local_heap_short.h5`, `hdf5_local_heap_unterminated.h5`)
+
+Two files for #908, built by `tools/build_hdf5_local_heap_fixture.py`
+(reproducible byte for byte) from one h5py 3.16.0 file (libhdf5 2.0.0,
+default earliest format) with datasets `alpha` and `beta`. Its root local
+heap's 88-byte data segment holds `alpha` at offset 8 and `beta` at 16. The
+builder patches the heap header's data segment size (and sets the free-list
+head to 1, `H5HL_FREE_NULL`):
+
+- `hdf5_local_heap_short.h5` (2,072 bytes): size 16, so `beta`'s offset is at
+  the segment's end. libhdf5 refuses it ("unable to offset into local heap
+  data block"); so does Fieldglass.
+- `hdf5_local_heap_unterminated.h5` (2,072 bytes): size 24, with `beta`'s
+  terminator and padding overwritten (`betaxxxx`) and a terminator written at
+  offset 24, the first byte past the segment. **Known divergence from
+  libhdf5.** The HDF5 File Format Specification ("Local Heap") defines a name
+  as a string in the heap's data segment, so one that runs past the
+  segment's end is malformed. libhdf5 2.0.0 lists it anyway as `betaxxxx`;
+  Fieldglass refuses it.
+
+Each `.oracle.json` records libhdf5's outcome. `tests/hdf5_local_heap.rs`
+checks both refusals and that no read starts at or past the segment's end.
+
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
 A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which

@@ -1324,6 +1324,8 @@ netcdf/hdf5_implicit_index.h5#implicit_partial	combine/a_minus_b/render/source/n
 netcdf/hdf5_implicit_index.h5#implicit_partial	meta	family=source ni=7 nj=5 reprojectable=false	26f684d0710385b5
 netcdf/hdf5_implicit_index.h5#implicit_partial	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_implicit_index.h5#implicit_partial	render/source/nearest	ok w=7 h=5 opaque=35	dc1054ebff3c5295
+netcdf/hdf5_local_heap_short.h5	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/hdf5_local_heap_unterminated.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_off_grid_chunk_record.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_outside_chunk_record.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_oversized_chunk.h5	file	parsed=true fields=0	fc2e409795c31cf7

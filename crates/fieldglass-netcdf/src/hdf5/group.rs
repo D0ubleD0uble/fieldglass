@@ -309,19 +309,28 @@ fn symbol_table_links<S: ByteSource + ?Sized>(
     Ok(links)
 }
 
-/// Read a local heap and return the file offset of its data segment.
+/// A local heap's data segment: where it is in the file and how long it is.
+/// A name is an offset into it, and lies inside it (#908).
+#[derive(Debug, Clone, Copy)]
+struct HeapSegment {
+    address: u64,
+    size: u64,
+}
+
+/// Read a local heap's header and return its data segment.
 fn local_heap_data_segment<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
     osize: u8,
     lsize: u8,
-) -> Result<u64, FieldglassError> {
+) -> Result<HeapSegment, FieldglassError> {
     let mut cur = FileCursor::at(source, addr)?;
     cur.tag(SIG_LOCAL_HEAP)?;
     cur.skip(4)?; // version (1) + reserved (3)
-    cur.uint(lsize as usize)?; // data segment size
+    let size = cur.uint(lsize as usize)?; // data segment size
     cur.uint(lsize as usize)?; // free-list head offset
-    cur.uint(osize as usize) // address of data segment
+    let address = cur.uint(osize as usize)?; // address of data segment
+    Ok(HeapSegment { address, size })
 }
 
 /// Walk a version-1 B-tree group node, collecting the addresses of its leaf
@@ -389,7 +398,7 @@ fn collect_snods<S: ByteSource + ?Sized>(
 fn read_snod<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
-    heap_data: u64,
+    heap_data: HeapSegment,
     osize: u8,
     out: &mut Vec<(String, u64)>,
     (nodes, names): (&mut ClaimedRanges, &mut ClaimedRanges),
@@ -430,11 +439,25 @@ fn read_snod<S: ByteSource + ?Sized>(
 /// [`source`](super::source) exists to avoid.
 fn read_heap_name<S: ByteSource + ?Sized>(
     source: &S,
-    heap_data: u64,
+    heap: HeapSegment,
     offset: u64,
 ) -> Result<String, FieldglassError> {
-    let start = heap::checked_add(heap_data, offset)?;
-    for want in scan_windows(MAX_LINK_NAME_BYTES) {
+    // The name lies inside the heap's data segment (HDF5 File Format
+    // Specification, "Local Heap"; #908). An offset at or past its end names
+    // nothing, and the scan reads no further than the end. libhdf5 refuses the
+    // first ("unable to offset into local heap data block") but accepts a name
+    // whose terminator falls past the end; the spec puts the whole string in
+    // the segment, so that is refused here too, a known divergence.
+    if offset >= heap.size {
+        return Err(FieldglassError::Parse(format!(
+            "heap name offset {offset} is past the local heap's {}-byte data segment",
+            heap.size
+        )));
+    }
+    let start = heap::checked_add(heap.address, offset)?;
+    let room = usize::try_from(heap.size - offset).unwrap_or(usize::MAX);
+    let ceiling = MAX_LINK_NAME_BYTES.min(room);
+    for want in scan_windows(ceiling) {
         let window = read_up_to(source, start, want)
             .map_err(|_| FieldglassError::Parse("heap name offset past end of file".into()))?;
         if let Some(end) = window.iter().position(|&b| b == 0) {
@@ -445,6 +468,11 @@ fn read_heap_name<S: ByteSource + ?Sized>(
         if window.len() < want {
             break;
         }
+    }
+    if room <= MAX_LINK_NAME_BYTES {
+        return Err(FieldglassError::Parse(
+            "heap name runs past the end of its local heap's data segment".into(),
+        ));
     }
     Err(FieldglassError::Parse("unterminated heap name".into()))
 }
@@ -610,6 +638,7 @@ mod tests {
         put(&mut buf, 0x206, b"beta\0");
         // Local heap header pointing at the data segment.
         put(&mut buf, 0x100, SIG_LOCAL_HEAP);
+        put(&mut buf, 0x108, &11u64.to_le_bytes()); // data segment size: both names
         put(&mut buf, 0x118, &0x200u64.to_le_bytes()); // data segment address
         // B-tree v1 group node: one leaf entry → the SNOD.
         put(&mut buf, 0x300, SIG_BTREE_V1);
