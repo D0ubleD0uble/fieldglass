@@ -13,7 +13,7 @@ types plus the v1 B-tree), so filters are the gap that blocks real files.
 | 3 | fletcher32 | ~~A checksum, not compression. Its presence fails files whose compression we handle fine.~~ **Done (#412).** | Not the no-op it looks like: it *appends* 4 bytes, so reading must strip them, and libhdf5 accepts two checksum byte orders (a pre-1.6.3 bug). See below. |
 | 32015 | zstd | ~~netcdf-c ≥ 4.9; DKRZ-recommended for climate archives.~~ **Done (#413)** via `ruzstd` 0.9 (MIT, pure Rust, one transitive dep). | Cross-compile verified to `x86_64-pc-windows-msvc` and `wasm32` with no C toolchain, which is ADR-0001's actual deciding criterion. |
 | 307 | bzip2 | Rare. | Pure-Rust decoder (`bzip2-rs`). Small. |
-| 4 | szip | ~~Unblocks HDF5 files that use szip.~~ **Done (#421)** via `fieldglass-aec`, the project's own CCSDS 121.0 decoder ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). | Same entropy coder as GRIB2 5.42 (#762); libsz framing in `fieldglass_aec::sz` (#761), HDF5 framing in the reader (#421). See below. |
+| 4 | szip | **Done (#421)** via `fieldglass-aec`, the project's own CCSDS 121.0 decoder ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). | Same entropy coder as GRIB2 5.42 (#762); libsz framing in `fieldglass_aec::sz` (#761), HDF5 framing in the reader (#421). See below. |
 
 Blosc/LZ4: rare in NetCDF, defer. This set would exceed default netcdf-c
 installs, which frequently lack working szip/zstd plugins at runtime.
