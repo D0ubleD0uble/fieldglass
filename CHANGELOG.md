@@ -331,7 +331,7 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Fixed
 
-- **A wide GRIB2 bi-Fourier field decodes in the browser.** The Laplacian scaling of a packed coefficient squared its wavenumber in a 32-bit integer on the browser build, so a field more than 65,535 wavenumbers wide crashed a debug build and was refused, or scaled wrongly, in a release build. It is now computed in 64 bits, the same as on desktop. Closes #889.
+- **A wide GRIB2 bi-Fourier field decodes in the browser.** The Laplacian scaling of a packed coefficient squared its wavenumber in a 32-bit integer on the browser build, so a field with more than 65,535 coefficients along one axis crashed a debug build and was refused, or scaled wrongly, in a release build. It is now computed in 64 bits, the same as on desktop. Closes #889.
 
 - **A rotated grid with a huge angle of rotation places correctly.** GRIB1 and GRIB2 state the angle as a float, so a file can give a finite but enormous one, such as 1e30 degrees. Subtracting that from each longitude lost the difference between columns: at the largest value every column landed on the same longitude, and the PROJ string carried a 31-digit `lon_0`. The angle is now reduced to its remainder after whole turns, which is the same rotation, so such a grid places exactly as the reduced angle would. Angles under one turn, which covers every real file, are unchanged. Closes #842.
 
