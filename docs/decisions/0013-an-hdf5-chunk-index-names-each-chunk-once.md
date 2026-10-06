@@ -1,6 +1,6 @@
 # 0013 — An HDF5 chunk index names each chunk once
 
-**Status:** Accepted (2026-10-06). Answers #837.
+**Status:** Accepted (2026-10-06). Answers #837; amended 2026-10-06 (#888).
 
 ## Context
 
@@ -125,6 +125,10 @@ entry of an indirect block naming one filtered direct block, decoded once per
 entry. A direct block's own Block Offset field is now checked against the heap
 offset the doubling table names it at, as an indirect block's already was, so
 a block matches at most one entry.
+
+Rules 1 and 2 compare storage the same way: two records at one origin that
+differ only in mask bits above the pipeline's filters are identical, not
+conflicting.
 
 With this, the cost of a chunked decode is the distinct stored addresses
 times the chunk size, plus each in-shape origin's copy.
