@@ -1,0 +1,8 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='earliest', chunk B-tree leaf appended by hand",
+  "note": "[7, 9] in chunks of 1 plus a record at origin 5, outside the shape, whose address is past the end of the file (ADR-0013 rule 4, #891)",
+  "libhdf5_values": [
+    7,
+    9
+  ]
+}

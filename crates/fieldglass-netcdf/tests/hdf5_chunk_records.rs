@@ -25,6 +25,14 @@ const SHARED: &[u8] = include_bytes!("fixtures/hdf5_shared_chunk_records.h5");
 const SHARED_MASKS: &[u8] = include_bytes!("fixtures/hdf5_shared_chunk_records_masks.h5");
 /// [`SHARED`] with record `i`'s stored size raised by `i` bytes.
 const SHARED_SIZES: &[u8] = include_bytes!("fixtures/hdf5_shared_chunk_records_sizes.h5");
+/// [`CONFLICTING`] with its first two records swapped; libhdf5 reads `[7, 9]`.
+const CONFLICTING_SWAPPED: &[u8] =
+    include_bytes!("fixtures/hdf5_conflicting_chunk_records_swapped.h5");
+/// `[1, 2, 3, 4]` in chunks of two, with a record at origin 1, off the grid.
+const OFF_GRID: &[u8] = include_bytes!("fixtures/hdf5_off_grid_chunk_record.h5");
+/// `[7, 9]` plus a record at origin 5, outside the shape, addressed past the
+/// end of the file.
+const OUTSIDE: &[u8] = include_bytes!("fixtures/hdf5_outside_chunk_record.h5");
 /// `[7, 9]` with an index naming chunks A and B both at origin 0.
 const CONFLICTING: &[u8] = include_bytes!("fixtures/hdf5_conflicting_chunk_records.h5");
 
@@ -128,4 +136,40 @@ fn the_public_reader_decodes_the_duplicated_index() {
     // `v` is the only dataset, so it is variable 0.
     let values = reader.decode_variable_raw(0).expect("decodes");
     assert_eq!(values, vec![Some(7.0)]);
+}
+
+#[test]
+fn the_swapped_conflict_is_refused_too() {
+    // The evidence for the divergence: the same records in another order make
+    // libhdf5 read `[7, 9]` instead of `[9, 9]`
+    // (`hdf5_conflicting_chunk_records_swapped.h5.oracle.json`). The reader's
+    // answer does not depend on the order: both are refused.
+    let source = Recording::new(CONFLICTING_SWAPPED);
+    let err = decode_v(CONFLICTING_SWAPPED, &source).expect_err("an ambiguous index");
+    assert!(err.contains("two different chunks at origin [0]"), "{err}");
+}
+
+#[test]
+fn an_off_grid_origin_inside_the_shape_is_refused() {
+    // libhdf5 refuses it too: "bad coordinate offset"
+    // (`hdf5_off_grid_chunk_record.h5.oracle.json`).
+    let source = Recording::new(OFF_GRID);
+    let err = decode_v(OFF_GRID, &source).expect_err("origin 1, chunk edge 2");
+    assert!(err.contains("not on the chunk grid"), "{err}");
+}
+
+#[test]
+fn a_record_outside_the_shape_is_never_read() {
+    // libhdf5 reads `[7, 9]` (`hdf5_outside_chunk_record.h5.oracle.json`). The
+    // record at origin 5 names an address past the end of the file, so
+    // reading it would fail; nothing reaches it.
+    let source = Recording::new(OUTSIDE);
+    assert_eq!(decode_v(OUTSIDE, &source), Ok(vec![Some(7.0), Some(9.0)]));
+    let len = OUTSIDE.len() as u64;
+    let past_end: Vec<_> = source
+        .reads()
+        .into_iter()
+        .filter(|r| r.start >= len)
+        .collect();
+    assert!(past_end.is_empty(), "read past the end: {past_end:?}");
 }

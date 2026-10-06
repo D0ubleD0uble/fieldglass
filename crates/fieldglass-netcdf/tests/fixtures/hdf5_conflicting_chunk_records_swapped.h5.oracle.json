@@ -1,0 +1,8 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='earliest', chunk B-tree leaf appended by hand",
+  "note": "records B@0, A@0, B@1 for [7, 9]: the committed conflict with its first two records swapped; fieldglass refuses it as it refuses that one (ADR-0013, #891)",
+  "libhdf5_values": [
+    7,
+    9
+  ]
+}
