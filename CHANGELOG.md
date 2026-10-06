@@ -331,7 +331,7 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Fixed
 
-- **A NetCDF-4 file with a long attribute opens.** Once a group or variable has more than eight attributes, HDF5 stores them together, and one larger than about 4 KB goes into a separate area of the file that Fieldglass did not read. The whole file then failed to open. A long `history`, which NCO and CDO grow by a line per command, was enough. Such attributes are now read, and so are group member names over 4 KB stored the same way. Closes #899.
+- **A NetCDF-4 file with a long attribute opens.** Once a group or variable has more than eight attributes, HDF5 stores them together, and one larger than about 4 KB goes into a separate area of the file that Fieldglass did not read. The whole file then failed to open. A long `history`, which NCO and CDO grow by a line per command, was enough. Such attributes are now read, and so are group member names over 4 KB stored the same way. Listing a file also reads each stored attribute or name once: a damaged index naming one object many times, or naming one past the end of its block, could make a small file use gigabytes. Closes #899 and #900.
 
 - **Painting or probing a field with a value list of the wrong length no longer crashes.** `Palette::paint` and `paint_grid_rgba` stopped a debug build when given more or fewer values, or mask entries, than the image has cells. A cell with no value now paints as no data and extra entries are ignored, in every build. `probe_pixel` and `project` could crash the browser build the same way, because they computed a cell index in a 32-bit integer, and a WRF file with enormous stated dimensions could do the same while its corner was read. Closes #845.
 

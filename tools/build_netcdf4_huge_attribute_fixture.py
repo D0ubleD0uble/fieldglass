@@ -17,8 +17,16 @@ heap's blocks, and found through the heap's own huge-object B-tree.
   * ``hdf5_huge_link_name.h5`` — written by h5py (``libver="latest"``): a group
     ``g`` with nine short subgroups and one whose name is 5,000 characters, so
     its link message is a huge object in the group's dense link storage.
+  * ``hdf5_shared_huge_attribute.h5`` — h5py (``libver="latest"``): a dataset
+    ``v`` with nine small attributes and a 5,000-byte one, a huge object; then
+    one small attribute's name-index record has its heap ID repointed at the
+    huge one (checksums untouched; the reader does not verify B-tree
+    checksums). Two records then name one huge object: a listing reads it once
+    and refuses the second name, where 15,000 such records made a 1.9 MB file
+    use 34 GB (#899 review). libhdf5 refuses the edited node on its checksum.
 
-Each has an ``.oracle.json`` holding what netCDF4-python / h5py read back.
+The first two have an ``.oracle.json`` holding what netCDF4-python / h5py
+read back.
 
 Run from the repo root (needs ``netCDF4`` and ``h5py``):
 
@@ -80,6 +88,32 @@ def build_links(path: Path) -> dict:
     }
 
 
+def build_shared_huge(path: Path) -> None:
+    import re
+
+    with h5py.File(path, "w", libver="latest") as f:
+        v = f.create_dataset("v", data=np.arange(4, dtype="i4"), track_times=False)
+        for i in range(9):
+            v.attrs[f"a{i}"] = np.int32(i)
+        v.attrs["big"] = np.zeros(5000, dtype="u1")
+    raw = bytearray(path.read_bytes())
+    # Type-8 (attribute name) B-tree v2 leaves: "BTLF", version, type, then
+    # 17-byte records whose first 8 bytes are the heap ID (type in bits 4-5).
+    records = []
+    for leaf in (m.start() for m in re.finditer(b"BTLF", raw)):
+        if raw[leaf + 5] != 8:
+            continue
+        p = leaf + 6
+        for _ in range(10):
+            records.append(p)
+            p += 17
+    huge = [p for p in records if (raw[p] >> 4) & 3 == 1]
+    managed = [p for p in records if (raw[p] >> 4) & 3 == 0]
+    assert len(huge) == 1 and managed, (len(huge), len(managed))
+    raw[managed[0] : managed[0] + 8] = raw[huge[0] : huge[0] + 8]
+    path.write_bytes(bytes(raw))
+
+
 def main() -> None:
     nc = FIXTURES / "netcdf4_huge_attributes.nc"
     links = FIXTURES / "hdf5_huge_link_name.h5"
@@ -88,6 +122,9 @@ def main() -> None:
             json.dumps(oracle, indent=2) + "\n", encoding="utf-8"
         )
         print(f"wrote {path} ({path.stat().st_size} B) + oracle")
+    shared = FIXTURES / "hdf5_shared_huge_attribute.h5"
+    build_shared_huge(shared)
+    print(f"wrote {shared} ({shared.stat().st_size} B)")
 
 
 if __name__ == "__main__":

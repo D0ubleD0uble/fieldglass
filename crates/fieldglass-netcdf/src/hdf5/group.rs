@@ -476,11 +476,13 @@ fn link_info_links<S: ByteSource + ?Sized>(
     }
 
     let mut links = Vec::new();
+    // One per listing, so no heap object is read twice (#899 review).
+    let mut reads = heap::HeapReads::default();
     for record in records {
         let id = record
             .get(LINK_RECORD_HEAP_ID_OFFSET..LINK_RECORD_HEAP_ID_OFFSET + heap.heap_id_len)
             .ok_or_else(|| FieldglassError::Parse("link record too small for a heap ID".into()))?;
-        let object = heap.object(source, id)?;
+        let object = heap.object(source, id, &mut reads)?;
         if let Some(link) = parse_link_message(&object, osize)? {
             push_link(&mut links, link.0, link.1)?;
         }
