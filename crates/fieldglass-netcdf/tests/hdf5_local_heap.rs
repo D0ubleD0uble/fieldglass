@@ -23,15 +23,16 @@ fn probe(bytes: &[u8]) -> fieldglass_netcdf::Hdf5Probe {
     }
 }
 
-/// The local heap's data segment end: header `HEAP`, version, reserved,
-/// segment size, free-list head, segment address.
-fn segment_end(bytes: &[u8]) -> u64 {
+/// The local heap's data segment, as `(address, end)`: header `HEAP`,
+/// version, reserved, segment size, free-list head, segment address.
+fn segment(bytes: &[u8]) -> (u64, u64) {
     let heap = bytes
         .windows(4)
         .position(|w| w == b"HEAP")
         .expect("a local heap");
     let field = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
-    field(heap + 24) + field(heap + 8)
+    let address = field(heap + 24);
+    (address, address + field(heap + 8))
 }
 
 fn refused_without_reading_past_the_segment(bytes: &[u8], why: &str) {
@@ -39,10 +40,22 @@ fn refused_without_reading_past_the_segment(bytes: &[u8], why: &str) {
     let source = Recording::new(bytes);
     let err = list_root_children(&source, &p).expect_err("refused");
     assert!(err.to_string().contains(why), "{err}");
-    let end = segment_end(bytes);
-    let past: Vec<_> = source
-        .reads()
-        .into_iter()
+    let (address, end) = segment(bytes);
+    let reads = source.reads();
+    // A name read starts inside the segment, so it is caught by where it
+    // *ends* (#915): a scan from `beta`'s offset that fetched a window
+    // crossing the end would otherwise pass. A read of an unrelated
+    // structure before the heap may cross `end` and is not a name read.
+    let overrun: Vec<_> = reads
+        .iter()
+        .filter(|r| (address..end).contains(&r.start) && r.start + r.len > end)
+        .collect();
+    assert!(
+        overrun.is_empty(),
+        "a read inside the segment [{address}, {end}) runs past its end: {overrun:?}"
+    );
+    let past: Vec<_> = reads
+        .iter()
         .filter(|r| r.start >= end && r.start < end + 64)
         .collect();
     assert!(
