@@ -1,0 +1,8 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), local heap header patched (#908)",
+  "note": "data segment size 24: beta's name runs to offset 24, past its end",
+  "libhdf5_names": [
+    "alpha",
+    "betaxxxx"
+  ]
+}
