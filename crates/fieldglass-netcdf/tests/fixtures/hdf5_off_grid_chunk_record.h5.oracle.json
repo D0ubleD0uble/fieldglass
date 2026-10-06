@@ -1,0 +1,5 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='earliest', chunk B-tree leaf appended by hand",
+  "note": "[1, 2, 3, 4] in chunks of 2 with records at origins 0 and 1; origin 1 is inside the shape and off the chunk grid (ADR-0013 rule 3, #891)",
+  "libhdf5_error": "Can't synchronously read data (bad coordinate offset)"
+}

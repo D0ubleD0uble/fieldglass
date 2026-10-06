@@ -37,14 +37,17 @@ the entry's position, so neither of those can state an off-grid origin.
 Measured with libhdf5 2.0.0 on hand-built files
 (`tools/build_hdf5_duplicate_chunk_fixture.py` builds the committed ones):
 
-| Index | libhdf5 reads |
-| --- | --- |
-| one chunk named 16 times, identically | the value written |
-| one chunk named at 16 different origins | the chunk at every origin |
-| `[7, 9]`; records A@0, B@0, B@1 | `[9, 9]` |
-| the same with A@0 and B@0 swapped | `[7, 9]` |
-| an origin not a multiple of the chunk edge | refuses ("bad coordinate offset") |
-| a record wholly outside the shape | ignores it |
+| Index | libhdf5 reads | Fixture (`crates/fieldglass-netcdf/tests/fixtures/`) |
+| --- | --- | --- |
+| one chunk named 16 times, identically | the value written | `hdf5_duplicate_chunk_records.h5` |
+| one chunk named at 16 different origins | the chunk at every origin | `hdf5_shared_chunk_records.h5` |
+| `[7, 9]`; records A@0, B@0, B@1 | `[9, 9]` | `hdf5_conflicting_chunk_records.h5` |
+| the same with A@0 and B@0 swapped | `[7, 9]` | `hdf5_conflicting_chunk_records_swapped.h5` |
+| an origin not a multiple of the chunk edge | refuses ("bad coordinate offset") | `hdf5_off_grid_chunk_record.h5` |
+| a record wholly outside the shape | ignores it | `hdf5_outside_chunk_record.h5` |
+
+Each fixture's `.oracle.json` records libhdf5 2.0.0's read or its error, and
+`tests/hdf5_chunk_records.rs` decodes each one (#891).
 
 For conflicting records its answer is the last record in index order within a
 leaf, and across leaves whatever its key-guided search reaches. That answer
@@ -100,10 +103,10 @@ chunk with masks `0, 2, 4, …` or sizes `s, s + 1, s + 2, …` each counted as 
 different chunk and were each inflated: a 65 KB file of 1,024 such records
 took 3.2 s, the cost #837 was meant to remove.
 
-| Index | libhdf5 reads |
-| --- | --- |
-| one chunk at 16 origins, masks differing only above the pipeline's filters | the chunk at every origin |
-| one chunk at 16 origins, stored sizes `s` to `s + 15` | the chunk at every origin |
+| Index | libhdf5 reads | Fixture |
+| --- | --- | --- |
+| one chunk at 16 origins, masks differing only above the pipeline's filters | the chunk at every origin | `hdf5_shared_chunk_records_masks.h5` |
+| one chunk at 16 origins, stored sizes `s` to `s + 15` | the chunk at every origin | `hdf5_shared_chunk_records_sizes.h5` |
 
 Rule 5 now reads:
 

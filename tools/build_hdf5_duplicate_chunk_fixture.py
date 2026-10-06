@@ -37,6 +37,17 @@ different origins, and one that names two different chunks at one origin.
     holds is ambiguous. libhdf5 2.0.0 reads ``[9, 9]``, the last record, and
     swapping the first two records makes it read ``[7, 9]``; the reader refuses
     the index instead (ADR-0013). The oracle records what libhdf5 read.
+  * ``hdf5_conflicting_chunk_records_swapped.h5`` — the same with the first
+    two records swapped (B at origin 0, then A at origin 0, then B at 1).
+    libhdf5 reads ``[7, 9]``, so its answer depends on record order alone.
+  * ``hdf5_off_grid_chunk_record.h5`` — ``(4,)`` ``uint8`` ``[1, 2, 3, 4]`` in
+    chunks of two, with records at origins 0 and 1. Origin 1 is inside the
+    shape but not a multiple of the chunk edge; libhdf5 refuses the read, and
+    so does the reader. The oracle records libhdf5's error.
+  * ``hdf5_outside_chunk_record.h5`` — ``[7, 9]`` in chunks of one, with a
+    third record at origin 5, wholly outside the shape, whose address is past
+    the end of the file. libhdf5 reads ``[7, 9]``, never looking it up, and
+    the reader skips it unread: reading it would fail.
 
 Both files are well under the NetCDF fuzz corpus's ``max_len``; the second is
 copied into ``crates/fieldglass-netcdf/fuzz/corpus/parse/`` as a seed.
@@ -178,24 +189,63 @@ def build_shared(path: Path, vary: str = "") -> list:
         return f["v"][...].ravel().tolist()
 
 
-def build_conflicting(path: Path) -> list:
+def hand_index(
+    path: Path, data: list[int], chunk: int, records, last: int
+) -> "list | str":
+    """A rank-1 ``uint8`` dataset ``data`` in unfiltered chunks of ``chunk``
+    elements, with its chunk index replaced by one hand-built leaf.
+    ``records(addresses)`` gives the leaf's ``(origin, address)`` entries from
+    the stored chunks' addresses. Returns libhdf5's read, or its error text."""
     src = path.with_suffix(".src.h5")
     with h5py.File(src, "w", libver="earliest") as f:
         f.create_dataset(
-            "v", data=np.array([7, 9], dtype="u1"), maxshape=(None,), chunks=(1,), track_times=False
+            "v",
+            data=np.array(data, dtype="u1"),
+            maxshape=(None,),
+            chunks=(chunk,),
+            track_times=False,
         )
     with h5py.File(src, "r") as f:
-        a, b = (f["v"].id.get_chunk_info(i).byte_offset for i in range(2))
+        stored = [f["v"].id.get_chunk_info(i).byte_offset for i in range(f["v"].id.get_num_chunks())]
     raw = bytearray(src.read_bytes())
     src.unlink()
     old_root = chunk_btree_address(raw)
-    leaf = append(
-        raw, node(0, [(key(1, 0, 0), a), (key(1, 0, 0), b), (key(1, 0, 1), b)], key(0, 0, 2))
-    )
+    entries = [(key(chunk, 0, origin), addr) for origin, addr in records(stored, len(raw))]
+    leaf = append(raw, node(0, entries, key(0, 0, last)))
     repoint(raw, 1, old_root, leaf)
     finish(raw, path)
-    with h5py.File(path, "r") as f:
-        return f["v"][...].tolist()
+    try:
+        with h5py.File(path, "r") as f:
+            return f["v"][...].tolist()
+    except OSError as e:
+        return str(e).splitlines()[0]
+
+
+def build_conflicting(path: Path, swapped: bool = False) -> list:
+    def records(s, _end):
+        a, b = s
+        first = [(0, b), (0, a)] if swapped else [(0, a), (0, b)]
+        return first + [(1, b)]
+
+    return hand_index(path, [7, 9], 1, records, 2)
+
+
+def write_oracle(path: Path, note: str, libhdf5) -> None:
+    field = "libhdf5_values" if isinstance(libhdf5, list) else "libhdf5_error"
+    (FIXTURES / f"{path.name}.oracle.json").write_text(
+        json.dumps(
+            {
+                "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), "
+                "libver='earliest', chunk B-tree leaf appended by hand",
+                "note": note,
+                field: libhdf5,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(f"wrote {path} ({path.stat().st_size} B); libhdf5: {libhdf5}")
 
 
 def main() -> None:
@@ -281,6 +331,30 @@ def main() -> None:
         encoding="utf-8",
     )
     print(f"wrote {conflicting} ({conflicting.stat().st_size} B); libhdf5 reads {libhdf5_read}")
+
+    swapped = FIXTURES / "hdf5_conflicting_chunk_records_swapped.h5"
+    write_oracle(
+        swapped,
+        "records B@0, A@0, B@1 for [7, 9]: the committed conflict with its first two "
+        "records swapped; fieldglass refuses it as it refuses that one (ADR-0013, #891)",
+        build_conflicting(swapped, swapped=True),
+    )
+    off_grid = FIXTURES / "hdf5_off_grid_chunk_record.h5"
+    write_oracle(
+        off_grid,
+        "[1, 2, 3, 4] in chunks of 2 with records at origins 0 and 1; origin 1 is inside "
+        "the shape and off the chunk grid (ADR-0013 rule 3, #891)",
+        hand_index(off_grid, [1, 2, 3, 4], 2, lambda s, _e: [(0, s[0]), (1, s[1])], 4),
+    )
+    outside = FIXTURES / "hdf5_outside_chunk_record.h5"
+    write_oracle(
+        outside,
+        "[7, 9] in chunks of 1 plus a record at origin 5, outside the shape, whose address "
+        "is past the end of the file (ADR-0013 rule 4, #891)",
+        hand_index(
+            outside, [7, 9], 1, lambda s, end: [(0, s[0]), (1, s[1]), (5, end + 65536)], 6
+        ),
+    )
     print(f"wrote {duplicated} ({duplicated.stat().st_size} B), {K * R} records; seed copied")
 
 

@@ -271,13 +271,13 @@ the v2 B-tree rather than a Fixed or Extensible Array. Built by
 `tests/hdf5_value_decode.rs` checks the decoded values against `h5py`. Part of
 #216.
 
-## Chunk-record fixtures (`hdf5_oversized_chunk.h5`, `hdf5_duplicate_chunk_records.h5`, `hdf5_shared_chunk_records*.h5`, `hdf5_conflicting_chunk_records.h5`)
+## Chunk-record fixtures (`hdf5_oversized_chunk.h5`, `hdf5_duplicate_chunk_records.h5`, `hdf5_shared_chunk_records*.h5`, `hdf5_conflicting_chunk_records*.h5`, `hdf5_off_grid_chunk_record.h5`, `hdf5_outside_chunk_record.h5`)
 
-Six small files for #837, each holding a `uint8` dataset `v` under a
+Nine small files for #837, each holding a `uint8` dataset `v` under a
 version-1 chunk B-tree (`libver='earliest'`). Built by
 `tools/build_hdf5_duplicate_chunk_fixture.py` with h5py 3.16.0 (libhdf5 2.0.0);
 the build is reproducible byte for byte. `tests/hdf5_chunk_records.rs` decodes
-all six.
+all nine.
 
 - `hdf5_oversized_chunk.h5` (19,814 bytes) is plain h5py output: shape `(1,)`
   holding `7`, `maxshape=(None,)`, one gzip chunk of 16 Mi elements. A chunk
@@ -318,6 +318,19 @@ all six.
   least chunk in child[i]". Two equal keys name an empty range, so the index
   is malformed, and Fieldglass refuses it. The oracle records libhdf5's
   read, and ADR-0013 records the decision.
+- `hdf5_conflicting_chunk_records_swapped.h5` (5,600 bytes) is the same with
+  the first two records swapped. libhdf5 reads `[7, 9]`, which is the evidence
+  that its answer depends on record order alone. Fieldglass refuses it, as it
+  refuses the committed order.
+- `hdf5_off_grid_chunk_record.h5` (5,600 bytes) holds `[1, 2, 3, 4]` in
+  unfiltered chunks of two, with records at origins 0 and 1. Origin 1 is
+  inside the shape but not a multiple of the chunk edge. libhdf5 refuses the
+  read ("bad coordinate offset", recorded in the oracle), and so does
+  Fieldglass.
+- `hdf5_outside_chunk_record.h5` (5,600 bytes) holds `[7, 9]` with a third
+  record at origin 5, wholly outside the shape, addressed past the end of the
+  file. libhdf5 reads `[7, 9]` without looking it up, and Fieldglass skips it
+  unread.
 
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
