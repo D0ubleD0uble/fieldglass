@@ -826,13 +826,16 @@ type BuiltWarpTarget = (BuiltTarget, Option<LonLatBox>);
 /// Every one of them is then floored by [`raise_to_min_raster`], so a coarse
 /// grid's reprojection is drawn at display scale rather than at the data's
 /// (#514). This is the only place that floor is applied, which is why the
-/// `"source"` target — which never reaches here — keeps its native size.
+/// `"source"` target — which never reaches here — keeps its native size. A
+/// derived size past [`MAX_DERIVED_RASTER_PIXELS`] is then scaled into it,
+/// keeping its aspect ([`fit_derived_raster`], #918).
 ///
 /// [`ResolvedOptions::size`] is the caller's own raster when they named one
 /// (#465), and it replaces both of those rules for the two box targets: the
 /// derived shape *and* the floor, because a request for 512 × 512 that came back
 /// 720 × 720 is not the raster the caller asked for. The azimuthal and world
-/// targets ignore it and keep the aspect their projection fixes.
+/// targets ignore it and keep the aspect their projection fixes, scaled into
+/// the pixel budget like any derived size.
 ///
 /// `ni`/`nj` are the shape of the **source** array and stay separate from
 /// `geometry`, because they are not always its: a spectral message is
@@ -869,36 +872,25 @@ fn build_warp_target(
     // The caller's output raster, for the box targets (#465). `None` keeps the
     // derived shape and the display floor.
     let size = resolved.size;
-    // A raster derived from the source's shape gets the allocation check a
-    // named one gets in [`resolve_output_size`] (#913): the world and
-    // azimuthal targets scale with `max(ni, nj)²`, so even a field holding
-    // its stated values can ask for a raster no `Vec` can hold on wasm32.
-    let derived = |(width, height): (u32, u32)| -> Result<(u32, u32), Error> {
-        if raster_is_allocatable(width, height, isize::MAX as u64) {
-            Ok((width, height))
-        } else {
-            Err(Error::InvalidOption {
-                detail: format!(
-                    "a {ni}×{nj} grid draws on a {width} × {height} raster, larger than this \
-                     target can allocate"
-                ),
-            })
-        }
-    };
+    // A raster derived from the source's shape is held to a pixel budget
+    // (#918): the world and azimuthal targets scale with `max(ni, nj)²` and
+    // ignore a named size, so a long, narrow grid holding every value it
+    // states would otherwise ask a 64-bit host for hundreds of gigabytes.
+    let derived = |dims: (u32, u32)| fit_derived_raster(raise_to_min_raster(dims));
 
     // The two box arms ask the same question, so it is answered once here
     // rather than twice below.
-    let box_dims = |window: LonLatBox| -> Result<(u32, u32), Error> {
+    let box_dims = |window: LonLatBox| -> (u32, u32) {
         match size {
-            Some(dims) => Ok(dims),
+            Some(dims) => dims,
             // The window's shape, then floored so the seam, the map body edge
             // and the overlays that must register against them resolve at
             // display scale rather than at the data's (#514).
-            None => derived(raise_to_min_raster(if shapeless_axes {
+            None => derived(if shapeless_axes {
                 box_raster_dims(ni, nj, window)
             } else {
                 (ni, nj)
-            })),
+            }),
         }
     };
     match target_kind {
@@ -910,7 +902,7 @@ fn build_warp_target(
                 lon_min,
                 lon_max,
             } = window;
-            let (width, height) = box_dims(window)?;
+            let (width, height) = box_dims(window);
             let target = TargetRaster {
                 width,
                 height,
@@ -930,7 +922,7 @@ fn build_warp_target(
                 lon_min,
                 lon_max,
             } = window;
-            let (width, height) = box_dims(window)?;
+            let (width, height) = box_dims(window);
             let merc = WebMercator::new(
                 width,
                 height,
@@ -963,7 +955,7 @@ fn build_warp_target(
         WarpTarget::Orthographic { lat0, lon0 } => {
             // Square so the globe stays circular, floored so its limb is a
             // curve rather than a staircase (#514).
-            let (side, _) = derived(raise_to_min_raster((ni.max(nj), ni.max(nj))))?;
+            let (side, _) = derived((ni.max(nj), ni.max(nj)));
             Ok((
                 BuiltTarget::Ortho(Orthographic::new(side, side, lat0, lon0)),
                 None,
@@ -972,34 +964,22 @@ fn build_warp_target(
         WarpTarget::PolarStereographic { south_pole, lon0 } => {
             // Square so the globe stays circular, floored so its limb is a
             // curve rather than a staircase (#514).
-            let (side, _) = derived(raise_to_min_raster((ni.max(nj), ni.max(nj))))?;
+            let (side, _) = derived((ni.max(nj), ni.max(nj)));
             Ok((
                 BuiltTarget::Polar(PolarStereographic::new(side, side, south_pole, lon0)),
                 None,
             ))
         }
         WarpTarget::Mollweide { lon0 } => {
-            let (w, h) = derived(raise_to_min_raster(world_raster_dims(
-                ni,
-                nj,
-                Mollweide::ASPECT_RATIO,
-            )))?;
+            let (w, h) = derived(world_raster_dims(ni, nj, Mollweide::ASPECT_RATIO));
             Ok((BuiltTarget::Moll(Mollweide::new(w, h, lon0)), None))
         }
         WarpTarget::Robinson { lon0 } => {
-            let (w, h) = derived(raise_to_min_raster(world_raster_dims(
-                ni,
-                nj,
-                Robinson::ASPECT_RATIO,
-            )))?;
+            let (w, h) = derived(world_raster_dims(ni, nj, Robinson::ASPECT_RATIO));
             Ok((BuiltTarget::Robin(Robinson::new(w, h, lon0)), None))
         }
         WarpTarget::EqualEarth { lon0 } => {
-            let (w, h) = derived(raise_to_min_raster(world_raster_dims(
-                ni,
-                nj,
-                EqualEarth::ASPECT_RATIO,
-            )))?;
+            let (w, h) = derived(world_raster_dims(ni, nj, EqualEarth::ASPECT_RATIO));
             Ok((BuiltTarget::EqEarth(EqualEarth::new(w, h, lon0)), None))
         }
     }
@@ -1020,8 +1000,9 @@ fn build_warp_target(
 ///
 /// So the shape comes from the window and the pixel budget from the source.
 /// The longer output edge takes the source's longer edge — nothing is
-/// downsampled, the same rule [`world_raster_dims`] applies to the whole-world
-/// targets — and the aspect of the resolved extent fixes the other.
+/// downsampled short of the pixel budget the caller then applies, the same
+/// rule [`world_raster_dims`] applies to the whole-world targets — and the
+/// aspect of the resolved extent fixes the other.
 ///
 /// A degenerate window (no extent on one axis, or non-finite corners) has no
 /// aspect to honour, so the source shape stands.
@@ -1045,14 +1026,16 @@ fn box_raster_dims(ni: u32, nj: u32, extent: LonLatBox) -> (u32, u32) {
 }
 
 /// Raster dims for a whole-world target of the given width : height ratio.
-/// Height is the source's larger edge, so nothing is downsampled, and width
+/// Height is the source's larger edge, so nothing is downsampled short of the
+/// pixel budget, and width
 /// follows from the projection's own aspect so the map body keeps its true
 /// proportions — 2:1 for Mollweide, ≈1.97:1 for Robinson, ≈2.05:1 for Equal
 /// Earth. These targets have no lat/lon-box extent to echo back to the UI.
 ///
 /// The ratio is the whole of this function's job: the caller floors the result
-/// with [`raise_to_min_raster`], which scales both edges together and so leaves
-/// the proportions chosen here intact.
+/// with [`raise_to_min_raster`] and caps it with [`fit_derived_raster`], both of
+/// which scale the two edges together and so leave the proportions chosen here
+/// intact.
 #[cfg(feature = "render")]
 fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
     let height = ni.max(nj);
@@ -1066,7 +1049,8 @@ fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
 /// The shortest long edge a *reprojected* raster is drawn at (#514).
 ///
 /// Every warp target sizes itself from the source grid, which is the right
-/// instinct — nothing should be downsampled — but it was a ceiling with no
+/// instinct — nothing should be downsampled short of the pixel budget
+/// ([`MAX_DERIVED_RASTER_PIXELS`]) — but it was a ceiling with no
 /// floor under it. A HEALPix `Nside 4` field resamples to 26 × 14 at its own
 /// pixel scale, so it reprojected to a 26 × 26 orthographic disc: the data's
 /// edge is a staircase while the coastline overlay is a smooth curve on the
@@ -1095,6 +1079,56 @@ fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
 /// data.
 #[cfg(feature = "render")]
 pub const MIN_REPROJECTED_LONG_EDGE: u32 = 720;
+
+/// The most pixels a warp raster derived from the source grid holds (#918):
+/// the same bound as one decoded field, [`fieldglass_core::MAX_FIELD_POINTS`].
+///
+/// A raster *derived* from the grid is the engine's choice, not the caller's,
+/// so the engine bounds it. The world and azimuthal targets size from
+/// `max(ni, nj)` alone, and a valid 179-byte GRIB2 file stating a 100,000 × 2
+/// grid asked Mollweide for 200,000 × 100,000 `f64`: 160 GB, an abort on a
+/// 64-bit host where `isize::MAX` refuses nothing. At this budget the widest
+/// buffer, the warp's `f64` values, is 512 MiB, which wasm32 can allocate too.
+/// What it scales is set by the grid's longer edge, not its point count: a
+/// world target past about 5,700 points along that edge (Equal Earth; 5,800
+/// for Mollweide), a disc past 8,192. A 7,200 × 3,600 global grid, about as
+/// large as real files get, loses about a fifth of each edge on Equal Earth; a
+/// long, narrow grid of few points is scaled far harder, which is the case
+/// this exists for.
+///
+/// A size the caller names is not held to it: that is the caller's budget,
+/// checked only for being allocatable.
+#[cfg(feature = "render")]
+pub const MAX_DERIVED_RASTER_PIXELS: u64 = fieldglass_core::MAX_FIELD_POINTS as u64;
+
+/// Scale `dims` down, keeping its aspect, until it holds no more than
+/// [`MAX_DERIVED_RASTER_PIXELS`]; a raster already inside is returned as is.
+///
+/// Scaled rather than refused: the raster is a display of the field, and a
+/// budget-sized one still holds more pixels than any screen shows, so a
+/// refusal would only take the picture away. Each edge keeps at least one
+/// pixel, and flooring keeps the product inside the budget.
+#[cfg(feature = "render")]
+fn fit_derived_raster(dims: (u32, u32)) -> (u32, u32) {
+    let (width, height) = dims;
+    let pixels = u64::from(width) * u64::from(height);
+    if pixels <= MAX_DERIVED_RASTER_PIXELS {
+        return dims;
+    }
+    let scale = (MAX_DERIVED_RASTER_PIXELS as f64 / pixels as f64).sqrt();
+    let fit = |edge: u32| ((f64::from(edge) * scale).floor() as u32).max(1);
+    let (mut w, mut h) = (fit(width), fit(height));
+    // An edge floored up to one pixel can push the product back over; take
+    // the excess off the other edge.
+    if u64::from(w) * u64::from(h) > MAX_DERIVED_RASTER_PIXELS {
+        if w == 1 {
+            h = MAX_DERIVED_RASTER_PIXELS.min(u64::from(h)) as u32;
+        } else {
+            w = (MAX_DERIVED_RASTER_PIXELS / u64::from(h)).max(1) as u32;
+        }
+    }
+    (w, h)
+}
 
 /// Raise `dims` until its long edge reaches [`MIN_REPROJECTED_LONG_EDGE`],
 /// keeping the ratio the caller chose.
@@ -3134,6 +3168,87 @@ mod resolved_options_tests {
                 sized,
                 (512, 384),
                 "{name} must not have taken the size after all"
+            );
+        }
+    }
+
+    /// Every raster an arm derives from the grid stays inside the pixel budget
+    /// and keeps its aspect (#918). A 100,000 × 2 grid asked the world targets
+    /// for 200,000 × 100,000 and the discs for 100,000²; a 70,000² source asks
+    /// the box targets for itself. Checked through the built target's
+    /// dimensions, so nothing of that size is allocated here.
+    #[test]
+    fn every_derived_raster_stays_inside_the_pixel_budget() {
+        let geometry = global_latlon();
+        for (name, ni, nj) in [
+            ("equirectangular", 70_000, 70_000),
+            ("web_mercator", 70_000, 70_000),
+            ("orthographic", 100_000, 2),
+            ("polar_stereographic", 100_000, 2),
+            ("mollweide", 100_000, 2),
+            ("robinson", 100_000, 2),
+            ("equal_earth", 100_000, 2),
+        ] {
+            let resolved = sized_options(name, None);
+            let TargetKind::Warp(target) = resolved.target else {
+                panic!("{name} is not a warp target");
+            };
+            let (built, _) =
+                build_warp_target(target, ni, nj, &geometry, &resolved).expect("the target builds");
+            let (w, h) = built.dims();
+            assert!(
+                u64::from(w) * u64::from(h) <= MAX_DERIVED_RASTER_PIXELS,
+                "{name}: {w} × {h} is past the budget"
+            );
+            // Scaled, not shrunk to nothing: within a pixel's rounding of the
+            // budget, at the aspect the arm asked for.
+            assert!(
+                u64::from(w) * u64::from(h) > MAX_DERIVED_RASTER_PIXELS / 2,
+                "{name}: {w} × {h} is far under the budget"
+            );
+            let want = match name {
+                "mollweide" => Mollweide::ASPECT_RATIO,
+                "robinson" => Robinson::ASPECT_RATIO,
+                "equal_earth" => EqualEarth::ASPECT_RATIO,
+                // The box targets here are square sources; the discs are square.
+                _ => 1.0,
+            };
+            let aspect = f64::from(w) / f64::from(h);
+            assert!(
+                (aspect - want).abs() / want < 0.001,
+                "{name}: {w} × {h} has aspect {aspect}, wanted {want}"
+            );
+        }
+        // A grid at the size real files reach is drawn as before.
+        let resolved = sized_options("mollweide", None);
+        let TargetKind::Warp(target) = resolved.target else {
+            unreachable!()
+        };
+        let (built, _) =
+            build_warp_target(target, 3600, 1801, &geometry, &resolved).expect("the target builds");
+        assert_eq!(
+            built.dims(),
+            world_raster_dims(3600, 1801, Mollweide::ASPECT_RATIO)
+        );
+    }
+
+    /// The budget's own arithmetic, including the degenerate aspects (#918).
+    #[test]
+    fn a_raster_past_the_budget_is_scaled_into_it() {
+        assert_eq!(fit_derived_raster((7200, 3600)), (7200, 3600));
+        assert_eq!(fit_derived_raster((0, 0)), (0, 0));
+        for dims in [
+            (200_000, 100_000),
+            (u32::MAX, u32::MAX),
+            (u32::MAX, 1),
+            (1, u32::MAX),
+            (70_000, 70_000),
+        ] {
+            let (w, h) = fit_derived_raster(dims);
+            assert!(w >= 1 && h >= 1, "{dims:?} → {w} × {h}");
+            assert!(
+                u64::from(w) * u64::from(h) <= MAX_DERIVED_RASTER_PIXELS,
+                "{dims:?} → {w} × {h}"
             );
         }
     }

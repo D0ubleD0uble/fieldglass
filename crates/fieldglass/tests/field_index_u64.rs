@@ -17,7 +17,7 @@ use fieldglass::{
     DecodeOptions, Error, Field, GridGeometry, PaletteOptions, RenderOptions, Session, Values,
     WarpOptions,
 };
-use fieldglass_core::LatLonParams;
+use fieldglass_core::{EqualEarth, LatLonParams, Mollweide, Robinson};
 
 const FIXTURE: &str = "../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2";
 const SIDE: u32 = 70_000;
@@ -146,38 +146,65 @@ fn refused_overflow<T: std::fmt::Debug>(result: Result<T, Error>, what: &str) {
     }
 }
 
-/// A field that holds every value its grid states can still ask a world
-/// target for a raster `max(ni, nj)²` wide, past what wasm32 can allocate:
-/// refused rather than a capacity-overflow abort (#913). A 64-bit host can
-/// allocate it, so this runs only where `usize` is 32 bits.
-#[cfg(target_pointer_width = "32")]
+/// A field that holds every value its grid states can still ask a world or
+/// azimuthal target for a raster `max(ni, nj)²` in size: a valid 100,000 × 2
+/// grid asked Mollweide for 200,000 × 100,000 `f64`, 160 GB (#918). The raster
+/// is now scaled into a pixel budget. `probe_pixel` builds the same target the
+/// render draws without allocating it, so this checks every derived target
+/// natively and on wasm32 without paying for one: the centre of the raster the
+/// grid used to ask for is off the edge of the one it gets.
 #[test]
-fn a_derived_raster_past_the_address_space_is_refused() {
+fn a_derived_raster_is_held_to_the_pixel_budget() {
     let session = Session::open(std::fs::read(FIXTURE).expect("fixture")).expect("opens");
     let mut field = huge_field(&session);
-    field.ni = 30_000;
-    field.nj = 2;
+    let (ni, nj) = (100_000u32, 2u32);
+    field.ni = ni;
+    field.nj = nj;
     field.georef.geometry = GridGeometry::LatLon(LatLonParams {
-        ni: 30_000,
-        nj: 2,
+        ni,
+        nj,
         lat_first: 1.0,
-        lon_first: -179.0,
+        lon_first: 0.0,
         lat_last: -1.0,
-        lon_last: 179.0,
+        lon_last: 360.0 - 360.0 / f64::from(ni),
     });
-    let values = vec![Some(1.0); 60_000];
-    match session.project(
-        &field.source(),
-        &values,
-        &RenderOptions::new("mollweide", "nearest"),
-    ) {
-        Err(Error::InvalidOption { detail }) => {
-            assert!(
-                detail.contains("larger than this target can allocate"),
-                "{detail}"
-            );
+    let values = vec![Some(1.0); (ni * nj) as usize];
+    // The raster a world target asks for: the longer edge high, at the
+    // projection's aspect.
+    let world = |aspect: f64| ((f64::from(ni) * aspect).round() as u32, ni);
+    for (projection, unbudgeted) in [
+        ("orthographic", (ni, ni)),
+        ("polar_stereographic", (ni, ni)),
+        ("mollweide", world(Mollweide::ASPECT_RATIO)),
+        ("robinson", world(Robinson::ASPECT_RATIO)),
+        ("equal_earth", world(EqualEarth::ASPECT_RATIO)),
+    ] {
+        let options = RenderOptions::new(projection, "nearest");
+        let probe = |px, py| {
+            session
+                .probe_pixel(&field.source(), &values, &options, px, py)
+                .expect("the target builds")
+        };
+        let (cx, cy) = (unbudgeted.0 / 2, unbudgeted.1 / 2);
+        assert!(
+            probe(cx, cy).is_none(),
+            "{projection}: the unbudgeted raster's centre is still on the raster"
+        );
+        // Still a picture, at the budget's size. A world target's centre pixel
+        // is on the equator, inside the field's ±1° band, so it reads the
+        // field's value; the disc targets are centred off the band (on a pole,
+        // or a preset's latitude), so for them the centre is only checked to
+        // be on the globe.
+        let budget = fieldglass::render::MAX_DERIVED_RASTER_PIXELS as f64;
+        let scale = (budget / (f64::from(unbudgeted.0) * f64::from(unbudgeted.1))).sqrt();
+        let (w, h) = (
+            (f64::from(unbudgeted.0) * scale) as u32,
+            (f64::from(unbudgeted.1) * scale) as u32,
+        );
+        let centre = probe(w / 2, h / 2).expect("the budgeted raster's centre is on the globe");
+        if unbudgeted.0 != unbudgeted.1 {
+            assert_eq!(centre.value, Some(1.0), "{projection}: centre at {w}x{h}");
         }
-        other => panic!("expected a raster-size refusal, got {other:?}"),
     }
 }
 
