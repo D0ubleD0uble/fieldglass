@@ -455,7 +455,14 @@ fn wrf_geometry(
     // The `(lat, lon)` of the far corner — `[nj - 1, ni - 1]` in C order.
     // Mercator and unrotated lat/lon are corner-pinned, so they alone need it.
     let far_corner = || -> Result<(f64, f64), FieldglassError> {
-        let flat = (nj.saturating_sub(1) as usize) * ni as usize + (ni.saturating_sub(1) as usize);
+        // In `u64`: two file-stated dimensions overflow a 32-bit `usize`, and
+        // a wrapped index would land inside the array and read the wrong cell
+        // (#845). One `usize` cannot hold is past the end of any array.
+        let flat =
+            u64::from(nj.saturating_sub(1)) * u64::from(ni) + u64::from(ni.saturating_sub(1));
+        let flat = usize::try_from(flat).map_err(|_| {
+            FieldglassError::Parse(format!("XLAT[{flat}] is past what this target can index"))
+        })?;
         Ok((
             corner_value(source, xlat, "XLAT", flat)?,
             corner_value(source, xlong, "XLONG", flat)?,

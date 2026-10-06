@@ -2260,10 +2260,14 @@ pub fn probe_pixel(
         if gi < 0 || gj < 0 || gi >= i64::from(ni) || gj >= i64::from(nj) {
             return None;
         }
-        // Both are now inside a `u32` grid, so the narrowing is exact even
-        // where `usize` is 32 bits wide.
-        values
-            .get(gj as usize * ni as usize + gi as usize)
+        // Both are inside a `u32` grid, but their product is not: on wasm32
+        // `gj * ni` in `usize` overflowed for a `values` slice shorter than
+        // `ni * nj` (#845). Index in `u64`, and an index `usize` cannot hold
+        // is past the end of any slice.
+        let index = (gj as u64) * u64::from(ni) + gi as u64;
+        usize::try_from(index)
+            .ok()
+            .and_then(|i| values.get(i))
             .copied()
             .flatten()
     };
@@ -3677,6 +3681,37 @@ mod warp_target_tests {
         )
         .expect_err("a source with no geometry cannot be warped");
         assert_eq!(err, refusal, "the host's own words reach the caller intact");
+    }
+
+    /// A values slice shorter than `ni * nj` reports no value rather than
+    /// panicking (#845). On wasm32 the cell index `gj * ni` overflowed `usize`
+    /// at this size; the `wasm32-wasip1` CI run is the one that bites.
+    #[test]
+    fn probe_pixel_on_a_short_slice_reports_no_value() {
+        let geometry = GridGeometry::Unsupported {
+            label: "test".to_string(),
+        };
+        let src = Source {
+            geometry: Ok(&geometry),
+            ni: 70_000,
+            nj: 70_000,
+            scan: Scan::north_down(),
+            family: "test",
+            points_per_row: None,
+        };
+        let values = vec![Some(1.0); 4];
+        let options = RenderOptions::default();
+        let probe = probe_pixel(&src, &values, &options, 0, 69_999)
+            .expect("the source view probes")
+            .expect("on the raster");
+        assert_eq!(probe.value, None);
+        let first = probe_pixel(&src, &values, &options, 0, 0).unwrap().unwrap();
+        let expected = if Scan::north_down().flips_source_rows(false) {
+            None
+        } else {
+            Some(1.0)
+        };
+        assert_eq!(first.value, expected);
     }
 
     #[test]

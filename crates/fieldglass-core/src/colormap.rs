@@ -452,6 +452,12 @@ impl Palette {
     /// Output length is `width * height * 4`. When `flip_y` is true, rows are
     /// emitted bottom-to-top — useful when the source grid scans south-to-north
     /// but the canvas wants north-up.
+    ///
+    /// `values` and `mask` are meant to hold one entry per cell. A slice of
+    /// another length never panics, in any build (#845): a cell with no value,
+    /// or no mask entry, paints as [`masked_rgba`](Self::masked_rgba), the
+    /// colour of a cell with no data, and entries past `width * height` are
+    /// ignored.
     pub fn paint(
         &self,
         values: &[f64],
@@ -478,33 +484,19 @@ impl Palette {
         }
         let w = width as usize;
         let h = height as usize;
-        debug_assert_eq!(
-            values.len(),
-            total,
-            "Palette::paint: values.len()={} != width*height={total}; trailing pixels would silently render as transparent",
-            values.len(),
-        );
-        if let Some(m) = mask {
-            debug_assert_eq!(
-                m.len(),
-                total,
-                "Palette::paint: mask.len()={} != width*height={total}",
-                m.len(),
-            );
-        }
         let mut out = vec![0u8; total * 4];
 
-        for (i, &v) in values.iter().enumerate().take(total) {
+        for i in 0..total {
             let row = i / w;
             let col = i - row * w;
             let out_idx = if flip_y { (h - 1 - row) * w + col } else { i };
             let o = out_idx * 4;
 
+            // No value, or no mask entry, is a cell with no data.
             let masked = mask.is_some_and(|m| m.get(i).copied().unwrap_or(0) == 0);
-            let px = if masked {
-                self.masked_rgba
-            } else {
-                self.rgba(v)
+            let px = match values.get(i) {
+                Some(&v) if !masked => self.rgba(v),
+                _ => self.masked_rgba,
             };
             out[o..o + 4].copy_from_slice(&px);
         }
@@ -608,6 +600,41 @@ pub fn paint_grid_rgba(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A values or mask slice of the wrong length never panics, in a debug
+    /// build or a release one (#845). A cell with no value or no mask entry
+    /// paints as no data; entries past the grid are ignored.
+    #[test]
+    fn paint_tolerates_slices_of_the_wrong_length() {
+        let viridis = Colormap::by_name("viridis").expect("the default colormap");
+        let p = Palette::build(viridis, false, 0.0, 1.0, ScaleMode::Linear);
+        let none = p.masked_rgba;
+        let px = |buf: &[u8], i: usize| -> [u8; 4] { buf[i * 4..i * 4 + 4].try_into().unwrap() };
+
+        // Three values for a 2x2 grid: the fourth cell has none.
+        let short = p.paint(&[0.0, 0.5, 1.0], None, 2, 2, false);
+        assert_eq!(short.len(), 16);
+        assert_eq!(px(&short, 2), p.rgba(1.0));
+        assert_eq!(px(&short, 3), none);
+
+        // Six values: the two past the grid are ignored.
+        let long = p.paint(&[0.0, 0.5, 1.0, 0.25, 9.0, 9.0], None, 2, 2, false);
+        assert_eq!(long, p.paint(&[0.0, 0.5, 1.0, 0.25], None, 2, 2, false));
+
+        // A short mask masks the cells it does not reach; a long one is cut.
+        let short_mask = p.paint(&[0.0, 0.5, 1.0, 0.25], Some(&[1, 1]), 2, 2, false);
+        assert_eq!(px(&short_mask, 1), p.rgba(0.5));
+        assert_eq!(px(&short_mask, 2), none);
+        let long_mask = p.paint(&[0.0, 0.5, 1.0, 0.25], Some(&[1, 1, 1, 1, 0]), 2, 2, false);
+        assert_eq!(
+            long_mask,
+            p.paint(&[0.0, 0.5, 1.0, 0.25], None, 2, 2, false)
+        );
+
+        // And flipped, where the missing cell lands on the top row.
+        let flipped = p.paint(&[0.0, 0.5, 1.0], None, 2, 2, true);
+        assert_eq!(px(&flipped, 1), none);
+    }
 
     /// The exact viridis LUT the renderer produced before the colormap registry
     /// existed: 11 anchors, linearly interpolated to 256 entries. Reproduced
