@@ -924,7 +924,33 @@ fn collect_v2_btree_chunks<S: ByteSource + ?Sized>(
 ) -> Result<Vec<ChunkRecord>, FieldglassError> {
     let o = osize as usize;
     let rank = chunk_dims.len();
-    let (btree_type, records) = super::heap::btree_v2_records(source, header_addr, osize, lsize)?;
+    // A chunk record is the chunk's address, then (filtered, type 11) a
+    // 1-8 byte stored size and a 4-byte filter mask, then one 8-byte scaled
+    // offset per dimension (#895).
+    let layout = |t: u8, size: usize| {
+        let fixed = o.saturating_add(rank.saturating_mul(8));
+        match t {
+            BTREE_V2_TYPE_CHUNK_UNFILTERED if size == fixed => Ok(()),
+            BTREE_V2_TYPE_CHUNK_FILTERED
+                if size
+                    .checked_sub(fixed.saturating_add(4))
+                    .is_some_and(|w| (1..=8).contains(&w)) =>
+            {
+                Ok(())
+            }
+            BTREE_V2_TYPE_CHUNK_UNFILTERED | BTREE_V2_TYPE_CHUNK_FILTERED => {
+                Err(FieldglassError::Parse(format!(
+                    "B-tree v2 type {t} chunk records are {size} bytes, which no rank-{rank} \
+                     record measures"
+                )))
+            }
+            other => Err(FieldglassError::Parse(format!(
+                "unsupported B-tree v2 type {other} for a chunk index (expected 10 or 11)"
+            ))),
+        }
+    };
+    let (btree_type, records) =
+        super::heap::btree_v2_records(source, header_addr, osize, lsize, &layout)?;
     let filtered = match btree_type {
         BTREE_V2_TYPE_CHUNK_UNFILTERED => false,
         BTREE_V2_TYPE_CHUNK_FILTERED => true,

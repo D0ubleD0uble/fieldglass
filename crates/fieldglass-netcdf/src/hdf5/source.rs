@@ -138,6 +138,64 @@ impl<S: ByteSource + ?Sized> Fields for FileCursor<'_, S> {
     }
 }
 
+/// File ranges one traversal has already read, held so no two overlap (#895).
+///
+/// An object header's continuation chunks and a B-tree v2's nodes each belong
+/// to one place in their structure: a chunk is followed once, a node has one
+/// parent. A structure that names one block from several places, or blocks
+/// that overlap, would have the walk read and copy the same bytes once per
+/// name: a 983 KB header looped back on itself 4,096 times peaked at 3.9 GB.
+/// Refusing any overlap bounds what one walk reads by the file's size.
+#[derive(Debug, Default)]
+pub(crate) struct ClaimedRanges {
+    /// The first few ranges, held inline: a header has its chunk 0 and a
+    /// continuation or two, a small B-tree a node or two, and a map that is
+    /// never inserted into never allocates. Start and end (exclusive).
+    inline: [(u64, u64); CLAIMS_INLINE],
+    /// How many of `inline` are in use.
+    held: usize,
+    /// Start → end (exclusive) of every range past the inline ones.
+    ranges: std::collections::BTreeMap<u64, u64>,
+}
+
+/// Ranges [`ClaimedRanges`] holds before it allocates.
+const CLAIMS_INLINE: usize = 4;
+
+impl ClaimedRanges {
+    /// Claim `len` bytes at `start` for `what`, refusing them if they overlap
+    /// any range already claimed. An empty range claims its one address, so a
+    /// zero-length block named twice is still caught.
+    pub(crate) fn claim(
+        &mut self,
+        start: u64,
+        len: u64,
+        what: &str,
+    ) -> Result<(), FieldglassError> {
+        let end = start.checked_add(len.max(1)).ok_or_else(|| {
+            FieldglassError::Parse(format!("{what} at {start} runs past the address space"))
+        })?;
+        let before = self.ranges.range(..=start).next_back();
+        let after = self.ranges.range(start..).next();
+        let overlaps = self.inline[..self.held]
+            .iter()
+            .any(|&(s, e)| s < end && start < e)
+            || before.is_some_and(|(_, &e)| e > start)
+            || after.is_some_and(|(&s, _)| s < end);
+        if overlaps {
+            return Err(FieldglassError::Parse(format!(
+                "{what} at {start} overlaps one already read; each is read once"
+            )));
+        }
+        if self.held < CLAIMS_INLINE {
+            self.inline[self.held] = (start, end);
+            self.held += 1;
+        } else {
+            self.ranges.insert(start, end);
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,5 +264,45 @@ mod tests {
         let mut cur = FileCursor::at(&bytes, 0).expect("in range");
         Fields::skip(&mut cur, 4 * 3000).expect("in range");
         assert_eq!(cur.uint(4).expect("word in range"), 3000);
+    }
+}
+
+#[cfg(test)]
+mod claimed_ranges_tests {
+    use super::ClaimedRanges;
+
+    #[test]
+    fn a_range_may_be_claimed_once_and_never_overlapped() {
+        let mut c = ClaimedRanges::default();
+        c.claim(100, 50, "chunk").unwrap();
+        c.claim(150, 10, "chunk").unwrap(); // adjacent after
+        c.claim(90, 10, "chunk").unwrap(); // adjacent before
+        for (start, len) in [
+            (100, 50),
+            (100, 1),
+            (149, 1),
+            (120, 100),
+            (80, 30),
+            (0, 1000),
+        ] {
+            assert!(c.claim(start, len, "chunk").is_err(), "{start}+{len}");
+        }
+        // Past the inline ones, into the map: the same rule holds.
+        c.claim(300, 10, "chunk").unwrap();
+        c.claim(400, 10, "chunk").unwrap();
+        assert!(
+            c.claim(405, 1, "chunk").is_err(),
+            "overlap with a mapped range"
+        );
+        assert!(
+            c.claim(140, 1, "chunk").is_err(),
+            "overlap with an inline range"
+        );
+        c.claim(500, 0, "node").unwrap();
+        assert!(
+            c.claim(500, 0, "node").is_err(),
+            "an empty range claims its address"
+        );
+        assert!(c.claim(u64::MAX, 2, "node").is_err(), "overflow is refused");
     }
 }

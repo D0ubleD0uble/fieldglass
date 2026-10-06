@@ -456,7 +456,19 @@ fn link_info_links<S: ByteSource + ?Sized>(
 
     let btree_addr = read_uint_le(body, pos + o, o)?;
     let heap = FractalHeap::parse(source, heap_addr, osize, lsize)?;
-    let (btree_type, records) = heap::btree_v2_records(source, btree_addr, osize, lsize)?;
+    // The format fixes a link record's layout: a 4-byte name hash or 8-byte
+    // creation order, then the 7-byte fractal-heap ID (#895).
+    let layout = |t: u8, size: usize| match (t, size) {
+        (5, 11) | (6, 15) => Ok(()),
+        (5 | 6, _) => Err(FieldglassError::Parse(format!(
+            "B-tree v2 type {t} link records are {size} bytes; the format fixes {}",
+            if t == 5 { 11 } else { 15 }
+        ))),
+        _ => Err(FieldglassError::Parse(format!(
+            "unsupported B-tree v2 type {t} for links"
+        ))),
+    };
+    let (btree_type, records) = heap::btree_v2_records(source, btree_addr, osize, lsize, &layout)?;
     if btree_type != 5 && btree_type != 6 {
         return Err(FieldglassError::Parse(format!(
             "unsupported B-tree v2 type {btree_type} for links"
