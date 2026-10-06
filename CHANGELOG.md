@@ -331,6 +331,8 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Fixed
 
+- **A small NetCDF-4 file can no longer take seconds to decode by naming one chunk many times.** The reader read and decompressed every entry in a dataset's chunk index, so a 24 KB file whose index named one 16 MB compressed chunk sixteen times cost about ten seconds. It now reads each stored chunk once, however many entries name it, and copies out only the part of a chunk inside the dataset. An index that names two different chunks at the same position is refused, because which one holds the data is not stated in the file; libhdf5 reads one of them depending on their order (ADR-0013). Valid files read the same. Closes #837.
+
 - **A small GRIB2 JPEG 2000 message can no longer take seconds to refuse.** A JPEG 2000 codestream states its own image size, and the reader decoded all of it before checking that size against the field. A 300-byte message on a 1 × 1 grid could carry a codestream stating 8192 × 8192 and cost about 14 s. The reader now reads that size first and refuses a mismatch at once, at full resolution and when decoding a reduced-resolution preview. Valid files decode the same. Closes #848.
 
 - **A small GRIB2 bi-Fourier message can no longer allocate about 134 MB before it is refused.** The reader built a message's truncation layout before comparing it with the coefficient count §5 declares, so a 145-byte message with a wide ellipse truncation cost 134 MB and about 0.3 s before it was turned away. It now counts the layout first, without building it, and refuses a mismatch at once. Valid files decode the same. Closes #849.

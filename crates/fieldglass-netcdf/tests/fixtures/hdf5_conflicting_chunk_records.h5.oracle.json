@@ -1,0 +1,8 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='earliest', chunk B-tree leaf appended by hand",
+  "note": "records A@0, B@0, B@1 for [7, 9]; libhdf5 reads the last record at origin 0; fieldglass refuses the index (ADR-0013, #837)",
+  "libhdf5_values": [
+    9,
+    9
+  ]
+}

@@ -381,13 +381,23 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     // known, so the whole variable is one batch resolve followed by reads. The
     // walk that produced the records could not be planned — that is the weak
     // form, and why the traversal above issues none.
-    let plan: Vec<ByteRange> = chunks
+    let mut chunks = chunks_in_shape(&chunks, shape, &chunked.chunk_dims)?;
+    // Records at different origins may name the same stored chunk: nothing in
+    // the format forbids it, and libhdf5 reads such a file. Each stored chunk is
+    // read and reversed once and placed at every origin that names it, so the
+    // cost is the distinct stored chunks, not the records (#837). The sort is
+    // stable, so a group keeps its records in origin order.
+    let storage = |c: &&ChunkRecord| (c.address, c.size, c.filter_mask);
+    chunks.sort_by_key(storage);
+    let groups: Vec<&[&ChunkRecord]> = chunks.chunk_by(|a, b| storage(a) == storage(b)).collect();
+    let plan: Vec<ByteRange> = groups
         .iter()
-        .map(|c| ByteRange::new(c.address, u64::from(c.size)))
+        .map(|g| ByteRange::new(g[0].address, u64::from(g[0].size)))
         .collect();
     source.prefetch(&plan)?;
 
-    for chunk in chunks.iter() {
+    for group in groups {
+        let chunk = group[0];
         let stored = read_at(source, chunk.address, chunk.size as usize)?;
         let expanded = if pipeline.filters.is_empty() {
             stored.into_owned()
@@ -405,14 +415,16 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
                 expanded.len()
             )));
         }
-        scatter_chunk(
-            &mut raw,
-            &expanded,
-            shape,
-            &chunked.chunk_dims,
-            &chunk.offset,
-            elem,
-        );
+        for record in group {
+            scatter_chunk(
+                &mut raw,
+                &expanded,
+                shape,
+                &chunked.chunk_dims,
+                &record.offset,
+                elem,
+            );
+        }
     }
     Ok(raw)
 }
@@ -1079,6 +1091,12 @@ fn chunk_offset_from_linear(mut i: u64, grid: &[u64], chunk_dims: &[u32]) -> Vec
 
 /// Copy a chunk's decoded elements into the dataset's row-major buffer,
 /// clipping any portion of an edge chunk that hangs past the dataset bounds.
+///
+/// Only the part of the chunk inside the shape is walked, one contiguous run
+/// along the last dimension at a time (#837). A chunk may legally be far
+/// larger than the dataset, an extendable dataset's for example, and walking
+/// every element of a 16 Mi-element chunk to place one was most of what such
+/// a decode cost. A chunk whose origin lies outside the shape places nothing.
 fn scatter_chunk(
     raw: &mut [u8],
     chunk: &[u8],
@@ -1088,46 +1106,134 @@ fn scatter_chunk(
     elem: usize,
 ) {
     let rank = shape.len();
-    let chunk_elems: usize = chunk_dims.iter().map(|&d| d as usize).product();
-    let mut coord = vec![0usize; rank];
-    for c in 0..chunk_elems {
-        // Decompose `c` into per-dim chunk coordinates (row-major).
-        let mut rem = c;
-        for d in (0..rank).rev() {
-            let cd = chunk_dims[d] as usize;
-            coord[d] = rem % cd;
-            rem /= cd;
+    let Some(last) = rank.checked_sub(1) else {
+        // A rank-0 chunk is one element.
+        if let (Some(dst), Some(src)) = (raw.get_mut(..elem), chunk.get(..elem)) {
+            dst.copy_from_slice(src);
         }
-        // Map to a dataset coordinate; skip elements past the dataset edge.
-        // The walk stays in `u64` — `shape` and `origin` are the file's own
-        // numbers, and narrowing them per dimension would wrap on a 32-bit
-        // target and turn the edge test below into the wrong answer. Only the
-        // final row-major index is narrowed, and an index `usize` cannot hold
-        // is by definition outside `raw`.
-        let mut ds_index = 0u64;
-        let mut in_bounds = true;
-        for d in 0..rank {
-            let ds_coord = origin[d].saturating_add(coord[d] as u64);
-            if ds_coord >= shape[d] {
-                in_bounds = false;
+        return;
+    };
+    // The chunk's extent inside the shape, per dimension. The walk stays in
+    // `u64` — `shape` and `origin` are the file's own numbers, and narrowing
+    // them would wrap on a 32-bit target. Each extent is at most its chunk
+    // edge, a `u32`, so narrowing it is exact.
+    //
+    // One allocation per chunk, as the walk this replaced made: the extents and
+    // the odometer over the outer dimensions share a buffer.
+    let mut scratch = vec![0usize; rank + last];
+    let (extent, coord) = scratch.split_at_mut(rank);
+    for d in 0..rank {
+        if origin[d] >= shape[d] {
+            return;
+        }
+        extent[d] = (shape[d] - origin[d]).min(u64::from(chunk_dims[d])) as usize;
+    }
+    let Some(run) = extent[last].checked_mul(elem) else {
+        return;
+    };
+    loop {
+        // The chunk's own row-major index stays below its element count, which
+        // the caller has already checked fits `usize`. The dataset index is
+        // computed in `u64`; one `usize` cannot hold is outside `raw`.
+        let mut src = 0usize;
+        let mut dst = 0u64;
+        for d in 0..last {
+            src = src * chunk_dims[d] as usize + coord[d];
+            dst = dst
+                .saturating_mul(shape[d])
+                .saturating_add(origin[d] + coord[d] as u64);
+        }
+        src *= chunk_dims[last] as usize;
+        dst = dst.saturating_mul(shape[last]).saturating_add(origin[last]);
+        let src = src.checked_mul(elem);
+        let dst = usize::try_from(dst).ok().and_then(|i| i.checked_mul(elem));
+        if let (Some(src), Some(dst)) = (src, dst)
+            && let (Some(from), Some(to)) = (
+                chunk.get(src..src.saturating_add(run)),
+                raw.get_mut(dst..dst.saturating_add(run)),
+            )
+        {
+            to.copy_from_slice(from);
+        }
+        // Advance to the next row; done once every outer coordinate wraps.
+        let mut d = last;
+        loop {
+            if d == 0 {
+                return;
+            }
+            d -= 1;
+            coord[d] += 1;
+            if coord[d] < extent[d] {
                 break;
             }
-            ds_index = ds_index.saturating_mul(shape[d]).saturating_add(ds_coord);
-        }
-        if !in_bounds {
-            continue;
-        }
-        let Ok(ds_index) = usize::try_from(ds_index) else {
-            continue;
-        };
-        let src = c * elem;
-        let Some(dst) = ds_index.checked_mul(elem) else {
-            continue;
-        };
-        if src + elem <= chunk.len() && dst + elem <= raw.len() {
-            raw[dst..dst + elem].copy_from_slice(&chunk[src..src + elem]);
+            coord[d] = 0;
         }
     }
+}
+
+/// Check every chunk record against the chunk grid and keep the ones that
+/// overlap the dataset's current shape, each chunk once (#837, ADR-0013).
+///
+/// An index names each chunk once, by its element-space origin, which is a
+/// multiple of the chunk edge in every dimension: a v1 B-tree's keys are
+/// strictly ordered, and a v2 B-tree's records carry the chunk-grid coordinate.
+/// Four cases depart from that, and each is settled against libhdf5:
+///
+/// - **Records identical in origin, address, size and filter mask** are read
+///   once. libhdf5 reads the value they all name. Reading each copy is how one
+///   16 KB deflate stream that inflates to 16 MB was inflated per record.
+/// - **Records at one origin naming different storage** are refused. The value
+///   is ambiguous: libhdf5's answer depends on the records' order and on its
+///   tree search, and this is the one case where the reader diverges from it.
+/// - **A record whose origin lies outside the shape** is skipped without being
+///   read, as libhdf5 never looks such a chunk up.
+/// - **An origin inside the shape but off the chunk grid** is refused, as
+///   libhdf5 refuses it.
+///
+/// Records at *different* origins naming the same storage are legal, and the
+/// caller groups them so that chunk is read once.
+fn chunks_in_shape<'a>(
+    chunks: &'a [ChunkRecord],
+    shape: &[u64],
+    chunk_dims: &[u32],
+) -> Result<Vec<&'a ChunkRecord>, FieldglassError> {
+    let mut kept = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+        if chunk.offset.len() != chunk_dims.len() {
+            return Err(FieldglassError::Parse(format!(
+                "chunk record has {} offsets for a rank-{} dataset",
+                chunk.offset.len(),
+                chunk_dims.len()
+            )));
+        }
+        if !chunk.offset.iter().zip(shape).all(|(&o, &s)| o < s) {
+            continue;
+        }
+        if let Some(d) =
+            (0..chunk_dims.len()).find(|&d| chunk.offset[d] % u64::from(chunk_dims[d]) != 0)
+        {
+            return Err(FieldglassError::Parse(format!(
+                "chunk record origin {:?} is not on the chunk grid (dimension {d}, chunk edge {})",
+                chunk.offset, chunk_dims[d]
+            )));
+        }
+        kept.push(chunk);
+    }
+    kept.sort_unstable_by(|a, b| a.offset.cmp(&b.offset));
+    let same_storage = |a: &ChunkRecord, b: &ChunkRecord| {
+        (a.address, a.size, a.filter_mask) == (b.address, b.size, b.filter_mask)
+    };
+    if let Some(pair) = kept
+        .windows(2)
+        .find(|pair| pair[0].offset == pair[1].offset && !same_storage(pair[0], pair[1]))
+    {
+        return Err(FieldglassError::Parse(format!(
+            "chunk index names two different chunks at origin {:?}",
+            pair[0].offset
+        )));
+    }
+    kept.dedup_by(|a, b| a.offset == b.offset);
+    Ok(kept)
 }
 
 /// Decode the Fill Value message (`0x0005`) into the raw fill-element bytes, if
@@ -1196,4 +1302,147 @@ fn missing_sentinels<S: ByteSource + ?Sized>(
         .filter_map(|name| attrs.iter().find(|a| a.name == name))
         .filter_map(|a| a.first_value())
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The element-by-element walk `scatter_chunk` replaced (#837): every
+    /// element of the chunk, placed when it lands inside the shape.
+    fn scatter_reference(
+        raw: &mut [u8],
+        chunk: &[u8],
+        shape: &[u64],
+        chunk_dims: &[u32],
+        origin: &[u64],
+        elem: usize,
+    ) {
+        let rank = shape.len();
+        let chunk_elems: usize = chunk_dims.iter().map(|&d| d as usize).product();
+        let mut coord = vec![0usize; rank];
+        for c in 0..chunk_elems {
+            let mut rem = c;
+            for d in (0..rank).rev() {
+                coord[d] = rem % chunk_dims[d] as usize;
+                rem /= chunk_dims[d] as usize;
+            }
+            let mut ds_index = 0u64;
+            let mut in_bounds = true;
+            for d in 0..rank {
+                let ds_coord = origin[d] + coord[d] as u64;
+                if ds_coord >= shape[d] {
+                    in_bounds = false;
+                    break;
+                }
+                ds_index = ds_index * shape[d] + ds_coord;
+            }
+            if in_bounds {
+                let (src, dst) = (c * elem, ds_index as usize * elem);
+                raw[dst..dst + elem].copy_from_slice(&chunk[src..src + elem]);
+            }
+        }
+    }
+
+    #[test]
+    fn clipped_scatter_places_what_the_element_walk_placed() {
+        // Ranks 1-3, interior, edge and oversized chunks, origins on and past
+        // the shape, one- and four-byte elements.
+        let cases: &[(&[u64], &[u32])] = &[
+            (&[7], &[3]),
+            (&[1], &[16]),
+            (&[5, 4], &[2, 3]),
+            (&[3, 2], &[8, 8]),
+            (&[4, 3, 5], &[2, 2, 3]),
+            (&[2, 1, 3], &[1, 4, 2]),
+        ];
+        for &(shape, chunk_dims) in cases {
+            for elem in [1usize, 4] {
+                let n: usize = shape.iter().product::<u64>() as usize;
+                let chunk_elems: usize = chunk_dims.iter().map(|&d| d as usize).product();
+                let chunk: Vec<u8> = (0..chunk_elems * elem)
+                    .map(|i| (i % 251) as u8 + 1)
+                    .collect();
+                let grid: Vec<u64> = shape
+                    .iter()
+                    .zip(chunk_dims)
+                    .map(|(&s, &c)| s.div_ceil(u64::from(c)) + 1)
+                    .collect();
+                for i in 0..grid.iter().product::<u64>() {
+                    let origin = chunk_offset_from_linear(i, &grid, chunk_dims);
+                    let mut got = vec![0u8; n * elem];
+                    let mut want = vec![0u8; n * elem];
+                    scatter_chunk(&mut got, &chunk, shape, chunk_dims, &origin, elem);
+                    scatter_reference(&mut want, &chunk, shape, chunk_dims, &origin, elem);
+                    assert_eq!(
+                        got, want,
+                        "shape {shape:?} chunk {chunk_dims:?} origin {origin:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    fn record(offset: &[u64]) -> ChunkRecord {
+        ChunkRecord {
+            address: 4096,
+            size: 16,
+            filter_mask: 0,
+            offset: offset.to_vec(),
+        }
+    }
+
+    #[test]
+    fn chunk_records_are_held_to_the_grid() {
+        let (shape, dims) = ([10u64, 6], [4u32, 3]);
+        // Every cell once, plus one past the shape: the last is skipped unread.
+        let chunks = vec![
+            record(&[0, 0]),
+            record(&[0, 3]),
+            record(&[4, 0]),
+            record(&[4, 3]),
+            record(&[8, 0]),
+            record(&[8, 3]),
+            record(&[12, 0]),
+        ];
+        let kept = chunks_in_shape(&chunks, &shape, &dims).expect("a valid index");
+        assert_eq!(kept.len(), 6);
+
+        // The same record twice, wherever the repeat sits, is read once.
+        let dup = vec![record(&[4, 3]), record(&[0, 0]), record(&[4, 3])];
+        let kept = chunks_in_shape(&dup, &shape, &dims).expect("identical copies");
+        let origins: Vec<&[u64]> = kept.iter().map(|c| c.offset.as_slice()).collect();
+        assert_eq!(origins, [&[0u64, 0][..], &[4, 3]]);
+
+        // Two records at one origin naming different storage are refused.
+        for differ in [
+            |r: &mut ChunkRecord| r.address += 64,
+            |r: &mut ChunkRecord| r.size += 1,
+            |r: &mut ChunkRecord| r.filter_mask = 1,
+        ] {
+            let mut other = record(&[4, 3]);
+            differ(&mut other);
+            let conflict = vec![record(&[4, 3]), record(&[0, 0]), other];
+            let err = chunks_in_shape(&conflict, &shape, &dims).expect_err("ambiguous");
+            assert!(err.to_string().contains("two different chunks"), "{err}");
+        }
+
+        // An origin off the chunk grid is refused inside the shape, and
+        // skipped unread outside it like any other record there.
+        let off = vec![record(&[2, 0])];
+        let err = chunks_in_shape(&off, &shape, &dims).expect_err("off the grid");
+        assert!(err.to_string().contains("not on the chunk grid"), "{err}");
+        let off_outside = vec![record(&[0, 0]), record(&[13, 1])];
+        assert_eq!(
+            chunks_in_shape(&off_outside, &shape, &dims).unwrap().len(),
+            1
+        );
+
+        // A conflict that lies wholly outside the shape is never read, so it is
+        // skipped like any other record there.
+        let mut far = record(&[12, 0]);
+        far.address += 64;
+        let outside = vec![record(&[0, 0]), record(&[12, 0]), far];
+        assert_eq!(chunks_in_shape(&outside, &shape, &dims).unwrap().len(), 1);
+    }
 }
