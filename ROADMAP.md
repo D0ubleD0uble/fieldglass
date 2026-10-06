@@ -184,8 +184,9 @@ first.
   very large daily volume, and GDAL cannot open it. The largest "opens what
   nothing else opens" item left. Needs an ADR on out-of-band mesh resolution
   before code; stays a substantial effort after the seam lands.
-- **szip filter (#421). Landed, unreleased.** Unlocks the NASA EOS archive
-  (AIRS, MODIS). It shares its entropy coder with GRIB2 5.42, and the project
+- **szip filter (#421). Landed, unreleased.** Opens HDF5 files that use
+  szip. HDF4 files, which many NASA EOS products are, need HDF4 reading
+  (#248). It shares its entropy coder with GRIB2 5.42, and the project
   now owns that coder in `fieldglass-aec`
   ([ADR-0012](docs/decisions/0012-own-the-aec-decoder.md)); the NetCDF reader
   adds HDF5's framing. Moves to **Done** at the next release. What it turned

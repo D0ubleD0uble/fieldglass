@@ -12,10 +12,9 @@
 //!   appends four bytes to the chunk, which reading verifies and strips (#412).
 //! * **zstd** (filter id 32015) — netcdf-c >= 4.9's recommended compressor for
 //!   new climate archives, undone with `ruzstd` (#413).
-//! * **szip** (filter id 4) — CCSDS 121.0 adaptive entropy coding, common
-//!   across the NASA EOS archive (AIRS, MODIS). The coder and libsz's framing
-//!   are `fieldglass_aec::sz`; the HDF5 part (the `cd_values` order and the
-//!   size prefix) is here (#421).
+//! * **szip** (filter id 4) — CCSDS 121.0 adaptive entropy coding. The coder
+//!   and libsz's framing are `fieldglass_aec::sz`; the HDF5 part (the
+//!   `cd_values` order and the size prefix) is here (#421).
 //!
 //! Any other filter (nbit, scale-offset, …) is recognised by id and rejected
 //! with a clear error rather than silently mis-decoded.
