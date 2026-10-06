@@ -29,6 +29,16 @@ pub fn decode_matrix_of_values(
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
+    // Match the GRIB1 true-matrix decoder, which requires 1..=32 (a constant
+    // field, bits == 0, is not a defined layout here) — the two editions must
+    // decode the same input domain identically, and check it in the same
+    // order: bits per value, then NR·NC, then the bitmap (#846).
+    if t.bits_per_value == 0 || t.bits_per_value > 32 {
+        return Err(FieldglassError::Parse(format!(
+            "grid_simple_matrix bits_per_value {} is unsupported (expected 1..=32)",
+            t.bits_per_value
+        )));
+    }
     let datum = (t.nr as usize)
         .checked_mul(t.nc as usize)
         .filter(|d| *d > 0)
@@ -38,15 +48,6 @@ pub fn decode_matrix_of_values(
                 t.nr, t.nc
             ))
         })?;
-    // Match the GRIB1 true-matrix decoder, which requires 1..=32 (a constant
-    // field, bits == 0, is not a defined layout here) — the two editions must
-    // decode the same input domain identically.
-    if t.bits_per_value == 0 || t.bits_per_value > 32 {
-        return Err(FieldglassError::Parse(format!(
-            "grid_simple_matrix bits_per_value {} is unsupported (expected 1..=32)",
-            t.bits_per_value
-        )));
-    }
     // A public entry point, so the bitmap is a caller's as much as the file's:
     // one bit per grid point, or a parse error with the wording every other
     // decoder in both editions uses, at the step GRIB1's matrix decoder checks
@@ -241,6 +242,25 @@ mod tests {
     fn rejects_zero_datum() {
         let t = template(0, 2, 0.0, 0, 0, 8, 0);
         assert!(decode_matrix_of_values(&[0u8; 8], &t, None, 2).is_err());
+    }
+
+    /// NR = 0 with 0 bits per value breaks two rules, and both editions report
+    /// the same one: bits per value is checked first, then NR·NC (#846). The
+    /// GRIB1 half is `tests/decode_matrix.rs` in `fieldglass-grib1`.
+    #[test]
+    fn checks_bits_per_value_before_the_datum_as_grib1_does() {
+        let both = template(0, 2, 0.0, 0, 0, 0, 0);
+        let err = decode_matrix_of_values(&[0u8; 8], &both, None, 2).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            FieldglassError::Parse(
+                "grid_simple_matrix bits_per_value 0 is unsupported (expected 1..=32)".into()
+            )
+            .to_string()
+        );
+        let datum_only = template(0, 2, 0.0, 0, 0, 8, 0);
+        let err = decode_matrix_of_values(&[0u8; 8], &datum_only, None, 2).unwrap_err();
+        assert!(err.to_string().contains("datum size NR×NC = 0×2"), "{err}");
     }
 
     /// A bitmap that is not one bit per grid point is a parse error with the
