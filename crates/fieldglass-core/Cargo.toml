@@ -16,9 +16,9 @@ categories  = ["science", "parser-implementations"]
 # for the day one comes off the default list: a gated module that docs.rs cannot
 # see is documented nowhere a crates.io reader can reach, and the format crates
 # already depend on this crate with `default-features = false`, so "the default
-# set" is not the set this crate is read in. The only published crate in the
-# workspace with features at all; `fieldglass-grib1`, `-grib2` and `-netcdf`
-# have none, and `fieldglass` / `fieldglass-wasm` are `publish = false`.
+# set" is not the set this crate is read in. `fieldglass` and `fieldglass-zarr`
+# carry the same table for the same reason; `fieldglass-grib1`, `-grib2`,
+# `-netcdf` and `-fetchplan` have no features to hide.
 [package.metadata.docs.rs]
 all-features = true
 

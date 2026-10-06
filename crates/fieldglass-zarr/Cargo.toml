@@ -10,11 +10,16 @@ description = "Zarr chunk codecs — v2 filters/compressors and v3 codec chains,
 keywords = ["zarr", "blosc", "codec", "meteorology", "science"]
 categories = ["science", "parser-implementations"]
 readme = "README.md"
-# Not on crates.io yet, for the reason `fieldglass-fetchplan` is not: the
-# release process (RELEASING.md) is written around the four library crates, and
-# this one has no consumer outside the workspace until a host wires up a store
-# walker.
-publish = false
+# Published in lockstep, after `fieldglass-core` (which it pins with `=`) and
+# before `fieldglass-fetchplan` and `fieldglass` (which pin it) in
+# `release.yml`'s publish loop (#851). Pre-1.0 it may break between minors like
+# every crate here, and it tracks the Zarr specs, which are still moving.
+
+# Every feature is on by default today, so this changes nothing yet. It is the
+# same guard `fieldglass-core` carries: a feature taken off the default list
+# must not take its documentation off docs.rs with it.
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 # The error type, so a consumer of this crate needs no direct `fieldglass-core`

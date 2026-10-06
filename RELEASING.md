@@ -7,7 +7,7 @@ this doc is the *how*, not the *why*.
 
 Versioning is plain semver, and **every tag is a stable release**. Pre-1.0, a
 minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` →
-`0.3.1`) does not. The extension and the five library crates share the version.
+`0.3.1`) does not. The extension and the eight library crates share the version.
 
 There is no pre-release channel. Fieldglass used one through `0.1.x` — under the
 Marketplace's odd/even-minor convention, where the minor digit encodes the
@@ -41,7 +41,7 @@ Bump versions in lockstep:
 | File | What |
 |---|---|
 | `Cargo.toml` (workspace) | `[workspace.package].version` → new version |
-| `crates/fieldglass-{grib1,grib2,napi,netcdf}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match (`-grib2` and `-netcdf` pin `fieldglass-aec` as well as `fieldglass-core`) |
+| `crates/fieldglass{,-grib1,-grib2,-netcdf,-zarr,-fetchplan,-napi,-wasm}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match (`-grib2` and `-netcdf` pin `fieldglass-aec` as well as `fieldglass-core`; `fieldglass` pins every crate it can take; `-napi` and `-wasm` pin `fieldglass`). `grep -rn '"=<old>"' --include=Cargo.toml crates` finds them all |
 | `extension/package.json` | `version` field |
 | `Cargo.lock` | `cargo check --workspace` to refresh |
 | `crates/fieldglass-{aec,grib1,grib2,netcdf,zarr,fetchplan}/fuzz/Cargo.lock` | refresh each of the six — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet each lock still records the resolved `fieldglass-*` version. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. Forgetting is caught by the `nested-lockfiles` pre-commit hook, which refuses the bump commit itself; if hooks are bypassed it fails the **Nested lockfiles in sync** job and blocks the fuzz jobs until fixed. |
@@ -153,7 +153,7 @@ The tag push triggers `release.yml`'s publish path:
 - builds all six native targets
 - packages six platform-specific `.vsix` files
 - publishes to the VS Code Marketplace
-- publishes the five library crates to crates.io, on a **stable tag only** (see
+- publishes the eight library crates to crates.io, on a **stable tag only** (see
   below)
 - publishes `@fieldglass/wasm` to npm, also tag-only (see below)
 - creates the GitHub Release with the `.vsix` files attached and the release
@@ -163,16 +163,20 @@ The tag push triggers `release.yml`'s publish path:
 
 ### crates.io
 
-The five library crates — `fieldglass-aec`, `fieldglass-core`, `-grib1`,
-`-grib2`, `-netcdf` — publish to crates.io from the `publish-crates` job. `fieldglass-napi` does not:
-it carries `publish = false`, since it is a build artefact of the extension, not
-a library anyone should depend on.
+The eight library crates publish to crates.io from the `publish-crates` job, in
+dependency order: `fieldglass-aec`, `fieldglass-core`, `-grib1`, `-grib2`,
+`-netcdf`, `-zarr`, `-fetchplan`, and the `fieldglass` umbrella last.
+`fieldglass-napi` and `fieldglass-wasm` do not: each carries `publish = false`,
+since each is a host binding, not a library anyone should depend on (the browser
+build reaches users through npm instead; see below).
 
 **Every tag publishes.** A `workflow_dispatch` dry run has no tag, so it skips
 this job — the dry run remains free of side effects.
 
-**Every stable release publishes all five crates, whether or not they changed.**
-The format crates pin core (and `-grib2` and `-netcdf` pin `fieldglass-aec`) with `=`, so their manifests change with every
+**Every stable release publishes all eight crates, whether or not they changed.**
+Each crate pins the workspace crates it takes with `=` (the format crates pin
+core, `-grib2` and `-netcdf` also pin `fieldglass-aec`, `-fetchplan` pins
+`-zarr`, and `fieldglass` pins them all), so their manifests change with every
 version bump by construction. That lockstep is deliberate while the API is
 pre-1.0; it is not worth the bookkeeping to publish them independently.
 
@@ -221,6 +225,31 @@ then add its Trusted Publishing entry (repository `D0ubleD0uble/fieldglass`,
 workflow `release.yml`) and re-run the `publish-crates` job. It is first in the
 loop, so a missed bootstrap fails the job before any other crate goes out, and
 the re-run skips whatever is already published.
+
+**`fieldglass-zarr`, `fieldglass-fetchplan` and `fieldglass` need it once too**
+(#851). They join the loop at 0.6.0, after the readers, in that order. Each pins
+the ones before it with `=`, so publish them in that order, after the five
+readers of the same version are on the index:
+
+```sh
+cargo publish -p fieldglass-zarr        # with a scoped API token
+cargo publish -p fieldglass-fetchplan
+cargo publish -p fieldglass
+```
+
+then add a Trusted Publishing entry for each, as above. The simplest order is to
+let the tag's `publish-crates` job publish the five readers and fail on
+`fieldglass-zarr`, run the three commands from a checkout of the tag, add the
+entries, and re-run the job, which then skips all eight. Unlike `fieldglass-aec`,
+a missed bootstrap here fails the job *after* the readers are out, so the
+failure is partial; the re-run is still safe.
+
+To check all eight package and build before a release, without uploading
+anything, run `cargo publish --workspace --dry-run`. Cargo packages every
+publishable member and verifies each against the others' packages rather than
+crates.io, so it works before any of the three new crates exists there. Run it
+on the prep branch after the version bump, when the new version is not on
+crates.io yet; that is the case it was checked on (#851).
 
 ### npm
 
@@ -284,7 +313,7 @@ gh run watch
 
 - [ ] **GitHub Release created** at `https://github.com/D0ubleD0uble/fieldglass/releases/tag/vX.Y.Z` with six `.vsix` attachments.
 - [ ] **CHANGELOG link refs resolve** — `[X.Y.Z]: …/compare/v{prev}...vX.Y.Z` should be live now that the tag exists.
-- [ ] **crates.io shows the new version** for all five library crates — `cargo info fieldglass-core` should report `X.Y.Z`, and likewise for `-grib1`, `-grib2`, `-netcdf` and `fieldglass-aec`. `cargo info fieldglass-aec` is the one that catches a missed first publish (see *crates.io → First publish* above).
+- [ ] **crates.io shows the new version** for all eight library crates — `cargo info fieldglass-core` should report `X.Y.Z`, and likewise for `-grib1`, `-grib2`, `-netcdf`, `fieldglass-aec`, `fieldglass-zarr`, `fieldglass-fetchplan` and `fieldglass`. `cargo info fieldglass-aec` and the last three are the ones that catch a missed first publish (see *crates.io → First publish* above).
 - [ ] **npm shows the new version** — `npm view @fieldglass/wasm version` should report `X.Y.Z`. If the trusted publisher is configured for staged publishing, the version sits unapproved until a maintainer approves it from the Versions tab, and `npm view` will not report it until then.
 - [ ] **Marketplace listing updated** at `https://marketplace.visualstudio.com/items?itemName=fieldglass.fieldglass` — the new version number, screenshot, and README all reflect what shipped.
 - [ ] **Install from Marketplace and round-trip** a real file from each format in a clean VS Code install. The full chain — Marketplace → `.vsix` selection by platform → activation → file open → render — is something only a real install can validate.
