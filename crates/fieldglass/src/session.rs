@@ -2045,7 +2045,11 @@ impl Session {
         let index = field.georef.geometry.inverse(lat, lon)?;
         let i = index.i.round().clamp(0.0, f64::from(field.ni) - 1.0) as usize;
         let j = index.j.round().clamp(0.0, f64::from(field.nj) - 1.0) as usize;
-        let flat = j * field.ni as usize + i;
+        // In `u64`: `Field` is public, so a caller can hand back one whose
+        // `ni·nj` passes a 32-bit `usize` (#902). An index `usize` cannot
+        // hold is past the end of any slice.
+        let flat =
+            usize::try_from((j as u64) * u64::from(field.ni) + i as u64).unwrap_or(usize::MAX);
         let present = field.mask.get(flat).copied().unwrap_or(0) == 1;
         Some(Probe {
             lat,
@@ -2308,9 +2312,11 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     // Sampled in place rather than through `optional_values`: that shape is
     // 16 bytes a cell, so a 3.7-million-point NBM field would cost 60 MB of
     // linear memory on top of the field it already holds, for no gain here.
-    let ni = field.ni as usize;
+    // Indexed in `u64`, as `render`'s warp is (#897, #902): a caller can hand
+    // back a `Field` whose `ni·nj` passes a 32-bit `usize`.
+    let ni = u64::from(field.ni);
     let sample = |i: usize, j: usize| -> Option<f64> {
-        let k = j * ni + i;
+        let k = usize::try_from((j as u64) * ni + i as u64).ok()?;
         if field.mask.get(k).copied().unwrap_or(0) != 1 {
             return None;
         }

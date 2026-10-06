@@ -32,13 +32,21 @@ pub fn field_to_csv_matrix(values: &[Option<f64>], ni: usize, nj: usize) -> Stri
             }
             // Present value → its shortest round-trippable form; a missing or
             // out-of-range point leaves the cell empty.
-            if let Some(Some(v)) = values.get(j * ni + i) {
+            if let Some(Some(v)) = cell(values, ni, i, j) {
                 let _ = write!(out, "{v}");
             }
         }
         out.push('\n');
     }
     out
+}
+
+/// The value at grid `(i, j)` of a row-major slice `ni` wide, or `None` past
+/// its end. The index is taken in `u64` (#902): `values`, `ni` and `nj` are
+/// the caller's, and `j·ni` can pass a 32-bit `usize`.
+fn cell(values: &[Option<f64>], ni: usize, i: usize, j: usize) -> Option<&Option<f64>> {
+    let k = (j as u64).checked_mul(ni as u64)?.checked_add(i as u64)?;
+    values.get(usize::try_from(k).ok()?)
 }
 
 /// Serialize `values` as a long `lat,lon,value` table with a header row. `coords`
@@ -63,7 +71,7 @@ pub fn field_to_csv_long(
             let Some((lat, lon)) = coords(i, j) else {
                 continue;
             };
-            let value = values.get(j * ni + i).copied().flatten();
+            let value = cell(values, ni, i, j).copied().flatten();
             let _ = write!(out, "{lat},{lon},");
             if let Some(v) = value {
                 let _ = write!(out, "{v}");

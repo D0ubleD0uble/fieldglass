@@ -107,8 +107,11 @@ fn contour_segments_impl(
             segments: Vec::new(),
         })
         .collect();
-    // A grid smaller than 2×2 has no cells to march.
-    if ni < 2 || nj < 2 || values.len() < ni * nj {
+    // A grid smaller than 2×2 has no cells to march, and one larger than
+    // `values` has no values to march. The product is checked: `values` is the
+    // caller's, so `ni·nj` can overflow (#902), and once it fits under
+    // `values.len()` every `j·ni + i` below does too.
+    if ni < 2 || nj < 2 || ni.checked_mul(nj).is_none_or(|n| values.len() < n) {
         return out;
     }
 
@@ -274,6 +277,23 @@ fn nice_num(x: f64, round: bool) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A grid whose `ni·nj` overflows, or is larger than `values`, marches
+    /// nothing rather than panicking (#902): the product was unchecked, so a
+    /// debug build panicked on it and a release build wrapped it under
+    /// `values.len()` and indexed past the slice.
+    #[test]
+    fn a_grid_larger_than_its_values_marches_nothing() {
+        let values = [Some(1.0)];
+        for (ni, nj) in [
+            (1usize << (usize::BITS - 1), 2usize),
+            (usize::MAX, usize::MAX),
+            (3, 3),
+        ] {
+            let levels = contour_segments(&values, ni, nj, &[0.5]);
+            assert!(levels.iter().all(|l| l.segments.is_empty()), "{ni} x {nj}");
+        }
+    }
 
     /// A field that is genuinely periodic in `i`: one full cosine wave across
     /// the grid, so the value at column `ni - 1` continues smoothly into column
