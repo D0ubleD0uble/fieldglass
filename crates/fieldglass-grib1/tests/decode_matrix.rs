@@ -177,3 +177,31 @@ fn an_all_absent_bitmap_with_a_huge_matrix_is_refused_before_allocating() {
         "got {err:?}"
     );
 }
+
+/// NR = 0 with 0 bits per value breaks two rules, and both editions report the
+/// same one: bits per value is checked first, then NR·NC (#846). Built from the
+/// committed fixture: BDS octet 11 (bits per value) and octets 15-16 (NR). The
+/// GRIB2 half is `checks_bits_per_value_before_the_datum_as_grib1_does` in
+/// `fieldglass-grib2`'s `matrix.rs`.
+#[test]
+fn checks_bits_per_value_before_the_datum_as_grib2_does() {
+    let reader =
+        Grib1Reader::from_bytes(MATRIX_OF_VALUES_FIXTURE.to_vec()).expect("fixture parses");
+    let bds = reader.messages[0].bds_range.start as usize;
+    let edit = |bits: u8| {
+        let mut bytes = MATRIX_OF_VALUES_FIXTURE.to_vec();
+        bytes[bds + 10] = bits; // bits per value
+        bytes[bds + 14..bds + 16].copy_from_slice(&0u16.to_be_bytes()); // NR
+        let reader = Grib1Reader::from_bytes(bytes).expect("the edit keeps the framing");
+        reader.decode_matrix_message(0).expect_err("refused")
+    };
+    assert_eq!(
+        edit(0).to_string(),
+        fieldglass_grib1::FieldglassError::Parse(
+            "grid_simple_matrix bits_per_value 0 is unsupported (expected 1..=32)".into()
+        )
+        .to_string()
+    );
+    let err = edit(8);
+    assert!(err.to_string().contains("datum size NR×NC = 0×"), "{err}");
+}
