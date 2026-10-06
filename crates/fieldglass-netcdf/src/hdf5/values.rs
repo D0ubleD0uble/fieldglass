@@ -1106,18 +1106,20 @@ fn scatter_chunk(
     // `u64` — `shape` and `origin` are the file's own numbers, and narrowing
     // them would wrap on a 32-bit target. Each extent is at most its chunk
     // edge, a `u32`, so narrowing it is exact.
-    let mut extent = Vec::with_capacity(rank);
+    //
+    // One allocation per chunk, as the walk this replaced made: the extents and
+    // the odometer over the outer dimensions share a buffer.
+    let mut scratch = vec![0usize; rank + last];
+    let (extent, coord) = scratch.split_at_mut(rank);
     for d in 0..rank {
         if origin[d] >= shape[d] {
             return;
         }
-        extent.push((shape[d] - origin[d]).min(u64::from(chunk_dims[d])) as usize);
+        extent[d] = (shape[d] - origin[d]).min(u64::from(chunk_dims[d])) as usize;
     }
     let Some(run) = extent[last].checked_mul(elem) else {
         return;
     };
-    // Odometer over the outer dimensions of the in-shape box.
-    let mut coord = vec![0usize; last];
     loop {
         // The chunk's own row-major index stays below its element count, which
         // the caller has already checked fits `usize`. The dataset index is
