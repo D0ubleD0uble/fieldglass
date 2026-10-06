@@ -10,6 +10,7 @@
 //! to `None`.
 
 use fieldglass::{MessageInfo, Session};
+use fieldglass_core::units::normalize_table_units;
 
 const G1: &str = "../fieldglass-grib1/tests/fixtures/";
 const G2: &str = "../fieldglass-grib2/tests/fixtures/";
@@ -136,7 +137,8 @@ fn a_resolved_parameter_without_units_or_a_short_name_states_none() {
     assert!(info.abbreviation.is_some(), "{no_units:?}");
     assert!(info.parameter.is_some(), "{no_units:?}");
 
-    let no_short_name = find(|(abbr, _, units)| abbr.is_empty() && !units.is_empty());
+    let no_short_name =
+        find(|(abbr, _, units)| abbr.is_empty() && !normalize_table_units(units).is_empty());
     let info = patched(no_short_name);
     assert_eq!(info.abbreviation, None, "{no_short_name:?}");
     assert!(info.units.is_some(), "{no_short_name:?}");

@@ -150,8 +150,9 @@ Two things worth carrying into the remaining generators:
   the change is purely additive — not one previously pinned string moved.
   wgrib2 also writes `*` as an explicit product in 8 strings (`K*m/s`,
   `J/m^2*K`), which is deliberately *not* read: nothing else in any corpus does, and it would collide
-  with the `**` operator. Those pass through, as do NCEP's prose dimensionless
-  markers (`-`, `non-dim`, `Categorical`, `Integer(0-13)`). Chained solidi are ON388-only, which is what bounds the "everything
+  with the `**` operator. Those pass through, as do NCEP's prose markers for a
+  coded quantity (`Categorical`, `Integer(0-13)`). Its no-unit markers `-` and
+  `non-dim` read as no units as of #873, the same as WMO's `Numeric`. Chained solidi are ON388-only, which is what bounds the "everything
   past the first solidus is a denominator" rule to six strings that could be
   checked one by one against the quantity (`kg/m2/s` is precipitation rate,
   `m2/s/kg` potential vorticity).
