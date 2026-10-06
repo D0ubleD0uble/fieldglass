@@ -89,6 +89,18 @@ fn an_output_of_a_huge_fields_own_shape_is_refused() {
         session.project(&field.source(), &values, &RenderOptions::default()),
         "source target",
     );
+    // A warp target with no named size takes its raster from the grid too;
+    // the azimuthal and world targets do even with one.
+    for projection in ["equirectangular", "orthographic", "mollweide"] {
+        refused(
+            session.project(
+                &field.source(),
+                &values,
+                &RenderOptions::new(projection, "nearest"),
+            ),
+            projection,
+        );
+    }
     refused(
         session.render(&field, &PaletteOptions::default(), false),
         "render",
@@ -112,19 +124,61 @@ fn a_grid_whose_cell_count_overflows_is_refused() {
     source.ni = u32::MAX;
     source.nj = u32::MAX;
     for format in ["matrix", "long"] {
-        assert!(matches!(
-            session.field_csv(&source, &values, format),
-            Err(Error::InvalidOption { .. })
-        ));
+        refused_overflow(session.field_csv(&source, &values, format), format);
     }
-    assert!(matches!(
+    refused_overflow(
         session.project(&source, &values, &RenderOptions::default()),
-        Err(Error::InvalidOption { .. })
-    ));
-    assert!(matches!(
-        session.warp(&field, &WarpOptions::new(false)),
-        Err(Error::InvalidOption { .. })
-    ));
+        "source target",
+    );
+    refused_overflow(session.warp(&field, &WarpOptions::new(false)), "warp");
+}
+
+/// The shape refusal for a `u32::MAX × u32::MAX` grid, whose cell count is
+/// "too many" where it overflows `usize` and a number where it does not.
+fn refused_overflow<T: std::fmt::Debug>(result: Result<T, Error>, what: &str) {
+    match result {
+        Err(Error::InvalidOption { detail }) => assert!(
+            detail.starts_with("a 4294967295×4294967295 grid has ")
+                && detail.ends_with(" cells, and 4 values were given"),
+            "{what}: {detail}"
+        ),
+        other => panic!("{what}: expected a shape refusal, got {other:?}"),
+    }
+}
+
+/// A field that holds every value its grid states can still ask a world
+/// target for a raster `max(ni, nj)²` wide, past what wasm32 can allocate:
+/// refused rather than a capacity-overflow abort (#913). A 64-bit host can
+/// allocate it, so this runs only where `usize` is 32 bits.
+#[cfg(target_pointer_width = "32")]
+#[test]
+fn a_derived_raster_past_the_address_space_is_refused() {
+    let session = Session::open(std::fs::read(FIXTURE).expect("fixture")).expect("opens");
+    let mut field = huge_field(&session);
+    field.ni = 30_000;
+    field.nj = 2;
+    field.georef.geometry = GridGeometry::LatLon(LatLonParams {
+        ni: 30_000,
+        nj: 2,
+        lat_first: 1.0,
+        lon_first: -179.0,
+        lat_last: -1.0,
+        lon_last: 179.0,
+    });
+    let values = vec![Some(1.0); 60_000];
+    match session.project(
+        &field.source(),
+        &values,
+        &RenderOptions::new("mollweide", "nearest"),
+    ) {
+        Err(Error::InvalidOption { detail }) => {
+            assert!(
+                detail.contains("larger than this target can allocate"),
+                "{detail}"
+            );
+        }
+        other => panic!("expected a raster-size refusal, got {other:?}"),
+    }
 }
 
 #[test]

@@ -2293,9 +2293,10 @@ fn require_field_shape(field: &Field) -> Result<(), Error> {
     }
     Err(Error::InvalidOption {
         detail: format!(
-            "a {}×{} field holds {} values, not one per cell",
+            "a {}×{} grid has {} cells, and {} values were given",
             field.ni,
             field.nj,
+            cells.map_or_else(|| "too many".to_string(), |n| n.to_string()),
             field.values.len()
         ),
     })

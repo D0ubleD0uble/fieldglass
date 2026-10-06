@@ -869,20 +869,36 @@ fn build_warp_target(
     // The caller's output raster, for the box targets (#465). `None` keeps the
     // derived shape and the display floor.
     let size = resolved.size;
+    // A raster derived from the source's shape gets the allocation check a
+    // named one gets in [`resolve_output_size`] (#913): the world and
+    // azimuthal targets scale with `max(ni, nj)²`, so even a field holding
+    // its stated values can ask for a raster no `Vec` can hold on wasm32.
+    let derived = |(width, height): (u32, u32)| -> Result<(u32, u32), Error> {
+        if raster_is_allocatable(width, height, isize::MAX as u64) {
+            Ok((width, height))
+        } else {
+            Err(Error::InvalidOption {
+                detail: format!(
+                    "a {ni}×{nj} grid draws on a {width} × {height} raster, larger than this \
+                     target can allocate"
+                ),
+            })
+        }
+    };
 
     // The two box arms ask the same question, so it is answered once here
     // rather than twice below.
-    let box_dims = |window: LonLatBox| -> (u32, u32) {
+    let box_dims = |window: LonLatBox| -> Result<(u32, u32), Error> {
         match size {
-            Some(dims) => dims,
+            Some(dims) => Ok(dims),
             // The window's shape, then floored so the seam, the map body edge
             // and the overlays that must register against them resolve at
             // display scale rather than at the data's (#514).
-            None => raise_to_min_raster(if shapeless_axes {
+            None => derived(raise_to_min_raster(if shapeless_axes {
                 box_raster_dims(ni, nj, window)
             } else {
                 (ni, nj)
-            }),
+            })),
         }
     };
     match target_kind {
@@ -894,7 +910,7 @@ fn build_warp_target(
                 lon_min,
                 lon_max,
             } = window;
-            let (width, height) = box_dims(window);
+            let (width, height) = box_dims(window)?;
             let target = TargetRaster {
                 width,
                 height,
@@ -914,7 +930,7 @@ fn build_warp_target(
                 lon_min,
                 lon_max,
             } = window;
-            let (width, height) = box_dims(window);
+            let (width, height) = box_dims(window)?;
             let merc = WebMercator::new(
                 width,
                 height,
@@ -947,7 +963,7 @@ fn build_warp_target(
         WarpTarget::Orthographic { lat0, lon0 } => {
             // Square so the globe stays circular, floored so its limb is a
             // curve rather than a staircase (#514).
-            let (side, _) = raise_to_min_raster((ni.max(nj), ni.max(nj)));
+            let (side, _) = derived(raise_to_min_raster((ni.max(nj), ni.max(nj))))?;
             Ok((
                 BuiltTarget::Ortho(Orthographic::new(side, side, lat0, lon0)),
                 None,
@@ -956,22 +972,34 @@ fn build_warp_target(
         WarpTarget::PolarStereographic { south_pole, lon0 } => {
             // Square so the globe stays circular, floored so its limb is a
             // curve rather than a staircase (#514).
-            let (side, _) = raise_to_min_raster((ni.max(nj), ni.max(nj)));
+            let (side, _) = derived(raise_to_min_raster((ni.max(nj), ni.max(nj))))?;
             Ok((
                 BuiltTarget::Polar(PolarStereographic::new(side, side, south_pole, lon0)),
                 None,
             ))
         }
         WarpTarget::Mollweide { lon0 } => {
-            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, Mollweide::ASPECT_RATIO));
+            let (w, h) = derived(raise_to_min_raster(world_raster_dims(
+                ni,
+                nj,
+                Mollweide::ASPECT_RATIO,
+            )))?;
             Ok((BuiltTarget::Moll(Mollweide::new(w, h, lon0)), None))
         }
         WarpTarget::Robinson { lon0 } => {
-            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, Robinson::ASPECT_RATIO));
+            let (w, h) = derived(raise_to_min_raster(world_raster_dims(
+                ni,
+                nj,
+                Robinson::ASPECT_RATIO,
+            )))?;
             Ok((BuiltTarget::Robin(Robinson::new(w, h, lon0)), None))
         }
         WarpTarget::EqualEarth { lon0 } => {
-            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, EqualEarth::ASPECT_RATIO));
+            let (w, h) = derived(raise_to_min_raster(world_raster_dims(
+                ni,
+                nj,
+                EqualEarth::ASPECT_RATIO,
+            )))?;
             Ok((BuiltTarget::EqEarth(EqualEarth::new(w, h, lon0)), None))
         }
     }
@@ -1280,8 +1308,10 @@ fn source_projection_summary(source: &Source<'_>) -> String {
 /// through the geometry. Painting the result is the caller's — the values and
 /// the mask come back so a GPU host never pays for a CPU paint it discards.
 ///
-/// The `"source"` target is a buffer of the grid's `ni × nj` shape, so it
-/// refuses `values` that do not hold one entry per cell (#913).
+/// The `"source"` target is a buffer of the grid's `ni × nj` shape, and a
+/// warp raster the caller did not size is derived from it, so either refuses
+/// `values` that do not hold one entry per cell (#913). Only a box target
+/// with a named width and height samples a slice of another length.
 #[cfg(feature = "render")]
 pub fn project(
     source: &Source<'_>,
@@ -1289,12 +1319,21 @@ pub fn project(
     options: &RenderOptions,
 ) -> Result<Projected, Error> {
     let resolved = ResolvedOptions::parse(options)?;
+    // The source paint is a buffer of the stated shape, and so is any warp
+    // raster the caller did not size: a box target with no width and height,
+    // or an azimuthal or world target, which always derives its own (#913).
+    // A box target the caller sized samples by index and needs no such check
+    // (#902).
+    let sized_by_caller = resolved.size.is_some()
+        && matches!(
+            resolved.target,
+            TargetKind::Warp(WarpTarget::Equirectangular | WarpTarget::WebMercator)
+        );
+    if !sized_by_caller {
+        require_values_for_shape(source, values)?;
+    }
     match resolved.target {
-        TargetKind::Source => {
-            // The source paint is a buffer of the stated shape (#913).
-            require_values_for_shape(source, values)?;
-            Ok(paint_source(source, values))
-        }
+        TargetKind::Source => Ok(paint_source(source, values)),
         TargetKind::Warp(target) => warp_field(source, values, target, &resolved),
     }
 }
@@ -2443,16 +2482,8 @@ pub fn zonal_mean(
             });
         }
     }
+    require_values_for_shape(source, values)?;
     let (ni, nj) = (source.ni as usize, source.nj as usize);
-    if values.len() != ni.saturating_mul(nj) {
-        return Err(Error::InvalidOption {
-            detail: format!(
-                "a {ni}×{nj} grid has {} cells, and {} values were given",
-                ni.saturating_mul(nj),
-                values.len()
-            ),
-        });
-    }
     let reduced = source.points_per_row.filter(|pl| pl.len() == nj);
     let place = geometry.forward_at();
     let mut means = Vec::with_capacity(nj);
