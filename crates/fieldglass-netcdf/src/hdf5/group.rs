@@ -317,6 +317,9 @@ struct HeapSegment {
     size: u64,
 }
 
+/// A symbol-table entry's cache type for a symbolic (soft) link.
+const SYMBOL_TABLE_SOFT_LINK: u64 = 2;
+
 /// Read a local heap's header and return its data segment.
 fn local_heap_data_segment<S: ByteSource + ?Sized>(
     source: &S,
@@ -414,7 +417,17 @@ fn read_snod<S: ByteSource + ?Sized>(
     for _ in 0..count {
         let name_offset = cur.uint(o)?;
         let oh_addr = cur.uint(o)?;
-        cur.skip(4 + 4 + 16)?; // cache type + reserved + scratch-pad
+        let cache_type = cur.uint(4)?;
+        cur.skip(4 + 16)?; // reserved + scratch-pad
+        // Cache type 2 is a symbolic link (HDF5 File Format Specification,
+        // "Symbol Table Entry"): its header address is undefined and the
+        // scratch-pad holds its target's offset in the heap. Hard links are
+        // what a listing names, as `parse_link_message` skips a soft one in
+        // the newer link messages, so it is skipped unread (#914). Reading an
+        // object header at its undefined address failed the whole group.
+        if cache_type == SYMBOL_TABLE_SOFT_LINK {
+            continue;
+        }
         // Its first byte before it is read, so a repeated offset is refused
         // without reading the name again; then the rest and its terminator.
         names.claim(name_offset, 1, "group member name")?;

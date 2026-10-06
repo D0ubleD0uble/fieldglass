@@ -1364,6 +1364,8 @@ netcdf/hdf5_shared_chunk_records_sizes.h5#v	render/source/nearest	err: parse err
 netcdf/hdf5_shared_group_name.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_shared_huge_attribute.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_shared_snod.h5	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/hdf5_soft_links_earliest.h5	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/hdf5_soft_links_latest.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_szip.h5	file	parsed=true fields=12	2bedaa0631cb8fc5
 netcdf/hdf5_szip.h5#f4_ppb18	combine/a_minus_b/render/source/nearest	ok w=36 h=4 opaque=144	2cb3479a850312b6
 netcdf/hdf5_szip.h5#f4_ppb18	meta	family=source ni=36 nj=4 reprojectable=false	0e2b1ec5574baf35

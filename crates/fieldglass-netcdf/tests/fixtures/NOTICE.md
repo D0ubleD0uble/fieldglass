@@ -417,6 +417,18 @@ Each `.oracle.json` records libhdf5's outcome. `tests/hdf5_local_heap.rs`
 checks both refusals and that no read starts at or past the segment's end.
 ADR-0014 records the decision.
 
+## Soft link fixtures (`hdf5_soft_links_earliest.h5`, `hdf5_soft_links_latest.h5`)
+
+Two files for #914, built by `tools/build_hdf5_soft_link_fixture.py` with h5py
+3.16.0 (libhdf5 2.0.0), reproducible byte for byte. Each root holds a dataset
+`a` (`float32` `[0, 1, 2]`), a soft link `s` to `/a` and a dangling soft link
+`d` to `/nope`: `hdf5_soft_links_earliest.h5` in the default (earliest)
+format, a symbol-table group whose soft-link entries have cache type 2 and an
+undefined header address, and `hdf5_soft_links_latest.h5` with
+`libver='latest'`, link messages. Each oracle records what h5py lists and
+which members are hard links; `tests/hdf5_soft_links.rs` checks that both
+list the hard link `a` and decode it.
+
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
 A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which
