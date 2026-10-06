@@ -1579,6 +1579,7 @@ mod tests {
     fn a_heap_with_no_root_block_has_no_managed_objects() {
         let mut buf = frhp_indirect();
         put_undef(&mut buf, 132, 8); // root block address
+        put(&mut buf, 140, &0u16.to_le_bytes()); // and no rows, as libhdf5 writes it
         let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).expect("parses");
         let err = heap
             .object(&buf, &[0, 79, 0, 4, 0], &mut HeapReads::default())

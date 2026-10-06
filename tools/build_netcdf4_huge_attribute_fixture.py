@@ -31,8 +31,8 @@ heap's blocks, and found through the heap's own huge-object B-tree.
     so its attributes go dense at once); dataset ``nine`` has nine 5,000-byte
     attributes; group ``g`` has nine links, each named with 5,000 characters.
 
-The first two and the last have an ``.oracle.json`` holding what netCDF4-python / h5py
-read back.
+All but the shared-attribute file have an ``.oracle.json`` holding what
+netCDF4-python or h5py read back.
 
 Run from the repo root (needs ``netCDF4`` and ``h5py``):
 

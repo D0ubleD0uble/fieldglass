@@ -334,7 +334,7 @@ all nine.
 
 ## Huge heap object fixtures (`netcdf4_huge_attributes.nc`, `hdf5_huge_link_name.h5`, `hdf5_shared_huge_attribute.h5`, `hdf5_huge_only_heaps.h5`)
 
-Four files for #899, built by `tools/build_netcdf4_huge_attribute_fixture.py`
+Four files for #899 and #907, built by `tools/build_netcdf4_huge_attribute_fixture.py`
 (reproducible byte for byte). In each, dense storage (a fractal heap indexed
 by a version-2 B-tree) holds a message larger than the heap's 4 KB maximum
 managed size, which libhdf5 stores as a *huge* object found through the heap's
@@ -366,10 +366,11 @@ huge-object B-tree (type 1, unfiltered).
   string as its first character and length.
 
 All but the shared-attribute file have an `.oracle.json` holding what
-netCDF4-python or h5py read back. `tests/hdf5_huge_objects.rs` checks the attributes, `t`'s values
-and the links against them, and that the third reads its huge object once;
-`crates/fieldglass/tests/huge_heap_objects.rs` opens the NetCDF file through
-`Session`.
+netCDF4-python or h5py read back. `tests/hdf5_huge_objects.rs` checks the
+attributes, `t`'s values and the links against them, and that the
+shared-attribute file reads its huge object once;
+`crates/fieldglass/tests/huge_heap_objects.rs` opens the NetCDF file and the
+huge-only file through `Session`.
 
 ## Shared symbol-table fixtures (`hdf5_shared_group_name.h5`, `hdf5_shared_snod.h5`)
 
