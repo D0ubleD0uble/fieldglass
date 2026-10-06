@@ -3326,12 +3326,11 @@ mod reduced_jpeg2000_tests {
         ] {
             let (payload, _) = sections_of(fixture);
             for reduction in levels {
-                let Ok(image) = rust_j2k::decode_with(
+                let image = rust_j2k::decode_with(
                     &payload,
                     rust_j2k::DecodeOptions::default().with_resolution_reduction(reduction),
-                ) else {
-                    continue;
-                };
+                )
+                .unwrap_or_else(|e| panic!("{fixture} decodes at reduction {reduction}: {e}"));
                 let component = image.component(0).expect("one component");
                 let siz = read_siz(&payload, reduction).expect("SIZ parses");
                 assert_eq!(
