@@ -757,6 +757,86 @@ impl fieldglass_aec::Sink for ScaleSink {
     }
 }
 
+/// What a JPEG 2000 codestream's SIZ marker segment states about its image,
+/// read before any of it is decoded (#848).
+///
+/// A codestream states its own image, independent of the field around it: a
+/// 300-byte message on a 1 × 1 grid can carry one whose SIZ states 8192 ×
+/// 8192, about 14 s of wavelet transform before a sample count could refuse
+/// it. Reading SIZ first lets the decoders refuse on the stated image instead.
+struct SizImage {
+    /// `Csiz`, the number of components.
+    components: u16,
+    /// Whether component 0 is signed (bit 7 of its `Ssiz`).
+    signed: bool,
+    /// Component 0's width at the requested resolution reduction.
+    width: u64,
+    /// Component 0's height at the requested resolution reduction.
+    height: u64,
+}
+
+/// Read the SIZ marker segment at the head of `codestream`, sizing component 0
+/// at `reduction` discarded resolution levels.
+///
+/// ISO/IEC 15444-1 A.5.1 puts SIZ immediately after SOC, so its fields sit at
+/// fixed offsets: `Xsiz` at 8, `Ysiz` 12, `XOsiz` 16, `YOsiz` 20, `Csiz` 40,
+/// then component 0's `Ssiz`, `XRsiz`, `YRsiz` at 42, 43, 44. Component 0's
+/// extent is `ceil(ceil(Xsiz / XRsiz) / 2^r) − ceil(ceil(XOsiz / XRsiz) / 2^r)`
+/// (B.2 and B.5, bounds rounded before the difference), the rule `rust_j2k`
+/// sizes its output by. A shift past 32 levels changes nothing for 32-bit
+/// bounds, so it is clamped there.
+///
+/// `None` when the codestream does not open with a well-formed SOC and SIZ;
+/// the decoder then refuses it with its own, more specific error, at no cost
+/// beyond parsing those bytes.
+fn read_siz(codestream: &[u8], reduction: u8) -> Option<SizImage> {
+    let head = codestream.get(..45)?;
+    if head[0..4] != [0xFF, 0x4F, 0xFF, 0x51] {
+        return None;
+    }
+    let word = |at: usize| {
+        u64::from(u32::from_be_bytes([
+            head[at],
+            head[at + 1],
+            head[at + 2],
+            head[at + 3],
+        ]))
+    };
+    let (x_size, y_size, x_offset, y_offset) = (word(8), word(12), word(16), word(20));
+    let (x_sampling, y_sampling) = (u64::from(head[43]), u64::from(head[44]));
+    if x_offset >= x_size || y_offset >= y_size || x_sampling == 0 || y_sampling == 0 {
+        return None;
+    }
+    let scale = 1u64 << reduction.min(32);
+    let extent = |size: u64, offset: u64, sampling: u64| {
+        size.div_ceil(sampling).div_ceil(scale) - offset.div_ceil(sampling).div_ceil(scale)
+    };
+    Some(SizImage {
+        components: u16::from_be_bytes([head[40], head[41]]),
+        signed: head[42] & 0x80 != 0,
+        width: extent(x_size, x_offset, x_sampling),
+        height: extent(y_size, y_offset, y_sampling),
+    })
+}
+
+/// Refuse a codestream that is not one unsigned scalar grid. The same two
+/// rules each decoder applies to the decoded image, applied to SIZ so a
+/// codestream that breaks them is refused before it is decoded.
+fn check_siz_kind(siz: &SizImage) -> Result<(), FieldglassError> {
+    if siz.components != 1 {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "JPEG 2000 packing: codestream holds {} components but grid_jpeg is single-component",
+            siz.components
+        )));
+    }
+    if siz.signed {
+        return Err(FieldglassError::UnsupportedSection(
+            "JPEG 2000 packing: signed component is unsupported".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Decode JPEG 2000 packing (template 5.40). §7 carries a JPEG 2000 codestream
 /// (ISO/IEC 15444-1 Annex A, no JP2 boxes) whose decoded single-component
 /// samples are the packed integers `X`; after decompression the value transform
@@ -804,6 +884,21 @@ fn decode_jpeg2000_packing(
             "JPEG 2000 packing: bits_per_value {} exceeds 32",
             t.bits_per_value
         )));
+    }
+
+    // Hold the image SIZ states to the field before decoding any of it (#848).
+    // The same count the decoded samples are held to below, and for the same
+    // reasons; that check stays as the decoder's own word on what it produced.
+    if let Some(siz) = read_siz(ds_payload, 0) {
+        check_siz_kind(&siz)?;
+        let samples = siz.width.saturating_mul(siz.height);
+        if samples != present_count as u64 {
+            return Err(FieldglassError::Parse(format!(
+                "JPEG 2000 packing: codestream's SIZ states a {}×{} image ({samples} samples) \
+                 but {present_count} values are required",
+                siz.width, siz.height
+            )));
+        }
     }
 
     let image = rust_j2k::decode(ds_payload).map_err(|e| {
@@ -922,6 +1017,21 @@ pub(crate) fn decode_jpeg2000_reduced(
             "JPEG 2000 packing: bits_per_value {} exceeds 32",
             t.bits_per_value
         )));
+    }
+
+    // The shape SIZ states at this level must be the shape the §3 grid reduces
+    // to, checked before anything is decoded (#848): a 1 × 1 grid's codestream
+    // can state 8192 × 8192. Same rounding, and the same zero-origin caveat,
+    // as the decoded-shape check below, which stays as the decoder's own word.
+    if let Some(siz) = read_siz(ds_payload, reduction) {
+        check_siz_kind(&siz)?;
+        if siz.width != u64::from(expected_ni) || siz.height != u64::from(expected_nj) {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "JPEG 2000 packing: codestream's SIZ gives a {}×{} image at resolution \
+                 reduction {reduction}, but the §3 grid reduces to {expected_ni}×{expected_nj}",
+                siz.width, siz.height
+            )));
+        }
     }
 
     let image = rust_j2k::decode_with(
@@ -3107,6 +3217,11 @@ mod reduced_jpeg2000_tests {
     fn sections_of(fixture: &str) -> (Vec<u8>, Jpeg2000PackingTemplate) {
         let bytes = std::fs::read(std::path::Path::new("tests/fixtures").join(fixture))
             .unwrap_or_else(|e| panic!("read fixture {fixture}: {e}"));
+        sections_of_bytes(&bytes)
+    }
+
+    /// [`sections_of`] over a message already in memory.
+    fn sections_of_bytes(bytes: &[u8]) -> (Vec<u8>, Jpeg2000PackingTemplate) {
         let mut offset = 16usize;
         let mut template = None;
         let mut payload = None;
@@ -3164,6 +3279,111 @@ mod reduced_jpeg2000_tests {
                 "the refusal names both shapes: {text}"
             );
         }
+    }
+
+    /// The committed fuzz seed (#848): a 1 × 1 field whose 102-byte codestream
+    /// states an 8192 × 8192 image. Embedded, so the wasm32 run needs no file
+    /// access.
+    const SEED_8192_ON_1X1: &[u8] =
+        include_bytes!("../fuzz/corpus/decode/jpeg2000_codestream_8192x8192_on_1x1.grib2");
+
+    /// Both decoders refuse the seed on what its SIZ states, before decoding
+    /// it: the refusal names SIZ, which only the pre-decode check does, and
+    /// decoding it in full took about 14 s.
+    #[test]
+    fn a_codestream_whose_siz_is_not_the_field_is_refused_before_decoding() {
+        let (payload, template) = sections_of_bytes(SEED_8192_ON_1X1);
+
+        let err = decode_jpeg2000_packing(&payload, &template, None, 1).expect_err("1 value");
+        assert!(
+            err.to_string()
+                .contains("SIZ states a 8192×8192 image (67108864 samples) but 1 values"),
+            "{err}"
+        );
+
+        // The reduced path compares the image at the level asked for.
+        for (reduction, side) in [(0u8, 8192u64), (3, 1024), (5, 256)] {
+            let err = decode_jpeg2000_reduced(&payload, &template, reduction, 1, 1)
+                .expect_err("a 1 × 1 grid");
+            assert!(
+                err.to_string().contains(&format!(
+                    "SIZ gives a {side}×{side} image at resolution reduction {reduction}, but \
+                     the §3 grid reduces to 1×1"
+                )),
+                "{err}"
+            );
+        }
+    }
+
+    /// SIZ's stated extent is what the decoder produces, on real codestreams at
+    /// every level they carry, so the pre-decode check never refuses a
+    /// codestream the decoded-shape check would accept.
+    #[test]
+    fn siz_extent_matches_the_decoded_image_at_every_reduction() {
+        for (fixture, levels) in [
+            ("jpeg2000_regular_latlon.grib2", 0u8..=4),
+            ("rap_jpeg2000_lambert.grib2", 0..=5),
+        ] {
+            let (payload, _) = sections_of(fixture);
+            for reduction in levels {
+                let image = rust_j2k::decode_with(
+                    &payload,
+                    rust_j2k::DecodeOptions::default().with_resolution_reduction(reduction),
+                )
+                .unwrap_or_else(|e| panic!("{fixture} decodes at reduction {reduction}: {e}"));
+                let component = image.component(0).expect("one component");
+                let siz = read_siz(&payload, reduction).expect("SIZ parses");
+                assert_eq!(
+                    (siz.width, siz.height),
+                    (u64::from(component.width), u64::from(component.height)),
+                    "{fixture} at reduction {reduction}"
+                );
+                assert_eq!((siz.components, siz.signed), (1, false), "{fixture}");
+            }
+        }
+    }
+
+    /// The extent rounds each bound before the difference (ISO B.2, B.5), so
+    /// a non-zero origin and sub-sampling give the decoder's answer, not
+    /// `ceil(n / 2^r)`; and a head that is not a well-formed SOC + SIZ is left
+    /// to the decoder.
+    #[test]
+    fn read_siz_rounds_bounds_and_leaves_malformed_heads_to_the_decoder() {
+        let head = |x_size: u32, x_offset: u32, sampling: u8, marker: u16| {
+            let mut b = vec![0xFF, 0x4F];
+            b.extend_from_slice(&marker.to_be_bytes());
+            b.extend_from_slice(&41u16.to_be_bytes()); // Lsiz, one component
+            b.extend_from_slice(&0u16.to_be_bytes()); // Rsiz
+            for v in [x_size, 10, x_offset, 0, x_size, 10, 0, 0] {
+                b.extend_from_slice(&v.to_be_bytes());
+            }
+            b.extend_from_slice(&1u16.to_be_bytes()); // Csiz
+            b.extend_from_slice(&[7, sampling, 1]); // Ssiz (8-bit unsigned), XRsiz, YRsiz
+            b
+        };
+        let width = |b: &[u8], r: u8| read_siz(b, r).map(|s| s.width);
+        // 453 wide from origin 1: 452 at r = 0, 227 − 1 = 226 at r = 1.
+        assert_eq!(width(&head(453, 1, 1, 0xFF51), 0), Some(452));
+        assert_eq!(width(&head(453, 1, 1, 0xFF51), 1), Some(226));
+        // Sub-sampled by 2: ceil(453 / 2) − ceil(1 / 2) = 226, then 113 − 1.
+        assert_eq!(width(&head(453, 1, 2, 0xFF51), 0), Some(226));
+        assert_eq!(width(&head(453, 1, 2, 0xFF51), 1), Some(113));
+        // A reduction past 32 levels is clamped, leaving one column.
+        assert_eq!(width(&head(453, 0, 1, 0xFF51), 255), Some(1));
+
+        assert!(
+            read_siz(&head(453, 1, 1, 0xFF52), 0).is_none(),
+            "COD, not SIZ"
+        );
+        assert!(
+            read_siz(&head(453, 1, 0, 0xFF51), 0).is_none(),
+            "zero XRsiz"
+        );
+        assert!(read_siz(&head(5, 5, 1, 0xFF51), 0).is_none(), "empty image");
+        assert!(
+            read_siz(&head(453, 1, 1, 0xFF51)[..44], 0).is_none(),
+            "short"
+        );
     }
 
     /// The coarse path applies the whole `R`/`E`/`D` transform, decimal scale

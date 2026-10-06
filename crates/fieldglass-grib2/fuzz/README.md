@@ -49,10 +49,12 @@ other decode entry points, each zero bits per value with §7 cut to its header:
 `jpeg2000_codestream_8192x8192_on_1x1.grib2` (300 bytes) is
 `jpeg2000_regular_latlon.grib2` with a 1 × 1 grid, both counts 1, no bitmap,
 and §7 replaced by a 102-byte single-tile codestream whose SIZ states an
-8192 × 8192 image (5 decomposition levels, empty packets). The reader decodes
-the whole codestream before it compares the sample count with the field's,
-about 14 s, so the target reads SIZ and skips an image past
-`FUZZ_MAX_J2K_SAMPLES`.
+8192 × 8192 image (5 decomposition levels, empty packets). The reader used to
+decode the whole codestream before it compared the sample count with the
+field's, about 14 s. It now reads SIZ first and refuses the image at once
+(#848). The target still skips an image past `FUZZ_MAX_J2K_SAMPLES`, since a
+codestream that does match its field costs far more per sample than the other
+packings.
 
 The target also decodes at most eight messages per input
 (`MAX_DECODED_MESSAGES`): each gate bounds one message, but the run's timeout
