@@ -410,7 +410,9 @@ fn read_snod<S: ByteSource + ?Sized>(
         // without reading the name again; then the rest and its terminator.
         names.claim(name_offset, 1, "group member name")?;
         let name = read_heap_name(source, heap_data, name_offset)?;
-        names.claim(name_offset + 1, name.len() as u64, "group member name")?;
+        if !name.is_empty() {
+            names.claim(name_offset + 1, name.len() as u64, "group member name")?;
+        }
         push_link(out, name, oh_addr)?;
     }
     Ok(())
