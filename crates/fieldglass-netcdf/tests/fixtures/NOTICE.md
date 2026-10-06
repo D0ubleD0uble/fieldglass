@@ -332,6 +332,37 @@ all nine.
   file. libhdf5 reads `[7, 9]` without looking it up, and Fieldglass skips it
   unread.
 
+## Huge heap object fixtures (`netcdf4_huge_attributes.nc`, `hdf5_huge_link_name.h5`, `hdf5_shared_huge_attribute.h5`)
+
+Three small files for #899, built by `tools/build_netcdf4_huge_attribute_fixture.py`
+(reproducible byte for byte). In each, dense storage (a fractal heap indexed
+by a version-2 B-tree) holds a message larger than the heap's 4 KB maximum
+managed size, which libhdf5 stores as a *huge* object found through the heap's
+huge-object B-tree (type 1, unfiltered).
+
+- `netcdf4_huge_attributes.nc` (23,423 bytes) is written by netCDF-C 4.9.3
+  through netCDF4-python 1.7.4 (`format="NETCDF4"`, HDF5 1.14.6): ten short
+  global attributes and a 5,600-byte `history`, and one variable `t(x)` =
+  `[1, 2, 3, 4]` with ten short attributes and a 5,000-byte `comment`.
+- `hdf5_huge_link_name.h5` (8,642 bytes) is written by h5py 3.16.0 (libhdf5
+  2.0.0, `libver='latest'`): a group `g` with nine short subgroups and one
+  whose name is 5,000 characters.
+
+- `hdf5_shared_huge_attribute.h5` (8,133 bytes) is written by h5py with
+  `libver='latest'`: a dataset `v` with nine small attributes and a
+  5,000-byte one, a huge object. The builder then repoints one small
+  attribute's name-index record at the huge object's heap ID, leaving the
+  B-tree checksum stale (libhdf5 refuses the node on it; Fieldglass does not
+  verify B-tree checksums). Two records then name one object, the shape that
+  made a 1.9 MB file use 34 GB in review; Fieldglass reads the object once and
+  refuses the second name.
+
+The first two have an `.oracle.json` holding what netCDF4-python or h5py
+read back. `tests/hdf5_huge_objects.rs` checks the attributes, `t`'s values
+and the links against them, and that the third reads its huge object once;
+`crates/fieldglass/tests/huge_heap_objects.rs` opens the NetCDF file through
+`Session`.
+
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
 A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which

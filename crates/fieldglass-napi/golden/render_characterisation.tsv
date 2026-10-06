@@ -1309,6 +1309,7 @@ netcdf/hdf5_fletcher32.h5#plain_deflate	combine/a_minus_b/render/source/nearest	
 netcdf/hdf5_fletcher32.h5#plain_deflate	meta	family=source ni=8 nj=8 reprojectable=false	4d0d1b7eddd01ecd
 netcdf/hdf5_fletcher32.h5#plain_deflate	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#plain_deflate	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
+netcdf/hdf5_huge_link_name.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_implicit_index.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_implicit_index.h5#implicit	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
 netcdf/hdf5_implicit_index.h5#implicit	meta	family=source ni=8 nj=8 reprojectable=false	4d0d1b7eddd01ecd
@@ -1353,6 +1354,7 @@ netcdf/hdf5_shared_chunk_records_sizes.h5#v	combine/a_minus_b/render/source/near
 netcdf/hdf5_shared_chunk_records_sizes.h5#v	meta	family=source ni=1 nj=16 reprojectable=false	6b7374117bda3817
 netcdf/hdf5_shared_chunk_records_sizes.h5#v	render/equirectangular/nearest	err: parse error: chunk index names the stored chunk at # twice with different storage (size # and #, filter mask #x# and #x#)	e6836df65d91c779
 netcdf/hdf5_shared_chunk_records_sizes.h5#v	render/source/nearest	err: parse error: chunk index names the stored chunk at # twice with different storage (size # and #, filter mask #x# and #x#)	e6836df65d91c779
+netcdf/hdf5_shared_huge_attribute.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_szip.h5	file	parsed=true fields=12	2bedaa0631cb8fc5
 netcdf/hdf5_szip.h5#f4_ppb18	combine/a_minus_b/render/source/nearest	ok w=36 h=4 opaque=144	2cb3479a850312b6
 netcdf/hdf5_szip.h5#f4_ppb18	meta	family=source ni=36 nj=4 reprojectable=false	0e2b1ec5574baf35
@@ -1654,6 +1656,7 @@ netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	meta	family=source ni=4 nj=3 reproje
 netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/source/nearest	ok w=4 h=3 opaque=12	a990cf36474913e1
 netcdf/netcdf4_hdf5_dummy.nc	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/netcdf4_huge_attributes.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf4_unsupported_type.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf_classic_dummy.nc	file	parsed=true fields=6	fc2e3e9795c31991
 netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e

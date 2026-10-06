@@ -205,13 +205,15 @@ fn read_dense_attribute_bodies<S: ByteSource + ?Sized>(
         )));
     }
 
+    // One per listing, so no heap object is read twice (#899 review).
+    let mut reads = heap::HeapReads::default();
     for record in records {
         let id = record
             .get(ATTR_RECORD_HEAP_ID_OFFSET..ATTR_RECORD_HEAP_ID_OFFSET + heap.heap_id_len)
             .ok_or_else(|| {
                 FieldglassError::Parse("attribute record too small for a heap ID".into())
             })?;
-        let message = heap.managed_object(source, id)?;
+        let message = heap.object(source, id, &mut reads)?;
         out.push(message);
     }
     Ok(())
