@@ -331,6 +331,8 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Fixed
 
+- **An HDF5 or NetCDF-4 file holding a soft link opens.** In files written in HDF5's default (earliest) format, a soft link in a group made the whole file fail to open: the reader treated it as a regular member and looked for its data at an address that does not exist. Soft links are now skipped, as they already were in files written in the newer format. Closes #914.
+
 - **A damaged group index in an older HDF5 or NetCDF-4 file can no longer use gigabytes of memory.** Files written in HDF5's earliest format list a group's members through an index whose nodes and names Fieldglass read once per reference. One node referenced 8,192 times made a 197 KB file use 3.85 GB. Each node and name is now read once, and a second reference to one is refused. A member name is now read only from inside its group's name storage (ADR-0014). Closes #901 and #908.
 
 - **A NetCDF-4 file with a long attribute opens.** Once a group or variable has more than eight attributes, HDF5 stores them together, and one larger than about 4 KB goes into a separate area of the file that Fieldglass did not read. The whole file then failed to open. A long `history`, which NCO and CDO grow by a line per command, was enough. Such attributes are now read, and so are group member names over 4 KB stored the same way, including an object whose attributes are all that large, such as one with a single attribute over 64 KB (#907). Listing a file also reads each stored attribute or name once: a damaged index naming one object many times, or naming one past the end of its block, could make a small file use gigabytes. Closes #899, #900 and #907.
