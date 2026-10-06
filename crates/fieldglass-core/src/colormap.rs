@@ -484,19 +484,26 @@ impl Palette {
         }
         let w = width as usize;
         let h = height as usize;
-        let mut out = vec![0u8; total * 4];
+        // A cell `values` does not reach has no value: no data. Filling the
+        // whole buffer with that colour first leaves the loop below exactly
+        // the one the renderer has always run, for a slice of any length.
+        let mut out = if values.len() < total {
+            self.masked_rgba.repeat(total)
+        } else {
+            vec![0u8; total * 4]
+        };
 
-        for i in 0..total {
+        for (i, &v) in values.iter().enumerate().take(total) {
             let row = i / w;
             let col = i - row * w;
             let out_idx = if flip_y { (h - 1 - row) * w + col } else { i };
             let o = out_idx * 4;
 
-            // No value, or no mask entry, is a cell with no data.
             let masked = mask.is_some_and(|m| m.get(i).copied().unwrap_or(0) == 0);
-            let px = match values.get(i) {
-                Some(&v) if !masked => self.rgba(v),
-                _ => self.masked_rgba,
+            let px = if masked {
+                self.masked_rgba
+            } else {
+                self.rgba(v)
             };
             out[o..o + 4].copy_from_slice(&px);
         }
