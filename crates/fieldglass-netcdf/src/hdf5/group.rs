@@ -25,7 +25,7 @@
 use super::Hdf5Probe;
 use super::heap::{self, FractalHeap};
 use super::object_header::{self, read_uint_le};
-use super::source::{Cursor, Fields, FileCursor, read_up_to, scan_windows};
+use super::source::{ClaimedRanges, Cursor, Fields, FileCursor, read_up_to, scan_windows};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::ByteSource;
 use std::collections::HashSet;
@@ -286,12 +286,25 @@ fn symbol_table_links<S: ByteSource + ?Sized>(
     let heap_addr = read_uint_le(body, o, o)?;
     let heap_data = local_heap_data_segment(source, heap_addr, osize, lsize)?;
 
+    // Every B-tree node and SNOD is claimed by its range of the file, and
+    // every name by its range of the heap, so none is read twice (#901): one
+    // SNOD named 8,192 times, its entries all naming one 60 KB name, made a
+    // 197 KB file use 3.85 GB. A valid group gives each its own storage.
+    let mut nodes = ClaimedRanges::default();
+    let mut names = ClaimedRanges::default();
     let mut snods = Vec::new();
-    collect_snods(source, btree_addr, osize, &mut snods)?;
+    collect_snods(source, btree_addr, osize, &mut snods, &mut nodes)?;
 
     let mut links = Vec::new();
     for snod in snods {
-        read_snod(source, snod, heap_data, osize, &mut links)?;
+        read_snod(
+            source,
+            snod,
+            heap_data,
+            osize,
+            &mut links,
+            (&mut nodes, &mut names),
+        )?;
     }
     Ok(links)
 }
@@ -320,6 +333,7 @@ fn collect_snods<S: ByteSource + ?Sized>(
     addr: u64,
     osize: u8,
     out: &mut Vec<u64>,
+    nodes: &mut ClaimedRanges,
 ) -> Result<(), FieldglassError> {
     let o = osize as usize;
     let mut pending = vec![addr];
@@ -341,6 +355,10 @@ fn collect_snods<S: ByteSource + ?Sized>(
         }
         let level = cur.byte()?;
         let entries = cur.u16()? as usize;
+        // The node's bytes: signature, type, level and count (8), two sibling
+        // addresses, then `entries` key/child pairs and a closing key.
+        let node_len = (8 + 2 * o + (2 * entries + 1) * o) as u64;
+        nodes.claim(node_addr, node_len, "group B-tree node")?;
         cur.skip(2 * o)?; // left + right sibling addresses
         // Keys and child pointers interleave: key, child, key, child, …, key. We
         // only need the child pointers; leaves hold SNOD addresses, internal
@@ -365,23 +383,36 @@ fn collect_snods<S: ByteSource + ?Sized>(
 
 /// Read a symbol-table node's entries, resolving names from the heap data
 /// segment.
+///
+/// `claims` are the group's node ranges in the file and name ranges in the
+/// heap; this SNOD and each name it reads are claimed in them (#901).
 fn read_snod<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
     heap_data: u64,
     osize: u8,
     out: &mut Vec<(String, u64)>,
+    (nodes, names): (&mut ClaimedRanges, &mut ClaimedRanges),
 ) -> Result<(), FieldglassError> {
     let o = osize as usize;
     let mut cur = FileCursor::at(source, addr)?;
     cur.tag(SIG_SNOD)?;
     cur.skip(2)?; // version (1) + reserved (1)
     let count = cur.u16()? as usize;
+    // Signature, version, reserved and count (8), then `count` entries of a
+    // name offset, a header address, cache type, reserved and scratch-pad.
+    nodes.claim(addr, (8 + count * (2 * o + 24)) as u64, "symbol-table node")?;
     for _ in 0..count {
         let name_offset = cur.uint(o)?;
         let oh_addr = cur.uint(o)?;
         cur.skip(4 + 4 + 16)?; // cache type + reserved + scratch-pad
+        // Its first byte before it is read, so a repeated offset is refused
+        // without reading the name again; then the rest and its terminator.
+        names.claim(name_offset, 1, "group member name")?;
         let name = read_heap_name(source, heap_data, name_offset)?;
+        if !name.is_empty() {
+            names.claim(name_offset + 1, name.len() as u64, "group member name")?;
+        }
         push_link(out, name, oh_addr)?;
     }
     Ok(())
@@ -622,7 +653,7 @@ mod tests {
         put(&mut buf, 6, &1u16.to_le_bytes()); // one entry
         // key0 @24, child0 @32 left at 0 → self-reference.
         let mut out = Vec::new();
-        let err = collect_snods(&buf, 0, 8, &mut out).unwrap_err();
+        let err = collect_snods(&buf, 0, 8, &mut out, &mut ClaimedRanges::default()).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)));
     }
 
