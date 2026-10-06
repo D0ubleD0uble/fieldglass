@@ -415,6 +415,7 @@ head to 1, `H5HL_FREE_NULL`):
 
 Each `.oracle.json` records libhdf5's outcome. `tests/hdf5_local_heap.rs`
 checks both refusals and that no read starts at or past the segment's end.
+ADR-0014 records the decision.
 
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
