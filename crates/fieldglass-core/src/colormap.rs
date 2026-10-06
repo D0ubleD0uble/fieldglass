@@ -577,6 +577,9 @@ mod lut_bytes {
 /// are emitted bottom-to-top — useful when the source grid scans
 /// south-to-north but the canvas wants north-up.
 ///
+/// A `values` or `mask` slice of the wrong length never panics; see
+/// [`Palette::paint`] for what such a cell paints as.
+///
 /// A thin wrapper over [`Palette::build`] + [`Palette::paint`], kept because
 /// most callers paint one grid once and never need the table back. Reach for
 /// `Palette` directly when the table itself is the point — a GPU upload, or a

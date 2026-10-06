@@ -461,7 +461,9 @@ fn wrf_geometry(
         let flat =
             u64::from(nj.saturating_sub(1)) * u64::from(ni) + u64::from(ni.saturating_sub(1));
         let flat = usize::try_from(flat).map_err(|_| {
-            FieldglassError::Parse(format!("XLAT[{flat}] is past what this target can index"))
+            FieldglassError::Parse(format!(
+                "far-corner index {flat} is past what this target can index"
+            ))
         })?;
         Ok((
             corner_value(source, xlat, "XLAT", flat)?,
