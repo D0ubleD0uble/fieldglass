@@ -2366,9 +2366,20 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     // for would cost linear memory the browser host never gets back.
     // That default is the field's stated shape, so it must be the shape of
     // the values the field holds (#913). A named raster samples by index and
-    // needs no such check.
+    // needs no such check. The default also gets the allocation check a named
+    // raster gets: a field of 32-bit values can hold more cells than a raster
+    // of `f64` fits in on wasm32.
     if size.is_none() {
         require_field_shape(field)?;
+        if !crate::render::raster_is_allocatable(field.ni, field.nj, isize::MAX as u64) {
+            return Err(Error::InvalidOption {
+                detail: format!(
+                    "a {}×{} field warps to a raster larger than this target can allocate; \
+                     name a smaller width and height",
+                    field.ni, field.nj
+                ),
+            });
+        }
     }
     let (width, height) = size.unwrap_or((field.ni, field.nj));
     let target = TargetRaster {

@@ -494,7 +494,7 @@ const WIDEST_RASTER_ELEMENT: u64 = size_of::<f64>() as u64;
 /// `limit` is a parameter rather than `isize::MAX` read inside, so a test can
 /// drive the branch that a 64-bit host can never reach.
 #[cfg(feature = "render")]
-fn raster_is_allocatable(width: u32, height: u32, limit: u64) -> bool {
+pub(crate) fn raster_is_allocatable(width: u32, height: u32, limit: u64) -> bool {
     // `u64` throughout: two `u32`s multiply without overflow, and the byte count
     // then saturates rather than wrapping into a value that looks small.
     u64::from(width)
