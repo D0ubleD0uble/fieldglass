@@ -1310,6 +1310,11 @@ netcdf/hdf5_fletcher32.h5#plain_deflate	meta	family=source ni=8 nj=8 reprojectab
 netcdf/hdf5_fletcher32.h5#plain_deflate	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_fletcher32.h5#plain_deflate	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
 netcdf/hdf5_huge_link_name.h5	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/hdf5_huge_only_heaps.h5	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/hdf5_huge_only_heaps.h5#one	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	05ac0c4c9a025cb6
+netcdf/hdf5_huge_only_heaps.h5#one	meta	family=source ni=4 nj=3 reprojectable=false	2659167b5eac3a2d
+netcdf/hdf5_huge_only_heaps.h5#one	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_huge_only_heaps.h5#one	render/source/nearest	ok w=4 h=3 opaque=12	a990cf36474913e1
 netcdf/hdf5_implicit_index.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_implicit_index.h5#implicit	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
 netcdf/hdf5_implicit_index.h5#implicit	meta	family=source ni=8 nj=8 reprojectable=false	4d0d1b7eddd01ecd
