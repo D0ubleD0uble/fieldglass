@@ -16,7 +16,7 @@ use fieldglass_core::bytes::ObjectSource;
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use fieldglass_core::bytes::{ByteSource, read_up_to};
 #[cfg(any(feature = "grib1", feature = "grib2"))]
-use fieldglass_core::units::normalize_units;
+use fieldglass_core::units::normalize_table_units;
 #[cfg(feature = "render")]
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -2459,7 +2459,7 @@ type ParameterNames = (Option<String>, Option<String>, Option<String>);
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 fn stated(abbreviation: &str, name: &str, units: &str) -> ParameterNames {
     let some = |s: &str| (!s.is_empty()).then(|| s.to_string());
-    let units = normalize_units(units);
+    let units = normalize_table_units(units);
     (
         some(abbreviation),
         some(name),
@@ -3113,6 +3113,58 @@ mod tests {
             "the second call served the cached placement"
         );
         assert_eq!(memo(&session).len(), 1);
+    }
+
+    /// A dimensionless parameter reads the same whichever table resolved it
+    /// (#873). One real entry per "no unit" spelling, from every table that
+    /// uses it, all reaching a host as `None`, including one quantity that
+    /// three tables spell two ways (the rime factor).
+    #[cfg(all(feature = "grib1", feature = "grib2"))]
+    #[test]
+    fn every_table_spelling_of_no_unit_reads_as_none() {
+        use fieldglass_grib2::Originator;
+
+        // (table version, centre, parameter, spelling): NCEP's ON388 Table 2
+        // and an ECMWF local table.
+        for (table_version, centre, id, spelling) in [
+            (2, 7, 252, "non-dim"),          // Drag coefficient
+            (2, 7, 191, "numeric"),          // Probability from ensemble
+            (2, 7, 21, "-"),                 // Radar spectra (1)
+            (140, 98, 233, "dimensionless"), // Coefficient of drag with waves
+        ] {
+            let param = fieldglass_grib1::tables::lookup_parameter(id, table_version, centre, 0)
+                .expect("a real GRIB1 entry");
+            assert_eq!(param.units, spelling, "GRIB1 {centre}/{table_version}/{id}");
+            let (_, _, units) = stated(param.abbreviation, param.name, param.units);
+            assert_eq!(
+                units, None,
+                "GRIB1 {centre}/{table_version}/{id} {spelling:?}"
+            );
+        }
+
+        // (centre, discipline, category, number, spelling): WMO, NCEP, DWD
+        // and ECMWF.
+        for (centre, d, c, n, spelling) in [
+            (0, 0, 2, 29, "Numeric"),        // WMO: Drag coefficient
+            (0, 0, 1, 44, "Numeric"),        // WMO: Rime factor
+            (0, 0, 22, 0, "dimensionless"),  // WMO: Standard Precipitation Index
+            (7, 0, 1, 203, "non-dim"),       // NCEP: Rime factor
+            (7, 0, 1, 192, "-"),             // NCEP: Categorical rain
+            (78, 0, 1, 44, "Numeric"),       // DWD: Rime factor
+            (98, 0, 22, 0, "dimensionless"), // ECMWF: Standard Precipitation Index
+        ] {
+            let originator = Originator {
+                centre,
+                sub_centre: 0,
+                local_tables_version: 0,
+            };
+            let (abbreviation, name, table_units) =
+                fieldglass_grib2::lookup_parameter(originator, d, c, n)
+                    .expect("a real GRIB2 entry");
+            assert_eq!(table_units, spelling, "GRIB2 {centre} {d}.{c}.{n}");
+            let (_, _, units) = stated(abbreviation, name, table_units);
+            assert_eq!(units, None, "GRIB2 {centre} {d}.{c}.{n} {spelling:?}");
+        }
     }
 }
 

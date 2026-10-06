@@ -95,6 +95,10 @@ const ENCODING_KEYWORDS: &[&str] = &["since", "as"];
 /// for a unit, and choosing between them is the file author's business.
 const SYMBOL_TRANSLITERATIONS: &[(&str, &str)] = &[("um", "µm")];
 
+/// The parameter tables' spellings of "no unit", besides the empty string. See
+/// [`normalize_table_units`] for where each comes from and what stays.
+const NO_UNIT_SPELLINGS: &[&str] = &["Numeric", "numeric", "non-dim", "-", "dimensionless"];
+
 /// Superscript digits, indexed by value.
 const SUPERSCRIPT: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
 const SUPERSCRIPT_MINUS: char = '⁻';
@@ -126,6 +130,48 @@ pub fn normalize_units(units: &str) -> Cow<'_, str> {
         return Cow::Borrowed(units);
     }
     Cow::Owned(out)
+}
+
+/// Normalise a GRIB parameter table's unit string for display, reading every
+/// spelling of "no unit" as no units at all (#873).
+///
+/// The tables state the absence of a unit six ways: an empty string (most
+/// entries, and eccodes' `~` "unset" marker after generation), `Numeric` (WMO
+/// Code Table 4.2 and the DWD and NCEP local tables), `numeric` (ON388 Table
+/// 2), `non-dim` and `-` (ON388 Table 2 and the NCEP GRIB2 local table) and
+/// `dimensionless` (WMO and ECMWF). Since #775 the empty string reaches a host
+/// as `null`, so without this a dimensionless quantity read as `null` or
+/// `Numeric` depending on which table resolved it. Each now comes back empty,
+/// which every host seam reports as `null`; anything else goes through
+/// [`normalize_units`].
+///
+/// Empty rather than CF's `1`, because `1` claims the quantity is
+/// dimensionless and these spellings do not always mean that: NCEP writes `-`
+/// for a rate of water dropping from the canopy (`RDRIP`) and a number
+/// concentration (`NCIP`), and an empty string is as often "not stated" as
+/// "dimensionless". Empty says only that the table gives no unit, which is
+/// true of every row.
+///
+/// Matched exactly and case-sensitively: these are the tables' own strings,
+/// not a pattern. Spellings that look similar but carry information stay as
+/// written:
+///
+/// - `proportion`, `Proportion`, `fraction`, `Fraction` and `(0 - 1)` say the
+///   value runs from 0 to 1 rather than being a percentage;
+/// - `(-1 to 1)` states a different range;
+/// - `Various` says the unit depends on the entry, not that there is none;
+/// - `Index`, `Integer`, `Integer(0-13)`, `Categorical`, `Byte`, `boolean` and
+///   the code-table references say what kind of number the value is.
+///
+/// This is for table units only. A NetCDF or Zarr `units` attribute is the
+/// file author's own word and goes through [`normalize_units`] alone, which
+/// changes notation and never drops a unit (ADR-0007): `dimensionless`, `-`
+/// and CF's `1` there stay as written.
+pub fn normalize_table_units(units: &str) -> Cow<'_, str> {
+    if NO_UNIT_SPELLINGS.contains(&units) {
+        return Cow::Borrowed("");
+    }
+    normalize_units(units)
 }
 
 /// Whether every token of `units` is a unit this module recognises.
@@ -505,6 +551,48 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// Every way a table says "no unit" reads the same: empty (#873). The
+    /// attribute path leaves each as written, since a file author's `units`
+    /// is never dropped.
+    #[test]
+    fn every_table_no_unit_spelling_reads_as_empty() {
+        for spelling in ["Numeric", "numeric", "non-dim", "-", "dimensionless"] {
+            assert_eq!(normalize_table_units(spelling), "", "{spelling:?}");
+            assert_eq!(normalize_units(spelling), spelling, "{spelling:?}");
+        }
+        assert_eq!(normalize_table_units(""), "");
+        // Everything else is the ordinary normalisation.
+        assert_eq!(normalize_table_units("kg m-2"), "kg m⁻²");
+    }
+
+    /// Spellings that look dimensionless but tell the reader something stay as
+    /// written, and so does CF's own `1`. Matching is exact, so a different
+    /// case or a padded copy is not a no-unit spelling either.
+    #[test]
+    fn informative_spellings_stay_as_written() {
+        for kept in [
+            "proportion",
+            "Proportion",
+            "fraction",
+            "Fraction",
+            "(0 - 1)",
+            "(-1 to 1)",
+            "Various",
+            "Index",
+            "Integer",
+            "Categorical",
+            "Byte",
+            "boolean",
+            "%",
+            "1",
+            "NUMERIC",
+            "Dimensionless",
+            " - ",
+        ] {
+            assert_eq!(normalize_table_units(kept), kept, "{kept:?}");
         }
     }
 

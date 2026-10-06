@@ -12,10 +12,14 @@
 //! them, which is the only way to see what it did to the strings you were not
 //! thinking about.
 //!
+//! The sweep runs through `normalize_table_units`, which is `normalize_units`
+//! plus the table seam's reading of "no unit" spellings as empty (#873), so
+//! the snapshot pins what a host is shown.
+//!
 //! Regenerate with `UPDATE_UNIT_SNAPSHOT=1 cargo test -p fieldglass-grib2
 //! --test unit_notation` and read the diff before committing it.
 
-use fieldglass_core::units::normalize_units;
+use fieldglass_core::units::normalize_table_units;
 use fieldglass_grib2::{LOCAL_TABLE_CENTRES, Originator, lookup_parameter};
 use std::collections::BTreeSet;
 
@@ -119,7 +123,7 @@ fn render_snapshot(units: &BTreeSet<String>) -> String {
         // trailing-whitespace hook strips out from under the snapshot; and
         // upstream really does ship `(m2 s sr )-1` with a stray internal
         // space, which quoting makes visible instead of mysterious.
-        out.push_str(&format!("{unit:?}\t{:?}\n", normalize_units(unit)));
+        out.push_str(&format!("{unit:?}\t{:?}\n", normalize_table_units(unit)));
     }
     out
 }
@@ -164,8 +168,8 @@ fn the_strings_that_look_like_units_but_are_not_survive_untouched() {
         // A cross-reference to another code table, not a unit.
         "Code table 4.253",
         "(Code table 4.201)",
-        // Prose that WMO uses where a quantity is dimensionless.
-        "Numeric",
+        // Prose that says what kind of number a value is, which is
+        // information, not the absence of a unit (#873).
         "Proportion",
         "Bites per day per person",
         "",
@@ -201,20 +205,31 @@ fn the_strings_that_look_like_units_but_are_not_survive_untouched() {
         "10^-6g/m^3",
         "log10(kg/m^3)",
         "ln(kPa)",
-        //  * Prose for a dimensionless or coded quantity. `-` and `non-dim`
-        //    are NCEP's spellings of what WMO writes as `Numeric`, and
-        //    `Integer(0-13)` names a code range.
-        "-",
-        "non-dim",
+        //  * Prose for a coded quantity. `Integer(0-13)` names a code range.
         "Categorical",
         "Integer(0-13)",
         "ppbV",
     ] {
         assert_eq!(
-            normalize_units(input),
+            normalize_table_units(input),
             input,
             "{input:?} must pass through untouched"
         );
+    }
+}
+
+/// Every way the GRIB2 tables say "no unit" reads as no units (#873): WMO's
+/// `Numeric` and `dimensionless`, NCEP's `-` and `non-dim`. So a dimensionless
+/// parameter reads the same whichever table resolved it.
+#[test]
+fn every_no_unit_spelling_in_the_tables_reads_as_empty() {
+    let distinct = distinct_units();
+    for spelling in ["Numeric", "dimensionless", "-", "non-dim"] {
+        assert!(
+            distinct.contains(spelling),
+            "{spelling:?} is no longer in the GRIB2 tables; drop it here"
+        );
+        assert_eq!(normalize_table_units(spelling), "", "{spelling:?}");
     }
 }
 
@@ -223,8 +238,8 @@ fn the_strings_that_look_like_units_but_are_not_survive_untouched() {
 #[test]
 fn normalisation_is_idempotent_over_the_whole_table() {
     for unit in distinct_units() {
-        let once = normalize_units(&unit).into_owned();
-        let twice = normalize_units(&once).into_owned();
+        let once = normalize_table_units(&unit).into_owned();
+        let twice = normalize_table_units(&once).into_owned();
         assert_eq!(once, twice, "{unit:?} is not stable under normalisation");
     }
 }
@@ -234,7 +249,7 @@ fn normalisation_is_idempotent_over_the_whole_table() {
 #[test]
 fn no_rewritten_unit_still_uses_ascii_notation() {
     for unit in distinct_units() {
-        let normalised = normalize_units(&unit).into_owned();
+        let normalised = normalize_table_units(&unit).into_owned();
         if normalised == unit {
             continue; // deliberately left alone; covered by the snapshot
         }

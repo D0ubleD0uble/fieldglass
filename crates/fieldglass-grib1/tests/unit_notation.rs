@@ -5,8 +5,10 @@
 //! `kg/m2`, `kg/m2/s`, `W/m3/sr` — while the ECMWF local tables are
 //! generated from eccodes, which writes exponents Fortran-style: `kg m**-2`,
 //! `K m**2 kg**-1 s**-1`. Both files are reproduced from their upstream, so
-//! `normalize_units` reconciles them at the display seam instead
-//! (`fieldglass-napi/src/lib.rs`, where `parameter_units` is filled in).
+//! `normalize_units` reconciles them at the display seam instead. The sweep
+//! runs through `normalize_table_units`, which is that plus the table seam's
+//! reading of "no unit" spellings as empty (#873), so the snapshot pins what a
+//! host is shown.
 //!
 //! The snapshot below is the deliverable, not scaffolding — same reasoning as
 //! the GRIB2 one it mirrors. Normalisation is the kind of transform where a
@@ -18,7 +20,7 @@
 //! Regenerate with `UPDATE_UNIT_SNAPSHOT=1 cargo test -p fieldglass-grib1
 //! --test unit_notation` and read the diff before committing it.
 
-use fieldglass_core::units::normalize_units;
+use fieldglass_core::units::normalize_table_units;
 use fieldglass_grib1::tables::lookup_parameter;
 use std::collections::BTreeSet;
 
@@ -62,7 +64,7 @@ fn render_snapshot(units: &BTreeSet<String>) -> String {
         // Debug-quoted on both sides, so the empty unit does not render as a
         // line ending in a tab — which the repo's trailing-whitespace hook
         // would strip out from under the snapshot.
-        out.push_str(&format!("{unit:?}\t{:?}\n", normalize_units(unit)));
+        out.push_str(&format!("{unit:?}\t{:?}\n", normalize_table_units(unit)));
     }
     out
 }
@@ -119,8 +121,8 @@ fn the_ecmwf_table_really_is_written_with_fortran_exponents() {
 #[test]
 fn normalisation_is_idempotent_over_the_whole_table() {
     for unit in distinct_units() {
-        let once = normalize_units(&unit).into_owned();
-        let twice = normalize_units(&once).into_owned();
+        let once = normalize_table_units(&unit).into_owned();
+        let twice = normalize_table_units(&once).into_owned();
         assert_eq!(once, twice, "{unit:?} is not stable under normalisation");
     }
 }
@@ -130,7 +132,7 @@ fn normalisation_is_idempotent_over_the_whole_table() {
 #[test]
 fn no_rewritten_unit_still_uses_ascii_notation() {
     for unit in distinct_units() {
-        let normalised = normalize_units(&unit).into_owned();
+        let normalised = normalize_table_units(&unit).into_owned();
         if normalised == unit {
             continue; // deliberately left alone; covered by the snapshot
         }
@@ -162,17 +164,12 @@ fn the_strings_that_look_like_units_but_are_not_survive_untouched() {
         "(-1 to 1)",
         // Prose, from both tables.
         "m of water equivalent",
-        "dimensionless",
-        "non-dim",
-        "numeric",
         "integer",
         "fraction",
         "proportion",
         "deg true",
         "radians",
         "Dobson",
-        // A lone hyphen is ON388's "no unit", not an exponent sign.
-        "-",
         // Functions and juxtaposed groups.
         "ln(kPa)",
         "log10(kg/m3)",
@@ -184,9 +181,24 @@ fn the_strings_that_look_like_units_but_are_not_survive_untouched() {
         "",
     ] {
         assert_eq!(
-            normalize_units(input),
+            normalize_table_units(input),
             input,
             "{input:?} must pass through untouched"
         );
+    }
+}
+
+/// The GRIB1 tables' words for "no unit" all read as no units (#873), so a
+/// dimensionless parameter reads the same whichever table resolved it. A lone
+/// `-` is ON388's, not an exponent sign.
+#[test]
+fn every_no_unit_spelling_in_the_tables_reads_as_empty() {
+    let distinct = distinct_units();
+    for spelling in ["dimensionless", "non-dim", "numeric", "-"] {
+        assert!(
+            distinct.contains(spelling),
+            "{spelling:?} is no longer in the GRIB1 tables; drop it here"
+        );
+        assert_eq!(normalize_table_units(spelling), "", "{spelling:?}");
     }
 }
