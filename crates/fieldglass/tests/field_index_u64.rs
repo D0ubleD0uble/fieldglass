@@ -17,7 +17,7 @@ use fieldglass::{
     DecodeOptions, Error, Field, GridGeometry, PaletteOptions, RenderOptions, Session, Values,
     WarpOptions,
 };
-use fieldglass_core::LatLonParams;
+use fieldglass_core::{EqualEarth, LatLonParams, Mollweide, Robinson};
 
 const FIXTURE: &str = "../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2";
 const SIDE: u32 = 70_000;
@@ -169,12 +169,15 @@ fn a_derived_raster_is_held_to_the_pixel_budget() {
         lon_last: 360.0 - 360.0 / f64::from(ni),
     });
     let values = vec![Some(1.0); (ni * nj) as usize];
+    // The raster a world target asks for: the longer edge high, at the
+    // projection's aspect.
+    let world = |aspect: f64| ((f64::from(ni) * aspect).round() as u32, ni);
     for (projection, unbudgeted) in [
         ("orthographic", (ni, ni)),
         ("polar_stereographic", (ni, ni)),
-        ("mollweide", (2 * ni, ni)),
-        ("robinson", (2 * ni, ni)),
-        ("equal_earth", (2 * ni, ni)),
+        ("mollweide", world(Mollweide::ASPECT_RATIO)),
+        ("robinson", world(Robinson::ASPECT_RATIO)),
+        ("equal_earth", world(EqualEarth::ASPECT_RATIO)),
     ] {
         let options = RenderOptions::new(projection, "nearest");
         let probe = |px, py| {
@@ -187,11 +190,21 @@ fn a_derived_raster_is_held_to_the_pixel_budget() {
             probe(cx, cy).is_none(),
             "{projection}: the unbudgeted raster's centre is still on the raster"
         );
-        // Still a picture: a pixel near the budgeted raster's centre reads the
-        // field (equatorial, so every target has it on the globe).
-        let small = (fieldglass::render::MAX_DERIVED_RASTER_PIXELS as f64).sqrt() as u32 / 4;
-        let on = probe(small, small / 2).or_else(|| probe(small / 2, small / 2));
-        assert!(on.is_some(), "{projection}: nothing drawn");
+        // Still a picture, at the budget's size. A world target's centre pixel
+        // is on the equator, inside the field's ±1° band, so it reads the
+        // field's value; the disc targets are centred off the band (on a pole,
+        // or a preset's latitude), so for them the centre is only checked to
+        // be on the globe.
+        let budget = fieldglass::render::MAX_DERIVED_RASTER_PIXELS as f64;
+        let scale = (budget / (f64::from(unbudgeted.0) * f64::from(unbudgeted.1))).sqrt();
+        let (w, h) = (
+            (f64::from(unbudgeted.0) * scale) as u32,
+            (f64::from(unbudgeted.1) * scale) as u32,
+        );
+        let centre = probe(w / 2, h / 2).expect("the budgeted raster's centre is on the globe");
+        if unbudgeted.0 != unbudgeted.1 {
+            assert_eq!(centre.value, Some(1.0), "{projection}: centre at {w}x{h}");
+        }
     }
 }
 

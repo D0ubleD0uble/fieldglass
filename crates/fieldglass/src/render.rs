@@ -826,13 +826,16 @@ type BuiltWarpTarget = (BuiltTarget, Option<LonLatBox>);
 /// Every one of them is then floored by [`raise_to_min_raster`], so a coarse
 /// grid's reprojection is drawn at display scale rather than at the data's
 /// (#514). This is the only place that floor is applied, which is why the
-/// `"source"` target — which never reaches here — keeps its native size.
+/// `"source"` target — which never reaches here — keeps its native size. A
+/// derived size past [`MAX_DERIVED_RASTER_PIXELS`] is then scaled into it,
+/// keeping its aspect ([`fit_derived_raster`], #918).
 ///
 /// [`ResolvedOptions::size`] is the caller's own raster when they named one
 /// (#465), and it replaces both of those rules for the two box targets: the
 /// derived shape *and* the floor, because a request for 512 × 512 that came back
 /// 720 × 720 is not the raster the caller asked for. The azimuthal and world
-/// targets ignore it and keep the aspect their projection fixes.
+/// targets ignore it and keep the aspect their projection fixes, scaled into
+/// the pixel budget like any derived size.
 ///
 /// `ni`/`nj` are the shape of the **source** array and stay separate from
 /// `geometry`, because they are not always its: a spectral message is
@@ -997,8 +1000,9 @@ fn build_warp_target(
 ///
 /// So the shape comes from the window and the pixel budget from the source.
 /// The longer output edge takes the source's longer edge — nothing is
-/// downsampled, the same rule [`world_raster_dims`] applies to the whole-world
-/// targets — and the aspect of the resolved extent fixes the other.
+/// downsampled short of the pixel budget the caller then applies, the same
+/// rule [`world_raster_dims`] applies to the whole-world targets — and the
+/// aspect of the resolved extent fixes the other.
 ///
 /// A degenerate window (no extent on one axis, or non-finite corners) has no
 /// aspect to honour, so the source shape stands.
@@ -1022,14 +1026,16 @@ fn box_raster_dims(ni: u32, nj: u32, extent: LonLatBox) -> (u32, u32) {
 }
 
 /// Raster dims for a whole-world target of the given width : height ratio.
-/// Height is the source's larger edge, so nothing is downsampled, and width
+/// Height is the source's larger edge, so nothing is downsampled short of the
+/// pixel budget, and width
 /// follows from the projection's own aspect so the map body keeps its true
 /// proportions — 2:1 for Mollweide, ≈1.97:1 for Robinson, ≈2.05:1 for Equal
 /// Earth. These targets have no lat/lon-box extent to echo back to the UI.
 ///
 /// The ratio is the whole of this function's job: the caller floors the result
-/// with [`raise_to_min_raster`], which scales both edges together and so leaves
-/// the proportions chosen here intact.
+/// with [`raise_to_min_raster`] and caps it with [`fit_derived_raster`], both of
+/// which scale the two edges together and so leave the proportions chosen here
+/// intact.
 #[cfg(feature = "render")]
 fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
     let height = ni.max(nj);
@@ -1043,7 +1049,8 @@ fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
 /// The shortest long edge a *reprojected* raster is drawn at (#514).
 ///
 /// Every warp target sizes itself from the source grid, which is the right
-/// instinct — nothing should be downsampled — but it was a ceiling with no
+/// instinct — nothing should be downsampled short of the pixel budget
+/// ([`MAX_DERIVED_RASTER_PIXELS`]) — but it was a ceiling with no
 /// floor under it. A HEALPix `Nside 4` field resamples to 26 × 14 at its own
 /// pixel scale, so it reprojected to a 26 × 26 orthographic disc: the data's
 /// edge is a staircase while the coastline overlay is a smooth curve on the
@@ -1082,9 +1089,12 @@ pub const MIN_REPROJECTED_LONG_EDGE: u32 = 720;
 /// grid asked Mollweide for 200,000 × 100,000 `f64`: 160 GB, an abort on a
 /// 64-bit host where `isize::MAX` refuses nothing. At this budget the widest
 /// buffer, the warp's `f64` values, is 512 MiB, which wasm32 can allocate too.
-/// A real grid of the largest size viewers draw (about 25 M points) reprojects
-/// to at most about 100 M pixels, so only the very largest are scaled, and by
-/// less than a fifth along each edge.
+/// What it scales is set by the grid's longer edge, not its point count: a
+/// world target past about 5,700 points along that edge (Equal Earth; 5,800
+/// for Mollweide), a disc past 8,192. A 7,200 × 3,600 global grid, about as
+/// large as real files get, loses about a fifth of each edge on Equal Earth; a
+/// long, narrow grid of few points is scaled far harder, which is the case
+/// this exists for.
 ///
 /// A size the caller names is not held to it: that is the caller's budget,
 /// checked only for being allocatable.
