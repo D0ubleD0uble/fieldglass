@@ -314,11 +314,14 @@ def proj4_for(g: dict) -> str:
         # reads as `(+o_lat_p, +lon_0 + 180)`, and its `longlat` output is
         # radians. The angle of rotation folds into `lon_0` because eccodes
         # applies it to the geographic longitude after unrotating — see
-        # `GridGeometry::proj4`, which this mirrors.
+        # `GridGeometry::proj4`, which this mirrors. The angle is reduced to
+        # one turn keeping its sign, as `reduced_rotation` does (#842):
+        # `math.fmod` is Rust's `%`, where Python's `%` would floor.
+        rotation = math.fmod(g["angle_of_rotation"], 360.0)
         return (
             f"+proj=ob_tran +o_proj=longlat +o_lat_p={fmt(-g['south_pole_lat'])} "
             f"+o_lon_p=0 "
-            f"+lon_0={fmt(g['south_pole_lon'] - g['angle_of_rotation'])} "
+            f"+lon_0={fmt(g['south_pole_lon'] - rotation)} "
             f"+R={fmt(EARTH_RADIUS_M)} +to_meter={fmt(DEG2RAD)} +no_defs"
         )
     raise ValueError(f"no projected CRS for {g['kind']!r}")

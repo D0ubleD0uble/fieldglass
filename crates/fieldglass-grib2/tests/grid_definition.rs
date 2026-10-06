@@ -790,3 +790,64 @@ fn an_earth_smaller_than_a_grid_cell_places_no_point_in_any_planar_template() {
         "§3.140 resolved an index on a 1e-6 m spheroid"
     );
 }
+
+/// `rotated_latlon_surface.grib2` with §3.1's angle of rotation (template
+/// payload octets 66..70, §3 octets 81-84) overwritten.
+fn rotated_with_angle(angle: f32) -> Grib2Reader {
+    let mut bytes = ROTATED_LATLON.to_vec();
+    let mut at = 16; // past §0
+    loop {
+        let len =
+            u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
+        if bytes[at + 4] == 3 {
+            let field = at + 14 + 66;
+            bytes[field..field + 4].copy_from_slice(&angle.to_be_bytes());
+            break;
+        }
+        at += len;
+    }
+    Grib2Reader::from_bytes(bytes).expect("parses")
+}
+
+/// A huge finite angle of rotation places exactly as its remainder after
+/// whole turns (#842). At 1e30 the grid used to report `+lon_0` as a 31-digit
+/// number, and at `f32::MAX` every column collapsed onto one longitude.
+#[test]
+fn a_huge_angle_of_rotation_places_as_its_remainder() {
+    for angle in [1e30_f32, f32::MAX, -1e30, 1e10] {
+        let reader = rotated_with_angle(angle);
+        let huge = fieldglass_core::GridGeometry::from(&reader.messages[0].gds);
+        let fieldglass_core::GridGeometry::RotatedLatLon(p) = &huge else {
+            panic!("{angle}: expected a rotated geometry");
+        };
+        assert_eq!(
+            p.angle_of_rotation,
+            f64::from(angle),
+            "the file's angle, as stated"
+        );
+        let reduced =
+            fieldglass_core::GridGeometry::RotatedLatLon(fieldglass_core::RotatedLatLonParams {
+                angle_of_rotation: f64::from(angle) % 360.0,
+                ..*p
+            });
+        assert_eq!(huge.lonlat_bbox(), reduced.lonlat_bbox(), "{angle}");
+        assert_eq!(huge.proj4(), reduced.proj4(), "{angle}");
+        let (ni, nj) = huge.dims().expect("a raster");
+        for (i, j) in [(0, 0), (ni - 1, 0), (0, nj - 1), (ni - 1, nj - 1)] {
+            assert_eq!(
+                huge.forward(i, j),
+                reduced.forward(i, j),
+                "{angle} at ({i}, {j})"
+            );
+        }
+        let bbox = huge.lonlat_bbox().expect("placed");
+        assert!(bbox.lon_max - bbox.lon_min > 1.0, "{angle}: {bbox:?}");
+        let proj4 = huge.proj4().expect("a CRS");
+        let lon_0: f64 = proj4
+            .split_whitespace()
+            .find_map(|t| t.strip_prefix("+lon_0="))
+            .and_then(|v| v.parse().ok())
+            .expect("+lon_0");
+        assert!(lon_0.abs() < 720.0, "{angle}: {proj4}");
+    }
+}
