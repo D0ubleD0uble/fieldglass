@@ -47,7 +47,7 @@ Measured with libhdf5 2.0.0 on hand-built files
 | a record wholly outside the shape | ignores it | `hdf5_outside_chunk_record.h5` |
 
 Each fixture's `.oracle.json` records libhdf5 2.0.0's read or its error, and
-`tests/hdf5_chunk_records.rs` decodes each one (#891).
+`tests/hdf5_chunk_records.rs` decodes each one.
 
 For conflicting records its answer is the last record in index order within a
 leaf, and across leaves whatever its key-guided search reaches. That answer
@@ -63,9 +63,10 @@ any chunk (`chunks_in_shape` in `crates/fieldglass-netcdf/src/hdf5/values.rs`):
 2. **Records at one origin naming different storage are refused.** The value
    is ambiguous and the specification calls the index malformed. **This is a
    known divergence from libhdf5**, which reads an order-dependent value. The
-   evidence is `tests/fixtures/hdf5_conflicting_chunk_records.h5`, its oracle
-   (libhdf5's read), `tests/hdf5_chunk_records.rs` and the fixture's
-   `NOTICE.md` entry.
+   evidence is `tests/fixtures/hdf5_conflicting_chunk_records.h5` and
+   `hdf5_conflicting_chunk_records_swapped.h5` (the same records in another
+   order, read differently), their oracles (libhdf5's reads),
+   `tests/hdf5_chunk_records.rs` and the fixtures' `NOTICE.md` entries.
 3. **An origin inside the shape but off the chunk grid is refused**, as libhdf5
    refuses it.
 4. **A record wholly outside the shape is skipped without being read**, as
