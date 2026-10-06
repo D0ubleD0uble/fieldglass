@@ -33,6 +33,11 @@ mutated HDF5 file whose second dataset declares a chunked 9,175,044 × 16 shape
 of four-byte elements. It is inside the reader's
 whole-variable cap and its decode needs about 2.9 GB, past libFuzzer's 2 GB RSS
 limit, so the target reads each variable's shape first and skips decoding a
-large one (see `MAX_FUZZ_DECODE_ELEMENTS`). The seed keeps that skip in place. CI
+large one (see `MAX_FUZZ_DECODE_ELEMENTS`). The seed keeps that skip in place.
+`hdf5_duplicate_chunk_records.h5` (24 KB, from
+`tools/build_hdf5_duplicate_chunk_fixture.py`; see `tests/fixtures/NOTICE.md`)
+names one 16 MB gzip chunk 16 times through a hand-built chunk B-tree. It took
+about 10.6 s on the fuzz build when every record was inflated; the reader now
+reads the chunk once (#837). CI
 runs this target time-boxed on pull requests that touch the crate; see
 `.github/workflows/fuzz.yml`.

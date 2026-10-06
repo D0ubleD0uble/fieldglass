@@ -1,0 +1,14 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='earliest'",
+  "note": "one element in one gzip chunk of 16 Mi elements, v1 chunk B-tree (#837)",
+  "shape": [
+    1
+  ],
+  "chunks": [
+    16777216
+  ],
+  "dtype": "uint8",
+  "values": [
+    7
+  ]
+}
