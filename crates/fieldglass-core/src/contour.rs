@@ -285,7 +285,11 @@ mod tests {
     #[test]
     fn a_grid_larger_than_its_values_marches_nothing() {
         let values = [Some(1.0)];
-        for (ni, nj) in [(1usize << 63, 2usize), (usize::MAX, usize::MAX), (3, 3)] {
+        for (ni, nj) in [
+            (1usize << (usize::BITS - 1), 2usize),
+            (usize::MAX, usize::MAX),
+            (3, 3),
+        ] {
             let levels = contour_segments(&values, ni, nj, &[0.5]);
             assert!(levels.iter().all(|l| l.segments.is_empty()), "{ni} x {nj}");
         }
