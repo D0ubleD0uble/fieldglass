@@ -1466,6 +1466,48 @@ mod grid_variant_tests {
         assert!(g.scanning_mode.j_positive);
     }
 
+    /// A huge IBM angle of rotation places exactly as its remainder after
+    /// whole turns (#842). The IBM single's largest value, 0x7FFFFFFF, is
+    /// about 7.2e75 degrees; subtracting it from a longitude in `f64` used to
+    /// put every column of the grid on one longitude.
+    #[test]
+    fn a_huge_ibm_angle_of_rotation_places_as_its_remainder() {
+        let mut body = Vec::new();
+        body.extend(u16be(100)); // ni
+        body.extend(u16be(90)); // nj
+        body.extend(sm24(-18_000)); // lat_first (rotated frame)
+        body.extend(sm24(-12_000)); // lon_first
+        body.push(0x80); // increments given
+        body.extend(sm24(20_000)); // lat_last
+        body.extend(sm24(15_000)); // lon_last
+        body.extend(u16be(63)); // di
+        body.extend(u16be(63)); // dj
+        body.push(0x40); // j_positive
+        body.extend([0, 0, 0, 0]);
+        body.extend(sm24(-30_000)); // latitudeOfSouthernPole
+        body.extend(sm24(10_000)); // longitudeOfSouthernPole
+        body.extend([0x7F, 0xFF, 0xFF, 0xFF]); // angleOfRotation, the largest IBM single
+
+        let parsed = parse_grid_description(&build_gds(10, &body)).expect("parses");
+        let huge = fieldglass_core::GridGeometry::from(&parsed);
+        let fieldglass_core::GridGeometry::RotatedLatLon(p) = &huge else {
+            panic!("expected a rotated geometry");
+        };
+        assert!(p.angle_of_rotation > 7.2e75, "{}", p.angle_of_rotation);
+        let reduced =
+            fieldglass_core::GridGeometry::RotatedLatLon(fieldglass_core::RotatedLatLonParams {
+                angle_of_rotation: p.angle_of_rotation % 360.0,
+                ..*p
+            });
+        assert_eq!(huge.lonlat_bbox(), reduced.lonlat_bbox());
+        assert_eq!(huge.proj4(), reduced.proj4());
+        for (i, j) in [(0, 0), (99, 0), (0, 89), (99, 89)] {
+            assert_eq!(huge.forward(i, j), reduced.forward(i, j), "({i}, {j})");
+        }
+        let bbox = huge.lonlat_bbox().expect("placed");
+        assert!(bbox.lon_max - bbox.lon_min > 1.0, "{bbox:?}");
+    }
+
     #[test]
     fn rotated_latlon_too_short_yields_parse_error() {
         // grid_type 10 needs 42 bytes; give it a 32-byte lat/lon-sized body.

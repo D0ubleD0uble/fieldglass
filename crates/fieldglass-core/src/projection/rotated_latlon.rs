@@ -45,6 +45,19 @@ pub struct RotatedLatLonParams {
     pub angle_of_rotation: f64,
 }
 
+/// The angle of rotation reduced to one turn, keeping its sign: the remainder
+/// after whole turns, so the rotation is the same one (#842).
+///
+/// The angle is a float the file states (an IEEE single in GRIB2 §3.1, an IBM
+/// single in GRIB1), so a finite one can be as large as 3.4e38 or 7.2e75.
+/// Subtracting that from a longitude in `f64` loses every per-column
+/// difference: at `f32::MAX` every column landed on the same longitude. The
+/// truncated remainder is exact in IEEE arithmetic, and leaves every angle
+/// under one turn, which is every real file, bit for bit as stated.
+pub(crate) fn reduced_rotation(angle_of_rotation: f64) -> f64 {
+    angle_of_rotation % 360.0
+}
+
 /// Rotation-matrix terms shared by [`unrotate_latlon`] and [`rotate_latlon`].
 /// The unrotate map is `geo = M · rotated` with `M` orthonormal; the inverse
 /// rotate map is `rotated = Mᵀ · geo`.
@@ -80,7 +93,7 @@ pub(crate) fn unrotate_latlon(
 
     let lat = z.asin() * RAD2DEG;
     // eccodes subtracts the rotation angle from the geographic longitude last.
-    let lon = y.atan2(x) * RAD2DEG - angle_of_rotation;
+    let lon = y.atan2(x) * RAD2DEG - reduced_rotation(angle_of_rotation);
     (lat, lon)
 }
 
@@ -97,7 +110,7 @@ pub(crate) fn rotate_latlon(
     south_pole_lon: f64,
 ) -> (f64, f64) {
     let (sin_lat, cos_lat) = (lat * DEG2RAD).sin_cos();
-    let (sin_lon, cos_lon) = ((lon + angle_of_rotation) * DEG2RAD).sin_cos();
+    let (sin_lon, cos_lon) = ((lon + reduced_rotation(angle_of_rotation)) * DEG2RAD).sin_cos();
     let x = cos_lon * cos_lat;
     let y = sin_lon * cos_lat;
     let z = sin_lat;

@@ -1763,7 +1763,7 @@ impl GridGeometry {
                 // also mirrored by `tools/gen_grid_geometry_proj_golden.py`,
                 // where Python prints the same value as `0`.
                 0.0 - p.south_pole_lat,
-                p.south_pole_lon - p.angle_of_rotation,
+                p.south_pole_lon - rotated_latlon::reduced_rotation(p.angle_of_rotation),
             )),
             Self::Unsupported { .. } => None,
         }
@@ -2523,6 +2523,51 @@ mod tests {
             1e-9,
             "gaussian s→n",
         );
+    }
+
+    /// A huge finite angle of rotation places exactly as its remainder after
+    /// whole turns (#842). Before the reduction, `f32::MAX` put every column
+    /// on one longitude and `1e30` stated `lon_0` as a 31-digit number.
+    #[test]
+    fn a_huge_angle_of_rotation_places_as_its_remainder() {
+        let base = rotated_fixture_params();
+        let at = |angle: f64| {
+            GridGeometry::RotatedLatLon(RotatedLatLonParams {
+                angle_of_rotation: angle,
+                south_pole_lat: -40.0,
+                south_pole_lon: 10.0,
+                ..base
+            })
+        };
+        for angle in [
+            1e30,
+            f64::from(f32::MAX),
+            -1e30,
+            7.2e75,
+            725.0,
+            -400.0,
+            25.0,
+        ] {
+            let (huge, reduced) = (at(angle), at(angle % 360.0));
+            assert_eq!(huge.lonlat_bbox(), reduced.lonlat_bbox(), "{angle}");
+            assert_eq!(huge.proj4(), reduced.proj4(), "{angle}");
+            for (i, j) in [(0, 0), (15, 0), (0, 30), (15, 30), (7, 12)] {
+                let point = huge.forward(i, j);
+                assert_eq!(point, reduced.forward(i, j), "{angle} at ({i}, {j})");
+                let (lat, lon) = point.expect("on the grid");
+                assert_eq!(
+                    huge.inverse(lat, lon),
+                    reduced.inverse(lat, lon),
+                    "{angle} at ({i}, {j})"
+                );
+            }
+        }
+        // And the columns stay apart: the first row spans the 15 degrees of
+        // rotated longitude it does at a small angle, not zero.
+        let row = at(f64::from(f32::MAX));
+        let (_, west) = row.forward(0, 0).unwrap();
+        let (_, east) = row.forward(15, 0).unwrap();
+        assert!((east - west).abs() > 1.0, "west {west}, east {east}");
     }
 
     #[test]
