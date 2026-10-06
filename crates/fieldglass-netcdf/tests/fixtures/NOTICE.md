@@ -363,6 +363,27 @@ and the links against them, and that the third reads its huge object once;
 `crates/fieldglass/tests/huge_heap_objects.rs` opens the NetCDF file through
 `Session`.
 
+## Shared symbol-table fixtures (`hdf5_shared_group_name.h5`, `hdf5_shared_snod.h5`)
+
+Two small files for #901, built by `tools/build_hdf5_shared_snod_fixture.py`
+(reproducible byte for byte) from one h5py 3.16.0 file (libhdf5 2.0.0,
+`libver='earliest'`): a root group of eight datasets, one named with 2,000
+`L` characters, all in one symbol-table node (`SNOD`) of a version-1 group
+B-tree.
+
+- `hdf5_shared_group_name.h5` (7,448 bytes) points a second `SNOD` entry's
+  name offset at the long name, so two members share one name in the local
+  heap. h5py lists both. Fieldglass refuses the group, reading the name once.
+- `hdf5_shared_snod.h5` (7,512 bytes) appends a group B-tree leaf whose two
+  entries both name the one `SNOD`, and repoints the group at it. libhdf5
+  refuses it (it reads the appended node at its full allocated size).
+  Fieldglass refuses the second reference.
+
+A valid group gives each node and name its own storage; the issue's version
+of the second shape, 8,192 references to one `SNOD`, made a 197 KB file use
+3.85 GB. `tests/hdf5_shared_snod.rs` checks both refusals through a
+recording source.
+
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
 A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which
