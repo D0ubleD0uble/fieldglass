@@ -24,6 +24,13 @@ different origins, and one that names two different chunks at one origin.
     ``(i, 0)``. Nothing in the format forbids two origins sharing storage, and
     libhdf5 reads sixteen 7s. The reader does too, inflating the chunk once
     rather than once per origin.
+  * ``hdf5_shared_chunk_records_masks.h5`` and
+    ``hdf5_shared_chunk_records_sizes.h5`` — the same, with record ``i``'s
+    filter mask raised by ``2 * i`` (bits above the pipeline's one filter, which
+    decode identically) or its stored size by ``i`` bytes (past the end of the
+    zlib stream). libhdf5 reads sixteen 7s from both. The reader reads the
+    first with the chunk inflated once, and refuses the second: one stored
+    chunk with sixteen stated sizes is a malformed index (#888, ADR-0013).
   * ``hdf5_conflicting_chunk_records.h5`` — ``(2,)`` ``uint8`` ``[7, 9]`` in
     unfiltered chunks of one element, with a leaf naming chunk A at origin 0,
     then chunk B at origin 0, then chunk B at origin 1. Which value origin 0
@@ -136,7 +143,10 @@ def build_duplicated(src: Path, dst: Path) -> None:
     finish(raw, dst)
 
 
-def build_shared(path: Path) -> list:
+def build_shared(path: Path, vary: str = "") -> list:
+    """The shared-storage file; ``vary`` makes record ``i`` differ from the
+    stored chunk's own key by ``2 * i`` in the filter mask (bits above the one
+    gzip filter, ``"mask"``) or by ``i`` bytes of stored size (``"size"``)."""
     src = path.with_suffix(".src.h5")
     with h5py.File(src, "w", libver="earliest") as f:
         v = f.create_dataset(
@@ -155,7 +165,12 @@ def build_shared(path: Path) -> list:
     raw = bytearray(src.read_bytes())
     src.unlink()
     old_root = chunk_btree_address(raw)
-    entries = [(key(info.size, info.filter_mask, i, 0), info.byte_offset) for i in range(16)]
+    def record(i: int) -> bytes:
+        size = info.size + (i if vary == "size" else 0)
+        mask = info.filter_mask | (2 * i if vary == "mask" else 0)
+        return key(size, mask, i, 0)
+
+    entries = [(record(i), info.byte_offset) for i in range(16)]
     leaf = append(raw, node(0, entries, key(0, 0, 16, 0)))
     repoint(raw, 2, old_root, leaf)
     finish(raw, path)
@@ -225,6 +240,29 @@ def main() -> None:
         encoding="utf-8",
     )
     print(f"wrote {shared} ({shared.stat().st_size} B); libhdf5 reads {shared_read}; seed copied")
+
+    for vary in ("mask", "size"):
+        variant = FIXTURES / f"hdf5_shared_chunk_records_{vary}s.h5"
+        variant_read = build_shared(variant, vary)
+        assert variant_read == [7] * 16, (vary, variant_read)
+        (FIXTURES / f"{variant.name}.oracle.json").write_text(
+            json.dumps(
+                {
+                    "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), "
+                    "libver='earliest', chunk B-tree leaf appended by hand",
+                    "note": f"one stored chunk named at origins (i, 0) for i < 16, record i's "
+                    f"{vary} varied by {'2 * i' if vary == 'mask' else 'i'} (#888)",
+                    "shape": [16, 1],
+                    "libhdf5_values": variant_read,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print(f"wrote {variant} ({variant.stat().st_size} B); libhdf5 reads {variant_read}")
+    masks = FIXTURES / "hdf5_shared_chunk_records_masks.h5"
+    (CORPUS / masks.name).write_bytes(masks.read_bytes())
 
     conflicting = FIXTURES / "hdf5_conflicting_chunk_records.h5"
     libhdf5_read = build_conflicting(conflicting)

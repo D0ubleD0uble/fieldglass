@@ -415,7 +415,7 @@ impl FractalHeap {
             // A single root direct block of the starting size.
             let content = match &filter {
                 None => {
-                    validate_direct_block(source, root_block_addr, addr, o)?;
+                    validate_direct_block(source, root_block_addr, addr, o, offset_bytes, 0)?;
                     BlockContent::InFile(root_block_addr)
                 }
                 Some(hf) => BlockContent::Decoded(decode_filtered_direct_block(
@@ -426,6 +426,8 @@ impl FractalHeap {
                     &hf.pipeline,
                     addr,
                     o,
+                    offset_bytes,
+                    0,
                     starting_block_size,
                 )?),
             };
@@ -526,13 +528,18 @@ impl FractalHeap {
 }
 
 /// Confirm a direct block: the address lands on an `FHDB` signature whose
-/// back-pointer is the owning heap header. A cheap guard against mis-parsing the
-/// variable-width header.
+/// back-pointer is the owning heap header, and whose Block Offset is the place
+/// in the heap's address space the doubling table names it at. A cheap guard
+/// against mis-parsing the variable-width header, and the check an indirect
+/// block already gets: without it every entry of a table could name one
+/// filtered direct block and decode it once per entry (#888).
 fn validate_direct_block<S: ByteSource + ?Sized>(
     source: &S,
     block_addr: u64,
     heap_addr: u64,
     osize: usize,
+    offset_bytes: usize,
+    block_offset: u64,
 ) -> Result<(), FieldglassError> {
     let mut block = FileCursor::at(source, block_addr)?;
     block.tag(SIG_FRACTAL_DIRECT)?;
@@ -540,6 +547,11 @@ fn validate_direct_block<S: ByteSource + ?Sized>(
     if block.uint(osize)? != heap_addr {
         return Err(FieldglassError::Parse(
             "fractal-heap direct block back-pointer mismatch".into(),
+        ));
+    }
+    if block.uint(offset_bytes)? != block_offset {
+        return Err(FieldglassError::Parse(
+            "fractal-heap direct block offset mismatch".into(),
         ));
     }
     Ok(())
@@ -560,6 +572,8 @@ fn decode_filtered_direct_block<S: ByteSource + ?Sized>(
     pipeline: &FilterPipeline,
     heap_addr: u64,
     osize: usize,
+    offset_bytes: usize,
+    block_offset: u64,
     logical_size: u64,
 ) -> Result<Vec<u8>, FieldglassError> {
     if logical_size > MAX_FILTERED_DIRECT_BLOCK_SIZE {
@@ -581,7 +595,7 @@ fn decode_filtered_direct_block<S: ByteSource + ?Sized>(
     }
     // The decompressed image is a normal direct block at offset 0, so the same
     // signature + heap back-pointer check the unfiltered path runs applies.
-    validate_direct_block(&image, 0, heap_addr, osize)?;
+    validate_direct_block(&image, 0, heap_addr, osize, offset_bytes, block_offset)?;
     Ok(image)
 }
 
@@ -753,7 +767,14 @@ fn walk_indirect<S: ByteSource + ?Sized>(
                 if is_direct {
                     let content = match filter {
                         None => {
-                            validate_direct_block(source, entry_addr, heap_addr, osize)?;
+                            validate_direct_block(
+                                source,
+                                entry_addr,
+                                heap_addr,
+                                osize,
+                                dtable.offset_bytes,
+                                logical,
+                            )?;
                             BlockContent::InFile(entry_addr)
                         }
                         Some(hf) => BlockContent::Decoded(decode_filtered_direct_block(
@@ -764,6 +785,8 @@ fn walk_indirect<S: ByteSource + ?Sized>(
                             &hf.pipeline,
                             heap_addr,
                             osize,
+                            dtable.offset_bytes,
+                            logical,
                             size,
                         )?),
                     };
@@ -1088,13 +1111,31 @@ mod tests {
         put(&mut buf, 0x100 + 15, &BLOCK0_ADDR.to_le_bytes());
         put(&mut buf, 0x100 + 15 + 8, &BLOCK1_ADDR.to_le_bytes());
 
-        // --- two FHDB direct blocks, each pointing back at the heap header ---
-        for addr in [BLOCK0_ADDR, BLOCK1_ADDR] {
+        // --- two FHDB direct blocks, each pointing back at the heap header
+        // and stating its own heap offset (0 and 64) ---
+        for (addr, offset) in [(BLOCK0_ADDR, 0u16), (BLOCK1_ADDR, 64)] {
             let a = addr as usize;
             put(&mut buf, a, SIG_FRACTAL_DIRECT);
             put(&mut buf, a + 5, &HEAP_ADDR.to_le_bytes());
+            put(&mut buf, a + 13, &offset.to_le_bytes());
         }
         buf
+    }
+
+    /// Two table entries naming one direct block: the block states one heap
+    /// offset, so the entry at the other is refused rather than decoding the
+    /// block once per entry (#888).
+    #[test]
+    fn a_direct_block_named_at_a_second_offset_is_refused() {
+        let mut buf = frhp_indirect();
+        put(&mut buf, 0x100 + 15 + 8, &BLOCK0_ADDR.to_le_bytes());
+        let err = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8)
+            .err()
+            .expect("the second entry is at offset 64, the block says 0");
+        assert!(
+            err.to_string().contains("direct block offset mismatch"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -1167,11 +1208,12 @@ mod tests {
         }
         put(&mut buf, child_entries + 2 * 8, &CI_CHILD_DB.to_le_bytes()); // its row 1, col 0
 
-        // --- the two populated FHDB direct blocks ---
-        for addr in [CI_ROOT_DB, CI_CHILD_DB] {
+        // --- the two populated FHDB direct blocks, at heap offsets 0 and 640 ---
+        for (addr, offset) in [(CI_ROOT_DB, 0u16), (CI_CHILD_DB, 640)] {
             let a = addr as usize;
             put(&mut buf, a, SIG_FRACTAL_DIRECT);
             put(&mut buf, a + 5, &HEAP_ADDR.to_le_bytes());
+            put(&mut buf, a + 13, &offset.to_le_bytes());
         }
         buf
     }
@@ -1268,15 +1310,20 @@ mod tests {
         miniz_oxide::deflate::compress_to_vec_zlib(image, 6)
     }
 
-    /// A full `FHDB` direct-block image of `size` bytes: signature, version,
-    /// 8-byte heap back-pointer, 2-byte block offset, then `payload` placed at
-    /// the first object slot (just past the prefix).
+    /// A full `FHDB` direct-block image of `size` bytes at heap offset 0:
+    /// signature, version, 8-byte heap back-pointer, 2-byte block offset, then
+    /// `payload` placed at the first object slot (just past the prefix).
     fn fhdb_image(size: usize, heap_addr: u64, payload: &[u8]) -> Vec<u8> {
+        fhdb_image_at(size, heap_addr, 0, payload)
+    }
+
+    /// [`fhdb_image`] for a block at heap offset `offset`.
+    fn fhdb_image_at(size: usize, heap_addr: u64, offset: u16, payload: &[u8]) -> Vec<u8> {
         let mut img = vec![0u8; size];
         img[0..4].copy_from_slice(SIG_FRACTAL_DIRECT);
         // version at 4 stays 0
         img[5..13].copy_from_slice(&heap_addr.to_le_bytes());
-        // 2-byte block offset at 13..15 stays 0
+        img[13..15].copy_from_slice(&offset.to_le_bytes());
         img[BLOCK_PREFIX..BLOCK_PREFIX + payload.len()].copy_from_slice(payload);
         img
     }
@@ -1327,7 +1374,7 @@ mod tests {
     fn filtered_indirect_root_block_dereferences_object_in_second_block() {
         let payload = [0x01u8, 0x02, 0x03, 0x04];
         let block0 = zlib(&fhdb_image(64, HEAP_ADDR, &[]));
-        let block1 = zlib(&fhdb_image(64, HEAP_ADDR, &payload));
+        let block1 = zlib(&fhdb_image_at(64, HEAP_ADDR, 64, &payload));
 
         let pl = deflate_pipeline_body();
         let mut buf = vec![0u8; 0x600];

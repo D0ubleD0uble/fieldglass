@@ -20,6 +20,11 @@ const OVERSIZED: &[u8] = include_bytes!("fixtures/hdf5_oversized_chunk.h5");
 const DUPLICATED: &[u8] = include_bytes!("fixtures/hdf5_duplicate_chunk_records.h5");
 /// `(16, 1)` with one stored chunk that the index names at all 16 origins.
 const SHARED: &[u8] = include_bytes!("fixtures/hdf5_shared_chunk_records.h5");
+/// [`SHARED`] with record `i`'s filter mask raised by `2i`: bits above the one
+/// gzip filter, which decode identically.
+const SHARED_MASKS: &[u8] = include_bytes!("fixtures/hdf5_shared_chunk_records_masks.h5");
+/// [`SHARED`] with record `i`'s stored size raised by `i` bytes.
+const SHARED_SIZES: &[u8] = include_bytes!("fixtures/hdf5_shared_chunk_records_sizes.h5");
 /// `[7, 9]` with an index naming chunks A and B both at origin 0.
 const CONFLICTING: &[u8] = include_bytes!("fixtures/hdf5_conflicting_chunk_records.h5");
 
@@ -74,6 +79,34 @@ fn a_chunk_named_at_many_origins_is_read_once() {
     assert_eq!(plan.len(), 1, "one stored chunk in the plan: {plan:?}");
     let reads = source.reads().iter().filter(|r| **r == plan[0]).count();
     assert_eq!(reads, 1, "the chunk's bytes are read once");
+}
+
+#[test]
+fn filter_mask_bits_past_the_pipeline_do_not_split_a_chunk() {
+    // libhdf5 reads sixteen 7s. The pipeline has one filter, so only mask bit
+    // 0 means anything, and the chunk is still inflated once (#888).
+    let source = Recording::new(SHARED_MASKS);
+    assert_eq!(decode_v(SHARED_MASKS, &source), Ok(vec![Some(7.0); 16]));
+    let batches = source.prefetches();
+    let plan = batches.last().expect("the chunk fetch is planned");
+    assert_eq!(plan.len(), 1, "one stored chunk in the plan: {plan:?}");
+    let reads = source.reads().iter().filter(|r| **r == plan[0]).count();
+    assert_eq!(reads, 1, "the chunk's bytes are read once");
+}
+
+#[test]
+fn one_stored_chunk_with_several_sizes_is_refused() {
+    // libhdf5 reads sixteen 7s: zlib stops at its stream's end, so the extra
+    // bytes change nothing for gzip. Reading each stated size would inflate the
+    // chunk once per record, and for another pipeline (fletcher32's trailing
+    // checksum) the sizes would decode differently, so the index is refused:
+    // a known divergence (ADR-0013).
+    let source = Recording::new(SHARED_SIZES);
+    let err = decode_v(SHARED_SIZES, &source).expect_err("sixteen sizes for one chunk");
+    assert!(err.contains("twice with different storage"), "{err}");
+    // The stored chunk is 16,318 bytes; every metadata read is far smaller.
+    let decoded = source.reads().iter().filter(|r| r.len >= 16_000).count();
+    assert_eq!(decoded, 0, "no chunk is read before the refusal");
 }
 
 #[test]

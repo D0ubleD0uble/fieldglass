@@ -381,15 +381,41 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     // known, so the whole variable is one batch resolve followed by reads. The
     // walk that produced the records could not be planned — that is the weak
     // form, and why the traversal above issues none.
-    let mut chunks = chunks_in_shape(&chunks, shape, &chunked.chunk_dims)?;
+    let pipeline_bits = match pipeline.filters.len() {
+        n if n >= 32 => u32::MAX,
+        n => (1u32 << n) - 1,
+    };
+    let mut chunks = chunks_in_shape(&chunks, shape, &chunked.chunk_dims, pipeline_bits)?;
     // Records at different origins may name the same stored chunk: nothing in
     // the format forbids it, and libhdf5 reads such a file. Each stored chunk is
     // read and reversed once and placed at every origin that names it, so the
-    // cost is the distinct stored chunks, not the records (#837). The sort is
-    // stable, so a group keeps its records in origin order.
-    let storage = |c: &&ChunkRecord| (c.address, c.size, c.filter_mask);
+    // cost is the distinct stored chunks, not the records (#837).
+    //
+    // A stored chunk is its address (#888). The filter mask is compared only
+    // over the filters this pipeline has: `reverse` reads no other bit, so
+    // masks that differ above them name the same decode. Records at one address
+    // that still disagree, on stored size or on a filter actually applied,
+    // would each decode the same bytes differently, and reading each is the
+    // records-times-chunk-size cost again; the index is refused (ADR-0013).
+    // The sort is stable, so a group keeps its records in origin order.
+    let storage = |c: &&ChunkRecord| (c.address, c.size, c.filter_mask & pipeline_bits);
     chunks.sort_by_key(storage);
     let groups: Vec<&[&ChunkRecord]> = chunks.chunk_by(|a, b| storage(a) == storage(b)).collect();
+    if let Some(pair) = groups
+        .windows(2)
+        .find(|pair| pair[0][0].address == pair[1][0].address)
+    {
+        let (a, b) = (pair[0][0], pair[1][0]);
+        return Err(FieldglassError::Parse(format!(
+            "chunk index names the stored chunk at {} twice with different storage \
+             (size {} and {}, filter mask {:#x} and {:#x})",
+            a.address,
+            a.size,
+            b.size,
+            a.filter_mask & pipeline_bits,
+            b.filter_mask & pipeline_bits
+        )));
+    }
     let plan: Vec<ByteRange> = groups
         .iter()
         .map(|g| ByteRange::new(g[0].address, u64::from(g[0].size)))
@@ -402,7 +428,8 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
         let expanded = if pipeline.filters.is_empty() {
             stored.into_owned()
         } else {
-            pipeline.reverse(stored.into_owned(), chunk.filter_mask, elem, chunk_bytes)?
+            let mask = chunk.filter_mask & pipeline_bits;
+            pipeline.reverse(stored.into_owned(), mask, elem, chunk_bytes)?
         };
         // Exactly one chunk, not at least one: `scatter_chunk` reads only the
         // first `chunk_bytes`, so a longer result would be cut silently, and
@@ -1196,6 +1223,7 @@ fn chunks_in_shape<'a>(
     chunks: &'a [ChunkRecord],
     shape: &[u64],
     chunk_dims: &[u32],
+    pipeline_bits: u32,
 ) -> Result<Vec<&'a ChunkRecord>, FieldglassError> {
     let mut kept = Vec::with_capacity(chunks.len());
     for chunk in chunks {
@@ -1220,8 +1248,11 @@ fn chunks_in_shape<'a>(
         kept.push(chunk);
     }
     kept.sort_unstable_by(|a, b| a.offset.cmp(&b.offset));
+    // Storage compared as the caller's grouping compares it: the filter mask
+    // only over the pipeline's own filters (#888).
     let same_storage = |a: &ChunkRecord, b: &ChunkRecord| {
-        (a.address, a.size, a.filter_mask) == (b.address, b.size, b.filter_mask)
+        (a.address, a.size, a.filter_mask & pipeline_bits)
+            == (b.address, b.size, b.filter_mask & pipeline_bits)
     };
     if let Some(pair) = kept
         .windows(2)
@@ -1405,12 +1436,12 @@ mod tests {
             record(&[8, 3]),
             record(&[12, 0]),
         ];
-        let kept = chunks_in_shape(&chunks, &shape, &dims).expect("a valid index");
+        let kept = chunks_in_shape(&chunks, &shape, &dims, 1).expect("a valid index");
         assert_eq!(kept.len(), 6);
 
         // The same record twice, wherever the repeat sits, is read once.
         let dup = vec![record(&[4, 3]), record(&[0, 0]), record(&[4, 3])];
-        let kept = chunks_in_shape(&dup, &shape, &dims).expect("identical copies");
+        let kept = chunks_in_shape(&dup, &shape, &dims, 1).expect("identical copies");
         let origins: Vec<&[u64]> = kept.iter().map(|c| c.offset.as_slice()).collect();
         assert_eq!(origins, [&[0u64, 0][..], &[4, 3]]);
 
@@ -1423,18 +1454,29 @@ mod tests {
             let mut other = record(&[4, 3]);
             differ(&mut other);
             let conflict = vec![record(&[4, 3]), record(&[0, 0]), other];
-            let err = chunks_in_shape(&conflict, &shape, &dims).expect_err("ambiguous");
+            let err = chunks_in_shape(&conflict, &shape, &dims, 1).expect_err("ambiguous");
             assert!(err.to_string().contains("two different chunks"), "{err}");
         }
+
+        // Masks that differ only above the pipeline's filters name the same
+        // stored chunk (#888); over a filter the pipeline has, they conflict.
+        let mut masked = record(&[4, 3]);
+        masked.filter_mask = 2;
+        let pair = vec![record(&[4, 3]), masked];
+        assert_eq!(chunks_in_shape(&pair, &shape, &dims, 1).unwrap().len(), 1);
+        let err = chunks_in_shape(&pair, &shape, &dims, 3).expect_err("filter 1 differs");
+        assert!(err.to_string().contains("two different chunks"), "{err}");
 
         // An origin off the chunk grid is refused inside the shape, and
         // skipped unread outside it like any other record there.
         let off = vec![record(&[2, 0])];
-        let err = chunks_in_shape(&off, &shape, &dims).expect_err("off the grid");
+        let err = chunks_in_shape(&off, &shape, &dims, 1).expect_err("off the grid");
         assert!(err.to_string().contains("not on the chunk grid"), "{err}");
         let off_outside = vec![record(&[0, 0]), record(&[13, 1])];
         assert_eq!(
-            chunks_in_shape(&off_outside, &shape, &dims).unwrap().len(),
+            chunks_in_shape(&off_outside, &shape, &dims, 1)
+                .unwrap()
+                .len(),
             1
         );
 
@@ -1443,6 +1485,9 @@ mod tests {
         let mut far = record(&[12, 0]);
         far.address += 64;
         let outside = vec![record(&[0, 0]), record(&[12, 0]), far];
-        assert_eq!(chunks_in_shape(&outside, &shape, &dims).unwrap().len(), 1);
+        assert_eq!(
+            chunks_in_shape(&outside, &shape, &dims, 1).unwrap().len(),
+            1
+        );
     }
 }
