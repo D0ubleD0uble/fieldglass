@@ -232,14 +232,14 @@ ones before it with `=`, so publish them in that order, once the five crates
 ahead of them in the loop are on the index at the same version:
 
 ```sh
-cargo publish -p fieldglass-zarr        # with a scoped API token
+cargo publish -p fieldglass-zarr        # API token with the publish-new scope
 cargo publish -p fieldglass-fetchplan
 cargo publish -p fieldglass
 ```
 
 then add a Trusted Publishing entry for each, as above. The simplest order is to
 let the tag's `publish-crates` job publish the first five crates and fail on
-`fieldglass-zarr`, run the three commands from a checkout of the tag, add the
+`fieldglass-zarr`, run the three commands from a clean checkout of the tag, add the
 entries, and re-run the job, which then skips all eight. Unlike `fieldglass-aec`,
 a missed bootstrap here fails the job *after* those five are out, so the
 failure is partial; the re-run is still safe.
