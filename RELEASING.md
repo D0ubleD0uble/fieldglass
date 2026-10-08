@@ -115,7 +115,7 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
   ```sh
   git push origin "$RELEASE_SHA:refs/heads/dry-run/vX.Y.Z"
   gh workflow run release.yml --ref dry-run/vX.Y.Z
-  gh run list --workflow=release.yml --event workflow_dispatch --limit 3 --json databaseId,headSha,status,conclusion
+  gh run list --workflow=release.yml --event workflow_dispatch --limit 3 --json databaseId,headBranch,headSha,status,conclusion
   ```
 
   The run's `headSha` must be `$RELEASE_SHA`. Delete the branch after the tag (`git push origin --delete dry-run/vX.Y.Z`).
@@ -281,9 +281,10 @@ dependency.
 time. It is not in the version table in §1 for that reason.
 
 **Every tag publishes (except the bootstrap release, below); a
-`workflow_dispatch` dry run builds the tarball and does not publish it.** The dry run still runs the full package check — it installs
-the tarball into a throwaway project and decodes a GRIB2 and a NetCDF fixture
-through it — and uploads the `.tgz` as a run artefact. Every pull request runs
+`workflow_dispatch` dry run builds the tarball and does not publish it.** The
+dry run still runs the full package check — it installs the tarball into a
+throwaway project and decodes a GRIB2 and a NetCDF fixture through it — and
+uploads the `.tgz` as a run artefact. Every pull request runs
 that same check in `ci.yml`, so a broken package fails long before a tag.
 
 **Auth is Trusted Publishing** (OIDC), the same pattern as crates.io: the job
@@ -322,14 +323,23 @@ At the first release that ships the package (0.6.0):
    `$RELEASE_SHA`. `pack.sh` took the version from `Cargo.toml`, so it is
    already `X.Y.Z`, and `package.json` marks it public:
 
+   First find the run and check its commit. Go on only if this prints `same
+   commit`:
+
    ```sh
-   gh run list --workflow=release.yml --event workflow_dispatch --limit 3 --json databaseId,headSha,conclusion
-   [ "$(gh run view <dry-run id> --json headSha -q .headSha)" = "$RELEASE_SHA" ] \
-     && echo "same commit" || echo "STOP: this run built a different commit"
+   gh run list --workflow=release.yml --event workflow_dispatch --limit 3 --json databaseId,headBranch,headSha,conclusion
+   [ "$(gh run view <dry-run id> --json headSha -q .headSha)" = "$RELEASE_SHA" ] && echo "same commit"
+   ```
+
+   Then download, log in, and publish, one command at a time (`npm login` and
+   `npm publish` both prompt):
+
+   ```sh
    gh run download <dry-run id> -n fieldglass-wasm-npm -D /tmp/fieldglass-npm
-   npm login && npm whoami                                       # the account that owns the fieldglass org
-   npm publish /tmp/fieldglass-npm/fieldglass-wasm-X.Y.Z.tgz     # asks for the 2FA code
-   npm view @fieldglass/wasm version                             # X.Y.Z
+   npm login                                                   # the account that owns the fieldglass org
+   npm whoami
+   npm publish /tmp/fieldglass-npm/fieldglass-wasm-X.Y.Z.tgz   # asks for the 2FA code
+   npm view @fieldglass/wasm version                           # X.Y.Z
    ```
 
 4. **Tag** as usual. The tag's `publish-wasm-npm` job finds `X.Y.Z` with
