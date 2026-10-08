@@ -244,6 +244,13 @@ entries, and re-run the job, which then skips all eight. Unlike `fieldglass-aec`
 a missed bootstrap here fails the job *after* those five are out, so the
 failure is partial; the re-run is still safe.
 
+At 0.6.0 this falls in the same release as `fieldglass-aec`'s first publish
+(#861), so expect two stops: the first run fails on `fieldglass-aec` before
+anything goes out; after its bootstrap the re-run publishes the next four and
+fails on `fieldglass-zarr`; after the three commands above a final re-run skips
+all eight. `fieldglass-aec` pins nothing, so it can also be published by hand
+before the tag, which saves the first stop.
+
 To check all eight package and build before a release, without uploading
 anything, run `cargo publish --workspace --dry-run`. Cargo packages every
 publishable member and verifies each against the others' packages rather than
