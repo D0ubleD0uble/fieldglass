@@ -110,12 +110,15 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
 `master` since:
 
 - [ ] **CI green on the prep merge** — `gh run list --branch master --limit 5` and confirm the run for `$RELEASE_SHA`. All of `ci.yml`, `coverage.yml`, `semgrep.yml`, `codeql.yml` should pass.
-- [ ] **Release-workflow dry-run** — manually trigger `release.yml` against the prep merge commit. This builds the full six-target `.vsix` matrix without publishing (the publish job is gated on `refs/tags/v*`):
+- [ ] **Release-workflow dry-run** — manually trigger `release.yml` against the prep merge commit. This builds the full six-target `.vsix` matrix without publishing (the publish job is gated on `refs/tags/v*`). A manual run takes a branch or tag name, not a SHA, so point a throwaway branch at the commit first; running it on `master` would build whatever has landed since prep:
 
   ```sh
-  gh workflow run release.yml --ref "$RELEASE_SHA"
-  gh run list --workflow=release.yml --limit 3
+  git push origin "$RELEASE_SHA:refs/heads/dry-run/vX.Y.Z"
+  gh workflow run release.yml --ref dry-run/vX.Y.Z
+  gh run list --workflow=release.yml --event workflow_dispatch --limit 3 --json databaseId,headBranch,headSha,status,conclusion
   ```
+
+  The run's `headSha` must be `$RELEASE_SHA`. Delete the branch after the tag (`git push origin --delete dry-run/vX.Y.Z`).
 
   Wait for completion (typically ~5 min). The six native builds + six `.vsix` packages should all be green; the "Publish to Marketplace + GitHub Release" job should appear with a dash (skipped) — that's the gate working as designed.
 
@@ -132,6 +135,11 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
   - NetCDF: open a classic `.nc` (`netcdf_classic_dummy.nc`); confirm the dataset-metadata view renders dimensions, attributes, and variables.
 
   The integration tests cover the wire path, but a visual sanity check is the last guard against regressions that only manifest in the UI (CSS, picker wiring, colorbar).
+
+- [ ] **npm trusted publisher, when one is due** — at the first release after
+  `@fieldglass/wasm`'s bootstrap, create it now, no more than 2 days before the
+  tag (§3 *npm*). At the bootstrap release itself, publish the package by hand
+  from this dry run's artefact instead.
 
 - [ ] **Marketplace screenshot fresh** — if the render UI changed materially, refresh `extension/media/screenshot.png` so the Marketplace listing reflects the shipping version.
 
@@ -272,10 +280,11 @@ dependency.
 `pack.sh` refuses to publish — so there is no second place to bump at release
 time. It is not in the version table in §1 for that reason.
 
-**Every tag publishes; a `workflow_dispatch` dry run builds the tarball and does
-not publish it.** The dry run still runs the full package check — it installs
-the tarball into a throwaway project and decodes a GRIB2 and a NetCDF fixture
-through it — and uploads the `.tgz` as a run artefact. Every pull request runs
+**Every tag publishes (except the bootstrap release, below); a
+`workflow_dispatch` dry run builds the tarball and does not publish it.** The
+dry run still runs the full package check — it installs the tarball into a
+throwaway project and decodes a GRIB2 and a NetCDF fixture through it — and
+uploads the `.tgz` as a run artefact. Every pull request runs
 that same check in `ci.yml`, so a broken package fails long before a tag.
 
 **Auth is Trusted Publishing** (OIDC), the same pattern as crates.io: the job
@@ -288,26 +297,76 @@ ships with Node 22, so the job upgrades npm explicitly before publishing.
 **Re-running a failed release is safe.** The job asks `npm view` whether the
 version is already published and skips if it is.
 
-#### First publish: a one-time manual setup
+#### First publish: a one-time manual bootstrap
 
-Unlike crates.io, npm lets you configure a trusted publisher for a package name
-that does not exist yet, so no manual `npm publish` bootstrap is needed. On
-npmjs.com, under the `@fieldglass` scope, add a trusted publisher for
-`@fieldglass/wasm`: repository `D0ubleD0uble/fieldglass`, workflow
-`release.yml`. The scope itself has to exist and be public first.
+npm only lets you add a trusted publisher to a package **that already exists**
+("Package must exist", in the [`npm trust`
+reference](https://docs.npmjs.com/cli/v11/commands/npm-trust)), so the first
+publish of `@fieldglass/wasm` cannot come from the workflow. It is the real
+release, published by hand from the tarball the workflow built and the dry run
+checked. There is no placeholder version (#853).
 
-**Check the publishing mode while you are there.** Trusted-publisher
-configurations created after 2026-09-03 allow `npm stage publish` by default,
-and direct `npm publish` is a separate permission. The job runs `npm publish`,
-so either allow it, or expect the version to land staged and need approval from
-the Versions tab before it is public. Neither is wrong — staged is the safer
-default — but the job's success does not mean the package is installable, so
-decide which you want before the first release rather than during it.
+At the first release that ships the package (0.6.0):
 
-Until that configuration exists, a stable tag's `publish-wasm-npm` job fails at
-the last step with an authentication error. Everything before it — the build,
-the package check, the uploaded tarball — still runs, and no other job is
-affected.
+1. **Account.** Turn on two-factor authentication on the npm account (avatar →
+   *Account* → *Two-Factor Authentication*). npm requires it to publish and to
+   manage trusted publishers.
+2. **Scope.** Create the free npm organization `fieldglass` (avatar → *Add
+   Organization*, the unlimited-public-packages plan), which is the
+   `@fieldglass` scope. If the name is taken, stop: the package has to be
+   renamed in `crates/fieldglass-wasm/npm/package.json`, the READMEs,
+   `release.yml`, this file and the CHANGELOG before it can ship.
+3. **Publish**, once every §2 item has passed and immediately before pushing
+   the tag. A published npm version cannot be replaced, so a smoke-test failure
+   found after this step would leave npm's `X.Y.Z` different from every other
+   channel's. Take the tarball from §2's dry run, and check that the run built
+   `$RELEASE_SHA`. `pack.sh` took the version from `Cargo.toml`, so it is
+   already `X.Y.Z`, and `package.json` marks it public:
+
+   First find the run and check its commit. Go on only if this prints `same
+   commit`:
+
+   ```sh
+   gh run list --workflow=release.yml --event workflow_dispatch --limit 3 --json databaseId,headBranch,headSha,conclusion
+   [ "$(gh run view <dry-run id> --json headSha -q .headSha)" = "$RELEASE_SHA" ] && echo "same commit"
+   ```
+
+   Then download, log in, and publish, one command at a time (`npm login` and
+   `npm publish` both prompt):
+
+   ```sh
+   gh run download <dry-run id> -n fieldglass-wasm-npm -D /tmp/fieldglass-npm
+   npm login                                                   # the account that owns the fieldglass org
+   npm whoami
+   npm publish /tmp/fieldglass-npm/fieldglass-wasm-X.Y.Z.tgz   # asks for the 2FA code
+   npm view @fieldglass/wasm version                           # X.Y.Z
+   ```
+
+4. **Tag** as usual. The tag's `publish-wasm-npm` job finds `X.Y.Z` with
+   `npm view` and skips the publish, so it needs no trusted publisher yet.
+
+This first version has no npm provenance attestation, because it was not
+published from a workflow. Every later one does.
+
+**The trusted publisher is created just before the next release, not now.** A
+new trusted-publisher configuration expires if it has not published within
+**2 days** ([npm docs](https://docs.npmjs.com/trusted-publishers)), so one made
+right after the bootstrap would be dead by the next tag. At the next release,
+no more than 2 days before pushing the tag, open the package on npmjs.com →
+*Settings* → *Trusted publishing* → *GitHub Actions*, and enter:
+
+- organization or user `D0ubleD0uble`, repository `fieldglass`;
+- workflow filename `release.yml`;
+- no environment;
+- **allow `npm publish`**. Configurations created after 2026-09-03 allow only
+  `npm stage publish` unless this is ticked. A staged version is not public
+  until a maintainer approves it, so the job would succeed with nothing
+  installable, and its `npm view` re-run guard cannot rely on seeing it.
+
+npm does not check the configuration when you save it, so a typo shows up only
+as an authentication error at publish time. If the tag's run is more than
+2 days away after all, delete the configuration and create it again later; an
+expired one cannot be edited.
 
 Watch the run:
 
@@ -336,8 +395,8 @@ gh run watch
 - **Dry-run native build fails on one target** — usually a toolchain drift (windows-arm64 has been the recurring culprit). Fix in a normal feature PR to `master`, re-prep so the fix is in the tagged commit, rerun the dry-run; do not tag until it's green.
 - **Tag pushed but publish fails partway** — the GitHub Release will be missing assets. Re-run the failed job from the Actions UI; the workflow is idempotent for the platform builds.
 - **crates.io publish fails partway** — say core went out and `-grib1` failed. Re-run the job: it checks the index and skips what is already published, so it picks up where it stopped. A version that went out *wrongly* cannot be replaced, only yanked (`cargo yank -p <crate> --version X.Y.Z`), and yanking does not free the version number — the fix ships as the next patch.
-- **npm publish fails with an authentication error** — the trusted publisher for `@fieldglass/wasm` is not configured, or is configured for a different workflow file. The tarball is still attached to the run as an artefact, so a maintainer can publish it by hand if the release cannot wait.
-- **npm publish succeeds but `npm i @fieldglass/wasm` cannot find the version** — the trusted publisher is set to staged publishing, which is the default for configurations created after 2026-09-03. Approve the version from the package's Versions tab on npmjs.com.
+- **npm publish fails with an authentication error** — the trusted publisher for `@fieldglass/wasm` is missing, expired (it must publish within 2 days of being created), or configured for a different workflow file. The tarball is still attached to the run as an artefact, so a maintainer can publish it by hand if the release cannot wait; create a fresh configuration before the next tag.
+- **npm publish succeeds but `npm i @fieldglass/wasm` cannot find the version** — the trusted publisher was created without *allow `npm publish`*, so the version landed staged. Approve it from the package's Versions tab on npmjs.com, then recreate the configuration with direct publishing allowed.
 - **crates.io publish fails on the very first stable release** — most likely the Trusted Publishing bootstrap above hasn't been done. The rest of the release (Marketplace, GitHub Release) is unaffected; do the manual bootstrap and re-run the job.
 - **A regression slips past CI** — if it's caught after publish but before users adopt, the cleanest fix is a hotfix release (`vX.Y.Z+1`): land the fix on `master` like any other PR, run a fresh prep PR, and tag the new merge commit. Don't retag.
 - **Wanting a soak build before a stable one** — there is no pre-release channel any more, so this is a manual step: publish one version with `vsce publish --pre-release` (the flag is per-publish, not a property of the version), let it soak, then publish the *next* version without it. A version number can only be published once, so the promoted build needs its own number. For a one-off, handing out the `.vsix` from the release workflow's artifacts is usually simpler.
