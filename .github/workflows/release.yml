@@ -287,7 +287,14 @@ jobs:
           # configured by hand after its first, manual publish (ADR-0012
           # decision 10), so if that was missed it fails here, before anything
           # else goes out.
-          for crate in fieldglass-aec fieldglass-core fieldglass-grib1 fieldglass-grib2 fieldglass-netcdf; do
+          #
+          # `fieldglass-zarr`, `fieldglass-fetchplan` and `fieldglass` follow, in
+          # that order: zarr pins core, fetchplan pins zarr, and the umbrella pins
+          # every crate before it, so it goes last. Each had a manual first
+          # publish too (#851); a missed one fails here after the five ahead of
+          # it are out, and a re-run skips those.
+          for crate in fieldglass-aec fieldglass-core fieldglass-grib1 fieldglass-grib2 fieldglass-netcdf \
+                       fieldglass-zarr fieldglass-fetchplan fieldglass; do
             if published "$crate" "$version"; then
               echo "${crate} ${version} is already on crates.io — skipping"
               continue
