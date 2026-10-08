@@ -142,15 +142,17 @@ jobs:
             -p fieldglass-netcdf -p fieldglass-zarr -p fieldglass-fetchplan \
             -p fieldglass-aec -p fieldglass-wasm
 
-      # The umbrella with its *own* defaults, which the step above never sees:
-      # there it arrives only as `fieldglass-wasm`'s dependency, taken with
-      # `default-features = false` and four features named. So a wasm32 break
-      # behind `schema` (schemars) or `conformance` would merge green. Its own
-      # invocation rather than another `-p` on the line above, because selecting
-      # both packages at once unifies their features and would stop checking the
+      # The umbrella with every feature, which the step above never sees: there
+      # it arrives only as `fieldglass-wasm`'s dependency, taken with
+      # `default-features = false` and five features named. So a wasm32 break
+      # behind `schema` (schemars), `conformance`, `zarr` or `fetchplan` would
+      # merge green. `--all-features` rather than the defaults, because `schema`
+      # and `conformance` are no longer among them (#927). Its own invocation
+      # rather than another `-p` on the line above, because selecting both
+      # packages at once unifies their features and would stop checking the
       # façade against the exact set it declares.
-      - name: cargo check --target wasm32-unknown-unknown -p fieldglass
-        run: cargo check --target wasm32-unknown-unknown -p fieldglass
+      - name: cargo check --target wasm32-unknown-unknown -p fieldglass --all-features
+        run: cargo check --target wasm32-unknown-unknown -p fieldglass --all-features
 
       # The decode suites run where `usize` is 32 bits wide. A check proves the
       # crates compile for the browser; only this proves they *decode* the same
@@ -183,6 +185,11 @@ jobs:
       # the host's. It now recognises a foreign libm and stands aside for the
       # quantised golden beside it (#617, ADR-0009), so nothing here has to know
       # about it.
+      #
+      # `fieldglass/conformance` because the umbrella's conformance runner needs
+      # it and it is off by default (#927); `fieldglass-napi` is not in this
+      # invocation to unify it on. Without it `tests/conformance.rs` is a
+      # compile error, not a skipped target.
       - name: cargo test --target wasm32-wasip1 (32-bit pointer width)
         env:
           CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime --dir=. --dir=..
@@ -190,7 +197,7 @@ jobs:
           cargo test --target wasm32-wasip1 \
             -p fieldglass-core -p fieldglass-grib1 -p fieldglass-grib2 \
             -p fieldglass-netcdf -p fieldglass -p fieldglass-fetchplan \
-            -p fieldglass-aec \
+            -p fieldglass-aec --features fieldglass/conformance \
             -- --skip detect::fs_tests \
                --skip probing_an_empty_raster_answers_rather_than_panicking
 

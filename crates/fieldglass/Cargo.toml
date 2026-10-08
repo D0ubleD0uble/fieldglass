@@ -16,9 +16,9 @@ readme = "README.md"
 # crates.io Trusted Publishing can only be configured for a crate that already
 # exists (RELEASING.md).
 
-# Every feature is on by default today, so this changes nothing yet. It is the
-# same guard `fieldglass-core` carries: a feature taken off the default list
-# must not take its documentation off docs.rs with it.
+# `schema` and `conformance` are off by default (#927), and this is what keeps
+# their items on docs.rs. It is the same guard `fieldglass-core` carries: a
+# feature taken off the default list must not take its documentation with it.
 [package.metadata.docs.rs]
 all-features = true
 
@@ -61,9 +61,27 @@ serde_json = { workspace = true, optional = true }
 # feature, so nothing a host links carries it.
 fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["serde", "testing"] }
 serde_json = { workspace = true }
+# This crate itself, with `schema`, so the schema tests run under `cargo test`
+# although the feature is off by default (#927); a test behind it would
+# otherwise be skipped by the gate and pass while checking nothing. A
+# dev-dependency on the package itself unifies the feature into the library its
+# tests build against, and only there: `cargo build` and a crates.io consumer
+# see the defaults below. `cargo package` drops it, as it drops every path
+# dev-dependency without a version.
+#
+# `schema` alone, because it is the one off-by-default feature that turns no
+# other on. Whatever is named here is on in *every* test build of this crate,
+# including the reduced ones `cargo-test-umbrella-features` runs, so naming
+# `conformance` (which turns every format on) would compile out the
+# `grib1_compiled_out` tests that hook exists to run. `conformance` is asked for
+# where the suite runs instead; see that feature.
+fieldglass = { path = ".", default-features = false, features = ["schema"] }
 
 [features]
-default = ["grib1", "grib2", "netcdf", "zarr", "render", "analysis", "schema", "conformance", "fetchplan"]
+# Not `schema` or `conformance`: both exist for this repository's own tooling,
+# and a default feature cannot be taken back once the crate is published
+# without breaking whoever relied on it (#927).
+default = ["grib1", "grib2", "netcdf", "zarr", "render", "analysis", "fetchplan"]
 
 # --- Formats -----------------------------------------------------------------
 # One feature per decoder, all on by default, so `Session` dispatches over the
@@ -103,6 +121,10 @@ analysis = ["fieldglass-core/analysis"]
 # *record* the schema: `tests/api_rules.rs` writes it to `schema/api.schema.json`
 # and `tools/gen_api_declarations.py` reads that file, so both hosts take this
 # crate without the feature and no `.node` or `.wasm` carries `schemars`.
+#
+# **Off by default** (#927): a crates.io consumer reads the types, not their
+# schema, and should not compile `schemars` to do it. The self dev-dependency
+# above turns it on for this crate's tests.
 schema = ["dep:schemars"]
 
 # Fetch planning (#461, ADR-0005 decision 5): the manifest dialects in both
@@ -111,14 +133,15 @@ schema = ["dep:schemars"]
 # things a pure planner is not allowed to link: a `ParameterResolver` over the
 # GRIB2 tables (#426) and the semantic half of plan verification.
 #
-# **Default for the reason `conformance` is**, and it is the same trap: `cargo
-# test --workspace` does not enable optional features, so an off-by-default
-# `fetchplan` would leave `TableResolver`, `verify_message` and
-# `tests/fetch_plan_slices_a_message.rs` uncompiled in the one command that is
-# supposed to be the gate — passing while checking nothing. Both hosts take this
-# crate with `default-features = false`, so neither the addon nor the browser
-# bundle carries a planner it does not call; the browser one names it when it
-# starts fetching.
+# **Default**, and that is also what keeps it under test: `cargo test` does not
+# enable an optional feature, so an off-by-default `fetchplan` would leave
+# `TableResolver`, `verify_message` and `tests/fetch_plan_slices_a_message.rs`
+# uncompiled in the one command that is supposed to be the gate, passing while
+# checking nothing. (The self dev-dependency above cannot carry it: it forwards
+# `grib2`, which would put GRIB2 back into the reduced test builds.) Both hosts
+# take this crate with `default-features = false`, so neither the addon nor the
+# browser bundle carries a planner it does not call; the browser one names it
+# when it starts fetching.
 #
 # Forwards `grib2`, because the resolver is built out of the GRIB2 parameter
 # tables.
@@ -127,13 +150,19 @@ fetchplan = ["dep:fieldglass-fetchplan", "grib2"]
 # expectations, and the comparator, so a host's own test drives its binding
 # through them (#573).
 #
-# **Default on purpose.** The suite is this crate's own gate as well as a
-# host's, and `cargo test --workspace` does not enable non-default features —
-# a `required-features` test target would be skipped there and pass while
-# checking nothing. Both hosts take this crate with `default-features = false`,
-# so neither the browser bundle nor the addon carries it; `fieldglass-napi`
-# asks for it back in `[dev-dependencies]`, and the wasm host's runner reads
-# `conformance/suite.json` from Node without linking Rust at all.
+# **Off by default** (#927). It is of little use outside this repository: the
+# cases name fixtures by paths relative to `crates/`, and those fixtures are not
+# in the published package.
+#
+# The suite is still this crate's own gate, and it is not left to fail open.
+# `cargo test --workspace` has it on, because `fieldglass-napi` asks for it in
+# `[dev-dependencies]` and the resolver unifies that request into this crate's
+# test build. A run of this crate alone names it (`cargo test -p fieldglass
+# --features conformance`, as CI's wasm32 step does), and one that forgets is a
+# compile error in `tests/conformance.rs`, not a skipped target: a
+# `required-features` target would be skipped and pass while checking nothing.
+# The wasm host's runner reads `conformance/suite.json` from Node without
+# linking Rust at all.
 #
 # **It turns the whole surface on.** The suite is one recorded expectation per
 # case over every format and both surfaces, so a partial build has no honest
