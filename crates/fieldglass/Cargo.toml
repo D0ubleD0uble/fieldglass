@@ -10,13 +10,17 @@ description = "Host-neutral API over the Fieldglass decoders: open bytes, decode
 keywords = ["grib", "grib2", "meteorology", "weather", "raster"]
 categories = ["science", "parser-implementations"]
 readme = "README.md"
-# Not on crates.io yet. This is the surface ADR-0006 describes, filed under #460
-# so `fieldglass-wasm` had something to bind; #464 fixed the `Session` methods
-# and DTO fields against a second real consumer and moved the render
-# orchestration out of `fieldglass-napi`. What is left before publishing is the
-# release process (RELEASING.md), which is written around the four library
-# crates.
-publish = false
+# Published in lockstep, last in `release.yml`'s publish loop: it pins every
+# other published crate with `=`, so it cannot be packaged until they are all on
+# the index (#851). The first publish is by hand, as `fieldglass-aec`'s was:
+# crates.io Trusted Publishing can only be configured for a crate that already
+# exists (RELEASING.md).
+
+# Every feature is on by default today, so this changes nothing yet. It is the
+# same guard `fieldglass-core` carries: a feature taken off the default list
+# must not take its documentation off docs.rs with it.
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 # `default-features = false` on purpose (ADR-0006, planned/01-crates.md): the

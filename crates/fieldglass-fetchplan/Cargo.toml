@@ -10,10 +10,10 @@ description = "Reads cloud-native manifests (wgrib2 .idx, ECMWF .index, kerchunk
 keywords = ["grib", "meteorology", "range-request", "cloud-native"]
 categories = ["science", "parser-implementations"]
 readme = "README.md"
-# Not on crates.io yet, for the same reason `fieldglass` is not: the release
-# process (RELEASING.md) is written around the four library crates and this one
-# has no consumer outside the workspace until the browser host wires it up.
-publish = false
+# Published in lockstep, after `fieldglass-zarr` (which it pins with `=`) and
+# before `fieldglass` in `release.yml`'s publish loop (#851). Pre-1.0 it may
+# break between minors like every crate here, and the manifest dialects it reads
+# (kerchunk in particular) are still moving.
 
 [dependencies]
 # JSON-lines is the ECMWF `.index` dialect's whole grammar, and hand-rolling a
