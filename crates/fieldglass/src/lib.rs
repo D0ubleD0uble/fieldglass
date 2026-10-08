@@ -34,9 +34,11 @@
 //!
 //! # Feature flags
 //!
-//! Every one is on by default, so a consumer that says nothing gets the whole
-//! surface; a consumer that says `default-features = false` is asking to pay
-//! for less and names what it wants back (#552).
+//! Every one but `schema` and `conformance` is on by default, so a consumer
+//! that says nothing gets the whole surface; a consumer that says
+//! `default-features = false` is asking to pay for less and names what it wants
+//! back (#552). The two that are off serve this repository's own tooling
+//! (#927).
 //!
 //! - **`grib1`**, **`grib2`** *(default)* — the decoders [`Session::open`]
 //!   dispatches to. At least one is required. [`Session::open`] answers
@@ -59,16 +61,16 @@
 //!   `render` — a values-first host wants contours without the painter —
 //!   except for `render::contour_polylines`, which traces isolines and then
 //!   projects them onto the render raster and so needs both.
-//! - **`schema`** *(default)* — `schemars::JsonSchema` on every API type. A
-//!   host's TypeScript or Python declarations are generated from the schema
-//!   rather than kept by hand. Off for `fieldglass-wasm`, whose declarations
-//!   come from wasm-bindgen and whose bundle pays for every byte.
-//! - **`conformance`** *(default)* — the suite of cases and recorded
-//!   expectations every host binding is checked against (ADR-0006 decision 3,
-//!   #573). Default because it is this crate's own gate too, and
-//!   `cargo test --workspace` does not enable optional features. Both hosts
-//!   take this crate with `default-features = false`, so neither the addon nor
-//!   the browser bundle carries it.
+//! - **`schema`** — `schemars::JsonSchema` on every API type. A host's
+//!   TypeScript or Python declarations are generated from the schema rather
+//!   than kept by hand; neither shipped host links it, because the declarations
+//!   are generated once, in this crate's tests.
+//! - **`conformance`** — the suite of cases and recorded expectations every
+//!   host binding is checked against (ADR-0006 decision 3, #573). The cases
+//!   name fixtures by paths in this repository, which are not in the published
+//!   package, so it is of use only to a host built from a checkout. Turns on
+//!   `grib1`, `grib2`, `netcdf`, `render` and `analysis`, which the suite
+//!   drives.
 //! - **`fetchplan`** *(default)* — reading a cloud-native manifest into a
 //!   chunk plan, the bytes a host should fetch and which chunk or message each
 //!   range is (#461, #685, [ADR-0005] decision 5). It answers in both
@@ -76,11 +78,8 @@
 //!   chunk index over an array in a kerchunk reference document (#687). Plus
 //!   the two halves a pure planner cannot have: a `ParameterResolver` over the
 //!   GRIB2 tables, and the semantic half of verifying that the bytes that came
-//!   back are the message the sidecar promised. Default for the
-//!   reason `conformance` is — `cargo test --workspace` enables no optional
-//!   feature, so off-by-default would mean the planner's own gate never runs —
-//!   and carried by neither host, both of which take this crate with
-//!   `default-features = false`.
+//!   back are the message the sidecar promised. Carried by neither host, both
+//!   of which take this crate with `default-features = false`.
 //!
 //! [ADR-0005]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md
 //!
@@ -102,7 +101,7 @@
 )))]
 compile_error!(
     "fieldglass needs at least one format feature: enable `grib1`, `grib2`, `netcdf`, \
-     or any combination (all three are on by default; a `default-features = false` \
+     `zarr`, or any combination (all four are on by default; a `default-features = false` \
      consumer names back the ones it opens)"
 );
 

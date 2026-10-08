@@ -71,7 +71,7 @@ enum Class {
     /// A handle. Owns state, is never plain data, and is not serialised.
     Handle,
     /// The conformance harness's own data — the case list and the recording
-    /// (`conformance/suite.json`). It is a `pub mod` under a default feature,
+    /// (`conformance/suite.json`). It is a `pub mod` under a published feature,
     /// so it is public surface and has to be classified; it is not part of the
     /// host contract, and pinning it with `#[non_exhaustive]` would stop a
     /// runner in this repository writing a `Case` literal.
@@ -618,6 +618,11 @@ fn the_error_codes_are_the_ones_the_suite_pins() {
     let mut codes: Vec<String> = every_variant.iter().map(|e| e.code().to_string()).collect();
     codes.sort();
     codes.dedup();
+    // The pinned list is behind `conformance`, which is off by default (#927).
+    // `cargo test --workspace` has it on, through `fieldglass-napi`'s
+    // dev-dependency, and `tests/conformance.rs` refuses to compile in a run
+    // without it, so the gate cannot lose this comparison silently.
+    #[cfg(feature = "conformance")]
     assert_eq!(
         codes,
         fieldglass::conformance::error_codes(),
@@ -677,7 +682,7 @@ const MODULES: &[(&str, &str)] = &[
     ("error.rs", include_str!("../src/error.rs")),
     ("session.rs", include_str!("../src/session.rs")),
     ("render.rs", include_str!("../src/render.rs")),
-    // A `pub mod` under a default feature, so its types are public surface
+    // A `pub mod` under a published feature, so its types are public surface
     // even though no host reads them.
     ("conformance.rs", include_str!("../src/conformance.rs")),
     // Declares no type today, and is here so that one added tomorrow is

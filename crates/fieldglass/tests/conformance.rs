@@ -5,7 +5,7 @@
 //!
 //! | runner | binding under test | where |
 //! |---|---|---|
-//! | this file | `fieldglass::Session` itself | `cargo test --workspace`, and `cargo test --target wasm32-wasip1 -p fieldglass` in CI |
+//! | this file | `fieldglass::Session` itself | `cargo test --workspace`, and `cargo test --target wasm32-wasip1 -p fieldglass --features fieldglass/conformance` in CI |
 //! | `fieldglass-napi`'s `conformance_host` module | the napi handles | `cargo test --workspace` |
 //! | `crates/fieldglass-wasm/tests/node/conformance.mjs` | the built browser bundle, from Node | the `wasm32 build` CI job |
 //!
@@ -17,12 +17,22 @@
 //! # Recording
 //!
 //! ```sh
-//! FIELDGLASS_UPDATE_CONFORMANCE=1 cargo test -p fieldglass --test conformance
+//! FIELDGLASS_UPDATE_CONFORMANCE=1 cargo test -p fieldglass --features conformance --test conformance
 //! ```
 //!
 //! The run fails afterwards on purpose: a run that re-recorded has verified
 //! nothing, and an environment with the variable left set must not be able to
 //! turn the suite into a no-op that re-baselines every diff it exists to catch.
+
+// `conformance` is off by default (#927). A run that forgot it stops here with
+// the remedy, ahead of the unresolved import it also causes, and is never a
+// skipped target that passes while checking nothing. `cargo test --workspace` has it on through
+// `fieldglass-napi`'s dev-dependency.
+#[cfg(not(feature = "conformance"))]
+compile_error!(
+    "the conformance suite needs the `conformance` feature: \
+     `cargo test -p fieldglass --features conformance`"
+);
 
 use fieldglass::conformance::{
     self, Case, RecordedCase, Suite, Tolerance, cases, compare, error_codes, observe,

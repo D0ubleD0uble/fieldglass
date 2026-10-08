@@ -109,13 +109,14 @@ Discrete answers (counts, lengths, raster sizes, the mask, every error code)
 are compared exactly and the geolocated numbers to a tolerance, which is what
 [ADR-0009](../../docs/decisions/0009-cross-target-floating-point-agreement.md)
 measured. Re-record with
-`FIELDGLASS_UPDATE_CONFORMANCE=1 cargo test -p fieldglass --test conformance`;
+`FIELDGLASS_UPDATE_CONFORMANCE=1 cargo test -p fieldglass --features conformance --test conformance`;
 that run fails afterwards on purpose.
 
 ## Feature flags
 
-Every one is on by default. A consumer that says `default-features = false` is
-asking to pay for less, and names what it wants back.
+Every one but `schema` and `conformance` is on by default. A consumer that says
+`default-features = false` is asking to pay for less, and names what it wants
+back.
 
 - **`grib1`**, **`grib2`** *(default)* — the decoders `Session::open`
   dispatches to. At least one is required; a build with neither is a compile
@@ -129,17 +130,21 @@ asking to pay for less, and names what it wants back.
   `combine`, `contours`, and CSV. Independent of `render`, so a values-first
   host takes contours without the painter; `contour_polylines`, which projects
   its isolines onto the render raster, is the one member that needs both.
-- **`schema`** *(default)* — `schemars::JsonSchema` on every API type, which is
-  what a host's TypeScript or Python declarations are generated from. Off for
-  `fieldglass-wasm`, whose declarations come from wasm-bindgen.
-- **`conformance`** *(default)* — the suite above. Both hosts take this crate
-  with `default-features = false`, so neither the addon nor the browser bundle
-  carries it; it is on by default because `cargo test --workspace` does not
-  enable optional features, and a suite skipped there would pass while checking
-  nothing. It turns on `grib1`, `grib2`, `render` and `analysis` with it — but
-  not `schema` — because the suite is one recorded expectation per case over
-  every format and both surfaces, and a partial build has no honest subset of
-  it to run.
+- **`schema`** — `schemars::JsonSchema` on every API type, which is what a
+  host's TypeScript or Python declarations are generated from. Neither shipped
+  host links it: the declarations are generated once, by this crate's tests.
+- **`conformance`** — the suite above. Its cases name fixtures by paths in this
+  repository, which are not in the published crate, so it is of use only to a
+  host built from a checkout. It turns on `grib1`, `grib2`, `netcdf`, `render`
+  and `analysis` with it, but not `schema`, because the suite is one recorded
+  expectation per case over every format and both surfaces, and a partial build
+  has no honest subset of it to run.
+
+This crate's own tests turn `schema` on through a dev-dependency on the crate
+itself. `conformance` is on under `cargo test --workspace`, where
+`fieldglass-napi` asks for it; a run of this crate alone names it with
+`--features conformance`, and without it the suite's test target is a compile
+error rather than a silent skip.
 
 What the formats cost is most of the weight, because each decoder brings its
 own codecs:
