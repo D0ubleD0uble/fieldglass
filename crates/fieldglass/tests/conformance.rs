@@ -25,8 +25,8 @@
 //! turn the suite into a no-op that re-baselines every diff it exists to catch.
 
 // `conformance` is off by default (#927). A run that forgot it stops here with
-// the remedy, rather than at an unresolved import, and is never a skipped target
-// that passes while checking nothing. `cargo test --workspace` has it on through
+// the remedy, ahead of the unresolved import it also causes, and is never a
+// skipped target that passes while checking nothing. `cargo test --workspace` has it on through
 // `fieldglass-napi`'s dev-dependency.
 #[cfg(not(feature = "conformance"))]
 compile_error!(

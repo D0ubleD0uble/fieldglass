@@ -682,7 +682,7 @@ const MODULES: &[(&str, &str)] = &[
     ("error.rs", include_str!("../src/error.rs")),
     ("session.rs", include_str!("../src/session.rs")),
     ("render.rs", include_str!("../src/render.rs")),
-    // A `pub mod` under a default feature, so its types are public surface
+    // A `pub mod` under a published feature, so its types are public surface
     // even though no host reads them.
     ("conformance.rs", include_str!("../src/conformance.rs")),
     // Declares no type today, and is here so that one added tomorrow is

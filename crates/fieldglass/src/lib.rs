@@ -101,7 +101,7 @@
 )))]
 compile_error!(
     "fieldglass needs at least one format feature: enable `grib1`, `grib2`, `netcdf`, \
-     or any combination (all three are on by default; a `default-features = false` \
+     `zarr`, or any combination (all four are on by default; a `default-features = false` \
      consumer names back the ones it opens)"
 );
 

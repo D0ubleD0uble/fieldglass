@@ -140,8 +140,8 @@ on.
 decision 3 puts the fixtures and expected outputs in `fieldglass`, as data, and
 has each host run its own binding through them; `crates/fieldglass/conformance/suite.json`
 is that data and `fieldglass::conformance` (feature `conformance`, off by
-default and on for the crate's own tests, #927) is the runner's machinery — the case list, the observation each
-operation produces, and the comparator. Three runners replay it:
+default and on for the crate's own tests, #927) is the runner's machinery —
+the case list, the observation each operation produces, and the comparator. Three runners replay it:
 `crates/fieldglass/tests/conformance.rs` over `Session` (native, and
 `wasm32-wasip1` in CI), `fieldglass-napi`'s `conformance_host` module over the
 napi handles, and `crates/fieldglass-wasm/tests/node/conformance.mjs` over the
