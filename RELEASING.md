@@ -110,12 +110,15 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
 `master` since:
 
 - [ ] **CI green on the prep merge** — `gh run list --branch master --limit 5` and confirm the run for `$RELEASE_SHA`. All of `ci.yml`, `coverage.yml`, `semgrep.yml`, `codeql.yml` should pass.
-- [ ] **Release-workflow dry-run** — manually trigger `release.yml` against the prep merge commit. This builds the full six-target `.vsix` matrix without publishing (the publish job is gated on `refs/tags/v*`):
+- [ ] **Release-workflow dry-run** — manually trigger `release.yml` against the prep merge commit. This builds the full six-target `.vsix` matrix without publishing (the publish job is gated on `refs/tags/v*`). A manual run takes a branch or tag name, not a SHA, so point a throwaway branch at the commit first; running it on `master` would build whatever has landed since prep:
 
   ```sh
-  gh workflow run release.yml --ref "$RELEASE_SHA"
-  gh run list --workflow=release.yml --limit 3
+  git push origin "$RELEASE_SHA:refs/heads/dry-run/vX.Y.Z"
+  gh workflow run release.yml --ref dry-run/vX.Y.Z
+  gh run list --workflow=release.yml --event workflow_dispatch --limit 3 --json databaseId,headSha,status,conclusion
   ```
+
+  The run's `headSha` must be `$RELEASE_SHA`. Delete the branch after the tag (`git push origin --delete dry-run/vX.Y.Z`).
 
   Wait for completion (typically ~5 min). The six native builds + six `.vsix` packages should all be green; the "Publish to Marketplace + GitHub Release" job should appear with a dash (skipped) — that's the gate working as designed.
 
@@ -277,8 +280,8 @@ dependency.
 `pack.sh` refuses to publish — so there is no second place to bump at release
 time. It is not in the version table in §1 for that reason.
 
-**Every tag publishes; a `workflow_dispatch` dry run builds the tarball and does
-not publish it.** The dry run still runs the full package check — it installs
+**Every tag publishes (except the bootstrap release, below); a
+`workflow_dispatch` dry run builds the tarball and does not publish it.** The dry run still runs the full package check — it installs
 the tarball into a throwaway project and decodes a GRIB2 and a NetCDF fixture
 through it — and uploads the `.tgz` as a run artefact. Every pull request runs
 that same check in `ci.yml`, so a broken package fails long before a tag.
@@ -312,14 +315,20 @@ At the first release that ships the package (0.6.0):
    `@fieldglass` scope. If the name is taken, stop: the package has to be
    renamed in `crates/fieldglass-wasm/npm/package.json`, the READMEs,
    `release.yml`, this file and the CHANGELOG before it can ship.
-3. **Publish.** After §2's dry run of `$RELEASE_SHA` is green, download its
-   `fieldglass-wasm-npm` artefact and publish that tarball. `pack.sh` took the
-   version from `Cargo.toml`, so it is already `X.Y.Z`, and `package.json` marks
-   it public:
+3. **Publish**, once every §2 item has passed and immediately before pushing
+   the tag. A published npm version cannot be replaced, so a smoke-test failure
+   found after this step would leave npm's `X.Y.Z` different from every other
+   channel's. Take the tarball from §2's dry run, and check that the run built
+   `$RELEASE_SHA`. `pack.sh` took the version from `Cargo.toml`, so it is
+   already `X.Y.Z`, and `package.json` marks it public:
 
    ```sh
+   gh run list --workflow=release.yml --event workflow_dispatch --limit 3 --json databaseId,headSha,conclusion
+   [ "$(gh run view <dry-run id> --json headSha -q .headSha)" = "$RELEASE_SHA" ] \
+     && echo "same commit" || echo "STOP: this run built a different commit"
    gh run download <dry-run id> -n fieldglass-wasm-npm -D /tmp/fieldglass-npm
-   npm publish /tmp/fieldglass-npm/fieldglass-wasm-X.Y.Z.tgz   # asks for the 2FA code
+   npm login && npm whoami                                       # the account that owns the fieldglass org
+   npm publish /tmp/fieldglass-npm/fieldglass-wasm-X.Y.Z.tgz     # asks for the 2FA code
    npm view @fieldglass/wasm version                             # X.Y.Z
    ```
 
@@ -340,9 +349,9 @@ no more than 2 days before pushing the tag, open the package on npmjs.com →
 - workflow filename `release.yml`;
 - no environment;
 - **allow `npm publish`**. Configurations created after 2026-09-03 allow only
-  `npm stage publish` unless this is ticked, and a staged version stays
-  invisible to `npm view`, so the job's re-run guard would try to publish it
-  again.
+  `npm stage publish` unless this is ticked. A staged version is not public
+  until a maintainer approves it, so the job would succeed with nothing
+  installable, and its `npm view` re-run guard cannot rely on seeing it.
 
 npm does not check the configuration when you save it, so a typo shows up only
 as an authentication error at publish time. If the tag's run is more than
