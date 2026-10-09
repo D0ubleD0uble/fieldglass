@@ -26,7 +26,7 @@ use super::layout::{ChunkIndex, ChunkedLayout, DataLayout};
 use super::object_header::{self, read_usize_le};
 use super::source::{Cursor, Fields, FileCursor, read_at};
 use super::{Hdf5Probe, attribute, dataspace, filter::FilterPipeline, layout};
-use crate::classic::{MAX_VAR_ELEMENTS, NcType};
+use crate::classic::NcType;
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteRange, ByteSource};
 
@@ -93,13 +93,13 @@ pub fn read_dataset_values<S: ByteSource + ?Sized>(
     let fills = missing_sentinels(source, object_header_address, probe)?;
 
     let shape: Vec<u64> = dataspace.dims.clone();
-    let total = checked_total(&shape)?;
     let elem = datatype.size as usize;
     if elem == 0 {
         return Err(FieldglassError::Parse(
             "dataset element size is zero".into(),
         ));
     }
+    let total = checked_total(&shape, elem)?;
     if total == 0 {
         return Ok(Vec::new());
     }
@@ -156,21 +156,22 @@ fn decode_elements(
     Ok(out)
 }
 
-/// Total element count for `shape`, with the same overflow / cap guards the
-/// classic path applies. A rank-0 (scalar) dataset has one element.
-fn checked_total(shape: &[u64]) -> Result<usize, FieldglassError> {
+/// Total element count for `shape` of `elem`-byte elements, with the same
+/// overflow and budget guards the classic path applies. A rank-0 (scalar)
+/// dataset has one element.
+///
+/// The budget counts the stored bytes as well as the output, because
+/// [`assemble_raw`] holds all of them while the output is built. The file's
+/// size bounds neither: a chunked dataset that stores no chunks reads whole as
+/// its fill value (#847).
+fn checked_total(shape: &[u64], elem: usize) -> Result<usize, FieldglassError> {
     let total_u64 = shape
         .iter()
         .try_fold(1u64, |acc, &d| acc.checked_mul(d))
         .ok_or_else(|| FieldglassError::Parse(format!("dataset shape {shape:?} overflows")))?;
-    let total = usize::try_from(total_u64)
-        .map_err(|_| FieldglassError::Parse("dataset element count exceeds usize".into()))?;
-    if total > MAX_VAR_ELEMENTS {
-        return Err(FieldglassError::Parse(format!(
-            "dataset has {total} elements, exceeds cap of {MAX_VAR_ELEMENTS}"
-        )));
-    }
-    Ok(total)
+    fieldglass_core::whole_variable_read_bytes(total_u64, elem as u64)?;
+    usize::try_from(total_u64)
+        .map_err(|_| FieldglassError::Parse("dataset element count exceeds usize".into()))
 }
 
 /// Produce the dataset's raw element bytes (`total * elem` long) for any layout

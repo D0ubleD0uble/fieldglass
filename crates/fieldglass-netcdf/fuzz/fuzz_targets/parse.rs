@@ -52,20 +52,21 @@ const MAX_DECODED_VARIABLES: usize = 16;
 /// The declared element count above which a variable's values are not decoded,
 /// unless the reader refuses it outright.
 ///
-/// A whole-variable decode is bounded by `MAX_VARIABLE_ELEMENTS`, but that cap
-/// is sized for a real reanalysis variable, not for libFuzzer's 2 GB RSS limit:
-/// the decode returns one `Option<f64>` per element (16 bytes) and holds the
-/// stored bytes alongside while it assembles them. A chunked dataset need not
-/// store its chunks (one it omits reads as the fill value), so a 13 KB HDF5
-/// file declares 146,800,704 elements, inside the cap, and its decode needs
-/// about 2.9 GB (`corpus/parse/oom_large_fill_dataset.h5`). That is the reader
-/// working as designed, and libFuzzer reporting it as out-of-memory ends the
-/// run at the first such input.
+/// A whole-variable decode is bounded by `MAX_VARIABLE_BYTES` (2 GiB held at
+/// once), which is sized for a real reanalysis variable, not for libFuzzer's
+/// 2 GB RSS limit: the decode returns one `Option<f64>` per element (16 bytes)
+/// and holds the stored bytes alongside while it assembles them. A chunked
+/// dataset need not store its chunks (one it omits reads as the fill value),
+/// so a small file can ask for most of that budget. Decoding a variable just
+/// inside it is the reader working as designed, and libFuzzer reporting it as
+/// out-of-memory would end the run at the first such input.
 ///
 /// Nothing the decode does needs a large shape: the chunk indexes, the filter
-/// pipeline and the fill path are all reached at small sizes. A shape past the
-/// cap is still decoded, so the refusal itself stays fuzzed; it fails before
-/// the values are allocated.
+/// pipeline and the fill path are all reached at small sizes. A shape past
+/// `MAX_VARIABLE_ELEMENTS`, which the reader refuses whatever its type, is
+/// still decoded, so the refusal itself stays fuzzed; it fails before the
+/// values are allocated. `corpus/parse/oom_large_fill_dataset.h5`, a 13 KB
+/// file asking for 2.9 GB (#847), is one.
 const MAX_FUZZ_DECODE_ELEMENTS: u64 = 1 << 22;
 
 fn within_decode_budget(shape: &[u64]) -> bool {

@@ -322,10 +322,14 @@ const NC_ATTRIBUTE: u32 = 0x0C;
 /// at a few dozen dims; anything beyond this is treated as corrupt.
 pub const MAX_VAR_DIMS: u64 = 4096;
 
-/// Hard cap on the number of elements `decode_variable_raw` will allocate
-/// for one variable's *values*, guarding against a corrupt header that declares
-/// a huge shape. This bounds value decode only — header metadata (names, dims,
-/// attributes) is capped separately (see [`MAX_NAME_LEN`], [`MAX_VAR_DIMS`]).
+/// The most elements `decode_variable_raw` will read for one variable of any
+/// type, guarding against a corrupt header that declares a huge shape. This
+/// bounds value decode only — header metadata (names, dims, attributes) is
+/// capped separately (see [`MAX_NAME_LEN`], [`MAX_VAR_DIMS`]).
+///
+/// The read itself is bounded in bytes, by
+/// [`fieldglass_core::whole_variable_read_bytes`]: a wider type is refused at a
+/// smaller count than this, which is the count for a one-byte type (#847).
 ///
 /// An alias of [`fieldglass_core::MAX_VARIABLE_ELEMENTS`] and deliberately
 /// **not** of `MAX_FIELD_POINTS`: this is a whole variable, every record and
@@ -570,13 +574,10 @@ fn variable_layout(
             var.name
         ))
     })?;
+    // The output and the stored bytes both count: a classic file holds every
+    // byte it declares, but a one-byte type still widens seventeen-fold.
+    fieldglass_core::whole_variable_read_bytes(total_u64, var.nc_type.element_size() as u64)?;
     let total = checked_usize(total_u64, "NetCDF variable element count")?;
-    if total > MAX_VAR_ELEMENTS {
-        return Err(FieldglassError::Parse(format!(
-            "variable {:?} has {total} elements, exceeds cap of {MAX_VAR_ELEMENTS}",
-            var.name
-        )));
-    }
     if total == 0 {
         return Ok((
             var,

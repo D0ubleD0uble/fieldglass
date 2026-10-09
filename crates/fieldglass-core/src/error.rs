@@ -69,10 +69,12 @@ pub enum FieldglassError {
         /// How many were asked for.
         wanted: u64,
     },
-    /// The chunk-grid arithmetic refused something.
+    /// The array arithmetic refused something: a chunk-grid index or region,
+    /// or a whole-variable read past [`MAX_VARIABLE_BYTES`](crate::MAX_VARIABLE_BYTES).
     ///
     /// Carried rather than flattened into a string so a reader that returns
-    /// this type still hands back the axis and the extent that failed.
+    /// this type still hands back the numbers that failed: the axis and
+    /// extent, or the element count and bytes.
     /// [`ArrayError`](crate::array::ArrayError) is its own type because
     /// callers keep it in enums deriving `Clone` and `PartialEq`, which this
     /// one cannot.
