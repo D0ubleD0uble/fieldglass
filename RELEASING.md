@@ -85,9 +85,12 @@ so a stale capability list goes out to users.
 Re-record the browser bundle-size table in `crates/fieldglass-wasm/README.md`.
 Between releases a PR re-records it only once CI reports more than 1% drift
 from it, so smaller changes add up over a cycle, and this is where they are
-written down. Build both bundles with the binaryen version `ci.yml`'s `wasm` job pins
-and run `tools/check_wasm_bundle_size.py`, as that README describes. The diff
-then shows the whole cycle's growth.
+written down. Push the prep branch, open the *Bundle-size gate* step of its
+`ci.yml` `wasm` job, and copy each build's measured `.wasm` and gzipped bytes
+from the run summary into the table, with a paragraph above it saying what the
+cycle added. Use CI's figures, not a local build's: CI builds on the toolchain
+the release ships with. Push that as a commit on the prep branch; the next run
+then reports 0.0%.
 
 Run the local gates before pushing:
 
