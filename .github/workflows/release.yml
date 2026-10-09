@@ -131,8 +131,9 @@ jobs:
         run: npm ci
         working-directory: extension
 
+      # The same vsce the `publish` job uses.
       - name: Install vsce
-        run: npm install -g @vscode/vsce
+        run: npm install -g @vscode/vsce@4.0.0
 
       - name: Package extension (--target ${{ matrix.vsce_target }})
         run: |
@@ -150,11 +151,12 @@ jobs:
           path: dist/*.vsix
           if-no-files-found: error
 
-  # Runs before anything is published, and on a dry run too (#858). A release
-  # half-published is worse than one that never started: the Marketplace,
-  # crates.io and npm keep a version once it is out. So every publishing job
-  # waits for this one, and the GitHub Release body it checks is the one the
-  # `publish` job uses.
+  # Runs before anything is published, and on a dry run too (#858). The
+  # Release action cuts a body at 124,999 characters without a warning, so an
+  # oversized CHANGELOG section would ship as truncated notes, after the
+  # Marketplace, crates.io and npm already hold the version. So every
+  # publishing job waits for this one, and the GitHub Release body it checks is
+  # the one the `publish` job uses.
   release-notes:
     name: Check release notes
     runs-on: ubuntu-latest
@@ -163,9 +165,9 @@ jobs:
 
       # On a tag, the `## [X.Y.Z]` section, which must exist and match the
       # workspace version. On a dry run there is no tag, so it checks the
-      # workspace version's section if there is one and `## [Unreleased]` if it
-      # has content. Either way it fails over GitHub's 125,000-character limit
-      # for a release body. `tools/release_notes.py` has the details.
+      # workspace version's section, which must exist, and `## [Unreleased]` if
+      # it has content. Either way it fails at 125,000 characters or more.
+      # `tools/release_notes.py` has the details.
       - name: Extract and check release notes
         run: |
           set -euo pipefail
@@ -213,8 +215,10 @@ jobs:
         with:
           name: release-notes
 
+      # Pinned: re-run safety rests on `--skip-duplicate` behaving as read in
+      # this version's source (it matches on version and target platform).
       - name: Install vsce
-        run: npm install -g @vscode/vsce
+        run: npm install -g @vscode/vsce@4.0.0
 
       # `--skip-duplicate` makes a re-run safe (#858). vsce checks each
       # package's version and target platform against the Marketplace and skips
