@@ -1035,6 +1035,16 @@ coordinates are classifiable on their own attributes but never reach axis
 detection, because that is offered only 1-D coordinate variables. #445 is what
 changes it.
 
+## `../fuzz_seeds/oom_large_fill_dataset.h5`
+
+A byte-for-byte copy of the seed of the same name in this crate's fuzz corpus
+(`fuzz/corpus/parse/`; provenance in `fuzz/README.md`), read by
+`tests/whole_variable_budget.rs` (#847). The fuzz directory is a separate
+package, so `cargo package` leaves it out; the copy is what the published
+crate's test reads (#926). It sits in `tests/fuzz_seeds/`, outside this
+directory, so neither the `*.nc` and `*.h5` sweeps nor the napi display
+golden's corpus walk treat a hostile seed as a fixture.
+
 ## Classic record-layout fixtures (`record_single_*.nc`, `record_mixed_cdf1.nc`)
 
 Targets for the record stride of NetCDF classic (#204). The format

@@ -783,7 +783,9 @@ fixtures state it rather than inheriting the sample's.
 
 ### Two oracles, and why
 
-`{fixture}.coords.json` holds the pixel centres. **RING comes from the pinned
+`{fixture}.coords.json` holds the pixel centres. These files live in
+`crates/fieldglass-core/tests/fixtures/healpix/`, beside their only reader, so
+the published `fieldglass-core` carries them (#926). **RING comes from the pinned
 eccodes 2.34.1 `grib_get_data`**, the usual convention. **NESTED comes from the
 newer `eccodes` PyPI wheel (2.48)**, because 2.34.1 decodes NESTED *metadata*
 but its geoiterator refuses to place the pixels:
@@ -957,3 +959,24 @@ still do.) The
 statistics, which is why the four are listed in `NO_VALUE_CHECK` in
 `eccodes_reference.rs`. `decode_ccsds.rs` also checks each decode equals the
 source fixture's decode value for value.
+
+## `../other_edition/ieee32_cmc_wind.grib1`
+
+A byte-for-byte copy of `fieldglass-grib1`'s fixture of the same name (see that
+crate's `tests/fixtures/NOTICE.md`). `tests/byte_source.rs` puts it between
+GRIB2 messages, where the scan has to step over it. It is copied rather than
+read from the sibling crate so that the published `fieldglass-grib2` carries
+every file its tests read (#926). It sits in `tests/other_edition/`, outside
+this directory, so neither the fixture sweeps nor the napi display golden's
+corpus walk count it as a GRIB2 fixture.
+
+## `../fuzz_seeds/`
+
+Byte-for-byte copies of two seeds from this crate's fuzz corpus
+(`fuzz/corpus/decode/`; provenance in `fuzz/README.md`):
+`jpeg2000_codestream_8192x8192_on_1x1.grib2` (#848) and
+`constant_field_bifourier_ellipse_wide.grib2` (#849). The fuzz directory is a
+separate package, so `cargo package` leaves it out; the tests that embed these
+seeds read the copies in `tests/fuzz_seeds/`, which the published crate carries
+(#926). They sit outside this directory because they are hostile inputs, not
+fixtures: the display golden's corpus walk must not record them.

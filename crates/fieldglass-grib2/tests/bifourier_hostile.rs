@@ -4,10 +4,11 @@
 //!
 //! The seed is the committed fuzz input
 //! `fuzz/corpus/decode/constant_field_bifourier_ellipse_wide.grib2` (145
-//! bytes; provenance in `fuzz/README.md`): an ellipse truncation N =
-//! 16,783,359, M = 0, with §5 declaring 80 coefficients. Its limit array alone
-//! is 134 MB, so the reader used to spend that and about 0.3 s before the
-//! count refused it.
+//! bytes; provenance in `fuzz/README.md`), read from its copy in
+//! `tests/fuzz_seeds/` so the published crate carries it (#926): an ellipse
+//! truncation N = 16,783,359, M = 0, with §5 declaring 80 coefficients. Its
+//! limit array alone is 134 MB, so the reader used to spend that and about
+//! 0.3 s before the count refused it.
 //!
 //! A tracking global allocator records the largest single allocation, only
 //! while this thread has armed it, so tests on other threads cannot add to it.
@@ -80,8 +81,7 @@ fn largest_allocation_in<R>(f: impl FnOnce() -> R) -> (usize, R) {
 fn wide_ellipse_seed_is_refused_before_its_layout_is_allocated() {
     // Embedded rather than read at run time: the wasm32-wasip1 run preopens
     // only the working directory and its parent.
-    let bytes = include_bytes!("../fuzz/corpus/decode/constant_field_bifourier_ellipse_wide.grib2")
-        .to_vec();
+    let bytes = include_bytes!("fuzz_seeds/constant_field_bifourier_ellipse_wide.grib2").to_vec();
     let reader = Grib2Reader::from_bytes(bytes).expect("parse");
     let bf = reader.messages[0].gds.bifourier().expect("§3 bi-Fourier");
     assert_eq!(

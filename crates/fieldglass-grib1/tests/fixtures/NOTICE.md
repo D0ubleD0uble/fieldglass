@@ -465,3 +465,13 @@ mixed-precision layer in hPa. WMO's Code Table 3, as eccodes transcribes it,
 gives it in kPa, with the bottom as 1100 hPa minus the pressure. The crate
 follows WMO and shows the top as octet 11 × 10 hPa; one octet of hPa could not
 reach below 255 hPa, which defeats a mixed-precision layer.
+
+## `../other_edition/regular_latlon_surface.grib2`
+
+A byte-for-byte copy of `fieldglass-grib2`'s fixture of the same name (see that
+crate's `tests/fixtures/NOTICE.md`; eccodes sample, Apache 2.0).
+`tests/byte_source.rs` puts it between GRIB1 messages, where the scan has to
+step over it. It is copied rather than read from the sibling crate so that the
+published `fieldglass-grib1` carries every file its tests read (#926). It sits
+in `tests/other_edition/`, outside this directory, so neither the fixture sweeps
+nor the napi display golden's corpus walk count it as a GRIB1 fixture.
