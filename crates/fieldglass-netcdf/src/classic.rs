@@ -1597,6 +1597,57 @@ mod tests {
         assert_eq!(out, vec![Some(7.5), None]);
     }
 
+    /// A classic whole-variable read meets the byte budget for its own type
+    /// (#943): 100 M `double`s, 2.4 GB at 24 bytes each, are refused where 100 M
+    /// `byte`s, 1.7 GB at 17, are not. The header is all `variable_plan` reads,
+    /// so no data is needed. A region of the refused variable still plans,
+    /// since a region is bounded by itself (#939).
+    // `&[5..10]` is a region of one axis, not a mistyped `Vec` of its values.
+    #[allow(clippy::single_range_in_vec_init)]
+    #[test]
+    fn a_whole_read_meets_the_byte_budget_for_its_type() {
+        use fieldglass_core::array::ArrayError;
+
+        const COUNT: u64 = 100_000_000;
+        let header = |nc_type: NcType, is_record: bool| ClassicHeader {
+            version: ClassicVersion::Cdf5,
+            numrecs: Some(if is_record { COUNT } else { 0 }),
+            dimensions: vec![Dimension {
+                name: "n".to_string(),
+                length: if is_record { 0 } else { COUNT },
+                is_record,
+            }],
+            global_attributes: Vec::new(),
+            variables: vec![var("v", vec![0], nc_type, 0, 1024)],
+        };
+        for is_record in [false, true] {
+            let refused = variable_plan(&header(NcType::Double, is_record), 0)
+                .expect_err("2.4 GB of doubles is past the budget");
+            assert!(
+                matches!(
+                    refused,
+                    FieldglassError::Array(ArrayError::VariableTooLarge {
+                        elements: COUNT,
+                        element_bytes: 8,
+                        ..
+                    })
+                ),
+                "record {is_record}: {refused:?}"
+            );
+            // A record variable's plan is a range per record, 100 M of them,
+            // so the narrower type is checked on the fixed variable alone.
+            if !is_record {
+                assert!(
+                    variable_plan(&header(NcType::Byte, is_record), 0).is_ok(),
+                    "1.7 GB of bytes is inside the budget"
+                );
+            }
+            let plane = region_plan(&header(NcType::Double, is_record), 0, &[5..10])
+                .expect("a region is not held to the whole-variable budget");
+            assert_eq!(plane.iter().map(|r| r.len).sum::<u64>(), 5 * 8);
+        }
+    }
+
     #[test]
     fn fixed_variable_decodes_contiguously() {
         let header = ClassicHeader {

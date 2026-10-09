@@ -40,6 +40,14 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/ersst_v5_187001_cdf5.nc"),
     ),
     (
+        "fill_only_at_field_cap.nc",
+        include_bytes!("fixtures/fill_only_at_field_cap.nc"),
+    ),
+    (
+        "fill_only_past_field_cap.nc",
+        include_bytes!("fixtures/fill_only_past_field_cap.nc"),
+    ),
+    (
         "goes16_abi_cmip.nc",
         include_bytes!("fixtures/goes16_abi_cmip.nc"),
     ),

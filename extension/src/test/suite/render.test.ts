@@ -661,9 +661,11 @@ suite("Render pipeline", () => {
   test("NetCDF: a 13 KB file whose variable reads whole as 2.9 GB is refused, not allocated (#847)", () => {
     // The fuzz seed's chunked dataset stores no chunks, so it reads whole as
     // its fill value: 146,800,704 four-byte values, 2.9 GB held at once. The
-    // handle reads and caches the whole variable before it picks a slice, so
-    // drawing one slice asked the extension host for all of it. The reader
-    // now refuses it past its 2 GiB budget, and the handle passes that on.
+    // handle used to read and cache the whole variable before it picked a
+    // slice, so drawing one slice asked the extension host for all of it. A
+    // slice is now read as a region, and this one, the whole 2-D variable, is
+    // past the values one field may hold, so it is refused before any is read
+    // (#939, #942).
     const native = loadNative();
     assert.ok(native, "native module must load");
     const ext = vscode.extensions.getExtension(EXT_ID);
@@ -680,7 +682,7 @@ suite("Render pipeline", () => {
     assert.ok(large, "the seed offers its large dataset");
     assert.throws(
       () => handle.renderSlice(large.variableIndex, 0, 1, [0, 0], defaultRenderOptions()),
-      /too large to read whole.*would take 2\.7 GiB.*more than the 2\.0 GiB.*The file itself is fine/,
+      /asks for 146800704 values at once.*more than the 67108864 one field may hold.*The file itself is fine/,
     );
   });
 });

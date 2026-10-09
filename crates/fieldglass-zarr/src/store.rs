@@ -761,16 +761,9 @@ fn element_type(dtype: DType) -> ElementType {
 #[cfg(feature = "codecs")]
 /// The product of some extents, refused past [`MAX_REGION_ELEMENTS`].
 fn element_count(extents: &[u64]) -> Result<usize, FieldglassError> {
-    extents
-        .iter()
-        .try_fold(1u64, |acc, &n| acc.checked_mul(n))
-        .filter(|&count| count <= MAX_REGION_ELEMENTS)
-        .and_then(|count| usize::try_from(count).ok())
-        .ok_or_else(|| {
-            FieldglassError::Parse(format!(
-                "{extents:?} is more than the {MAX_REGION_ELEMENTS} elements one read will hold"
-            ))
-        })
+    // Core's check, the one a NetCDF region read makes too, so both reach a
+    // host as the same refusal (#942). `MAX_REGION_ELEMENTS` is its cap.
+    Ok(fieldglass_core::array::field_element_count(extents)?)
 }
 
 #[cfg(feature = "codecs")]

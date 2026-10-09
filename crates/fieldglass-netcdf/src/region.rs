@@ -9,13 +9,16 @@
 
 use std::ops::Range;
 
-use fieldglass_core::{FieldglassError, MAX_FIELD_POINTS};
+use fieldglass_core::FieldglassError;
+#[cfg(test)]
+use fieldglass_core::MAX_FIELD_POINTS;
+use fieldglass_core::array::field_element_count;
 
 /// The element count of `region` over an array of `shape`, after checking the
 /// region against it: one range per axis, each inside its axis.
 ///
-/// The count is refused past [`MAX_FIELD_POINTS`], the most one field holds,
-/// which is the bound a Zarr store's region read has too: a region read
+/// The count is refused past `MAX_FIELD_POINTS`, the most one field holds,
+/// by the check a Zarr store's region read makes too (#942): a region read
 /// allocates its result, sixteen bytes an element, and the shape it is checked
 /// against is a file's own numbers. A whole-variable read is bounded by its own
 /// budget instead (`fieldglass_core::MAX_VARIABLE_ELEMENTS`).
@@ -33,7 +36,6 @@ pub(crate) fn element_count(
             region.len()
         )));
     }
-    let mut count = 1u64;
     for (axis, (range, &extent)) in region.iter().zip(shape).enumerate() {
         if range.start > range.end || range.end > extent {
             return Err(FieldglassError::Parse(format!(
@@ -41,15 +43,9 @@ pub(crate) fn element_count(
                 range.start, range.end
             )));
         }
-        count = count.saturating_mul(range.end - range.start);
     }
-    if count > MAX_FIELD_POINTS as u64 {
-        return Err(FieldglassError::Parse(format!(
-            "a region of {count} elements is more than the {MAX_FIELD_POINTS} one read will hold"
-        )));
-    }
-    // Under `MAX_FIELD_POINTS`, which is a `usize`, so this is exact.
-    Ok(count as usize)
+    let lens: Vec<u64> = region.iter().map(|r| r.end - r.start).collect();
+    Ok(field_element_count(&lens)?)
 }
 
 /// The runs of `region` in a C-order array of `shape`, in the region's own C

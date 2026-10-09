@@ -91,19 +91,21 @@ pub const MAX_FIELD_POINTS: usize = 64 * 1024 * 1024;
 ///
 /// Why 2 GiB:
 ///
-/// - Every host can serve every read the reader accepts. On a 32-bit target
-///   (the browser host's `wasm32`) no single allocation may exceed
+/// - Every allocation a whole read makes is one a host can make. On a 32-bit
+///   target (the browser host's `wasm32`) no single allocation may exceed
 ///   `isize::MAX`, just under 2 GiB, and an output past that is a
 ///   capacity-overflow panic rather than an error. Under this budget the
-///   output is at most sixteen seventeenths of it.
+///   output is at most sixteen seventeenths of it. That bounds one read, not
+///   what a caller does with it after: a host draws a slice, which is read as
+///   a region and held to [`MAX_FIELD_POINTS`] instead (#939, #942).
 /// - It is twice the output of the largest single field
 ///   ([`MAX_FIELD_POINTS`], 1 GiB of `Option<f64>`): a whole variable is a
 ///   bigger question than any one slice a viewer draws.
 /// - It refuses the 2.9 GB file above with room to spare.
 ///
 /// A real variable this refuses — more than about 107 M four-byte elements —
-/// wants a read of the slice being drawn rather than the whole variable,
-/// which is the long-term fix and not this bound's job.
+/// is read a slice at a time, as a region, which this bound does not apply to
+/// (#939).
 pub const MAX_VARIABLE_BYTES: u64 = 2 << 30;
 
 /// Bytes one element of a whole-variable read's output takes: an
@@ -146,6 +148,25 @@ pub fn whole_variable_read_bytes(
         });
     }
     Ok(bytes)
+}
+
+/// The element count of a region or a block of these extents, or
+/// [`ArrayError::FieldTooLarge`] past [`MAX_FIELD_POINTS`].
+///
+/// The one check every region read makes before it allocates, whatever the
+/// container: a Zarr region or chunk and a NetCDF region (#942). Saturating,
+/// so extents whose product overflows are refused rather than wrapped small.
+/// Under the cap the count is a `usize` on every target.
+pub fn field_element_count(extents: &[u64]) -> Result<usize, ArrayError> {
+    let elements = extents.iter().fold(1u64, |acc, &n| acc.saturating_mul(n));
+    if elements > MAX_FIELD_POINTS as u64 {
+        return Err(ArrayError::FieldTooLarge {
+            elements,
+            limit: MAX_FIELD_POINTS as u64,
+        });
+    }
+    // At most `MAX_FIELD_POINTS`, a `usize`.
+    Ok(elements as usize)
 }
 
 /// A byte count for a message: GiB or MiB with one decimal.
@@ -250,6 +271,22 @@ pub enum ArrayError {
         /// What the read would hold at its peak, saturated at `u64::MAX`.
         bytes: u64,
         /// The most it may hold.
+        limit: u64,
+    },
+
+    /// A region, or a block read to fill one, of more than
+    /// [`MAX_FIELD_POINTS`] values. See [`field_element_count`].
+    ///
+    /// Like [`Self::VariableTooLarge`], the file is not at fault: the read
+    /// asks for more values at once than one field may hold.
+    #[error(
+        "this read asks for {elements} values at once, more than the {limit} \
+         one field may hold. The file itself is fine"
+    )]
+    FieldTooLarge {
+        /// How many values the read covers, saturated at `u64::MAX`.
+        elements: u64,
+        /// The most one field may hold.
         limit: u64,
     },
 

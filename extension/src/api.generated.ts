@@ -258,8 +258,9 @@ export type ApiError =
   /**
    * The operation is defined but this message's family does not support it —
    * a grid with no geometry asked to warp, a spectral field asked to probe —
-   * or the file is valid and the read is too large to make at once, such as
-   * a whole NetCDF variable past the reader's memory budget.
+   * or the file is valid and the read is too large to make at once: a whole
+   * NetCDF variable past the reader's memory budget, or a slice, a region or
+   * a Zarr chunk of more values than one field may hold.
    */
   | {
     code: "unsupported";
