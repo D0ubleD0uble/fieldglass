@@ -1207,6 +1207,16 @@ netcdf/ersst_v5_187001_cdf5.nc#ssta	combine/a_minus_b/render/source/nearest	ok w
 netcdf/ersst_v5_187001_cdf5.nc#ssta	meta	family=latlon ni=180 nj=89 reprojectable=true	dd280fb1392f8fd6
 netcdf/ersst_v5_187001_cdf5.nc#ssta	render/equirectangular/nearest	ok w=720 h=356 opaque=176092	0baed80979deca3d
 netcdf/ersst_v5_187001_cdf5.nc#ssta	render/source/nearest	ok w=180 h=89 opaque=10988	b31c45154ba237f4
+netcdf/fill_only_at_field_cap.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/fill_only_at_field_cap.nc#t	combine/a_minus_b/render/source/nearest	ok w=8192 h=8192 opaque=0	fbfc69e7742b8c28
+netcdf/fill_only_at_field_cap.nc#t	meta	family=source ni=8192 nj=8192 reprojectable=false	71e53e4304c06cab
+netcdf/fill_only_at_field_cap.nc#t	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/fill_only_at_field_cap.nc#t	render/source/nearest	ok w=8192 h=8192 opaque=0	fbfc69e7742b8c28
+netcdf/fill_only_past_field_cap.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/fill_only_past_field_cap.nc#t	combine/a_minus_b/render/source/nearest	err: this read asks for # values at once, more than the # one field may hold. The file itself is fine	4ea80729603b9e03
+netcdf/fill_only_past_field_cap.nc#t	meta	family=source ni=10000 nj=10000 reprojectable=false	65a4aba1e35168c1
+netcdf/fill_only_past_field_cap.nc#t	render/equirectangular/nearest	err: this read asks for # values at once, more than the # one field may hold. The file itself is fine	4ea80729603b9e03
+netcdf/fill_only_past_field_cap.nc#t	render/source/nearest	err: this read asks for # values at once, more than the # one field may hold. The file itself is fine	4ea80729603b9e03
 netcdf/goes16_abi_cmip.nc	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/goes16_abi_cmip.nc#CMI	combine/a_minus_b/render/source/nearest	ok w=24 h=24 opaque=576	819f60293d0e00f8
 netcdf/goes16_abi_cmip.nc#CMI	meta	family=space_view ni=24 nj=24 reprojectable=true	2d4c69ad9629ad02
