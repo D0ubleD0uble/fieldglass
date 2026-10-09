@@ -74,7 +74,8 @@ A missing `[X.Y.Z]:` line renders the heading as a dead link, and leaving
 `[Unreleased]` on the previous base makes its diff span two releases. The
 `## [X.Y.Z]` section becomes the GitHub Release body verbatim (the publish
 workflow extracts it by heading; see §3), so make sure it reads as user-facing
-release notes. GitHub refuses a release body over 125,000 characters. Check the
+release notes. A release body must be under 125,000 characters; the workflow's
+Release action cuts a longer one short without a warning. Check the
 promoted section with:
 
 ```sh
@@ -138,7 +139,7 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
 
   The run's `headSha` must be `$RELEASE_SHA`. Delete the branch after the tag (`git push origin --delete dry-run/vX.Y.Z`).
 
-  Wait for completion (typically ~5 min). The six native builds + six `.vsix` packages should all be green, and so should "Check release notes": with no tag it checks the workspace version's CHANGELOG section and, if it has content, `## [Unreleased]`, against GitHub's 125,000-character limit. Every publishing job waits for it, so on a tag a bad section stops the release before anything goes out. The "Publish to Marketplace + GitHub Release" job should appear with a dash (skipped) — that's the gate working as designed.
+  Wait for completion (typically ~5 min). The six native builds + six `.vsix` packages should all be green, and so should "Check release notes": with no tag it checks the workspace version's CHANGELOG section, which must exist, and, if it has content, `## [Unreleased]`, against GitHub's 125,000-character limit. Every publishing job waits for it, so on a tag a bad section stops the release before anything goes out. The "Publish to Marketplace + GitHub Release" job should appear with a dash (skipped) — that's the gate working as designed.
 
 - [ ] **Manual pass over what changed** — [RELEASE-TEST-PLAN.md](RELEASE-TEST-PLAN.md)
   is the per-cycle plan: it is rewritten each release to cover everything that
@@ -413,7 +414,7 @@ gh run watch
 ## When things break
 
 - **Dry-run native build fails on one target** — usually a toolchain drift (windows-arm64 has been the recurring culprit). Fix in a normal feature PR to `master`, re-prep so the fix is in the tagged commit, rerun the dry-run; do not tag until it's green.
-- **Release-notes check fails on the tag** — nothing has been published: every publishing job waits for this check. The error says whether the `## [X.Y.Z]` section is missing, empty, over 125,000 characters, or for a version other than the workspace's. A re-run cannot help, because the tag still points at the same CHANGELOG. Fix the section in a PR; then, since no channel has the version yet, delete the tag (`git push origin --delete vX.Y.Z` and `git tag -d vX.Y.Z`) and tag the new merge commit once its dry run passes. A dry run (§2) runs the same check, so this should not reach a tag.
+- **Release-notes check fails on the tag** — nothing has been published: every publishing job waits for this check. The error says whether the `## [X.Y.Z]` section is missing, empty, 125,000 characters or longer, or for a version other than the workspace's. A re-run cannot help, because the tag still points at the same CHANGELOG. Fix the section in a PR; then, since no channel has the version yet, delete the tag (`git push origin --delete vX.Y.Z` and `git tag -d vX.Y.Z`) and tag the new merge commit once its dry run passes. A dry run (§2) runs the same check, so this should not reach a tag.
 - **Tag pushed but the Marketplace publish or the GitHub Release fails** — re-run the failed job from the Actions UI. `vsce publish --skip-duplicate` skips each `.vsix` whose version and platform are already on the Marketplace, so a re-run publishes only what is missing and then creates the Release. Creating the Release again updates it and replaces its assets rather than failing.
 - **crates.io publish fails partway** — say core went out and `-grib1` failed. Re-run the job: it checks the index and skips what is already published, so it picks up where it stopped. A version that went out *wrongly* cannot be replaced, only yanked (`cargo yank -p <crate> --version X.Y.Z`), and yanking does not free the version number — the fix ships as the next patch.
 - **npm publish fails with an authentication error** — the trusted publisher for `@fieldglass/wasm` is missing, expired (it must publish within 2 days of being created), or configured for a different workflow file. The tarball is still attached to the run as an artefact, so a maintainer can publish it by hand if the release cannot wait; create a fresh configuration before the next tag.

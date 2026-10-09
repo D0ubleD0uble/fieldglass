@@ -4,11 +4,13 @@
     python3 tools/release_notes.py --tag vX.Y.Z --out release-notes.md
     python3 tools/release_notes.py --dry-run
 
-`release.yml` uses a CHANGELOG section as the GitHub Release body. GitHub
-rejects a body over 125,000 characters, and by the time the Release step runs
-the extension is already on the Marketplace, which cannot be undone (#858). So
-the workflow runs this first, in its own job that every publishing job waits
-for, and on a `workflow_dispatch` dry run too.
+`release.yml` uses a CHANGELOG section as the GitHub Release body. The GitHub
+API refuses a body of 125,000 characters or more, and the pinned
+`softprops/action-gh-release` avoids that by cutting the body to its first
+124,999 UTF-16 code units, without a warning. An oversized section would
+therefore ship as release notes that stop mid-entry (#858). So the workflow
+runs this first, in its own job that every publishing job waits for, and on a
+`workflow_dispatch` dry run too.
 
 **On a tag** (`--tag vX.Y.Z`) the section is `## [X.Y.Z]`. It must exist and
 have content, and the tag must match the workspace version in `Cargo.toml`,
@@ -17,19 +19,21 @@ since every channel publishes that version.
 **On a dry run** (`--dry-run`) there is no tag, so the check covers each
 section that could become the next release's notes:
 
-- `## [<workspace version>]`, if that heading exists. After the prep PR it is
-  the section the tag will publish. Between releases it is the last release's
-  section, already published, so checking it again costs nothing.
+- `## [<workspace version>]`, which must exist. After the prep PR it is the
+  section the tag will publish, and a missing one means the CHANGELOG was not
+  promoted; the prep dry run is the last check before the tag. Between
+  releases it is the last release's section, already published, so it always
+  exists and checking it again costs nothing. This is the file written to
+  `--out`.
 - `## [Unreleased]`, if it has content. Between releases it is what the next
   prep promotes, so a dry run on `master` finds an oversized section before
   prep does.
 
-At least one of the two must be present. The file written to `--out` is the
-first that applies, in that order.
-
 A section runs from its heading to the next line starting `## [`, the same
-rule as the `awk` this replaced. Length is counted in characters (Python
-`len()`), which is what GitHub's limit counts, not in bytes.
+rule as the `awk` this replaced. Length is counted in UTF-16 code units, the
+unit the action's JavaScript `substring` cuts by, not in bytes. For text with
+no character outside the Basic Multilingual Plane (an emoji is outside it)
+that equals Python's `len()`.
 """
 
 from __future__ import annotations
@@ -39,6 +43,9 @@ import sys
 import tomllib
 from pathlib import Path
 
+# A body must be shorter than this. The action keeps the first
+# `GITHUB_RELEASE_BODY_LIMIT - 1` code units and drops the rest, so a body of
+# exactly this length is already cut.
 GITHUB_RELEASE_BODY_LIMIT = 125_000
 UNRELEASED = "Unreleased"
 
@@ -65,16 +72,21 @@ def section(changelog: str, name: str) -> str | None:
     return "".join(f"{line}\n" for line in lines)
 
 
+def length(body: str) -> int:
+    """`body`'s length in UTF-16 code units, as JavaScript's `.length` counts."""
+    return len(body.encode("utf-16-le")) // 2
+
+
 def problems(name: str, body: str | None) -> list[str]:
     """Why `body` cannot be the release body for `## [name]`; empty if it can."""
     if body is None:
         return [f"CHANGELOG.md has no '## [{name}]' section"]
     if not body.strip():
         return [f"the '## [{name}]' section of CHANGELOG.md is empty"]
-    if len(body) > GITHUB_RELEASE_BODY_LIMIT:
+    if length(body) >= GITHUB_RELEASE_BODY_LIMIT:
         return [
-            f"the '## [{name}]' section of CHANGELOG.md is {len(body):,} characters; "
-            f"a GitHub Release body is limited to {GITHUB_RELEASE_BODY_LIMIT:,}"
+            f"the '## [{name}]' section of CHANGELOG.md is {length(body):,} characters; "
+            f"a GitHub Release body must be under {GITHUB_RELEASE_BODY_LIMIT:,}"
         ]
     return []
 
@@ -93,29 +105,20 @@ def for_tag(changelog: str, version: str, tag: str) -> tuple[str | None, list[st
         errors.append(f"tag {tag} does not match the workspace version {version}")
     body = section(changelog, wanted)
     errors += problems(wanted, body)
-    print(f"[{wanted}]: {len(body or ''):,} characters")
+    print(f"[{wanted}]: {length(body or ''):,} characters")
     return (body if not errors else None), errors
 
 
 def for_dry_run(changelog: str, version: str) -> tuple[str | None, list[str]]:
     """The notes a dry run checks: see the module docstring."""
-    candidates = []
     versioned = section(changelog, version)
-    if versioned is not None:
-        candidates.append((version, versioned))
+    print(f"[{version}]: {length(versioned or ''):,} characters")
+    errors = problems(version, versioned)
     unreleased = section(changelog, UNRELEASED)
     if unreleased is not None and unreleased.strip():
-        candidates.append((UNRELEASED, unreleased))
-    if not candidates:
-        return None, [
-            f"CHANGELOG.md has neither a '## [{version}]' section nor a "
-            f"non-empty '## [{UNRELEASED}]' section"
-        ]
-    errors = []
-    for name, body in candidates:
-        print(f"[{name}]: {len(body):,} characters")
-        errors += problems(name, body)
-    return (candidates[0][1] if not errors else None), errors
+        print(f"[{UNRELEASED}]: {length(unreleased):,} characters")
+        errors += problems(UNRELEASED, unreleased)
+    return (versioned if not errors else None), errors
 
 
 def main(argv: list[str] | None = None) -> int:

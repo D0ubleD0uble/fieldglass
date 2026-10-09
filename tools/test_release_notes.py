@@ -21,7 +21,9 @@ from release_notes import (
     GITHUB_RELEASE_BODY_LIMIT,
     for_dry_run,
     for_tag,
+    length,
     main,
+    problems,
     section,
     workspace_version,
 )
@@ -98,7 +100,7 @@ def test_tag() -> None:
 
     body, errors = quiet(for_tag, changelog("- x\n", UNDER_IN_CHARS), "0.5.0", "v0.5.0")
     check(
-        "the limit counts characters, not bytes",
+        "the limit is not counted in bytes",
         errors == [] and len(body.encode()) > GITHUB_RELEASE_BODY_LIMIT,
         repr(errors),
     )
@@ -140,16 +142,44 @@ def test_dry_run() -> None:
         repr(errors),
     )
 
-    # A prep that bumped the version but forgot to promote the CHANGELOG.
+    # A prep that bumped the version but forgot to promote the CHANGELOG. The
+    # prep dry run is the last check before the tag, so it must fail here
+    # rather than pass on [Unreleased].
     body, errors = quiet(for_dry_run, changelog("- pending\n"), "0.6.0")
-    check("no versioned section falls back to [Unreleased]", errors == [], repr(errors))
-    check("and writes [Unreleased]", body == "- pending\n\n", repr(body))
+    check(
+        "a bumped version with no section fails, even with [Unreleased] fine",
+        any("no '## [0.6.0]'" in e for e in errors),
+        repr(errors),
+    )
+    check("and writes nothing", body is None, repr(body))
 
     _, errors = quiet(for_dry_run, changelog("\n"), "0.6.0")
     check(
         "neither section present fails",
-        any("neither" in e for e in errors),
+        any("no '## [0.6.0]'" in e for e in errors),
         repr(errors),
+    )
+
+
+def test_limit() -> None:
+    # The pinned action-gh-release keeps `substring(0, 125000 - 1)`, so 124,999
+    # code units is the most that survives whole.
+    check(
+        "one under the limit passes",
+        problems("0.5.0", "a" * (GITHUB_RELEASE_BODY_LIMIT - 1)) == [],
+    )
+    check(
+        "exactly at the limit fails",
+        problems("0.5.0", "a" * GITHUB_RELEASE_BODY_LIMIT) != [],
+    )
+    # An astral character is one Python character but two UTF-16 code units,
+    # which is what JavaScript's substring counts.
+    astral = "\U0001f600" * (GITHUB_RELEASE_BODY_LIMIT // 2)
+    check("an astral character counts as two", length("\U0001f600") == 2)
+    check(
+        "the limit counts UTF-16 code units, not Python characters",
+        len(astral) < GITHUB_RELEASE_BODY_LIMIT and problems("0.5.0", astral) != [],
+        repr(problems("0.5.0", astral)),
     )
 
 
@@ -187,6 +217,7 @@ def run() -> int:
     test_section()
     test_tag()
     test_dry_run()
+    test_limit()
     test_main()
     if failures:
         print(f"{failures} check(s) failed")
