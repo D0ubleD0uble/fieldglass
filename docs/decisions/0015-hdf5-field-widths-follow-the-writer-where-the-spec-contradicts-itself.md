@@ -79,7 +79,8 @@ fixtures' `NOTICE.md` entry.
 ## Consequences
 
 - Files with O ≠ L open, list, resolve their dimension scales and decode,
-  including groups that track creation order in any file format. Files with O = L read the same as before.
+  including groups that track creation order in any file format. Files with
+  O = L read the same as before.
 - A file written to the specification's table rather than by libhdf5, with
   O ≠ L, would be misread. No such writer is known.
 - When another field turns out to differ between the specification and

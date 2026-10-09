@@ -449,8 +449,9 @@ the chunk count). `v` is gzip-chunked with an unlimited first dimension, and
 dimension scales `time` and `x` are attached, so its `DIMENSION_LIST` lives in
 the global heap. A nested group `g` holds `inner`, and a group `t` that tracks
 creation order holds `tracked`: its link info message has an 8-byte maximum
-creation index, which the reader used to read at Size of Lengths. Each oracle records what
-h5py reads: values, shapes, maxima, dimension labels and attributes.
+creation index, which the reader used to read at Size of Lengths. Each oracle
+records what h5py reads: values, shapes, maxima, dimension labels and
+attributes.
 
 **Known divergence from libhdf5.** `time` was created with `maxshape=(None,)`.
 In the (8, 4) file its maximum is stored as `0xFFFF_FFFF`, and h5py reads it
