@@ -259,15 +259,20 @@ fn read_root_group_address<S: ByteSource + ?Sized>(
     //   v0: 24 fixed bytes (through file-consistency flags), then 4 addresses
     //       (base/free-space/eof/driver) and the root symbol-table entry whose
     //       first two fields are link-name offset + object-header address.
+    //       The link-name offset is Size of Lengths wide, as libhdf5 reads
+    //       and writes it (`H5G_ent_decode`); the specification's table marks
+    //       it Size of Offsets, which differs only when the two sizes do (#922).
     //   v1: as v0 but with 4 extra bytes (indexed-storage K + reserved).
     //   v2/3: 12 fixed bytes, then base/superblock-extension/eof addresses and
     //         the root-group object-header address.
-    // `base` is a file address and `o` at most 8, so the arithmetic is in `u64`
-    // and cannot overflow: the signature offsets top out at 16384.
+    // `base` is a file address, `o` at most 8 and `l` at most 255, so the
+    // arithmetic is in `u64` and cannot overflow: the signature offsets top
+    // out at 16384.
     let o64 = o as u64;
+    let l64 = u64::from(probe.length_size);
     let addr_off = match probe.superblock_version {
-        0 => base + 24 + 5 * o64,
-        1 => base + 28 + 5 * o64,
+        0 => base + 24 + 4 * o64 + l64,
+        1 => base + 28 + 4 * o64 + l64,
         2 | 3 => base + 12 + 3 * o64,
         v => {
             return Err(FieldglassError::Parse(format!(
@@ -331,6 +336,39 @@ mod tests {
         assert_eq!(p.superblock_version, 2);
         assert_eq!(p.offset_size, 8);
         assert_eq!(p.length_size, 8);
+    }
+
+    /// A version-0 or -1 superblock with the given sizes, through the root
+    /// group's symbol-table entry: its link-name offset at Size of Lengths,
+    /// then the header address at Size of Offsets (#922).
+    fn synth_v01_root(version: u8, o: u8, l: u8, root: u64) -> Vec<u8> {
+        let mut v = HDF5_SIGNATURE.to_vec();
+        v.push(version);
+        v.extend_from_slice(&[0u8; 15]); // through the consistency flags
+        v[13] = o;
+        v[14] = l;
+        if version == 1 {
+            v.extend_from_slice(&[0u8; 4]); // indexed-storage K + reserved
+        }
+        v.resize(v.len() + 4 * usize::from(o), 0xFF); // four addresses
+        v.extend_from_slice(&0u64.to_le_bytes()[..usize::from(l)]); // name offset
+        v.extend_from_slice(&root.to_le_bytes()[..usize::from(o)]);
+        v
+    }
+
+    #[test]
+    fn root_entry_name_offset_is_length_sized() {
+        for version in [0, 1] {
+            for (o, l) in [(8, 4), (4, 8), (8, 8), (4, 4)] {
+                let bytes = synth_v01_root(version, o, l, 0x1234);
+                let p = probe(&bytes).unwrap();
+                assert_eq!(
+                    read_root_group_address(&bytes, &p).unwrap(),
+                    0x1234,
+                    "version {version}, sizes ({o}, {l})"
+                );
+            }
+        }
     }
 
     #[test]

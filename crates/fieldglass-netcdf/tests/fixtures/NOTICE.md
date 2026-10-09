@@ -433,6 +433,35 @@ instead of skipping it lists only `a` (#919). Each oracle records what h5py list
 hard links; `tests/hdf5_soft_links.rs` checks that both list `a`, `m` and `z`
 and decode all three.
 
+## Offset and length size fixtures (`hdf5_sizes_o8_l4.h5`, `hdf5_sizes_o4_l8.h5`)
+
+Two files for #922, built by `tools/build_hdf5_size_fixtures.py` with h5py
+3.16.0 (libhdf5 2.0.0), reproducible byte for byte. Both are in the earliest
+format (`set_libver_bounds(EARLIEST, V18)`, superblock version 0), with Size of
+Offsets and Size of Lengths set by `fcpl.set_sizes` to (8, 4) and (4, 8).
+Without the explicit bounds h5py writes a version-2 superblock and no
+version-1 B-tree, so the builder checks the version byte.
+
+Each root holds 15 datasets, more than one symbol-table node holds, so the
+group B-tree has several keys. `many_attrs` gets 30 attributes after later
+objects are written, so its header needs a continuation (the oracle records
+the chunk count). `v` is gzip-chunked with an unlimited first dimension, and
+dimension scales `time` and `x` are attached, so its `DIMENSION_LIST` lives in
+the global heap. A nested group `g` holds `inner`, and a group `t` that tracks
+creation order holds `tracked`: its link info message has an 8-byte maximum
+creation index, which the reader used to read at Size of Lengths. Each oracle
+records what h5py reads: values, shapes, maxima, dimension labels and
+attributes.
+
+**Known divergence from libhdf5.** `time` was created with `maxshape=(None,)`.
+In the (8, 4) file its maximum is stored as `0xFFFF_FFFF`, and h5py reads it
+back as 4294967295 rather than unlimited. Fieldglass reads it as unlimited.
+**Known divergence from the specification.** The specification's "Symbol
+Table Entry" table gives the link-name offset as Size of Offsets; libhdf5 and
+Fieldglass read it at Size of Lengths. ADR-0015 records both, with the
+field-by-field audit. `tests/hdf5_offset_length_sizes.rs` checks the listing,
+values, dimensions and attributes against the oracles.
+
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
 A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which

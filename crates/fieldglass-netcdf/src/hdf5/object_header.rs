@@ -342,7 +342,8 @@ fn enqueue_continuation(
     }
     let address = read_uint_le(body, 0, osize)?;
     let length = read_uint_le(body, osize, lsize)?;
-    if address == u64::MAX {
+    // All ones at Size of Offsets, not only the 8-byte form (#922).
+    if is_undefined_address(address, offset_size) {
         return Err(FieldglassError::Parse("undefined HDF5 address".into()));
     }
     queue.push_back((address, checked_usize(length, "HDF5 length or offset")?));
@@ -548,6 +549,23 @@ fn slice(bytes: &[u8], at: usize, len: usize) -> Result<&[u8], FieldglassError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn continuation_to_an_undefined_address_is_refused_at_any_offset_size() {
+        // An undefined address is all ones at Size of Offsets, so with 4-byte
+        // offsets it is 0xFFFF_FFFF, not u64::MAX (#922).
+        for (o, l) in [(4u8, 8u8), (8, 4), (8, 8)] {
+            let mut body = vec![0xFF; usize::from(o)];
+            body.extend_from_slice(&64u64.to_le_bytes()[..usize::from(l)]);
+            let mut queue = VecDeque::new();
+            let err = enqueue_continuation(&body, o, l, &mut queue).unwrap_err();
+            assert!(
+                err.to_string().contains("undefined HDF5 address"),
+                "sizes ({o}, {l}): {err}"
+            );
+            assert!(queue.is_empty());
+        }
+    }
 
     /// Append a v1 message (8-byte header + padded data) to `buf`.
     fn push_v1(buf: &mut Vec<u8>, msg_type: u16, data: &[u8]) {

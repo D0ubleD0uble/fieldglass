@@ -1,0 +1,346 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver=(earliest, v18), set_sizes(8, 4)",
+  "note": "earliest-format file whose Size of Offsets and Size of Lengths differ (#922)",
+  "superblock_version": 0,
+  "size_of_offsets": 8,
+  "size_of_lengths": 4,
+  "many_attrs_header_chunks": 2,
+  "datasets": {
+    "contig": {
+      "shape": [
+        2,
+        3
+      ],
+      "maxshape": [
+        2,
+        3
+      ],
+      "values": [
+        -3.0,
+        -2.0,
+        -1.0,
+        0.0,
+        1.0,
+        2.0
+      ],
+      "dims": [
+        "",
+        ""
+      ]
+    },
+    "d00": {
+      "shape": [
+        2
+      ],
+      "maxshape": [
+        2
+      ],
+      "values": [
+        0.0,
+        0.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "d01": {
+      "shape": [
+        2
+      ],
+      "maxshape": [
+        2
+      ],
+      "values": [
+        1.0,
+        1.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "d02": {
+      "shape": [
+        2
+      ],
+      "maxshape": [
+        2
+      ],
+      "values": [
+        2.0,
+        2.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "d03": {
+      "shape": [
+        2
+      ],
+      "maxshape": [
+        2
+      ],
+      "values": [
+        3.0,
+        3.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "d04": {
+      "shape": [
+        2
+      ],
+      "maxshape": [
+        2
+      ],
+      "values": [
+        4.0,
+        4.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "d05": {
+      "shape": [
+        2
+      ],
+      "maxshape": [
+        2
+      ],
+      "values": [
+        5.0,
+        5.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "d06": {
+      "shape": [
+        2
+      ],
+      "maxshape": [
+        2
+      ],
+      "values": [
+        6.0,
+        6.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "d07": {
+      "shape": [
+        2
+      ],
+      "maxshape": [
+        2
+      ],
+      "values": [
+        7.0,
+        7.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "d08": {
+      "shape": [
+        2
+      ],
+      "maxshape": [
+        2
+      ],
+      "values": [
+        8.0,
+        8.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "d09": {
+      "shape": [
+        2
+      ],
+      "maxshape": [
+        2
+      ],
+      "values": [
+        9.0,
+        9.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "/g/inner": {
+      "shape": [
+        5
+      ],
+      "maxshape": [
+        5
+      ],
+      "values": [
+        0.0,
+        3.0,
+        6.0,
+        9.0,
+        12.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "many_attrs": {
+      "shape": [
+        3
+      ],
+      "maxshape": [
+        3
+      ],
+      "values": [
+        0.0,
+        1.0,
+        2.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "/t/tracked": {
+      "shape": [
+        4
+      ],
+      "maxshape": [
+        4
+      ],
+      "values": [
+        -1.0,
+        0.0,
+        1.0,
+        2.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "time": {
+      "shape": [
+        3
+      ],
+      "maxshape": [
+        4294967295
+      ],
+      "values": [
+        0.0,
+        1.0,
+        2.0
+      ],
+      "dims": [
+        ""
+      ]
+    },
+    "v": {
+      "shape": [
+        3,
+        4
+      ],
+      "maxshape": [
+        4294967295,
+        4
+      ],
+      "values": [
+        0.0,
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75
+      ],
+      "dims": [
+        "time",
+        "x"
+      ]
+    },
+    "x": {
+      "shape": [
+        4
+      ],
+      "maxshape": [
+        4
+      ],
+      "values": [
+        0.0,
+        1.0,
+        2.0,
+        3.0
+      ],
+      "dims": [
+        ""
+      ]
+    }
+  },
+  "attributes": {
+    "/": {
+      "scale": 1.5,
+      "title": "sizes"
+    },
+    "/g": {
+      "level": 7.0
+    },
+    "/many_attrs": {
+      "a00": 0.0,
+      "a01": 0.5,
+      "a02": 1.0,
+      "a03": 1.5,
+      "a04": 2.0,
+      "a05": 2.5,
+      "a06": 3.0,
+      "a07": 3.5,
+      "a08": 4.0,
+      "a09": 4.5,
+      "a10": 5.0,
+      "a11": 5.5,
+      "a12": 6.0,
+      "a13": 6.5,
+      "a14": 7.0,
+      "a15": 7.5,
+      "a16": 8.0,
+      "a17": 8.5,
+      "a18": 9.0,
+      "a19": 9.5,
+      "a20": 10.0,
+      "a21": 10.5,
+      "a22": 11.0,
+      "a23": 11.5,
+      "a24": 12.0,
+      "a25": 12.5,
+      "a26": 13.0,
+      "a27": 13.5,
+      "a28": 14.0,
+      "a29": 14.5
+    },
+    "/time": {
+      "CLASS": "DIMENSION_SCALE",
+      "NAME": "time"
+    },
+    "/v": {
+      "units": "K"
+    },
+    "/x": {
+      "CLASS": "DIMENSION_SCALE",
+      "NAME": "x"
+    }
+  }
+}

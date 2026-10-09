@@ -23,9 +23,19 @@ const SIG_GLOBAL_HEAP: &[u8; 4] = b"GCOL";
 /// Upper bound on objects scanned in one collection — guards a malformed size.
 const MAX_GLOBAL_HEAP_OBJECTS: usize = 1 << 20;
 
-/// Width of a global-heap object's fixed header that precedes its data:
-/// `index(2) + refcount(2) + reserved(4)`, then a length-sized object size.
-const OBJECT_HEADER_FIXED: usize = 8;
+/// Width of the fixed fields that open both the collection header
+/// (`signature(4) + version(1) + reserved(3)`) and each object's header
+/// (`index(2) + refcount(2) + reserved(4)`); a length-sized size follows each.
+const HEADER_FIXED: usize = 8;
+
+/// Each header, fixed fields and size together, padded to a multiple of eight,
+/// so the data after it is aligned. libhdf5 writes them this way
+/// (`H5HG_SIZEOF_HDR`, `H5HG_SIZEOF_OBJHDR`); the specification gives both as
+/// 16 bytes, which is the same when lengths are 8 bytes. With 4-byte lengths
+/// each header carries 4 bytes of padding after its size (#922).
+fn header_len(length_size: usize) -> usize {
+    (HEADER_FIXED + length_size).next_multiple_of(8)
+}
 
 /// Read the bytes of the object with `object_index` from the global-heap
 /// collection at `collection_addr`. `length_size` is the superblock's size of
@@ -57,9 +67,10 @@ pub fn read_object<S: ByteSource + ?Sized>(
         "global-heap collection tail",
     )?;
     let collection_size = cur.usize(l)?.min(available);
-    // The collection size counts the 8-byte signature/version/reserved block plus
-    // the length field, so the object run is whatever remains after the header.
-    let header_len = OBJECT_HEADER_FIXED + l;
+    // The collection size counts its own header, so the object run is whatever
+    // remains after it. An object's header is the same length.
+    let header_len = header_len(l);
+    cur.skip(header_len - HEADER_FIXED - l)?; // alignment padding
     let mut remaining = collection_size.saturating_sub(header_len);
 
     for _ in 0..MAX_GLOBAL_HEAP_OBJECTS {
@@ -69,6 +80,7 @@ pub fn read_object<S: ByteSource + ?Sized>(
         let index = cur.u16()?;
         cur.skip(2 + 4)?; // reference count + reserved
         let size = cur.usize(l)?;
+        cur.skip(header_len - HEADER_FIXED - l)?; // alignment padding
         // Index 0 is the free-space object that terminates the run.
         if index == 0 {
             break;
