@@ -164,18 +164,20 @@ fn every_error_code_is_both_listed_and_reachable() {
 /// Exactly these cases record a failure; every other one produced an answer.
 ///
 /// The five `error/…` cases exist to prove each [`fieldglass::Error`] code is
-/// reachable. The three beside them are the `degenerate` subject — a §3.20 grid
-/// stating `Dx = Dy = 0`, which decodes fine and has no extent to warp onto,
-/// which is why that fixture is in the suite. `degenerate/warp/window` and
-/// `degenerate/warp/sized_window` are not here: a *manual* window gives the
-/// warp a box even when the grid states none, and that difference is worth
-/// having recorded.
+/// reachable. The five beside them are the `degenerate` subject — a §3.20 grid
+/// stating `Dx = Dy = 0`, which decodes fine and places no point, which is why
+/// that fixture is in the suite. All five of its warps are refused.
 ///
-/// `degenerate/warp/sized` is here for exactly the same reason as its two
-/// unsized siblings, and says one more thing: a caller-named output raster
-/// (#465) does not conjure a window. A size says how many pixels, never where
-/// they are, so a grid with no extent is still refused — a `size` that had been
-/// allowed to stand in for the missing window would answer here instead.
+/// `degenerate/warp/window` and `degenerate/warp/sized_window` used to answer:
+/// a *manual* window gave the warp a box, and it warped through an inverse map
+/// that places nothing, so both recorded a raster with every cell masked
+/// (`maskOnes: 0`) and no word about why. A window says where to look, not
+/// where the grid is, so they are now refused as the render path refuses the
+/// grid, with the same message (#843).
+///
+/// `degenerate/warp/sized` says one more thing: a caller-named output raster
+/// (#465) does not conjure a placement either. A size says how many pixels,
+/// never where they are.
 ///
 /// `error/unsupported` is that same refusal, on purpose: since #580 no fixture
 /// in the corpus produces `unsupported` at `decode`, because both families that
@@ -191,6 +193,8 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "degenerate/warp/bilinear",
     "degenerate/warp/nearest",
     "degenerate/warp/sized",
+    "degenerate/warp/sized_window",
+    "degenerate/warp/window",
     "error/decode",
     "error/invalid_option",
     // A colormap table sent beside a colormap name (#236): refused rather than

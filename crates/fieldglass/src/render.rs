@@ -1180,7 +1180,7 @@ fn raise_to_min_raster(dims: (u32, u32)) -> (u32, u32) {
 /// [`GridGeometry::reprojectable`] gate on, so a grid this accepts is one all
 /// four answer for.
 #[cfg(any(feature = "render", feature = "analysis"))]
-fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Error> {
+pub(crate) fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Error> {
     let placeable = |ok: bool, proj: &dyn PlanarGridProjector| {
         planar_grid_is_placeable(ok, proj).then_some(()).ok_or({
             Error::Unsupported {
@@ -1252,7 +1252,7 @@ fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Er
 /// lat/lon among the families that are. One wording for every operation that
 /// needs a position, so they cannot drift apart.
 #[cfg(any(feature = "render", feature = "analysis"))]
-pub(crate) fn declined_detail(family: &str, consequence: &str) -> String {
+fn declined_detail(family: &str, consequence: &str) -> String {
     format!(
         "the {family:?} grid's geometry could not be built from the parameters its file \
          declares, so {consequence}"

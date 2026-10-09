@@ -346,7 +346,12 @@ fn a_declined_grids_refusals_say_its_geometry_could_not_be_built() {
             (
                 "warp",
                 session.warp(&field, &WarpOptions::default()).map(|_| ()),
-                "it states no extent to warp onto",
+                "it cannot be reprojected",
+            ),
+            (
+                "warp onto a window",
+                session.warp(&field, &windowed()).map(|_| ()),
+                "it cannot be reprojected",
             ),
         ];
         for (operation, result, consequence) in refusals {
@@ -430,4 +435,58 @@ fn an_unmodelled_templates_refusal_still_says_it_is_not_supported() {
         message.starts_with("contours not yet supported for grid type \"unsupported(3.4)\""),
         "{message}"
     );
+}
+
+/// A warp onto a window the caller names, which gives the warp a box whether
+/// or not the grid states one.
+fn windowed() -> fieldglass::WarpOptions {
+    let mut options = fieldglass::WarpOptions::default();
+    options.bounds = Some([-20.0, 40.0, -30.0, 60.0]);
+    options
+}
+
+/// `Session::warp` refuses a grid nothing places whether or not the caller
+/// names a window, with the message the render path gives the same grid.
+/// With a window it used to warp through an inverse map that answers nothing
+/// and return a raster with every cell masked (#843). Here for the slice no
+/// coordinates place: a committed HDF5 dataset with only phony dimensions.
+/// The declined GRIB2 grids are in the test above.
+#[test]
+fn a_warp_of_a_slice_nothing_places_is_refused_with_or_without_a_window() {
+    use fieldglass::{RenderOptions, WarpOptions};
+
+    let bytes =
+        std::fs::read("../fieldglass-netcdf/tests/fixtures/hdf5_phony_dims.h5").expect("fixture");
+    let session = Session::open(bytes).expect("opens");
+    let variable = session
+        .variables()
+        .iter()
+        .position(|v| v.name == "a_8x8")
+        .expect("the 8 x 8 dataset") as u32;
+    let field = session
+        .decode_slice(variable, 0, 1, &[0, 0], &DecodeOptions::default())
+        .expect("decodes in grid coordinates");
+    assert_eq!(field.georef.placement, Placement::Unplaceable);
+    let cells: Vec<Option<f64>> = (0..field.mask.len())
+        .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
+        .collect();
+    let rendered = session
+        .project(
+            &field.source(),
+            &cells,
+            &RenderOptions::new("equirectangular", "nearest"),
+        )
+        .expect_err("nothing places it")
+        .message();
+    assert_eq!(
+        rendered,
+        "reprojection not yet supported for grid type \"source\""
+    );
+    for options in [WarpOptions::default(), windowed()] {
+        let warped = session
+            .warp(&field, &options)
+            .expect_err("nothing places it")
+            .message();
+        assert_eq!(warped, rendered, "bounds {:?}", options.bounds);
+    }
 }

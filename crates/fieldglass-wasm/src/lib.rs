@@ -282,7 +282,9 @@ impl Handle {
     /// lonMax], width?: number, height?: number }` — a window at a pixel size,
     /// which is what a map view asks for (#465). Send `width` and `height`
     /// together or not at all; one alone throws `invalid_option`, as does a
-    /// zero. With neither, the output is the source `ni × nj`, as before.
+    /// zero. With neither, the output is the source `ni × nj`, as before. A
+    /// grid nothing places throws `unsupported`, with `bounds` or without, as
+    /// the render path refuses it (#843).
     #[wasm_bindgen(
         unchecked_return_type = "{ values: Float32Array; mask: Uint8Array; width: number; height: number; bounds: [number, number, number, number] }"
     )]

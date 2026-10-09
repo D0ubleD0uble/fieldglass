@@ -12449,43 +12449,10 @@
         "alongDim": null
       },
       "expect": {
-        "bounds": [
-          -20.0,
-          40.0,
-          -30.0,
-          60.0
-        ],
-        "height": 31,
-        "len": 496,
-        "maskOnes": 0,
-        "samples": [
-          {
-            "i": 0,
-            "m": 0,
-            "v": null
-          },
-          {
-            "i": 124,
-            "m": 0,
-            "v": null
-          },
-          {
-            "i": 248,
-            "m": 0,
-            "v": null
-          },
-          {
-            "i": 372,
-            "m": 0,
-            "v": null
-          },
-          {
-            "i": 495,
-            "m": 0,
-            "v": null
-          }
-        ],
-        "width": 16
+        "error": {
+          "code": "unsupported",
+          "hasMessage": true
+        }
       }
     },
     {
@@ -12561,43 +12528,10 @@
         "alongDim": null
       },
       "expect": {
-        "bounds": [
-          -20.0,
-          40.0,
-          -30.0,
-          60.0
-        ],
-        "height": 23,
-        "len": 851,
-        "maskOnes": 0,
-        "samples": [
-          {
-            "i": 0,
-            "m": 0,
-            "v": null
-          },
-          {
-            "i": 212,
-            "m": 0,
-            "v": null
-          },
-          {
-            "i": 425,
-            "m": 0,
-            "v": null
-          },
-          {
-            "i": 636,
-            "m": 0,
-            "v": null
-          },
-          {
-            "i": 850,
-            "m": 0,
-            "v": null
-          }
-        ],
-        "width": 37
+        "error": {
+          "code": "unsupported",
+          "hasMessage": true
+        }
       }
     },
     {

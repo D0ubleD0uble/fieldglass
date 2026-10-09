@@ -1977,6 +1977,12 @@ impl Session {
     /// one (#465), and the source `ni × nj` otherwise. That default needs a
     /// field holding one value per cell of its stated shape; one that does not
     /// is refused as [`Error::InvalidOption`] (#913).
+    ///
+    /// A grid nothing places — one whose numbers built no geometry, a slice no
+    /// coordinates place, a planar grid with degenerate parameters — is
+    /// refused as [`Error::Unsupported`] with the message the render path
+    /// gives it, whether or not [`WarpOptions::bounds`] names a window. A
+    /// window says where to look, not where the grid is (#843).
     #[cfg(feature = "render")]
     pub fn warp(&self, field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         warp_field(field, options)
@@ -2308,6 +2314,13 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     // Refused before the window is resolved, so a bad size is reported as a bad
     // size rather than being masked by a grid that also states no extent.
     let size = crate::render::resolve_output_size(options.width, options.height)?;
+    // The render path's own gate, before the window, so a grid nothing places
+    // is refused the same way with bounds or without. With bounds it used to
+    // warp through an inverse map that answers `None` everywhere and hand back
+    // a raster with every cell masked, saying nothing (#843). The family is
+    // the geometry's label, which is what `Source::refused_as` quotes for the
+    // one arm that reads it.
+    crate::render::require_reprojectable(geometry, geometry.label())?;
     let window = match options.bounds {
         // The host hands the window over positionally, which is the one place
         // the order is not the type's statement; read it back through the
@@ -2318,15 +2331,8 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         // states once — in `core`, for both hosts — that a periodic grid's
         // window runs the full turn rather than stopping at its last declared
         // column (#571).
-        // A grid of a supported family whose numbers built nothing is told
-        // that, rather than that its family states no extent (#843).
         None => geometry.render_window().ok_or_else(|| Error::Unsupported {
-            detail: match geometry.declined_family() {
-                Some(family) => {
-                    crate::render::declined_detail(family, "it states no extent to warp onto")
-                }
-                None => format!("a {} grid states no extent to warp onto", geometry.label()),
-            },
+            detail: format!("a {} grid states no extent to warp onto", geometry.label()),
         })?,
     };
     let LonLatBox {
