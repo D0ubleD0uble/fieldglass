@@ -325,6 +325,14 @@ impl LambertAzimuthalProjector {
         self.origin
     }
 
+    /// Whether the parameters describe a CRS at all: the projection's own
+    /// constants, before any question about the raster laid on it. A
+    /// [`GridGeometry::proj4`](super::GridGeometry::proj4) string is written
+    /// only when this holds, so it never names a CRS PROJ refuses (#844).
+    pub(crate) fn crs_resolves(&self) -> bool {
+        self.constants.well_defined()
+    }
+
     /// Whether the projection is usable. `false` leaves
     /// [`inverse`](Self::inverse) returning `None` for every point, so callers
     /// can surface "not reprojectable" rather than render blank.
@@ -335,7 +343,7 @@ impl LambertAzimuthalProjector {
     /// producer-specified radius small enough to fold the whole disc into one
     /// cell passes every other test here (#610).
     pub fn is_well_defined(&self) -> bool {
-        self.constants.well_defined()
+        self.crs_resolves()
             && self.origin.0.is_finite()
             && self.origin.1.is_finite()
             && super::plane_spans_a_grid_cell(

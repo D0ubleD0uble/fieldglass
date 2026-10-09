@@ -593,18 +593,19 @@ fn a_spheroid_that_is_not_one_is_declined_rather_than_projected() {
         assert!(geom.lonlat_bbox().is_none(), "{}: bbox", geom.kind());
         assert!(geom.plane_affine().is_none(), "{}: affine", geom.kind());
         // `dims` still answers: the raster shape is a fact about the message,
-        // not about whether its projection resolves. So does `proj4` — the
-        // plane belongs to the projection, and it is this grid that cannot be
-        // put in it.
+        // not about whether its projection resolves. `proj4` does not: a
+        // spheroid that is not one names no CRS, and PROJ refuses the string
+        // ("Must specify ellipsoid or sphere") (#844).
         assert!(geom.dims().is_some(), "{}: dims", geom.kind());
-        assert!(geom.proj4().is_some(), "{}: proj4", geom.kind());
+        assert!(geom.proj4().is_none(), "{}: proj4", geom.kind());
     }
 }
 
 /// An affine is a position in a plane, so there has to be a plane to name.
-/// The converse does not hold and is not asserted: a grid whose projection
-/// does not resolve still belongs to a projection, so `proj4` keeps naming it
-/// while `plane_affine` declines — see the two tests below.
+/// The converse does not hold and is not asserted: a grid whose *raster* has no
+/// position still belongs to a sound projection, so `proj4` keeps naming it
+/// while `plane_affine` declines — see the two tests below. Only parameters
+/// that describe no CRS at all lose the string as well (#844).
 ///
 /// `grid_geometry_proj.rs` checks the numbers themselves against PROJ; what is
 /// checked here is that the two cannot disagree about whether there is a plane.
@@ -828,11 +829,22 @@ fn a_projection_that_resolves_nowhere_is_declined_by_every_answer() {
         assert!(geom.forward(0, 0).is_none(), "{what}: forward");
         assert!(geom.lonlat_bbox().is_none(), "{what}: bbox");
         assert!(geom.plane_affine().is_none(), "{what}: affine");
-        // Unchanged, and for the same reason as the spheroid case above: the
-        // raster shape and the plane are facts about the message, and it is
-        // this grid that cannot be put in that plane.
+        // The raster shape is a fact about the message. The plane is too,
+        // unless the parameters describe no CRS: a radius of zero or below, a
+        // scale factor that is not positive, or a cone with no apex angle.
+        // PROJ refuses those strings, so none is written (#844). The rest state
+        // a sound CRS and a grid that cannot be put in it.
         assert!(geom.dims().is_some(), "{what}: dims");
-        assert!(geom.proj4().is_some(), "{what}: proj4");
+        let names_no_crs = [
+            "a §3.12 scale factor of zero",
+            "a §3.12 scale factor that is not a number",
+            "a Lambert cone on a declared radius of zero",
+            "a polar stereographic plane on a declared radius of zero",
+            "a polar stereographic plane on a negative declared radius",
+            "a Lambert cone with both parallels on the equator",
+        ]
+        .contains(&what);
+        assert_eq!(geom.proj4().is_none(), names_no_crs, "{what}: proj4");
     }
 }
 

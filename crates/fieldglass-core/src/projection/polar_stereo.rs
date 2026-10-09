@@ -210,6 +210,14 @@ impl PolarStereoProjector {
         x_min <= 0.0 && 0.0 <= x_max && y_min <= 0.0 && 0.0 <= y_max
     }
 
+    /// Whether the parameters describe a CRS at all: the projection's own
+    /// constants, before any question about the raster laid on it. A
+    /// [`GridGeometry::proj4`](super::GridGeometry::proj4) string is written
+    /// only when this holds, so it never names a CRS PROJ refuses (#844).
+    pub(crate) fn crs_resolves(&self) -> bool {
+        self.constants.well_defined()
+    }
+
     /// Whether the plane and the grid's position in it are usable. `false` for
     /// a declared Earth radius of zero or less (see
     /// `PolarStereoConstants::well_defined`); such a projector's
@@ -244,7 +252,7 @@ impl PolarStereoProjector {
     /// cells against a 135-cell raster, so the honest grids sit on both sides
     /// of that line. See [`plane_spans_a_grid_cell`](super::plane_spans_a_grid_cell).
     pub fn is_well_defined(&self) -> bool {
-        self.constants.well_defined()
+        self.crs_resolves()
             && self.origin.0.is_finite()
             && self.origin.1.is_finite()
             && super::plane_spans_a_grid_cell(

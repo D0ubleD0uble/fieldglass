@@ -189,6 +189,14 @@ impl LambertProjector {
         self.origin
     }
 
+    /// Whether the parameters describe a CRS at all: the projection's own
+    /// constants, before any question about the raster laid on it. A
+    /// [`GridGeometry::proj4`](super::GridGeometry::proj4) string is written
+    /// only when this holds, so it never names a CRS PROJ refuses (#844).
+    pub(crate) fn crs_resolves(&self) -> bool {
+        self.constants.well_defined()
+    }
+
     /// Whether the cone constants are usable. `false` for degenerate standard
     /// parallels (see `LambertConstants::well_defined`); such a projector's
     /// [`inverse`](Self::inverse) always returns `None`, so callers can surface
@@ -207,7 +215,7 @@ impl LambertProjector {
     /// be positive, finite and still far too small to carry the raster, and the
     /// whole cone then collapses inside one cell (#610).
     pub fn is_well_defined(&self) -> bool {
-        self.constants.well_defined()
+        self.crs_resolves()
             && self.origin.0.is_finite()
             && self.origin.1.is_finite()
             && super::plane_spans_a_grid_cell(
