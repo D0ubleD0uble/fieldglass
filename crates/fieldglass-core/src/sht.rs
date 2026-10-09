@@ -46,7 +46,9 @@
 //! band-limited, and [`SpectralTruncation`] is the label that says so. A point
 //! is evaluated in full by [`evaluate_spherical_harmonic`]. A grid of the
 //! caller's own is band-limited the same way by default ([`points_band_limit`]),
-//! and in full on request ([`synthesize_spherical_harmonic`]).
+//! except that points not evenly spaced get at least T127, MIR's default for a
+//! point list ([`POINT_LIST_BAND_LIMIT`]), and in full on request
+//! ([`synthesize_spherical_harmonic`]).
 //!
 //! # Every truncation, in one kernel
 //!
@@ -356,6 +358,37 @@ pub const fn grid_band_limit(ni: usize, nj: usize) -> u32 {
     }
 }
 
+/// The least band limit [`points_band_limit`] gives a caller's points that are
+/// not evenly spaced: T127, or the field's own truncation when that is lower,
+/// since the transform never sums past it (#930).
+///
+/// This is ECMWF MIR's default for an arbitrary list of points: it has no grid
+/// spacing to derive a truncation from, so it uses a fixed Gaussian number of
+/// 64 and truncates to the linear `T = 2N − 1` (MIR `key/grid/Grid.h`,
+/// `default_gaussian_number()`; `key/resol/Resol.cc`). Fieldglass keeps its
+/// spacing rule where that finds more, and uses this floor so an uneven set
+/// never collapses to the field's global mean.
+///
+/// At T127 the work budget ([`MAX_SYNTHESIS_WORK`]) admits every grid the
+/// allocation budget ([`MAX_SYNTHESIS_CELLS`]) does. The allocation budget is
+/// charged at the floor too, so a list of points within about 4 M values of
+/// it, which the spacing rule alone limited lower, can now be refused.
+pub const POINT_LIST_BAND_LIMIT: u32 = 127;
+
+/// How far an axis's steps may differ and still count as evenly spaced in
+/// [`points_band_limit`], as a fraction of the largest step. One site gap
+/// (`180 / (MAX_TRUNCATION + 2)` degrees) is allowed on top of it.
+///
+/// A Gaussian grid's latitudes are not exactly evenly spaced: their steps
+/// differ by under 0.84% of the largest at every Gaussian number (0.46% at
+/// N2, rising to 0.838% by N64 and no further; measured from the
+/// Gauss–Legendre nodes up to N4096). MIR reads
+/// such a grid as regular and derives its truncation from it, so 1% admits it
+/// with room for rounding. The site gap absorbs a near-duplicate merged into
+/// a site, which shortens the step beside it by less than that. A missing row,
+/// two regions, or points in pairs differ by far more than either.
+const EVEN_SPREAD: f64 = 0.01;
+
 /// How many times larger than the smaller gap beside it a gap must be before
 /// [`points_band_limit`] reads it as a candidate break between two regions of
 /// a grid rather than a step of one.
@@ -369,6 +402,8 @@ const REGION_BREAK: f64 = 4.0;
 /// The highest total wavenumber a caller's grid resolves — [`grid_band_limit`]
 /// for axes that need not be global, regular or ordered — or `None` when
 /// neither axis has three sites (rule 1 below), so neither limits anything.
+/// Points that are not evenly spaced get at least [`POINT_LIST_BAND_LIMIT`]
+/// (rule 5).
 ///
 /// Each axis is judged by its coarsest step `Δ` in degrees: a step of `Δ`
 /// carries wavenumbers below `180/Δ`, so the limit is `⌊180/Δ⌋ − 1`, and the
@@ -402,12 +437,27 @@ const REGION_BREAK: f64 = 4.0;
 ///    polar caps does not coarsen them. A region needs three sites, so two
 ///    caps of two rows each are strays like any pair, not regions: the axis
 ///    falls back to its coarsest step, as the coarsest-step rule always did,
-///    and that step can be the separation. Otherwise the axis is one sampling:
+///    and that step can be the separation (rule 5 then keeps it from the
+///    field's mean). Otherwise the axis is one sampling:
 ///    the candidate breaks are dropped and every gap but a ring's outside is a
 ///    step, so latitudes in pairs 1° apart every 6° resolve their 5° step.
 /// 4. **Never coarser than the coarsest-step rule.** The rule only ever stops
-///    counting gaps as steps, so it never band-limits a grid below what the
-///    largest gap would. Checked over seeded families of grids.
+///    counting gaps as steps, and rule 5 only raises a limit, so it never
+///    band-limits a grid below what the largest gap would. Checked over
+///    seeded families of grids.
+/// 5. **Uneven points get at least T127** (#930). An axis is evenly spaced
+///    when its steps, the gaps between its sites (rule 1) leaving out a
+///    ring's largest, differ by at most 1% of the largest step plus one site
+///    gap. That admits a Gaussian grid's latitudes, whose steps differ by
+///    under 0.84%, and a near-duplicate merged into a site, which moves the
+///    step beside it by less than a site gap; a missing row, a pair or two
+///    regions differ by far more.
+///    When an axis with three or more sites is not evenly spaced, the set is
+///    a list of points rather than a grid, and its limit is never below
+///    [`POINT_LIST_BAND_LIMIT`]: MIR's default for a point list. The
+///    transform never sums past the field's own truncation, so a field below
+///    T127 is summed in full. A higher limit rules 1 to 3 find, such as T359
+///    for two caps at 0.5°, is kept.
 ///
 /// A smaller jump stays a step, so a regular grid with up to three rows
 /// missing is charged for the hole; four or more rows missing make two
@@ -416,10 +466,11 @@ const REGION_BREAK: f64 = 4.0;
 /// Latitudes outside ±90° sample nothing and are left out, as non-finite
 /// coordinates are.
 ///
-/// **A coarse regular sample stays band-limited to what it resolves.** Three
-/// longitudes 120° apart carry T0, as [`grid_band_limit`] says of a three-point
-/// ring, so `[−60, 0, 60] × [0, 120, 240]` synthesises the field's mean at
-/// every point. That is what the grid can show of the field, not a defect; a
+/// **A coarse evenly spaced sample stays band-limited to what it resolves.**
+/// Three longitudes 120° apart carry T0, as [`grid_band_limit`] says of a
+/// three-point ring, so `[−60, 0, 60] × [0, 120, 240]` synthesises the field's
+/// mean at every point. That is what the grid can show of the field, not a
+/// defect; a
 /// caller who wants the field's value at a handful of places wants the full
 /// sum, which `synthesize_spectral_message_full` and `evaluate_spectral_point`
 /// in the format crates give.
@@ -475,10 +526,11 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
         (Some(x), Some(y)) => Some(x.max(y)),
         (x, y) => x.or(y),
     };
-    // The step an axis's gaps between sites resolve, or `None` when it has
-    // fewer than `MIN_POINTS` sites. A line has one more site than gaps; a
-    // ring as many, its last gap closing the circle.
-    let axis_step = |raw: &[f64], ring: bool| -> Option<f64> {
+    // The step an axis's gaps between sites resolve and whether those steps
+    // are even, or `None` when it has fewer than `MIN_POINTS` sites. A line
+    // has one more site than gaps; a ring as many, its last gap closing the
+    // circle.
+    let axis_step = |raw: &[f64], ring: bool| -> Option<(f64, bool)> {
         let gaps: Vec<f64> = raw.iter().copied().filter(|&g| g >= site_gap).collect();
         let n = gaps.len();
         let sites = if ring { n.max(1) } else { n + 1 };
@@ -511,6 +563,14 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
                 .flatten()
                 .fold(f64::INFINITY, f64::min)
         };
+        // Rule 5: evenly spaced when every step but a ring's outside is
+        // within `EVEN_SPREAD` of the largest, plus one site gap.
+        let (shortest, longest) = (0..n)
+            .filter(|&i| Some(i) != forced)
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), i| {
+                (lo.min(gaps[i]), hi.max(gaps[i]))
+            });
+        let even = longest - shortest <= EVEN_SPREAD * longest + site_gap;
         let is_break: Vec<bool> = (0..n)
             .map(|i| Some(i) == forced || gaps[i] > REGION_BREAK * smaller_neighbour(i))
             .collect();
@@ -543,38 +603,51 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
         if !ring {
             close(run_sites, run_step);
         }
-        if region_sites * 2 > sites {
+        let step = if region_sites * 2 > sites {
             // Regions hold most of the axis: each is judged by its own steps,
             // and a stray run between them sets none.
             region_step
         } else {
             // Regions hold half the sites or fewer: the axis is one sampling,
             // every gap but a ring's outside is a step.
-            (0..n)
-                .filter(|&i| Some(i) != forced)
-                .map(|i| gaps[i])
-                .reduce(f64::max)
-        }
+            Some(longest)
+        };
+        step.map(|step| (step, even))
     };
     let lats = sorted(latitudes_deg, false);
     let by_latitude = axis_step(
         &lats.windows(2).map(|w| w[1] - w[0]).collect::<Vec<f64>>(),
         false,
-    )
-    .map(limit_of_step);
+    );
     let lons = sorted(longitudes_deg, true);
     let by_longitude = match (lons.first(), lons.last()) {
         (Some(&first), Some(&last)) => {
             let mut gaps: Vec<f64> = lons.windows(2).map(|w| w[1] - w[0]).collect();
             gaps.push(first + 360.0 - last);
-            axis_step(&gaps, true).map(limit_of_step)
+            axis_step(&gaps, true)
         }
         _ => None,
     };
-    match (by_latitude, by_longitude) {
+    let uneven = [by_latitude, by_longitude]
+        .iter()
+        .flatten()
+        .any(|&(_, even)| !even);
+    let limit = match (
+        by_latitude.map(|(step, _)| limit_of_step(step)),
+        by_longitude.map(|(step, _)| limit_of_step(step)),
+    ) {
         (Some(a), Some(b)) => Some(a.min(b)),
         (a, b) => a.or(b),
-    }
+    };
+    // Rule 5: a set that is not evenly spaced is a list of points, which MIR
+    // gives T127 whatever its spacing.
+    limit.map(|l| {
+        if uneven {
+            l.max(POINT_LIST_BAND_LIMIT)
+        } else {
+            l
+        }
+    })
 }
 
 /// The truncation a spectral field's **map** is synthesised at: its declared
@@ -1720,7 +1793,8 @@ mod tests {
         assert_eq!(points_band_limit(&global_lats, &across), Some(359));
 
         // One sampling with a hole is charged for it: up to three missing rows
-        // are a coarse stretch, four or more separate two regions.
+        // are a coarse stretch, four or more separate two regions. A hole makes
+        // the points uneven, so the stretch is never charged below T127.
         let without = |missing: usize| -> Vec<f64> {
             global_lats
                 .iter()
@@ -1730,7 +1804,8 @@ mod tests {
                 .collect()
         };
         assert_eq!(points_band_limit(&without(1), &global_lons), Some(179));
-        assert_eq!(points_band_limit(&without(3), &global_lons), Some(89));
+        assert_eq!(points_band_limit(&without(2), &global_lons), Some(127));
+        assert_eq!(points_band_limit(&without(3), &global_lons), Some(127));
         assert_eq!(points_band_limit(&without(4), &global_lons), Some(359));
 
         // A ring's outside is always a break, however few steps it spans: a
@@ -1772,17 +1847,22 @@ mod tests {
                 .flat_map(|k| [k as f64 * step, k as f64 * step + width])
                 .collect()
         };
-        // Latitude pairs 1° apart every 6°: one periodic sampling, judged by
-        // its coarsest step, 5°.
+        // Latitude pairs 1° apart every 6°: one periodic sampling, whose
+        // coarsest step, 5°, carries T35. Pairs are not evenly spaced, so the
+        // points get T127 (#930).
         let lat_pairs: Vec<f64> = pairs(6.0, 1.0, 15).iter().map(|x| x - 45.0).collect();
-        assert_eq!(points_band_limit(&lat_pairs, &global_lons), Some(35));
-        // Longitude pairs 1.5° apart every 10°: steps of 8.5°.
+        assert_eq!(points_band_limit(&lat_pairs, &global_lons), Some(127));
+        // Longitude pairs 1.5° apart every 10°: steps of 8.5°, T20, uneven.
         assert_eq!(
             points_band_limit(&global_lats, &pairs(10.0, 1.5, 36)),
-            Some(20)
+            Some(127)
         );
-        // Two close latitudes and one far one: three points, one sampling.
-        assert_eq!(points_band_limit(&[0.0, 1.0, 11.0], &global_lons), Some(17));
+        // Two close latitudes and one far one: three points, one sampling,
+        // uneven.
+        assert_eq!(
+            points_band_limit(&[0.0, 1.0, 11.0], &global_lons),
+            Some(127)
+        );
 
         // A latitude outside ±90 samples nothing, and a longitude a rounding
         // below 0 is 0, not a second point at 360.
@@ -1791,17 +1871,17 @@ mod tests {
             Some(2)
         );
         assert_eq!(points_band_limit(&[-1e308, 1e308], &global_lons), Some(359));
-        // Known and stated (#812, round 3): a region needs three sites, so
-        // regions only two rows or columns deep are strays, and the axis falls
-        // back to its coarsest step, which here is the separation. The same
-        // as the coarsest-step rule gives, not a regression; recorded on #812.
+        // A region needs three sites, so regions only two rows or columns
+        // deep are strays, and the axis falls back to its coarsest step, which
+        // here is the separation: T0. The points are not evenly spaced, so
+        // they get MIR's T127 for a point list instead (#812, #930).
         assert_eq!(
             points_band_limit(&[-70.5, -70.0, 70.0, 70.5], &global_lons),
-            Some(0)
+            Some(127)
         );
         assert_eq!(
             points_band_limit(&global_lats, &[0.0, 180.0, 180.5]),
-            Some(0)
+            Some(127)
         );
 
         // Folded, these are two longitudes, which do not sample the ring.
@@ -1844,6 +1924,88 @@ mod tests {
             points_band_limit(&[-60.0, 0.0, 60.0], &axis(0.0, 300.0, 60.0)),
             Some(2)
         );
+    }
+
+    /// Where "evenly spaced" ends (#930): an axis whose steps differ by more
+    /// than 1% of the largest plus one site gap is a list of points and gets
+    /// at least T127; within it, the spacing rule stands. Pinned on both sides
+    /// at two step sizes, so both terms of the tolerance are held, on a line
+    /// and round a ring.
+    #[test]
+    fn the_evenly_spaced_tolerance_is_pinned_at_both_edges() {
+        let site_gap = 180.0 / (f64::from(MAX_TRUNCATION) + 2.0);
+        let tolerance = |step: f64| EVEN_SPREAD * step + site_gap;
+        // At a 10° step the slack is 0.1° + 0.022°: 0.120° in, 0.125° out.
+        assert!(tolerance(10.0) > 0.120 && tolerance(10.0) < 0.125);
+        assert_eq!(points_band_limit(&[0.0, 10.0, 20.0, 29.88], &[]), Some(17));
+        assert_eq!(
+            points_band_limit(&[0.0, 10.0, 20.0, 29.875], &[]),
+            Some(POINT_LIST_BAND_LIMIT)
+        );
+        // At 2° it is 0.02° + 0.022°: 0.040° in, 0.043° out.
+        assert!(tolerance(2.0) > 0.040 && tolerance(2.0) < 0.043);
+        assert_eq!(points_band_limit(&[0.0, 2.0, 4.0, 5.96], &[]), Some(89));
+        assert_eq!(
+            points_band_limit(&[0.0, 2.0, 4.0, 5.957], &[]),
+            Some(POINT_LIST_BAND_LIMIT)
+        );
+        // Round a ring, the largest gap is the outside and is left out: a
+        // 10° circle with one longitude moved 0.12° west is even, 0.125° not.
+        let ring = |last: f64| -> Vec<f64> {
+            let mut v: Vec<f64> = (0..35).map(|k| 10.0 * f64::from(k)).collect();
+            v.push(last);
+            v
+        };
+        assert_eq!(points_band_limit(&[0.0], &ring(349.88)), Some(17));
+        assert_eq!(
+            points_band_limit(&[0.0], &ring(349.875)),
+            Some(POINT_LIST_BAND_LIMIT)
+        );
+        // A near-duplicate is merged into its site, and the step beside it
+        // shortened by less than a site gap is still a step of the sampling.
+        assert_eq!(
+            points_band_limit(&[0.0, 10.0, 10.02, 20.0, 30.0], &[]),
+            Some(17)
+        );
+        // A Gaussian grid is evenly spaced: N32 (64 latitudes, 128 longitudes)
+        // keeps the T63 MIR derives from it, below the point-list floor.
+        let gaussian = crate::projection::gaussian::gaussian_latitudes(32);
+        let lons: Vec<f64> = (0..128).map(|k| 2.8125 * f64::from(k)).collect();
+        assert_eq!(points_band_limit(&gaussian, &lons), Some(63));
+        // Every Gaussian number's latitudes are within the tolerance.
+        for n in [2, 8, 32, 64, 320, 1280] {
+            let lats = crate::projection::gaussian::gaussian_latitudes(n);
+            assert_eq!(points_band_limit(&lats, &[]), Some(2 * n - 1), "N{n}");
+        }
+    }
+
+    /// Raising a list of points to T127 never makes the *work* budget refuse
+    /// it (#930): every grid the allocation budget admits at T127 costs at
+    /// most `128 · MAX_SYNTHESIS_CELLS` units, a third of
+    /// [`MAX_SYNTHESIS_WORK`]. Checked at the widest grid the allocation
+    /// budget admits for each latitude count, from one row to a square.
+    #[test]
+    fn the_point_list_floor_fits_the_work_budget_wherever_it_fits_the_allocation() {
+        let floor = POINT_LIST_BAND_LIMIT;
+        const { assert!(128 * MAX_SYNTHESIS_CELLS < MAX_SYNTHESIS_WORK) };
+        let mut nlat = 1usize;
+        while synthesis_cells(floor, nlat, 1) <= MAX_SYNTHESIS_CELLS {
+            // The widest grid of `nlat` rows the allocation budget admits.
+            let (mut lo, mut hi) = (1usize, 1usize << 27);
+            while lo < hi {
+                let mid = (lo + hi).div_ceil(2);
+                if synthesis_cells(floor, nlat, mid) <= MAX_SYNTHESIS_CELLS {
+                    lo = mid;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+            assert!(
+                synthesis_work(floor, nlat, lo) <= MAX_SYNTHESIS_WORK,
+                "{nlat} × {lo}"
+            );
+            nlat = nlat * 2 + 1;
+        }
     }
 
     /// The rule never band-limits a grid below what master's rule did (#812):

@@ -552,10 +552,20 @@ impl<S: ByteSource> Grib1Reader<S> {
     /// regions hold most of the grid's rows or columns; a thinner run is read
     /// as a stray point. Otherwise, when regions hold half or fewer, that axis
     /// falls back to its coarsest step, gaps between regions included (though
-    /// never the gap outside a longitude sector). A coarse regular sample resolves only what its step
-    /// carries: three longitudes round the circle carry T0, the field's mean,
-    /// so to read a handful of places ask for the full sum. An
-    /// axis counts only when it has at least three distinct points, so a
+    /// never the gap outside a longitude sector).
+    ///
+    /// **Points that are not evenly spaced get at least T127** (#930). An axis
+    /// is evenly spaced when its steps differ by at most 1% of the largest,
+    /// which a Gaussian grid's latitudes do, plus 0.022° for a merged
+    /// near-duplicate. Otherwise the set is a list of points rather than a
+    /// grid, and it is never summed below T127, or the message's own
+    /// truncation when that is lower. That is MIR's default for a point list,
+    /// and it keeps two polar bands two rows deep from reading as one coarse
+    /// step and collapsing to the field's mean. An evenly spaced coarse sample
+    /// still resolves only what its step carries: three longitudes round the
+    /// circle carry T0, the field's mean, so to read a handful of places ask
+    /// for the full sum. An axis counts only when it has at least three
+    /// distinct points, so a
     /// single meridian or two latitudes leave the other axis to decide, and a
     /// grid with neither (a single point, 2 × 2) is synthesised in full. This is
     /// what ECMWF's MIR does by default before every spectral-to-grid transform
