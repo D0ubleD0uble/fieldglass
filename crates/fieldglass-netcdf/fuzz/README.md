@@ -30,10 +30,11 @@ The seed corpus under `corpus/parse/` is some of the crate's NetCDF test fixture
 including the three szip files (#421), plus `oom_large_fill_dataset.h5`. That one
 is the 13 KB input on which the time-boxed CI run reported out-of-memory: a
 mutated HDF5 file whose second dataset declares a chunked 9,175,044 × 16 shape
-of four-byte elements. It is inside the reader's
-whole-variable cap and its decode needs about 2.9 GB, past libFuzzer's 2 GB RSS
-limit, so the target reads each variable's shape first and skips decoding a
-large one (see `MAX_FUZZ_DECODE_ELEMENTS`). The seed keeps that skip in place.
+of four-byte elements, whose decode would hold about 2.9 GB. The reader now
+refuses it before allocating (#847), and the target reads each variable's shape
+first and skips decoding one too large for libFuzzer's 2 GB RSS limit that the
+reader would still accept (see `MAX_FUZZ_DECODE_ELEMENTS`). The seed keeps both
+in place.
 `hdf5_duplicate_chunk_records.h5` (24 KB, from
 `tools/build_hdf5_duplicate_chunk_fixture.py`; see `tests/fixtures/NOTICE.md`)
 names one 16 MB gzip chunk 16 times through a hand-built chunk B-tree. It took
