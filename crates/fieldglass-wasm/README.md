@@ -313,31 +313,49 @@ same machine. That build was itself 5,342 raw bytes and 560 gzipped above the
 figures recorded before it, from merges that did not re-record the table, so
 the table now records the measured build rather than adding to a stale one.
 
+From 2026-10-08 the table holds CI's own measurement, copied from the `wasm`
+job's run summary, not a local build. CI builds with the current stable rustc
+(1.99.0 here), and a local build on an older toolchain came out about 1.1%
+larger in raw bytes (gzipped agreed to within 0.1%). That was enough to make the
+1% re-record rule below fire on every PR. The figures are from the `ci.yml` run
+on `ee428723` (#929's merge): 22,029 raw and 12,424 gzipped above the previous
+baseline figures, and 21,383 and 13,141 above `+simd128`'s. That is the
+local-versus-CI gap plus the growth of the merges since #870.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,535,056 | 584,147 |
-| `+simd128` | 1,519,161 | 579,864 |
+| baseline | 1,557,085 | 596,571 |
+| `+simd128` | 1,540,544 | 593,005 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
-that moves the bundle has to say so here. Update both cells when it does.
+that moves the bundle that far has to say so here.
 
-The figures are from one x86-64 Linux machine; CI measures the same tree about
-0.1% smaller, which is nowhere near the tolerance. It is the drift between
-*builds* the gate is for, not between machines.
+**When to re-record.** CI's `wasm` job prints each build's measured size and its
+drift from these figures in its run summary. A PR re-records the table when
+that drift reads above 1.0% for either build. The release prep PR re-records it
+every time, so the figures match CI at each release and a cycle of small
+increases shows up in one diff (RELEASING.md §1). In both cases, copy the
+measured `.wasm` and gzipped columns from the summary into the table, and add a
+paragraph above it saying what moved. Don't record from a local build: its
+toolchain differs from CI's, and so does its size. CI takes the current stable
+rustc, so a new Rust release alone can push the drift over 1.0%; the next PR
+then re-records it, saying so.
 
 Two things worth knowing before optimising further:
 
-- `wasm-opt -Oz` is a **raw** win and a **transfer** loss. It takes the module
-  from 1,342,887 to 1,262,479 bytes (-6.0%) and takes it from 489,627 to 501,678
+- `wasm-opt -Oz` is a **raw** win and a **transfer** loss (measured locally
+  before NetCDF, #662; the module has grown since). It took the module
+  from 1,342,887 to 1,262,479 bytes (-6.0%) and took it from 489,627 to 501,678
   gzipped (+2.5%). Its size passes trade repetition for smaller encodings, and
   DEFLATE was already being paid for the repetition. It stays on because parse
   and instantiate cost track the raw module, but a transfer-size-only argument
   for `-Oz` does not survive measurement. The trade held its shape when NetCDF
   was added (#662): it was -5.2% / +1.9% on the GRIB-only bundle.
-- `+simd128` buys 7,197 raw bytes and nothing measurable in time (below). The
+- `+simd128` saves 16,541 raw bytes on the table above and buys nothing
+  measurable in time (below). The
   decode kernels are bit-unpacking loops with data-dependent control flow, not
   the float-per-lane arithmetic autovectorisation looks for, and `std` is not
   rebuilt with it without `-Zbuild-std`. Recorded so nobody re-derives it.

@@ -42,6 +42,15 @@ Enforced by pre-commit (commit stage) and pre-push:
 - `cargo deny check`
 - semgrep (ERROR severity)
 
+Wasm bundle-size table (`crates/fieldglass-wasm/README.md`, gated at 5% by
+`tools/check_wasm_bundle_size.py`): re-record it in a PR only when CI's `wasm` job
+summary reports more than 1.0% drift from the table for either build. The
+release prep PR always re-records it. Either way, copy the measured columns from
+that CI summary; never record from a local build, whose toolchain differs from
+CI's by about 1% in raw size.
+Re-recording small changes on every PR made any two open PRs conflict on the
+same lines.
+
 Coverage: Codecov patch target is 70%. Exclude generated / stub / FFI files in
 `codecov.yml` rather than writing token tests for them.
 

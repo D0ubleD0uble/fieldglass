@@ -15,11 +15,14 @@ is updated, so the documented size is the measured size by construction.
 
 Both directions on purpose. An increase is the regression the gate exists for; a
 decrease that nobody records loses the win, because the next increase is then
-measured against a stale, generous number.
+measured against a stale, generous number. Drift under 1% is left to accumulate
+until the release prep PR re-records the table from CI's figures
+(`.claude/rules/conventions.md`).
 
-The tolerance (5% by default) is set well above toolchain noise — a rustc or
-dependency bump moves this by well under a percent — and well below "it grew a
-copy of the standard library".
+The tolerance (5% by default) is set well above toolchain noise and well below
+"it grew a copy of the standard library". Toolchain noise is not negligible: a
+rustc release has moved the raw size by about 1%, which is why the table records
+CI's figures rather than a local build's.
 
 Gzip is measured with Python's `gzip`, not the `gzip` binary: GNU and BSD `gzip`
 disagree by a few hundred bytes on the same input, so a shell measurement would
