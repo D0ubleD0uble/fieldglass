@@ -22,10 +22,10 @@
 //! Reference: HDF5 file format specification version 3, "Disk Format: Level 1"
 //! <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>.
 
-use super::Hdf5Probe;
 use super::heap::{self, FractalHeap};
 use super::object_header::{self, read_uint_le};
 use super::source::{ClaimedRanges, Cursor, Fields, FileCursor, read_up_to, scan_windows};
+use super::{BtreeK, Hdf5Probe};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::ByteSource;
 use std::collections::HashSet;
@@ -112,7 +112,13 @@ pub fn list_group_children<S: ByteSource + ?Sized>(
         .iter()
         .find(|m| m.msg_type == MSG_SYMBOL_TABLE)
     {
-        symbol_table_links(source, &msg.body, osize, lsize)?
+        symbol_table_links(
+            source,
+            &msg.body,
+            osize,
+            lsize,
+            super::btree_k(source, probe)?,
+        )?
     } else if let Some(msg) = header.messages.iter().find(|m| m.msg_type == MSG_LINK_INFO) {
         link_info_links(source, &header, &msg.body, osize, lsize)?
     } else {
@@ -275,6 +281,7 @@ fn symbol_table_links<S: ByteSource + ?Sized>(
     body: &[u8],
     osize: u8,
     lsize: u8,
+    k: BtreeK,
 ) -> Result<Vec<(String, u64)>, FieldglassError> {
     let o = osize as usize;
     if body.len() < 2 * o {
@@ -293,7 +300,14 @@ fn symbol_table_links<S: ByteSource + ?Sized>(
     let mut nodes = ClaimedRanges::default();
     let mut names = ClaimedRanges::default();
     let mut snods = Vec::new();
-    collect_snods(source, btree_addr, osize, lsize, &mut snods, &mut nodes)?;
+    collect_snods(
+        source,
+        btree_addr,
+        (osize, lsize),
+        k.group_node_max(),
+        &mut snods,
+        &mut nodes,
+    )?;
 
     let mut links = Vec::new();
     for snod in snods {
@@ -301,8 +315,8 @@ fn symbol_table_links<S: ByteSource + ?Sized>(
             source,
             snod,
             heap_data,
-            osize,
-            lsize,
+            (osize, lsize),
+            k.symbol_node_max(),
             &mut links,
             (&mut nodes, &mut names),
         )?;
@@ -340,12 +354,13 @@ fn local_heap_data_segment<S: ByteSource + ?Sized>(
 /// Walk a version-1 B-tree group node, collecting the addresses of its leaf
 /// `SNOD` nodes. Traversal is iterative with an explicit work-list (not native
 /// recursion) and bounded by [`MAX_BTREE_NODES`], so a malformed or cyclic tree
-/// terminates with an error rather than overflowing the stack.
+/// terminates with an error rather than overflowing the stack. A node holding
+/// more than `max_entries` (2K, Group Internal Node K) is refused (#920).
 fn collect_snods<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
-    osize: u8,
-    lsize: u8,
+    (osize, lsize): (u8, u8),
+    max_entries: usize,
     out: &mut Vec<u64>,
     nodes: &mut ClaimedRanges,
 ) -> Result<(), FieldglassError> {
@@ -370,6 +385,11 @@ fn collect_snods<S: ByteSource + ?Sized>(
         }
         let level = cur.byte()?;
         let entries = cur.u16()? as usize;
+        if entries > max_entries {
+            return Err(FieldglassError::Parse(format!(
+                "group B-tree node holds {entries} entries, more than 2K = {max_entries}"
+            )));
+        }
         // The node's bytes: signature, type, level and count (8), two sibling
         // addresses, then `entries` key/child pairs and a closing key. A key
         // is a local-heap offset, Size of Lengths wide (specification,
@@ -403,13 +423,14 @@ fn collect_snods<S: ByteSource + ?Sized>(
 /// segment.
 ///
 /// `claims` are the group's node ranges in the file and name ranges in the
-/// heap; this SNOD and each name it reads are claimed in them (#901).
+/// heap; this SNOD and each name it reads are claimed in them (#901). A node
+/// holding more than `max_entries` (2K, Group Leaf Node K) is refused (#920).
 fn read_snod<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
     heap_data: HeapSegment,
-    osize: u8,
-    lsize: u8,
+    (osize, lsize): (u8, u8),
+    max_entries: usize,
     out: &mut Vec<(String, u64)>,
     (nodes, names): (&mut ClaimedRanges, &mut ClaimedRanges),
 ) -> Result<(), FieldglassError> {
@@ -419,6 +440,11 @@ fn read_snod<S: ByteSource + ?Sized>(
     cur.tag(SIG_SNOD)?;
     cur.skip(2)?; // version (1) + reserved (1)
     let count = cur.u16()? as usize;
+    if count > max_entries {
+        return Err(FieldglassError::Parse(format!(
+            "symbol-table node holds {count} entries, more than 2K = {max_entries}"
+        )));
+    }
     // Signature, version, reserved and count (8), then `count` entries of a
     // name offset, a header address, cache type, reserved and scratch-pad.
     // The name offset is Size of Lengths wide, as libhdf5 reads and writes it
@@ -619,7 +645,7 @@ fn decode_name(raw: &[u8]) -> Result<String, FieldglassError> {
 }
 
 /// Whether an address field is the HDF5 "undefined address" sentinel (all ones).
-fn is_undefined(address: u64, osize: u8) -> bool {
+pub(crate) fn is_undefined(address: u64, osize: u8) -> bool {
     let o = osize as usize;
     if o >= 8 {
         address == u64::MAX
@@ -686,7 +712,7 @@ mod tests {
         let mut body = Vec::new();
         body.extend_from_slice(&0x300u64.to_le_bytes()); // B-tree v1 address
         body.extend_from_slice(&0x100u64.to_le_bytes()); // local heap address
-        let links = symbol_table_links(&buf, &body, 8, 8).unwrap();
+        let links = symbol_table_links(&buf, &body, 8, 8, BtreeK::default()).unwrap();
         assert_eq!(
             links,
             vec![("alpha".to_string(), 0xAAAA), ("beta".to_string(), 0xBBBB)]
@@ -710,8 +736,8 @@ mod tests {
         put(&mut buf, 6, &1u16.to_le_bytes()); // one entry
         // key0 @24, child0 @32 left at 0 → self-reference.
         let mut out = Vec::new();
-        let err =
-            collect_snods(&buf, 0, 8, 8, &mut out, &mut ClaimedRanges::default()).unwrap_err();
+        let err = collect_snods(&buf, 0, (8, 8), 32, &mut out, &mut ClaimedRanges::default())
+            .unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)));
     }
 
@@ -722,7 +748,7 @@ mod tests {
         let mut body = Vec::new();
         body.extend_from_slice(&4096u64.to_le_bytes());
         body.extend_from_slice(&4096u64.to_le_bytes());
-        assert!(symbol_table_links(&buf, &body, 8, 8).is_err());
+        assert!(symbol_table_links(&buf, &body, 8, 8, BtreeK::default()).is_err());
     }
 
     #[test]
