@@ -466,6 +466,17 @@ repos:
         entry: python3 tools/test_check_binaryen_pin.py
         pass_filenames: false
 
+      - id: release-notes-selftest
+        name: tools/release_notes.py unit tests
+        # The release-notes check is the last guard before an irreversible
+        # Marketplace publish (#858), and it only runs for real on a tag, so a
+        # broken one would first show up mid-release.
+        stages: [pre-push]
+        language: system
+        files: ^tools/(release_notes|test_release_notes)\.py$
+        entry: python3 tools/test_release_notes.py
+        pass_filenames: false
+
       - id: perf-gate-selftest
         name: tools/check_perf_gate.py unit tests
         language: system
