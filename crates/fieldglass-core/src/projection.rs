@@ -524,6 +524,29 @@ pub fn plane_spans_a_grid_cell(plane_radius_m: f64, dx_metres: f64, dy_metres: f
     dx_metres.abs() < plane_radius_m && dy_metres.abs() < plane_radius_m
 }
 
+/// Whether a semi-major and a semi-minor axis, in metres, describe an Earth a
+/// projection can be built on: both finite and positive, and the body oblate
+/// or a sphere (`semi_minor_m <= semi_major_m`).
+///
+/// A file can state either axis. GRIB2 Code Table 3.2's shapes 1, 3 and 7 take
+/// a radius or two axes from the data producer, and a CF grid mapping states
+/// `semi_major_axis` and `semi_minor_axis` as attributes, so zero, a negative
+/// number, `NaN` and a prolate body all reach a reader. The table describes
+/// only spheres and oblate spheroids, so a prolate pair is a corrupt message
+/// rather than an exotic planet. PROJ (checked at 9.4.0) refuses every one of
+/// these cases with "Must specify ellipsoid or sphere", so a CRS string built
+/// from them names nothing a map library can use (#844).
+///
+/// The one rule for every family that takes axes: the transverse Mercator and
+/// Lambert azimuthal constants and the geostationary projector all ask it, and
+/// so do the readers that decide whether to build a grid at all.
+pub fn is_oblate_spheroid(semi_major_m: f64, semi_minor_m: f64) -> bool {
+    semi_major_m.is_finite()
+        && semi_minor_m.is_finite()
+        && semi_minor_m > 0.0
+        && semi_minor_m <= semi_major_m
+}
+
 /// The floor [`GridGeometry::reprojectable`] puts under a metre-plane family,
 /// measured on the radius the **message declared** rather than on the plane the
 /// projection derives from it.
@@ -2306,6 +2329,30 @@ mod tests {
                 !plane_spans_a_grid_cell(radius, 12_000.0, 12_000.0),
                 "radius {radius} passed"
             );
+        }
+    }
+
+    /// Spheres and oblate spheroids are bodies; anything PROJ would refuse
+    /// with "Must specify ellipsoid or sphere" is not (#844).
+    #[test]
+    fn an_oblate_spheroid_is_a_body_and_nothing_else_is() {
+        assert!(is_oblate_spheroid(6_371_229.0, 6_371_229.0), "a sphere");
+        assert!(is_oblate_spheroid(6_378_137.0, 6_356_752.314), "WGS84");
+        // A tiny body is still a body; its size against the grid is
+        // `plane_spans_a_grid_cell`'s question.
+        assert!(is_oblate_spheroid(1e-6, 1e-6));
+        for (a, b) in [
+            (0.0, 0.0),
+            (6_378_137.0, 0.0),
+            (0.0, 6_356_752.314),
+            (-6_378_137.0, -6_378_137.0),
+            (6_356_752.314, 6_378_137.0),
+            (f64::NAN, 6_356_752.314),
+            (6_378_137.0, f64::NAN),
+            (f64::INFINITY, 6_356_752.314),
+            (f64::INFINITY, f64::INFINITY),
+        ] {
+            assert!(!is_oblate_spheroid(a, b), "({a}, {b}) is a body");
         }
     }
 

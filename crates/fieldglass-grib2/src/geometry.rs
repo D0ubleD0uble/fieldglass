@@ -20,14 +20,43 @@
 
 use fieldglass_core::{
     GaussianParams, GridGeometry, LambertParams, LatLonParams, MercatorParams, PolarStereoParams,
-    RotatedLatLonParams, reduced_raster_width, signed_grid_increments,
+    RotatedLatLonParams, is_oblate_spheroid, reduced_raster_width, signed_grid_increments,
 };
 
 use crate::gds::{GridDefinitionSection, GridTemplate};
 
+/// The Earth a projected template's grid is laid on, as `(semi-major,
+/// semi-minor)` metres, or `None` for a template whose points are geographic
+/// angles and so do not depend on the radius.
+///
+/// Lambert conformal and polar stereographic project on a sphere, the mean of
+/// the stated axes, which reads as zero when the axes describe no body (see
+/// `earth_radius_from_shape`). §3.90 asks the same question in
+/// [`SpaceViewTemplate::scan_grid`](crate::gds::SpaceViewTemplate::scan_grid).
+fn projected_earth(template: &GridTemplate) -> Option<(f64, f64)> {
+    match template {
+        GridTemplate::Lambert(t) => Some((t.earth_radius_m, t.earth_radius_m)),
+        GridTemplate::PolarStereographic(t) => Some((t.earth_radius_m, t.earth_radius_m)),
+        GridTemplate::TransverseMercator(t) => Some((t.earth_major_m, t.earth_minor_m)),
+        GridTemplate::LambertAzimuthal(t) => Some((t.earth_major_m, t.earth_minor_m)),
+        _ => None,
+    }
+}
+
 impl From<&GridDefinitionSection> for GridGeometry {
     fn from(gds: &GridDefinitionSection) -> Self {
         match &gds.template {
+            // A projected grid on an Earth that is not a body: a stated radius
+            // of zero (Code Table 3.2 shape 1), axes of zero (shapes 3 and 7),
+            // or a minor axis longer than the major one. The projectors already
+            // refused to place such a grid, but the geometry still carried the
+            // axes into a PROJ string (`+R=0`, `+a=0 +b=0`) that PROJ itself
+            // rejects. Declined the way a non-finite parameter is (#844).
+            t if projected_earth(t).is_some_and(|(a, b)| !is_oblate_spheroid(a, b)) => {
+                Self::Unsupported {
+                    label: gds.template_name(),
+                }
+            }
             GridTemplate::LatLon(t) => Self::LatLon(LatLonParams {
                 ni: t.ni,
                 nj: t.nj,
@@ -126,12 +155,20 @@ impl From<&GridDefinitionSection> for GridGeometry {
             // state NaN or an infinity in them. No grid can be built from one,
             // so it declines the way a §3.90 with no usable camera does, rather
             // than reporting a placed grid with NaN bounds (#823).
+            //
+            // The scale factor is also a ratio of two distances (WMO §3.12:
+            // "distance on map to distance on spheroid"), so zero or a negative
+            // value is no scale factor either. A negative one used to report a
+            // placed grid with `+k_0=-1` in its PROJ string, which PROJ refuses
+            // ("it should be > 0") (#844).
             GridTemplate::RotatedLatLon(t) if !t.angle_of_rotation.is_finite() => {
                 Self::Unsupported {
                     label: gds.template_name(),
                 }
             }
-            GridTemplate::TransverseMercator(t) if !t.scale_factor.is_finite() => {
+            GridTemplate::TransverseMercator(t)
+                if !(t.scale_factor.is_finite() && t.scale_factor > 0.0) =>
+            {
                 Self::Unsupported {
                     label: gds.template_name(),
                 }

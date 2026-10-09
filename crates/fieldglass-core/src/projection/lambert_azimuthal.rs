@@ -145,7 +145,7 @@ fn lambert_azimuthal_constants(p: &LambertAzimuthalParams) -> LambertAzimuthalCo
     let b = p.semi_minor_m;
     // Same guard, and the same reason, as `transverse_mercator_constants`: an
     // impossible spheroid must fail `well_defined` rather than project.
-    if !(a.is_finite() && b.is_finite() && a > 0.0 && b > 0.0 && b <= a) {
+    if !super::is_oblate_spheroid(a, b) {
         return LambertAzimuthalConstants {
             e: f64::NAN,
             es: f64::NAN,

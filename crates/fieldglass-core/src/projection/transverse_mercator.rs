@@ -110,7 +110,7 @@ fn transverse_mercator_constants(p: &TransverseMercatorParams) -> TransverseMerc
     // which the guard on `2 - f` turns into `n = 0`, i.e. a perfectly usable
     // one-metre sphere. Poisoning the rectifying radius makes
     // `well_defined` — and so the projector — reject it instead.
-    if !(a.is_finite() && b.is_finite() && a > 0.0 && b > 0.0 && b <= a) {
+    if !super::is_oblate_spheroid(a, b) {
         return TransverseMercatorConstants {
             n: f64::NAN,
             rectifying_radius: f64::NAN,
