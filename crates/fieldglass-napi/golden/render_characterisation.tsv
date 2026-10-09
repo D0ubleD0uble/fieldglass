@@ -1364,6 +1364,24 @@ netcdf/hdf5_shared_chunk_records_sizes.h5#v	render/source/nearest	err: parse err
 netcdf/hdf5_shared_group_name.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_shared_huge_attribute.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_shared_snod.h5	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/hdf5_sizes_o4_l8.h5	file	parsed=true fields=2	fc2e429795c3205d
+netcdf/hdf5_sizes_o4_l8.h5#contig	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	c3785e1b8511c604
+netcdf/hdf5_sizes_o4_l8.h5#contig	meta	family=source ni=3 nj=2 reprojectable=false	bd502a49a7319a01
+netcdf/hdf5_sizes_o4_l8.h5#contig	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_sizes_o4_l8.h5#contig	render/source/nearest	ok w=3 h=2 opaque=6	03bd40ed62086226
+netcdf/hdf5_sizes_o4_l8.h5#v	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	05ac0c4c9a025cb6
+netcdf/hdf5_sizes_o4_l8.h5#v	meta	family=source ni=4 nj=3 reprojectable=false	2659167b5eac3a2d
+netcdf/hdf5_sizes_o4_l8.h5#v	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_sizes_o4_l8.h5#v	render/source/nearest	ok w=4 h=3 opaque=12	109a064d1f2a4341
+netcdf/hdf5_sizes_o8_l4.h5	file	parsed=true fields=2	fc2e429795c3205d
+netcdf/hdf5_sizes_o8_l4.h5#contig	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	c3785e1b8511c604
+netcdf/hdf5_sizes_o8_l4.h5#contig	meta	family=source ni=3 nj=2 reprojectable=false	bd502a49a7319a01
+netcdf/hdf5_sizes_o8_l4.h5#contig	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_sizes_o8_l4.h5#contig	render/source/nearest	ok w=3 h=2 opaque=6	03bd40ed62086226
+netcdf/hdf5_sizes_o8_l4.h5#v	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	05ac0c4c9a025cb6
+netcdf/hdf5_sizes_o8_l4.h5#v	meta	family=source ni=4 nj=3 reprojectable=false	2659167b5eac3a2d
+netcdf/hdf5_sizes_o8_l4.h5#v	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_sizes_o8_l4.h5#v	render/source/nearest	ok w=4 h=3 opaque=12	109a064d1f2a4341
 netcdf/hdf5_soft_links_earliest.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_soft_links_latest.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_szip.h5	file	parsed=true fields=12	2bedaa0631cb8fc5

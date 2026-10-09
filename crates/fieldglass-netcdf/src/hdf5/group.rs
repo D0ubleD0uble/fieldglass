@@ -293,7 +293,7 @@ fn symbol_table_links<S: ByteSource + ?Sized>(
     let mut nodes = ClaimedRanges::default();
     let mut names = ClaimedRanges::default();
     let mut snods = Vec::new();
-    collect_snods(source, btree_addr, osize, &mut snods, &mut nodes)?;
+    collect_snods(source, btree_addr, osize, lsize, &mut snods, &mut nodes)?;
 
     let mut links = Vec::new();
     for snod in snods {
@@ -302,6 +302,7 @@ fn symbol_table_links<S: ByteSource + ?Sized>(
             snod,
             heap_data,
             osize,
+            lsize,
             &mut links,
             (&mut nodes, &mut names),
         )?;
@@ -344,10 +345,12 @@ fn collect_snods<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
     osize: u8,
+    lsize: u8,
     out: &mut Vec<u64>,
     nodes: &mut ClaimedRanges,
 ) -> Result<(), FieldglassError> {
     let o = osize as usize;
+    let l = lsize as usize;
     let mut pending = vec![addr];
     let mut visited = 0usize;
     while let Some(node_addr) = pending.pop() {
@@ -368,15 +371,18 @@ fn collect_snods<S: ByteSource + ?Sized>(
         let level = cur.byte()?;
         let entries = cur.u16()? as usize;
         // The node's bytes: signature, type, level and count (8), two sibling
-        // addresses, then `entries` key/child pairs and a closing key.
-        let node_len = (8 + 2 * o + (2 * entries + 1) * o) as u64;
+        // addresses, then `entries` key/child pairs and a closing key. A key
+        // is a local-heap offset, Size of Lengths wide (specification,
+        // "Version 1 B-trees"; libhdf5 `H5G_node_decode_key`), and a child an
+        // address (#922).
+        let node_len = (8 + 2 * o + entries * (l + o) + l) as u64;
         nodes.claim(node_addr, node_len, "group B-tree node")?;
         cur.skip(2 * o)?; // left + right sibling addresses
         // Keys and child pointers interleave: key, child, key, child, …, key. We
         // only need the child pointers; leaves hold SNOD addresses, internal
         // nodes hold child B-tree nodes.
         for _ in 0..entries {
-            cur.uint(o)?; // key (byte offset into the local heap)
+            cur.uint(l)?; // key (byte offset into the local heap)
             let child = cur.uint(o)?;
             if level == 0 {
                 if out.len() >= MAX_CHILDREN {
@@ -403,19 +409,26 @@ fn read_snod<S: ByteSource + ?Sized>(
     addr: u64,
     heap_data: HeapSegment,
     osize: u8,
+    lsize: u8,
     out: &mut Vec<(String, u64)>,
     (nodes, names): (&mut ClaimedRanges, &mut ClaimedRanges),
 ) -> Result<(), FieldglassError> {
     let o = osize as usize;
+    let l = lsize as usize;
     let mut cur = FileCursor::at(source, addr)?;
     cur.tag(SIG_SNOD)?;
     cur.skip(2)?; // version (1) + reserved (1)
     let count = cur.u16()? as usize;
     // Signature, version, reserved and count (8), then `count` entries of a
     // name offset, a header address, cache type, reserved and scratch-pad.
-    nodes.claim(addr, (8 + count * (2 * o + 24)) as u64, "symbol-table node")?;
+    // The name offset is Size of Lengths wide, as libhdf5 reads and writes it
+    // (`H5G_ent_decode`), like every other local-heap offset; the
+    // specification's "Symbol Table Entry" table marks it Size of Offsets.
+    // The two agree unless the sizes differ, and libhdf5 writes these files
+    // (#922).
+    nodes.claim(addr, (8 + count * (l + o + 24)) as u64, "symbol-table node")?;
     for _ in 0..count {
-        let name_offset = cur.uint(o)?;
+        let name_offset = cur.uint(l)?;
         let oh_addr = cur.uint(o)?;
         let cache_type = cur.uint(4)?;
         cur.skip(4 + 16)?; // reserved + scratch-pad
@@ -695,7 +708,8 @@ mod tests {
         put(&mut buf, 6, &1u16.to_le_bytes()); // one entry
         // key0 @24, child0 @32 left at 0 → self-reference.
         let mut out = Vec::new();
-        let err = collect_snods(&buf, 0, 8, &mut out, &mut ClaimedRanges::default()).unwrap_err();
+        let err =
+            collect_snods(&buf, 0, 8, 8, &mut out, &mut ClaimedRanges::default()).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)));
     }
 
