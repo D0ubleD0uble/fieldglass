@@ -680,7 +680,7 @@ suite("Render pipeline", () => {
     assert.ok(large, "the seed offers its large dataset");
     assert.throws(
       () => handle.renderSlice(large.variableIndex, 0, 1, [0, 0], defaultRenderOptions()),
-      /needs 2936014080 bytes .* more than the 2147483648 one read may hold/,
+      /too large to read whole.*would take 2\.7 GiB.*more than the 2\.0 GiB.*The file itself is fine/,
     );
   });
 });

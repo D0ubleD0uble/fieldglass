@@ -249,7 +249,7 @@
           "type": "object"
         },
         {
-          "description": "The operation is defined but this message's family does not support it —\na grid with no geometry asked to warp, a spectral field asked to probe.",
+          "description": "The operation is defined but this message's family does not support it —\na grid with no geometry asked to warp, a spectral field asked to probe —\nor the file is valid and the read is too large to make at once, such as\na whole NetCDF variable past the reader's memory budget.",
           "properties": {
             "code": {
               "const": "unsupported",

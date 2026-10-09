@@ -52,10 +52,13 @@ fn the_13_kb_fill_only_dataset_is_refused_before_it_is_allocated() {
         ),
         "{refused}"
     );
-    // What a host shows: the bytes it would have needed and the budget.
+    // What a host shows: what the read would have taken, the budget, and
+    // that the file is not at fault.
     let message = refused.to_string();
     assert!(
-        message.contains("2936014080") && message.contains(&MAX_VARIABLE_BYTES.to_string()),
+        message.contains("would take 2.7 GiB")
+            && message.contains("more than the 2.0 GiB")
+            && message.contains("The file itself is fine"),
         "{message}"
     );
 

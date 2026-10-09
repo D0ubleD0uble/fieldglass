@@ -34,9 +34,14 @@ fn a_slice_of_a_variable_past_the_budget_is_refused() {
             &DecodeOptions::default(),
         )
         .expect_err("a slice of a 2.9 GB variable is refused");
+    // A valid file asked for too much at once, not a corrupt one: `decode`
+    // would tell a host the file is broken.
+    assert_eq!(refused.code(), "unsupported", "{refused:?}");
     let message = refused.to_string();
     assert!(
-        message.contains("2936014080") && message.contains("2147483648"),
+        message.contains("too large to read whole")
+            && message.contains("would take 2.7 GiB")
+            && message.contains("The file itself is fine"),
         "{message}"
     );
 }

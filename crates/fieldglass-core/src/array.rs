@@ -148,6 +148,18 @@ pub fn whole_variable_read_bytes(
     Ok(bytes)
 }
 
+/// A byte count for a message: GiB or MiB with one decimal.
+fn human_bytes(bytes: u64) -> String {
+    const MIB: f64 = (1u64 << 20) as f64;
+    const GIB: f64 = (1u64 << 30) as f64;
+    let b = bytes as f64;
+    if b >= GIB {
+        format!("{:.1} GiB", b / GIB)
+    } else {
+        format!("{:.1} MiB", b / MIB)
+    }
+}
+
 /// What the arithmetic here refuses.
 ///
 /// Its own type rather than [`FieldglassError`](crate::FieldglassError)
@@ -220,10 +232,15 @@ pub enum ArrayError {
 
     /// A whole-variable read that would hold more than
     /// [`MAX_VARIABLE_BYTES`] at once. See [`whole_variable_read_bytes`].
+    ///
+    /// The file is not at fault: this is a valid variable too large to read
+    /// whole, and the message says so.
     #[error(
-        "reading this variable whole needs {bytes} bytes ({elements} elements, \
-         {element_bytes} bytes each on disk and 16 decoded), more than the \
-         {limit} one read may hold"
+        "this variable is too large to read whole: its {elements} values \
+         ({element_bytes} bytes each stored, 16 decoded) would take {} at once, \
+         more than the {} one read may hold. The file itself is fine",
+        human_bytes(*bytes),
+        human_bytes(*limit)
     )]
     VariableTooLarge {
         /// How many elements the variable declares.
@@ -1268,6 +1285,17 @@ mod tests {
                 limit: MAX_VARIABLE_BYTES,
             })
         );
+
+        // The message gives sizes a reader can take in, and says the file is
+        // fine.
+        let message = whole_variable_read_bytes(146_800_704, 4)
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("would take 2.7 GiB"), "{message}");
+        assert!(message.contains("more than the 2.0 GiB"), "{message}");
+        assert!(message.contains("The file itself is fine"), "{message}");
+        assert!(!message.contains("on disk"), "{message}");
+        assert_eq!(human_bytes(3 << 19), "1.5 MiB");
 
         // Exactly at the budget is allowed, one element past it is not.
         let at_edge = MAX_VARIABLE_BYTES / 16;
