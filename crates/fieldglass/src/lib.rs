@@ -127,6 +127,10 @@ pub mod render;
 pub mod session;
 #[cfg(feature = "render")]
 pub mod shader;
+// The unit tests that read a format crate's fixtures, and how they stand aside
+// in the published crate, which cannot carry them (#926).
+#[cfg(all(test, feature = "grib2", feature = "render", feature = "analysis"))]
+mod test_fixtures;
 
 /// Whether two fields line up cell for cell: the gate `combine` and
 /// `render::vector_polylines` both ask before pairing two value arrays.

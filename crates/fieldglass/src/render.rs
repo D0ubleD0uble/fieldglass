@@ -4315,15 +4315,18 @@ mod planar_geolocation_tests {
     const CMC_POLAR: &str = "../fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib";
 
     /// The geometry of message 0 of a GRIB2 fixture, as the decoder states it.
+    /// Both fixtures belong to the format crates, so every test that reaches
+    /// one asks [`outside_workspace`](crate::test_fixtures::outside_workspace)
+    /// first.
     fn grib2_geometry(path: &str) -> GridGeometry {
-        let bytes = std::fs::read(path).expect("fixture");
+        let bytes = crate::test_fixtures::sibling(path);
         let reader = fieldglass_grib2::Grib2Reader::from_bytes(bytes).expect("grib2 parse");
         GridGeometry::from(&reader.messages[0].gds)
     }
 
     /// The geometry of message 0 of a GRIB1 fixture.
     fn grib1_geometry(path: &str) -> GridGeometry {
-        let bytes = std::fs::read(path).expect("fixture");
+        let bytes = crate::test_fixtures::sibling(path);
         let reader = fieldglass_grib1::Grib1Reader::from_bytes(bytes).expect("grib1 parse");
         let gds = reader.messages[0]
             .gds
@@ -4373,6 +4376,9 @@ mod planar_geolocation_tests {
     /// lands half a world away — the streak this guards against.
     #[test]
     fn a_cell_straddling_the_longitude_cut_interpolates_across_it() {
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
         let geometry = grib1_geometry(CMC_POLAR);
         let (ni, nj) = geometry.dims().expect("the polar grid states dims");
         assert_eq!((ni, nj), (135, 95), "the CMC fixture's raster");
@@ -4434,6 +4440,9 @@ mod planar_geolocation_tests {
     /// rather than as a broken grid.
     #[test]
     fn a_degenerate_projection_is_refused_rather_than_geolocated() {
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
         let real = GridGeometry::Lambert(eta_lambert_params());
         let flat_cone = GridGeometry::Lambert(LambertParams {
             latin1: 0.0,
@@ -4477,6 +4486,9 @@ mod planar_geolocation_tests {
     /// refuses it (#603).
     #[test]
     fn a_polar_stereo_lad_past_the_pole_is_refused() {
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
         let real = GridGeometry::PolarStereo(cmc_polar_params());
         let intact = source(&real, "polar_stereo");
         assert!(
@@ -4522,6 +4534,9 @@ mod planar_geolocation_tests {
     /// where a row could quietly stop matching anything.
     #[test]
     fn the_geolocatable_table_matches_the_dispatch() {
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
         let prose = geolocatable_families();
         for (grid_type, name) in GEOLOCATABLE_GRIDS {
             assert!(
