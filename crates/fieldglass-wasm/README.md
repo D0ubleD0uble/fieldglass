@@ -324,6 +324,12 @@ The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when 
 build drifts more than 5% from these figures in either direction, so a change
 that moves the bundle has to say so here. Update both cells when it does.
 
+A PR re-records the table when CI's `wasm` job, which prints each build's drift
+from these figures in its run summary, reports more than 1%. Below that, no
+local build is needed. The release prep PR re-records it every time, so the
+figures are exact at each release and a cycle of small increases shows up in
+one diff (RELEASING.md §1).
+
 The figures are from one x86-64 Linux machine; CI measures the same tree about
 0.1% smaller, which is nowhere near the tolerance. It is the drift between
 *builds* the gate is for, not between machines.

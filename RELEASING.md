@@ -82,6 +82,13 @@ update any capability statement they contradict — the feature matrix, the
 tables. The README ships inside the `.vsix` and drives the Marketplace listing,
 so a stale capability list goes out to users.
 
+Re-record the browser bundle-size table in `crates/fieldglass-wasm/README.md`.
+Between releases a PR re-records it only once CI reports more than 1% drift
+from it, so smaller changes add up over a cycle, and this is where they are
+written down. Build both bundles with the binaryen version `ci.yml`'s `wasm` job pins
+and run `tools/check_wasm_bundle_size.py`, as that README describes. The diff
+then shows the whole cycle's growth.
+
 Run the local gates before pushing:
 
 ```sh
