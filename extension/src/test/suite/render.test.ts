@@ -1077,6 +1077,33 @@ suite("render-panel HTML", () => {
     }
   });
 
+  test("NetCDF: a variable too large to read whole draws one plane, and scrubs (#939)", () => {
+    // `t2m(120, 721, 1440)` float32 is about 2.5 GB decoded whole. The handle
+    // used to decode and keep the whole variable to draw one plane of it; it
+    // now reads the plane and the chunk under it. Two planes are stored, the
+    // rest read as the fill value.
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const ext = vscode.extensions.getExtension(EXT_ID);
+    assert.ok(ext, "extension is installed");
+    const file = path.join(
+      ext.extensionPath, "..", "crates", "fieldglass-netcdf", "tests", "fixtures",
+      "netcdf4_large_sparse.nc",
+    );
+    assert.ok(fs.existsSync(file), `fixture missing: ${file}`);
+    const handle = native.NetcdfHandle.fromBytes(fs.readFileSync(file));
+    const t2m = handle.variables().find((v) => v.name === "t2m");
+    assert.ok(t2m, "t2m is offered");
+    const stored = handle.renderSlice(t2m.variableIndex, 1, 2, [7, 0, 0], defaultRenderOptions());
+    assert.ok(stored.width > 0 && stored.height > 0);
+    assert.strictEqual(stored.usedMax, 90);
+    assert.strictEqual(stored.usedMin, -90);
+    for (let step = 0; step < 12; step++) {
+      const frame = handle.renderSlice(t2m.variableIndex, 1, 2, [step, 0, 0], defaultRenderOptions());
+      assert.strictEqual(frame.usedMax == null, step !== 7, `time step ${step}`);
+    }
+  });
+
   /** The first message's meta, as the real addon reports it. These tests are
    *  about what Rust answers for a family, so a hand-written meta would test
    *  only what the test author believed it answers. */

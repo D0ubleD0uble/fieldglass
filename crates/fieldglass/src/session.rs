@@ -756,7 +756,7 @@ pub fn line_through(
         .array(&var.name)
         .map(|d| d.attributes.as_slice())
         .unwrap_or_default();
-    let physical = CfUnpacking::from_attributes(attributes).apply(&raw);
+    let physical = CfUnpacking::from_attributes(attributes).apply_owned(raw);
     let (values, mask, stats) = pack_values(&physical, options);
     let dimension = var.dims[along].name.clone();
     let coordinates = axis_coordinates(source, &dimension, var.dims[along].length);
@@ -850,7 +850,7 @@ fn axis_coordinates(source: &dyn ArraySource, dimension: &str, length: u64) -> O
     let raw = source
         .read_region(dimension, std::slice::from_ref(&whole))
         .ok()?;
-    let physical = CfUnpacking::from_attributes(&array.attributes).apply(&raw);
+    let physical = CfUnpacking::from_attributes(&array.attributes).apply_owned(raw);
     physical
         .into_iter()
         .map(|v| v.filter(|x| x.is_finite()))
@@ -875,10 +875,10 @@ fn array_units(source: &dyn ArraySource, array: &str) -> Option<String> {
 ///
 /// Read as one region — the full extent of the two horizontal axes, one index
 /// of every other — so a container that fetches by chunk fetches only the
-/// chunks the plane covers. The region comes back in the array's declared axis
-/// order, so an array whose `x` axis precedes its `y` is transposed into rows.
-/// A held index past its axis is refused in the words the NetCDF plane
-/// extraction always used.
+/// chunks the plane covers, and a NetCDF variable reads only the plane (#939).
+/// The region and the transpose of an array whose `x` axis precedes its `y` are
+/// `fieldglass_core::cf::read_plane`'s, the one implementation the NetCDF
+/// reader's own plane read shares.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn read_plane(
     source: &dyn ArraySource,
@@ -887,36 +887,14 @@ fn read_plane(
     x: usize,
     fixed: &[usize],
 ) -> Result<Vec<Option<f64>>, Error> {
-    let mut region = Vec::with_capacity(var.dims.len());
-    for (d, dim) in var.dims.iter().enumerate() {
-        if d == y || d == x {
-            region.push(0..dim.length);
-            continue;
-        }
-        let at = fixed[d] as u64;
-        if at >= dim.length {
-            return Err(fieldglass_core::FieldglassError::Parse(format!(
-                "slice index {} out of range for dimension {d} (length {})",
-                fixed[d], dim.length
-            ))
-            .into());
-        }
-        region.push(at..at + 1);
-    }
-    let raw = source.read_region(&var.name, &region)?;
-    if y < x {
-        return Ok(raw);
-    }
-    // Stored with `x` outer and `y` inner: `raw[i·nj + j]` is the cell at row
-    // `j`, column `i`.
-    let (ni, nj) = (var.dims[x].length as usize, var.dims[y].length as usize);
-    let mut rows = Vec::with_capacity(raw.len());
-    for j in 0..nj {
-        for i in 0..ni {
-            rows.push(raw.get(i * nj + j).copied().flatten());
-        }
-    }
-    Ok(rows)
+    let shape: Vec<u64> = var.dims.iter().map(|d| d.length).collect();
+    Ok(fieldglass_core::cf::read_plane(
+        &shape,
+        y,
+        x,
+        fixed,
+        |region| source.read_region(&var.name, region),
+    )?)
 }
 
 impl Session {
@@ -1646,7 +1624,7 @@ impl Session {
                     .array(&var.name)
                     .map(|d| d.attributes.as_slice())
                     .unwrap_or_default();
-                let values = CfUnpacking::from_attributes(attributes).apply(&plane);
+                let values = CfUnpacking::from_attributes(attributes).apply_owned(plane);
                 let placement = a.placement(var, y, x)?;
                 let ni = u32::try_from(var.dims[x].length).unwrap_or(u32::MAX);
                 let nj = u32::try_from(var.dims[y].length).unwrap_or(u32::MAX);
@@ -1682,10 +1660,8 @@ impl Session {
     /// horizontal positions.
     ///
     /// **One region read**, of exactly the points on the line. On a Zarr store
-    /// that fetches only the chunks the line crosses. A NetCDF variable is still
-    /// decoded whole underneath — `NetcdfArrays::read_region` does not yet read a
-    /// sub-region — which is one decode for one click rather than per frame, but
-    /// is worth knowing before calling this in a loop.
+    /// that fetches only the chunks the line crosses, and on a NetCDF file only
+    /// the line's bytes or the chunks it crosses (#939).
     ///
     /// # Errors
     ///
@@ -1781,9 +1757,8 @@ impl Session {
     ///
     /// What this buys is *not decoding*. A picker drawing a caption, or deciding
     /// whether a variable can be drawn at all, wants where the cells are and not
-    /// the values in them — and decoding a variable is the expensive half. On a
-    /// NetCDF file that is a whole-variable read; on a Zarr store it is every
-    /// chunk the slice covers.
+    /// the values in them — and decoding a slice is the expensive half: on a
+    /// NetCDF file or a Zarr store it is every chunk the slice covers.
     ///
     /// `PlacedSlice::source()` then hands the projection pipeline its own input,
     /// so a host never assembles one by hand (#659). Named rather than linked:

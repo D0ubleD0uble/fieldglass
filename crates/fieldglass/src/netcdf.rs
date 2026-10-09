@@ -19,13 +19,13 @@
 //! # What is still to move
 //!
 //! This is the first step of a transition, not the end of it. `fieldglass-napi`
-//! keeps its own handle types, its decoded-value memo, and its curvilinear
-//! lookup cache, because those are keyed on reader internals `Session` does not
-//! expose — and the cache is load-bearing rather than incidental: a global ocean
-//! mesh costs about two seconds and 400 MB to index, paid once per file instead
-//! of once per repaint. Moving them behind `Session` is a design decision about
-//! *where a host's memo lives*, which belongs on #662 rather than in a
-//! re-export.
+//! keeps its own handle types, its memo of the last few slices it read, and its
+//! curvilinear lookup cache, because those are keyed on reader internals
+//! `Session` does not expose — and the cache is load-bearing rather than
+//! incidental: a global ocean mesh costs about two seconds and 400 MB to index,
+//! paid once per file instead of once per repaint. Moving them behind `Session`
+//! is a design decision about *where a host's memo lives*, which ADR-0011
+//! answers.
 //!
 //! [`Session`]: crate::Session
 //! [`Session::variables`]: crate::Session::variables
