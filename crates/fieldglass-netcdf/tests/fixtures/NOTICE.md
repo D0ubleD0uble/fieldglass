@@ -462,6 +462,50 @@ Fieldglass read it at Size of Lengths. ADR-0015 records both, with the
 field-by-field audit. `tests/hdf5_offset_length_sizes.rs` checks the listing,
 values, dimensions and attributes against the oracles.
 
+## B-tree K fixtures (`hdf5_btree_k_sb1.h5`, `hdf5_btree_k_sb2.h5`)
+
+Two files for #920, built by `tools/build_hdf5_btree_k_fixtures.py` with h5py
+3.16.0 (libhdf5 2.0.0). `hdf5_btree_k_sb1.h5` is reproducible byte for byte.
+`hdf5_btree_k_sb2.h5` is not: libhdf5 stamps the superblock extension's object
+header with the creation time whatever `set_obj_track_times` says, so a rebuild
+differs in those four timestamps and the header's checksum. Both are written
+with `H5Pset_sym_k(32, 8)` and `H5Pset_istore_k(64)`, so a node may hold 16
+symbol-table entries, 64 group B-tree children and 128 chunk B-tree children,
+against 8, 32 and 64 at the defaults. h5py wraps neither call, so the builder
+makes them through `ctypes` on the libhdf5 h5py loaded (found in
+`/proc/self/maps`; a second copy of the library would not know h5py's
+property-list IDs).
+
+`hdf5_btree_k_sb1.h5` uses `set_libver_bounds(EARLIEST, V18)`; a non-default
+indexed-storage K makes that a version-1 superblock, which states all three K
+values. Its root holds `v` (100 `i4` values in one-element chunks, all in one
+chunk B-tree node), twelve empty groups and `wide`, a group of 296 soft links,
+so its symbol-table nodes hold up to 16 entries and its group B-tree node 36.
+`hdf5_btree_k_sb2.h5` uses `set_libver_bounds(V18, V18)`: a version-2
+superblock whose extension carries a B-tree 'K' Values message, holding the
+same `v`. Its groups are new-style, so only the chunk node uses K.
+
+Each oracle records what h5py reads and the fullest node of each kind, found
+by scanning for node signatures; the builder checks each is past the default
+2K. `tests/hdf5_btree_k.rs` reads both, then patches the version-1 file's K to
+the smallest value that holds its fullest node, and to one less, to show each
+of the three walkers caps at exactly 2K. All three counts are even, so the
+smaller K is exactly full and a `>=` where `>` belongs would fail.
+
+**Reading of the specification.** The superblock table says Group Leaf Node K
+bounds "each leaf node of a group B-tree". libhdf5 uses it for symbol-table
+nodes only, as the specification's "Symbol Table Nodes" section does, and
+bounds every level of the group B-tree by Group Internal Node K. Fieldglass
+does the same; the other reading would refuse libhdf5's own default files,
+whose level-0 group nodes exceed 8 entries once a group has a few dozen
+members.
+
+**Known divergence from libhdf5.** libhdf5 refuses a version-0 or -1
+superblock that states a zero Group Leaf or Group Internal Node K when the
+file opens. Fieldglass refuses only a non-empty node bounded by a zero K, so
+such a file whose symbol-table groups are all empty lists, as empty. No value
+is misread.
+
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
 A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which

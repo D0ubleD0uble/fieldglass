@@ -305,7 +305,8 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
         | ChunkIndex::V2Btree(None) => return Ok(raw),
         ChunkIndex::BTreeV1(Some(addr)) => {
             probe.cache().chunk_records(source, *addr, rank, || {
-                collect_chunks(source, *addr, rank, osize)
+                let max_entries = super::btree_k(source, probe)?.chunk_node_max();
+                collect_chunks(source, *addr, rank, osize, max_entries)
             })?
         }
         ChunkIndex::SingleChunk(Some(single)) => {
@@ -469,12 +470,15 @@ pub(crate) struct ChunkRecord {
 
 /// Walk the version-1 B-tree at `addr` (node type 1) and collect every leaf
 /// chunk record. Iterative with an explicit work-list and bounded by
-/// [`MAX_BTREE_NODES`], so a malformed or cyclic tree errors out.
+/// [`MAX_BTREE_NODES`], so a malformed or cyclic tree errors out. A node
+/// holding more than `max_entries` (2K, Indexed Storage Internal Node K) is
+/// refused (#920).
 fn collect_chunks<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
     rank: usize,
     osize: u8,
+    max_entries: usize,
 ) -> Result<Vec<ChunkRecord>, FieldglassError> {
     let o = osize as usize;
     // Key = chunk size (4) + filter mask (4) + (rank+1) 8-byte offsets.
@@ -499,6 +503,11 @@ fn collect_chunks<S: ByteSource + ?Sized>(
         }
         let level = cur.byte()?;
         let entries = cur.u16()? as usize;
+        if entries > max_entries {
+            return Err(FieldglassError::Parse(format!(
+                "chunk B-tree node holds {entries} entries, more than 2K = {max_entries}"
+            )));
+        }
         cur.skip(2 * o)?; // left + right sibling addresses
         for _ in 0..entries {
             let size = cur.uint(4)? as u32;

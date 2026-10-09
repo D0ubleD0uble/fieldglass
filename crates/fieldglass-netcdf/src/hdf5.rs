@@ -45,6 +45,9 @@ pub mod values;
 /// HDF5 signature: `\x89HDF\r\n\x1a\n`.
 pub const HDF5_SIGNATURE: [u8; 8] = [0x89, b'H', b'D', b'F', b'\r', b'\n', 0x1a, b'\n'];
 
+/// Header message type of a B-tree 'K' Values message.
+const MSG_BTREE_K: u16 = 0x0013;
+
 /// The per-file HDF5 handle: what we surface from the superblock, plus the
 /// traversal memo the deep walk fills as it goes (#414).
 ///
@@ -295,6 +298,149 @@ fn read_root_group_address<S: ByteSource + ?Sized>(
         ));
     }
     Ok(address)
+}
+
+/// The superblock's version-1 B-tree "K" values, which bound how full a node
+/// may be: a node holds at most 2K entries.
+///
+/// Group Leaf Node K bounds a symbol-table node, Group Internal Node K a group
+/// B-tree node and Indexed Storage Internal Node K a chunk B-tree node, at
+/// every level of the tree. That is how libhdf5 reads and writes them: it
+/// refuses a B-tree node past 2K ("number of children is greater than
+/// maximum", `H5B__cache_deserialize`), and a symbol-table node past 2K
+/// overruns the buffer it sizes from Group Leaf Node K
+/// (`H5G__cache_node_deserialize`). The reader does the same (#920).
+///
+/// The specification's superblock table words Group Leaf Node K as bounding
+/// "each leaf node of a group B-tree", and only internal nodes by the other
+/// two. Its own "Symbol Table Nodes" section splits a symbol-table node at 2K,
+/// and libhdf5's default files hold level-0 group nodes of up to 32 entries,
+/// past twice the default leaf K of 4, so the table's wording is not a bound
+/// any writer keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BtreeK {
+    /// Group Leaf Node K: bounds a symbol-table node.
+    pub group_leaf: u16,
+    /// Group Internal Node K: bounds a group B-tree node.
+    pub group_internal: u16,
+    /// Indexed Storage Internal Node K: bounds a chunk B-tree node.
+    pub chunk_internal: u16,
+}
+
+impl Default for BtreeK {
+    /// The specification's defaults, which apply when a file states no other:
+    /// a version-0 superblock has no chunk K, and a version-2 or -3 superblock
+    /// states K only in an optional superblock-extension message.
+    fn default() -> Self {
+        Self {
+            group_leaf: 4,
+            group_internal: 16,
+            chunk_internal: 32,
+        }
+    }
+}
+
+impl BtreeK {
+    /// Entries a symbol-table node may hold.
+    pub(crate) fn symbol_node_max(self) -> usize {
+        2 * usize::from(self.group_leaf)
+    }
+
+    /// Entries a group B-tree node may hold.
+    pub(crate) fn group_node_max(self) -> usize {
+        2 * usize::from(self.group_internal)
+    }
+
+    /// Entries a chunk B-tree node may hold.
+    pub(crate) fn chunk_node_max(self) -> usize {
+        2 * usize::from(self.chunk_internal)
+    }
+}
+
+/// The B-tree "K" values for this file, read once.
+///
+/// A version-0 or -1 superblock states the group values, and version 1 the
+/// chunk value as well. A version-2 or -3 superblock states them in a B-tree
+/// 'K' Values message in its superblock extension, when it has one; libhdf5
+/// writes that message for any file created with values other than the
+/// defaults (`H5F__super_init`).
+pub fn btree_k<S: ByteSource + ?Sized>(
+    source: &S,
+    probe: &Hdf5Probe,
+) -> Result<BtreeK, FieldglassError> {
+    probe
+        .cache()
+        .btree_k(source, || read_btree_k(source, probe))
+}
+
+fn read_btree_k<S: ByteSource + ?Sized>(
+    source: &S,
+    probe: &Hdf5Probe,
+) -> Result<BtreeK, FieldglassError> {
+    let base = find_signature(source).ok_or_else(|| not_hdf5(source))?;
+    let u16_at = |bytes: &[u8], at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]);
+    let k = match probe.superblock_version {
+        // After the signature (8), four version bytes, the two sizes and a
+        // reserved byte: Group Leaf Node K, Group Internal Node K, the
+        // consistency flags (4), and in version 1 Indexed Storage Internal
+        // Node K.
+        0 | 1 => {
+            let fields = source::read_at(source, base + 16, 10)?;
+            BtreeK {
+                group_leaf: u16_at(&fields, 0),
+                group_internal: u16_at(&fields, 2),
+                chunk_internal: if probe.superblock_version == 1 {
+                    u16_at(&fields, 8)
+                } else {
+                    BtreeK::default().chunk_internal
+                },
+            }
+        }
+        2 | 3 => {
+            // Twelve fixed bytes, the base address, then the superblock
+            // extension's address.
+            let o = probe.offset_size;
+            let field = source::read_at(source, base + 12 + u64::from(o), usize::from(o))?;
+            let extension = object_header::read_uint_le(&field, 0, usize::from(o))?;
+            if group::is_undefined(extension, o) {
+                return Ok(BtreeK::default());
+            }
+            let header = probe.header(source, extension)?;
+            let Some(message) = header.messages.iter().find(|m| m.msg_type == MSG_BTREE_K) else {
+                return Ok(BtreeK::default());
+            };
+            // Version, then Indexed Storage Internal Node K, Group Internal
+            // Node K and Group Leaf Node K.
+            let body = &message.body;
+            if body.len() < 7 {
+                return Err(FieldglassError::Parse(
+                    "B-tree 'K' values message too small".into(),
+                ));
+            }
+            if body[0] != 0 {
+                return Err(FieldglassError::Parse(format!(
+                    "unsupported B-tree 'K' values message version {}",
+                    body[0]
+                )));
+            }
+            BtreeK {
+                chunk_internal: u16_at(body, 1),
+                group_internal: u16_at(body, 3),
+                group_leaf: u16_at(body, 5),
+            }
+        }
+        v => {
+            return Err(FieldglassError::Parse(format!(
+                "unsupported HDF5 superblock version {v}"
+            )));
+        }
+    };
+    // A zero K is not refused here. It caps its nodes at no entries, so the
+    // walker that uses it refuses any node it finds, and a file that never
+    // needs it still opens: libhdf5 refuses a zero group K in a version-0 or
+    // -1 superblock, but not a zero chunk K or any zero in the K message.
+    Ok(k)
 }
 
 #[cfg(test)]

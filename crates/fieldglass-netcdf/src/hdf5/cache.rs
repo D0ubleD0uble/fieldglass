@@ -36,6 +36,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use super::BtreeK;
 use super::group::GroupChild;
 use super::object_header::{self, ObjectHeader};
 use super::values::ChunkRecord;
@@ -78,6 +79,8 @@ struct HeaderStore {
 pub(crate) struct Hdf5Cache {
     /// Root-group object-header address, from the superblock.
     root: Mutex<Option<u64>>,
+    /// The B-tree "K" values, from the superblock or its extension.
+    btree_k: Mutex<Option<BtreeK>>,
     /// Whole-file depth-first child list — the order that defines every
     /// dataset's decode index.
     children: Mutex<Option<Arc<Vec<GroupChild>>>>,
@@ -226,6 +229,26 @@ impl Hdf5Cache {
         }
         let built = build()?;
         *self.root.lock().expect("hdf5 root cache poisoned") = Some(built);
+        Ok(built)
+    }
+
+    /// The B-tree "K" values, read from the superblock once.
+    pub(crate) fn btree_k<S: ByteSource + ?Sized, F>(
+        &self,
+        source: &S,
+        build: F,
+    ) -> Result<BtreeK, FieldglassError>
+    where
+        F: FnOnce() -> Result<BtreeK, FieldglassError>,
+    {
+        if !self.usable(source) {
+            return build();
+        }
+        if let Some(hit) = *self.btree_k.lock().expect("hdf5 B-tree K cache poisoned") {
+            return Ok(hit);
+        }
+        let built = build()?;
+        *self.btree_k.lock().expect("hdf5 B-tree K cache poisoned") = Some(built);
         Ok(built)
     }
 
