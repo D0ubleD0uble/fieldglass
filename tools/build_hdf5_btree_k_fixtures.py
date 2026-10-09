@@ -12,8 +12,9 @@ refuse these files; one that read K from the wrong place would too.
   * ``hdf5_btree_k_sb1.h5``: ``set_libver_bounds(EARLIEST, V18)``, which with
     a non-default indexed-storage K writes a version-1 superblock. Its root
     holds a chunked dataset ``v`` (100 one-element chunks in one chunk B-tree
-    node), twelve empty groups, and a group ``wide`` holding 300 soft links,
-    enough symbol-table nodes for one group B-tree node to pass 2 x 16.
+    node), twelve empty groups, and a group ``wide`` holding 296 soft links,
+    enough symbol-table nodes for one group B-tree node to pass 2 x 16. Every
+    fullest node holds an even count, so a K of half that fills it exactly.
   * ``hdf5_btree_k_sb2.h5``: ``set_libver_bounds(V18, V18)``, a version-2
     superblock with a superblock extension, holding the same ``v``. Groups here
     are new-style, so only the chunk B-tree uses K.
@@ -25,7 +26,11 @@ h5py hands out.
 
 The oracle records what h5py reads back and the fullest node of each kind,
 found by scanning the file for node signatures; the builder checks that each
-passes the default 2K.
+passes the default 2K and is even.
+
+The version-1 file rebuilds byte for byte. The version-2 file does not:
+libhdf5 stamps the superblock extension's object header with the creation
+time regardless of ``set_obj_track_times``.
 
 Run from the repo root on Linux (needs ``h5py``):
 
@@ -81,7 +86,7 @@ def write(path: Path, low: int) -> None:
             wide = h5py.h5g.create(f.id, b"wide", gcpl=gcpl)
             # Soft links: each takes a symbol-table entry and a heap name but
             # no object header, which keeps the file small.
-            for i in range(300):
+            for i in range(296):
                 wide.links.create_soft(f"s{i:03}".encode(), b"/v")
 
 
@@ -110,6 +115,7 @@ def oracle(path: Path, version: int) -> dict:
         if version == 2 and kind != "chunk_node":
             continue
         assert entries > 2 * defaults[kind], f"{path}: fullest {kind} {entries} fits the default"
+        assert entries % 2 == 0, f"{path}: fullest {kind} {entries} is odd"
 
     with h5py.File(path, "r") as f:
         members = sorted(f.keys())

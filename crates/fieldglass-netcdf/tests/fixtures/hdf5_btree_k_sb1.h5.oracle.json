@@ -8,8 +8,8 @@
     "chunk_internal": 64
   },
   "fullest_nodes": {
-    "symbol_node": 14,
-    "group_node": 37,
+    "symbol_node": 16,
+    "group_node": 36,
     "chunk_node": 100
   },
   "root_members": [
@@ -28,7 +28,7 @@
     "v",
     "wide"
   ],
-  "wide_links": 300,
+  "wide_links": 296,
   "v": [
     0,
     1,

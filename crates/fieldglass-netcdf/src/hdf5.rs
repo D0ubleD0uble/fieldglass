@@ -45,6 +45,9 @@ pub mod values;
 /// HDF5 signature: `\x89HDF\r\n\x1a\n`.
 pub const HDF5_SIGNATURE: [u8; 8] = [0x89, b'H', b'D', b'F', b'\r', b'\n', 0x1a, b'\n'];
 
+/// Header message type of a B-tree 'K' Values message.
+const MSG_BTREE_K: u16 = 0x0013;
+
 /// The per-file HDF5 handle: what we surface from the superblock, plus the
 /// traversal memo the deep walk fills as it goes (#414).
 ///
@@ -315,6 +318,7 @@ fn read_root_group_address<S: ByteSource + ?Sized>(
 /// past twice the default leaf K of 4, so the table's wording is not a bound
 /// any writer keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BtreeK {
     /// Group Leaf Node K: bounds a symbol-table node.
     pub group_leaf: u16,
@@ -369,9 +373,6 @@ pub fn btree_k<S: ByteSource + ?Sized>(
         .cache()
         .btree_k(source, || read_btree_k(source, probe))
 }
-
-/// Header message type of a B-tree 'K' Values message.
-const MSG_BTREE_K: u16 = 0x0013;
 
 fn read_btree_k<S: ByteSource + ?Sized>(
     source: &S,
@@ -435,12 +436,10 @@ fn read_btree_k<S: ByteSource + ?Sized>(
             )));
         }
     };
-    // A zero K allows no entries at all; libhdf5 refuses it outright.
-    if k.group_leaf == 0 || k.group_internal == 0 || k.chunk_internal == 0 {
-        return Err(FieldglassError::Parse(format!(
-            "HDF5 superblock states a B-tree K of zero: {k:?}"
-        )));
-    }
+    // A zero K is not refused here. It caps its nodes at no entries, so the
+    // walker that uses it refuses any node it finds, and a file that never
+    // needs it still opens: libhdf5 refuses a zero group K in a version-0 or
+    // -1 superblock, but not a zero chunk K or any zero in the K message.
     Ok(k)
 }
 

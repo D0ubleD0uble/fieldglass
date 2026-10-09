@@ -96,6 +96,10 @@ pub fn list_root_children<S: ByteSource + ?Sized>(
 /// Enumerate one group's immediate children (by object-header address), sorted
 /// by name. The building block for both the root listing and the recursive
 /// descendant walk ([`list_all_children`]).
+///
+/// A symbol-table group reads its node limits from the superblock
+/// ([`btree_k`](super::btree_k)), so `source` must hold one, even when the
+/// probe was built by hand with [`Hdf5Probe::new`].
 pub fn list_group_children<S: ByteSource + ?Sized>(
     source: &S,
     group_addr: u64,

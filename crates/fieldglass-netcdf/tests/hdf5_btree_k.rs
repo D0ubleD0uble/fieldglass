@@ -24,12 +24,13 @@ const SB1_ORACLE: &str = include_str!("fixtures/hdf5_btree_k_sb1.h5.oracle.json"
 const SB2: &[u8] = include_bytes!("fixtures/hdf5_btree_k_sb2.h5");
 const SB2_ORACLE: &str = include_str!("fixtures/hdf5_btree_k_sb2.h5.oracle.json");
 
-/// The fixtures' stated K, pinned as well as read from the oracle.
-const STATED: BtreeK = BtreeK {
-    group_leaf: 8,
-    group_internal: 32,
-    chunk_internal: 64,
-};
+/// The fixtures' stated K (group leaf, group internal, chunk), pinned as well
+/// as read from the oracle.
+const STATED: (u16, u16, u16) = (8, 32, 64);
+
+fn triple(k: BtreeK) -> (u16, u16, u16) {
+    (k.group_leaf, k.group_internal, k.chunk_internal)
+}
 
 /// Where a version-1 superblock states each K: Group Leaf Node K, Group
 /// Internal Node K, Indexed Storage Internal Node K.
@@ -84,7 +85,7 @@ fn nodes_past_the_default_k_read_under_the_stated_k() {
             panic!("{source}: expected HDF5");
         };
         assert_eq!(probe.superblock_version, version, "{source}");
-        assert_eq!(btree_k(bytes, probe).unwrap(), STATED, "{source}");
+        assert_eq!(triple(btree_k(bytes, probe).unwrap()), STATED, "{source}");
 
         // Every chunk sits in one node of 100, past the default 2 x 32.
         assert_eq!(fullest(&oracle, "chunk_node"), 100, "{source}");
@@ -113,9 +114,9 @@ fn nodes_past_the_default_k_read_under_the_stated_k() {
         .into_iter()
         .find(|c| c.name == "wide")
         .expect("group wide");
-    // Its 300 members are soft links, which a listing skips; walking their
+    // Its 296 members are soft links, which a listing skips; walking their
     // nodes is the point.
-    assert_eq!(oracle["wide_links"], 300);
+    assert_eq!(oracle["wide_links"], 296);
     assert!(
         list_group_children(SB1, wide.object_header_address, probe)
             .unwrap()
@@ -140,8 +141,9 @@ fn each_walker_holds_a_node_at_2k_and_refuses_one_past_it() {
     ];
     for (at, kind, named) in cases {
         let entries = fullest(&oracle, kind);
-        // The smallest K whose 2K holds the fullest node.
-        let k = entries.div_ceil(2);
+        // The K whose 2K the fullest node fills exactly.
+        assert_eq!(entries % 2, 0, "{kind}: {entries}");
+        let k = entries / 2;
         read(&with_k(at, k)).unwrap_or_else(|e| panic!("{kind} at K = {k}: {e}"));
         let err = read(&with_k(at, k - 1)).expect_err(kind);
         assert!(
@@ -156,11 +158,27 @@ fn each_walker_holds_a_node_at_2k_and_refuses_one_past_it() {
 }
 
 #[test]
-fn a_zero_k_is_refused() {
-    for at in [LEAF_K_AT, INTERNAL_K_AT, CHUNK_K_AT] {
-        let err = read(&with_k(at, 0)).expect_err("zero K");
-        assert!(err.contains("B-tree K of zero"), "{at}: {err}");
+fn a_zero_k_refuses_only_the_nodes_it_bounds() {
+    // A zero K allows an empty node and nothing else. It is refused where a
+    // walker uses it, not when the file opens: libhdf5 does not check a zero
+    // chunk K, so a file whose chunk K is zero lists, and fails only at a
+    // chunk B-tree decode.
+    let cases = [
+        (LEAF_K_AT, "symbol-table node"),
+        (INTERNAL_K_AT, "group B-tree node"),
+        (CHUNK_K_AT, "chunk B-tree node"),
+    ];
+    for (at, named) in cases {
+        let err = read(&with_k(at, 0)).expect_err(named);
+        assert!(
+            err.contains(named) && err.contains("more than 2K = 0"),
+            "{named}: {err}"
+        );
     }
+    let bytes = with_k(CHUNK_K_AT, 0);
+    let reader = NetcdfReader::from_bytes(bytes.clone()).unwrap();
+    let meta = reader.hdf5_metadata().expect("lists with a zero chunk K");
+    assert!(meta.variables.iter().any(|v| v.name == "v"));
 }
 
 #[test]
@@ -175,6 +193,7 @@ fn a_version_2_superblock_without_an_extension_takes_the_default_k() {
         unreachable!()
     };
     assert_eq!(btree_k(&bytes[..], probe).unwrap(), BtreeK::default());
+    assert_eq!(triple(BtreeK::default()), (4, 16, 32));
     // So the 100-entry chunk node the stated K allowed is now refused.
     let err = read(&bytes).expect_err("default K");
     assert!(
