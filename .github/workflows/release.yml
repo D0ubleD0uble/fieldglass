@@ -5,9 +5,9 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    # Manual trigger for dry-run smoke tests of the build + package matrix.
-    # The publish + GitHub Release jobs are gated on a tag ref, so manual
-    # runs build artefacts and stop short of touching the Marketplace.
+    # Manual trigger for dry-run smoke tests of the build + package matrix and
+    # the release-notes check. Every publish is gated on a tag ref, so manual
+    # runs build artefacts and stop short of touching any registry.
 
 # Every tag is a stable release. The extension publishes to the Marketplace's
 # stable channel and the library crates go to crates.io, both from the same tag.
@@ -131,8 +131,9 @@ jobs:
         run: npm ci
         working-directory: extension
 
+      # The same vsce the `publish` job uses.
       - name: Install vsce
-        run: npm install -g @vscode/vsce
+        run: npm install -g @vscode/vsce@4.0.0
 
       - name: Package extension (--target ${{ matrix.vsce_target }})
         run: |
@@ -150,11 +151,44 @@ jobs:
           path: dist/*.vsix
           if-no-files-found: error
 
+  # Runs before anything is published, and on a dry run too (#858). The
+  # Release action cuts a body at 124,999 characters without a warning, so an
+  # oversized CHANGELOG section would ship as truncated notes, after the
+  # Marketplace, crates.io and npm already hold the version. So every
+  # publishing job waits for this one, and the GitHub Release body it checks is
+  # the one the `publish` job uses.
+  release-notes:
+    name: Check release notes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # On a tag, the `## [X.Y.Z]` section, which must exist and match the
+      # workspace version. On a dry run there is no tag, so it checks the
+      # workspace version's section, which must exist, and `## [Unreleased]` if
+      # it has content. Either way it fails at 125,000 characters or more.
+      # `tools/release_notes.py` has the details.
+      - name: Extract and check release notes
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            python3 tools/release_notes.py --tag "$GITHUB_REF_NAME" --out release-notes.md
+          else
+            python3 tools/release_notes.py --dry-run --out release-notes.md
+          fi
+
+      - name: Upload release notes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
+
   publish:
     name: Publish to Marketplace + GitHub Release
-    needs: [package]
-    # Manual workflow_dispatch runs only build+package (dry run); only pushed
-    # tags trigger the actual publish + release.
+    needs: [package, release-notes]
+    # A manual workflow_dispatch run (dry run) builds, packages and checks the
+    # release notes; only pushed tags trigger the actual publish + release.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -174,9 +208,22 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Install vsce
-        run: npm install -g @vscode/vsce
+      # The curated CHANGELOG section for this version, not GitHub's
+      # auto-generated commit list. `release-notes` extracted and checked it.
+      - name: Download release notes
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-notes
 
+      # Pinned: re-run safety rests on `--skip-duplicate` behaving as read in
+      # this version's source (it matches on version and target platform).
+      - name: Install vsce
+        run: npm install -g @vscode/vsce@4.0.0
+
+      # `--skip-duplicate` makes a re-run safe (#858). vsce checks each
+      # package's version and target platform against the Marketplace and skips
+      # one that is already there, so a run that failed after publishing some
+      # targets, or after all of them, carries on to the GitHub Release.
       - name: Publish to VS Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
@@ -186,25 +233,10 @@ jobs:
           for vsix in dist/*.vsix; do
             args+=(--packagePath "$vsix")
           done
-          vsce publish "${args[@]}"
+          vsce publish --skip-duplicate "${args[@]}"
 
-      # Use the curated CHANGELOG section for this version as the release body,
-      # not GitHub's auto-generated commit list. The tag is vX.Y.Z; the
-      # matching heading is "## [X.Y.Z]".
-      - name: Extract release notes from CHANGELOG
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          awk -v ver="$version" '
-            $0 ~ "^## \\[" ver "\\]" { capture = 1; next }
-            capture && /^## \[/    { exit }
-            capture                { print }
-          ' CHANGELOG.md > release-notes.md
-          if [ ! -s release-notes.md ]; then
-            echo "::error::No CHANGELOG.md section found for version $version" >&2
-            exit 1
-          fi
-
+      # Re-running this updates the existing Release and replaces its assets
+      # (`overwrite_files` defaults to true), so it is safe to repeat.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -214,13 +246,14 @@ jobs:
 
   publish-crates:
     name: Publish library crates to crates.io
-    needs: [package]
+    needs: [package, release-notes]
     # Every tag is a release, so every tag publishes the crates. A
     # workflow_dispatch dry run has no tag, so it skips this job and keeps its
     # no-side-effects property.
     #
-    # Gated on `package` so the crates only go out if every native target built:
-    # a version on crates.io cannot be taken back, only yanked.
+    # Gated on `package` so the crates only go out if every native target built,
+    # and on `release-notes` so they only go out if the GitHub Release can be
+    # made: a version on crates.io cannot be taken back, only yanked.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -305,7 +338,9 @@ jobs:
 
   publish-wasm-npm:
     name: Publish @fieldglass/wasm to npm
-    needs: [package]
+    # `release-notes` for the same reason as `publish-crates`: npm keeps a
+    # version once it is published.
+    needs: [package, release-notes]
     runs-on: ubuntu-latest
     env:
       # Must match ci.yml's pin, which is what the bundle-size gate measures
