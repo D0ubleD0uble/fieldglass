@@ -19,6 +19,7 @@ import type {
   Georef,
   MessageInfo,
   NetcdfVariableMeta,
+  Placement,
   ProbeResult,
 } from "./native";
 
@@ -26,7 +27,7 @@ import type {
  *
  *  A GRIB message's `MessageInfo` is one as it stands. A NetCDF or Zarr slice
  *  builds one from its variable and the handle's `sliceGrid`, so its
- *  `reprojectable` and grid label are the slice's own answers rather than
+ *  `reprojectable`, `placement` and grid label are the slice's own answers rather than
  *  stand-ins. `grid` is `null` for a message that declares no grid, and
  *  `truncation` for anything but a band-limited spectral message (#637). */
 export type PanelField = Pick<
@@ -39,6 +40,7 @@ export type PanelField = Pick<
   | "forecast"
   | "uvRelativeToGrid"
   | "reprojectable"
+  | "placement"
   | "truncation"
 > & {
   grid: Pick<Georef, "label"> | null;
@@ -194,14 +196,17 @@ ${options}
  *  file holds two messages to pair. `uvRelativeToGrid` decides whether the
  *  components are read along the grid's axes; it comes from the message rather
  *  than from the user, because the file states it. */
-function vectorFieldsetHtml(fields: CompareFieldOption[], gridRelative: boolean): string {
+function vectorFieldsetHtml(fields: CompareFieldOption[], gridRelative: boolean, placed: boolean): string {
   if (fields.length < 2) {
     return "";
   }
   const options = fields
     .map((f) => `          <option value="${f.index}">${escapeHtml(f.label)}</option>`)
     .join("\n");
-  return `    <fieldset id="vector-fieldset">
+  // Arrows are drawn along the grid's own geometry, so a message nothing
+  // places takes none (#840). A GRIB panel draws one message, so this is
+  // settled when the panel is written.
+  return `    <fieldset id="vector-fieldset"${placed ? "" : " disabled"}>
       <legend>Vectors:</legend>
       <label><input type="checkbox" id="overlay-vectors"> Arrows</label>
       <label>V component
@@ -216,9 +221,11 @@ ${options}
       <input type="number" id="width-vectors" class="layer-width" value="1" min="0.2" max="5" step="0.1" aria-label="Arrow line weight">
       <span class="slice-len" id="vector-scale" aria-live="polite"></span>
       <span class="picker-note" id="vector-note">${
-        gridRelative
-          ? "This file states its components along the grid's axes; they are rotated to true north."
-          : ""
+        !placed
+          ? UNPLACED_VECTORS_NOTE
+          : gridRelative
+            ? "This file states its components along the grid's axes; they are rotated to true north."
+            : ""
       }</span>
     </fieldset>
 `;
@@ -376,6 +383,21 @@ export function applyReprojectable(
 export function reprojectionNote(reprojectable: boolean, label: string | null): string {
   return reprojectable ? "" : "Reprojection isn't available for " + (label ?? "this") + " grids yet.";
 }
+
+/** Whether the render panel offers its overlays for a field: the map layers,
+ *  the graticule, contours and arrows all project through the field's
+ *  geometry, so a field that is not placed on the Earth takes none of them
+ *  (#840). The source view of an unplaceable field still draws; it is only
+ *  the map that is missing. */
+export function offersOverlays(placement: Placement | null | undefined): boolean {
+  return placement === "placed";
+}
+
+/** Shown in the Overlay row when {@link offersOverlays} is false. */
+export const UNPLACED_OVERLAY_NOTE = "Overlays need a grid placed on the Earth, and this one isn't.";
+
+/** Shown in the Vectors row when {@link offersOverlays} is false. */
+export const UNPLACED_VECTORS_NOTE = "Arrows need a grid placed on the Earth, and this one isn't.";
 
 /** Up to `count` evenly spaced indices along an axis of `length` points, always
  *  including the first and last. Where a cross-section puts its tick labels.
@@ -674,6 +696,9 @@ export function renderImagePanelHtml(
     .filter((s) => !!s).join(" · ");
   const subLine = composeSubtitle(subBase, composeTruncationNote(meta));
   const defaultPngName = composeDefaultPngName(meta);
+  // Whether the overlays are offered for the field the panel is written for.
+  // A slice panel then follows each slice it draws (#840).
+  const placed = offersOverlays(meta.placement);
 
   const script = `
     <script nonce="${cspNonce}">
@@ -734,6 +759,11 @@ export function renderImagePanelHtml(
         // answer for each slice it draws (#822), since the picker can move onto
         // a variable or an axis pair with a different one.
         let mapsOffered = ${JSON.stringify(meta.reprojectable)};
+        // Whether the field on screen is placed on the Earth, which every
+        // overlay needs (#840). Like mapsOffered, it starts as the answer for
+        // the field the panel was written for, and a slice panel takes each
+        // slice render's.
+        let mapPlaced = ${JSON.stringify(placed)};
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
         ${composeProbeValue.toString()}
@@ -986,6 +1016,25 @@ export function renderImagePanelHtml(
           return next.moved;
         }
 
+        // Whether the overlays, contours and arrows apply to the field on
+        // screen: it is placed on the Earth (#840), and its axes are a map. An
+        // overlay that does not apply is not asked for and not drawn, and its
+        // toggle keeps its state for the next field that takes it.
+        function overlaysOffered() {
+          return mapPlaced && !isCrossSection();
+        }
+
+        // Take a slice render's answer to whether it is placed (#840): the
+        // Overlay row is disabled, with the reason, for a slice that is not.
+        function applySlicePlacement(placed) {
+          mapPlaced = placed === true;
+          const overlays = document.getElementById('overlay-fieldset');
+          if (overlays) overlays.disabled = !mapPlaced;
+          const note = document.getElementById('overlay-note');
+          if (note) note.toggleAttribute('hidden', mapPlaced);
+          applyContoursOnly();
+        }
+
         // A cross-section has no projection and no coastlines to draw on it.
         function syncCrossSectionMode() {
           const cross = isCrossSection();
@@ -1007,6 +1056,7 @@ export function renderImagePanelHtml(
             projection.disabled = cross;
           }
           if (overlays) overlays.toggleAttribute('hidden', cross);
+          applyContoursOnly();
           if (cross && sliceState) {
             requestAxis(sliceState.yDim);
             requestAxis(sliceState.xDim);
@@ -1462,6 +1512,9 @@ export function renderImagePanelHtml(
             syncProjectionControls();
             snapshotState();
           }
+          // The overlays follow whether it is placed (#840), also before the
+          // overlay and contour keys below are read.
+          if (msg.sliceGrid) applySlicePlacement(msg.sliceGrid.placed);
           blit(msg);
           updateLogAvailability();
           animationFrameArrived();
@@ -1632,10 +1685,12 @@ export function renderImagePanelHtml(
         }
 
         // Which layers are switched on, keyed by the provider's request flags.
+        // None of them for a field that takes no overlays (#840).
         function overlayState() {
           const state = {};
+          const offered = overlaysOffered();
           for (const layer of OVERLAY_LAYERS) {
-            state[layer.flag] = !!(document.getElementById('overlay-' + layer.flag) || {}).checked;
+            state[layer.flag] = offered && !!(document.getElementById('overlay-' + layer.flag) || {}).checked;
           }
           return state;
         }
@@ -1645,12 +1700,19 @@ export function renderImagePanelHtml(
         // is in the list even though currentOptions() does not set one yet: this
         // cache fails *open*, so an option that moves the raster and is missing
         // here reuses the previous raster's runs over a differently-sized image.
+        //
+        // A slice's variable and axes are in it too: a slice panel moves onto
+        // another grid with the projection unchanged, and the overlay drawn for
+        // the last one does not fit it. So is whether overlays apply at all
+        // (#840), so that moving onto a field that takes none drops them.
         function overlayKey() {
           const o = currentOptions();
           return JSON.stringify([
             o.projection, o.projectionPreset, o.centerLat, o.centerLon, !!o.flipY,
             o.boundsLatMin, o.boundsLatMax, o.boundsLonMin, o.boundsLonMax,
             o.width, o.height,
+            sliceState ? [sliceState.variableIndex, sliceState.yDim, sliceState.xDim] : null,
+            overlaysOffered(),
           ]);
         }
 
@@ -1694,6 +1756,8 @@ export function renderImagePanelHtml(
           lastOverlayKey = overlayKey();
           const state = overlayState();
           if (!OVERLAY_LAYERS.some((l) => state[l.flag])) {
+            // A reply still in flight was asked for the field this one replaced.
+            overlaySeq += 1;
             clearOverlay();
             return;
           }
@@ -1716,7 +1780,7 @@ export function renderImagePanelHtml(
         }
 
         function vectorsEnabled() {
-          return !!(document.getElementById('overlay-vectors') || {}).checked;
+          return overlaysOffered() && !!(document.getElementById('overlay-vectors') || {}).checked;
         }
 
         // Ask the provider for the arrows of this message paired with the chosen
@@ -1760,7 +1824,7 @@ export function renderImagePanelHtml(
         }
 
         function contoursEnabled() {
-          return !!(document.getElementById('overlay-contours') || {}).checked;
+          return overlaysOffered() && !!(document.getElementById('overlay-contours') || {}).checked;
         }
 
         // Ask the provider for the field's contour isolines, projected onto the
@@ -1772,6 +1836,8 @@ export function renderImagePanelHtml(
           // re-reported by handleContourError when the response comes back.
           setContourStatus('');
           if (!lastPayload || !contoursEnabled()) {
+            // As for the overlay: a reply in flight is for the field replaced.
+            contourSeq += 1;
             lastContour = null;
             lastContourKey = null;
             drawOverlay();
@@ -1812,9 +1878,11 @@ export function renderImagePanelHtml(
 
         // Contours-only mode hides the colour raster so the isolines read on a
         // blank background; the overlay canvas (contours + coastlines) stays.
+        // Only while contours apply (#840): on a field that takes none, the
+        // panel would otherwise show nothing at all.
         function applyContoursOnly() {
           const canvas = document.getElementById('canvas');
-          const only = !!(document.getElementById('contours-only') || {}).checked;
+          const only = overlaysOffered() && !!(document.getElementById('contours-only') || {}).checked;
           if (canvas) canvas.style.visibility = only ? 'hidden' : 'visible';
         }
 
@@ -2263,7 +2331,7 @@ export function renderImagePanelHtml(
             strokeRuns(lastContour.xy || [], lastContour.segLengths || []);
             ctx.restore();
           }
-          if (!lastOverlay || !lastOverlay.layers) return;
+          if (!lastOverlay || !lastOverlay.layers || !overlaysOffered()) return;
           const styles = overlayStrokeStyles();
           for (const layer of lastOverlay.layers) {
             // The provider labels each run with the layer id the styles key on;
@@ -3115,7 +3183,7 @@ ${slice
     </div>
 ${colormapFieldsetHtml(colormaps)}
 ${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compareFields ?? [], combineOps)}
-${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true)}
+${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, placed)}
     <fieldset>
       <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
@@ -3141,8 +3209,9 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
         <button type="button" id="zoom-reset">Reset view</button>
       </span>
     </fieldset>
-    <fieldset id="overlay-fieldset">
+    <fieldset id="overlay-fieldset"${placed ? "" : " disabled"}>
       <legend>Overlay:</legend>
+      <span class="picker-note" id="overlay-note"${placed ? " hidden" : ""}>${UNPLACED_OVERLAY_NOTE}</span>
       <span class="overlay-layer">
         <label><input type="checkbox" id="overlay-coastlines"> Coastlines</label>
         <input type="color" id="color-coastline" class="layer-color" aria-label="Coastline colour">

@@ -286,14 +286,14 @@ suite("Slice panel projection picker", () => {
     panel.send({ type: "ready", projection: "source", resampling: "nearest", flipY: false, slice: latBndsSlice });
     const first = panel.posted[panel.posted.length - 1] as GridReadyMessage;
     assert.strictEqual(first.type, "gridReady");
-    assert.deepStrictEqual(first.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE });
+    assert.deepStrictEqual(first.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false });
     assert.strictEqual(picker.take(first), false);
     assert.deepStrictEqual(picker.offers(), ["source"]);
 
     // Move the same panel onto temperature. The render says it can be
     // reprojected, so the picker offers the map targets…
     const onTemperature = render(panel, temperatureSlice, picker.value);
-    assert.deepStrictEqual(onTemperature.sliceGrid, { label: "latlon", reprojectable: true, note: "" });
+    assert.deepStrictEqual(onTemperature.sliceGrid, { label: "latlon", reprojectable: true, note: "", placed: true });
     assert.strictEqual(picker.take(onTemperature), false, "source stays selected");
     assert.ok(picker.offers().includes("equirectangular"), `got ${picker.offers().join(", ")}`);
     assert.strictEqual(picker.noteHidden, true, "and the note goes");
@@ -322,7 +322,7 @@ suite("Slice panel projection picker", () => {
     const back = render(panel, latBndsSlice, picker.value);
     assert.strictEqual(back.options.projection, "source", "drawn in the source view");
     assert.strictEqual(back.usedLatMin, null, "with no geographic extent");
-    assert.deepStrictEqual(back.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE });
+    assert.deepStrictEqual(back.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false });
     assert.strictEqual(picker.take(back), true, "the selection moves");
     assert.strictEqual(picker.value, "source");
     assert.deepStrictEqual(picker.offers(), ["source"]);
@@ -346,7 +346,7 @@ suite("Slice panel projection picker", () => {
     panel.send({ type: "ready", projection: "source", resampling: "nearest", flipY: false });
     const first = panel.posted[panel.posted.length - 1] as GridReadyMessage;
     assert.strictEqual(first.type, "gridReady");
-    assert.deepStrictEqual(first.sliceGrid, { label: "latlon", reprojectable: true, note: "" });
+    assert.deepStrictEqual(first.sliceGrid, { label: "latlon", reprojectable: true, note: "", placed: true });
     const variableIndex = first.messageIndex;
 
     picker.choose("equirectangular");
@@ -356,7 +356,7 @@ suite("Slice panel projection picker", () => {
 
     const transposed = render(panel, { variableIndex, yDim: 1, xDim: 0, sliceIndices: [0, 0] }, picker.value);
     assert.strictEqual(transposed.options.projection, "source", "drawn in the source view, not refused");
-    assert.deepStrictEqual(transposed.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE });
+    assert.deepStrictEqual(transposed.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false });
     assert.strictEqual(picker.take(transposed), true);
     assert.strictEqual(picker.value, "source");
     assert.deepStrictEqual(picker.offers(), ["source"]);
