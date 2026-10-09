@@ -73,19 +73,80 @@ pub const MAX_PLANNED_CHUNKS: u64 = 1 << 20;
 /// comments claimed to match (#707).
 pub const MAX_FIELD_POINTS: usize = 64 * 1024 * 1024;
 
-/// The most elements one **whole-variable** read holds: a NetCDF classic
-/// variable or an HDF5 dataset, every record and every dimension of it.
+/// The most memory one **whole-variable** read may hold at once: a NetCDF
+/// classic variable or an HDF5 dataset, every record and every dimension of
+/// it. 2 GiB.
+///
+/// The bound is on bytes, not elements, because the cost of an element
+/// depends on its type. The read returns one `Option<f64>` per element,
+/// sixteen bytes, and while it assembles them it also holds the stored
+/// elements, one to eight bytes each for the numeric types. So the peak is
+/// `elements × (16 + stored element size)`, which
+/// [`whole_variable_read_bytes`] computes and refuses past this.
+///
+/// File size does not bound it. A chunked HDF5 dataset need not store its
+/// chunks, and one it omits reads as the fill value, so a 13 KB file can
+/// declare 146,800,704 four-byte elements and ask for 2.9 GB (#847). Nor does
+/// a NetCDF classic file: its one-byte types widen seventeen-fold.
+///
+/// Why 2 GiB:
+///
+/// - Every host can serve every read the reader accepts. On a 32-bit target
+///   (the browser host's `wasm32`) no single allocation may exceed
+///   `isize::MAX`, just under 2 GiB, and an output past that is a
+///   capacity-overflow panic rather than an error. Under this budget the
+///   output is at most sixteen seventeenths of it.
+/// - It is twice the output of the largest single field
+///   ([`MAX_FIELD_POINTS`], 1 GiB of `Option<f64>`): a whole variable is a
+///   bigger question than any one slice a viewer draws.
+/// - It refuses the 2.9 GB file above with room to spare.
+///
+/// A real variable this refuses — more than about 107 M four-byte elements —
+/// wants a read of the slice being drawn rather than the whole variable,
+/// which is the long-term fix and not this bound's job.
+pub const MAX_VARIABLE_BYTES: u64 = 2 << 30;
+
+/// Bytes one element of a whole-variable read's output takes: an
+/// `Option<f64>`.
+const DECODED_ELEMENT_BYTES: u64 = std::mem::size_of::<Option<f64>>() as u64;
+
+/// The most elements any whole-variable read can hold under
+/// [`MAX_VARIABLE_BYTES`]: the count for the narrowest stored type, one byte,
+/// which costs seventeen bytes an element. About 126 M.
+///
+/// A count past this is refused whatever the type, so a caller that knows only
+/// a shape can tell from it alone that the read will fail. A count under it may
+/// still be refused for a wider type; [`whole_variable_read_bytes`] is the
+/// check that decides.
 ///
 /// Larger than [`MAX_FIELD_POINTS`] because it is a larger question. A
 /// reanalysis variable is routinely an order of magnitude bigger than any one
-/// slice of it. A shape out of a corrupt header is still the thing being
-/// bounded.
+/// slice of it.
+pub const MAX_VARIABLE_ELEMENTS: usize =
+    (MAX_VARIABLE_BYTES / (DECODED_ELEMENT_BYTES + 1)) as usize;
+
+/// The bytes a whole-variable read of `elements` elements, each stored in
+/// `stored_element_bytes` bytes, holds at its peak, or
+/// [`ArrayError::VariableTooLarge`] past [`MAX_VARIABLE_BYTES`].
 ///
-/// The bound is on elements, not bytes. A whole-variable read returns one
-/// `Option<f64>` per element, sixteen bytes, so at the cap its output is
-/// 3.2 GB, and the reader also holds the stored bytes while it assembles
-/// them.
-pub const MAX_VARIABLE_ELEMENTS: usize = 200_000_000;
+/// The peak is the output, sixteen bytes an element, plus the stored elements
+/// held while it is assembled. Saturating, so a shape whose product overflows
+/// is refused rather than wrapped into a small number.
+pub fn whole_variable_read_bytes(
+    elements: u64,
+    stored_element_bytes: u64,
+) -> Result<u64, ArrayError> {
+    let bytes = elements.saturating_mul(DECODED_ELEMENT_BYTES.saturating_add(stored_element_bytes));
+    if bytes > MAX_VARIABLE_BYTES {
+        return Err(ArrayError::VariableTooLarge {
+            elements,
+            element_bytes: stored_element_bytes,
+            bytes,
+            limit: MAX_VARIABLE_BYTES,
+        });
+    }
+    Ok(bytes)
+}
 
 /// What the arithmetic here refuses.
 ///
@@ -154,6 +215,24 @@ pub enum ArrayError {
     #[error("this region touches more than {limit} chunks, which is more than a plan will hold")]
     RegionTooLarge {
         /// The most chunks a region may touch.
+        limit: u64,
+    },
+
+    /// A whole-variable read that would hold more than
+    /// [`MAX_VARIABLE_BYTES`] at once. See [`whole_variable_read_bytes`].
+    #[error(
+        "reading this variable whole needs {bytes} bytes ({elements} elements, \
+         {element_bytes} bytes each on disk and 16 decoded), more than the \
+         {limit} one read may hold"
+    )]
+    VariableTooLarge {
+        /// How many elements the variable declares.
+        elements: u64,
+        /// How many bytes each takes as stored.
+        element_bytes: u64,
+        /// What the read would hold at its peak, saturated at `u64::MAX`.
+        bytes: u64,
+        /// The most it may hold.
         limit: u64,
     },
 
@@ -1174,6 +1253,55 @@ impl CfUnpacking {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The whole-variable budget counts the output and the stored bytes, and
+    /// its edge is inclusive.
+    #[test]
+    fn a_whole_variable_read_is_bounded_in_bytes() {
+        // The #847 seed: 146,800,704 four-byte elements, about 2.9 GB.
+        assert_eq!(
+            whole_variable_read_bytes(146_800_704, 4),
+            Err(ArrayError::VariableTooLarge {
+                elements: 146_800_704,
+                element_bytes: 4,
+                bytes: 146_800_704 * 20,
+                limit: MAX_VARIABLE_BYTES,
+            })
+        );
+
+        // Exactly at the budget is allowed, one element past it is not.
+        let at_edge = MAX_VARIABLE_BYTES / 16;
+        assert_eq!(
+            whole_variable_read_bytes(at_edge, 0),
+            Ok(MAX_VARIABLE_BYTES)
+        );
+        assert!(whole_variable_read_bytes(at_edge + 1, 0).is_err());
+
+        // A wider type is refused at a smaller count.
+        let f32_most = MAX_VARIABLE_BYTES / 20;
+        assert!(whole_variable_read_bytes(f32_most, 4).is_ok());
+        assert!(whole_variable_read_bytes(f32_most + 1, 4).is_err());
+        assert!(whole_variable_read_bytes(f32_most, 8).is_err());
+
+        // The element cap is the count for the narrowest type, so a count past
+        // it fails for every type and one at it passes for a one-byte type.
+        let most = MAX_VARIABLE_ELEMENTS as u64;
+        assert!(whole_variable_read_bytes(most, 1).is_ok());
+        assert!(whole_variable_read_bytes(most + 1, 1).is_err());
+
+        // An overflowing product saturates rather than wrapping small.
+        assert!(matches!(
+            whole_variable_read_bytes(u64::MAX / 2, 8),
+            Err(ArrayError::VariableTooLarge {
+                bytes: u64::MAX,
+                ..
+            })
+        ));
+
+        // On a 32-bit target the output alone must stay allocatable: past
+        // `isize::MAX` bytes `Vec::with_capacity` panics instead of failing.
+        assert!(MAX_VARIABLE_ELEMENTS as u64 * DECODED_ELEMENT_BYTES <= i32::MAX as u64);
+    }
 
     /// `index_of` reads back exactly what `key` writes, for both encodings,
     /// both separators and every rank — and nothing that `key` would not.
