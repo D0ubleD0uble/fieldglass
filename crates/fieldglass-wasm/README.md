@@ -340,7 +340,9 @@ every time, so the figures match CI at each release and a cycle of small
 increases shows up in one diff (RELEASING.md §1). In both cases, copy the
 measured `.wasm` and gzipped columns from the summary into the table, and add a
 paragraph above it saying what moved. Don't record from a local build: its
-toolchain differs from CI's, and so does its size.
+toolchain differs from CI's, and so does its size. CI takes the current stable
+rustc, so a new Rust release alone can push the drift over 1.0%; the next PR
+then re-records it, saying so.
 
 Two things worth knowing before optimising further:
 
