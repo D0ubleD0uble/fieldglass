@@ -426,10 +426,10 @@ Two files for #914, built by `tools/build_hdf5_soft_link_fixture.py` with h5py
 `/nope`: `hdf5_soft_links_earliest.h5` in the default (earliest) format, a
 symbol-table group whose soft-link entries have cache type 2 and an undefined
 header address, and `hdf5_soft_links_latest.h5` with `libver='latest'`, link
-messages. The symbol-table node keeps its entries sorted by name (`a`, `d`,
-`m`, `s`, `z`), so one hard link sits between the soft links and one after
-both: a reader that stops at the first soft link instead of skipping it lists
-only `a` (#919). Each oracle records what h5py lists and which members are
+messages. In the earliest-format file the symbol-table node keeps its entries
+sorted by name (`a`, `d`, `m`, `s`, `z`), so one hard link sits between the
+soft links and one after both: a reader that stops at the first soft link
+instead of skipping it lists only `a` (#919). Each oracle records what h5py lists and which members are
 hard links; `tests/hdf5_soft_links.rs` checks that both list `a`, `m` and `z`
 and decode all three.
 

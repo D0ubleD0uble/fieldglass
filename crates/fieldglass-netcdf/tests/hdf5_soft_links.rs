@@ -52,11 +52,10 @@ fn both_formats_list_the_hard_links_and_skip_soft_ones() {
         let mut decoded: Vec<(String, Vec<Option<f64>>)> = view
             .vars
             .iter()
-            .enumerate()
-            .map(|(i, v)| {
+            .map(|v| {
                 (
                     v.name().to_string(),
-                    reader.decode_variable_raw(i).expect("decodes"),
+                    reader.decode_variable_raw(v.decode_index).expect("decodes"),
                 )
             })
             .collect();
