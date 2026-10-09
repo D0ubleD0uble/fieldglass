@@ -1781,9 +1781,7 @@ impl GridGeometry {
             // sight line: one radian of scan angle is `+h` metres, and `+h` is
             // the height above the ellipsoid, not the distance from its centre
             // that `h_metres` carries.
-            // The projector's own check is all constants: the axes, and a camera
-            // outside the body. Nothing about the raster.
-            Self::Geostationary(p) if !GeostationaryProjector::new(*p).is_well_defined() => None,
+            Self::Geostationary(p) if !GeostationaryProjector::new(*p).crs_resolves() => None,
             Self::Geostationary(p) => Some(format!(
                 "+proj=geos +h={} +lon_0={} +sweep={} +a={} +b={} +units=m +no_defs",
                 p.h_metres - p.r_eq,
