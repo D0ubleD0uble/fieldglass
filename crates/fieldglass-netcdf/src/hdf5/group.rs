@@ -517,14 +517,16 @@ fn link_info_links<S: ByteSource + ?Sized>(
     lsize: u8,
 ) -> Result<Vec<(String, u64)>, FieldglassError> {
     let o = osize as usize;
-    // version (1) + flags (1), then an optional max-creation-index (length-size).
+    // version (1) + flags (1), then an optional maximum creation index, a
+    // fixed 8 bytes (specification, "Link Info Message"; libhdf5 reads it with
+    // `INT64DECODE`), not Size of Lengths (#922).
     if body.len() < 2 {
         return Err(FieldglassError::Parse("link info message too small".into()));
     }
     let flags = body[1];
     let mut pos = 2usize;
     if flags & 0x01 != 0 {
-        pos += lsize as usize; // maximum creation index
+        pos += 8; // maximum creation index
     }
     let heap_addr = read_uint_le(body, pos, o)?;
 

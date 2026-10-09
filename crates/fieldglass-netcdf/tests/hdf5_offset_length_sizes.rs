@@ -8,8 +8,10 @@
 //!
 //! Fixtures from `tools/build_hdf5_size_fixtures.py`, sizes (8, 4) and (4, 8):
 //! more members than one symbol-table node holds, a header continuation, an
-//! unlimited dimension, dimension scales, a gzip-chunked dataset and a nested
-//! group. The oracles hold what h5py reads back.
+//! unlimited dimension, dimension scales, a gzip-chunked dataset, a nested
+//! group, and a group that tracks creation order, whose link info message
+//! holds an 8-byte maximum creation index. The oracles hold what h5py reads
+//! back.
 
 use std::collections::BTreeMap;
 
@@ -162,7 +164,11 @@ fn mismatched_sizes_list_resolve_and_decode() {
 
         // Pinned as well as read from the oracle, so a regenerated oracle
         // cannot quietly drop what the fixture is for.
-        assert_eq!(meta.variables.len(), 16, "{source}");
+        assert_eq!(meta.variables.len(), 17, "{source}");
+        assert!(
+            meta.variables.iter().any(|v| v.name == "/t/tracked"),
+            "{source}: the creation-order group's member"
+        );
         let many = meta
             .variables
             .iter()

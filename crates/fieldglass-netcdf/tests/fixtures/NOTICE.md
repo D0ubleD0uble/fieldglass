@@ -442,12 +442,14 @@ Offsets and Size of Lengths set by `fcpl.set_sizes` to (8, 4) and (4, 8).
 Without the explicit bounds h5py writes a version-2 superblock and no
 version-1 B-tree, so the builder checks the version byte.
 
-Each root holds 16 datasets, more than one symbol-table node holds, so the
+Each root holds 15 datasets, more than one symbol-table node holds, so the
 group B-tree has several keys. `many_attrs` gets 30 attributes after later
 objects are written, so its header needs a continuation (the oracle records
 the chunk count). `v` is gzip-chunked with an unlimited first dimension, and
 dimension scales `time` and `x` are attached, so its `DIMENSION_LIST` lives in
-the global heap. A nested group `g` holds `inner`. Each oracle records what
+the global heap. A nested group `g` holds `inner`, and a group `t` that tracks
+creation order holds `tracked`: its link info message has an 8-byte maximum
+creation index, which the reader used to read at Size of Lengths. Each oracle records what
 h5py reads: values, shapes, maxima, dimension labels and attributes.
 
 **Known divergence from libhdf5.** `time` was created with `maxshape=(None,)`.

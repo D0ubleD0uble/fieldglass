@@ -11,9 +11,11 @@ correctly anyway. libhdf5 writes other sizes on request (`H5Pset_sizes`), and
 an earliest-format file with O ≠ L failed to open: with (8, 4) the reader took
 the root group's header address from four bytes too early.
 
-Every field read on the earliest-format path was checked against the HDF5 File
-Format Specification (version 3) and libhdf5 1.14.4's decoders. They agree on
-all but two:
+Every field read on the earliest-format path, and every field elsewhere that
+depends on O or L, was checked against the HDF5 File Format Specification
+(version 3) and libhdf5 1.14.4's decoders. A group that tracks creation order
+uses a link info message even in an earliest-format file, so that message is
+on this path too. The two sources agree on all but two fields:
 
 | Field | Specification | libhdf5 | Reader before | Reader now |
 | --- | --- | --- | --- | --- |
@@ -21,6 +23,7 @@ all but two:
 | Group B-tree node key | L | L (`H5G_node_decode_key`) | O | L |
 | Global heap: collection header and each object header | "16 bytes" (stated for L = 8) | `ALIGN8(8 + L)` (`H5HG_SIZEOF_HDR`, `H5HG_SIZEOF_OBJHDR`) | `8 + L` | **`ALIGN8(8 + L)`** |
 | Object-header continuation: undefined address | all ones at O | all ones at O | 8-byte all ones only | all ones at O |
+| Link info message: maximum creation index | 8 | 8 (`INT64DECODE`) | L | 8 |
 
 The fields that were already right: the superblock's four addresses (O); the
 symbol-table message's B-tree and heap addresses (O); the local heap's data
@@ -29,8 +32,11 @@ addresses (O); a chunk B-tree key (4 + 4 + 8 per dimension, fixed); the
 continuation's address (O) and length (L); dataspace sizes and maxima (L); the
 contiguous layout's address (O) and size (L) and the chunked layout's index
 address (O); a global heap's collection and object sizes (L); a global heap ID
-(4 + O + 4) and an object reference (O). Data layout messages before version 3
-are refused as unsupported, as before.
+(4 + O + 4) and an object reference (O); the attribute info message's
+maximum creation index (2 bytes); the fractal heap header, its indirect-block
+and huge-object records, version-2 B-tree headers and records, and the
+version-4 layout's chunk indexes. Data layout messages before version 3 are
+refused as unsupported, as before.
 
 The link-name offset is the one field where the two sources disagree outright.
 It is an offset into the group's local heap. Every other local-heap offset in
@@ -72,8 +78,8 @@ fixtures' `NOTICE.md` entry.
 
 ## Consequences
 
-- Earliest-format files with O ≠ L open, list, resolve their dimension scales
-  and decode. Files with O = L read the same as before.
+- Files with O ≠ L open, list, resolve their dimension scales and decode,
+  including groups that track creation order in any file format. Files with O = L read the same as before.
 - A file written to the specification's table rather than by libhdf5, with
   O ≠ L, would be misread. No such writer is known.
 - When another field turns out to differ between the specification and

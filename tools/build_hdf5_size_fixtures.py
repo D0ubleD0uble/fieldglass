@@ -17,8 +17,9 @@ builder checks the superblock version byte is 0.
 Each root holds enough members to split the group across several symbol-table
 nodes, a dataset with enough attributes to need a header continuation, an
 unlimited dimension, dimension scales (whose ``DIMENSION_LIST`` lives in the
-global heap), a chunked gzip dataset and a nested group. The oracle records
-what h5py reads back.
+global heap), a chunked gzip dataset, a nested group, and a group that tracks
+creation order (a link info message with an 8-byte maximum creation index).
+The oracle records what h5py reads back.
 
 Run from the repo root (needs ``h5py``):
 
@@ -78,6 +79,10 @@ def write(path: Path, offsets: int, lengths: int) -> None:
         g = f.create_group("g")
         g.attrs["level"] = np.int32(7)
         g.create_dataset("inner", data=np.arange(5, dtype="i4") * 3, track_times=False)
+        # A group that tracks creation order is a new-style group even here:
+        # its link info message carries an 8-byte maximum creation index.
+        t = f.create_group("t", track_order=True)
+        t.create_dataset("tracked", data=np.arange(4, dtype="f4") - 1, track_times=False)
 
         for i in range(30):
             many.attrs[f"a{i:02}"] = np.float32(i) / 2
