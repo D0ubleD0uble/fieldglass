@@ -42,6 +42,8 @@ Fieldglass uses a trunk-based model: feature branches are cut from `master` and 
    ```
 2. Make your change. The local pre-commit hook runs `cargo fmt`, `cargo clippy -- -D warnings`, `tsc --noEmit`, plus file-hygiene polish on every commit. The pre-push hook runs `cargo test --workspace`, `cargo doc --no-deps` (broken doc links are errors), `cargo deny check`, `npm audit`, and a `semgrep` SAST scan.
 3. Update [CHANGELOG.md](CHANGELOG.md) under the `## [Unreleased]` heading. If your change closes an issue, put `Closes #N` in the PR body — it closes automatically when the PR merges to `master`.
+
+   An entry is a few sentences saying what changed for someone using Fieldglass. The long form (measurements, reasoning, how it was checked) goes in the PR body. Changes users see go under Added, Changed or Fixed; library-only changes go under `### Rust API`, with anything that breaks the 0.x API in its breaking-changes list; work with no visible effect gets one line under `### Internal`. The section becomes the GitHub release body, which GitHub caps at 125,000 characters.
 4. Open the PR targeting `master`:
    ```sh
    gh pr create --base master
