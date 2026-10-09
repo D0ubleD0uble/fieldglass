@@ -2,8 +2,12 @@
 """Build the HDF5 fixtures behind #914: a root group holding soft links, in
 the earliest and the latest file format.
 
-Each root holds a dataset ``a``, a soft link ``s`` to ``/a`` and a dangling
-soft link ``d`` to ``/nope``, written by h5py:
+Each root holds datasets ``a``, ``m`` and ``z``, a soft link ``s`` to ``/a``
+and a dangling soft link ``d`` to ``/nope``, written by h5py. A symbol-table
+node keeps its entries sorted by name (``a``, ``d``, ``m``, ``s``, ``z``), so a
+hard link sits between the two soft links and another after both: a reader
+that stops at the first soft link, instead of skipping it, lists only ``a``
+(#919).
 
   * ``hdf5_soft_links_earliest.h5`` — the default format: a symbol-table
     group, whose soft-link entries have cache type 2 and an undefined header
@@ -32,6 +36,8 @@ def build(path: Path, libver: str | None) -> dict:
     kwargs = {"libver": libver} if libver else {}
     with h5py.File(path, "w", **kwargs) as f:
         f.create_dataset("a", data=np.arange(3, dtype="f4"), track_times=False)
+        f.create_dataset("m", data=np.arange(10, 14, dtype="f4"), track_times=False)
+        f.create_dataset("z", data=np.arange(20, 25, dtype="f4"), track_times=False)
         f["s"] = h5py.SoftLink("/a")
         f["d"] = h5py.SoftLink("/nope")
     with h5py.File(path, "r") as f:
@@ -40,7 +46,8 @@ def build(path: Path, libver: str | None) -> dict:
     return {
         "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), "
         f"libver={libver or 'default (earliest)'}",
-        "note": "root with dataset a, soft link s -> /a and dangling soft link d -> /nope (#914)",
+        "note": "root with datasets a, m and z, soft link s -> /a and dangling soft link "
+        "d -> /nope (#914, #919)",
         "members": members,
         "hard_links": hard,
     }

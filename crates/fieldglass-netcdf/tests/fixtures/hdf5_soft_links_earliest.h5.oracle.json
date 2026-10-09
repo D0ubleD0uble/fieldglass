@@ -1,12 +1,16 @@
 {
   "source": "h5py 3.16.0 (libhdf5 2.0.0), libver=default (earliest)",
-  "note": "root with dataset a, soft link s -> /a and dangling soft link d -> /nope (#914)",
+  "note": "root with datasets a, m and z, soft link s -> /a and dangling soft link d -> /nope (#914, #919)",
   "members": [
     "a",
     "d",
-    "s"
+    "m",
+    "s",
+    "z"
   ],
   "hard_links": [
-    "a"
+    "a",
+    "m",
+    "z"
   ]
 }
