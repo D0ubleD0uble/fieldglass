@@ -657,6 +657,32 @@ suite("Render pipeline", () => {
       );
     }
   });
+
+  test("NetCDF: a 13 KB file whose variable reads whole as 2.9 GB is refused, not allocated (#847)", () => {
+    // The fuzz seed's chunked dataset stores no chunks, so it reads whole as
+    // its fill value: 146,800,704 four-byte values, 2.9 GB held at once. The
+    // handle reads and caches the whole variable before it picks a slice, so
+    // drawing one slice asked the extension host for all of it. The reader
+    // now refuses it past its 2 GiB budget, and the handle passes that on.
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const ext = vscode.extensions.getExtension(EXT_ID);
+    assert.ok(ext, "extension is installed");
+    const seed = path.join(
+      ext.extensionPath, "..", "crates", "fieldglass-netcdf", "fuzz", "corpus", "parse",
+      "oom_large_fill_dataset.h5",
+    );
+    assert.ok(fs.existsSync(seed), `fuzz seed missing: ${seed}`);
+    const handle = native.NetcdfHandle.fromBytes(fs.readFileSync(seed));
+    const large = handle
+      .variables()
+      .find((v) => v.dims.reduce((n, d) => n * d.length, 1) === 146_800_704);
+    assert.ok(large, "the seed offers its large dataset");
+    assert.throws(
+      () => handle.renderSlice(large.variableIndex, 0, 1, [0, 0], defaultRenderOptions()),
+      /needs 2936014080 bytes .* more than the 2147483648 one read may hold/,
+    );
+  });
 });
 
 suite("rerenderRequest option clamp", () => {
