@@ -762,9 +762,11 @@ fn axis_position(first: f64, last: f64, n: u32, k: u32) -> f64 {
 /// Every family `core` can project has a variant, so a grid that reaches
 /// [`GridGeometry::Unsupported`] is one no projector exists for at all — a
 /// spectral or bi-Fourier message, or a template the reader parsed only far
-/// enough to name. The variants are ordered as the families are listed
-/// throughout the docs: the two geographic ones, the two that are geographic
-/// with a twist, then the four planar projections and the view from orbit.
+/// enough to name — or one of a modelled family whose own numbers built no
+/// grid, which [`GridGeometry::declined_family`] tells apart. The variants are
+/// ordered as the families are listed throughout the docs: the two geographic
+/// ones, the two that are geographic with a twist, then the four planar
+/// projections and the view from orbit.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
@@ -809,14 +811,39 @@ pub enum GridGeometry {
     /// a position inside one; see [`GridResampling::NearestOnly`].
     #[cfg_attr(feature = "serde", serde(rename = "lookup"))]
     Lookup(crate::spatial_index::SpatialIndex),
-    /// A family this type does not model yet. `label` is the grid type as the
-    /// decoder named it, so the message can say what was declined.
+    /// A family this type does not model yet, or a grid of a modelled family
+    /// that could not be built from its numbers
+    /// ([`declined_family`](Self::declined_family)). `label` is the grid type
+    /// as the decoder named it, so the message can say what was declined.
     #[cfg_attr(feature = "serde", serde(rename = "unsupported"))]
     Unsupported {
         /// The grid type as the decoder named it.
         label: String,
     },
 }
+
+/// Every name a decoder gives a family [`GridGeometry`] has a variant for:
+/// each variant's [`kind`](GridGeometry::kind) and [`label`](GridGeometry::label),
+/// and the reduced grids, which arrive widened to their regular sibling.
+///
+/// What [`GridGeometry::declined_family`] reads an
+/// [`Unsupported`](GridGeometry::Unsupported) label against. A family added to
+/// the enum fails `every_modelled_family_is_named` until its name is here.
+const MODELLED_FAMILIES: &[&str] = &[
+    "latlon",
+    "reduced_latlon",
+    "gaussian",
+    "reduced_gaussian",
+    "mercator",
+    "rotated_latlon",
+    "lambert",
+    "polar_stereo",
+    "transverse_mercator",
+    "lambert_azimuthal",
+    "space_view",
+    "lookup",
+    "curvilinear",
+];
 
 /// A grid's forward geolocation with the projection's constants built once:
 /// grid index `(i, j)` → `(lat, lon)` in degrees, or `None` for a point the
@@ -868,6 +895,28 @@ impl GridGeometry {
             Self::Unsupported { label } => label,
             Self::Lookup(_) => "curvilinear",
             other => other.kind(),
+        }
+    }
+
+    /// The family's name when this is a grid of a family this type models that
+    /// could not be built from its own numbers, and `None` otherwise.
+    ///
+    /// A reader declines such a grid as [`Unsupported`](Self::Unsupported)
+    /// under the family's own name: a §3.90 whose camera sees no Earth reads
+    /// `space_view`, and a §3.1 or §3.12 stating a non-finite angle or scale
+    /// factor reads `rotated_latlon` or `transverse_mercator` (#823). Its label
+    /// then names a family the build *does* support, so a refusal worded "not
+    /// yet supported for grid type …" would contradict itself (#843). This is
+    /// the question a refusal asks to tell the two apart. A template the reader
+    /// does not model (`unsupported(3.4)`), a family with no raster
+    /// (`spherical_harmonic`, `healpix`) and a raster nothing placed (`source`)
+    /// all answer `None`.
+    pub fn declined_family(&self) -> Option<&str> {
+        match self {
+            Self::Unsupported { label } if MODELLED_FAMILIES.contains(&label.as_str()) => {
+                Some(label)
+            }
+            _ => None,
         }
     }
 
@@ -3618,7 +3667,7 @@ mod subsample_tests {
     /// Every family this method answers for, plus the three it declines, as
     /// `(label, geometry)`. Built once so a family added to [`GridGeometry`]
     /// shows up here as a missing arm rather than as an untested one.
-    fn families() -> Vec<(&'static str, GridGeometry)> {
+    pub(super) fn families() -> Vec<(&'static str, GridGeometry)> {
         vec![
             (
                 "latlon",
@@ -4082,5 +4131,109 @@ mod subsample_tests {
         assert!(near(coarse.dx_metres, source.dx_metres * 4.0, 1e-6));
         assert!(near(coarse.dy_metres, source.dy_metres * 4.0, 1e-6));
         assert!(coarse.dy_metres < 0.0, "a north-down grid stays north-down");
+    }
+}
+
+#[cfg(test)]
+mod declined_family_tests {
+    use super::*;
+
+    /// One of each variant: the subsampling families, which hold every
+    /// projected one, and the two that subsampling declines, a Gaussian and a
+    /// lookup grid.
+    fn one_of_each() -> Vec<GridGeometry> {
+        let mut all: Vec<GridGeometry> = super::subsample_tests::families()
+            .into_iter()
+            .map(|(_, g)| g)
+            .collect();
+        all.push(GridGeometry::Gaussian(GaussianParams {
+            ni: 320,
+            nj: 160,
+            lat_first: 89.142,
+            lon_first: 0.0,
+            lat_last: -89.142,
+            lon_last: 358.875,
+            n_parallels: 80,
+        }));
+        all.push(GridGeometry::Lookup(
+            crate::spatial_index::SpatialIndex::new(
+                2,
+                2,
+                &[0.0, 0.0, 1.0, 1.0],
+                &[0.0, 1.0, 0.0, 1.0],
+            )
+            .expect("four centres index"),
+        ));
+        all
+    }
+
+    /// A modelled family declined under its own name is recognised by both of
+    /// the names a host could have read off it, `kind` and `label`.
+    ///
+    /// The match is exhaustive on purpose (`non_exhaustive` does not apply
+    /// inside this crate): a variant added to the enum stops this compiling
+    /// until it is counted here, and the count then fails until a value of it
+    /// is in `one_of_each` and its name is in [`MODELLED_FAMILIES`].
+    #[test]
+    fn every_modelled_family_is_named() {
+        let mut seen = std::collections::BTreeSet::new();
+        for g in one_of_each() {
+            seen.insert(match &g {
+                GridGeometry::LatLon(_) => 0,
+                GridGeometry::Gaussian(_) => 1,
+                GridGeometry::Mercator(_) => 2,
+                GridGeometry::RotatedLatLon(_) => 3,
+                GridGeometry::Lambert(_) => 4,
+                GridGeometry::PolarStereo(_) => 5,
+                GridGeometry::TransverseMercator(_) => 6,
+                GridGeometry::LambertAzimuthal(_) => 7,
+                GridGeometry::Geostationary(_) => 8,
+                GridGeometry::Lookup(_) => 9,
+                GridGeometry::Unsupported { .. } => continue,
+            });
+            assert_eq!(
+                g.declined_family(),
+                None,
+                "{}: built, not declined",
+                g.kind()
+            );
+            for name in [g.kind(), g.label()] {
+                let declined = GridGeometry::Unsupported {
+                    label: name.to_string(),
+                };
+                assert_eq!(declined.declined_family(), Some(name), "{name}");
+            }
+        }
+        assert_eq!(seen.len(), 10, "one value of every modelled variant");
+        // The decoders' names for the reduced grids, which arrive widened.
+        for name in ["reduced_latlon", "reduced_gaussian"] {
+            let declined = GridGeometry::Unsupported {
+                label: name.to_string(),
+            };
+            assert_eq!(declined.declined_family(), Some(name));
+        }
+    }
+
+    /// Everything else an `Unsupported` carries is not a declined family: a
+    /// template the reader does not model, the families with no raster, the
+    /// raster nothing placed, the variant's own tag and an empty label.
+    #[test]
+    fn an_unmodelled_label_is_not_a_declined_family() {
+        for label in [
+            "unsupported(3.4)",
+            "unsupported(90)",
+            "spherical_harmonic",
+            "healpix",
+            "bifourier",
+            crate::cf::placement::SOURCE_ONLY,
+            "unsupported",
+            "",
+            "Rotated_LatLon",
+        ] {
+            let g = GridGeometry::Unsupported {
+                label: label.to_string(),
+            };
+            assert_eq!(g.declined_family(), None, "{label:?}");
+        }
     }
 }

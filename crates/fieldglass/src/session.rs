@@ -2318,8 +2318,15 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         // states once — in `core`, for both hosts — that a periodic grid's
         // window runs the full turn rather than stopping at its last declared
         // column (#571).
+        // A grid of a supported family whose numbers built nothing is told
+        // that, rather than that its family states no extent (#843).
         None => geometry.render_window().ok_or_else(|| Error::Unsupported {
-            detail: format!("a {} grid states no extent to warp onto", geometry.label()),
+            detail: match geometry.declined_family() {
+                Some(family) => {
+                    crate::render::declined_detail(family, "it states no extent to warp onto")
+                }
+                None => format!("a {} grid states no extent to warp onto", geometry.label()),
+            },
         })?,
     };
     let LonLatBox {

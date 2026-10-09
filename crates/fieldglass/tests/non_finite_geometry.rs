@@ -9,6 +9,10 @@
 //! is now declined, the way a §3.90 with no usable camera is.
 //!
 //! Each case is a committed fixture with the one parameter overwritten.
+//!
+//! A declined grid keeps its family's name as its label, so the refusals it
+//! reaches say its geometry could not be built rather than calling a family
+//! this build supports unsupported (#843).
 
 use fieldglass::{DecodeOptions, MessageInfo, Placement, Session};
 
@@ -243,4 +247,187 @@ fn a_space_view_that_sees_no_earth_decodes_unplaced() {
         .unwrap();
     assert_eq!((field.ni, field.nj), (want.ni, want.nj));
     assert_eq!(field.values, want.values);
+}
+
+/// Each way a GRIB2 grid of a supported family is declined, as
+/// `(what, bytes, family)`: a §3.1 and a §3.12 with a non-finite parameter,
+/// and a §3.90 whose camera sits on the surface.
+fn declined_grids() -> Vec<(String, Vec<u8>, &'static str)> {
+    let mut out = Vec::new();
+    for ((fixture, offset, name, _), family) in CASES
+        .into_iter()
+        .zip(["rotated_latlon", "transverse_mercator"])
+    {
+        for value in non_finite() {
+            out.push((
+                format!("{fixture}, {name} = {value}"),
+                with_template_float(fixture, offset, value),
+                family,
+            ));
+        }
+    }
+    out.push((
+        "a §3.90 camera on the surface".to_string(),
+        space_view_from_latlon(1_000_000),
+        "space_view",
+    ));
+    out
+}
+
+/// Every refusal a declined grid reaches says its geometry could not be
+/// built, and none calls a family this build supports unsupported (#843).
+///
+/// Through the real `Session` over the edited fixtures, and through the calls
+/// both bindings make: `Field::source` into the display methods (the Node
+/// binding's render, probe, overlay, contour and CSV) and `Session::warp` (the
+/// browser binding's warp). The source projection and the matrix CSV still
+/// answer, since neither needs a position.
+#[test]
+fn a_declined_grids_refusals_say_its_geometry_could_not_be_built() {
+    use fieldglass::render::{VectorOptions, vector_polylines};
+    use fieldglass::{RenderOptions, WarpOptions};
+
+    for (what, bytes, family) in declined_grids() {
+        let session = Session::open(bytes).expect("opens");
+        let field = session
+            .decode(0, &DecodeOptions::default())
+            .unwrap_or_else(|e| panic!("{what}: {e}"));
+        assert_eq!(field.georef.label, family, "{what}");
+        let cells: Vec<Option<f64>> = (0..field.mask.len())
+            .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
+            .collect();
+        let source = field.source();
+        let map = RenderOptions::new("equirectangular", "nearest");
+        let latlon = [10.0, 20.0, 30.0, 40.0];
+
+        let refusals = [
+            (
+                "render",
+                session.project(&source, &cells, &map).map(|_| ()),
+                "it cannot be reprojected",
+            ),
+            (
+                "probe",
+                session.probe_pixel(&source, &cells, &map, 1, 1).map(|_| ()),
+                "it cannot be reprojected",
+            ),
+            (
+                "overlay",
+                session
+                    .overlay_polylines(&source, &map, &latlon, &[2])
+                    .map(|_| ()),
+                "it cannot be reprojected",
+            ),
+            (
+                "contours",
+                session
+                    .contour_polylines(&source, &cells, &map, None)
+                    .map(|_| ()),
+                "its contours have no position on a map",
+            ),
+            (
+                "vector arrows",
+                vector_polylines(
+                    &source,
+                    &cells,
+                    &source,
+                    &cells,
+                    &map,
+                    &VectorOptions::new(),
+                )
+                .map(|_| ()),
+                "its vectors have no position on a map",
+            ),
+            (
+                "long CSV",
+                session.field_csv(&source, &cells, "long").map(|_| ()),
+                "its points have no coordinates; export as the Matrix format instead",
+            ),
+            (
+                "warp",
+                session.warp(&field, &WarpOptions::default()).map(|_| ()),
+                "it states no extent to warp onto",
+            ),
+        ];
+        for (operation, result, consequence) in refusals {
+            let message = result
+                .err()
+                .unwrap_or_else(|| panic!("{what}: {operation} should refuse"))
+                .message();
+            assert_eq!(
+                message,
+                format!(
+                    "the {family:?} grid's geometry could not be built from the parameters \
+                     its file declares, so {consequence}"
+                ),
+                "{what}: {operation}"
+            );
+        }
+
+        // What needs no position still answers.
+        let source_view = RenderOptions::new("source", "nearest");
+        let painted = session
+            .project(&source, &cells, &source_view)
+            .unwrap_or_else(|e| panic!("{what}: the source projection: {e}"));
+        assert_eq!((painted.width, painted.height), (field.ni, field.nj));
+        session
+            .field_csv(&source, &cells, "matrix")
+            .unwrap_or_else(|e| panic!("{what}: the matrix CSV: {e}"));
+    }
+}
+
+/// The other half of #843: a template this build does not model keeps its
+/// "not yet supported" refusal. It has no raster to decode, so the source is
+/// the one a host builds from `place_message`, as the Node binding does.
+#[test]
+fn an_unmodelled_templates_refusal_still_says_it_is_not_supported() {
+    use fieldglass::{RenderOptions, Source};
+
+    // §3.0's template number (octets 13-14) rewritten to 3.4, which this build
+    // does not model.
+    let mut bytes = std::fs::read(format!("{G2}regular_latlon_surface.grib2")).expect("fixture");
+    let mut at = 16;
+    while bytes[at + 4] != 3 {
+        at += u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
+    }
+    bytes[at + 12..at + 14].copy_from_slice(&4u16.to_be_bytes());
+
+    let session = Session::open(bytes).expect("opens");
+    let georef = session.place_message(0).expect("places");
+    assert_eq!(georef.placement, Placement::Unsupported);
+    assert_eq!(georef.label, "unsupported(3.4)");
+    let source = Source {
+        geometry: Ok(&georef.geometry),
+        ni: 4,
+        nj: 3,
+        scan: georef.scan,
+        family: &georef.label,
+        points_per_row: None,
+    };
+    let cells = vec![Some(1.0); 12];
+    let message = session
+        .project(
+            &source,
+            &cells,
+            &RenderOptions::new("equirectangular", "nearest"),
+        )
+        .expect_err("refused")
+        .message();
+    assert_eq!(
+        message,
+        "reprojection not yet supported for grid type \"unsupported(3.4)\""
+    );
+    let message = session
+        .contour_polylines(
+            &source,
+            &cells,
+            &RenderOptions::new("equirectangular", "nearest"),
+            None,
+        )
+        .expect_err("refused")
+        .message();
+    assert!(
+        message.starts_with("contours not yet supported for grid type \"unsupported(3.4)\""),
+        "{message}"
+    );
 }
