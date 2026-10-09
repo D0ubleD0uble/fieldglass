@@ -42,8 +42,36 @@ fuzz_target!(|data: &[u8]| {
         if within_decode_budget(&shape) {
             let _ = reader.decode_variable_raw(index);
         }
+        // Two region reads, the path a plane read takes (#939): the first
+        // element of every axis but the last and up to `REGION_RUN` along it,
+        // then the same at the far corner. Affordable whatever the variable's
+        // shape, so a shape too large to decode whole still has its chunk
+        // index, filters and offsets fuzzed.
+        let last = shape.len().saturating_sub(1);
+        for far in [false, true] {
+            let region: Vec<std::ops::Range<u64>> = shape
+                .iter()
+                .enumerate()
+                .map(|(axis, &n)| {
+                    let len = if axis == last {
+                        REGION_RUN.min(n)
+                    } else {
+                        1.min(n)
+                    };
+                    if far {
+                        n - len..n
+                    } else {
+                        0..len
+                    }
+                })
+                .collect();
+            let _ = reader.decode_region_raw(index, &region);
+        }
     }
 });
+
+/// Elements a fuzzed region read takes along its last axis.
+const REGION_RUN: u64 = 64;
 
 /// Variables decoded per input, so one input with thousands of datasets
 /// cannot turn a fuzz iteration into a long decode.

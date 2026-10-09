@@ -2,8 +2,9 @@
 //! elements into the same `Vec<Option<f64>>` surface the classic NetCDF path
 //! produces: `Some(v)` for a present point, `None` where the element equals the
 //! variable's `_FillValue` *attribute* (mirroring how `libnetcdf` masks). The
-//! decode is decoupled from rendering — it yields the whole variable in
-//! row-major (C) order; slice selection happens downstream.
+//! decode is decoupled from rendering — it yields the whole variable, or a
+//! region of it (#939), in row-major (C) order, and reads only what that
+//! region needs.
 //!
 //! Storage is read for the three Data Layout classes a NetCDF-4 file uses:
 //! compact, contiguous, and chunked. Chunked datasets are located through their
@@ -27,7 +28,10 @@ use super::object_header::{self, read_usize_le};
 use super::source::{Cursor, Fields, FileCursor, read_at};
 use super::{Hdf5Probe, attribute, dataspace, filter::FilterPipeline, layout};
 use crate::classic::NcType;
+use std::ops::Range;
+
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::copy_block_elements;
 use fieldglass_core::bytes::{ByteRange, ByteSource};
 
 const MSG_DATASPACE: u16 = 0x0001;
@@ -45,10 +49,48 @@ const MAX_BTREE_NODES: usize = 1 << 20;
 /// Decode the dataset whose object header is at `object_header_address` into
 /// row-major `Vec<Option<f64>>`. Numeric types widen to `f64`; string / `char`
 /// datasets hold text, not numbers, and are rejected.
+///
+/// The whole dataset, held to the whole-variable budget. A caller that wants
+/// part of it wants [`read_dataset_region`], which reads only that part.
 pub fn read_dataset_values<S: ByteSource + ?Sized>(
     source: &S,
     object_header_address: u64,
     probe: &Hdf5Probe,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    read_dataset(source, object_header_address, probe, None)
+}
+
+/// Decode `region` of the dataset at `object_header_address`: one half-open
+/// element range per dimension, the values in the region's C order (#939).
+///
+/// Reads only what the region needs. A chunked dataset reads and reverses the
+/// filters of the chunks the region overlaps and no others; one the index does
+/// not store reads as the fill value, as it does whole. A contiguous dataset
+/// reads the runs of the region; a compact one is in its header already. So a
+/// region costs the region plus the chunks it covers, whatever the dataset's
+/// size, and is refused past
+/// [`MAX_FIELD_POINTS`](fieldglass_core::MAX_FIELD_POINTS) elements, as one
+/// field is.
+///
+/// Every value equals the one [`read_dataset_values`] returns at the same
+/// position. The chunk index is checked over the records the region reads: a
+/// record conflict elsewhere in the index fails a whole read and not this one,
+/// the way a record outside the shape fails neither.
+pub fn read_dataset_region<S: ByteSource + ?Sized>(
+    source: &S,
+    object_header_address: u64,
+    probe: &Hdf5Probe,
+    region: &[Range<u64>],
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    read_dataset(source, object_header_address, probe, Some(region))
+}
+
+/// [`read_dataset_values`] (`region` is `None`) or [`read_dataset_region`].
+fn read_dataset<S: ByteSource + ?Sized>(
+    source: &S,
+    object_header_address: u64,
+    probe: &Hdf5Probe,
+    region: Option<&[Range<u64>]>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let header = probe.header(source, object_header_address)?;
     let body = |msg_type: u16| {
@@ -99,16 +141,35 @@ pub fn read_dataset_values<S: ByteSource + ?Sized>(
             "dataset element size is zero".into(),
         ));
     }
-    let total = checked_total(&shape, elem)?;
+    // A whole read is held to the whole-variable budget and is the region that
+    // covers every axis; a region read is held to the one-field bound, and the
+    // dataset it is cut from need only have an element count, so that every
+    // offset in it is a number.
+    let whole: Vec<Range<u64>>;
+    let (region, total) = match region {
+        None => {
+            let total = checked_total(&shape, elem)?;
+            whole = shape.iter().map(|&n| 0..n).collect();
+            (whole.as_slice(), total)
+        }
+        Some(region) => {
+            let total = crate::region::element_count(&shape, region)?;
+            if total > 0 {
+                element_count_u64(&shape)?;
+            }
+            (region, total)
+        }
+    };
     if total == 0 {
         return Ok(Vec::new());
     }
 
-    // Assemble the dataset's raw element bytes, then decode them uniformly.
+    // Assemble the region's raw element bytes, then decode them uniformly.
     let raw = assemble_raw(
         source,
         &data_layout,
         &shape,
+        region,
         elem,
         &pipeline,
         fill_default.as_deref(),
@@ -165,59 +226,115 @@ fn decode_elements(
 /// size bounds neither: a chunked dataset that stores no chunks reads whole as
 /// its fill value (#847).
 fn checked_total(shape: &[u64], elem: usize) -> Result<usize, FieldglassError> {
-    let total_u64 = shape
-        .iter()
-        .try_fold(1u64, |acc, &d| acc.checked_mul(d))
-        .ok_or_else(|| FieldglassError::Parse(format!("dataset shape {shape:?} overflows")))?;
+    let total_u64 = element_count_u64(shape)?;
     fieldglass_core::whole_variable_read_bytes(total_u64, elem as u64)?;
     usize::try_from(total_u64)
         .map_err(|_| FieldglassError::Parse("dataset element count exceeds usize".into()))
 }
 
-/// Produce the dataset's raw element bytes (`total * elem` long) for any layout
-/// class. Regions with no stored data read as the fill default (or zero).
+/// The element count of `shape`, refused when it does not fit a `u64`. A
+/// rank-0 (scalar) dataset has one element.
+fn element_count_u64(shape: &[u64]) -> Result<u64, FieldglassError> {
+    shape
+        .iter()
+        .try_fold(1u64, |acc, &d| acc.checked_mul(d))
+        .ok_or_else(|| FieldglassError::Parse(format!("dataset shape {shape:?} overflows")))
+}
+
+/// Produce the raw element bytes of `region` of the dataset (`elem` bytes for
+/// each of the region's elements, in its C order) for any layout class. Parts
+/// with no stored data read as the fill default (or zero).
+///
+/// A whole read is the region covering every axis, and reads what it always
+/// did: the compact bytes, the one contiguous run, every chunk.
+#[allow(clippy::too_many_arguments)]
 fn assemble_raw<S: ByteSource + ?Sized>(
     source: &S,
     data_layout: &DataLayout,
     shape: &[u64],
+    region: &[Range<u64>],
     elem: usize,
     pipeline: &FilterPipeline,
     fill_default: Option<&[u8]>,
     probe: &Hdf5Probe,
 ) -> Result<Vec<u8>, FieldglassError> {
-    let span = byte_span(shape, elem)?;
+    let lens: Vec<u64> = region.iter().map(|r| r.end - r.start).collect();
+    let span = byte_span(&lens, elem)?;
 
     match data_layout {
         DataLayout::Compact { data } => {
-            if data.len() < span {
+            // The dataset is in its object header, so it is held whole however
+            // little of it is asked for, and must be all there.
+            let whole = byte_span(shape, elem)?;
+            if data.len() < whole {
                 return Err(FieldglassError::Parse(format!(
-                    "compact dataset holds {} bytes, needs {span}",
+                    "compact dataset holds {} bytes, needs {whole}",
                     data.len()
                 )));
             }
-            Ok(data[..span].to_vec())
+            let mut raw = vec![0u8; span];
+            copy_block_elements(
+                &data[..whole],
+                shape,
+                &vec![0; shape.len()],
+                region,
+                &mut raw,
+                elem,
+            );
+            Ok(raw)
         }
         DataLayout::Contiguous { address, .. } => {
             let mut raw = fill_buffer(span, elem, fill_default);
             if let Some(addr) = address {
-                // One contiguous run, so the plan is one range — resolved in a
-                // batch before it is read, as ADR-0005 asks, even though the
-                // batch holds a single entry.
-                let plan = [ByteRange::new(*addr, span as u64)];
+                // The region's runs, each one range, resolved in one batch
+                // before any is read as ADR-0005 asks. A whole read is one run.
+                let overflow =
+                    || FieldglassError::Parse("contiguous data offset overflows u64".into());
+                let elem_u64 = elem as u64;
+                let plan = crate::region::runs(shape, region)?
+                    .into_iter()
+                    .map(|(offset, len)| {
+                        let start = offset
+                            .checked_mul(elem_u64)
+                            .and_then(|o| addr.checked_add(o))
+                            .ok_or_else(overflow)?;
+                        let len = len.checked_mul(elem_u64).ok_or_else(overflow)?;
+                        Ok(ByteRange::new(start, len))
+                    })
+                    .collect::<Result<Vec<ByteRange>, FieldglassError>>()?;
                 source.prefetch(&plan)?;
-                let data = read_at(source, *addr, span).map_err(|_| {
-                    FieldglassError::Parse(format!(
-                        "contiguous data [{addr}, +{span}) exceeds file size {}",
-                        source.size()
-                    ))
-                })?;
-                raw.copy_from_slice(&data);
+                let mut at = 0usize;
+                for range in &plan {
+                    // Each run is part of the region, whose bytes fit `raw`.
+                    let len = range.len as usize;
+                    let data = read_at(source, range.start, len).map_err(|_| {
+                        FieldglassError::Parse(format!(
+                            "contiguous data [{}, +{len}) exceeds file size {}",
+                            range.start,
+                            source.size()
+                        ))
+                    })?;
+                    let Some(to) = raw.get_mut(at..at + len) else {
+                        return Err(FieldglassError::Parse(
+                            "contiguous runs overran the region".into(),
+                        ));
+                    };
+                    to.copy_from_slice(&data);
+                    at += len;
+                }
             }
             Ok(raw)
         }
-        DataLayout::Chunked(chunked) => {
-            assemble_chunked(source, chunked, shape, elem, pipeline, fill_default, probe)
-        }
+        DataLayout::Chunked(chunked) => assemble_chunked(
+            source,
+            chunked,
+            shape,
+            region,
+            elem,
+            pipeline,
+            fill_default,
+            probe,
+        ),
     }
 }
 
@@ -245,13 +362,16 @@ fn fill_buffer(span: usize, elem: usize, fill_default: Option<&[u8]>) -> Vec<u8>
     }
 }
 
-/// Assemble a chunked dataset: gather its chunk records from whichever chunk
-/// index the layout uses, reverse each chunk's filters, and scatter it into the
-/// row-major output. Unstored regions keep the fill default.
+/// Assemble `region` of a chunked dataset: gather its chunk records from
+/// whichever chunk index the layout uses, reverse the filters of each chunk the
+/// region overlaps, and copy its part of the region into the row-major output.
+/// Unstored parts keep the fill default.
+#[allow(clippy::too_many_arguments)]
 fn assemble_chunked<S: ByteSource + ?Sized>(
     source: &S,
     chunked: &ChunkedLayout,
     shape: &[u64],
+    region: &[Range<u64>],
     elem: usize,
     pipeline: &FilterPipeline,
     fill_default: Option<&[u8]>,
@@ -271,7 +391,8 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
             chunked.element_size
         )));
     }
-    let span = byte_span(shape, elem)?;
+    let lens: Vec<u64> = region.iter().map(|r| r.end - r.start).collect();
+    let span = byte_span(&lens, elem)?;
     let mut raw = fill_buffer(span, elem, fill_default);
 
     // A zero chunk edge is malformed; reject it up front so the chunk-grid math
@@ -289,6 +410,7 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     let chunk_bytes = chunk_elems
         .checked_mul(elem)
         .ok_or_else(|| FieldglassError::Parse("chunk byte size overflows usize".into()))?;
+    let chunk_shape: Vec<u64> = chunked.chunk_dims.iter().map(|&d| u64::from(d)).collect();
 
     // Every chunk index resolves to the same per-chunk record; only the way the
     // records are located differs. An unallocated index leaves the buffer as
@@ -380,14 +502,14 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     };
     // The one place in the HDF5 reader where ADR-0005's *strong* form holds:
     // once the chunk index has been walked, every chunk's address and size is
-    // known, so the whole variable is one batch resolve followed by reads. The
+    // known, so the region is one batch resolve followed by reads. The
     // walk that produced the records could not be planned — that is the weak
     // form, and why the traversal above issues none.
     let pipeline_bits = match pipeline.filters.len() {
         n if n >= 32 => u32::MAX,
         n => (1u32 << n) - 1,
     };
-    let mut chunks = chunks_in_shape(&chunks, shape, &chunked.chunk_dims, pipeline_bits)?;
+    let mut chunks = chunks_in_region(&chunks, shape, region, &chunked.chunk_dims, pipeline_bits)?;
     // Records at different origins may name the same stored chunk: nothing in
     // the format forbids it, and libhdf5 reads such a file. Each stored chunk is
     // read and reversed once and placed at every origin that names it, so the
@@ -433,8 +555,8 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
             let mask = chunk.filter_mask & pipeline_bits;
             pipeline.reverse(stored.into_owned(), mask, elem, chunk_bytes)?
         };
-        // Exactly one chunk, not at least one: `scatter_chunk` reads only the
-        // first `chunk_bytes`, so a longer result would be cut silently, and
+        // Exactly one chunk, not at least one: the copy reads only the first
+        // `chunk_bytes`, so a longer result would be cut silently, and
         // a chunk that decodes to the wrong length is corrupt whichever way
         // it is wrong. This is also the check that stands behind szip's size
         // prefix when a length-changing filter precedes it.
@@ -444,13 +566,17 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
                 expanded.len()
             )));
         }
+        // Only the part of the chunk inside the region is walked, one
+        // contiguous run along the last dimension at a time (#837): a chunk
+        // may legally be far larger than the dataset, and the region lies
+        // inside the shape, so the part past an edge is never copied.
         for record in group {
-            scatter_chunk(
-                &mut raw,
+            copy_block_elements(
                 &expanded,
-                shape,
-                &chunked.chunk_dims,
+                &chunk_shape,
                 &record.offset,
+                region,
+                &mut raw,
                 elem,
             );
         }
@@ -1152,90 +1278,9 @@ fn chunk_offset_from_linear(mut i: u64, grid: &[u64], chunk_dims: &[u32]) -> Vec
         .collect()
 }
 
-/// Copy a chunk's decoded elements into the dataset's row-major buffer,
-/// clipping any portion of an edge chunk that hangs past the dataset bounds.
-///
-/// Only the part of the chunk inside the shape is walked, one contiguous run
-/// along the last dimension at a time (#837). A chunk may legally be far
-/// larger than the dataset, an extendable dataset's for example, and walking
-/// every element of a 16 Mi-element chunk to place one was most of what such
-/// a decode cost. A chunk whose origin lies outside the shape places nothing.
-fn scatter_chunk(
-    raw: &mut [u8],
-    chunk: &[u8],
-    shape: &[u64],
-    chunk_dims: &[u32],
-    origin: &[u64],
-    elem: usize,
-) {
-    let rank = shape.len();
-    let Some(last) = rank.checked_sub(1) else {
-        // A rank-0 chunk is one element.
-        if let (Some(dst), Some(src)) = (raw.get_mut(..elem), chunk.get(..elem)) {
-            dst.copy_from_slice(src);
-        }
-        return;
-    };
-    // The chunk's extent inside the shape, per dimension. The walk stays in
-    // `u64` — `shape` and `origin` are the file's own numbers, and narrowing
-    // them would wrap on a 32-bit target. Each extent is at most its chunk
-    // edge, a `u32`, so narrowing it is exact.
-    //
-    // One allocation per chunk, as the walk this replaced made: the extents and
-    // the odometer over the outer dimensions share a buffer.
-    let mut scratch = vec![0usize; rank + last];
-    let (extent, coord) = scratch.split_at_mut(rank);
-    for d in 0..rank {
-        if origin[d] >= shape[d] {
-            return;
-        }
-        extent[d] = (shape[d] - origin[d]).min(u64::from(chunk_dims[d])) as usize;
-    }
-    let Some(run) = extent[last].checked_mul(elem) else {
-        return;
-    };
-    loop {
-        // The chunk's own row-major index stays below its element count, which
-        // the caller has already checked fits `usize`. The dataset index is
-        // computed in `u64`; one `usize` cannot hold is outside `raw`.
-        let mut src = 0usize;
-        let mut dst = 0u64;
-        for d in 0..last {
-            src = src * chunk_dims[d] as usize + coord[d];
-            dst = dst
-                .saturating_mul(shape[d])
-                .saturating_add(origin[d] + coord[d] as u64);
-        }
-        src *= chunk_dims[last] as usize;
-        dst = dst.saturating_mul(shape[last]).saturating_add(origin[last]);
-        let src = src.checked_mul(elem);
-        let dst = usize::try_from(dst).ok().and_then(|i| i.checked_mul(elem));
-        if let (Some(src), Some(dst)) = (src, dst)
-            && let (Some(from), Some(to)) = (
-                chunk.get(src..src.saturating_add(run)),
-                raw.get_mut(dst..dst.saturating_add(run)),
-            )
-        {
-            to.copy_from_slice(from);
-        }
-        // Advance to the next row; done once every outer coordinate wraps.
-        let mut d = last;
-        loop {
-            if d == 0 {
-                return;
-            }
-            d -= 1;
-            coord[d] += 1;
-            if coord[d] < extent[d] {
-                break;
-            }
-            coord[d] = 0;
-        }
-    }
-}
-
 /// Check every chunk record against the chunk grid and keep the ones that
-/// overlap the dataset's current shape, each chunk once (#837, ADR-0013).
+/// overlap `region` of the dataset's current shape, each chunk once (#837,
+/// ADR-0013, #939).
 ///
 /// An index names each chunk once, by its element-space origin, which is a
 /// multiple of the chunk edge in every dimension: a v1 B-tree's keys are
@@ -1255,9 +1300,15 @@ fn scatter_chunk(
 ///
 /// Records at *different* origins naming the same storage are legal, and the
 /// caller groups them so that chunk is read once.
-fn chunks_in_shape<'a>(
+///
+/// A record whose chunk does not overlap the region is skipped unread before
+/// any of this, as one past the shape is: a whole read's region is the shape,
+/// so for it the two are the same rule. A region read therefore judges only the
+/// records it reads.
+fn chunks_in_region<'a>(
     chunks: &'a [ChunkRecord],
     shape: &[u64],
+    region: &[Range<u64>],
     chunk_dims: &[u32],
     pipeline_bits: u32,
 ) -> Result<Vec<&'a ChunkRecord>, FieldglassError> {
@@ -1271,6 +1322,18 @@ fn chunks_in_shape<'a>(
             )));
         }
         if !chunk.offset.iter().zip(shape).all(|(&o, &s)| o < s) {
+            continue;
+        }
+        // The chunk's box against the region's, axis by axis.
+        let overlaps = chunk
+            .offset
+            .iter()
+            .zip(chunk_dims)
+            .zip(region)
+            .all(|((&o, &c), r)| {
+                r.start < r.end && o < r.end && o.saturating_add(u64::from(c)) > r.start
+            });
+        if !overlaps {
             continue;
         }
         if let Some(d) =
@@ -1439,7 +1502,9 @@ mod tests {
                     let origin = chunk_offset_from_linear(i, &grid, chunk_dims);
                     let mut got = vec![0u8; n * elem];
                     let mut want = vec![0u8; n * elem];
-                    scatter_chunk(&mut got, &chunk, shape, chunk_dims, &origin, elem);
+                    let chunk_shape: Vec<u64> = chunk_dims.iter().map(|&d| u64::from(d)).collect();
+                    let whole: Vec<Range<u64>> = shape.iter().map(|&n| 0..n).collect();
+                    copy_block_elements(&chunk, &chunk_shape, &origin, &whole, &mut got, elem);
                     scatter_reference(&mut want, &chunk, shape, chunk_dims, &origin, elem);
                     assert_eq!(
                         got, want,
@@ -1457,6 +1522,50 @@ mod tests {
             filter_mask: 0,
             offset: offset.to_vec(),
         }
+    }
+
+    /// [`chunks_in_region`] for a whole read, whose region is the shape.
+    fn chunks_in_shape<'a>(
+        chunks: &'a [ChunkRecord],
+        shape: &[u64],
+        chunk_dims: &[u32],
+        pipeline_bits: u32,
+    ) -> Result<Vec<&'a ChunkRecord>, FieldglassError> {
+        let whole: Vec<Range<u64>> = shape.iter().map(|&n| 0..n).collect();
+        chunks_in_region(chunks, shape, &whole, chunk_dims, pipeline_bits)
+    }
+
+    /// A region keeps exactly the chunks whose boxes it overlaps, and judges
+    /// only those: a conflict in a chunk it does not read is not its failure.
+    #[test]
+    fn a_region_keeps_the_chunks_it_overlaps() {
+        let (shape, dims) = ([10u64, 6], [4u32, 3]);
+        let grid: Vec<ChunkRecord> = [[0, 0], [0, 3], [4, 0], [4, 3], [8, 0], [8, 3]]
+            .iter()
+            .map(|o| record(o))
+            .collect();
+        let origins = |region: &[Range<u64>]| -> Vec<Vec<u64>> {
+            chunks_in_region(&grid, &shape, region, &dims, 1)
+                .unwrap()
+                .iter()
+                .map(|c| c.offset.clone())
+                .collect()
+        };
+        // One row inside the second chunk row: two chunks.
+        assert_eq!(origins(&[5..6, 0..6]), [vec![4, 0], vec![4, 3]]);
+        // A region ending exactly on a chunk boundary does not pull in the next.
+        assert_eq!(origins(&[0..4, 0..3]), [vec![0, 0]]);
+        // One cell at the far corner: the ragged edge chunk.
+        assert_eq!(origins(&[9..10, 5..6]), [vec![8, 3]]);
+        // An empty range overlaps nothing.
+        assert!(origins(&[3..3, 0..6]).is_empty());
+
+        let mut conflicting = grid.iter().map(|c| record(&c.offset)).collect::<Vec<_>>();
+        let mut other = record(&[8, 3]);
+        other.address += 64;
+        conflicting.push(other);
+        assert!(chunks_in_region(&conflicting, &shape, &[0..4, 0..6], &dims, 1).is_ok());
+        assert!(chunks_in_region(&conflicting, &shape, &[8..10, 3..6], &dims, 1).is_err());
     }
 
     #[test]

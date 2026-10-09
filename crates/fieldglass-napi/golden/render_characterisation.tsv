@@ -1688,6 +1688,11 @@ netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/equirectangular/nearest	err: 
 netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/source/nearest	ok w=4 h=3 opaque=12	a990cf36474913e1
 netcdf/netcdf4_hdf5_dummy.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf4_huge_attributes.nc	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/netcdf4_large_sparse.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/netcdf4_large_sparse.nc#t2m	combine/a_minus_b/render/source/nearest	ok w=1440 h=721 opaque=0	27555b0cb4738250
+netcdf/netcdf4_large_sparse.nc#t2m	meta	family=latlon ni=1440 nj=721 reprojectable=true	b65204092f18409e
+netcdf/netcdf4_large_sparse.nc#t2m	render/equirectangular/nearest	ok w=1440 h=721 opaque=0	26bc945f5e2557e2
+netcdf/netcdf4_large_sparse.nc#t2m	render/source/nearest	ok w=1440 h=721 opaque=0	27555b0cb4738250
 netcdf/netcdf4_unsupported_type.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf_classic_dummy.nc	file	parsed=true fields=6	fc2e3e9795c31991
 netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e

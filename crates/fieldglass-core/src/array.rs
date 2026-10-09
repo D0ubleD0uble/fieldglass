@@ -980,15 +980,17 @@ pub trait ArraySource {
             .ok_or_else(|| {
                 crate::FieldglassError::Parse(format!("this container holds no array {array:?}"))
             })?;
-        Ok(rule.apply(&raw))
+        Ok(rule.apply_owned(raw))
     }
 }
 
-/// Row-major strides for a box of `extents`.
+/// Row-major strides for a box of `extents`, saturating rather than wrapping:
+/// a stride past `u64::MAX` belongs to a box no buffer holds, and every offset
+/// built from it is then refused rather than aliased onto a small one.
 fn strides(extents: &[u64]) -> Vec<u64> {
     let mut out = vec![1u64; extents.len()];
     for axis in (0..extents.len().saturating_sub(1)).rev() {
-        out[axis] = out[axis + 1] * extents[axis + 1];
+        out[axis] = out[axis + 1].saturating_mul(extents[axis + 1]);
     }
     out
 }
@@ -1000,23 +1002,48 @@ fn strides(extents: &[u64]) -> Vec<u64> {
 /// chunk at a ragged edge is stored full-size, and because a region never
 /// reaches past the array, the part beyond the edge is never inside it — the
 /// intersection is the trim. A container that decodes a whole array at once
-/// (a NetCDF variable) is one block at the origin, and this is the region cut
-/// out of it. `out` must be the product of the region's lengths long; a block
-/// shorter than its shape leaves the cells it lacks untouched.
+/// is one block at the origin, and this is the region cut out of it. `out`
+/// must be the product of the region's lengths long; a block shorter than its
+/// shape leaves the cells it lacks untouched.
 ///
-/// Written once for both (#704): the Zarr walker assembles chunks with it, the
-/// NetCDF array source cuts a region out of a decoded variable with it.
-pub fn copy_block(
-    block: &[Option<f64>],
+/// Written once for every container (#704, #939): the Zarr walker assembles
+/// chunks with it, and the NetCDF reader places HDF5 chunks and cuts a compact
+/// dataset with [`copy_block_elements`], which is this over elements several
+/// items wide.
+pub fn copy_block<T: Copy>(
+    block: &[T],
     block_shape: &[u64],
     origin: &[u64],
     region: &[Range<u64>],
-    out: &mut [Option<f64>],
+    out: &mut [T],
+) {
+    copy_block_elements(block, block_shape, origin, region, out, 1);
+}
+
+/// [`copy_block`] for elements `width` items long: an element of `block` and
+/// of `out` is `width` consecutive items, so a block of stored bytes copies
+/// with `width` the element size.
+///
+/// Every offset is computed in `u64` with checked arithmetic and narrowed with
+/// a check, because the shape and origin are a file's own numbers: one that
+/// would not fit is skipped rather than wrapped onto cells it does not name. A
+/// rank that disagrees between the arguments, or a `width` of zero, copies
+/// nothing.
+pub fn copy_block_elements<T: Copy>(
+    block: &[T],
+    block_shape: &[u64],
+    origin: &[u64],
+    region: &[Range<u64>],
+    out: &mut [T],
+    width: usize,
 ) {
     let rank = region.len();
+    if width == 0 || block_shape.len() != rank || origin.len() != rank {
+        return;
+    }
     if rank == 0 {
-        if let (Some(slot), Some(value)) = (out.first_mut(), block.first()) {
-            *slot = *value;
+        if let (Some(slot), Some(value)) = (out.get_mut(..width), block.get(..width)) {
+            slot.copy_from_slice(value);
         }
         return;
     }
@@ -1026,23 +1053,29 @@ pub fn copy_block(
         .collect();
     let lo: Vec<u64> = (0..rank).map(|d| origin[d].max(region[d].start)).collect();
     let hi: Vec<u64> = (0..rank)
-        .map(|d| (origin[d] + block_shape[d]).min(region[d].end))
+        .map(|d| origin[d].saturating_add(block_shape[d]).min(region[d].end))
         .collect();
     if (0..rank).any(|d| lo[d] >= hi[d]) {
         return;
     }
     let (from, to) = (strides(block_shape), strides(&lens));
     let last = rank - 1;
-    // `hi - lo` along the last axis is within one block, so it fits.
-    let run = (hi[last] - lo[last]) as usize;
+    let Some(run) = usize::try_from(hi[last] - lo[last])
+        .ok()
+        .and_then(|n| n.checked_mul(width))
+    else {
+        return;
+    };
+    let starts: Vec<u64> = region.iter().map(|r| r.start).collect();
     let mut at = lo.clone();
     loop {
-        let src: u64 = (0..rank).map(|d| (at[d] - origin[d]) * from[d]).sum();
-        let dst: u64 = (0..rank).map(|d| (at[d] - region[d].start) * to[d]).sum();
-        // Offsets into buffers the caller sized, so they fit a `usize`.
-        let (src, dst) = (src as usize, dst as usize);
-        if let (Some(target), Some(source)) =
-            (out.get_mut(dst..dst + run), block.get(src..src + run))
+        let src = item_offset(&at, origin, &from, width);
+        let dst = item_offset(&at, &starts, &to, width);
+        if let (Some(src), Some(dst)) = (src, dst)
+            && let (Some(target), Some(source)) = (
+                dst.checked_add(run).and_then(|end| out.get_mut(dst..end)),
+                src.checked_add(run).and_then(|end| block.get(src..end)),
+            )
         {
             target.copy_from_slice(source);
         }
@@ -1059,6 +1092,21 @@ pub fn copy_block(
             at[axis] = lo[axis];
         }
     }
+}
+
+/// The offset, in items, of the element at `at` in a box whose first element
+/// is at `corner` and whose row-major strides are `stride`, each element
+/// `width` items long; `None` where it does not fit a `usize`. `at` is inside
+/// the box, so no subtraction wraps.
+fn item_offset(at: &[u64], corner: &[u64], stride: &[u64], width: usize) -> Option<usize> {
+    at.iter()
+        .zip(corner)
+        .zip(stride)
+        .try_fold(0u64, |sum, ((&a, &c), &s)| {
+            (a - c).checked_mul(s).and_then(|o| sum.checked_add(o))
+        })
+        .and_then(|o| usize::try_from(o).ok())
+        .and_then(|o| o.checked_mul(width))
 }
 
 /// One anonymous axis [`PhonyDimensions`] invented.
@@ -1260,10 +1308,20 @@ impl CfUnpacking {
 
     /// Apply the rule to a plane. Cells already absent stay absent.
     pub fn apply(&self, packed: &[Option<f64>]) -> Vec<Option<f64>> {
-        if self.is_identity() {
-            return packed.to_vec();
+        self.apply_owned(packed.to_vec())
+    }
+
+    /// [`apply`](Self::apply) to values the caller owns, in place: no second
+    /// plane is allocated, and the identity rule touches nothing (#939). A
+    /// region read hands its result straight here, so a plane in physical units
+    /// costs one allocation rather than two.
+    pub fn apply_owned(&self, mut packed: Vec<Option<f64>>) -> Vec<Option<f64>> {
+        if !self.is_identity() {
+            for cell in &mut packed {
+                *cell = cell.and_then(|v| self.value(v));
+            }
         }
-        packed.iter().map(|cell| self.value((*cell)?)).collect()
+        packed
     }
 }
 
