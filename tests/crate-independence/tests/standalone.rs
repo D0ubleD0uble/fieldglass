@@ -69,6 +69,7 @@ fn every_format_crate_re_exports_one_error_type() {
 
     let grib2_geometry: Grib1Geometry = Grib2Geometry::Unsupported {
         label: "spherical_harmonics".into(),
+        declared: None,
     };
     assert_eq!(grib2_geometry.kind(), "unsupported");
 }

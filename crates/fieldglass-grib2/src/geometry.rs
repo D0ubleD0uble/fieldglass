@@ -43,6 +43,21 @@ fn projected_earth(template: &GridTemplate) -> Option<(f64, f64)> {
     }
 }
 
+/// A grid of a family this build models whose own numbers built no grid,
+/// declined under the family's name and fingerprinted by the section that
+/// declares it.
+///
+/// The fingerprint is what tells two such grids apart: the label names only
+/// the family, so two §3.30 grids on a zero-radius Earth would otherwise align
+/// whatever their first points (#962). The same message decoded twice has the
+/// same section, so it still combines with itself.
+fn declined(gds: &GridDefinitionSection) -> GridGeometry {
+    GridGeometry::Unsupported {
+        label: gds.template_name(),
+        declared: Some(gds.fingerprint),
+    }
+}
+
 impl From<&GridDefinitionSection> for GridGeometry {
     fn from(gds: &GridDefinitionSection) -> Self {
         match &gds.template {
@@ -53,9 +68,7 @@ impl From<&GridDefinitionSection> for GridGeometry {
             // axes into a PROJ string (`+R=0`, `+a=0 +b=0`) that PROJ itself
             // rejects. Declined the way a non-finite parameter is (#844).
             t if projected_earth(t).is_some_and(|(a, b)| !is_oblate_spheroid(a, b)) => {
-                Self::Unsupported {
-                    label: gds.template_name(),
-                }
+                declined(gds)
             }
             GridTemplate::LatLon(t) => Self::LatLon(LatLonParams {
                 ni: t.ni,
@@ -161,17 +174,11 @@ impl From<&GridDefinitionSection> for GridGeometry {
             // value is no scale factor either. A negative one used to report a
             // placed grid with `+k_0=-1` in its PROJ string, which PROJ refuses
             // ("it should be > 0") (#844).
-            GridTemplate::RotatedLatLon(t) if !t.angle_of_rotation.is_finite() => {
-                Self::Unsupported {
-                    label: gds.template_name(),
-                }
-            }
+            GridTemplate::RotatedLatLon(t) if !t.angle_of_rotation.is_finite() => declined(gds),
             GridTemplate::TransverseMercator(t)
                 if !(t.scale_factor.is_finite() && t.scale_factor > 0.0) =>
             {
-                Self::Unsupported {
-                    label: gds.template_name(),
-                }
+                declined(gds)
             }
             GridTemplate::RotatedLatLon(t) => Self::RotatedLatLon(RotatedLatLonParams {
                 ni: t.ni,
@@ -196,12 +203,11 @@ impl From<&GridDefinitionSection> for GridGeometry {
             // one.
             GridTemplate::SpaceView(t) => match t.scan_grid() {
                 Some(params) => Self::Geostationary(params),
-                None => Self::Unsupported {
-                    label: gds.template_name(),
-                },
+                None => declined(gds),
             },
             _ => Self::Unsupported {
                 label: gds.template_name(),
+                declared: None,
             },
         }
     }

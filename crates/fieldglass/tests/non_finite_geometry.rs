@@ -47,18 +47,23 @@ const CASES: [(&str, usize, &str, [f32; 3]); 2] = [
 /// The committed fixture with bytes of its §3 template payload replaced.
 fn with_template_bytes(fixture: &str, payload_offset: usize, value: &[u8]) -> Vec<u8> {
     let mut bytes = std::fs::read(format!("{G2}{fixture}")).expect("fixture");
+    let field = template_payload_at(&bytes) + payload_offset;
+    bytes[field..field + value.len()].copy_from_slice(value);
+    bytes
+}
+
+/// Where the first §3's template payload (octet 15 onward) starts in `bytes`.
+fn template_payload_at(bytes: &[u8]) -> usize {
     let mut at = 16; // past §0
     while at + 5 <= bytes.len() && &bytes[at..at + 4] != b"7777" {
         let len =
             u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
         if bytes[at + 4] == 3 {
-            let field = at + 14 + payload_offset;
-            bytes[field..field + value.len()].copy_from_slice(value);
-            return bytes;
+            return at + 14;
         }
         at += len;
     }
-    panic!("{fixture}: no §3");
+    panic!("no §3");
 }
 
 /// The committed fixture with four bytes of its §3 template payload replaced.
@@ -461,12 +466,15 @@ fn slices(bytes: Vec<u8>) -> Vec<(String, fieldglass::Field)> {
 /// states its own axes and camera height, and a zero, `NaN` or prolate axis,
 /// or a camera at or below the surface, built a geometry the projector refused
 /// to place but whose PROJ string still said `+a=0` or `+h=0`. It now resolves
-/// to no geostationary grid, the way a mapping missing one of them does.
+/// to no geostationary grid.
+///
+/// It is declined as `space_view`, the family the file states, as the GRIB2
+/// §3.90 twin is, so its refusals say its geometry could not be built. It used
+/// to fall back to the `source` label of a raster nothing places, and every
+/// refusal called that grid type unsupported (#961). A mapping missing one of
+/// its required attributes is the same case and is declined the same way.
 #[test]
 fn a_cf_geostationary_mapping_that_describes_no_camera_is_not_placed() {
-    const SEMI_MAJOR: f64 = 6_378_137.0;
-    const SEMI_MINOR: f64 = 6_356_752.314_14;
-    const HEIGHT: f64 = 35_786_023.0;
     let want = slices(std::fs::read(GOES).expect("fixture"));
     let placed: Vec<_> = want
         .iter()
@@ -475,7 +483,37 @@ fn a_cf_geostationary_mapping_that_describes_no_camera_is_not_placed() {
     assert!(!placed.is_empty(), "the fixture has a geostationary slice");
     assert!(placed.iter().all(|(_, f)| f.georef.proj4.is_some()));
 
-    for (attribute, value, replacement) in [
+    for (what, bytes) in declined_goes() {
+        let got = slices(bytes.clone());
+        assert_eq!(got.len(), want.len(), "{what}");
+        let session = Session::open(bytes).expect("opens");
+        for ((name, field), (_, before)) in got.iter().zip(&want) {
+            if before.georef.kind != "space_view" {
+                continue;
+            }
+            let g = &field.georef;
+            assert_eq!(g.kind, "unsupported", "{what}: {name}");
+            assert_eq!(g.label, "space_view", "{what}: {name}");
+            assert_eq!(g.placement, Placement::Unplaceable, "{what}: {name}");
+            assert!(!g.reprojectable, "{what}: {name}");
+            assert_eq!(g.proj4, None, "{what}: {name}");
+            assert_eq!(g.bounds_lonlat, None, "{what}: {name}");
+            assert_eq!(field.values, before.values, "{what}: {name}");
+            // Warp, contours and the long CSV among them, and the source
+            // view still draws.
+            assert_refused_as_declined(&session, field, "space_view", &format!("{what}: {name}"));
+        }
+    }
+}
+
+/// The CF geostationary fixture edited so its mapping describes no camera, as
+/// `(what, bytes)`: each axis and the camera height out of range, and the
+/// camera height missing.
+fn declined_goes() -> Vec<(String, Vec<u8>)> {
+    const SEMI_MAJOR: f64 = 6_378_137.0;
+    const SEMI_MINOR: f64 = 6_356_752.314_14;
+    const HEIGHT: f64 = 35_786_023.0;
+    let mut out: Vec<(String, Vec<u8>)> = [
         ("semi_major_axis", SEMI_MAJOR, 0.0),
         ("semi_major_axis", SEMI_MAJOR, f64::NAN),
         ("semi_minor_axis", SEMI_MINOR, 0.0),
@@ -483,23 +521,29 @@ fn a_cf_geostationary_mapping_that_describes_no_camera_is_not_placed() {
         ("semi_minor_axis", SEMI_MINOR, 7_000_000.0),
         ("perspective_point_height", HEIGHT, 0.0),
         ("perspective_point_height", HEIGHT, -1.0),
-    ] {
-        let what = format!("{attribute} = {replacement}");
-        let got = slices(goes_with(value, replacement));
-        assert_eq!(got.len(), want.len(), "{what}");
-        for ((name, field), (_, before)) in got.iter().zip(&want) {
-            if before.georef.kind != "space_view" {
-                continue;
-            }
-            let g = &field.georef;
-            assert_eq!(g.kind, "unsupported", "{what}: {name}");
-            assert_eq!(g.placement, Placement::Unplaceable, "{what}: {name}");
-            assert!(!g.reprojectable, "{what}: {name}");
-            assert_eq!(g.proj4, None, "{what}: {name}");
-            assert_eq!(g.bounds_lonlat, None, "{what}: {name}");
-            assert_eq!(field.values, before.values, "{what}: {name}");
-        }
-    }
+    ]
+    .into_iter()
+    .map(|(attribute, value, replacement)| {
+        (
+            format!("{attribute} = {replacement}"),
+            goes_with(value, replacement),
+        )
+    })
+    .collect();
+    // Renamed in place, one letter, so the header keeps its length and the
+    // mapping simply has no `perspective_point_height`.
+    let mut bytes = std::fs::read(GOES).expect("fixture");
+    let name = b"perspective_point_height";
+    let at: Vec<usize> = bytes
+        .windows(name.len())
+        .enumerate()
+        .filter(|(_, w)| w == name)
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(at.len(), 1, "the attribute name occurs once");
+    bytes[at[0] + name.len() - 1] = b'X';
+    out.push(("no perspective_point_height".to_string(), bytes));
+    out
 }
 
 /// Each way a GRIB2 grid of a supported family is declined, as
@@ -567,101 +611,113 @@ fn declined_grids() -> Vec<(String, Vec<u8>, &'static str)> {
 /// answer, since neither needs a position.
 #[test]
 fn a_declined_grids_refusals_say_its_geometry_could_not_be_built() {
-    use fieldglass::render::{VectorOptions, vector_polylines};
-    use fieldglass::{RenderOptions, WarpOptions};
-
     for (what, bytes, family) in declined_grids() {
         let session = Session::open(bytes).expect("opens");
         let field = session
             .decode(0, &DecodeOptions::default())
             .unwrap_or_else(|e| panic!("{what}: {e}"));
-        assert_eq!(field.georef.label, family, "{what}");
-        let cells: Vec<Option<f64>> = (0..field.mask.len())
-            .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
-            .collect();
-        let source = field.source();
-        let map = RenderOptions::new("equirectangular", "nearest");
-        let latlon = [10.0, 20.0, 30.0, 40.0];
-
-        let refusals = [
-            (
-                "render",
-                session.project(&source, &cells, &map).map(|_| ()),
-                "it cannot be reprojected",
-            ),
-            (
-                "probe",
-                session.probe_pixel(&source, &cells, &map, 1, 1).map(|_| ()),
-                "it cannot be reprojected",
-            ),
-            (
-                "overlay",
-                session
-                    .overlay_polylines(&source, &map, &latlon, &[2])
-                    .map(|_| ()),
-                "it cannot be reprojected",
-            ),
-            (
-                "contours",
-                session
-                    .contour_polylines(&source, &cells, &map, None)
-                    .map(|_| ()),
-                "its contours have no position on a map",
-            ),
-            (
-                "vector arrows",
-                vector_polylines(
-                    &source,
-                    &cells,
-                    &source,
-                    &cells,
-                    &map,
-                    &VectorOptions::new(),
-                )
-                .map(|_| ()),
-                "its vectors have no position on a map",
-            ),
-            (
-                "long CSV",
-                session.field_csv(&source, &cells, "long").map(|_| ()),
-                "its points have no coordinates; export as the Matrix format instead",
-            ),
-            (
-                "warp",
-                session.warp(&field, &WarpOptions::default()).map(|_| ()),
-                "it cannot be reprojected",
-            ),
-            (
-                "warp onto a window",
-                session.warp(&field, &windowed()).map(|_| ()),
-                "it cannot be reprojected",
-            ),
-        ];
-        for (operation, result, consequence) in refusals {
-            let message = result
-                .err()
-                .unwrap_or_else(|| panic!("{what}: {operation} should refuse"))
-                .message();
-            assert_eq!(
-                message,
-                format!(
-                    "the {family:?} grid's geometry could not be built from the parameters \
-                     its file declares, so {consequence}"
-                ),
-                "{what}: {operation}"
-            );
-        }
-
-        // What needs no position still answers.
-        let source_view = RenderOptions::new("source", "nearest");
-        let painted = session
-            .project(&source, &cells, &source_view)
-            .unwrap_or_else(|e| panic!("{what}: the source projection: {e}"));
-        assert_eq!((painted.width, painted.height), (field.ni, field.nj));
-        session
-            .field_csv(&source, &cells, "matrix")
-            .unwrap_or_else(|e| panic!("{what}: the matrix CSV: {e}"));
+        assert_refused_as_declined(&session, &field, family, &what);
     }
+}
+
+/// Every refusal a host reaches for `field`, a grid declined as `family`, says
+/// its geometry could not be built, and the two views that need no position
+/// still answer.
+fn assert_refused_as_declined(
+    session: &Session,
+    field: &fieldglass::Field,
+    family: &str,
+    what: &str,
+) {
+    use fieldglass::render::{VectorOptions, vector_polylines};
+    use fieldglass::{RenderOptions, WarpOptions};
+
+    assert_eq!(field.georef.label, family, "{what}");
+    let cells: Vec<Option<f64>> = (0..field.mask.len())
+        .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
+        .collect();
+    let source = field.source();
+    let map = RenderOptions::new("equirectangular", "nearest");
+    let latlon = [10.0, 20.0, 30.0, 40.0];
+
+    let refusals = [
+        (
+            "render",
+            session.project(&source, &cells, &map).map(|_| ()),
+            "it cannot be reprojected",
+        ),
+        (
+            "probe",
+            session.probe_pixel(&source, &cells, &map, 1, 1).map(|_| ()),
+            "it cannot be reprojected",
+        ),
+        (
+            "overlay",
+            session
+                .overlay_polylines(&source, &map, &latlon, &[2])
+                .map(|_| ()),
+            "it cannot be reprojected",
+        ),
+        (
+            "contours",
+            session
+                .contour_polylines(&source, &cells, &map, None)
+                .map(|_| ()),
+            "its contours have no position on a map",
+        ),
+        (
+            "vector arrows",
+            vector_polylines(
+                &source,
+                &cells,
+                &source,
+                &cells,
+                &map,
+                &VectorOptions::new(),
+            )
+            .map(|_| ()),
+            "its vectors have no position on a map",
+        ),
+        (
+            "long CSV",
+            session.field_csv(&source, &cells, "long").map(|_| ()),
+            "its points have no coordinates; export as the Matrix format instead",
+        ),
+        (
+            "warp",
+            session.warp(field, &WarpOptions::default()).map(|_| ()),
+            "it cannot be reprojected",
+        ),
+        (
+            "warp onto a window",
+            session.warp(field, &windowed()).map(|_| ()),
+            "it cannot be reprojected",
+        ),
+    ];
+    for (operation, result, consequence) in refusals {
+        let message = result
+            .err()
+            .unwrap_or_else(|| panic!("{what}: {operation} should refuse"))
+            .message();
+        assert_eq!(
+            message,
+            format!(
+                "the {family:?} grid's geometry could not be built from the parameters \
+                 its file declares, so {consequence}"
+            ),
+            "{what}: {operation}"
+        );
+    }
+
+    // What needs no position still answers.
+    let source_view = RenderOptions::new("source", "nearest");
+    let painted = session
+        .project(&source, &cells, &source_view)
+        .unwrap_or_else(|e| panic!("{what}: the source projection: {e}"));
+    assert_eq!((painted.width, painted.height), (field.ni, field.nj));
+    session
+        .field_csv(&source, &cells, "matrix")
+        .unwrap_or_else(|e| panic!("{what}: the matrix CSV: {e}"));
 }
 
 /// The other half of #843: a template this build does not model keeps its
@@ -772,4 +828,292 @@ fn a_warp_of_a_slice_nothing_places_is_refused_with_or_without_a_window() {
             .message();
         assert_eq!(warped, rendered, "bounds {:?}", options.bounds);
     }
+}
+
+/// `bytes` with the 4-octet sign-magnitude angle at `payload_offset` in its §3
+/// template payload moved 5 degrees further from the equator. Every template
+/// states angles in micro-degrees.
+fn moved_five_degrees(mut bytes: Vec<u8>, payload_offset: usize) -> Vec<u8> {
+    let at = template_payload_at(&bytes) + payload_offset;
+    let raw = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+    bytes[at..at + 4].copy_from_slice(&(raw + 5_000_000).to_be_bytes());
+    bytes
+}
+
+/// Pairs of declined GRIB2 grids of one family whose declared parameters
+/// differ, as `(what, a, b)`: the first point moved by 5 degrees, or for the
+/// §3.90, which states no first point, the camera's distance.
+fn declined_pairs() -> Vec<(String, Vec<u8>, Vec<u8>)> {
+    let lambert = with_template_bytes(
+        "eta_lambert_msg0.grib2",
+        0,
+        &earth(1, Some((0, 0)), None, None),
+    );
+    let mut out = vec![(
+        // The pair from the issue: §3.30 octets 39-42 are La1.
+        "eta_lambert_msg0.grib2, radius 0, La1 moved".to_string(),
+        lambert.clone(),
+        moved_five_degrees(lambert, 24),
+    )];
+    // The #823 grids: §3.1 octets 47-50 are La1, §3.12 octets 39-42 LaR.
+    for value in [f32::NAN, f32::INFINITY] {
+        let rotated = with_template_float("rotated_latlon_surface.grib2", 66, value);
+        out.push((
+            format!("rotated_latlon_surface.grib2, rotation {value}, La1 moved"),
+            rotated.clone(),
+            moved_five_degrees(rotated, 32),
+        ));
+    }
+    for value in [f32::NAN, -1.0, 0.0] {
+        let tm = with_template_float("transverse_mercator_ukv.grib2", 33, value);
+        out.push((
+            format!("transverse_mercator_ukv.grib2, k {value}, LaR moved"),
+            tm.clone(),
+            moved_five_degrees(tm, 24),
+        ));
+    }
+    let no_body = earth(1, Some((0, 0)), None, None);
+    out.push((
+        "space view, radius 0, camera moved".to_string(),
+        space_view_from_latlon(6_610_710, no_body),
+        space_view_from_latlon(6_620_000, no_body),
+    ));
+    out
+}
+
+/// The refusal two declined grids of one family get when their files
+/// declare different grids: neither has a shape or a corner to quote.
+fn declare_different(family: &str) -> String {
+    format!(
+        "the two fields declare different {family} grids, and neither could be placed, \
+         so they cannot be combined"
+    )
+}
+
+/// Message 0 of `bytes`, decoded by a session of its own, as a host that
+/// opened the file twice would hold it.
+fn decoded(bytes: &[u8]) -> fieldglass::Field {
+    Session::open(bytes.to_vec())
+        .expect("opens")
+        .decode(0, &DecodeOptions::default())
+        .expect("decodes in grid coordinates")
+}
+
+/// Two declined grids are one grid only when they declare the same one
+/// (#962). The label names only the family, so two §3.30 grids on a
+/// zero-radius Earth whose first points differ by 5 degrees combined cell for
+/// cell, where the same pair on a real Earth is refused. The same message
+/// twice still combines, as the extension's Compare row allows.
+///
+/// Through `Session::combine` (the browser binding) and through
+/// `combine_values` over `place_message` (the Node binding's GRIB path).
+#[test]
+fn two_declined_grids_combine_only_when_they_declare_the_same_grid() {
+    use fieldglass::{CombineOp, Source, combine_values};
+
+    let op = CombineOp::Difference;
+    for (what, a, b) in declined_pairs() {
+        let (fa, fb) = (decoded(&a), decoded(&b));
+        assert_eq!(fa.georef.kind, "unsupported", "{what}");
+        assert_eq!(fa.georef.label, fb.georef.label, "{what}: one family");
+        assert_eq!((fa.ni, fa.nj), (fb.ni, fb.nj), "{what}: one raster shape");
+
+        let refused = Session::open(a.clone())
+            .expect("opens")
+            .combine(&fa, &fb, op)
+            .expect_err("two declarations are two grids")
+            .message();
+        assert_eq!(refused, declare_different(&fa.georef.label), "{what}");
+        Session::open(a.clone())
+            .expect("opens")
+            .combine(&fa, &decoded(&a), op)
+            .unwrap_or_else(|e| panic!("{what}: the same message twice: {e}"));
+
+        // The Node binding pairs `place_message` placements over raw values.
+        let placed = |bytes: &[u8]| {
+            Session::open(bytes.to_vec())
+                .expect("opens")
+                .place_message(0)
+                .expect("places")
+        };
+        let (pa, pa2, pb) = (placed(&a), placed(&a), placed(&b));
+        fn source(g: &fieldglass::Georef) -> Source<'_> {
+            Source {
+                geometry: Ok(&g.geometry),
+                ni: g.ni.expect("declared columns"),
+                nj: g.nj.expect("declared rows"),
+                scan: g.scan,
+                family: &g.label,
+                points_per_row: None,
+            }
+        }
+        let values = vec![Some(1.0); (fa.ni * fa.nj) as usize];
+        assert_eq!(
+            combine_values(&source(&pa), &values, &source(&pb), &values, op)
+                .expect_err("two declarations are two grids")
+                .message(),
+            declare_different(&fa.georef.label),
+            "{what}: placements"
+        );
+        combine_values(&source(&pa), &values, &source(&pa2), &values, op)
+            .unwrap_or_else(|e| panic!("{what}: the same placement twice: {e}"));
+    }
+
+    // The move is one the gate sees on a grid that builds: the issue's pair
+    // on a real Earth is refused by its corner.
+    let real = with_template_bytes(
+        "eta_lambert_msg0.grib2",
+        0,
+        &earth(1, Some((0, 6_371_229)), None, None),
+    );
+    let refused = Session::open(real.clone())
+        .expect("opens")
+        .combine(&decoded(&real), &decoded(&moved_five_degrees(real, 24)), op)
+        .expect_err("a built grid moved by 5 degrees")
+        .message();
+    assert!(refused.contains("their grid differs"), "{refused}");
+}
+
+/// The NetCDF half: two CF geostationary mappings declined for different
+/// numbers are two grids, and one declined slice still combines with itself
+/// decoded again (#961, #962). A slice with no coordinates and no mapping keeps
+/// comparing by its `source` label, which `a_warp_of_a_slice_nothing_places…`
+/// and the umbrella's unit tests hold.
+#[test]
+fn two_declined_geostationary_slices_combine_only_when_they_declare_the_same_grid() {
+    use fieldglass::CombineOp;
+
+    let goes = declined_goes();
+    let (what_a, a) = &goes[0];
+    let a_slices = slices(a.clone());
+    let session = Session::open(a.clone()).expect("opens");
+    let mut checked = 0;
+    for (what_b, b) in &goes[1..] {
+        for (((name, fa), (_, fa2)), (_, fb)) in a_slices
+            .iter()
+            .zip(slices(a.clone()))
+            .zip(slices(b.clone()))
+        {
+            if fa.georef.label != "space_view" {
+                continue;
+            }
+            assert_eq!(fb.georef.label, "space_view", "{what_b}: {name}");
+            let refused = session
+                .combine(fa, &fb, CombineOp::Difference)
+                .expect_err("two declarations are two grids")
+                .message();
+            assert_eq!(
+                refused,
+                declare_different("space_view"),
+                "{what_a} against {what_b}: {name}"
+            );
+            session
+                .combine(fa, &fa2, CombineOp::Difference)
+                .unwrap_or_else(|e| panic!("{what_a}: {name} against itself: {e}"));
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "the fixture has a geostationary slice");
+}
+
+/// The declined `semi_major_axis = 0` GOES slice, rewritten as an in-memory
+/// Zarr v2 store: the same axes and mapping numbers, but the mapping's
+/// attributes in another order, with a `long_name` the classic file does not
+/// have, and the axes stored as plain `f64` rather than scaled `int16`.
+/// `semi_major_axis` is `major`.
+fn declined_goes_as_zarr(major: f64) -> fieldglass::MemoryObjects {
+    let classic = Session::open(goes_with(6_378_137.0, 0.0)).expect("opens");
+    let rad = classic
+        .variables()
+        .iter()
+        .find(|v| v.name == "Rad")
+        .expect("the Rad variable")
+        .index;
+    let axis = |dim| {
+        classic
+            .axis_values(rad, dim)
+            .expect("an axis")
+            .coordinates
+            .expect("coordinates")
+    };
+    let (y, x) = (axis(0), axis(1));
+    let f64s = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let array = |shape: &str| {
+        format!(
+            r#"{{"zarr_format":2,"shape":{shape},"chunks":{shape},"dtype":"<f8","compressor":null,"fill_value":null,"order":"C","filters":null}}"#
+        )
+        .into_bytes()
+    };
+    let (nx, ny) = (x.len(), y.len());
+    let mapping = format!(
+        r#"{{"_ARRAY_DIMENSIONS":["one"],"long_name":"GOES-R ABI fixed grid projection","sweep_angle_axis":"x","longitude_of_projection_origin":-75.0,"semi_minor_axis":6356752.31414,"semi_major_axis":{major},"perspective_point_height":35786023.0,"grid_mapping_name":"geostationary"}}"#
+    );
+    fieldglass::MemoryObjects::from_iter(vec![
+        (".zgroup".to_string(), br#"{"zarr_format":2}"#.to_vec()),
+        ("goes_imager_projection/.zarray".to_string(), array("[1]")),
+        ("goes_imager_projection/.zattrs".to_string(), mapping.into_bytes()),
+        ("goes_imager_projection/0".to_string(), f64s(&[0.0])),
+        ("x/.zarray".to_string(), array(&format!("[{nx}]"))),
+        (
+            "x/.zattrs".to_string(),
+            br#"{"_ARRAY_DIMENSIONS":["x"],"units":"rad","axis":"X","standard_name":"projection_x_coordinate"}"#.to_vec(),
+        ),
+        ("x/0".to_string(), f64s(&x)),
+        ("y/.zarray".to_string(), array(&format!("[{ny}]"))),
+        (
+            "y/.zattrs".to_string(),
+            br#"{"_ARRAY_DIMENSIONS":["y"],"units":"rad","axis":"Y","standard_name":"projection_y_coordinate"}"#.to_vec(),
+        ),
+        ("y/0".to_string(), f64s(&y)),
+        ("Rad/.zarray".to_string(), array(&format!("[{ny},{nx}]"))),
+        (
+            "Rad/.zattrs".to_string(),
+            br#"{"_ARRAY_DIMENSIONS":["y","x"],"grid_mapping":"goes_imager_projection"}"#.to_vec(),
+        ),
+        ("Rad/0.0".to_string(), f64s(&vec![1.0; nx * ny])),
+    ])
+}
+
+/// A declined mapping is fingerprinted by what the resolver reads, not by how
+/// a container lists it: the same declined GOES grid as classic NetCDF and as
+/// a Zarr store whose mapping lists its attributes in another order, carries a
+/// `long_name`, and stores its axes unscaled still combines, and the store
+/// stating a different `semi_major_axis` does not (#962).
+#[test]
+fn a_declined_mapping_combines_across_containers_when_it_declares_the_same_grid() {
+    use fieldglass::CombineOp;
+
+    let classic = slices(goes_with(6_378_137.0, 0.0))
+        .into_iter()
+        .find(|(name, _)| name == "Rad")
+        .expect("Rad")
+        .1;
+    assert_eq!(classic.georef.label, "space_view");
+    let zarr = |major: f64| {
+        let session = Session::open_store(declined_goes_as_zarr(major)).expect("opens");
+        let rad = session
+            .variables()
+            .iter()
+            .find(|v| v.name == "Rad")
+            .expect("Rad")
+            .index;
+        session
+            .decode_slice(rad, 0, 1, &[0, 0], &DecodeOptions::default())
+            .expect("decodes")
+    };
+    let same = zarr(0.0);
+    assert_eq!(same.georef.label, "space_view");
+    assert_eq!(same.georef.placement, Placement::Unplaceable);
+
+    let session = Session::open(goes_with(6_378_137.0, 0.0)).expect("opens");
+    session
+        .combine(&classic, &same, CombineOp::Difference)
+        .unwrap_or_else(|e| panic!("one declared grid in two containers: {e}"));
+    assert_eq!(
+        session
+            .combine(&classic, &zarr(-1.0), CombineOp::Difference)
+            .expect_err("a different semi-major axis")
+            .message(),
+        declare_different("space_view")
+    );
 }

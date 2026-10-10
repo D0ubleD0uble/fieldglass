@@ -487,6 +487,7 @@ mod tests {
         // slice still differences against itself.
         let unplaced = GridGeometry::Unsupported {
             label: "source".to_string(),
+            declared: None,
         };
         assert!(
             aligned(
@@ -592,6 +593,7 @@ mod tests {
 
         let unmodelled = GridGeometry::Unsupported {
             label: "healpix".to_string(),
+            declared: None,
         };
         assert_eq!(
             describe(&unmodelled),

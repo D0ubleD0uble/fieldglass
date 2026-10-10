@@ -1568,6 +1568,7 @@ mod tests {
     fn a_grid_with_no_plane_states_no_affine_and_no_units() {
         let geom = GridGeometry::Unsupported {
             label: "spherical harmonics".to_string(),
+            declared: None,
         };
         let g = Georef::from_geometry(&geom, scan());
         assert_eq!(g.affine, None);
@@ -1642,6 +1643,7 @@ mod tests {
     fn no_grid_points_is_no_raster() {
         let unmodelled = GridGeometry::Unsupported {
             label: "spherical_harmonic".to_string(),
+            declared: None,
         };
         assert_eq!(
             Georef::from_geometry(&unmodelled, scan()).placement,

@@ -68,8 +68,30 @@ pub fn aligned(a: &Source<'_>, b: &Source<'_>) -> Result<(), Error> {
     // readers build, so every host hands over an `Ok` here and the arm had no
     // caller left. A raster no coordinates place is `Ok(Unsupported)`, which
     // compares by its label and still combines with itself.
+    //
+    // A grid a reader *declined* is `Ok(Unsupported)` too, under its family's
+    // name, and the same hazard came back with it: two §3.30 grids on a
+    // zero-radius Earth read alike whatever their first points (#962). So a
+    // declined grid carries a fingerprint of the parameters its file declares,
+    // and `==` compares that as well: the same message twice still combines,
+    // and two that declare different grids do not.
     match (&a.geometry, &b.geometry) {
         (Ok(ga), Ok(gb)) if same_grid(ga, gb) => Ok(()),
+        // Two declined grids of one family describe alike, since neither has
+        // a shape or a plane to show, so say what differs in words.
+        (Ok(ga), Ok(gb))
+            if ga
+                .declined_family()
+                .is_some_and(|f| gb.declined_family() == Some(f)) =>
+        {
+            Err(Error::Unsupported {
+                detail: format!(
+                    "the two fields declare different {} grids, and neither could be placed, \
+                     so they cannot be combined",
+                    ga.label()
+                ),
+            })
+        }
         (Ok(ga), Ok(gb)) => Err(mismatch("grid", &describe(ga), &describe(gb))),
         (ga, gb) => Err(mismatch("grid", &side(ga), &side(gb))),
     }

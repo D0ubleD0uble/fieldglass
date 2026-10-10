@@ -317,7 +317,7 @@ impl Source<'_> {
     /// family, so for them this changes nothing (#574).
     fn refused_as(&self) -> &str {
         match self.geometry {
-            Ok(GridGeometry::Unsupported { label }) => label,
+            Ok(GridGeometry::Unsupported { label, .. }) => label,
             _ => self.family,
         }
     }
@@ -3917,6 +3917,7 @@ mod warp_target_tests {
     fn probe_pixel_on_a_short_slice_reports_no_value() {
         let geometry = GridGeometry::Unsupported {
             label: "test".to_string(),
+            declared: None,
         };
         let src = Source {
             geometry: Ok(&geometry),
@@ -3986,6 +3987,7 @@ mod warp_target_tests {
         // the `"unsupported"` tag the geometry reports.
         let geometry = GridGeometry::Unsupported {
             label: "healpix".to_string(),
+            declared: None,
         };
         let src = Source {
             geometry: Ok(&geometry),
@@ -4616,12 +4618,14 @@ mod planar_geolocation_tests {
                 "bifourier",
                 GridGeometry::Unsupported {
                     label: "bifourier".to_string(),
+                    declared: None,
                 },
             ),
             (
                 "",
                 GridGeometry::Unsupported {
                     label: String::new(),
+                    declared: None,
                 },
             ),
         ] {
@@ -4658,6 +4662,7 @@ mod planar_geolocation_tests {
         for family in ["rotated_latlon", "transverse_mercator", "space_view"] {
             let geometry = GridGeometry::Unsupported {
                 label: family.to_string(),
+                declared: None,
             };
             let src = source(&geometry, family);
             for message in [
@@ -4684,6 +4689,7 @@ mod planar_geolocation_tests {
         }
         let unmodelled = GridGeometry::Unsupported {
             label: "unsupported(3.4)".to_string(),
+            declared: None,
         };
         assert_eq!(
             require_reprojectable(&unmodelled, "unsupported(3.4)")

@@ -145,6 +145,7 @@ impl From<&GridDescription> for GridGeometry {
             // erroring, and so does a grid type this parser never read past.
             other => Self::Unsupported {
                 label: other.grid_type_name().to_string(),
+                declared: None,
             },
         }
     }

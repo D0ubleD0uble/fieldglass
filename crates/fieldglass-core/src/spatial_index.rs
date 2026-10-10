@@ -33,7 +33,7 @@
 //! therefore reports [`GridResampling::NearestOnly`], and `warp` honours it
 //! rather than leaving it to callers.
 
-use crate::projection::{GridIndex, GridResampling, LonLatBox};
+use crate::projection::{GridFingerprint, GridIndex, GridResampling, LonLatBox};
 
 /// Nearest-cell lookup over an explicit list of cell centres.
 ///
@@ -149,24 +149,22 @@ impl SpatialIndex {
     /// where the alternative — an `O(n)` comparison per repaint — is the real
     /// hazard. `==` remains available and exact for anywhere else.
     pub fn fingerprint(&self) -> u64 {
-        // FNV-1a over the raw bit patterns. Not cryptographic: the threat here
-        // is two grids in one session colliding, not an adversary.
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        let mut eat = |v: u64| {
-            h ^= v;
-            h = h.wrapping_mul(0x1000_0000_01b3);
-        };
-        eat(self.ni as u64);
-        eat(self.nj as u64);
-        eat(self.xyz.len() as u64);
-        for v in &self.xyz {
-            for c in v {
-                // Normalise NaN so an excluded cell hashes consistently
-                // whichever payload the file used.
-                eat(if c.is_nan() { 0 } else { c.to_bits() });
-            }
-        }
-        h
+        // Over the raw bit patterns, a word at a time, through the one fold
+        // the crate has (`GridFingerprint`). Not cryptographic: the threat
+        // here is two grids in one session colliding, not an adversary.
+        let f = GridFingerprint::EMPTY
+            .with_u64(self.ni as u64)
+            .with_u64(self.nj as u64)
+            .with_u64(self.xyz.len() as u64);
+        self.xyz
+            .iter()
+            .flatten()
+            // Normalise NaN so an excluded cell hashes consistently whichever
+            // payload the file used.
+            .fold(f, |f, c| {
+                f.with_u64(if c.is_nan() { 0 } else { c.to_bits() })
+            })
+            .value()
     }
 
     /// Cells actually searchable — fewer than `ni × nj` when the source left

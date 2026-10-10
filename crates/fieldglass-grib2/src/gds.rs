@@ -11,7 +11,7 @@
 
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{
-    CornerPair, FieldglassError, GeostationaryParams, LambertAzimuthalParams,
+    CornerPair, FieldglassError, GeostationaryParams, GridFingerprint, LambertAzimuthalParams,
     LambertAzimuthalProjector, LambertParams, LambertProjector, PlanarGridProjector,
     PolarStereoParams, PolarStereoProjector, StoredRuns, TransverseMercatorParams,
     bits::sign_magnitude_to_i64, is_oblate_spheroid, normalise_lon, signed_grid_increments,
@@ -683,6 +683,12 @@ pub struct GridDefinitionSection {
     /// This is the raw list. Read it through [`Self::points_per_row`], which
     /// answers only where the list really is a per-row point count.
     pub row_widths: Vec<u32>,
+    /// A fingerprint of every octet the section declares after its 5-octet
+    /// header: the grid as the file states it, whether or not it builds.
+    ///
+    /// What a declined grid carries in its geometry, so two that declare
+    /// different grids do not align by their family name alone (#962).
+    pub fingerprint: GridFingerprint,
 }
 
 impl LambertTemplate {
@@ -1367,6 +1373,7 @@ pub fn parse_grid_definition_with_header(
         template_number,
         template,
         row_widths,
+        fingerprint: GridFingerprint::of(&bytes[5..len]),
     })
 }
 
@@ -2603,6 +2610,7 @@ mod tests {
             template_number: 40,
             template: GridTemplate::Gaussian(template),
             row_widths: Vec::new(),
+            fingerprint: GridFingerprint::EMPTY,
         };
         assert_eq!(gds.points_per_row(), None, "no rows, no PL list");
         assert_eq!(gds.dimensions(), None, "and so no raster either");

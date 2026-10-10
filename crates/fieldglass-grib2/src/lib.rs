@@ -107,10 +107,12 @@ pub use ds::{DS_SECTION_NUMBER, decode_values};
 // answers, the label a band-limited map carries (#637). `ByteSource` is what `Grib2Reader` reads through and
 // `ByteRange` is how a message records its sections, so a caller bringing its
 // own source, or reading a message's ranges, names both (#697).
+// `GridFingerprint` is what `GridDefinitionSection::fingerprint` holds (#962).
 pub use fieldglass_core::sht::SpectralTruncation;
 pub use fieldglass_core::{
     ByteRange, ByteSource, CornerPair, FieldglassError, GeostationaryParams, GlobalGrid,
-    GridGeometry, LambertAzimuthalParams, StoredRuns, SynthesisedField, TransverseMercatorParams,
+    GridFingerprint, GridGeometry, LambertAzimuthalParams, StoredRuns, SynthesisedField,
+    TransverseMercatorParams,
 };
 pub use gds::{
     GDS_SECTION_NUMBER, GaussianTemplate, GridDefinitionSection, GridTemplate, LambertTemplate,

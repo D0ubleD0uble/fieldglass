@@ -575,6 +575,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "FieldglassError",
                 "GeostationaryParams",
                 "GlobalGrid",
+                "GridFingerprint",
                 "GridGeometry",
                 "LambertAzimuthalParams",
                 "SpectralTruncation",

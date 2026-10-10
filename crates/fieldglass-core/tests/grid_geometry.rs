@@ -189,7 +189,8 @@ fn each_variant_reports_the_tag_the_hosts_already_use() {
     );
     assert_eq!(
         GridGeometry::Unsupported {
-            label: "spherical_harmonic".into()
+            label: "spherical_harmonic".into(),
+            declared: None,
         }
         .kind(),
         "unsupported",
@@ -197,7 +198,8 @@ fn each_variant_reports_the_tag_the_hosts_already_use() {
     );
     assert_eq!(
         GridGeometry::Unsupported {
-            label: "spherical_harmonic".into()
+            label: "spherical_harmonic".into(),
+            declared: None,
         }
         .label(),
         "spherical_harmonic",
@@ -248,6 +250,7 @@ fn an_index_off_the_grid_has_no_position() {
 fn an_unsupported_family_declines_every_question_but_its_name() {
     let geom = GridGeometry::Unsupported {
         label: "reduced_gaussian".into(),
+        declared: None,
     };
     assert_eq!(geom.kind(), "unsupported");
     assert_eq!(geom.label(), "reduced_gaussian");
@@ -448,6 +451,7 @@ fn the_closure_and_the_one_shot_inverse_agree() {
     // caller branch.
     let none = GridGeometry::Unsupported {
         label: "spherical_harmonic".into(),
+        declared: None,
     };
     assert!((none.inverse_at())(45.0, 0.0).is_none());
 }
@@ -463,6 +467,7 @@ fn the_enum_survives_a_json_round_trip() {
         .into_iter()
         .chain([GridGeometry::Unsupported {
             label: "spherical_harmonic".into(),
+            declared: None,
         }])
     {
         let json = serde_json::to_string(&geom).expect("serialises");
@@ -668,7 +673,8 @@ fn the_geographic_families_measure_their_affine_in_degrees() {
 fn a_family_with_no_plane_reports_no_affine() {
     assert_eq!(
         GridGeometry::Unsupported {
-            label: "bifourier".into()
+            label: "bifourier".into(),
+            declared: None,
         }
         .plane_affine(),
         None,
