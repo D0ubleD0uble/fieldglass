@@ -154,13 +154,22 @@ pub fn resolve_cf_geostationary(
 /// radians, from values in `units` (see [`resolve_cf_geostationary`]). `pph`
 /// is `perspective_point_height`, the `h` PROJ's `+proj=geos` scales its
 /// angles by.
+///
+/// CF takes its units from UDUNITS, which matches a symbol exactly (`M` is
+/// mega, not metre) and a name in any case, so `Meters` is metres.
 fn scan_angle_first_step(values: &[f64], units: Option<&str>, pph: f64) -> Option<(f64, f64)> {
     let per_radian = match units.map(str::trim) {
-        Some("rad" | "radian" | "radians") => 1.0,
-        Some("m" | "metre" | "metres" | "meter" | "meters") => pph,
-        Some("km" | "kilometre" | "kilometres" | "kilometer" | "kilometers") => pph / 1000.0,
+        Some("rad") => 1.0,
+        Some("m") => pph,
+        Some("km") => pph / 1000.0,
+        Some(name) => match name.to_ascii_lowercase().as_str() {
+            "radian" | "radians" => 1.0,
+            "metre" | "metres" | "meter" | "meters" => pph,
+            "kilometre" | "kilometres" | "kilometer" | "kilometers" => pph / 1000.0,
+            _ => return None,
+        },
         None if values.iter().all(|v| v.abs() <= std::f64::consts::PI) => 1.0,
-        _ => return None,
+        None => return None,
     };
     let (first, step) = axis_first_step(values)?;
     Some((first / per_radian, step / per_radian))
@@ -700,8 +709,9 @@ mod tests {
             ("m", PPH),
             ("metres", PPH),
             ("meter", PPH),
+            ("Meters", PPH),
             (" km ", PPH / 1000.0),
-            ("kilometers", PPH / 1000.0),
+            ("Kilometers", PPH / 1000.0),
         ] {
             let g = resolve_cf_geostationary(
                 &gm,
@@ -732,7 +742,17 @@ mod tests {
         let gm = goes_east();
         let rad = [-0.02, 0.0, 0.02];
         let metres = [-715_720.46, 0.0, 715_720.46];
-        for units in ["deg", "degrees", "1", "", "furlong", "M", "microradian"] {
+        for units in [
+            "deg",
+            "degrees",
+            "1",
+            "",
+            "furlong",
+            "M",
+            "KM",
+            "RAD",
+            "microradian",
+        ] {
             assert!(
                 resolve_cf_geostationary(&gm, &rad, Some(units), &rad, Some("rad")).is_none(),
                 "x in {units:?}"
