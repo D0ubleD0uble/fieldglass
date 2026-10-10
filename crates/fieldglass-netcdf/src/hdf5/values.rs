@@ -681,20 +681,8 @@ fn collect_implicit_chunks(
 ) -> Result<Vec<ChunkRecord>, FieldglassError> {
     // Row-major chunk grid: ceil(shape / chunk) per dimension. Every cell is an
     // allocated chunk.
-    let grid: Vec<u64> = shape
-        .iter()
-        .zip(chunk_dims)
-        .map(|(&s, &c)| s.div_ceil(c as u64))
-        .collect();
-    let grid_count: u64 = grid.iter().product();
-    // Bound the chunk count like the B-tree walk so a malformed shape can't
-    // drive an unbounded allocation. The cap is a `usize`, so passing it also
-    // makes every `grid_count as usize` below exact on a 32-bit target.
-    if grid_count > MAX_BTREE_NODES as u64 {
-        return Err(FieldglassError::Parse(
-            "implicit chunk grid has too many chunks".into(),
-        ));
-    }
+    let (grid, grid_count) = chunk_grid(shape, chunk_dims, "implicit")?;
+    let grid_count = grid_count as u64;
 
     let size = u32::try_from(chunk_bytes)
         .map_err(|_| FieldglassError::Parse("implicit chunk size exceeds u32".into()))?;
@@ -714,6 +702,36 @@ fn collect_implicit_chunks(
         });
     }
     Ok(out)
+}
+
+/// The row-major chunk grid of a dataset, `ceil(shape / chunk)` per dimension,
+/// and its cell count, refused past [`MAX_BTREE_NODES`] chunks.
+///
+/// The three indexes computed from the grid rather than walked (implicit,
+/// fixed and extensible array) take their record count from it, so it is the
+/// number that sizes their allocations and loops. A whole read used to meet
+/// the whole-variable budget first, which bounded the shape and with it the
+/// grid; a region read does not, so the grid is bounded here, at the cap the
+/// B-tree walk holds its record count to (#939 review). The cap is a `usize`,
+/// so the count is exact on a 32-bit target.
+fn chunk_grid(
+    shape: &[u64],
+    chunk_dims: &[u32],
+    index: &str,
+) -> Result<(Vec<u64>, usize), FieldglassError> {
+    let grid: Vec<u64> = shape
+        .iter()
+        .zip(chunk_dims)
+        .map(|(&s, &c)| s.div_ceil(u64::from(c)))
+        .collect();
+    let count = grid.iter().fold(1u64, |acc, &n| acc.saturating_mul(n));
+    if count > MAX_BTREE_NODES as u64 {
+        return Err(FieldglassError::Parse(format!(
+            "{index} chunk grid has {count} chunks, more than the {MAX_BTREE_NODES} \
+             a chunk index may hold"
+        )));
+    }
+    Ok((grid, count as usize))
 }
 
 /// Fixed Array header / data-block signatures (v4 chunk index type 3).
@@ -762,14 +780,10 @@ fn collect_fixed_array_chunks<S: ByteSource + ?Sized>(
     let dblock_addr = h.uint(o)?;
 
     // Row-major chunk grid: ceil(shape / chunk) per dimension. Its cell count
-    // must match the array's entry count.
-    let grid: Vec<u64> = shape
-        .iter()
-        .zip(chunk_dims)
-        .map(|(&s, &c)| s.div_ceil(c as u64))
-        .collect();
-    let grid_count: u64 = grid.iter().product();
-    if grid_count != num_entries as u64 {
+    // must match the array's entry count, so the count is bounded before it
+    // sizes anything below (#939 review).
+    let (grid, grid_count) = chunk_grid(shape, chunk_dims, "Fixed Array")?;
+    if grid_count != num_entries {
         return Err(FieldglassError::Parse(format!(
             "Fixed Array holds {num_entries} entries but the chunk grid has {grid_count}"
         )));
@@ -904,13 +918,7 @@ fn collect_extensible_array_chunks<S: ByteSource + ?Sized>(
 
     // The chunk grid, as for the fixed array; the unlimited dimension is already
     // resolved to its current extent in `shape`.
-    let grid: Vec<u64> = shape
-        .iter()
-        .zip(chunk_dims)
-        .map(|(&s, &c)| s.div_ceil(c as u64))
-        .collect();
-    let grid_count = usize::try_from(grid.iter().product::<u64>())
-        .map_err(|_| FieldglassError::Parse("chunk grid exceeds usize".into()))?;
+    let (grid, grid_count) = chunk_grid(shape, chunk_dims, "extensible array")?;
 
     // Index Block: prefix, the first `idx_blk_elmts` elements, then the direct
     // data-block addresses, then the secondary-block addresses.

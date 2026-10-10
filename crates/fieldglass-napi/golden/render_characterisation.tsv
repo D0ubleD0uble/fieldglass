@@ -1299,6 +1299,11 @@ netcdf/hdf5_conflicting_chunk_records_swapped.h5	file	parsed=true fields=0	fc2e4
 netcdf/hdf5_duplicate_chunk_records.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_ea_chunk_index.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_ea_filtered.h5	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/hdf5_fixed_array_huge_count.h5	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/hdf5_fixed_array_huge_count.h5#v	combine/a_minus_b/render/source/nearest	err: this read asks for # values at once, more than the # one field may hold. The file itself is fine	bb6476ef19d68689
+netcdf/hdf5_fixed_array_huge_count.h5#v	meta	family=source ni=131072 nj=131072 reprojectable=false	fcc290141362eb6f
+netcdf/hdf5_fixed_array_huge_count.h5#v	render/equirectangular/nearest	err: this read asks for # values at once, more than the # one field may hold. The file itself is fine	bb6476ef19d68689
+netcdf/hdf5_fixed_array_huge_count.h5#v	render/source/nearest	err: this read asks for # values at once, more than the # one field may hold. The file itself is fine	bb6476ef19d68689
 netcdf/hdf5_fixed_point_precision.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_fletcher32.h5	file	parsed=true fields=5	fc2e3b9795c31478
 netcdf/hdf5_fletcher32.h5#f32_deflate	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a

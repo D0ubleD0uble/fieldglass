@@ -25,6 +25,8 @@ const SEED: &[u8] =
     include_bytes!("../../fieldglass-netcdf/fuzz/corpus/parse/oom_large_fill_dataset.h5");
 const PAST_FIELD_CAP: &[u8] =
     include_bytes!("../../fieldglass-netcdf/tests/fixtures/fill_only_past_field_cap.nc");
+const HUGE_FIXED_ARRAY: &[u8] =
+    include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_fixed_array_huge_count.h5");
 const AT_FIELD_CAP: &[u8] =
     include_bytes!("../../fieldglass-netcdf/tests/fixtures/fill_only_at_field_cap.nc");
 
@@ -121,6 +123,26 @@ fn a_zarr_slice_past_the_field_cap_is_unsupported_too() {
         refused
             .to_string()
             .contains("asks for 100000000 values at once"),
+        "{refused}"
+    );
+}
+
+/// A line through a dataset whose Fixed Array index counts 2^34 chunks is
+/// inside the field cap, so it reaches the index; the index is refused rather
+/// than sized from that count, which used to abort the process, and on
+/// `wasm32` trap (#939 review).
+#[test]
+fn a_line_through_a_hostile_fixed_array_is_refused_not_allocated() {
+    let session = Session::open(HUGE_FIXED_ARRAY.to_vec()).expect("the file opens");
+    let (index, rank) = largest(&session);
+    assert_eq!(rank, 2);
+    let refused = session
+        .decode_line(index, 1, &[3, 0], &DecodeOptions::default())
+        .expect_err("the index is refused");
+    assert!(
+        refused
+            .to_string()
+            .contains("chunk grid has 17179869184 chunks"),
         "{refused}"
     );
 }

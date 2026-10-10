@@ -92,6 +92,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/hdf5_ea_filtered.h5"),
     ),
     (
+        "hdf5_fixed_array_huge_count.h5",
+        include_bytes!("fixtures/hdf5_fixed_array_huge_count.h5"),
+    ),
+    (
         "hdf5_fixed_point_precision.h5",
         include_bytes!("fixtures/hdf5_fixed_point_precision.h5"),
     ),
@@ -627,5 +631,38 @@ fn a_variable_too_large_to_read_whole_reads_in_parts() {
             _ => None,
         };
         assert_eq!(*v, want, "time {t}");
+    }
+}
+
+/// A Fixed Array index whose entry count matches a 131072 x 131072 grid of
+/// 1 x 1 chunks, 2^34 entries, with its checksums intact. A region read meets
+/// no whole-variable budget, so the reader used to size its record list from
+/// that count, 687 GB, and abort; the chunk grid is now refused past the cap
+/// the B-tree walk holds its records to, before anything is sized (#939
+/// review).
+#[test]
+fn a_fixed_array_counting_more_chunks_than_an_index_may_hold_is_refused() {
+    let bytes = FIXTURES
+        .iter()
+        .find(|(n, _)| *n == "hdf5_fixed_array_huge_count.h5")
+        .expect("listed")
+        .1;
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("opens");
+    let index = (0..)
+        .find(|&i| {
+            reader
+                .variable_shape(i)
+                .is_ok_and(|s| s == [131_072, 131_072])
+        })
+        .expect("the patched dataset");
+    for region in [[0..1, 0..7], [5..6, 0..131_072], [131_071..131_072, 9..10]] {
+        let err = reader
+            .decode_region_raw(index, &region)
+            .expect_err("the index is refused, not allocated");
+        assert!(
+            err.to_string()
+                .contains("chunk grid has 17179869184 chunks"),
+            "{region:?}: {err}"
+        );
     }
 }
