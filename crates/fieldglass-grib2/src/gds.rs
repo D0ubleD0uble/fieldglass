@@ -14,7 +14,7 @@ use fieldglass_core::{
     CornerPair, FieldglassError, GeostationaryParams, LambertAzimuthalParams,
     LambertAzimuthalProjector, LambertParams, LambertProjector, PlanarGridProjector,
     PolarStereoParams, PolarStereoProjector, StoredRuns, TransverseMercatorParams,
-    bits::sign_magnitude_to_i64, normalise_lon, signed_grid_increments,
+    bits::sign_magnitude_to_i64, is_oblate_spheroid, normalise_lon, signed_grid_increments,
 };
 
 /// Section number for the Grid Definition Section.
@@ -105,9 +105,16 @@ fn read_scaled(scale_byte: u8, value_bytes: &[u8]) -> Option<f64> {
 /// Resolve the GRIB2 §3 shape-of-earth group (the first 16 payload octets,
 /// section octets 15-30) into `(r_eq, r_pol)` in **metres**. Handles WMO Code
 /// Table 3.2: the fixed spheres/ellipsoids and the producer-specified radius /
-/// axes codes (1, 3, 7) read from the scaled-value octets. Unknown or
-/// unresolvable codes fall back to the WMO mean sphere so geolocation never
-/// silently uses a zero radius.
+/// axes codes (1, 3, 7) read from the scaled-value octets. An unknown code, or
+/// a producer-specified value that is missing, falls back to the WMO mean sphere
+/// (or that code's default axis).
+///
+/// A value the message *does* state is returned as stated, however absurd: a
+/// radius of zero, axes of zero, or a minor axis longer than the major one. No
+/// fallback is invented for those. Every grid that projects on the Earth asks
+/// [`fieldglass_core::is_oblate_spheroid`] of these axes before it is built and
+/// declines when they describe no body, so a zero radius never reaches a
+/// grid's geometry or a PROJ string (#603, #844).
 fn resolve_earth_shape(p: &[u8]) -> (f64, f64) {
     const MEAN_SPHERE_M: f64 = 6_371_229.0;
     // Spherical-radius pair (octet 16 scale, 17-20 value) and the major/minor
@@ -794,7 +801,9 @@ impl SpaceViewTemplate {
     /// units of the Earth's radius x 10^6, and the angles follow from them.
     /// `Nr <= 1` puts the camera at or below the surface, where the `asin`
     /// has no answer, and a zero apparent diameter has no scan increment;
-    /// both are declined rather than turned into infinities.
+    /// both are declined rather than turned into infinities. So is an Earth
+    /// whose stated axes describe no body (a radius of zero, or a prolate
+    /// pair): `r_pol / r_eq` is `NaN` on the first, and PROJ refuses both (#844).
     ///
     /// The row arithmetic is the subtle half. eccodes emits scan rows in
     /// reverse (`for iy = ny-1 .. 0`), so stored data row `k` is geometric row
@@ -805,7 +814,7 @@ impl SpaceViewTemplate {
     /// from coming out flipped in y.
     pub fn scan_grid(&self) -> Option<GeostationaryParams> {
         let nr = f64::from(self.nr?) * 1.0e-6;
-        if nr <= 1.0 || self.dx == 0 || self.dy == 0 {
+        if nr <= 1.0 || self.dx == 0 || self.dy == 0 || !is_oblate_spheroid(self.r_eq, self.r_pol) {
             return None;
         }
         let angular_size = 2.0 * (1.0 / nr).asin();
@@ -1371,8 +1380,16 @@ pub fn parse_grid_definition_with_header(
 /// spheroid, while these projections are spherical, so we take the spheroid's
 /// mean radius `(2a + b) / 3` — within ~0.1 % of the true figure, and far closer
 /// than ignoring the declared shape. True ellipsoidal projection is a follow-up.
+///
+/// Axes that describe no body give a radius of zero, which the geometry then
+/// declines. The mean would otherwise hide them: shape 7 with a major axis of
+/// 6,378,137 m and a minor axis of zero averages to a healthy-looking 4,252 km
+/// sphere (#844).
 fn earth_radius_from_shape(p: &[u8]) -> f64 {
     let (major, minor) = resolve_earth_shape(p);
+    if !is_oblate_spheroid(major, minor) {
+        return 0.0;
+    }
     (2.0 * major + minor) / 3.0
 }
 
@@ -2365,6 +2382,19 @@ mod tests {
         micrometre.extend_from_slice(&1u32.to_be_bytes());
         micrometre.extend_from_slice(&[0xFFu8; 10]);
         assert_eq!(earth_radius_from_shape(&micrometre), 1e-6);
+        // Axes that describe no body give no radius rather than a mean that
+        // looks healthy: a zero minor axis would otherwise average to 4,252 km,
+        // and a prolate pair to a sphere between the two (#844).
+        let axes = |major: u32, minor: u32| {
+            let mut p = vec![7u8, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0];
+            p.extend_from_slice(&major.to_be_bytes());
+            p.push(0);
+            p.extend_from_slice(&minor.to_be_bytes());
+            earth_radius_from_shape(&p)
+        };
+        assert_eq!(axes(6_378_137, 0), 0.0, "zero minor axis");
+        assert_eq!(axes(6_356_752, 6_378_137), 0.0, "prolate");
+        assert!((axes(6_378_137, 6_356_752) - 6_371_008.667).abs() < 1e-3);
     }
 
     #[test]

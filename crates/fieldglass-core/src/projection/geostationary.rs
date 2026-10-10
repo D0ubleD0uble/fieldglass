@@ -192,17 +192,26 @@ impl GeostationaryProjector {
     /// same producer-specified shape codes §3.30 does, and the CF path reads
     /// them out of `semi_major_axis` / `semi_minor_axis` text attributes, so
     /// both routes can state it.
+    ///
+    /// Today this is exactly `crs_resolves`: nothing
+    /// about the raster is checked here. A raster check added later belongs
+    /// in this method, not that one.
     pub fn is_well_defined(&self) -> bool {
+        self.crs_resolves()
+    }
+
+    /// Whether the parameters describe a CRS at all: the axes, and a camera
+    /// outside the body. A [`GridGeometry::proj4`](super::GridGeometry::proj4)
+    /// string is written only when this holds, so it never names a CRS PROJ
+    /// refuses (#844), the same rule the four planar families follow.
+    pub(crate) fn crs_resolves(&self) -> bool {
         let p = &self.params;
-        p.r_eq.is_finite()
-            && p.r_pol.is_finite()
+        // Oblate, never prolate: WMO's shape table cannot describe a body
+        // squashed the other way, so `1 - (r_pol/r_eq)²` going negative means
+        // the message is corrupt rather than exotic — the same rule the
+        // transverse Mercator and Lambert azimuthal spheroids apply.
+        super::is_oblate_spheroid(p.r_eq, p.r_pol)
             && p.h_metres.is_finite()
-            && p.r_pol > 0.0
-            // Oblate, never prolate: WMO's shape table cannot describe a body
-            // squashed the other way, so `1 - (r_pol/r_eq)²` going negative
-            // means the message is corrupt rather than exotic — the same rule
-            // the transverse Mercator and Lambert azimuthal spheroids apply.
-            && p.r_pol <= p.r_eq
             // The satellite has to be outside the body it is looking at, or
             // there is no line of sight to intersect. GRIB2 §3.90 states this
             // as `Nr = h / r_eq` and CF as a height above the surface, so both
