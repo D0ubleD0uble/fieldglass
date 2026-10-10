@@ -136,3 +136,26 @@ conflicting.
 
 With this, the cost of a chunked decode is the distinct stored addresses
 times the chunk size, plus each in-shape origin's copy.
+
+## Amendment (2026-10-09, #939)
+
+A read now asks for a region of a dataset, and a whole read is the region that
+covers every axis. The checks above (`chunks_in_region`, formerly
+`chunks_in_shape`) run over **the records whose chunks overlap the region**;
+records outside it are skipped unread, exactly as rule 4 skips records outside the
+shape. So:
+
+- **A conflict outside the region no longer fails a region read.** Records at
+  one origin naming different storage (rule 2), an off-grid origin (rule 3) or
+  one address with differing storage (rule 6) refuse a read only when the read
+  would use them. A read that touches them, and every whole read, still
+  refuses. libhdf5 likewise never looks up a chunk a selection does not cover.
+- The evidence is `a_region_keeps_the_chunks_it_overlaps` in
+  `crates/fieldglass-netcdf/src/hdf5/values.rs`, which reads a region clear of
+  a conflicting record and refuses one that covers it, and
+  `tests/region_reads.rs`, which checks that every fixture that fails a whole
+  read also fails the whole-region read.
+
+`scatter_chunk` is replaced by `fieldglass_core::array::copy_block_elements`,
+which walks only the part of each chunk inside the region, one contiguous run
+along the last dimension at a time.

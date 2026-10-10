@@ -91,19 +91,21 @@ pub const MAX_FIELD_POINTS: usize = 64 * 1024 * 1024;
 ///
 /// Why 2 GiB:
 ///
-/// - Every host can serve every read the reader accepts. On a 32-bit target
-///   (the browser host's `wasm32`) no single allocation may exceed
+/// - Every allocation a whole read makes is one a host can make. On a 32-bit
+///   target (the browser host's `wasm32`) no single allocation may exceed
 ///   `isize::MAX`, just under 2 GiB, and an output past that is a
 ///   capacity-overflow panic rather than an error. Under this budget the
-///   output is at most sixteen seventeenths of it.
+///   output is at most sixteen seventeenths of it. That bounds one read, not
+///   what a caller does with it after: a host draws a slice, which is read as
+///   a region and held to [`MAX_FIELD_POINTS`] instead (#939, #942).
 /// - It is twice the output of the largest single field
 ///   ([`MAX_FIELD_POINTS`], 1 GiB of `Option<f64>`): a whole variable is a
 ///   bigger question than any one slice a viewer draws.
 /// - It refuses the 2.9 GB file above with room to spare.
 ///
 /// A real variable this refuses — more than about 107 M four-byte elements —
-/// wants a read of the slice being drawn rather than the whole variable,
-/// which is the long-term fix and not this bound's job.
+/// is read a slice at a time, as a region, which this bound does not apply to
+/// (#939).
 pub const MAX_VARIABLE_BYTES: u64 = 2 << 30;
 
 /// Bytes one element of a whole-variable read's output takes: an
@@ -146,6 +148,25 @@ pub fn whole_variable_read_bytes(
         });
     }
     Ok(bytes)
+}
+
+/// The element count of a region or a block of these extents, or
+/// [`ArrayError::FieldTooLarge`] past [`MAX_FIELD_POINTS`].
+///
+/// The one check every region read makes before it allocates, whatever the
+/// container: a Zarr region or chunk and a NetCDF region (#942). Saturating,
+/// so extents whose product overflows are refused rather than wrapped small.
+/// Under the cap the count is a `usize` on every target.
+pub fn field_element_count(extents: &[u64]) -> Result<usize, ArrayError> {
+    let elements = extents.iter().fold(1u64, |acc, &n| acc.saturating_mul(n));
+    if elements > MAX_FIELD_POINTS as u64 {
+        return Err(ArrayError::FieldTooLarge {
+            elements,
+            limit: MAX_FIELD_POINTS as u64,
+        });
+    }
+    // At most `MAX_FIELD_POINTS`, a `usize`.
+    Ok(elements as usize)
 }
 
 /// A byte count for a message: GiB or MiB with one decimal.
@@ -250,6 +271,22 @@ pub enum ArrayError {
         /// What the read would hold at its peak, saturated at `u64::MAX`.
         bytes: u64,
         /// The most it may hold.
+        limit: u64,
+    },
+
+    /// A region, or a block read to fill one, of more than
+    /// [`MAX_FIELD_POINTS`] values. See [`field_element_count`].
+    ///
+    /// Like [`Self::VariableTooLarge`], the file is not at fault: the read
+    /// asks for more values at once than one field may hold.
+    #[error(
+        "this read asks for {elements} values at once, more than the {limit} \
+         one field may hold. The file itself is fine"
+    )]
+    FieldTooLarge {
+        /// How many values the read covers, saturated at `u64::MAX`.
+        elements: u64,
+        /// The most one field may hold.
         limit: u64,
     },
 
@@ -980,15 +1017,17 @@ pub trait ArraySource {
             .ok_or_else(|| {
                 crate::FieldglassError::Parse(format!("this container holds no array {array:?}"))
             })?;
-        Ok(rule.apply(&raw))
+        Ok(rule.apply_owned(raw))
     }
 }
 
-/// Row-major strides for a box of `extents`.
+/// Row-major strides for a box of `extents`, saturating rather than wrapping:
+/// a stride past `u64::MAX` belongs to a box no buffer holds, and every offset
+/// built from it is then refused rather than aliased onto a small one.
 fn strides(extents: &[u64]) -> Vec<u64> {
     let mut out = vec![1u64; extents.len()];
     for axis in (0..extents.len().saturating_sub(1)).rev() {
-        out[axis] = out[axis + 1] * extents[axis + 1];
+        out[axis] = out[axis + 1].saturating_mul(extents[axis + 1]);
     }
     out
 }
@@ -1000,23 +1039,48 @@ fn strides(extents: &[u64]) -> Vec<u64> {
 /// chunk at a ragged edge is stored full-size, and because a region never
 /// reaches past the array, the part beyond the edge is never inside it — the
 /// intersection is the trim. A container that decodes a whole array at once
-/// (a NetCDF variable) is one block at the origin, and this is the region cut
-/// out of it. `out` must be the product of the region's lengths long; a block
-/// shorter than its shape leaves the cells it lacks untouched.
+/// is one block at the origin, and this is the region cut out of it. `out`
+/// must be the product of the region's lengths long; a block shorter than its
+/// shape leaves the cells it lacks untouched.
 ///
-/// Written once for both (#704): the Zarr walker assembles chunks with it, the
-/// NetCDF array source cuts a region out of a decoded variable with it.
-pub fn copy_block(
-    block: &[Option<f64>],
+/// Written once for every container (#704, #939): the Zarr walker assembles
+/// chunks with it, and the NetCDF reader places HDF5 chunks and cuts a compact
+/// dataset with [`copy_block_elements`], which is this over elements several
+/// items wide.
+pub fn copy_block<T: Copy>(
+    block: &[T],
     block_shape: &[u64],
     origin: &[u64],
     region: &[Range<u64>],
-    out: &mut [Option<f64>],
+    out: &mut [T],
+) {
+    copy_block_elements(block, block_shape, origin, region, out, 1);
+}
+
+/// [`copy_block`] for elements `width` items long: an element of `block` and
+/// of `out` is `width` consecutive items, so a block of stored bytes copies
+/// with `width` the element size.
+///
+/// Every offset is computed in `u64` with checked arithmetic and narrowed with
+/// a check, because the shape and origin are a file's own numbers: one that
+/// would not fit is skipped rather than wrapped onto cells it does not name. A
+/// rank that disagrees between the arguments, or a `width` of zero, copies
+/// nothing.
+pub fn copy_block_elements<T: Copy>(
+    block: &[T],
+    block_shape: &[u64],
+    origin: &[u64],
+    region: &[Range<u64>],
+    out: &mut [T],
+    width: usize,
 ) {
     let rank = region.len();
+    if width == 0 || block_shape.len() != rank || origin.len() != rank {
+        return;
+    }
     if rank == 0 {
-        if let (Some(slot), Some(value)) = (out.first_mut(), block.first()) {
-            *slot = *value;
+        if let (Some(slot), Some(value)) = (out.get_mut(..width), block.get(..width)) {
+            slot.copy_from_slice(value);
         }
         return;
     }
@@ -1026,23 +1090,29 @@ pub fn copy_block(
         .collect();
     let lo: Vec<u64> = (0..rank).map(|d| origin[d].max(region[d].start)).collect();
     let hi: Vec<u64> = (0..rank)
-        .map(|d| (origin[d] + block_shape[d]).min(region[d].end))
+        .map(|d| origin[d].saturating_add(block_shape[d]).min(region[d].end))
         .collect();
     if (0..rank).any(|d| lo[d] >= hi[d]) {
         return;
     }
     let (from, to) = (strides(block_shape), strides(&lens));
     let last = rank - 1;
-    // `hi - lo` along the last axis is within one block, so it fits.
-    let run = (hi[last] - lo[last]) as usize;
+    let Some(run) = usize::try_from(hi[last] - lo[last])
+        .ok()
+        .and_then(|n| n.checked_mul(width))
+    else {
+        return;
+    };
+    let starts: Vec<u64> = region.iter().map(|r| r.start).collect();
     let mut at = lo.clone();
     loop {
-        let src: u64 = (0..rank).map(|d| (at[d] - origin[d]) * from[d]).sum();
-        let dst: u64 = (0..rank).map(|d| (at[d] - region[d].start) * to[d]).sum();
-        // Offsets into buffers the caller sized, so they fit a `usize`.
-        let (src, dst) = (src as usize, dst as usize);
-        if let (Some(target), Some(source)) =
-            (out.get_mut(dst..dst + run), block.get(src..src + run))
+        let src = item_offset(&at, origin, &from, width);
+        let dst = item_offset(&at, &starts, &to, width);
+        if let (Some(src), Some(dst)) = (src, dst)
+            && let (Some(target), Some(source)) = (
+                dst.checked_add(run).and_then(|end| out.get_mut(dst..end)),
+                src.checked_add(run).and_then(|end| block.get(src..end)),
+            )
         {
             target.copy_from_slice(source);
         }
@@ -1059,6 +1129,21 @@ pub fn copy_block(
             at[axis] = lo[axis];
         }
     }
+}
+
+/// The offset, in items, of the element at `at` in a box whose first element
+/// is at `corner` and whose row-major strides are `stride`, each element
+/// `width` items long; `None` where it does not fit a `usize`. `at` is inside
+/// the box, so no subtraction wraps.
+fn item_offset(at: &[u64], corner: &[u64], stride: &[u64], width: usize) -> Option<usize> {
+    at.iter()
+        .zip(corner)
+        .zip(stride)
+        .try_fold(0u64, |sum, ((&a, &c), &s)| {
+            (a - c).checked_mul(s).and_then(|o| sum.checked_add(o))
+        })
+        .and_then(|o| usize::try_from(o).ok())
+        .and_then(|o| o.checked_mul(width))
 }
 
 /// One anonymous axis [`PhonyDimensions`] invented.
@@ -1260,10 +1345,20 @@ impl CfUnpacking {
 
     /// Apply the rule to a plane. Cells already absent stay absent.
     pub fn apply(&self, packed: &[Option<f64>]) -> Vec<Option<f64>> {
-        if self.is_identity() {
-            return packed.to_vec();
+        self.apply_owned(packed.to_vec())
+    }
+
+    /// [`apply`](Self::apply) to values the caller owns, in place: no second
+    /// plane is allocated, and the identity rule touches nothing (#939). A
+    /// region read hands its result straight here, so a plane in physical units
+    /// costs one allocation rather than two.
+    pub fn apply_owned(&self, mut packed: Vec<Option<f64>>) -> Vec<Option<f64>> {
+        if !self.is_identity() {
+            for cell in &mut packed {
+                *cell = cell.and_then(|v| self.value(v));
+            }
         }
-        packed.iter().map(|cell| self.value((*cell)?)).collect()
+        packed
     }
 }
 

@@ -8,7 +8,6 @@
 
 use fieldglass::netcdf::{
     DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
-    extract_plane,
 };
 use fieldglass::render::{Projected, ResolvedOptions};
 use fieldglass::{
@@ -1981,10 +1980,10 @@ pub struct NetcdfVariableMeta {
 ///
 /// A NetCDF variable is N-D, so rendering needs a slice picker (which 2-D plane)
 /// and a placement the reader resolves from the file's coordinates or projection
-/// attributes (NetCDF carries no GRIB-style GDS). The handle parses once, caches
-/// each decoded variable, and renders a slice through the same paths the GRIB
-/// handles use, on the geometry the reader resolved — honouring the
-/// decode-decoupled rule.
+/// attributes (NetCDF carries no GRIB-style GDS). The handle parses once, reads
+/// each slice on its own and keeps the last few, and renders a slice through
+/// the same paths the GRIB handles use, on the geometry the reader resolved —
+/// honouring the decode-decoupled rule.
 ///
 /// Covers both backings — classic (CDF-1/2/5) and NetCDF-4 / HDF5 (#169) — for
 /// regular 1-D lat/lon grids (decision 0002), projected grids (#168, decision
@@ -1996,7 +1995,16 @@ pub struct NetcdfVariableMeta {
 pub struct NetcdfHandle {
     reader: NetcdfReader,
     view: DatasetView,
-    decoded: Mutex<std::collections::HashMap<usize, std::sync::Arc<Vec<Option<f64>>>>>,
+    /// The last few slices read, in physical units (#939).
+    ///
+    /// The value memo ADR-0011 leaves to the host, at the granularity the
+    /// reader now reads at. It used to hold each variable whole, decoded once
+    /// so that scrubbing a time axis cost one read; with the reader reading
+    /// only the plane asked for, a scrub costs one plane a frame, and what is
+    /// worth keeping is the slice on screen and the one it is compared with,
+    /// which every repaint, probe, contour and export of that slice asks for
+    /// again. See [`PlaneMemo`] for the bound.
+    planes: Mutex<PlaneMemo>,
     /// Cell-centre indices for curvilinear slices, keyed by the pair of 2-D
     /// coordinate variables that built them (#445).
     ///
@@ -2014,6 +2022,64 @@ pub struct NetcdfHandle {
     /// (`O(log n)`, about 0.65 us each), so a megapixel raster warps in well
     /// under a second once the tree exists.
     curvilinear: Mutex<CurvilinearCache>,
+}
+
+/// What names one plane of a variable: its decode index, the two axes drawn,
+/// and the index held on every other axis (the two drawn ones are zero).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PlaneKey {
+    variable: usize,
+    y_dim: usize,
+    x_dim: usize,
+    fixed: Vec<usize>,
+}
+
+/// The planes a [`NetcdfHandle`] keeps: the most recently used, newest last.
+///
+/// Bounded twice, because ADR-0011 rejects a memo that grows with use: at most
+/// [`Self::ENTRIES`] planes, enough for an A/B comparison and the frames either
+/// side of it, and at most [`Self::CELLS`] cells across them. The newest plane
+/// is kept whatever its size: it is the one on screen, and every repaint of it
+/// would otherwise read it again.
+///
+/// Below it, the reader keeps the decompressed chunks it last read, up to
+/// 64 MiB a file (`fieldglass-netcdf`'s `CHUNK_BYTE_BUDGET`), so stepping to a
+/// plane that shares chunks with this one does not inflate them again (#939).
+/// That memo is bounded by size and is a pure function of the file, the kind
+/// ADR-0011 lets a library keep; which slices to keep is this memo's policy.
+#[derive(Debug, Default)]
+struct PlaneMemo {
+    entries: std::collections::VecDeque<(PlaneKey, std::sync::Arc<Vec<Option<f64>>>)>,
+}
+
+impl PlaneMemo {
+    /// The most planes kept.
+    const ENTRIES: usize = 4;
+    /// The most cells kept across them: 16 M, 256 MB of `Option<f64>`, so
+    /// four planes of a 0.1° global grid (6.5 M cells each) do not all fit.
+    const CELLS: usize = 16 << 20;
+
+    /// The plane `key` names, if it is kept, marked as the most recently used.
+    fn get(&mut self, key: &PlaneKey) -> Option<std::sync::Arc<Vec<Option<f64>>>> {
+        let at = self.entries.iter().position(|(k, _)| k == key)?;
+        let entry = self.entries.remove(at)?;
+        let plane = std::sync::Arc::clone(&entry.1);
+        self.entries.push_back(entry);
+        Some(plane)
+    }
+
+    /// Keep `plane` as the most recently used, dropping the least recently
+    /// used past either bound.
+    fn insert(&mut self, key: PlaneKey, plane: std::sync::Arc<Vec<Option<f64>>>) {
+        self.entries.retain(|(k, _)| *k != key);
+        self.entries.push_back((key, plane));
+        while self.entries.len() > 1
+            && (self.entries.len() > Self::ENTRIES
+                || self.entries.iter().map(|(_, p)| p.len()).sum::<usize>() > Self::CELLS)
+        {
+            self.entries.pop_front();
+        }
+    }
 }
 
 /// Lookup geometries keyed by the pair of 2-D coordinate variables whose
@@ -2047,7 +2113,7 @@ impl NetcdfHandle {
         Ok(Self {
             reader,
             view,
-            decoded: Mutex::new(std::collections::HashMap::new()),
+            planes: Mutex::new(PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
         })
     }
@@ -2418,62 +2484,74 @@ impl NetcdfHandle {
             })
     }
 
-    /// Decode-and-cache one variable's values by decode index.
-    fn cached_decode(&self, index: usize) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
-        if let Some(hit) = self
-            .decoded
-            .lock()
-            .expect("decode cache mutex poisoned")
-            .get(&index)
-        {
-            return Ok(std::sync::Arc::clone(hit));
-        }
-        let raw = self.reader.decode_variable_raw(index).into_napi()?;
-        let arc = std::sync::Arc::new(raw);
-        self.decoded
-            .lock()
-            .expect("decode cache mutex poisoned")
-            .insert(index, std::sync::Arc::clone(&arc));
-        Ok(arc)
-    }
-
-    /// Extract the chosen 2-D plane from the (cached) decoded variable and
-    /// unpack it to physical units. The decode returns raw on-disk codes with
-    /// only the fill / missing sentinels masked; `VarView::unpack` then applies
-    /// the CF `valid_range` mask and `scale_factor` / `add_offset`, so a packed
-    /// CF field (scaled `int16`, as GOES / MERRA-2 / ERA5 store it) renders and
-    /// labels in real units rather than integer codes (#184). Decode stays
-    /// decoupled from rendering; the same unpacking serves both backings.
+    /// One 2-D plane of a variable in physical units, read on its own and
+    /// kept in the handle's [`PlaneMemo`].
     ///
-    /// This is `NetcdfReader::decode_plane` with the decode replaced by the
-    /// handle's per-variable cache, which is what the animation and A/B-compare
-    /// paths re-slice without re-decoding.
+    /// The read is `NetcdfReader::decode_plane`: only the plane's bytes, or the
+    /// chunks it overlaps, then the CF `valid_range` mask and `scale_factor` /
+    /// `add_offset`, so a packed CF field (scaled `int16`, as GOES / MERRA-2 /
+    /// ERA5 store it) renders and labels in real units rather than integer
+    /// codes (#184). Decode stays decoupled from rendering; the same unpacking
+    /// serves both backings.
     fn slice_plane(
         &self,
         var: &RenderableVariable,
         y_dim: usize,
         x_dim: usize,
         slice_indices: &[u32],
-    ) -> napi::Result<Vec<Option<f64>>> {
-        let values = self.cached_decode(var.decode_index)?;
-        let shape = self.reader.variable_shape(var.decode_index).into_napi()?;
-        if slice_indices.len() != shape.len() {
+    ) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
+        let rank = var.dims.len();
+        if slice_indices.len() != rank {
             return Err(napi::Error::from_reason(format!(
-                "sliceIndices length {} does not match variable rank {}",
-                slice_indices.len(),
-                shape.len()
+                "sliceIndices length {} does not match variable rank {rank}",
+                slice_indices.len()
             )));
         }
-        let fixed: Vec<usize> = slice_indices.iter().map(|&i| i as usize).collect();
-        let plane = extract_plane(values.as_ref(), &shape, y_dim, x_dim, &fixed).into_napi()?;
-        // The reader's own `decode_plane` runs exactly this chain, but from the
-        // raw decode rather than the cache above, so the two halves are taken
-        // separately here. A variable missing from the view has no attributes to
-        // unpack with and passes through as decoded.
-        Ok(match self.view.var(var.decode_index) {
-            Some(v) => v.unpack(&plane),
-            None => plane,
-        })
+        // The two horizontal entries are ignored by the read, so they are not
+        // part of what names the plane either.
+        let fixed: Vec<usize> = slice_indices
+            .iter()
+            .enumerate()
+            .map(|(d, &i)| {
+                if d == y_dim || d == x_dim {
+                    0
+                } else {
+                    i as usize
+                }
+            })
+            .collect();
+        let key = PlaneKey {
+            variable: var.decode_index,
+            y_dim,
+            x_dim,
+            fixed,
+        };
+        if let Some(hit) = self
+            .planes
+            .lock()
+            .expect("plane memo mutex poisoned")
+            .get(&key)
+        {
+            return Ok(hit);
+        }
+        // `renderable` found the variable in this view, so it has the
+        // attributes the unpack reads.
+        let attributes = self.view.var(var.decode_index).ok_or_else(|| {
+            napi::Error::from_reason(format!(
+                "variable index {} has no attributes in this file's view",
+                var.decode_index
+            ))
+        })?;
+        let plane = self
+            .reader
+            .decode_plane(attributes, y_dim, x_dim, &key.fixed)
+            .into_napi()?;
+        let plane = std::sync::Arc::new(plane);
+        self.planes
+            .lock()
+            .expect("plane memo mutex poisoned")
+            .insert(key, std::sync::Arc::clone(&plane));
+        Ok(plane)
     }
 
     /// The cell-centre index for a curvilinear slice, or `None` when the slice
@@ -4702,9 +4780,89 @@ mod netcdf_slice_tests {
         NetcdfHandle {
             reader,
             view,
-            decoded: Mutex::new(std::collections::HashMap::new()),
+            planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
         }
+    }
+
+    /// `t2m(120, 721, 1440)` float32, about 2.5 GB decoded whole, of which two
+    /// one-plane chunks are stored (#939; provenance in the fixtures'
+    /// `NOTICE.md`).
+    const LARGE_SPARSE: &[u8] =
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc");
+
+    /// A variable too large to read whole draws one plane, and the handle keeps
+    /// the slices it read rather than the variable: a repeat is the same
+    /// allocation, and a scrub past the memo's bound lets the oldest go.
+    #[test]
+    fn a_plane_of_a_variable_too_large_to_read_whole_draws_and_is_kept() {
+        let handle = handle(LARGE_SPARSE);
+        let var = handle
+            .view
+            .renderable_variables()
+            .into_iter()
+            .find(|v| v.name == "t2m")
+            .expect("t2m is renderable");
+        let rendered = handle
+            .render_slice(var.decode_index as u32, 1, 2, vec![7, 0, 0], opts("source"))
+            .expect("a stored plane renders");
+        assert!(rendered.width > 0 && rendered.height > 0);
+
+        let first = handle.slice_plane(&var, 1, 2, &[7, 0, 0]).expect("plane");
+        assert_eq!(first.len(), 721 * 1440);
+        assert_eq!(first[0], Some(90.0));
+        // The horizontal entries are ignored, so they name the same plane.
+        let again = handle.slice_plane(&var, 1, 2, &[7, 5, 9]).expect("plane");
+        assert!(
+            std::sync::Arc::ptr_eq(&first, &again),
+            "a repeat read again"
+        );
+
+        for step in 0..PlaneMemo::ENTRIES as u32 {
+            let plane = handle
+                .slice_plane(&var, 1, 2, &[step + 20, 0, 0])
+                .expect("an unstored plane");
+            assert!(plane.iter().all(Option::is_none), "the fill value, masked");
+        }
+        let kept = handle.planes.lock().unwrap().entries.len();
+        assert_eq!(kept, PlaneMemo::ENTRIES);
+        let after = handle.slice_plane(&var, 1, 2, &[7, 0, 0]).expect("plane");
+        assert!(
+            !std::sync::Arc::ptr_eq(&first, &after),
+            "the oldest plane outlived the memo's bound"
+        );
+        assert_eq!(*after, *first);
+    }
+
+    /// The memo holds at most `ENTRIES` planes and `CELLS` cells, and always
+    /// the newest.
+    #[test]
+    fn the_plane_memo_is_bounded_in_planes_and_cells() {
+        let key = |variable| PlaneKey {
+            variable,
+            y_dim: 0,
+            x_dim: 1,
+            fixed: vec![0, 0],
+        };
+        let plane = |cells| std::sync::Arc::new(vec![None; cells]);
+        let mut memo = PlaneMemo::default();
+        for v in 0..10 {
+            memo.insert(key(v), plane(4));
+        }
+        let held: Vec<usize> = memo.entries.iter().map(|(k, _)| k.variable).collect();
+        assert_eq!(held, [6, 7, 8, 9]);
+        // A hit moves to the back, so it is the last to go.
+        assert!(memo.get(&key(6)).is_some());
+        memo.insert(key(10), plane(4));
+        let held: Vec<usize> = memo.entries.iter().map(|(k, _)| k.variable).collect();
+        assert_eq!(held, [8, 9, 6, 10]);
+        // A plane past the cell budget evicts everything older, and is kept.
+        memo.insert(key(11), plane(PlaneMemo::CELLS));
+        let held: Vec<usize> = memo.entries.iter().map(|(k, _)| k.variable).collect();
+        assert_eq!(held, [11]);
+        memo.insert(key(12), plane(PlaneMemo::CELLS + 1));
+        let held: Vec<usize> = memo.entries.iter().map(|(k, _)| k.variable).collect();
+        assert_eq!(held, [12]);
     }
 
     const SPECTRAL_T63: &[u8] =
@@ -6029,6 +6187,7 @@ mod netcdf_slice_tests {
             handle
                 .slice_plane(&renderable, 1, 2, &vec![0u32; var.dims.len()])
                 .expect("coordinate slice")
+                .to_vec()
         };
         let (xlat, xlong) = (coordinate_plane("XLAT"), coordinate_plane("XLONG"));
         for (k, row) in rows.iter().enumerate() {
@@ -7325,7 +7484,7 @@ mod curvilinear_render_tests {
         NetcdfHandle {
             reader,
             view,
-            decoded: Mutex::new(std::collections::HashMap::new()),
+            planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
         }
     }
@@ -7795,7 +7954,7 @@ mod curvilinear_render_tests {
         NetcdfHandle {
             reader,
             view,
-            decoded: Mutex::new(std::collections::HashMap::new()),
+            planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
         }
     }
@@ -8575,7 +8734,7 @@ mod coordinate_less_slice_placement_tests {
         let handle = NetcdfHandle {
             reader,
             view,
-            decoded: Mutex::new(std::collections::HashMap::new()),
+            planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
         };
         let index = handle

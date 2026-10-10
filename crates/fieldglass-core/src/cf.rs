@@ -34,7 +34,7 @@ pub mod resolvers;
 
 pub use geometry::{
     AxisKind, CurvilinearPair, RenderableArray, SliceGeometry, corner_and_regularity,
-    curvilinear_axes, curvilinear_pair, detect_axis, extract_plane, is_time_axis,
+    curvilinear_axes, curvilinear_pair, detect_axis, extract_plane, is_time_axis, read_plane,
     renderable_arrays, synthesize_geometry,
 };
 pub use placement::{

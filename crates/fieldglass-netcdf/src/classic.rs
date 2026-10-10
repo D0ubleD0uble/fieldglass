@@ -17,6 +17,8 @@
 //! with one exception: the records of a file's only record variable are not
 //! padded. Where each variable's data lies is the `layout` kernel's to say.
 
+use std::ops::Range;
+
 use fieldglass_core::bytes::{checked_usize, read_exact};
 use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
 
@@ -537,35 +539,8 @@ fn variable_layout(
     header: &ClassicHeader,
     var_index: usize,
 ) -> Result<(&Variable, VariableLayout), FieldglassError> {
-    let var = header
-        .variables
-        .get(var_index)
-        .ok_or_else(|| FieldglassError::out_of_range(var_index, header.variables.len()))?;
-
-    if matches!(var.nc_type, NcType::Char) {
-        return Err(FieldglassError::UnsupportedSection(format!(
-            "variable {:?} is char (text); numeric value decode does not apply",
-            var.name
-        )));
-    }
-
-    // The unlimited dimension, when present, must be the most significant
-    // (first) axis — NetCDF classic stores records by interleaving each record
-    // variable's per-record slab, so a record dim anywhere else is malformed.
+    let var = numeric_variable(header, var_index)?;
     let is_record_var = is_record_variable(header, var);
-    for (axis, &dim_id) in var.dim_ids.iter().enumerate() {
-        let is_record = header
-            .dimensions
-            .get(dim_id as usize)
-            .is_some_and(|d| d.is_record);
-        if is_record && axis != 0 {
-            return Err(FieldglassError::Parse(format!(
-                "variable {:?} places the unlimited dimension at axis {axis}; \
-                 NetCDF classic requires it first",
-                var.name
-            )));
-        }
-    }
 
     let shape = variable_shape(header, var_index)?;
     let total_u64 = layout::element_count(&shape).ok_or_else(|| {
@@ -642,6 +617,188 @@ fn variable_layout(
             slabs,
         },
     ))
+}
+
+/// The variable at `var_index`, checked as a value decode needs it: numeric,
+/// and with the unlimited dimension, if it has one, first.
+fn numeric_variable(
+    header: &ClassicHeader,
+    var_index: usize,
+) -> Result<&Variable, FieldglassError> {
+    let var = header
+        .variables
+        .get(var_index)
+        .ok_or_else(|| FieldglassError::out_of_range(var_index, header.variables.len()))?;
+
+    if matches!(var.nc_type, NcType::Char) {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "variable {:?} is char (text); numeric value decode does not apply",
+            var.name
+        )));
+    }
+
+    // The unlimited dimension, when present, must be the most significant
+    // (first) axis — NetCDF classic stores records by interleaving each record
+    // variable's per-record slab, so a record dim anywhere else is malformed.
+    for (axis, &dim_id) in var.dim_ids.iter().enumerate() {
+        let is_record = header
+            .dimensions
+            .get(dim_id as usize)
+            .is_some_and(|d| d.is_record);
+        if is_record && axis != 0 {
+            return Err(FieldglassError::Parse(format!(
+                "variable {:?} places the unlimited dimension at axis {axis}; \
+                 NetCDF classic requires it first",
+                var.name
+            )));
+        }
+    }
+    Ok(var)
+}
+
+/// The byte ranges a decode of `region` of `var_index` will read, derived from
+/// the header alone (#939) — [`variable_plan`] for part of a variable.
+///
+/// `region` holds one half-open element range per dimension, in declared
+/// order. Each range is one contiguous run of the region in the file: a run
+/// along the last dimension, or along an outer one when every dimension inside
+/// it is covered whole. A record variable's records are `recsize` apart, so a
+/// run never crosses from one record into the next. The ranges are in the
+/// region's C order, which is the order [`decode_region_raw_from`] decodes
+/// them in.
+pub fn region_plan(
+    header: &ClassicHeader,
+    var_index: usize,
+    region: &[Range<u64>],
+) -> Result<Vec<ByteRange>, FieldglassError> {
+    Ok(region_layout(header, var_index, region)?.1.ranges)
+}
+
+/// Decode `region` of one variable through a [`ByteSource`], reading only the
+/// bytes [`region_plan`] names (#939).
+///
+/// The values are what [`decode_variable_raw_from`] returns for the same
+/// elements — widened to `f64`, fill and missing sentinels masked — in the
+/// region's C order. A region of more than
+/// [`MAX_FIELD_POINTS`](fieldglass_core::MAX_FIELD_POINTS) elements is refused,
+/// as one field is; the variable's own size does not matter, which is the point.
+pub fn decode_region_raw_from<S: ByteSource>(
+    header: &ClassicHeader,
+    source: &S,
+    var_index: usize,
+    region: &[Range<u64>],
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    let (var, layout) = region_layout(header, var_index, region)?;
+    if layout.total == 0 {
+        return Ok(Vec::new());
+    }
+    // Every range lies inside the file, checked before anything is fetched,
+    // for the reason `decode_variable_raw_from` checks its slabs.
+    if let Some(past) = layout
+        .ranges
+        .iter()
+        .find(|r| r.end().is_none_or(|end| end > source.size()))
+    {
+        return Err(FieldglassError::Parse(format!(
+            "variable {:?}: {} bytes of the region at offset {} exceed source size {}",
+            var.name,
+            past.len,
+            past.start,
+            source.size()
+        )));
+    }
+    source.prefetch(&layout.ranges)?;
+
+    let fills = var.missing_sentinels();
+    let mut out: Vec<Option<f64>> = Vec::with_capacity(layout.total);
+    for range in &layout.ranges {
+        // `read_exact` for the reason the whole-variable decode gives (#707).
+        let bytes = read_exact(source, *range)?;
+        decode_slab(&bytes, var.nc_type, &fills, &mut out);
+    }
+    if out.len() != layout.total {
+        return Err(FieldglassError::Parse(format!(
+            "variable {:?} decoded {} of the region's {} elements",
+            var.name,
+            out.len(),
+            layout.total
+        )));
+    }
+    Ok(out)
+}
+
+/// A region's fetch plan and element count, without reading any data.
+fn region_layout<'h>(
+    header: &'h ClassicHeader,
+    var_index: usize,
+    region: &[Range<u64>],
+) -> Result<(&'h Variable, RegionLayout), FieldglassError> {
+    let var = numeric_variable(header, var_index)?;
+    let shape = variable_shape(header, var_index)?;
+    let total = crate::region::element_count(&shape, region)?;
+    if total == 0 {
+        return Ok((
+            var,
+            RegionLayout {
+                ranges: Vec::new(),
+                total,
+            },
+        ));
+    }
+    // The whole variable's element count must be a `u64` for every offset in
+    // it to be one; the region's runs are computed inside that.
+    layout::element_count(&shape).ok_or_else(|| {
+        FieldglassError::Parse(format!(
+            "variable {:?} shape {shape:?} overflows the element count",
+            var.name
+        ))
+    })?;
+    let elem = var.nc_type.element_size() as u64;
+    let overflow = || {
+        FieldglassError::Parse(format!(
+            "variable {:?}: a region offset overflows u64",
+            var.name
+        ))
+    };
+    // A fixed variable is one C-order array at `begin`. A record variable is
+    // one such array per record, the rest of its shape, `recsize` apart.
+    let mut bases = Vec::new();
+    let (inner_shape, inner_region) = if is_record_variable(header, var) {
+        let recsize = record_size(header)?;
+        for record in region[0].clone() {
+            bases.push(
+                record
+                    .checked_mul(recsize)
+                    .and_then(|o| var.begin.checked_add(o))
+                    .ok_or_else(overflow)?,
+            );
+        }
+        (&shape[1..], &region[1..])
+    } else {
+        bases.push(var.begin);
+        (&shape[..], region)
+    };
+    let runs = crate::region::runs(inner_shape, inner_region)?;
+    let mut ranges = Vec::with_capacity(bases.len().saturating_mul(runs.len()));
+    for &base in &bases {
+        for &(offset, len) in &runs {
+            let start = offset
+                .checked_mul(elem)
+                .and_then(|o| base.checked_add(o))
+                .ok_or_else(overflow)?;
+            let len = len.checked_mul(elem).ok_or_else(overflow)?;
+            start.checked_add(len).ok_or_else(overflow)?;
+            ranges.push(ByteRange::new(start, len));
+        }
+    }
+    Ok((var, RegionLayout { ranges, total }))
+}
+
+/// What a decode of one region of a variable needs: its ranges and its element
+/// count.
+struct RegionLayout {
+    ranges: Vec<ByteRange>,
+    total: usize,
 }
 
 /// Whether `var` is a record variable: its first dimension is the unlimited
@@ -1438,6 +1595,57 @@ mod tests {
         data.extend_from_slice(&(-1.0f32).to_be_bytes());
         let out = decode_variable_raw(&header, &data, 0).unwrap();
         assert_eq!(out, vec![Some(7.5), None]);
+    }
+
+    /// A classic whole-variable read meets the byte budget for its own type
+    /// (#943): 100 M `double`s, 2.4 GB at 24 bytes each, are refused where 100 M
+    /// `byte`s, 1.7 GB at 17, are not. The header is all `variable_plan` reads,
+    /// so no data is needed. A region of the refused variable still plans,
+    /// since a region is bounded by itself (#939).
+    // `&[5..10]` is a region of one axis, not a mistyped `Vec` of its values.
+    #[allow(clippy::single_range_in_vec_init)]
+    #[test]
+    fn a_whole_read_meets_the_byte_budget_for_its_type() {
+        use fieldglass_core::array::ArrayError;
+
+        const COUNT: u64 = 100_000_000;
+        let header = |nc_type: NcType, is_record: bool| ClassicHeader {
+            version: ClassicVersion::Cdf5,
+            numrecs: Some(if is_record { COUNT } else { 0 }),
+            dimensions: vec![Dimension {
+                name: "n".to_string(),
+                length: if is_record { 0 } else { COUNT },
+                is_record,
+            }],
+            global_attributes: Vec::new(),
+            variables: vec![var("v", vec![0], nc_type, 0, 1024)],
+        };
+        for is_record in [false, true] {
+            let refused = variable_plan(&header(NcType::Double, is_record), 0)
+                .expect_err("2.4 GB of doubles is past the budget");
+            assert!(
+                matches!(
+                    refused,
+                    FieldglassError::Array(ArrayError::VariableTooLarge {
+                        elements: COUNT,
+                        element_bytes: 8,
+                        ..
+                    })
+                ),
+                "record {is_record}: {refused:?}"
+            );
+            // A record variable's plan is a range per record, 100 M of them,
+            // so the narrower type is checked on the fixed variable alone.
+            if !is_record {
+                assert!(
+                    variable_plan(&header(NcType::Byte, is_record), 0).is_ok(),
+                    "1.7 GB of bytes is inside the budget"
+                );
+            }
+            let plane = region_plan(&header(NcType::Double, is_record), 0, &[5..10])
+                .expect("a region is not held to the whole-variable budget");
+            assert_eq!(plane.iter().map(|r| r.len).sum::<u64>(), 5 * 8);
+        }
     }
 
     #[test]

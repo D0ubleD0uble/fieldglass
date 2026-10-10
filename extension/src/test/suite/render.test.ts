@@ -661,9 +661,11 @@ suite("Render pipeline", () => {
   test("NetCDF: a 13 KB file whose variable reads whole as 2.9 GB is refused, not allocated (#847)", () => {
     // The fuzz seed's chunked dataset stores no chunks, so it reads whole as
     // its fill value: 146,800,704 four-byte values, 2.9 GB held at once. The
-    // handle reads and caches the whole variable before it picks a slice, so
-    // drawing one slice asked the extension host for all of it. The reader
-    // now refuses it past its 2 GiB budget, and the handle passes that on.
+    // handle used to read and cache the whole variable before it picked a
+    // slice, so drawing one slice asked the extension host for all of it. A
+    // slice is now read as a region, and this one, the whole 2-D variable, is
+    // past the values one field may hold, so it is refused before any is read
+    // (#939, #942).
     const native = loadNative();
     assert.ok(native, "native module must load");
     const ext = vscode.extensions.getExtension(EXT_ID);
@@ -680,7 +682,7 @@ suite("Render pipeline", () => {
     assert.ok(large, "the seed offers its large dataset");
     assert.throws(
       () => handle.renderSlice(large.variableIndex, 0, 1, [0, 0], defaultRenderOptions()),
-      /too large to read whole.*would take 2\.7 GiB.*more than the 2\.0 GiB.*The file itself is fine/,
+      /asks for 146800704 values at once.*more than the 67108864 one field may hold.*The file itself is fine/,
     );
   });
 });
@@ -1074,6 +1076,33 @@ suite("render-panel HTML", () => {
     assert.ok(/id="line-axis"/.test(sliceHtml), "and its axis picker");
     for (const [label, html] of [["message", renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, fakeMeta(), "summary", registry(), combineOps())], ["slice", sliceHtml]] as const) {
       assert.ok(/id="zonal-toggle"/.test(html), `the ${label} panel offers the zonal average (#240)`);
+    }
+  });
+
+  test("NetCDF: a variable too large to read whole draws one plane, and scrubs (#939)", () => {
+    // `t2m(120, 721, 1440)` float32 is about 2.5 GB decoded whole. The handle
+    // used to decode and keep the whole variable to draw one plane of it; it
+    // now reads the plane and the chunk under it. Two planes are stored, the
+    // rest read as the fill value.
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const ext = vscode.extensions.getExtension(EXT_ID);
+    assert.ok(ext, "extension is installed");
+    const file = path.join(
+      ext.extensionPath, "..", "crates", "fieldglass-netcdf", "tests", "fixtures",
+      "netcdf4_large_sparse.nc",
+    );
+    assert.ok(fs.existsSync(file), `fixture missing: ${file}`);
+    const handle = native.NetcdfHandle.fromBytes(fs.readFileSync(file));
+    const t2m = handle.variables().find((v) => v.name === "t2m");
+    assert.ok(t2m, "t2m is offered");
+    const stored = handle.renderSlice(t2m.variableIndex, 1, 2, [7, 0, 0], defaultRenderOptions());
+    assert.ok(stored.width > 0 && stored.height > 0);
+    assert.strictEqual(stored.usedMax, 90);
+    assert.strictEqual(stored.usedMin, -90);
+    for (let step = 0; step < 12; step++) {
+      const frame = handle.renderSlice(t2m.variableIndex, 1, 2, [step, 0, 0], defaultRenderOptions());
+      assert.strictEqual(frame.usedMax == null, step !== 7, `time step ${step}`);
     }
   });
 

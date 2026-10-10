@@ -684,13 +684,33 @@ fn a_hostile_shape_is_refused_rather_than_allocated() {
     let err = source
         .read_region("huge", &[0..1_000_000, 0..1_000_000])
         .expect_err("a trillion cells");
-    assert!(err.to_string().contains("elements"), "{err}");
+    // Core's one-field refusal, the one a NetCDF region meets too (#942).
+    assert!(
+        matches!(
+            err,
+            fieldglass_core::FieldglassError::Array(
+                fieldglass_core::array::ArrayError::FieldTooLarge {
+                    elements: 1_000_000_000_000,
+                    ..
+                }
+            )
+        ),
+        "{err}"
+    );
 
     // One cell, but of a chunk no read may decode.
     let err = source
         .read_region("huge", &[0..1, 0..1])
         .expect_err("the chunk is the problem");
-    assert!(err.to_string().contains("elements"), "{err}");
+    assert!(
+        matches!(
+            err,
+            fieldglass_core::FieldglassError::Array(
+                fieldglass_core::array::ArrayError::FieldTooLarge { .. }
+            )
+        ),
+        "{err}"
+    );
 
     // And a region past the shape is the array model's refusal, not a panic.
     assert!(source.read_region("huge", &[0..1_000_001, 0..1]).is_err());
