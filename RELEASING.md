@@ -300,7 +300,10 @@ runs `tools/check_packaged_crate_tests.py`, which packages the publishable
 crates, unpacks each outside the repository, points every sibling at its
 unpacked copy (so it never tests against a version on crates.io), and runs
 `cargo test` there. Run the same script locally with `--allow-dirty` to
-reproduce a failure. Nothing extra is needed before a release.
+reproduce a failure. A crate that enables a feature for its own tests through a
+dev-dependency on itself (`fieldglass-core`'s `testing`, the umbrella's `schema`)
+loses that line in the package, so the script runs it a second time with those
+features on. Nothing extra is needed before a release.
 
 ### npm
 
