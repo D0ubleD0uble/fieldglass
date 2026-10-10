@@ -16,6 +16,7 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import { reprojectionNote, UNPLACED_OVERLAY_NOTE } from "../../render-panel";
@@ -57,7 +58,12 @@ function indexOf(bytes: Buffer, name: string): number {
 async function changingFile(
   first: Buffer,
   name: string,
-): Promise<{ panel: RealPanel; change(bytes: Buffer): Promise<void>; done(): void }> {
+): Promise<{
+  panel: RealPanel;
+  change(bytes: Buffer): Promise<void>;
+  changeNow(bytes: Buffer): void;
+  done(): void;
+}> {
   const p = await provider();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-839-"));
   const file = path.join(dir, "changing.nc");
@@ -73,6 +79,18 @@ async function changingFile(
       editor.close();
       fs.writeFileSync(file, bytes);
       editor = await openEditor(p, file);
+    },
+    // The same change, done at once: the file changes and the document's
+    // handle is replaced, as opening it again replaces it, without waiting on
+    // the editor. For a change that has to land at a given moment.
+    changeNow: (bytes) => {
+      fs.writeFileSync(file, bytes);
+      const native = loadNative();
+      assert.ok(native, "native binding required");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const handles = (p as any)._netcdfHandlesByDoc as Map<string, unknown>;
+      assert.ok(handles.has(vscode.Uri.file(file).toString()), "the document has a handle to replace");
+      handles.set(vscode.Uri.file(file).toString(), native.NetcdfHandle.fromBytes(bytes));
     },
     done: () => {
       panel.dispose();
@@ -237,6 +255,8 @@ suite("The render panel's own script", function () {
       // Nothing is chosen, so any variable picked is a change, the first one
       // included; until then no other control asks for a render.
       assert.strictEqual(state.sliceVariable, "", "the picker has nothing chosen");
+      // Play waits on each frame, and none would be asked for.
+      assert.strictEqual(state.playDisabled, true, "Play is off until a variable is picked");
       const asked = panel.received.length;
       await panel.drive([{ id: "flip-y", checked: false }]);
       assert.deepStrictEqual(
@@ -253,6 +273,7 @@ suite("The render panel's own script", function () {
       assert.match(drawn.titleLine, / — CMI\b/);
       state = await panel.drive([]);
       assert.strictEqual(state.sliceVariable, "CMI");
+      assert.strictEqual(state.playDisabled, false, "and Play is back");
     } finally {
       done();
     }
@@ -287,6 +308,37 @@ suite("The render panel's own script", function () {
         [`gridError ${refused.error}`],
         "nothing drawn from the old numbers",
       );
+    } finally {
+      done();
+    }
+  });
+
+  // The file changes, and changes again while the panel is being rewritten for
+  // it. The rewritten page numbers its variables as the second file does, and
+  // its first request must be checked against the third.
+  test("a file that changes again while the panel is rewritten is read afresh (#839)", async () => {
+    const first = fs.readFileSync(netcdfFixture("missing_value_classic.nc"));
+    const second = fs.readFileSync(netcdfFixture("cf_packed_data.nc"));
+    const third = fs.readFileSync(netcdfFixture("record_mixed_cdf1.nc"));
+    assert.strictEqual(indexOf(third, "a"), indexOf(second, "temp"), "the third file has a at temp's number in the second");
+    const { panel, change, changeNow, done } = await changingFile(first, "temp");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await change(second);
+      // The next change lands as the panel is written for the second file,
+      // before that page can say it is ready.
+      panel.onNextWrite(() => changeNow(third));
+      const from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      const reply = await panel.waitSent(drawnOrRefused, from, "the render after both changes");
+      assert.strictEqual(
+        reply.type,
+        "gridError",
+        `drew message ${reply.messageIndex} titled "${reply.titleLine}" instead of refusing`,
+      );
+      assert.match(reply.error, /temp is no longer in the file/);
+      const state = await panel.drive([]);
+      assert.deepStrictEqual(state.sliceVariables, ["a", "b"], "the third file's variables");
     } finally {
       done();
     }

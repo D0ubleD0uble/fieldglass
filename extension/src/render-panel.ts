@@ -1161,8 +1161,17 @@ export function renderImagePanelHtml(
           return nextFrame(sliceState.sliceIndices[dim], v.dims[dim].length, step, loop);
         }
 
+        // Play is off while the panel waits for a variable to be picked: a frame
+        // would not be asked for, and playback would wait on it for good.
+        function setAwaitingPick(on) {
+          awaitingPick = on;
+          if (on) stopAnimation();
+          const play = document.getElementById('anim-play');
+          if (play) play.disabled = on;
+        }
+
         function playAnimation() {
-          if (animation || animationDim() == null) return;
+          if (animation || awaitingPick || animationDim() == null) return;
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const auto = !mode || mode.value !== 'manual';
           animation = {
@@ -1238,7 +1247,7 @@ export function renderImagePanelHtml(
             varSel.addEventListener('change', () => {
               const v = sliceVariable(Number(varSel.value));
               if (!v) return;
-              awaitingPick = false;
+              setAwaitingPick(false);
               // New variable → reset axes to its detected horizontals (falling
               // back to the first two dims) and zero the held indices.
               const yDim = v.detectedYDim != null ? v.detectedYDim : 0;
@@ -1600,7 +1609,7 @@ export function renderImagePanelHtml(
           if (msg.pickVariable === true) {
             const varSel = document.getElementById('slice-variable');
             if (varSel) varSel.selectedIndex = -1;
-            awaitingPick = true;
+            setAwaitingPick(true);
           }
           // Self-heal the one render error the log toggle can cause: switching
           // to a field with no positive floor while log was on. Drop log and

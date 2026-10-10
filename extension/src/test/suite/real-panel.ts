@@ -56,6 +56,8 @@ export interface PageState {
   title: string;
   /** The status line under the image. */
   status: string;
+  /** Whether the Animate row's Play button is disabled. */
+  playDisabled: boolean;
   canvasVisibility: string;
 }
 
@@ -98,6 +100,7 @@ const DRIVER = `
         sliceVariables: variable ? Array.from(variable.options).map((o) => o.textContent) : null,
         title: byId('title-line').textContent,
         status: byId('status').textContent,
+        playDisabled: !!(byId('anim-play') && byId('anim-play').disabled),
         canvasVisibility: byId('canvas').style.visibility,
       };
     }
@@ -147,6 +150,9 @@ export interface RealPanel {
   /** Write the panel again the way an imported colormap does, which reloads
    *  the page from its HTML and restores its saved state. */
   rebuild(): void;
+  /** Run `cb` once, as the provider next writes the page, before the new page
+   *  can send anything. */
+  onNextWrite(cb: () => void): void;
   dispose(): void;
 }
 
@@ -166,6 +172,7 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
   const received: Msg[] = [];
   const sent: Msg[] = [];
   let made: vscode.WebviewPanel | undefined;
+  let nextWrite: (() => void) | undefined;
   const origCreate = vscode.window.createWebviewPanel;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (vscode.window as any).createWebviewPanel = (...args: Parameters<typeof origCreate>) => {
@@ -182,7 +189,12 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
     Object.defineProperty(webview, "html", {
       configurable: true,
       get: () => get.call(webview),
-      set: (v: string) => set.call(webview, withDriver(v)),
+      set: (v: string) => {
+        set.call(webview, withDriver(v));
+        const cb = nextWrite;
+        nextWrite = undefined;
+        cb?.();
+      },
     });
     const post = webview.postMessage.bind(webview);
     webview.postMessage = (m: Msg) => {
@@ -235,6 +247,9 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
         throw new Error(`${err.message}; the provider sent [${got.join(", ")}]`);
       }),
     rebuild: build,
+    onNextWrite: (cb) => {
+      nextWrite = cb;
+    },
     dispose: () => panel.dispose(),
   };
 }

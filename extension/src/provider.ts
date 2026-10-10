@@ -1610,7 +1610,11 @@ export class FieldglassEditorProvider
           if (awaitingReady) {
             if (m.type !== "ready") return;
             awaitingReady = false;
-          } else if (current && current !== pageHandle) {
+          }
+          // Checked for the new page's ready as well: the handle can have
+          // changed again while that page loaded, and its numbers are then the
+          // previous file's.
+          if (current && current !== pageHandle) {
             adopt(current, (m as { slice?: SliceSpec }).slice);
             return;
           }
