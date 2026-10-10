@@ -68,6 +68,13 @@ pub fn aligned(a: &Source<'_>, b: &Source<'_>) -> Result<(), Error> {
     // readers build, so every host hands over an `Ok` here and the arm had no
     // caller left. A raster no coordinates place is `Ok(Unsupported)`, which
     // compares by its label and still combines with itself.
+    //
+    // A grid a reader *declined* is `Ok(Unsupported)` too, under its family's
+    // name, and the same hazard came back with it: two §3.30 grids on a
+    // zero-radius Earth read alike whatever their first points (#962). So a
+    // declined grid carries a fingerprint of the parameters its file declares,
+    // and `==` compares that as well: the same message twice still combines,
+    // and two that declare different grids do not.
     match (&a.geometry, &b.geometry) {
         (Ok(ga), Ok(gb)) if same_grid(ga, gb) => Ok(()),
         (Ok(ga), Ok(gb)) => Err(mismatch("grid", &describe(ga), &describe(gb))),
@@ -203,6 +210,18 @@ fn mismatch(property: &str, a: &str, b: &str) -> Error {
 /// longer reads as a geographic position the field is nowhere near.
 pub(crate) fn describe(g: &GridGeometry) -> String {
     let mut out = g.label().to_string();
+    // A declined grid has no shape or plane to show, and two of one family
+    // differ only here, so say which declaration each is.
+    if let GridGeometry::Unsupported {
+        declared: Some(declared),
+        ..
+    } = g
+    {
+        out.push_str(&format!(
+            " (not built; declared as {})",
+            String::from(*declared)
+        ));
+    }
     if let Some((ni, nj)) = g.dims() {
         out.push_str(&format!(" {ni}x{nj}"));
     }

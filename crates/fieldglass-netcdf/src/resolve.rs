@@ -31,6 +31,8 @@ impl NetcdfReader {
     /// whenever no family could place the grid. That is a real answer, not an
     /// error: the raster is still renderable in its own source projection, and
     /// it is the *safe* answer for a projected CRS this build cannot resolve.
+    /// A `geostationary` mapping whose numbers describe no camera is declined
+    /// as `space_view` instead (#961).
     pub fn slice_geometry(
         &self,
         view: &DatasetView,

@@ -842,7 +842,75 @@ pub enum GridGeometry {
     Unsupported {
         /// The grid type as the decoder named it.
         label: String,
+        /// For a declined grid, a fingerprint of the parameters its file
+        /// declares; `None` for a grid nothing declared, such as a raster no
+        /// coordinates place.
+        ///
+        /// What keeps two declined grids apart. A label names only the family,
+        /// so two §3.30 grids on a zero-radius Earth whose first points differ
+        /// would otherwise compare equal and combine cell for cell (#962). Left
+        /// off the wire when `None`.
+        #[cfg_attr(
+            feature = "serde",
+            serde(default, skip_serializing_if = "Option::is_none")
+        )]
+        declared: Option<GridFingerprint>,
     },
+}
+
+/// A fingerprint of the parameters a file declares for a grid, so two grids
+/// nothing could build can still be told apart (#962).
+///
+/// FNV-1a over what the reader fed it, in order: the bytes of a GRIB2 §3, or a
+/// CF grid mapping's attributes and its coordinate axes. Not cryptographic:
+/// the question is whether two messages in one session declared the same
+/// grid, not whether an adversary can make two collide. It crosses the wire
+/// as 16 hex digits, since a JavaScript number holds only 53 bits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(into = "String", try_from = "String"))]
+pub struct GridFingerprint(u64);
+
+impl GridFingerprint {
+    /// The fingerprint of nothing, to fold inputs into.
+    pub const EMPTY: Self = Self(0xcbf2_9ce4_8422_2325);
+
+    /// This fingerprint with `bytes` folded in.
+    #[must_use]
+    pub fn with_bytes(self, bytes: &[u8]) -> Self {
+        let mut h = self.0;
+        for &b in bytes {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        Self(h)
+    }
+
+    /// The fingerprint of `bytes` alone.
+    #[must_use]
+    pub fn of(bytes: &[u8]) -> Self {
+        Self::EMPTY.with_bytes(bytes)
+    }
+}
+
+impl From<GridFingerprint> for String {
+    fn from(f: GridFingerprint) -> Self {
+        format!("{:016x}", f.0)
+    }
+}
+
+impl TryFrom<String> for GridFingerprint {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        // Checked digit by digit: `from_str_radix` also takes a leading `+`.
+        if s.len() != 16 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!("a grid fingerprint is 16 hex digits, not {s:?}"));
+        }
+        u64::from_str_radix(&s, 16)
+            .map(Self)
+            .map_err(|_| format!("a grid fingerprint is 16 hex digits, not {s:?}"))
+    }
 }
 
 /// Every name a decoder gives a family [`GridGeometry`] has a variant for:
@@ -915,7 +983,7 @@ impl GridGeometry {
     /// slice from this, so they cannot name the same grid two ways (#808).
     pub fn label(&self) -> &str {
         match self {
-            Self::Unsupported { label } => label,
+            Self::Unsupported { label, .. } => label,
             Self::Lookup(_) => "curvilinear",
             other => other.kind(),
         }
@@ -925,8 +993,8 @@ impl GridGeometry {
     /// could not be built from its own numbers, and `None` otherwise.
     ///
     /// A reader declines such a grid as [`Unsupported`](Self::Unsupported)
-    /// under the family's own name: a §3.90 whose camera sees no Earth reads
-    /// `space_view`, and a §3.1 or §3.12 stating a non-finite angle or scale
+    /// under the family's own name: a §3.90 or a CF `geostationary` mapping
+    /// whose camera sees no Earth reads `space_view` (#961), and a §3.1 or §3.12 stating a non-finite angle or scale
     /// factor reads `rotated_latlon` or `transverse_mercator` (#823). Its label
     /// then names a family the build *does* support, so a refusal worded "not
     /// yet supported for grid type …" would contradict itself (#843). This is
@@ -936,7 +1004,7 @@ impl GridGeometry {
     /// all answer `None`.
     pub fn declined_family(&self) -> Option<&str> {
         match self {
-            Self::Unsupported { label } if MODELLED_FAMILIES.contains(&label.as_str()) => {
+            Self::Unsupported { label, .. } if MODELLED_FAMILIES.contains(&label.as_str()) => {
                 Some(label)
             }
             _ => None,
@@ -3447,6 +3515,7 @@ mod grid_questions_tests {
         assert!(
             !GridGeometry::Unsupported {
                 label: "healpix".to_string(),
+                declared: None,
             }
             .reprojectable(Scan::north_down())
         );
@@ -3564,6 +3633,7 @@ mod grid_questions_tests {
         assert!(
             !GridGeometry::Unsupported {
                 label: "healpix".to_string(),
+                declared: None,
             }
             .is_periodic_x()
         );
@@ -3657,6 +3727,7 @@ mod grid_questions_tests {
         assert_eq!(
             GridGeometry::Unsupported {
                 label: "healpix".to_string(),
+                declared: None,
             }
             .render_window(),
             None
@@ -4127,6 +4198,7 @@ mod subsample_tests {
         // Including for the families that decline every other reduction.
         let unmodelled = GridGeometry::Unsupported {
             label: "unsupported(3.99)".to_string(),
+            declared: None,
         };
         assert_eq!(unmodelled.subsampled(0).as_ref(), Some(&unmodelled));
     }
@@ -4150,7 +4222,8 @@ mod subsample_tests {
         );
         assert_eq!(
             GridGeometry::Unsupported {
-                label: "spherical_harmonic".to_string()
+                label: "spherical_harmonic".to_string(),
+                declared: None,
             }
             .subsampled(1),
             None
@@ -4398,6 +4471,7 @@ mod declined_family_tests {
             for name in [g.kind(), g.label()] {
                 let declined = GridGeometry::Unsupported {
                     label: name.to_string(),
+                    declared: None,
                 };
                 assert_eq!(declined.declined_family(), Some(name), "{name}");
             }
@@ -4407,6 +4481,7 @@ mod declined_family_tests {
         for name in ["reduced_latlon", "reduced_gaussian"] {
             let declined = GridGeometry::Unsupported {
                 label: name.to_string(),
+                declared: None,
             };
             assert_eq!(declined.declined_family(), Some(name));
         }
@@ -4430,8 +4505,76 @@ mod declined_family_tests {
         ] {
             let g = GridGeometry::Unsupported {
                 label: label.to_string(),
+                declared: None,
             };
             assert_eq!(g.declined_family(), None, "{label:?}");
+        }
+    }
+
+    /// A declined grid's fingerprint is part of its identity and of its wire
+    /// form, as 16 hex digits a JavaScript number cannot round (#962). A grid
+    /// with none keeps the wire form it always had.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn a_declined_grid_is_told_apart_by_what_it_declares() {
+        let declined = |bytes: &[u8]| GridGeometry::Unsupported {
+            label: "lambert".to_string(),
+            declared: Some(GridFingerprint::of(bytes)),
+        };
+        assert_eq!(declined(b"one grid"), declined(b"one grid"));
+        assert_ne!(declined(b"one grid"), declined(b"another grid"));
+        assert_ne!(
+            declined(b""),
+            GridGeometry::Unsupported {
+                label: "lambert".to_string(),
+                declared: None,
+            }
+        );
+        assert_eq!(declined(b"").declined_family(), Some("lambert"));
+
+        // FNV-1a's published test vector for "a".
+        let a = declined(b"a");
+        let json = serde_json::to_value(&a).expect("serialises");
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "kind": "unsupported",
+                "label": "lambert",
+                "declared": "af63dc4c8601ec8c",
+            })
+        );
+        let back: GridGeometry = serde_json::from_value(json).expect("reads back");
+        assert_eq!(back, a);
+
+        let unplaced = GridGeometry::Unsupported {
+            label: "source".to_string(),
+            declared: None,
+        };
+        let json = serde_json::to_value(&unplaced).expect("serialises");
+        assert_eq!(
+            json,
+            serde_json::json!({ "kind": "unsupported", "label": "source" })
+        );
+        assert_eq!(
+            serde_json::from_value::<GridGeometry>(json).expect("reads back"),
+            unplaced
+        );
+
+        for bad in [
+            "af63dc4c8601ec8",
+            "+f63dc4c8601ec8c",
+            "xf63dc4c8601ec8c",
+            "",
+        ] {
+            assert!(
+                serde_json::from_value::<GridGeometry>(serde_json::json!({
+                    "kind": "unsupported",
+                    "label": "lambert",
+                    "declared": bad,
+                }))
+                .is_err(),
+                "{bad:?}"
+            );
         }
     }
 }

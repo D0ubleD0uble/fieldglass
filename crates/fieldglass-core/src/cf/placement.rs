@@ -17,7 +17,8 @@
 //! 2. **WRF `MAP_PROJ`.** A WRF domain's `x`/`y` are projected metres. It is
 //!    checked before CF because WRF files carry both, and the global attributes
 //!    are the more specific statement.
-//! 3. **CF `grid_mapping`.** `geostationary` resolves; `latitude_longitude`
+//! 3. **CF `grid_mapping`.** `geostationary` resolves, or is declined as
+//!    `space_view` when its numbers describe no camera; `latitude_longitude`
 //!    falls through to (4); **anything else stops here** — see the guard below.
 //! 4. **1-D lat/lon coordinate arrays.** Reached only when no projection
 //!    resolved, which CF makes safe: a projected CRS is *required* to name a
@@ -52,7 +53,7 @@ use super::resolvers::{
 };
 use crate::FieldglassError;
 use crate::array::{ArraySource, Attribute, AttributeValue, attribute};
-use crate::projection::{GridGeometry, LatLonParams, Scan};
+use crate::projection::{GridFingerprint, GridGeometry, LatLonParams, Scan};
 use crate::spatial_index::SpatialIndex;
 
 /// How an array's CF `grid_mapping_name` routes through the precedence.
@@ -133,6 +134,56 @@ fn unordered(geometry: GridGeometry) -> SlicePlacement {
 fn source_only() -> GridGeometry {
     GridGeometry::Unsupported {
         label: SOURCE_ONLY.to_string(),
+        declared: None,
+    }
+}
+
+/// A CF `geostationary` mapping whose numbers describe no camera, declined
+/// under the family the file states.
+///
+/// `space_view` rather than [`SOURCE_ONLY`], because the file did state a
+/// family this build models: a GRIB2 §3.90 with the same defect is declined as
+/// `space_view`, and the refusals then say its geometry could not be built
+/// rather than that nothing placed it (#961). That covers a required attribute
+/// that is missing as well as one that is out of range, since both are the
+/// mapping's own numbers building no grid. A mapping whose slice has no `x`/`y`
+/// coordinate arrays stays [`SOURCE_ONLY`]: nothing in the file says where its
+/// cells are, which is the case that label exists for.
+///
+/// The fingerprint folds in every attribute of the mapping and both axes, so
+/// two slices that share them still combine and two that do not are refused
+/// (#962).
+fn declined_space_view(gm_attrs: &[Attribute], x: &[f64], y: &[f64]) -> GridGeometry {
+    let mut f = GridFingerprint::EMPTY;
+    for a in gm_attrs {
+        f = f
+            .with_bytes(&(a.name.len() as u64).to_le_bytes())
+            .with_bytes(a.name.as_bytes());
+        f = match &a.value {
+            AttributeValue::Numbers(values) => {
+                let f = f
+                    .with_bytes(&[0])
+                    .with_bytes(&(values.len() as u64).to_le_bytes());
+                values
+                    .iter()
+                    .fold(f, |f, v| f.with_bytes(&v.to_bits().to_le_bytes()))
+            }
+            AttributeValue::Text(text) | AttributeValue::Opaque(text) => f
+                .with_bytes(&[1])
+                .with_bytes(&(text.len() as u64).to_le_bytes())
+                .with_bytes(text.as_bytes()),
+        };
+    }
+    for axis in [x, y] {
+        f = f.with_bytes(&(axis.len() as u64).to_le_bytes());
+        f = axis
+            .iter()
+            .fold(f, |f, v| f.with_bytes(&v.to_bits().to_le_bytes()));
+    }
+    GridGeometry::Unsupported {
+        // `GridGeometry::Geostationary`'s kind, which `declined_family` reads.
+        label: "space_view".to_string(),
+        declared: Some(f),
     }
 }
 
@@ -149,7 +200,9 @@ fn no_such_array(array: &str) -> FieldglassError {
 /// Returns [`GridGeometry::Unsupported`] with the label [`SOURCE_ONLY`]
 /// whenever no family could place the grid. That is a real answer, not an
 /// error: the raster is still renderable in its own source projection, and it
-/// is the *safe* answer for a projected CRS this build cannot resolve.
+/// is the *safe* answer for a projected CRS this build cannot resolve. The one
+/// exception is a `geostationary` mapping whose own numbers describe no
+/// camera, which is declined as `space_view`, the family it states (#961).
 ///
 /// # Errors
 ///
@@ -206,7 +259,7 @@ pub fn slice_placement(
                 return Ok(unordered(match (x, y) {
                     (Some(x), Some(y)) => resolve_cf_geostationary(gm_attrs, &x, &y)
                         .as_ref()
-                        .map_or_else(source_only, GridGeometry::from),
+                        .map_or_else(|| declined_space_view(gm_attrs, &x, &y), GridGeometry::from),
                     _ => source_only(),
                 }));
             }

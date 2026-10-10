@@ -270,7 +270,11 @@ fn a_lookup_geometry_reports_itself_correctly() {
     assert!(at(3.0, 3.0).is_some());
     // Every formula family stays `Any`, so nothing was downgraded by accident.
     assert_eq!(
-        GridGeometry::Unsupported { label: "x".into() }.resampling(),
+        GridGeometry::Unsupported {
+            label: "x".into(),
+            declared: None,
+        }
+        .resampling(),
         GridResampling::Any
     );
 }
