@@ -20,6 +20,8 @@
     ``geostationary`` parameters and the 1-D ``x``/``y`` *radian* scan-angle
     coordinate variables are stored as scaled ``int16`` (the real GOES on-disk
     encoding), exercising CF ``scale_factor``/``add_offset``.
+  * ``goes_geostationary_classic.nc`` — the same dataset as a classic file, so
+    a test can edit one grid-mapping attribute in place (#844).
 
 All four are **regular grids in a projected CRS** (Model A in decision 0004),
 deliberately tiny so they stay byte-small in git. The coordinate geometry is
@@ -402,8 +404,37 @@ def build_goes() -> None:
                                 "y": float(y_rad[j]), "lat": ll[0], "lon": ll[1]})
             rad[j, i] = 100.0 + i + 10 * j
 
-    path = FIXTURES / "goes_geostationary.nc"
-    with netCDF4.Dataset(path, "w", format="NETCDF4") as d:
+    # The NetCDF-4 file, and a classic twin of it (#844). The twin's header has
+    # no checksum, so a test can overwrite one grid-mapping attribute in place
+    # (stored big-endian, each value once) and read the edited file through the
+    # real reader. The HDF5 object header checksums its attributes.
+    for name, fmt in [("goes_geostationary.nc", "NETCDF4"),
+                      ("goes_geostationary_classic.nc", "NETCDF3_CLASSIC")]:
+        write_goes(FIXTURES / name, fmt, lon0, pph, r_eq, r_pol,
+                   (x_rad, xs, xo), (y_rad, ys, yo), rad)
+        print(f"  wrote {name} ({(FIXTURES / name).stat().st_size} bytes)")
+
+    oracle = {
+        "projection": "geostationary",
+        "longitude_of_projection_origin": lon0,
+        "perspective_point_height": pph,
+        "semi_major_axis": r_eq, "semi_minor_axis": r_pol,
+        "h_metres": h, "sweep_angle_axis": "x", "nx": nx, "ny": ny,
+        "x_scale_factor": xs, "x_add_offset": xo,
+        "y_scale_factor": ys, "y_add_offset": yo,
+        "samples": samples,
+    }
+    (FIXTURES / "goes_geostationary.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
+    print("  wrote goes_geostationary.nc.oracle.json")
+
+
+def write_goes(path, fmt, lon0, pph, r_eq, r_pol, x, y, rad) -> None:
+    """Write the GOES fixture's dataset to ``path`` in netCDF4 format ``fmt``.
+    ``x`` and ``y`` are each ``(radians, scale_factor, add_offset)``."""
+    x_rad, xs, xo = x
+    y_rad, ys, yo = y
+    ny, nx = rad.shape
+    with netCDF4.Dataset(path, "w", format=fmt) as d:
         d.setncatts({"title": "synthetic GOES ABI fixed-grid fixture",
                      "Conventions": "CF-1.7"})
         d.createDimension("y", ny)
@@ -430,19 +461,6 @@ def build_goes() -> None:
         vr = d.createVariable("Rad", "f4", ("y", "x"), contiguous=True)
         vr.setncatts({"units": "W m-2 sr-1 um-1", "grid_mapping": "goes_imager_projection"})
         vr[:, :] = rad
-
-    oracle = {
-        "projection": "geostationary",
-        "longitude_of_projection_origin": lon0,
-        "perspective_point_height": pph,
-        "semi_major_axis": r_eq, "semi_minor_axis": r_pol,
-        "h_metres": h, "sweep_angle_axis": "x", "nx": nx, "ny": ny,
-        "x_scale_factor": xs, "x_add_offset": xo,
-        "y_scale_factor": ys, "y_add_offset": yo,
-        "samples": samples,
-    }
-    (FIXTURES / "goes_geostationary.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
-    print(f"  wrote {path.name} ({path.stat().st_size} bytes) + oracle")
 
 
 def main() -> int:

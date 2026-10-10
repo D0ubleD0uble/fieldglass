@@ -145,13 +145,22 @@ fn bifourier_affordable(reader: &Grib2Reader, i: usize) -> bool {
 /// refuses an image that disagrees with the field before decoding it (#848),
 /// so a codestream it does decode costs about the field's own sample count;
 /// before, a 300-byte message on a 1 × 1 grid could carry an 8192 × 8192
-/// codestream, about 14 s of wavelet transform. JPEG 2000 costs far more per
-/// sample than the other packings: a single-tile 1024 × 1024 image is about
-/// 190 ms, so eight messages stay near 1.5 s, and 2048 × 2048 is 0.8 s each,
-/// which is why this is below `FUZZ_MAX_FIELD_POINTS`. Gating on SIZ rather
-/// than on the field still admits every small codestream that disagrees with
-/// its field, so the reader's refusal stays fuzzed.
-const FUZZ_MAX_J2K_SAMPLES: u64 = 1 << 20;
+/// codestream, about 14 s of wavelet transform.
+///
+/// The cost per sample is set by the coded bytes, not by the file's size
+/// (#838). A header-only codestream whose code-blocks declare the most passes
+/// (164, so the full 88 coding passes over each sample at 30 bit-planes) with
+/// 0xFF as the coded byte costs about 25 µs per sample on the fuzz build, a
+/// fifth of a second per 2^13 samples; the empty packets behind the earlier
+/// 1024 × 1024 figure (190 ms) did no such work. At 2^20 samples that is about
+/// 26 s for one message (6.5 s measured at 2^18). At 2^14 (128 × 128) one
+/// message is about 0.41 s and eight, the most an input decodes, 3.3 s, a third
+/// of the run's ten-second timeout. That counts one decode per message, which
+/// is why the HEALPix resample below is not run on a JPEG 2000 message: it
+/// decodes the values a second time. Gating on SIZ rather than on the field
+/// still admits every small codestream that disagrees with its field, so the
+/// reader's refusal stays fuzzed.
+const FUZZ_MAX_J2K_SAMPLES: u64 = 1 << 14;
 
 /// `rust_j2k`'s own guard on the image area, which its SIZ validation refuses
 /// before it allocates (`MAX_IMAGE_SAMPLES` there, not exported).
@@ -243,11 +252,15 @@ fuzz_target!(|data: &[u8]| {
             //
             // Its HEALPix arm decodes the message's values first, through
             // `decode_message_values`, so it is gated as that call is.
+            //
+            // Not on a JPEG 2000 message: the resample would decode it a second
+            // time, doubling the worst case `FUZZ_MAX_J2K_SAMPLES` is sized for
+            // (#838), and the decode itself is fuzzed above. Every other
+            // packing still reaches the resample.
             if field
-                && reader
-                    .messages
-                    .get(i)
-                    .is_some_and(|m| m.gds.spherical_harmonic().is_none())
+                && reader.messages.get(i).is_some_and(|m| {
+                    m.gds.spherical_harmonic().is_none() && m.drs.jpeg2000().is_none()
+                })
             {
                 let _ = reader.synthesize_message_global(i);
             }
