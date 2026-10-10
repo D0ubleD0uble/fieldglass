@@ -159,9 +159,13 @@ suite("The render panel's own script", function () {
       await panel.drive([{ id: "slice-variable", value: temperature }]);
       const drawn = await panel.waitSent(isType("gridReady"), from, "temperature again");
       assert.strictEqual(drawn.sliceGrid.placed, true);
+      // On the map target saved before the editor closed: a missing handle
+      // says nothing about the slice, so it did not overwrite that choice.
+      assert.strictEqual(drawn.options.projection, "equirectangular", "the saved map target survives");
       await panel.waitSent(isType("overlayReady"), from, "the coastlines again");
       state = await panel.drive([]);
       assert.ok(state.projectionOffers.includes("equirectangular"), `got ${state.projectionOffers.join(", ")}`);
+      assert.strictEqual(state.projection, "equirectangular");
       assert.strictEqual(state.reprojectNote, null);
       assert.strictEqual(state.overlayDisabled, false);
       assert.strictEqual(state.overlayNote, null);
@@ -208,8 +212,8 @@ suite("The render panel's own script", function () {
     // Both two-dimensional, so the old number draws in the new file.
     const first = fs.readFileSync(netcdfFixture("missing_value_classic.nc"));
     const second = fs.readFileSync(netcdfFixture("goes16_abi_cmip.nc"));
-    assert.strictEqual(indexOf(second, "CMI"), indexOf(first, "temp"), "the new file has CMI at temp's number");
-    const dqf = indexOf(second, "DQF");
+    const cmi = indexOf(second, "CMI");
+    assert.strictEqual(cmi, indexOf(first, "temp"), "the new file has CMI at temp's number");
     const { panel, change, done } = await changingFile(first, "temp");
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
@@ -230,15 +234,59 @@ suite("The render panel's own script", function () {
       assert.match(state.status, /temp is no longer in the file/);
       assert.deepStrictEqual(state.sliceVariables, ["CMI", "DQF"]);
       assert.ok(!/ — temp\b/.test(state.title), `the heading "${state.title}" does not name temp`);
+      // Nothing is chosen, so any variable picked is a change, the first one
+      // included; until then no other control asks for a render.
+      assert.strictEqual(state.sliceVariable, "", "the picker has nothing chosen");
+      const asked = panel.received.length;
+      await panel.drive([{ id: "flip-y", checked: false }]);
+      assert.deepStrictEqual(
+        panel.received.slice(asked).filter((m) => m.type === "rerenderRequest"),
+        [],
+        "no render before a variable is picked",
+      );
 
-      // Picking one of the new file's variables draws it.
+      // Picking one of the new file's variables draws it, here the first.
       from = panel.sent.length;
-      await panel.drive([{ id: "slice-variable", value: dqf }]);
-      const drawn = await panel.waitSent(drawnOrRefused, from, "DQF");
+      await panel.drive([{ id: "slice-variable", value: cmi }]);
+      const drawn = await panel.waitSent(drawnOrRefused, from, "CMI");
       assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
-      assert.match(drawn.titleLine, / — DQF\b/);
+      assert.match(drawn.titleLine, / — CMI\b/);
       state = await panel.drive([]);
-      assert.strictEqual(state.sliceVariable, "DQF");
+      assert.strictEqual(state.sliceVariable, "CMI");
+    } finally {
+      done();
+    }
+  });
+
+  // Two changes leave the page back to back, after the file changed. The first
+  // has the panel rewritten; the second is already on its way, naming the
+  // variable by its old number, and must not be read from the new file.
+  test("requests already sent when the file changed are not read from the new file (#839)", async () => {
+    const first = fs.readFileSync(netcdfFixture("missing_value_classic.nc"));
+    const second = fs.readFileSync(netcdfFixture("goes16_abi_cmip.nc"));
+    assert.strictEqual(indexOf(second, "CMI"), indexOf(first, "temp"), "the new file has CMI at temp's number");
+    const { panel, change, done } = await changingFile(first, "temp");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await change(second);
+      const from = { sent: panel.sent.length, received: panel.received.length };
+      await panel.drive([
+        { id: "flip-y", checked: true },
+        { id: "reverse-colormap", checked: true },
+      ]);
+      assert.strictEqual(
+        panel.received.slice(from.received).filter((m) => m.type === "rerenderRequest").length,
+        2,
+        "two renders asked for, back to back",
+      );
+      const refused = await panel.waitSent(isType("gridError"), from.sent, "the refusal");
+      assert.match(refused.error, /temp is no longer in the file/);
+      await panel.drive([]);
+      assert.deepStrictEqual(
+        panel.sent.slice(from.sent).filter(drawnOrRefused).map((m: Msg) => `${m.type} ${m.titleLine ?? m.error}`),
+        [`gridError ${refused.error}`],
+        "nothing drawn from the old numbers",
+      );
     } finally {
       done();
     }

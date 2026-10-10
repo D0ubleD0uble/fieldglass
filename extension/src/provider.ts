@@ -169,6 +169,8 @@ interface SlicePanelSubject {
   exportDir: vscode.Uri;
   /** The container's name, which the caption opens with: `"NetCDF"`, `"Zarr"`. */
   container: string;
+  /** What the container is, for a message about it: `"file"`, `"store"`. */
+  noun: string;
 }
 
 export class FieldglassEditorProvider
@@ -1231,6 +1233,7 @@ export class FieldglassEditorProvider
         gone: "NetCDF handle was disposed",
         exportDir: vscode.Uri.joinPath(document.uri, ".."),
         container: "NetCDF",
+        noun: "file",
       },
       handle,
       variableIndex,
@@ -1254,6 +1257,7 @@ export class FieldglassEditorProvider
         // folder is where a user expects an export to land.
         exportDir: storeUri,
         container: "Zarr",
+        noun: "store",
       },
       handle,
       variableIndex,
@@ -1335,6 +1339,10 @@ export class FieldglassEditorProvider
     // Said in place of the first render after that, when the variable the page
     // was showing is no longer in the file.
     let refusal: string | null = null;
+    // Set from the rewrite until the new page says it is ready. Anything the old
+    // page sent before it was replaced is still on its way, and names variables
+    // by the old numbers, so it is dropped rather than read from the new file.
+    let awaitingReady = false;
     const adopt = (current: SlicePanelHandle, asked: SliceSpec | undefined): void => {
       const name = (variables.find((v) => v.variableIndex === asked?.variableIndex) ?? initialVar).name;
       const next = current.variables();
@@ -1344,7 +1352,7 @@ export class FieldglassEditorProvider
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: asked?.variableIndex ?? initial.variableIndex,
-          error: `The ${subject.container} file no longer has a variable to draw.`,
+          error: `The ${subject.container} ${subject.noun} no longer has a variable to draw.`,
           sliceGrid: sliceAnswer(null),
         } satisfies GridErrorMessage);
         return;
@@ -1354,9 +1362,10 @@ export class FieldglassEditorProvider
       initialVar = opened;
       initial = defaultSliceSpec(opened);
       slice = { variables, initial };
-      refusal = same ? null : `${name} is no longer in the file, so it was not drawn. Pick a variable.`;
+      refusal = same ? null : `${name} is no longer in the ${subject.noun}, so nothing was drawn. Pick a variable to draw.`;
       const grid = gridOf(current, initial);
       shown = { meta: sliceField(opened, grid), grid };
+      awaitingReady = true;
       write();
     };
 
@@ -1377,6 +1386,7 @@ export class FieldglassEditorProvider
           messageIndex: spec.variableIndex,
           error: subject.gone,
           sliceGrid: sliceAnswer(null),
+          handleGone: true,
         } satisfies GridErrorMessage);
         return;
       }
@@ -1596,9 +1606,14 @@ export class FieldglassEditorProvider
       ) => {
         if (!m || typeof m.type !== "string") return;
         const current = subject.handle();
-        if (current && current !== pageHandle && m.type !== "exportPng") {
-          adopt(current, (m as { slice?: SliceSpec }).slice);
-          return;
+        if (m.type !== "exportPng") {
+          if (awaitingReady) {
+            if (m.type !== "ready") return;
+            awaitingReady = false;
+          } else if (current && current !== pageHandle) {
+            adopt(current, (m as { slice?: SliceSpec }).slice);
+            return;
+          }
         }
         if (m.type === "ready" && refusal !== null) {
           const spec = (m as { slice?: SliceSpec }).slice ?? initial;
@@ -1607,6 +1622,7 @@ export class FieldglassEditorProvider
             messageIndex: spec.variableIndex,
             error: refusal,
             sliceGrid: sliceAnswer(current ? gridOf(current, spec) : null),
+            pickVariable: true,
           } satisfies GridErrorMessage);
           refusal = null;
           return;
@@ -1754,6 +1770,13 @@ export interface GridErrorMessage {
    *  not it drew, so a failed render does not leave them on the previous
    *  slice's answer. Absent for a GRIB panel. */
   sliceGrid?: SliceAnswer;
+  /** The panel has no handle, because the document's editor closed. The
+   *  answer is then about the handle, not the slice, so the panel withdraws
+   *  the map targets without saving that as the user's choice (#839). */
+  handleGone?: boolean;
+  /** The variable the panel was showing is gone from a file that changed, and
+   *  nothing was drawn: the panel asks for a variable to be picked (#839). */
+  pickVariable?: boolean;
 }
 
 /** `overlayRequest` posted by the render panel when an overlay layer is

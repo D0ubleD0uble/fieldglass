@@ -208,6 +208,7 @@ suite("Export CSV command (slice panel)", () => {
         gone: "handle was disposed",
         exportDir: vscode.Uri.joinPath(doc.uri, ".."),
         container: "test",
+        noun: "file",
       }, {
         variableIndex: 0,
         yDim: 0,

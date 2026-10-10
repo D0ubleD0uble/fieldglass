@@ -716,6 +716,13 @@ export function renderImagePanelHtml(
         // payload, and keying on one left a panel whose first render failed
         // unable to ask for another (#839).
         let mountAnswered = false;
+        // The map target chosen before the panel lost its handle, kept for the
+        // snapshot while the picker offers only the source view (#839).
+        let heldProjection = null;
+        // Set while the picker waits for a variable to replace one gone from
+        // the file; a render asked for meanwhile would draw a variable nobody
+        // chose (#839).
+        let awaitingPick = false;
 
         // --- NetCDF slice picker (#122) -------------------------------------
         // SLICE is null for the GRIB panels; for NetCDF it carries the
@@ -1046,8 +1053,16 @@ export function renderImagePanelHtml(
         // them (#822) and so does the Overlay row (#840). A failed render would
         // otherwise leave both on the previous slice's answer. A GRIB panel's
         // messages carry none.
-        function applySliceAnswer(sliceGrid) {
+        //
+        // handleGone says the answer is about the panel having no handle (its
+        // editor closed), not about the slice. The map targets go, but the one
+        // selected is kept for the snapshot, so a panel restored once the file
+        // is open again draws on it (heldProjection).
+        function applySliceAnswer(sliceGrid, handleGone) {
           if (!sliceGrid) return;
+          const picker = document.getElementById('picker-projection');
+          if (!handleGone) heldProjection = null;
+          else if (heldProjection === null && picker && picker.value !== 'source') heldProjection = picker.value;
           if (applySliceGrid(sliceGrid)) {
             syncProjectionControls();
             snapshotState();
@@ -1223,6 +1238,7 @@ export function renderImagePanelHtml(
             varSel.addEventListener('change', () => {
               const v = sliceVariable(Number(varSel.value));
               if (!v) return;
+              awaitingPick = false;
               // New variable → reset axes to its detected horizontals (falling
               // back to the first two dims) and zero the held indices.
               const yDim = v.detectedYDim != null ? v.detectedYDim : 0;
@@ -1412,6 +1428,7 @@ export function renderImagePanelHtml(
             // Initial mount: provider posts ready-options-default automatically.
             return;
           }
+          if (awaitingPick) return;
           vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(), sliceFields(), compareRequest()));
           setStatus('Rendering…');
         }
@@ -1530,7 +1547,7 @@ export function renderImagePanelHtml(
           // Before the overlay and contour keys below are read, so overlays are
           // asked for in the projection the image was drawn in, and only for a
           // slice that is placed.
-          applySliceAnswer(msg.sliceGrid);
+          applySliceAnswer(msg.sliceGrid, false);
           blit(msg);
           updateLogAvailability();
           animationFrameArrived();
@@ -1576,7 +1593,15 @@ export function renderImagePanelHtml(
           const err = msg.error || 'render failed';
           mountAnswered = true;
           setStatus('Error: ' + err);
-          applySliceAnswer(msg.sliceGrid);
+          applySliceAnswer(msg.sliceGrid, msg.handleGone === true);
+          // The variable the panel was showing is gone from its file, and the
+          // picker is left with nothing chosen: whichever variable is picked
+          // then is a change, and draws. Until then nothing is asked for.
+          if (msg.pickVariable === true) {
+            const varSel = document.getElementById('slice-variable');
+            if (varSel) varSel.selectedIndex = -1;
+            awaitingPick = true;
+          }
           // Self-heal the one render error the log toggle can cause: switching
           // to a field with no positive floor while log was on. Drop log and
           // re-render linearly rather than leaving the panel stuck on an error.
@@ -2545,7 +2570,7 @@ export function renderImagePanelHtml(
             return el ? el.value : undefined;
           };
           vscode.setState({
-            projection: val('picker-projection'),
+            projection: heldProjection !== null ? heldProjection : val('picker-projection'),
             centerLon: val('picker-center-lon'),
             centerLat: val('picker-center-lat'),
             polarPreset: val('picker-preset-polar'),
