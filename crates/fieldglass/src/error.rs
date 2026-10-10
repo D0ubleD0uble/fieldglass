@@ -32,8 +32,9 @@ pub enum Error {
     },
     /// The operation is defined but this message's family does not support it —
     /// a grid with no geometry asked to warp, a spectral field asked to probe —
-    /// or the file is valid and the read is too large to make at once, such as
-    /// a whole NetCDF variable past the reader's memory budget.
+    /// or the file is valid and the read is too large to make at once: a whole
+    /// NetCDF variable past the reader's memory budget, or a slice, a region or
+    /// a Zarr chunk of more values than one field may hold.
     Unsupported {
         /// Which operation, and what about this message refuses it.
         detail: String,
@@ -124,13 +125,14 @@ impl From<FieldglassError> for Error {
         // `Decode` — which is what happened before #707 gave it a variant — told
         // a host its file was corrupt when its transfer was truncated, and those
         // call for opposite responses. A variable past the whole-variable
-        // budget is a valid file asked for too much at once, not a corrupt
-        // one, so it is `Unsupported` rather than `Decode` (#847). Everything
-        // else is still the long tail.
+        // budget, or a read past the one-field cap, is a valid file asked for
+        // too much at once, not a corrupt one, so it is `Unsupported` rather
+        // than `Decode` (#847, #942). Everything else is still the long tail.
         match e {
             FieldglassError::ShortRead { at, got, wanted } => Self::ShortRead { at, got, wanted },
             FieldglassError::Array(
-                too_large @ fieldglass_core::array::ArrayError::VariableTooLarge { .. },
+                too_large @ (fieldglass_core::array::ArrayError::VariableTooLarge { .. }
+                | fieldglass_core::array::ArrayError::FieldTooLarge { .. }),
             ) => Self::Unsupported {
                 detail: too_large.to_string(),
             },

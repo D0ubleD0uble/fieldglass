@@ -26,6 +26,7 @@ pub mod geometry;
 pub mod hdf5;
 pub mod projection;
 pub mod reader;
+mod region;
 pub mod resolve;
 
 pub use classic::{Attribute, ClassicHeader, ClassicVersion, Dimension, NcType, Variable};

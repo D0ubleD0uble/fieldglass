@@ -20,8 +20,7 @@ use std::borrow::Borrow;
 use std::ops::Range;
 
 use fieldglass_core::FieldglassError;
-use fieldglass_core::array::{ArraySource, Group, LeftOut, copy_block};
-use fieldglass_core::bytes::checked_usize;
+use fieldglass_core::array::{ArraySource, Group, LeftOut};
 
 use crate::geometry::DatasetView;
 use crate::reader::NetcdfReader;
@@ -109,9 +108,9 @@ impl<R: Borrow<NetcdfReader>, V: Borrow<DatasetView>> ArraySource for NetcdfArra
             .collect()
     }
 
-    /// Decodes the whole variable and cuts the region out of it, which is what
-    /// every NetCDF read has always cost: neither backing decodes a sub-region
-    /// of a variable yet. The values are the raw decode's, fill and missing
+    /// Reads the region alone, through [`NetcdfReader::decode_region_raw`]:
+    /// the bytes of its runs in a classic file, the chunks it overlaps in a
+    /// NetCDF-4 one (#939). The values are the raw decode's, fill and missing
     /// sentinels already masked.
     fn read_region(
         &self,
@@ -126,30 +125,6 @@ impl<R: Borrow<NetcdfReader>, V: Borrow<DatasetView>> ArraySource for NetcdfArra
             .ok_or_else(|| {
                 FieldglassError::Parse(format!("this file holds no variable {array:?}"))
             })?;
-        let reader = self.reader();
-        let shape = reader.variable_shape(var.decode_index)?;
-        if region.len() != shape.len() {
-            return Err(FieldglassError::Parse(format!(
-                "`{array}` has {} dimensions, and the region states {}",
-                shape.len(),
-                region.len()
-            )));
-        }
-        let mut count = 1usize;
-        for (axis, (range, &extent)) in region.iter().zip(&shape).enumerate() {
-            if range.start > range.end || range.end > extent {
-                return Err(FieldglassError::Parse(format!(
-                    "region {}..{} is outside dimension {axis} of `{array}` (length {extent})",
-                    range.start, range.end
-                )));
-            }
-            count = count
-                .checked_mul(checked_usize(range.end - range.start, "region length")?)
-                .ok_or_else(|| FieldglassError::Parse("region overflows usize".into()))?;
-        }
-        let raw = reader.decode_variable_raw(var.decode_index)?;
-        let mut out = vec![None; count];
-        copy_block(&raw, &shape, &vec![0; shape.len()], region, &mut out);
-        Ok(out)
+        self.reader().decode_region_raw(var.decode_index, region)
     }
 }

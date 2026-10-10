@@ -3,9 +3,12 @@
 //! superblock probe. See `classic.rs` and `hdf5.rs` for the per-layout work.
 
 use crate::classic::{self, ClassicHeader};
-use crate::geometry::{DatasetView, VarView, extract_plane};
+#[cfg(doc)]
+use crate::geometry::extract_plane;
+use crate::geometry::{DatasetView, VarView};
 use crate::hdf5::{self, Hdf5Probe};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::CfUnpacking;
 
 /// Which on-disk layout backs a NetCDF file.
 #[derive(Debug, Clone)]
@@ -96,6 +99,39 @@ impl NetcdfReader {
         }
     }
 
+    /// Decode part of one variable: `region` holds one half-open element range
+    /// per dimension, in declared order, and the values come back in the
+    /// region's C order, masked as [`Self::decode_variable_raw`] masks them
+    /// (#939).
+    ///
+    /// Reads only the region. A classic variable reads the bytes of its runs; a
+    /// chunked NetCDF-4 variable decompresses the chunks the region overlaps
+    /// and no others. So a plane of a large variable costs the plane, plus the
+    /// chunks it covers, rather than the variable — which is what makes one
+    /// that is too large to read whole drawable. Every value equals the one
+    /// [`Self::decode_variable_raw`] holds at the same position.
+    ///
+    /// # Errors
+    ///
+    /// A region of the wrong rank or past the variable's shape, one of more
+    /// than [`fieldglass_core::MAX_FIELD_POINTS`] elements, and anything a whole
+    /// decode of the variable would refuse for its type or storage.
+    pub fn decode_region_raw(
+        &self,
+        var_index: usize,
+        region: &[std::ops::Range<u64>],
+    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+        match &self.backing {
+            NetcdfBacking::Classic(header) => {
+                classic::decode_region_raw_from(header, &self.data, var_index, region)
+            }
+            NetcdfBacking::Hdf5(probe) => {
+                let addr = hdf5_dataset_address(&self.data, probe, var_index)?;
+                hdf5::values::read_dataset_region(&self.data, addr, probe, region)
+            }
+        }
+    }
+
     /// Resolve a NetCDF-4 / HDF5 file's metadata — named dimensions, variables
     /// with ordered dimension lists, and global attributes — across the whole
     /// file, descending into nested groups (#219, variables path-qualified as
@@ -158,10 +194,8 @@ impl NetcdfReader {
     ///
     /// Resolves [`Self::view`] to reach the attributes, which for the HDF5
     /// backing walks every dataset. A caller decoding many variables should
-    /// hold one view and take [`Self::decode_plane`] per variable; a caller
-    /// re-slicing *one* variable wants neither, since both decode it again —
-    /// cache [`Self::decode_variable_raw`] yourself and apply
-    /// [`VarView::unpack`] to each plane, which is what the render host does.
+    /// hold one view and take [`Self::decode_plane`] per variable, which also
+    /// reads only the plane rather than the whole variable.
     ///
     /// Errors for a decodable index the view has no variable for — a NetCDF-4
     /// pure-dimension placeholder, which carries no attributes and so has no
@@ -181,20 +215,23 @@ impl NetcdfReader {
     }
 
     /// Decode one 2-D plane of a variable in CF physical units — the whole chain
-    /// in one call, in the order it has to run: decode, then [`extract_plane`],
-    /// then the CF mask-and-scale.
+    /// in one call, in the order it has to run: read the plane, then the CF
+    /// mask-and-scale.
     ///
     /// `y_dim` / `x_dim` are axis positions within the variable's declared (C)
     /// dimension order, and `fixed` holds one index per dimension for the axes
     /// neither of them names (its entries for `y_dim` and `x_dim` are ignored),
-    /// exactly as [`extract_plane`] takes them. The output is row-major over the
+    /// exactly as [`extract_plane`] takes them, and the output is what
+    /// [`extract_plane`] returns from the whole variable: row-major over the
     /// picked plane, `nj` rows of `ni` values.
+    ///
+    /// Reads the plane alone through [`Self::decode_region_raw`] (#939), so it
+    /// costs one plane whatever the variable's size, and a caller pulling many
+    /// planes out of one variable needs no decode of its own to hold.
     ///
     /// Takes the [`VarView`] rather than a bare index because the CF attributes
     /// live on it: passing it in is what keeps this from re-resolving the view
-    /// per call. It still decodes the variable on every call, so pulling many
-    /// planes out of one variable wants a cached decode and [`VarView::unpack`]
-    /// per plane instead.
+    /// per call.
     pub fn decode_plane(
         &self,
         var: &VarView,
@@ -202,10 +239,11 @@ impl NetcdfReader {
         x_dim: usize,
         fixed: &[usize],
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
-        let raw = self.decode_variable_raw(var.decode_index)?;
         let shape = self.variable_shape(var.decode_index)?;
-        let plane = extract_plane(&raw, &shape, y_dim, x_dim, fixed)?;
-        Ok(var.unpack(&plane))
+        let plane = fieldglass_core::cf::read_plane(&shape, y_dim, x_dim, fixed, |region| {
+            self.decode_region_raw(var.decode_index, region)
+        })?;
+        Ok(CfUnpacking::from_attributes(&var.array.attributes).apply_owned(plane))
     }
 }
 

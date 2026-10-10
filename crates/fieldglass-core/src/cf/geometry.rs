@@ -524,6 +524,84 @@ pub fn extract_plane(
     Ok(out)
 }
 
+/// Read one 2-D plane (`y_dim × x_dim`) of an array through a region read,
+/// rather than out of the whole array as [`extract_plane`] does (#939).
+///
+/// `shape` is the array's axis lengths in declared order, and `y_dim`,
+/// `x_dim` and `fixed` are as [`extract_plane`] takes them. `read` is asked
+/// for one region — the full extent of the two horizontal axes and one index
+/// of every other — so a container that reads by chunk or by offset reads only
+/// the plane. The region comes back in the array's declared axis order, so an
+/// array whose X axis precedes its Y is transposed into rows here; the output
+/// is `nj` rows of `ni` values, exactly what [`extract_plane`] returns for the
+/// same arguments.
+///
+/// One implementation for every container: `Session` reads a plane through
+/// `ArraySource::read_region` with it, and the NetCDF reader through its own
+/// region decode.
+///
+/// # Errors
+///
+/// The axis assignment and the held indices are checked before `read` is
+/// called, in the words [`extract_plane`] uses; then whatever `read` returns,
+/// and a region read that comes back the wrong length.
+pub fn read_plane(
+    shape: &[u64],
+    y_dim: usize,
+    x_dim: usize,
+    fixed: &[usize],
+    read: impl FnOnce(&[std::ops::Range<u64>]) -> Result<Vec<Option<f64>>, FieldglassError>,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    let rank = shape.len();
+    if y_dim >= rank || x_dim >= rank || y_dim == x_dim {
+        return Err(FieldglassError::Parse(format!(
+            "invalid axis assignment y_dim={y_dim} x_dim={x_dim} for rank {rank}"
+        )));
+    }
+    if fixed.len() != rank {
+        return Err(FieldglassError::Parse(format!(
+            "fixed index vector length {} does not match rank {rank}",
+            fixed.len()
+        )));
+    }
+    let mut region = Vec::with_capacity(rank);
+    for (d, &extent) in shape.iter().enumerate() {
+        if d == y_dim || d == x_dim {
+            region.push(0..extent);
+            continue;
+        }
+        let at = fixed[d] as u64;
+        if at >= extent {
+            return Err(FieldglassError::Parse(format!(
+                "slice index {} out of range for dimension {d} (length {extent})",
+                fixed[d]
+            )));
+        }
+        region.push(at..at + 1);
+    }
+    let raw = read(&region)?;
+    let ni = checked_usize(shape[x_dim], "NetCDF dimension length")?;
+    let nj = checked_usize(shape[y_dim], "NetCDF dimension length")?;
+    if Some(raw.len()) != ni.checked_mul(nj) {
+        return Err(FieldglassError::Parse(format!(
+            "a {nj} x {ni} plane read back {} values",
+            raw.len()
+        )));
+    }
+    if y_dim < x_dim {
+        return Ok(raw);
+    }
+    // Stored with `x` outer and `y` inner: `raw[i·nj + j]` is the cell at row
+    // `j`, column `i`.
+    let mut rows = Vec::with_capacity(raw.len());
+    for j in 0..nj {
+        for i in 0..ni {
+            rows.push(raw[i * nj + j]);
+        }
+    }
+    Ok(rows)
+}
+
 /// The synthesised geometry of a 2-D slice — a regular `"latlon"` grid plus a
 /// flag for the picker when the coordinate spacing is irregular (so geolocation
 /// is approximate).

@@ -381,7 +381,7 @@ export function applyReprojectable(
  *  render sends it composed (`GridReadyMessage.sliceGrid`), so the panel script
  *  carries no copy of the wording. */
 export function reprojectionNote(reprojectable: boolean, label: string | null): string {
-  return reprojectable ? "" : "Reprojection isn't available for " + (label ?? "this") + " grids yet.";
+  return reprojectable ? "" : "Reprojection isn't available for " + (label === null ? "this grid" : label + " grids") + " yet.";
 }
 
 /** Whether the render panel offers its overlays for a field: the map layers,
@@ -710,6 +710,19 @@ export function renderImagePanelHtml(
         // (projection / resampling / flip-y / range). The cached payload
         // lets us redraw after a tab hide/show without a round-trip.
         let lastPayload = null;
+        // Whether the provider has answered the mount's own render, with an
+        // image or an error. Until it has, a control change waits for that
+        // answer rather than asking again. After an error there is still no
+        // payload, and keying on one left a panel whose first render failed
+        // unable to ask for another (#839).
+        let mountAnswered = false;
+        // The map target chosen before the panel lost its handle, kept for the
+        // snapshot while the picker offers only the source view (#839).
+        let heldProjection = null;
+        // Set while the picker waits for a variable to replace one gone from
+        // the file; a render asked for meanwhile would draw a variable nobody
+        // chose (#839).
+        let awaitingPick = false;
 
         // --- NetCDF slice picker (#122) -------------------------------------
         // SLICE is null for the GRIB panels; for NetCDF it carries the
@@ -1035,6 +1048,28 @@ export function renderImagePanelHtml(
           applyContoursOnly();
         }
 
+        // Take a slice panel's answers for the slice picked, which come with a
+        // render and with a render's error alike (#839): the picker follows
+        // them (#822) and so does the Overlay row (#840). A failed render would
+        // otherwise leave both on the previous slice's answer. A GRIB panel's
+        // messages carry none.
+        //
+        // handleGone says the answer is about the panel having no handle (its
+        // editor closed), not about the slice. The map targets go, but the one
+        // selected is kept for the snapshot, so a panel restored once the file
+        // is open again draws on it (heldProjection).
+        function applySliceAnswer(sliceGrid, handleGone) {
+          if (!sliceGrid) return;
+          const picker = document.getElementById('picker-projection');
+          if (!handleGone) heldProjection = null;
+          else if (heldProjection === null && picker && picker.value !== 'source') heldProjection = picker.value;
+          if (applySliceGrid(sliceGrid)) {
+            syncProjectionControls();
+            snapshotState();
+          }
+          applySlicePlacement(sliceGrid.placed);
+        }
+
         // A cross-section has no projection and no coastlines to draw on it.
         function syncCrossSectionMode() {
           const cross = isCrossSection();
@@ -1126,8 +1161,17 @@ export function renderImagePanelHtml(
           return nextFrame(sliceState.sliceIndices[dim], v.dims[dim].length, step, loop);
         }
 
+        // Play is off while the panel waits for a variable to be picked: a frame
+        // would not be asked for, and playback would wait on it for good.
+        function setAwaitingPick(on) {
+          awaitingPick = on;
+          if (on) stopAnimation();
+          const play = document.getElementById('anim-play');
+          if (play) play.disabled = on;
+        }
+
         function playAnimation() {
-          if (animation || animationDim() == null) return;
+          if (animation || awaitingPick || animationDim() == null) return;
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const auto = !mode || mode.value !== 'manual';
           animation = {
@@ -1203,6 +1247,7 @@ export function renderImagePanelHtml(
             varSel.addEventListener('change', () => {
               const v = sliceVariable(Number(varSel.value));
               if (!v) return;
+              setAwaitingPick(false);
               // New variable → reset axes to its detected horizontals (falling
               // back to the first two dims) and zero the held indices.
               const yDim = v.detectedYDim != null ? v.detectedYDim : 0;
@@ -1388,10 +1433,11 @@ export function renderImagePanelHtml(
         }
 
         function requestRender() {
-          if (!lastPayload) {
+          if (!mountAnswered) {
             // Initial mount: provider posts ready-options-default automatically.
             return;
           }
+          if (awaitingPick) return;
           vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(), sliceFields(), compareRequest()));
           setStatus('Rendering…');
         }
@@ -1489,6 +1535,7 @@ export function renderImagePanelHtml(
 
         function handleGridReady(msg) {
           lastPayload = msg;
+          mountAnswered = true;
           // Re-label for the field actually drawn. A NetCDF panel switches
           // variables inside one webview, and name/units travel with the
           // variable; a GRIB panel sends the same strings every time, so this
@@ -1505,16 +1552,11 @@ export function renderImagePanelHtml(
           if (subtitle) subtitle.textContent = SUB_LINE;
           if (typeof msg.parameterUnits === 'string') UNITS = msg.parameterUnits;
           if (typeof msg.defaultPngName === 'string') DEFAULT_PNG_NAME = msg.defaultPngName;
-          // A slice panel's picker follows the slice on screen (#822). Before the
-          // overlay key below is read, so overlays are asked for in the
-          // projection the image was drawn in.
-          if (msg.sliceGrid && applySliceGrid(msg.sliceGrid)) {
-            syncProjectionControls();
-            snapshotState();
-          }
-          // The overlays follow whether it is placed (#840), also before the
-          // overlay and contour keys below are read.
-          if (msg.sliceGrid) applySlicePlacement(msg.sliceGrid.placed);
+          // A slice panel's picker and Overlay row follow the slice on screen.
+          // Before the overlay and contour keys below are read, so overlays are
+          // asked for in the projection the image was drawn in, and only for a
+          // slice that is placed.
+          applySliceAnswer(msg.sliceGrid, false);
           blit(msg);
           updateLogAvailability();
           animationFrameArrived();
@@ -1558,7 +1600,17 @@ export function renderImagePanelHtml(
           // A frame that fails ends playback rather than retrying it forever.
           stopAnimation();
           const err = msg.error || 'render failed';
+          mountAnswered = true;
           setStatus('Error: ' + err);
+          applySliceAnswer(msg.sliceGrid, msg.handleGone === true);
+          // The variable the panel was showing is gone from its file, and the
+          // picker is left with nothing chosen: whichever variable is picked
+          // then is a change, and draws. Until then nothing is asked for.
+          if (msg.pickVariable === true) {
+            const varSel = document.getElementById('slice-variable');
+            if (varSel) varSel.selectedIndex = -1;
+            setAwaitingPick(true);
+          }
           // Self-heal the one render error the log toggle can cause: switching
           // to a field with no positive floor while log was on. Drop log and
           // re-render linearly rather than leaving the panel stuck on an error.
@@ -2527,7 +2579,7 @@ export function renderImagePanelHtml(
             return el ? el.value : undefined;
           };
           vscode.setState({
-            projection: val('picker-projection'),
+            projection: heldProjection !== null ? heldProjection : val('picker-projection'),
             centerLon: val('picker-center-lon'),
             centerLat: val('picker-center-lat'),
             polarPreset: val('picker-preset-polar'),
@@ -2564,6 +2616,11 @@ export function renderImagePanelHtml(
             contourInterval: val('contour-interval'),
             contoursOnly: chk('contours-only'),
             slice: sliceState,
+            // The variable by name as well as by index: a panel rewritten for
+            // a file that changed under it restores by name (#839).
+            sliceName: sliceState && sliceVariable(sliceState.variableIndex)
+              ? sliceVariable(sliceState.variableIndex).name
+              : undefined,
           });
         }
 
@@ -2596,7 +2653,8 @@ export function renderImagePanelHtml(
           // for, which a hide and show brings back even after the picker moved
           // on (#822). A saved map target is offered again here, and the
           // provider's first render — which draws it, or the source view if the
-          // restored slice cannot take it — says which, through applySliceGrid.
+          // restored slice cannot take it — says which, through applySliceAnswer.
+          // So does its error, if that render fails (#839).
           if (SLICE && !mapsOffered && MAP_PROJECTIONS.some((t) => t.value === s.projection)) {
             const projection = document.getElementById('picker-projection');
             if (projection) projection.innerHTML = projectionOptionsHtml(MAP_PROJECTIONS, true);
@@ -2662,23 +2720,38 @@ export function renderImagePanelHtml(
           applyContoursOnly();
           // NetCDF slice: adopt the saved spec only if it still describes a
           // variable in this panel with sane axes; indices clamp per dimension.
-          const v = SLICE && s.slice ? sliceVariable(s.slice.variableIndex) : undefined;
+          // The variable is found by name when the snapshot has one: a panel
+          // rewritten for a file that changed under it numbers its variables
+          // afresh, and an index the new file reuses names another variable
+          // (#839). One it no longer has leaves the panel's own default.
+          const v = !SLICE || !s.slice
+            ? undefined
+            : typeof s.sliceName === 'string'
+              ? SLICE.variables.find((x) => x.name === s.sliceName)
+              : sliceVariable(s.slice.variableIndex);
+          const clampTo = (dims, saved) => dims.map((d, i) => {
+            const raw = Math.floor(Number(saved[i]) || 0);
+            return Math.min(Math.max(0, raw), Math.max(0, d.length - 1));
+          });
+          let adopted = false;
           if (v) {
             const nd = v.dims.length;
             const okAxis = (a) => Number.isInteger(a) && a >= 0 && a < nd;
             if (okAxis(s.slice.yDim) && okAxis(s.slice.xDim) && s.slice.yDim !== s.slice.xDim &&
                 Array.isArray(s.slice.sliceIndices)) {
               sliceState = {
-                variableIndex: s.slice.variableIndex,
+                variableIndex: v.variableIndex,
                 yDim: s.slice.yDim,
                 xDim: s.slice.xDim,
-                sliceIndices: v.dims.map((d, i) => {
-                  const raw = Math.floor(Number(s.slice.sliceIndices[i]) || 0);
-                  return Math.min(Math.max(0, raw), Math.max(0, d.length - 1));
-                }),
+                sliceIndices: clampTo(v.dims, s.slice.sliceIndices),
               };
+              // Field B's indices are positions on the same dimensions.
+              compareIndices = clampTo(v.dims, compareIndices);
+              adopted = true;
             }
           }
+          // Field B's saved indices are for a variable this panel did not adopt.
+          if (SLICE && !adopted && sliceState) compareIndices = sliceState.sliceIndices.slice();
         }
 
         function attachControls() {

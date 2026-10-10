@@ -609,7 +609,7 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
             let handle = NetcdfHandle {
                 reader,
                 view,
-                decoded: Mutex::new(std::collections::HashMap::new()),
+                planes: Mutex::new(crate::PlaneMemo::default()),
                 curvilinear: Mutex::new(std::collections::HashMap::new()),
             };
             let variables = handle.variables();

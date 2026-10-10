@@ -206,7 +206,7 @@ suite("Slice panel projection picker", () => {
     assert.deepStrictEqual(offered(projectionOptionsHtml(MAP_PROJECTIONS, false)), ["source"]);
     assert.strictEqual(reprojectionNote(true, "latlon"), "");
     assert.strictEqual(reprojectionNote(false, "source"), UNPLACED_NOTE);
-    assert.strictEqual(reprojectionNote(false, null), "Reprojection isn't available for this grids yet.");
+    assert.strictEqual(reprojectionNote(false, null), "Reprojection isn't available for this grid yet.");
   });
 
   // The note's own `display: block` overrides the UA stylesheet's [hidden]

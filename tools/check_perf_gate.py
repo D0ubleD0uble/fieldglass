@@ -292,6 +292,10 @@ def floor_for(family: str, op: str, row: dict) -> tuple[int, str] | None:
     if op in ("slice", "scrub") and width:
         if family == "netcdf-classic":
             return width + 1, f"output value ({width}) + mask (1); the plane is read in place"
+        if family == "netcdf4-zlib-span":
+            return width + 17, (
+                f"output value ({width}) + mask (1) + one decompressed chunk of four f32 planes (16)"
+            )
         return width + 5, f"output value ({width}) + mask (1) + one decompressed f32 chunk element (4)"
     return FIXED_FLOORS.get(op)
 
