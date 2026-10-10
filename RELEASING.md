@@ -293,10 +293,14 @@ not another crate's fixtures, not its `fuzz/` directory (a separate package),
 and no path-only dev-dependency, which cargo strips. So a test reads only files
 inside its own crate, and a fixture another crate also needs is copied, not
 reached for (#926). `fieldglass` is the exception: its integration tests need
-the whole repository and are left out of its package by `exclude`. To check,
-unpack each `.crate` from `target/package/` outside the repository and run
-`cargo test` there, pointing the sibling crates at their unpacked copies with
-`--config 'patch.crates-io.<crate>.path="…"'`.
+the whole repository and are left out of its package by `exclude`.
+
+The `packaged-crate-tests` job in `ci.yml` checks this on every pull request. It
+runs `tools/check_packaged_crate_tests.py`, which packages the publishable
+crates, unpacks each outside the repository, points every sibling at its
+unpacked copy (so it never tests against a version on crates.io), and runs
+`cargo test` there. Run the same script locally with `--allow-dirty` to
+reproduce a failure. Nothing extra is needed before a release.
 
 ### npm
 
