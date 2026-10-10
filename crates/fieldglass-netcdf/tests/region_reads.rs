@@ -48,6 +48,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/fill_only_past_field_cap.nc"),
     ),
     (
+        "goes_geostationary_classic.nc",
+        include_bytes!("fixtures/goes_geostationary_classic.nc"),
+    ),
+    (
         "goes16_abi_cmip.nc",
         include_bytes!("fixtures/goes16_abi_cmip.nc"),
     ),
