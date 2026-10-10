@@ -234,3 +234,72 @@ fn a_coarse_regional_sector_is_judged_by_its_steps() {
         });
     assert!(hi > lo, "a constant field: {lo} .. {hi}");
 }
+
+/// Points that are not evenly spaced are a list of points, not a grid, and get
+/// at least T127, MIR's default for a point list, or the file's own
+/// truncation when that is lower (#930). Two polar bands two rows deep, or
+/// longitudes `[0, 180, 180.5]`, used to read as one coarse step: T0, the
+/// field's global mean where the field runs from about 225 to 373 K. An
+/// evenly spaced coarse sample keeps the spacing rule, so the 3 × 3 sample
+/// still carries T0 (#812).
+#[test]
+fn uneven_points_get_at_least_t127() {
+    let t383 = Grib1Reader::from_bytes(SPECTRAL_T383.to_vec()).expect("parse");
+    let t63 = Grib1Reader::from_bytes(SPECTRAL_T63.to_vec()).expect("parse");
+    let axis = |from: f64, to: f64, step: f64| -> Vec<f64> {
+        let n = ((to - from) / step).round() as usize;
+        (0..=n).map(|k| from + k as f64 * step).collect()
+    };
+    let range = |values: &[f64]| -> f64 {
+        let (lo, hi) = values
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
+                (lo.min(v), hi.max(v))
+            });
+        hi - lo
+    };
+    let coeffs = t383.decode_spectral_message(0).expect("spectral decodes");
+    let cases = [
+        // Two polar bands, each two rows deep, round a 0.5° circle.
+        (vec![-70.5, -70.0, 70.0, 70.5], axis(0.0, 359.5, 0.5)),
+        // A 0.5° meridian line at three longitudes, two of them 0.5° apart.
+        (axis(-90.0, 90.0, 0.5), vec![0.0, 180.0, 180.5]),
+    ];
+    for (lats, lons) in cases {
+        assert_eq!(
+            fieldglass_core::sht::points_band_limit(&lats, &lons),
+            Some(127)
+        );
+        // T383 is summed to T127: exactly that triangle, and not constant.
+        let values = t383
+            .synthesize_spectral_message(0, &lats, &lons)
+            .expect("synthesises");
+        let t127 = fieldglass_core::sht::synthesize_band_limited(
+            &coeffs.coefficients,
+            u32::from(coeffs.j),
+            127,
+            &lats,
+            &lons,
+        )
+        .expect("T127");
+        assert_eq!(values, t127);
+        assert!(range(&values) > 50.0, "a flat field: {}", range(&values));
+        // T63 is below the floor, so it is summed in full.
+        assert_eq!(
+            t63.synthesize_spectral_message(0, &lats, &lons)
+                .expect("synthesises"),
+            t63.synthesize_spectral_message_full(0, &lats, &lons)
+                .expect("full")
+        );
+    }
+    // The evenly spaced 3 × 3 sample keeps the spacing rule: T0, the mean.
+    let (lats, lons) = ([-60.0, 0.0, 60.0], [0.0, 120.0, 240.0]);
+    assert_eq!(
+        fieldglass_core::sht::points_band_limit(&lats, &lons),
+        Some(0)
+    );
+    let values = t383
+        .synthesize_spectral_message(0, &lats, &lons)
+        .expect("synthesises");
+    assert!(range(&values) < 1e-9, "not the mean: {values:?}");
+}
