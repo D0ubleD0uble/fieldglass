@@ -2582,6 +2582,11 @@ export function renderImagePanelHtml(
             contourInterval: val('contour-interval'),
             contoursOnly: chk('contours-only'),
             slice: sliceState,
+            // The variable by name as well as by index: a panel rewritten for
+            // a file that changed under it restores by name (#839).
+            sliceName: sliceState && sliceVariable(sliceState.variableIndex)
+              ? sliceVariable(sliceState.variableIndex).name
+              : undefined,
           });
         }
 
@@ -2681,23 +2686,38 @@ export function renderImagePanelHtml(
           applyContoursOnly();
           // NetCDF slice: adopt the saved spec only if it still describes a
           // variable in this panel with sane axes; indices clamp per dimension.
-          const v = SLICE && s.slice ? sliceVariable(s.slice.variableIndex) : undefined;
+          // The variable is found by name when the snapshot has one: a panel
+          // rewritten for a file that changed under it numbers its variables
+          // afresh, and an index the new file reuses names another variable
+          // (#839). One it no longer has leaves the panel's own default.
+          const v = !SLICE || !s.slice
+            ? undefined
+            : typeof s.sliceName === 'string'
+              ? SLICE.variables.find((x) => x.name === s.sliceName)
+              : sliceVariable(s.slice.variableIndex);
+          const clampTo = (dims, saved) => dims.map((d, i) => {
+            const raw = Math.floor(Number(saved[i]) || 0);
+            return Math.min(Math.max(0, raw), Math.max(0, d.length - 1));
+          });
+          let adopted = false;
           if (v) {
             const nd = v.dims.length;
             const okAxis = (a) => Number.isInteger(a) && a >= 0 && a < nd;
             if (okAxis(s.slice.yDim) && okAxis(s.slice.xDim) && s.slice.yDim !== s.slice.xDim &&
                 Array.isArray(s.slice.sliceIndices)) {
               sliceState = {
-                variableIndex: s.slice.variableIndex,
+                variableIndex: v.variableIndex,
                 yDim: s.slice.yDim,
                 xDim: s.slice.xDim,
-                sliceIndices: v.dims.map((d, i) => {
-                  const raw = Math.floor(Number(s.slice.sliceIndices[i]) || 0);
-                  return Math.min(Math.max(0, raw), Math.max(0, d.length - 1));
-                }),
+                sliceIndices: clampTo(v.dims, s.slice.sliceIndices),
               };
+              // Field B's indices are positions on the same dimensions.
+              compareIndices = clampTo(v.dims, compareIndices);
+              adopted = true;
             }
           }
+          // Field B's saved indices are for a variable this panel did not adopt.
+          if (SLICE && !adopted && sliceState) compareIndices = sliceState.sliceIndices.slice();
         }
 
         function attachControls() {

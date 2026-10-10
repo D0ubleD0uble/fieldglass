@@ -48,6 +48,14 @@ export interface PageState {
   reprojectNote: string | null;
   /** The point-probe readout. */
   probe: string;
+  /** A slice panel's variable picker: the name selected and every name
+   *  offered, `null` for a GRIB panel. */
+  sliceVariable: string | null;
+  sliceVariables: string[] | null;
+  /** The panel heading. */
+  title: string;
+  /** The status line under the image. */
+  status: string;
   canvasVisibility: string;
 }
 
@@ -71,6 +79,8 @@ const DRIVER = `
       const overlays = byId('overlay-fieldset');
       const vectors = byId('vector-fieldset');
       const picker = byId('picker-projection');
+      const variable = byId('slice-variable');
+      const chosen = variable && variable.selectedOptions[0];
       return {
         overlayDisabled: !!(overlays && overlays.disabled),
         overlayHidden: !!(overlays && overlays.hasAttribute('hidden')),
@@ -84,6 +94,10 @@ const DRIVER = `
         projectionOffers: Array.from(picker.options).map((o) => o.value),
         reprojectNote: shownText(byId('reproject-note')),
         probe: byId('probe').textContent,
+        sliceVariable: variable ? (chosen ? chosen.textContent : '') : null,
+        sliceVariables: variable ? Array.from(variable.options).map((o) => o.textContent) : null,
+        title: byId('title-line').textContent,
+        status: byId('status').textContent,
         canvasVisibility: byId('canvas').style.visibility,
       };
     }

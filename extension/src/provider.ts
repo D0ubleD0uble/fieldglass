@@ -1272,12 +1272,12 @@ export class FieldglassEditorProvider
     handle: SlicePanelHandle,
     variableIndex: number,
   ): void {
-    const variables = handle.variables();
-    const initialVar =
+    let variables = handle.variables();
+    let initialVar =
       variables.find((v) => v.variableIndex === variableIndex) ?? variables[0];
     if (!initialVar) return;
 
-    const initial = defaultSliceSpec(initialVar);
+    let initial = defaultSliceSpec(initialVar);
     // The slice's own answers — its family, and whether it can be reprojected —
     // asked of the placement the handle renders from (#574), once per variable
     // and axis pair. A slice the handle cannot place at all still opens, on the
@@ -1311,8 +1311,8 @@ export class FieldglassEditorProvider
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
       { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [] },
     );
-    const slice: SlicePanelData = { variables, initial };
-    this.trackRenderPanel(panel, () => {
+    let slice: SlicePanelData = { variables, initial };
+    const write = () => {
       panel.webview.html = renderImagePanelHtml(
         panel.webview,
         shown.meta,
@@ -1321,7 +1321,44 @@ export class FieldglassEditorProvider
         combineOpRegistry(),
         slice,
       );
-    });
+    };
+    this.trackRenderPanel(panel, write);
+
+    // The handle the page's variable list was read from. A document closed and
+    // opened again brings a new handle, on a file that may have changed: its
+    // variables can be others, or the same ones numbered differently, and every
+    // request the page makes names a variable by its number in the old list.
+    // So the first request after the handle changes is not served. The panel is
+    // written again from the new file, and the page restores its selection by
+    // the variable's name (#839).
+    let pageHandle = handle;
+    // Said in place of the first render after that, when the variable the page
+    // was showing is no longer in the file.
+    let refusal: string | null = null;
+    const adopt = (current: SlicePanelHandle, asked: SliceSpec | undefined): void => {
+      const name = (variables.find((v) => v.variableIndex === asked?.variableIndex) ?? initialVar).name;
+      const next = current.variables();
+      const same = next.find((v) => v.name === name);
+      const opened = same ?? next[0];
+      if (!opened) {
+        panel.webview.postMessage({
+          type: "gridError",
+          messageIndex: asked?.variableIndex ?? initial.variableIndex,
+          error: `The ${subject.container} file no longer has a variable to draw.`,
+          sliceGrid: sliceAnswer(null),
+        } satisfies GridErrorMessage);
+        return;
+      }
+      pageHandle = current;
+      variables = next;
+      initialVar = opened;
+      initial = defaultSliceSpec(opened);
+      slice = { variables, initial };
+      refusal = same ? null : `${name} is no longer in the file, so it was not drawn. Pick a variable.`;
+      const grid = gridOf(current, initial);
+      shown = { meta: sliceField(opened, grid), grid };
+      write();
+    };
 
     // The variable a render is actually drawing. The picker can move off the
     // one the panel opened on, and the heading and probe units have to follow
@@ -1558,6 +1595,22 @@ export class FieldglassEditorProvider
           | (ProbeRequest & { slice?: SliceSpec }),
       ) => {
         if (!m || typeof m.type !== "string") return;
+        const current = subject.handle();
+        if (current && current !== pageHandle && m.type !== "exportPng") {
+          adopt(current, (m as { slice?: SliceSpec }).slice);
+          return;
+        }
+        if (m.type === "ready" && refusal !== null) {
+          const spec = (m as { slice?: SliceSpec }).slice ?? initial;
+          panel.webview.postMessage({
+            type: "gridError",
+            messageIndex: spec.variableIndex,
+            error: refusal,
+            sliceGrid: sliceAnswer(current ? gridOf(current, spec) : null),
+          } satisfies GridErrorMessage);
+          refusal = null;
+          return;
+        }
         // `ready` carries the webview's (state-restored) selections and slice,
         // exactly like a rerenderRequest, so a remount repaints what the user
         // had; a fresh panel sends its defaults.
