@@ -7,18 +7,17 @@
 //!
 //! RING comes from the pinned eccodes 2.34.1; NESTED from a newer wheel,
 //! because 2.34.1's HEALPix geoiterator supports RING only. The goldens record
-//! which produced them; see the GRIB2 fixtures' `NOTICE.md`.
+//! which produced them; see the GRIB2 fixtures' `NOTICE.md`. They are kept
+//! here rather than beside the GRIB2 files they describe because this test is
+//! their only reader, and a published crate's tests may only read files inside
+//! that crate (#926).
 
 use fieldglass_core::healpix::{MAX_NSIDE, ang2pix_ring, nest2ring, npix, pix2ang, pix2ang_ring};
 
-const N2_RING: &str =
-    include_str!("../../fieldglass-grib2/tests/fixtures/healpix_n2_ring.grib2.coords.json");
-const N2_NESTED: &str =
-    include_str!("../../fieldglass-grib2/tests/fixtures/healpix_n2_nested.grib2.coords.json");
-const N4_RING: &str =
-    include_str!("../../fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2.coords.json");
-const N4_NESTED: &str =
-    include_str!("../../fieldglass-grib2/tests/fixtures/healpix_n4_nested.grib2.coords.json");
+const N2_RING: &str = include_str!("fixtures/healpix/healpix_n2_ring.grib2.coords.json");
+const N2_NESTED: &str = include_str!("fixtures/healpix/healpix_n2_nested.grib2.coords.json");
+const N4_RING: &str = include_str!("fixtures/healpix/healpix_n4_ring.grib2.coords.json");
+const N4_NESTED: &str = include_str!("fixtures/healpix/healpix_n4_nested.grib2.coords.json");
 
 /// eccodes prints nine decimals, so it contributes about 5e-10 degrees; the
 /// rest is the two implementations' own arithmetic. Measured worst is printed

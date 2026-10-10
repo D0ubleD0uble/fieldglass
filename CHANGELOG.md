@@ -166,6 +166,7 @@ These affect code written against the 0.5.0 crates. The list was checked with `c
 - Native and browser builds are held to a measured agreement on projected positions: across 323,620 results they differ on 186, never by more than a ten-trillionth of a cell, and never on whether a point is on the grid. A `fieldglass-wasm` caller's numbers are therefore not bit-identical to a native caller's ([ADR-0009](docs/decisions/0009-cross-target-floating-point-agreement.md)). Closes #617.
 - Code-table checks now catch two labels swapping places and account for every range WMO reserves.
 - An in-table GRIB1 P1 editor, not enabled in released builds, no longer turns an unchanged box into a different lead time when re-saved.
+- `cargo test` runs from each published crate as downloaded. Tests in `fieldglass-core`, `-grib1`, `-grib2` and `-netcdf` read files from other crates or the fuzz corpus, which the package does not carry; those files now sit in the crate that reads them. The `fieldglass` crate no longer ships its integration tests, which need the whole repository. Closes #926.
 
 ## [0.5.0] — 2026-09-04
 

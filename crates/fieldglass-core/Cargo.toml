@@ -79,5 +79,17 @@ fieldglass-core = { path = ".", default-features = false, features = ["testing"]
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 
+# The two integration tests that use the `testing` module. Inside the workspace
+# the dev-dependency above always turns it on, so these always run. The
+# published crate has no such entry (cargo strips it), so there they are skipped
+# unless `--features testing` is given, rather than failing to build (#926).
+[[test]]
+name = "byte_source_boxing"
+required-features = ["testing"]
+
+[[test]]
+name = "object_source"
+required-features = ["testing"]
+
 [lints]
 workspace = true

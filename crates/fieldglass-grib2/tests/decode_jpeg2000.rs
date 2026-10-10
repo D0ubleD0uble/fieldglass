@@ -156,7 +156,7 @@ fn check_against_oracle(fixture: &str) {
 /// runner cannot flake it.
 #[test]
 fn a_codestream_far_larger_than_its_field_is_refused_before_decoding() {
-    let bytes = include_bytes!("../fuzz/corpus/decode/jpeg2000_codestream_8192x8192_on_1x1.grib2");
+    let bytes = include_bytes!("fuzz_seeds/jpeg2000_codestream_8192x8192_on_1x1.grib2");
     let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("parse");
     let start = std::time::Instant::now();
     let err = reader

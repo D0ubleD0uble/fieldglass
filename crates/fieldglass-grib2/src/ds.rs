@@ -3283,9 +3283,10 @@ mod reduced_jpeg2000_tests {
 
     /// The committed fuzz seed (#848): a 1 × 1 field whose 102-byte codestream
     /// states an 8192 × 8192 image. Embedded, so the wasm32 run needs no file
-    /// access.
+    /// access, from the copy in `tests/fuzz_seeds/`, because the fuzz directory
+    /// is not in the published crate (#926).
     const SEED_8192_ON_1X1: &[u8] =
-        include_bytes!("../fuzz/corpus/decode/jpeg2000_codestream_8192x8192_on_1x1.grib2");
+        include_bytes!("../tests/fuzz_seeds/jpeg2000_codestream_8192x8192_on_1x1.grib2");
 
     /// Both decoders refuse the seed on what its SIZ states, before decoding
     /// it: the refusal names SIZ, which only the pre-decode check does, and

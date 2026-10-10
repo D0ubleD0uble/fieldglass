@@ -10,6 +10,13 @@ description = "Host-neutral API over the Fieldglass decoders: open bytes, decode
 keywords = ["grib", "grib2", "meteorology", "weather", "raster"]
 categories = ["science", "parser-implementations"]
 readme = "README.md"
+# Kept out of the published crate, because they read files it cannot carry
+# (#926): the integration tests use the format crates' fixtures, the
+# conformance runner and the `schema` self dev-dependency, which `cargo package`
+# strips; `bench_decode` times `fieldglass-grib2`'s fixtures. All of them run
+# from the repository as before. The unit tests in `src/` that read a format
+# crate's fixture stand aside in an unpacked `.crate` (`src/test_fixtures.rs`).
+exclude = ["tests/", "examples/bench_decode.rs"]
 # Published in lockstep, last in `release.yml`'s publish loop: it pins every
 # other published crate with `=`, so it cannot be packaged until they are all on
 # the index (#851). The first publish is by hand, as `fieldglass-aec`'s was:

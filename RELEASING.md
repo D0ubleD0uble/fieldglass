@@ -287,6 +287,17 @@ crates.io, so it works before any of the three new crates exists there. Run it
 on the prep branch after the version bump, when the new version is not on
 crates.io yet; that is the case it was checked on (#851).
 
+That check builds only each library. A published crate's tests also have to
+build from the `.crate`, which carries only the files under its own directory:
+not another crate's fixtures, not its `fuzz/` directory (a separate package),
+and no path-only dev-dependency, which cargo strips. So a test reads only files
+inside its own crate, and a fixture another crate also needs is copied, not
+reached for (#926). `fieldglass` is the exception: its integration tests need
+the whole repository and are left out of its package by `exclude`. To check,
+unpack each `.crate` from `target/package/` outside the repository and run
+`cargo test` there, pointing the sibling crates at their unpacked copies with
+`--config 'patch.crates-io.<crate>.path="…"'`.
+
 ### npm
 
 `@fieldglass/wasm` is the browser build, published from the `publish-wasm-npm`

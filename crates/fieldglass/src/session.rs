@@ -2892,7 +2892,9 @@ mod tests {
             units: None,
         };
         // The session is irrelevant to `probe`; it reads only the field.
-        assert!(grib2_session().probe(&field, 0.0, 0.0).is_none());
+        if !crate::test_fixtures::outside_workspace() {
+            assert!(grib2_session().probe(&field, 0.0, 0.0).is_none());
+        }
 
         // The hazard the guard exists for, stated rather than assumed.
         assert!(
@@ -2903,14 +2905,15 @@ mod tests {
     }
 
     /// A session over an arbitrary fixture, for the operations that read only
-    /// the `Field` handed to them and never the reader behind it.
+    /// the `Field` handed to them and never the reader behind it. The fixture
+    /// is `fieldglass-grib2`'s, so a caller first asks
+    /// [`outside_workspace`](crate::test_fixtures::outside_workspace).
     fn grib2_session() -> Session {
         Session {
             reader: Reader::Grib2(Box::new(
-                fieldglass_grib2::Grib2Reader::from_source(Box::new(
-                    std::fs::read("../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2")
-                        .expect("fixture"),
-                ) as Bytes)
+                fieldglass_grib2::Grib2Reader::from_source(Box::new(crate::test_fixtures::sibling(
+                    "../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2",
+                )) as Bytes)
                 .expect("parse"),
             )),
         }
@@ -3003,6 +3006,9 @@ mod tests {
         // the seam cell between column 15 and column 0 — where the ramp falls 15
         // back to 0 and so crosses every level a second time — so the two are
         // distinguishable by segment count alone.
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
         let session = grib2_session();
         let levels = [4.5, 9.5];
         let bounded: usize = session
@@ -3029,13 +3035,12 @@ mod tests {
     /// integration test can only see that the answers agree, not that they
     /// came from one entry.
     #[cfg(feature = "netcdf")]
-    const SWATH: &[u8] = include_bytes!("../../fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc");
+    const SWATH: &str = "../fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc";
 
     /// A real tripolar ocean mesh, whose fields carry a third axis — so a
     /// cross-section through one is a slice its 2-D coordinates do not span.
     #[cfg(feature = "netcdf")]
-    const TRIPOLAR: &[u8] =
-        include_bytes!("../../fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc");
+    const TRIPOLAR: &str = "../fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc";
 
     /// The memo a session is holding, panicking if the session is not one that
     /// holds arrays.
@@ -3065,7 +3070,10 @@ mod tests {
     #[cfg(feature = "netcdf")]
     #[test]
     fn one_coordinate_pair_serves_every_field_on_it() {
-        let session = Session::open(SWATH.to_vec()).expect("the swath opens");
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
+        let session = Session::open(crate::test_fixtures::sibling(SWATH)).expect("the swath opens");
         let vars = session.variables();
         assert_eq!(vars.len(), 4, "the fixture's four swath variables");
 
@@ -3104,7 +3112,11 @@ mod tests {
     #[cfg(feature = "netcdf")]
     #[test]
     fn a_slice_the_pair_does_not_span_is_keyed_and_placed_on_its_own() {
-        let session = Session::open(TRIPOLAR.to_vec()).expect("the mesh opens");
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
+        let session =
+            Session::open(crate::test_fixtures::sibling(TRIPOLAR)).expect("the mesh opens");
         let vars = session.variables();
         let (index, var) = vars
             .iter()
@@ -3164,7 +3176,10 @@ mod tests {
     #[cfg(feature = "netcdf")]
     #[test]
     fn the_second_ask_borrows_the_first_answer() {
-        let session = Session::open(SWATH.to_vec()).expect("the swath opens");
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
+        let session = Session::open(crate::test_fixtures::sibling(SWATH)).expect("the swath opens");
         let v = &session.variables()[0];
         let (y, x) = (
             v.detected_y_dim.expect("a detected Y"),
