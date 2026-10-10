@@ -56,14 +56,19 @@ field's, about 14 s. It now reads SIZ first and refuses the image at once
 codestream that does match its field costs far more per sample than the other
 packings.
 
-`jpeg2000_codestream_128x128_max_passes.grib2` (401 bytes) is the costliest
-codestream the gate admits (#838). It is a 128 × 128 single-component image
+`jpeg2000_codestream_128x128_max_passes.grib2` (401 bytes) is the worst case
+measured among the codestreams the gate admits (#838). I varied the coded
+bytes (0x00, 0x7F, 0x80, 0xAA, 0xFE, 0xFF, random), the code-block size (16 × 16
+to 64 × 64) and the QCD exponent (two settings); the pass count was always the
+maximum, and tiles, precincts and layers were not varied. It is a 128 × 128
+single-component image
 (5 levels, 64 × 64 code-blocks, one layer) in which every code-block declares
 164 passes in two segments of one byte each, every coded byte is 0xFF, and QCD
 sets 30 bit-planes, so the decoder runs all 88 coding passes over each sample
 from 203 bytes of codestream. On the fuzz build that is about 25 µs per sample
 (random coded bytes cost a third of that), so one message takes 0.41 s and the
-eight an input decodes take 3.3 s. The same codestream at 512 × 512 took 6.5 s
+eight an input decodes take 3.3 s. The target does not run the HEALPix resample
+on a JPEG 2000 message, since that decodes it a second time. The same codestream at 512 × 512 took 6.5 s
 (26 s at 1024 × 1024 by scaling), which is why `FUZZ_MAX_J2K_SAMPLES` is 2^14
 rather than 2^20. Rebuild it with `tools/build_grib2_j2k_fuzz_seed.py`.
 
