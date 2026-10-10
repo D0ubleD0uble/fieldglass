@@ -17,6 +17,21 @@ paths.
 - Don't run `gh issue create` without explicit per-issue approval — draft the
   title and body inline for review first.
 
+## Owner-dependent issues
+Two labels mark issues that cannot be finished by a worker alone.
+- `needs-decision`: a choice is open. No one starts until the owner answers in
+  an issue comment, then the label is removed. Agents do not take these.
+- `needs-judgement`: buildable now, but the owner judges the result after.
+  Build everything checkable and attach the evidence (renders, measured
+  numbers, before/after). The PR says `Part of #N`, never a closing keyword.
+  The issue's last acceptance item is "Owner has judged X", and only the owner
+  closes it.
+- `deferred` means parked pending user demand. It is not a question.
+- A `question(...)` title prefix is an investigation a worker can answer, not a
+  question for the owner.
+- Owner-only actions (credentials, tagging, publishing) take neither label.
+  They live in the release milestone with a `release(...)` title prefix.
+
 ## Commits
 - Conventional Commits: `feat:`, `fix:`, `docs:`, `chore:`, `ci:`, etc.
 - Never write personal data (emails, names, private paths) into tracked files;
