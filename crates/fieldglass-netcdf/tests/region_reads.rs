@@ -659,10 +659,15 @@ fn a_fixed_array_counting_more_chunks_than_an_index_may_hold_is_refused() {
         let err = reader
             .decode_region_raw(index, &region)
             .expect_err("the index is refused, not allocated");
-        assert!(
-            err.to_string()
-                .contains("chunk grid has 17179869184 chunks"),
-            "{region:?}: {err}"
-        );
+        assert!(refused_hostile_count(&err.to_string()), "{region:?}: {err}");
     }
+}
+
+/// The refusal a 2^34-entry Fixed Array meets: the chunk-grid cap, or on a
+/// 32-bit target, earlier, the entry count itself, which does not fit its
+/// address space. Either is an error rather than an allocation.
+fn refused_hostile_count(message: &str) -> bool {
+    message.contains("chunk grid has 17179869184 chunks")
+        || (cfg!(target_pointer_width = "32")
+            && message.contains("17179869184 does not fit this target's address space"))
 }

@@ -139,10 +139,14 @@ fn a_line_through_a_hostile_fixed_array_is_refused_not_allocated() {
     let refused = session
         .decode_line(index, 1, &[3, 0], &DecodeOptions::default())
         .expect_err("the index is refused");
-    assert!(
-        refused
-            .to_string()
-            .contains("chunk grid has 17179869184 chunks"),
-        "{refused}"
-    );
+    assert!(refused_hostile_count(&refused.to_string()), "{refused}");
+}
+
+/// The refusal a 2^34-entry Fixed Array meets: the chunk-grid cap, or on a
+/// 32-bit target, earlier, the entry count itself, which does not fit its
+/// address space. Either is an error rather than an allocation.
+fn refused_hostile_count(message: &str) -> bool {
+    message.contains("chunk grid has 17179869184 chunks")
+        || (cfg!(target_pointer_width = "32")
+            && message.contains("17179869184 does not fit this target's address space"))
 }
