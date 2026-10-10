@@ -1,18 +1,20 @@
 //! A whole-variable read is bounded in bytes, not elements (#847).
 //!
-//! `fuzz/corpus/parse/oom_large_fill_dataset.h5` is 13 KB. Its second dataset
-//! declares a chunked 9,175,044 × 16 shape of four-byte elements and stores no
-//! chunks, so it reads whole as the fill value: 146,800,704 elements, inside
-//! the old 200 M element cap, and about 2.9 GB held at once (16 bytes of
-//! output and 4 stored per element). Every host reads NetCDF through
-//! `NetcdfReader::decode_variable_raw`, so the refusal here is the one the Node
-//! host, the umbrella `Session` and the browser all get.
+//! `fuzz/corpus/parse/oom_large_fill_dataset.h5` is 13 KB, read here from its
+//! copy in `tests/fuzz_seeds/`, which the published crate carries (#926).
+//! Its second dataset declares a chunked 9,175,044 × 16 shape of four-byte
+//! elements and stores no chunks, so it reads whole as the fill value:
+//! 146,800,704 elements, inside the old 200 M element cap, and about
+//! 2.9 GB held at once (16 bytes of output and 4 stored per element). Every
+//! host reads NetCDF through `NetcdfReader::decode_variable_raw`, so the
+//! refusal here is the one the Node host, the umbrella `Session` and the
+//! browser all get.
 
 use fieldglass_core::array::ArrayError;
 use fieldglass_core::{FieldglassError, MAX_VARIABLE_BYTES};
 use fieldglass_netcdf::NetcdfReader;
 
-const SEED: &[u8] = include_bytes!("../fuzz/corpus/parse/oom_large_fill_dataset.h5");
+const SEED: &[u8] = include_bytes!("fuzz_seeds/oom_large_fill_dataset.h5");
 
 /// The seed's one large dataset, by decode index, and its declared shape.
 fn large_dataset(reader: &NetcdfReader) -> (usize, Vec<u64>) {

@@ -48,9 +48,7 @@ fn multi_message_file() -> Vec<u8> {
         // The magic with edition 1 in its eighth byte: not a GRIB2 message.
         file.extend_from_slice(b"GRIB\0\0\0\x01 and then some padding");
     }
-    file.extend(fixture(
-        "../fieldglass-grib1/tests/fixtures/ieee32_cmc_wind.grib1",
-    ));
+    file.extend(fixture("tests/other_edition/ieee32_cmc_wind.grib1"));
     file.extend(fixture("tests/fixtures/healpix_n2_nested.grib2"));
     file
 }
@@ -238,7 +236,7 @@ fn an_offset_that_is_not_a_grib2_message_is_refused_not_searched_from() {
         "garbage"
     );
     // The GRIB1 message sits just before the last GRIB2 one.
-    let grib1_len = fixture("../fieldglass-grib1/tests/fixtures/ieee32_cmc_wind.grib1").len();
+    let grib1_len = fixture("tests/other_edition/ieee32_cmc_wind.grib1").len();
     let grib1_at = whole.messages[4].byte_offset - grib1_len as u64;
     let err = Grib2Reader::from_message_at(file.as_slice(), grib1_at).expect_err("edition 1");
     assert!(err.to_string().contains("edition"), "{err}");

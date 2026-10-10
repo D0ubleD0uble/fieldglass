@@ -1180,7 +1180,7 @@ fn raise_to_min_raster(dims: (u32, u32)) -> (u32, u32) {
 /// [`GridGeometry::reprojectable`] gate on, so a grid this accepts is one all
 /// four answer for.
 #[cfg(any(feature = "render", feature = "analysis"))]
-fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Error> {
+pub(crate) fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Error> {
     let placeable = |ok: bool, proj: &dyn PlanarGridProjector| {
         planar_grid_is_placeable(ok, proj).then_some(()).ok_or({
             Error::Unsupported {
@@ -1233,10 +1233,30 @@ fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Er
             }
         }
         GridGeometry::Unsupported { .. } => Err(Error::Unsupported {
-            detail: format!("reprojection not yet supported for grid type {family:?}"),
+            detail: match geometry.declined_family() {
+                Some(declined) => declined_detail(declined, "it cannot be reprojected"),
+                None => format!("reprojection not yet supported for grid type {family:?}"),
+            },
         }),
         _ => Ok(()),
     }
+}
+
+/// The refusal for a grid of a family this build supports whose own numbers
+/// built no geometry, ending in what that costs the caller (#843).
+///
+/// Such a grid reaches the display as [`GridGeometry::Unsupported`] under its
+/// family's name (a §3.90 whose camera sees no Earth, a §3.1 with a NaN
+/// rotation), so the refusal for an unmodelled template would say a rotated
+/// lat/lon grid is not supported, and the contour one would then list rotated
+/// lat/lon among the families that are. One wording for every operation that
+/// needs a position, so they cannot drift apart.
+#[cfg(any(feature = "render", feature = "analysis"))]
+fn declined_detail(family: &str, consequence: &str) -> String {
+    format!(
+        "the {family:?} grid's geometry could not be built from the parameters its file \
+         declares, so {consequence}"
+    )
 }
 
 /// Refuse a planar grid whose declared Earth radius (the sphere's radius, or a
@@ -1758,15 +1778,22 @@ fn reduced_source_point(i: usize, len: usize, ni: usize) -> Option<usize> {
 /// `unsupported` supplies the message given the family name — so the shared gate
 /// reads "contours not yet supported…" for the contour path and points long-CSV
 /// callers at the Matrix layout, instead of one feature's hard-coded wording
-/// leaking into the others (#337).
+/// leaking into the others (#337). `declined` is what the caller loses when the
+/// grid is of a family this build supports and its numbers built no geometry,
+/// which [`declined_detail`] says instead: the `unsupported` wording would name
+/// the family as unsupported and then list it among those that are (#843).
 #[cfg(any(feature = "render", feature = "analysis"))]
 fn require_forward_geolocation<'a>(
     source: &'a Source<'_>,
     unsupported: impl Fn(&str) -> String,
+    declined: &str,
 ) -> Result<ForwardAt<'a>, Error> {
     let geometry = source.placed()?;
     let map = forward_geolocation(geometry).ok_or_else(|| Error::Unsupported {
-        detail: unsupported(source.refused_as()),
+        detail: match geometry.declined_family() {
+            Some(family) => declined_detail(family, declined),
+            None => unsupported(source.refused_as()),
+        },
     })?;
     // The family gate first, the grid's own constants second, and the order is
     // load-bearing: a space view is refused for what its *family* cannot do
@@ -1938,12 +1965,16 @@ pub fn contour_polylines(
     options: &RenderOptions,
     interval: Option<f64>,
 ) -> Result<ProjectedPolylines, Error> {
-    let forward = require_forward_geolocation(source, |gt| {
-        format!(
-            "contours not yet supported for grid type {gt:?} (only {} for now)",
-            geolocatable_families()
-        )
-    })?;
+    let forward = require_forward_geolocation(
+        source,
+        |gt| {
+            format!(
+                "contours not yet supported for grid type {gt:?} (only {} for now)",
+                geolocatable_families()
+            )
+        },
+        "its contours have no position on a map",
+    )?;
     let (ni, nj) = (source.ni, source.nj);
 
     // Levels span the same range the image is painted over, so contours line up
@@ -2171,12 +2202,16 @@ pub fn vector_polylines(
     // vector that exists at no point, which no later check would notice.
     crate::align::aligned(u_source, v_source)?;
     let source = u_source;
-    let forward = require_forward_geolocation(source, |gt| {
-        format!(
-            "vector arrows are not supported for grid type {gt:?} (only {} for now)",
-            geolocatable_families()
-        )
-    })?;
+    let forward = require_forward_geolocation(
+        source,
+        |gt| {
+            format!(
+                "vector arrows are not supported for grid type {gt:?} (only {} for now)",
+                geolocatable_families()
+            )
+        },
+        "its vectors have no position on a map",
+    )?;
     let (ni, nj) = (source.ni, source.nj);
     let cells = (ni as usize).saturating_mul(nj as usize);
     if u.len() != cells || v.len() != cells {
@@ -2584,13 +2619,17 @@ pub fn field_csv(
     match format {
         "matrix" => Ok(field_to_csv_matrix(values, ni as usize, nj as usize)),
         "long" => {
-            let geo = require_forward_geolocation(source, |gt| {
-                format!(
-                    "the long CSV format needs per-point coordinates, which grid type \
-                     {gt:?} doesn't provide (only {}); export as the Matrix format instead",
-                    geolocatable_families()
-                )
-            })?;
+            let geo = require_forward_geolocation(
+                source,
+                |gt| {
+                    format!(
+                        "the long CSV format needs per-point coordinates, which grid type \
+                         {gt:?} doesn't provide (only {}); export as the Matrix format instead",
+                        geolocatable_families()
+                    )
+                },
+                "its points have no coordinates; export as the Matrix format instead",
+            )?;
             let (ni, nj) = (ni as usize, nj as usize);
             Ok(match source.points_per_row {
                 // A reduced grid: emit the points each row really holds.
@@ -4315,15 +4354,18 @@ mod planar_geolocation_tests {
     const CMC_POLAR: &str = "../fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib";
 
     /// The geometry of message 0 of a GRIB2 fixture, as the decoder states it.
+    /// Both fixtures belong to the format crates, so every test that reaches
+    /// one asks [`outside_workspace`](crate::test_fixtures::outside_workspace)
+    /// first.
     fn grib2_geometry(path: &str) -> GridGeometry {
-        let bytes = std::fs::read(path).expect("fixture");
+        let bytes = crate::test_fixtures::sibling(path);
         let reader = fieldglass_grib2::Grib2Reader::from_bytes(bytes).expect("grib2 parse");
         GridGeometry::from(&reader.messages[0].gds)
     }
 
     /// The geometry of message 0 of a GRIB1 fixture.
     fn grib1_geometry(path: &str) -> GridGeometry {
-        let bytes = std::fs::read(path).expect("fixture");
+        let bytes = crate::test_fixtures::sibling(path);
         let reader = fieldglass_grib1::Grib1Reader::from_bytes(bytes).expect("grib1 parse");
         let gds = reader.messages[0]
             .gds
@@ -4373,6 +4415,9 @@ mod planar_geolocation_tests {
     /// lands half a world away — the streak this guards against.
     #[test]
     fn a_cell_straddling_the_longitude_cut_interpolates_across_it() {
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
         let geometry = grib1_geometry(CMC_POLAR);
         let (ni, nj) = geometry.dims().expect("the polar grid states dims");
         assert_eq!((ni, nj), (135, 95), "the CMC fixture's raster");
@@ -4434,6 +4479,9 @@ mod planar_geolocation_tests {
     /// rather than as a broken grid.
     #[test]
     fn a_degenerate_projection_is_refused_rather_than_geolocated() {
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
         let real = GridGeometry::Lambert(eta_lambert_params());
         let flat_cone = GridGeometry::Lambert(LambertParams {
             latin1: 0.0,
@@ -4442,7 +4490,7 @@ mod planar_geolocation_tests {
         });
 
         let collapsed = source(&flat_cone, "lambert");
-        let err = require_forward_geolocation(&collapsed, |gt| format!("unsupported {gt}"))
+        let err = require_forward_geolocation(&collapsed, |gt| format!("unsupported {gt}"), "")
             .err()
             .expect("a collapsed cone has no forward map");
         assert!(
@@ -4459,7 +4507,7 @@ mod planar_geolocation_tests {
         // the parameters and not the family.
         let intact = source(&real, "lambert");
         assert!(
-            require_forward_geolocation(&intact, |_| String::new()).is_ok(),
+            require_forward_geolocation(&intact, |_| String::new(), "").is_ok(),
             "the real Eta cone geolocates"
         );
         assert!(require_reprojectable(&real, "lambert").is_ok());
@@ -4477,10 +4525,13 @@ mod planar_geolocation_tests {
     /// refuses it (#603).
     #[test]
     fn a_polar_stereo_lad_past_the_pole_is_refused() {
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
         let real = GridGeometry::PolarStereo(cmc_polar_params());
         let intact = source(&real, "polar_stereo");
         assert!(
-            require_forward_geolocation(&intact, |gt| format!("unsupported {gt}")).is_ok(),
+            require_forward_geolocation(&intact, |gt| format!("unsupported {gt}"), "").is_ok(),
             "the real CMC grid geolocates"
         );
 
@@ -4496,7 +4547,7 @@ mod planar_geolocation_tests {
             "the radius has nothing to object to here, but reads {radius}"
         );
         let collapsed = source(&past_the_pole, "polar_stereo");
-        let err = require_forward_geolocation(&collapsed, |gt| format!("unsupported {gt}"))
+        let err = require_forward_geolocation(&collapsed, |gt| format!("unsupported {gt}"), "")
             .err()
             .expect("a zero pole scale factor leaves no plane");
         assert!(
@@ -4522,6 +4573,9 @@ mod planar_geolocation_tests {
     /// where a row could quietly stop matching anything.
     #[test]
     fn the_geolocatable_table_matches_the_dispatch() {
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
         let prose = geolocatable_families();
         for (grid_type, name) in GEOLOCATABLE_GRIDS {
             assert!(
@@ -4572,12 +4626,16 @@ mod planar_geolocation_tests {
             ),
         ] {
             let declined = source(&geometry, grid_type);
-            let err = require_forward_geolocation(&declined, |gt| {
-                format!(
-                    "no coordinates for {gt:?} (only {})",
-                    geolocatable_families()
-                )
-            })
+            let err = require_forward_geolocation(
+                &declined,
+                |gt| {
+                    format!(
+                        "no coordinates for {gt:?} (only {})",
+                        geolocatable_families()
+                    )
+                },
+                "",
+            )
             .err()
             .unwrap_or_else(|| panic!("{grid_type} must not geolocate"));
             let message = err.message();
@@ -4587,6 +4645,60 @@ mod planar_geolocation_tests {
                  supported list: {message}"
             );
         }
+    }
+
+    /// A grid of a family this build supports, declined because its numbers
+    /// built no geometry, is refused for that rather than as an unsupported
+    /// family (#843). Every refusal it reaches says so: the reprojection gate
+    /// (warp, overlay, probe on a map) and the forward-map gate (contours,
+    /// arrows, long CSV). A template this build does not model keeps its
+    /// "not yet supported" wording at both.
+    #[test]
+    fn a_declined_family_is_refused_as_unbuilt_not_unsupported() {
+        for family in ["rotated_latlon", "transverse_mercator", "space_view"] {
+            let geometry = GridGeometry::Unsupported {
+                label: family.to_string(),
+            };
+            let src = source(&geometry, family);
+            for message in [
+                require_reprojectable(&geometry, family)
+                    .expect_err("no geometry to reproject")
+                    .message(),
+                require_forward_geolocation(&src, |gt| format!("unsupported {gt}"), "a loss")
+                    .err()
+                    .expect("no geometry to place a point")
+                    .message(),
+            ] {
+                assert!(
+                    message.starts_with(&format!(
+                        "the {family:?} grid's geometry could not be built"
+                    )),
+                    "{family}: {message}"
+                );
+                assert!(
+                    !message.contains("not yet supported"),
+                    "{family}: {message}"
+                );
+                assert!(!message.contains("unsupported"), "{family}: {message}");
+            }
+        }
+        let unmodelled = GridGeometry::Unsupported {
+            label: "unsupported(3.4)".to_string(),
+        };
+        assert_eq!(
+            require_reprojectable(&unmodelled, "unsupported(3.4)")
+                .expect_err("unmodelled")
+                .message(),
+            "reprojection not yet supported for grid type \"unsupported(3.4)\""
+        );
+        let src = source(&unmodelled, "unsupported(3.4)");
+        assert_eq!(
+            require_forward_geolocation(&src, |gt| format!("unsupported {gt}"), "a loss")
+                .err()
+                .expect("unmodelled")
+                .message(),
+            "unsupported unsupported(3.4)"
+        );
     }
 
     /// One well-formed geometry per [`GEOLOCATABLE_GRIDS`] key, plus the space

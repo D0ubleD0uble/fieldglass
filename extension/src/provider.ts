@@ -39,6 +39,7 @@ import {
   composeDefaultPngName,
   composeTitleLine,
   composeTruncationNote,
+  offersOverlays,
   renderImagePanelHtml,
   reprojectionNote,
   sanitizePngName,
@@ -1377,6 +1378,7 @@ export class FieldglassEditorProvider
             label: grid?.label ?? null,
             reprojectable: grid?.reprojectable ?? false,
             note: reprojectionNote(grid?.reprojectable ?? false, grid?.label ?? null),
+            placed: offersOverlays(grid?.placement),
           },
         } satisfies GridReadyMessage);
       } catch (err) {
@@ -1660,9 +1662,11 @@ export interface GridReadyMessage {
    *  family (`null` when it could not be placed) and whether it can be
    *  reprojected. The projection picker follows it, because the picker can
    *  move onto a variable or axis pair with a different answer. `note` is
-   *  {@link reprojectionNote} for it, the text shown beside the picker. Absent
+   *  {@link reprojectionNote} for it, the text shown beside the picker.
+   *  `placed` is {@link offersOverlays} for it: whether the overlays,
+   *  contours and arrows apply, which the Overlay row follows (#840). Absent
    *  for a GRIB panel, which draws one field. */
-  sliceGrid?: { label: string | null; reprojectable: boolean; note: string };
+  sliceGrid?: { label: string | null; reprojectable: boolean; note: string; placed: boolean };
 }
 
 /** `overlayRequest` posted by the render panel when an overlay layer is
@@ -2085,6 +2089,9 @@ export function sliceField(
     forecast: null,
     uvRelativeToGrid: null,
     reprojectable: grid?.reprojectable ?? false,
+    // A slice the handle could not answer for at all still draws its source
+    // view, and nothing places it.
+    placement: grid?.placement ?? "unplaceable",
     // A slice is never a band-limited spectral field (#637).
     truncation: null,
     grid: grid ? { label: grid.label } : null,

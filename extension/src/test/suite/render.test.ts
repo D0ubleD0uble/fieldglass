@@ -1009,6 +1009,7 @@ suite("render-panel HTML", () => {
       forecast: null,
       uvRelativeToGrid: null,
       reprojectable: true,
+      placement: "placed",
       truncation: null,
       grid: null,
     };
@@ -2361,6 +2362,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       forecast: null,
       uvRelativeToGrid: null,
       reprojectable: true,
+      placement: "placed",
       truncation: null,
       grid: { label: "latlon" },
     };

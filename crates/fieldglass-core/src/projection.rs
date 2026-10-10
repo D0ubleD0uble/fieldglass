@@ -524,6 +524,29 @@ pub fn plane_spans_a_grid_cell(plane_radius_m: f64, dx_metres: f64, dy_metres: f
     dx_metres.abs() < plane_radius_m && dy_metres.abs() < plane_radius_m
 }
 
+/// Whether a semi-major and a semi-minor axis, in metres, describe an Earth a
+/// projection can be built on: both finite and positive, and the body oblate
+/// or a sphere (`semi_minor_m <= semi_major_m`).
+///
+/// A file can state either axis. GRIB2 Code Table 3.2's shapes 1, 3 and 7 take
+/// a radius or two axes from the data producer, and a CF grid mapping states
+/// `semi_major_axis` and `semi_minor_axis` as attributes, so zero, a negative
+/// number, `NaN` and a prolate body all reach a reader. The table describes
+/// only spheres and oblate spheroids, so a prolate pair is a corrupt message
+/// rather than an exotic planet. PROJ (checked at 9.4.0) refuses every one of
+/// these cases with "Must specify ellipsoid or sphere", so a CRS string built
+/// from them names nothing a map library can use (#844).
+///
+/// The one rule for every family that takes axes: the transverse Mercator and
+/// Lambert azimuthal constants and the geostationary projector all ask it, and
+/// so do the readers that decide whether to build a grid at all.
+pub fn is_oblate_spheroid(semi_major_m: f64, semi_minor_m: f64) -> bool {
+    semi_major_m.is_finite()
+        && semi_minor_m.is_finite()
+        && semi_minor_m > 0.0
+        && semi_minor_m <= semi_major_m
+}
+
 /// The floor [`GridGeometry::reprojectable`] puts under a metre-plane family,
 /// measured on the radius the **message declared** rather than on the plane the
 /// projection derives from it.
@@ -533,7 +556,7 @@ pub fn plane_spans_a_grid_cell(plane_radius_m: f64, dx_metres: f64, dy_metres: f
 /// step to walk, and that step has to fit inside the declared radius. The last
 /// is the one that differs — [`plane_spans_a_grid_cell`] is applied inside
 /// `is_well_defined` too, but against `2·R·k₀` for polar stereographic and
-/// `|k|·rectifying_radius` for transverse Mercator, either of which can be the
+/// `k·rectifying_radius` for transverse Mercator, either of which can be the
 /// larger or the smaller number. Both are asked, so a grid stating a cell
 /// between them is refused rather than offered and then refused again.
 ///
@@ -762,9 +785,11 @@ fn axis_position(first: f64, last: f64, n: u32, k: u32) -> f64 {
 /// Every family `core` can project has a variant, so a grid that reaches
 /// [`GridGeometry::Unsupported`] is one no projector exists for at all — a
 /// spectral or bi-Fourier message, or a template the reader parsed only far
-/// enough to name. The variants are ordered as the families are listed
-/// throughout the docs: the two geographic ones, the two that are geographic
-/// with a twist, then the four planar projections and the view from orbit.
+/// enough to name — or one of a modelled family whose own numbers built no
+/// grid, which [`GridGeometry::declined_family`] tells apart. The variants are
+/// ordered as the families are listed throughout the docs: the two geographic
+/// ones, the two that are geographic with a twist, then the four planar
+/// projections and the view from orbit.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
@@ -809,14 +834,39 @@ pub enum GridGeometry {
     /// a position inside one; see [`GridResampling::NearestOnly`].
     #[cfg_attr(feature = "serde", serde(rename = "lookup"))]
     Lookup(crate::spatial_index::SpatialIndex),
-    /// A family this type does not model yet. `label` is the grid type as the
-    /// decoder named it, so the message can say what was declined.
+    /// A family this type does not model yet, or a grid of a modelled family
+    /// that could not be built from its numbers
+    /// ([`declined_family`](Self::declined_family)). `label` is the grid type
+    /// as the decoder named it, so the message can say what was declined.
     #[cfg_attr(feature = "serde", serde(rename = "unsupported"))]
     Unsupported {
         /// The grid type as the decoder named it.
         label: String,
     },
 }
+
+/// Every name a decoder gives a family [`GridGeometry`] has a variant for:
+/// each variant's [`kind`](GridGeometry::kind) and [`label`](GridGeometry::label),
+/// and the reduced grids, which arrive widened to their regular sibling.
+///
+/// What [`GridGeometry::declined_family`] reads an
+/// [`Unsupported`](GridGeometry::Unsupported) label against. A family added to
+/// the enum fails `every_modelled_family_is_named` until its name is here.
+const MODELLED_FAMILIES: &[&str] = &[
+    "latlon",
+    "reduced_latlon",
+    "gaussian",
+    "reduced_gaussian",
+    "mercator",
+    "rotated_latlon",
+    "lambert",
+    "polar_stereo",
+    "transverse_mercator",
+    "lambert_azimuthal",
+    "space_view",
+    "lookup",
+    "curvilinear",
+];
 
 /// A grid's forward geolocation with the projection's constants built once:
 /// grid index `(i, j)` → `(lat, lon)` in degrees, or `None` for a point the
@@ -868,6 +918,28 @@ impl GridGeometry {
             Self::Unsupported { label } => label,
             Self::Lookup(_) => "curvilinear",
             other => other.kind(),
+        }
+    }
+
+    /// The family's name when this is a grid of a family this type models that
+    /// could not be built from its own numbers, and `None` otherwise.
+    ///
+    /// A reader declines such a grid as [`Unsupported`](Self::Unsupported)
+    /// under the family's own name: a §3.90 whose camera sees no Earth reads
+    /// `space_view`, and a §3.1 or §3.12 stating a non-finite angle or scale
+    /// factor reads `rotated_latlon` or `transverse_mercator` (#823). Its label
+    /// then names a family the build *does* support, so a refusal worded "not
+    /// yet supported for grid type …" would contradict itself (#843). This is
+    /// the question a refusal asks to tell the two apart. A template the reader
+    /// does not model (`unsupported(3.4)`), a family with no raster
+    /// (`spherical_harmonic`, `healpix`) and a raster nothing placed (`source`)
+    /// all answer `None`.
+    pub fn declined_family(&self) -> Option<&str> {
+        match self {
+            Self::Unsupported { label } if MODELLED_FAMILIES.contains(&label.as_str()) => {
+                Some(label)
+            }
+            _ => None,
         }
     }
 
@@ -1576,7 +1648,7 @@ impl GridGeometry {
     /// plane inside `is_well_defined`, which is a different number for three of
     /// the four. A polar stereographic plane is `2·R·k₀` (1.87·R at a ±60°
     /// latitude of true scale) and a transverse Mercator plane is
-    /// `|k|·rectifying_radius`, so a grid stating a cell between the two would
+    /// `k·rectifying_radius`, so a grid stating a cell between the two would
     /// otherwise be offered here and refused by the render.
     ///
     /// [`Lookup`](Self::Lookup) is always reprojectable: its inverse is a
@@ -1630,6 +1702,16 @@ impl GridGeometry {
 
     /// A PROJ definition string for the grid's coordinate reference system, or
     /// `None` for a family this type cannot place.
+    ///
+    /// Also `None` when the parameters describe no CRS: a radius or axes that
+    /// are no body, a transverse Mercator scale factor at or below zero, a
+    /// geostationary camera at or below the surface, or a cone or plane the
+    /// family's own constants refuse. PROJ refuses those strings (`Must
+    /// specify ellipsoid or sphere`, `k_0 ... should be > 0`, `Invalid value
+    /// for h`), so none is written, whoever built the params (#844). A CRS
+    /// that resolves under a raster this type cannot place, such as one with a
+    /// zero grid step, still has its string: the CRS is sound, and only the
+    /// [`plane_affine`](Self::plane_affine) half is missing.
     ///
     /// What a browser map library wants: hand it this and the projected
     /// coordinates agree with [`forward`](Self::forward), which is what
@@ -1699,10 +1781,12 @@ impl GridGeometry {
             Self::Lookup(_) => Some(format!(
                 "+proj=longlat +R={DEFAULT_EARTH_RADIUS_M} +no_defs"
             )),
+            Self::Lambert(p) if !LambertProjector::new(*p).crs_resolves() => None,
             Self::Lambert(p) => Some(format!(
                 "+proj=lcc +lat_1={} +lat_2={} +lat_0={} +lon_0={} +R={} +units=m +no_defs",
                 p.latin1, p.latin2, p.lad, p.lov, p.earth_radius_m
             )),
+            Self::PolarStereo(p) if !PolarStereoProjector::new(*p).crs_resolves() => None,
             Self::PolarStereo(p) => Some(format!(
                 "+proj=stere +lat_0={} +lat_ts={} +lon_0={} +R={} +units=m +no_defs",
                 if p.south_pole { -90.0 } else { 90.0 },
@@ -1723,6 +1807,9 @@ impl GridGeometry {
             Self::Mercator(_) => Some(format!(
                 "+proj=merc +lat_ts=0 +lon_0=0 +R={DEFAULT_EARTH_RADIUS_M} +units=m +no_defs"
             )),
+            Self::TransverseMercator(p) if !TransverseMercatorProjector::new(*p).crs_resolves() => {
+                None
+            }
             Self::TransverseMercator(p) => Some(format!(
                 "+proj=tmerc +lat_0={} +lon_0={} +k_0={} +x_0={} +y_0={} +a={} +b={} \
                  +units=m +no_defs",
@@ -1734,6 +1821,7 @@ impl GridGeometry {
                 p.semi_major_m,
                 p.semi_minor_m
             )),
+            Self::LambertAzimuthal(p) if !LambertAzimuthalProjector::new(*p).crs_resolves() => None,
             Self::LambertAzimuthal(p) => Some(format!(
                 "+proj=laea +lat_0={} +lon_0={} +a={} +b={} +units=m +no_defs",
                 p.standard_parallel, p.central_longitude, p.semi_major_m, p.semi_minor_m
@@ -1742,6 +1830,7 @@ impl GridGeometry {
             // sight line: one radian of scan angle is `+h` metres, and `+h` is
             // the height above the ellipsoid, not the distance from its centre
             // that `h_metres` carries.
+            Self::Geostationary(p) if !GeostationaryProjector::new(*p).crs_resolves() => None,
             Self::Geostationary(p) => Some(format!(
                 "+proj=geos +h={} +lon_0={} +sweep={} +a={} +b={} +units=m +no_defs",
                 p.h_metres - p.r_eq,
@@ -2306,6 +2395,164 @@ mod tests {
                 !plane_spans_a_grid_cell(radius, 12_000.0, 12_000.0),
                 "radius {radius} passed"
             );
+        }
+    }
+
+    /// Spheres and oblate spheroids are bodies; anything PROJ would refuse
+    /// with "Must specify ellipsoid or sphere" is not (#844).
+    #[test]
+    fn an_oblate_spheroid_is_a_body_and_nothing_else_is() {
+        assert!(is_oblate_spheroid(6_371_229.0, 6_371_229.0), "a sphere");
+        assert!(is_oblate_spheroid(6_378_137.0, 6_356_752.314), "WGS84");
+        // A tiny body is still a body; its size against the grid is
+        // `plane_spans_a_grid_cell`'s question.
+        assert!(is_oblate_spheroid(1e-6, 1e-6));
+        for (a, b) in [
+            (0.0, 0.0),
+            (6_378_137.0, 0.0),
+            (0.0, 6_356_752.314),
+            (-6_378_137.0, -6_378_137.0),
+            (6_356_752.314, 6_378_137.0),
+            (f64::NAN, 6_356_752.314),
+            (6_378_137.0, f64::NAN),
+            (f64::INFINITY, 6_356_752.314),
+            (f64::INFINITY, f64::INFINITY),
+        ] {
+            assert!(!is_oblate_spheroid(a, b), "({a}, {b}) is a body");
+        }
+    }
+
+    /// Hand-built params whose CRS the family's own constants refuse get no
+    /// PROJ string, whichever reader (or none) built them (#844). Each healthy
+    /// set is perturbed in one field: the radius, an axis, the camera height or
+    /// the scale factor. PROJ 9.4.0 refuses every string the old code wrote for
+    /// these.
+    #[test]
+    fn a_crs_the_constants_refuse_has_no_proj_string() {
+        let lambert = LambertParams {
+            earth_radius_m: 6_371_229.0,
+            ni: 10,
+            nj: 10,
+            lat_first: 20.0,
+            lon_first: 250.0,
+            lad: 25.0,
+            lov: 265.0,
+            dx_metres: 12_000.0,
+            dy_metres: 12_000.0,
+            latin1: 25.0,
+            latin2: 25.0,
+        };
+        let polar = PolarStereoParams {
+            earth_radius_m: 6_371_229.0,
+            ni: 10,
+            nj: 10,
+            lat_first: 60.0,
+            lon_first: 0.0,
+            lov: 0.0,
+            lad: 60.0,
+            dx_metres: 12_000.0,
+            dy_metres: 12_000.0,
+            south_pole: false,
+        };
+        let tmerc = TransverseMercatorParams {
+            semi_major_m: 6_377_563.396,
+            semi_minor_m: 6_356_256.909,
+            ni: 10,
+            nj: 10,
+            lat_ref: 49.0,
+            lon_ref: -2.0,
+            scale_factor: 0.999_601_27,
+            false_easting_m: 400_000.0,
+            false_northing_m: -100_000.0,
+            x1_metres: 0.0,
+            y1_metres: 0.0,
+            dx_metres: 2_000.0,
+            dy_metres: 2_000.0,
+        };
+        let laea = LambertAzimuthalParams {
+            semi_major_m: 6_378_137.0,
+            semi_minor_m: 6_356_752.314,
+            ni: 10,
+            nj: 10,
+            lat_first: 50.0,
+            lon_first: 10.0,
+            standard_parallel: 52.0,
+            central_longitude: 10.0,
+            dx_metres: 5_000.0,
+            dy_metres: 5_000.0,
+        };
+        let geos = GeostationaryParams {
+            ni: 10,
+            nj: 10,
+            h_metres: 42_164_160.0,
+            r_eq: 6_378_137.0,
+            r_pol: 6_356_752.314,
+            sub_lon_deg: -75.0,
+            sweep_x: true,
+            x0: -0.01,
+            dx_rad: 0.002,
+            y0: 0.01,
+            dy_rad: -0.002,
+        };
+        let healthy = [
+            GridGeometry::Lambert(lambert),
+            GridGeometry::PolarStereo(polar),
+            GridGeometry::TransverseMercator(tmerc),
+            GridGeometry::LambertAzimuthal(laea),
+            GridGeometry::Geostationary(geos),
+        ];
+        for g in &healthy {
+            assert!(g.proj4().is_some(), "{}: healthy params", g.kind());
+        }
+        let mut refused = Vec::new();
+        for r in [0.0, -6_371_229.0, f64::NAN, f64::INFINITY] {
+            refused.push(GridGeometry::Lambert(LambertParams {
+                earth_radius_m: r,
+                ..lambert
+            }));
+            refused.push(GridGeometry::PolarStereo(PolarStereoParams {
+                earth_radius_m: r,
+                ..polar
+            }));
+        }
+        for (a, b) in [
+            (0.0, 0.0),
+            (6_378_137.0, 0.0),
+            (6_356_752.314, 6_378_137.0),
+            (f64::NAN, 6_356_752.314),
+        ] {
+            refused.push(GridGeometry::TransverseMercator(TransverseMercatorParams {
+                semi_major_m: a,
+                semi_minor_m: b,
+                ..tmerc
+            }));
+            refused.push(GridGeometry::LambertAzimuthal(LambertAzimuthalParams {
+                semi_major_m: a,
+                semi_minor_m: b,
+                ..laea
+            }));
+            refused.push(GridGeometry::Geostationary(GeostationaryParams {
+                r_eq: a,
+                r_pol: b,
+                ..geos
+            }));
+        }
+        for k in [0.0, -0.0, -1.0, -0.999_601_27, f64::NAN, f64::NEG_INFINITY] {
+            refused.push(GridGeometry::TransverseMercator(TransverseMercatorParams {
+                scale_factor: k,
+                ..tmerc
+            }));
+        }
+        // A camera at the centre, on the surface, or with no stated height.
+        for h in [0.0, geos.r_eq, f64::NAN] {
+            refused.push(GridGeometry::Geostationary(GeostationaryParams {
+                h_metres: h,
+                ..geos
+            }));
+        }
+        for g in &refused {
+            assert_eq!(g.proj4(), None, "{g:?}");
+            assert_eq!(g.plane_affine(), None, "{g:?}");
         }
     }
 
@@ -3618,7 +3865,7 @@ mod subsample_tests {
     /// Every family this method answers for, plus the three it declines, as
     /// `(label, geometry)`. Built once so a family added to [`GridGeometry`]
     /// shows up here as a missing arm rather than as an untested one.
-    fn families() -> Vec<(&'static str, GridGeometry)> {
+    pub(super) fn families() -> Vec<(&'static str, GridGeometry)> {
         vec![
             (
                 "latlon",
@@ -4082,5 +4329,109 @@ mod subsample_tests {
         assert!(near(coarse.dx_metres, source.dx_metres * 4.0, 1e-6));
         assert!(near(coarse.dy_metres, source.dy_metres * 4.0, 1e-6));
         assert!(coarse.dy_metres < 0.0, "a north-down grid stays north-down");
+    }
+}
+
+#[cfg(test)]
+mod declined_family_tests {
+    use super::*;
+
+    /// One of each variant: the subsampling families, which hold every
+    /// projected one, and the two that subsampling declines, a Gaussian and a
+    /// lookup grid.
+    fn one_of_each() -> Vec<GridGeometry> {
+        let mut all: Vec<GridGeometry> = super::subsample_tests::families()
+            .into_iter()
+            .map(|(_, g)| g)
+            .collect();
+        all.push(GridGeometry::Gaussian(GaussianParams {
+            ni: 320,
+            nj: 160,
+            lat_first: 89.142,
+            lon_first: 0.0,
+            lat_last: -89.142,
+            lon_last: 358.875,
+            n_parallels: 80,
+        }));
+        all.push(GridGeometry::Lookup(
+            crate::spatial_index::SpatialIndex::new(
+                2,
+                2,
+                &[0.0, 0.0, 1.0, 1.0],
+                &[0.0, 1.0, 0.0, 1.0],
+            )
+            .expect("four centres index"),
+        ));
+        all
+    }
+
+    /// A modelled family declined under its own name is recognised by both of
+    /// the names a host could have read off it, `kind` and `label`.
+    ///
+    /// The match is exhaustive on purpose (`non_exhaustive` does not apply
+    /// inside this crate): a variant added to the enum stops this compiling
+    /// until it is counted here, and the count then fails until a value of it
+    /// is in `one_of_each` and its name is in [`MODELLED_FAMILIES`].
+    #[test]
+    fn every_modelled_family_is_named() {
+        let mut seen = std::collections::BTreeSet::new();
+        for g in one_of_each() {
+            seen.insert(match &g {
+                GridGeometry::LatLon(_) => 0,
+                GridGeometry::Gaussian(_) => 1,
+                GridGeometry::Mercator(_) => 2,
+                GridGeometry::RotatedLatLon(_) => 3,
+                GridGeometry::Lambert(_) => 4,
+                GridGeometry::PolarStereo(_) => 5,
+                GridGeometry::TransverseMercator(_) => 6,
+                GridGeometry::LambertAzimuthal(_) => 7,
+                GridGeometry::Geostationary(_) => 8,
+                GridGeometry::Lookup(_) => 9,
+                GridGeometry::Unsupported { .. } => continue,
+            });
+            assert_eq!(
+                g.declined_family(),
+                None,
+                "{}: built, not declined",
+                g.kind()
+            );
+            for name in [g.kind(), g.label()] {
+                let declined = GridGeometry::Unsupported {
+                    label: name.to_string(),
+                };
+                assert_eq!(declined.declined_family(), Some(name), "{name}");
+            }
+        }
+        assert_eq!(seen.len(), 10, "one value of every modelled variant");
+        // The decoders' names for the reduced grids, which arrive widened.
+        for name in ["reduced_latlon", "reduced_gaussian"] {
+            let declined = GridGeometry::Unsupported {
+                label: name.to_string(),
+            };
+            assert_eq!(declined.declined_family(), Some(name));
+        }
+    }
+
+    /// Everything else an `Unsupported` carries is not a declined family: a
+    /// template the reader does not model, the families with no raster, the
+    /// raster nothing placed, the variant's own tag and an empty label.
+    #[test]
+    fn an_unmodelled_label_is_not_a_declined_family() {
+        for label in [
+            "unsupported(3.4)",
+            "unsupported(90)",
+            "spherical_harmonic",
+            "healpix",
+            "bifourier",
+            crate::cf::placement::SOURCE_ONLY,
+            "unsupported",
+            "",
+            "Rotated_LatLon",
+        ] {
+            let g = GridGeometry::Unsupported {
+                label: label.to_string(),
+            };
+            assert_eq!(g.declined_family(), None, "{label:?}");
+        }
     }
 }

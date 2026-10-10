@@ -33,9 +33,12 @@ import sys
 
 import eccodes as ec
 
-FIXTURES = pathlib.Path(__file__).resolve().parent.parent / (
-    "crates/fieldglass-grib2/tests/fixtures"
-)
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+FIXTURES = ROOT / "crates/fieldglass-grib2/tests/fixtures"
+# The coordinate oracles live with their only reader, `fieldglass-core`'s
+# `tests/healpix.rs`: a published crate's tests may only read files inside that
+# crate (#926).
+COORDS = ROOT / "crates/fieldglass-core/tests/fixtures/healpix"
 
 # Two resolutions, so a test cannot pass by hard-coding one Nside, and both
 # orderings. Nside 2 and 4 give 48 and 192 pixels: small enough to commit whole.
@@ -120,7 +123,7 @@ def main() -> int:
         expected = 12 * nside * nside
         if len(coords) != expected:
             raise SystemExit(f"{path.name}: got {len(coords)} centres, want {expected}")
-        (FIXTURES / f"{path.name}.coords.json").write_text(
+        (COORDS / f"{path.name}.coords.json").write_text(
             json.dumps(
                 {
                     "_comment": (

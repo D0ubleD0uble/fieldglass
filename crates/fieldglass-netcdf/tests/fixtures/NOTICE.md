@@ -589,7 +589,7 @@ qualified by the group that *defines* each dimension. Built by
 `tools/build_netcdf4_grouped_fixture.py` (run from the repo root; needs `netCDF4`);
 `tests/hdf5_nested_groups.rs` pins the resolver and the decode path against it.
 
-## Projected-grid fixtures (`wrf_lambert.nc`, `wrf_polar.nc`, `wrf_mercator.nc`, `wrf_latlon.nc`, `goes_geostationary.nc`)
+## Projected-grid fixtures (`wrf_lambert.nc`, `wrf_polar.nc`, `wrf_mercator.nc`, `wrf_latlon.nc`, `goes_geostationary.nc`, `goes_geostationary_classic.nc`)
 
 Targets for projected-grid geolocation (#168, #220, and #226; decision 0004) — regular
 grids in a projected CRS, rendered through the analytic-inverse warp (Model A).
@@ -632,8 +632,17 @@ a tautology.
   "x"`, GOES-East sub-satellite longitude) and 1-D `x` / `y` *radian* scan-angle
   coordinate variables stored as **scaled `int16`** (the real GOES encoding),
   exercising CF `scale_factor` / `add_offset`.
+- `goes_geostationary_classic.nc` (#844, classic NetCDF-3) is the same dataset,
+  written by the same function with `format="NETCDF3_CLASSIC"`. It has no oracle
+  of its own; it exists so a test can overwrite one grid-mapping attribute in
+  place. A classic header stores each `f64` big-endian and carries no checksum,
+  whereas the HDF5 object header checksums its attributes, so the NetCDF-4 file
+  cannot be edited that way. `crates/fieldglass/tests/non_finite_geometry.rs`
+  sets `semi_major_axis`, `semi_minor_axis` and `perspective_point_height` to
+  values that describe no camera and checks the slice is not placed. The napi
+  characterisation golden renders it identically to `goes_geostationary.nc`.
 
-Each has a sibling `*.oracle.json` with the resolved projection parameters and
+Each of the other five has a sibling `*.oracle.json` with the resolved projection parameters and
 sampled `(i, j) ↔ (lat, lon)` geolocation. `tests/projected_grids.rs` resolves
 the projection from the on-disk metadata and asserts the `fieldglass_core`
 projector reproduces the oracle.
@@ -1034,6 +1043,19 @@ assume one), so the fixture exercises the unpacking seam alongside the geometry.
 coordinates are classifiable on their own attributes but never reach axis
 detection, because that is offered only 1-D coordinate variables. #445 is what
 changes it.
+
+## `../fuzz_seeds/oom_large_fill_dataset.h5`
+
+A byte-for-byte copy of the seed of the same name in this crate's fuzz corpus
+(`fuzz/corpus/parse/`), read by `tests/whole_variable_budget.rs` (#847). It is
+the 13 KB input on which the project's time-boxed CI fuzz run reported
+out-of-memory: libFuzzer's mutation of a seed corpus drawn from this crate's
+own test fixtures, whose second dataset declares a chunked 9,175,044 × 16 shape
+of four-byte elements and stores no chunks. The fuzz directory is a separate
+package, so `cargo package` leaves it out; the copy is what the published
+crate's test reads (#926). It sits in `tests/fuzz_seeds/`, outside this
+directory, so neither the `*.nc` and `*.h5` sweeps nor the napi display
+golden's corpus walk treat a hostile seed as a fixture.
 
 ## Classic record-layout fixtures (`record_single_*.nc`, `record_mixed_cdf1.nc`)
 

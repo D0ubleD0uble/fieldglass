@@ -26,6 +26,7 @@
 //! the caller to fall back to the regular lat/lon path or source projection.
 
 use crate::array::{Attribute, AttributeValue, CfUnpacking, attribute};
+use crate::projection::is_oblate_spheroid;
 
 /// A text attribute by name. A number stored under the name is not text.
 fn attr<'a>(attrs: &'a [Attribute], name: &str) -> Option<&'a str> {
@@ -90,8 +91,11 @@ pub struct GeostationaryGrid {
 /// the `grid_mapping` variable a data variable points at; `x` / `y` are its
 /// decoded scan-angle coordinate arrays **in radians** (the caller applies any
 /// CF `scale_factor` / `add_offset` first — real GOES stores them as scaled
-/// `int16`). Returns `None` when the mapping is not geostationary or a required
-/// parameter is missing.
+/// `int16`). Returns `None` when the mapping is not geostationary, a required
+/// parameter is missing, or the parameters describe no camera to place a pixel
+/// from: axes that are no body ([`is_oblate_spheroid`]), or a camera that is not
+/// above the surface. PROJ refuses both, and a GRIB2 §3.90 stating either is
+/// declined the same way (#844).
 pub fn resolve_cf_geostationary(
     gm_attrs: &[Attribute],
     x: &[f64],
@@ -103,6 +107,9 @@ pub fn resolve_cf_geostationary(
     let pph = attr_f64(gm_attrs, "perspective_point_height")?;
     let r_eq = attr_f64(gm_attrs, "semi_major_axis")?;
     let r_pol = attr_f64(gm_attrs, "semi_minor_axis")?;
+    if !is_oblate_spheroid(r_eq, r_pol) || !(pph.is_finite() && pph > 0.0) {
+        return None;
+    }
     let sub_lon_deg = attr_f64(gm_attrs, "longitude_of_projection_origin")?;
     // CF's sweep_angle_axis is "x" for GOES-R, "y" for Meteosat; default to the
     // GOES-R convention when absent (the only geostationary corpus model).

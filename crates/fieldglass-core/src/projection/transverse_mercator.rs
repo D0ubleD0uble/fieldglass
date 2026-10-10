@@ -110,7 +110,7 @@ fn transverse_mercator_constants(p: &TransverseMercatorParams) -> TransverseMerc
     // which the guard on `2 - f` turns into `n = 0`, i.e. a perfectly usable
     // one-metre sphere. Poisoning the rectifying radius makes
     // `well_defined` — and so the projector — reject it instead.
-    if !(a.is_finite() && b.is_finite() && a > 0.0 && b > 0.0 && b <= a) {
+    if !super::is_oblate_spheroid(a, b) {
         return TransverseMercatorConstants {
             n: f64::NAN,
             rectifying_radius: f64::NAN,
@@ -274,16 +274,32 @@ impl TransverseMercatorProjector {
         transverse_mercator_inverse_xy_with(&self.constants, &self.params, x, y)
     }
 
+    /// Whether the parameters describe a CRS at all: the Krüger constants of
+    /// the spheroid, and a scale factor that is finite and positive. A
+    /// [`GridGeometry::proj4`](super::GridGeometry::proj4) string is written
+    /// only when this holds, so it never names a CRS PROJ refuses (#844).
+    ///
+    /// The scale factor is a ratio of two distances (WMO §3.12: distance on the
+    /// map to distance on the spheroid), so it is positive, and PROJ refuses
+    /// `+k_0` at or below zero ("it should be > 0"). A negative one used to be
+    /// accepted here as a mirrored plane.
+    pub(crate) fn crs_resolves(&self) -> bool {
+        self.constants.well_defined()
+            && self.params.scale_factor.is_finite()
+            && self.params.scale_factor > 0.0
+    }
+
     /// Whether the projection is usable. `false` leaves
     /// [`inverse`](Self::inverse) returning `None` for every point, so callers
     /// can surface "not reprojectable" rather than render blank.
     ///
-    /// Both of §3.12's degeneracies are here. One is the spheroid, which the
-    /// Krüger constants check for themselves. The other is the
-    /// scale factor: it multiplies the rectifying radius, so zero collapses the
-    /// whole plane onto the false origin and a non-finite one makes every index
-    /// `NaN`. `k` is read straight out of the template as an IEEE `f32` with no
-    /// guard, so a malformed message lands on it. The two checks used to be
+    /// Both of §3.12's degeneracies are here, through `crs_resolves`.
+    /// One is the spheroid, which the Krüger constants check for themselves.
+    /// The other is the scale factor: it multiplies the rectifying radius, so
+    /// zero collapses the whole plane onto the false origin, a negative one is
+    /// no ratio of distances, and a non-finite one makes every index `NaN`.
+    /// `k` is read straight out of the template as an IEEE `f32`, so a
+    /// malformed message lands on it. The two checks used to be
     /// split between this method and [`PlanarGridProjector::accepts`], which let
     /// a caller gating on this one geolocate a grid whose `inverse` declined
     /// every point of it.
@@ -298,17 +314,15 @@ impl TransverseMercatorProjector {
     /// What is measured is `k · rectifying radius`, the product
     /// `transverse_mercator_forward_with` actually multiplies by — because the
     /// scale factor shrinks the plane just as the spheroid does, and unlike the
-    /// two checks above it is not enough for it to be non-zero. A `k` of 1e-5
+    /// two checks above it is not enough for it to be positive. A `k` of 1e-5
     /// on Airy 1830 leaves a plane 64 m across against 48 km UKV cells, and it
     /// is the quietest form of all: every point on Earth lands on the false
     /// origin, which on that grid is index (13.3, 27.5) — *inside* the raster,
     /// so England and Mexico read back the same cell.
     pub fn is_well_defined(&self) -> bool {
-        self.constants.well_defined()
-            && self.params.scale_factor.is_finite()
-            && self.params.scale_factor != 0.0
+        self.crs_resolves()
             && super::plane_spans_a_grid_cell(
-                self.params.scale_factor.abs() * self.constants.rectifying_radius,
+                self.params.scale_factor * self.constants.rectifying_radius,
                 self.params.dx_metres,
                 self.params.dy_metres,
             )
@@ -681,7 +695,7 @@ mod tests {
     /// answer.
     #[test]
     fn transverse_mercator_rejects_a_degenerate_scale_factor() {
-        for scale_factor in [0.0, f64::NAN, f64::INFINITY] {
+        for scale_factor in [0.0, -0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let projector = TransverseMercatorProjector::new(TransverseMercatorParams {
                 scale_factor,
                 ..ukv_params()
@@ -769,10 +783,23 @@ mod tests {
                 );
             }
         }
-        // The scale factors §3.12 grids are actually published on, and the
-        // negative twin of the UKV's, which is a mirrored plane rather than a
-        // collapsed one.
-        for k in [p.scale_factor, -p.scale_factor, 1.0, 0.9996] {
+        // The negative twin of the UKV's is no longer a mirrored plane: a scale
+        // factor is a ratio of distances, and PROJ refuses `+k_0` at or below
+        // zero (#844).
+        for k in [-p.scale_factor, -1.0, -f64::MAX] {
+            let projector = TransverseMercatorProjector::new(TransverseMercatorParams {
+                scale_factor: k,
+                ..p
+            });
+            assert!(!projector.is_well_defined(), "scale factor {k} is usable");
+            assert!(!projector.crs_resolves(), "scale factor {k} names a CRS");
+            assert!(
+                projector.inverse(54.0, -2.0).is_none(),
+                "scale factor {k} resolved a grid index"
+            );
+        }
+        // The scale factors §3.12 grids are actually published on.
+        for k in [p.scale_factor, 1.0, 0.9996] {
             assert!(
                 TransverseMercatorProjector::new(TransverseMercatorParams {
                     scale_factor: k,

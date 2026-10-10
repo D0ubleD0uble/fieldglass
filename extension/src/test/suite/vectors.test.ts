@@ -172,7 +172,7 @@ suite("Vector arrows", () => {
     const native = loadNative();
     assert.ok(native);
     const meta = (uvRelativeToGrid: boolean | null) =>
-      ({ grid: { label: "polar_stereo" }, reprojectable: true, uvRelativeToGrid }) as unknown as PanelField;
+      ({ grid: { label: "polar_stereo" }, reprojectable: true, placement: "placed", uvRelativeToGrid }) as unknown as PanelField;
     const fields: CompareFieldOption[] = [
       { index: 0, label: "#0 · UGRD" },
       { index: 1, label: "#1 · VGRD" },
