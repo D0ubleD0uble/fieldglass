@@ -710,6 +710,12 @@ export function renderImagePanelHtml(
         // (projection / resampling / flip-y / range). The cached payload
         // lets us redraw after a tab hide/show without a round-trip.
         let lastPayload = null;
+        // Whether the provider has answered the mount's own render, with an
+        // image or an error. Until it has, a control change waits for that
+        // answer rather than asking again. After an error there is still no
+        // payload, and keying on one left a panel whose first render failed
+        // unable to ask for another (#839).
+        let mountAnswered = false;
 
         // --- NetCDF slice picker (#122) -------------------------------------
         // SLICE is null for the GRIB panels; for NetCDF it carries the
@@ -1033,6 +1039,20 @@ export function renderImagePanelHtml(
           const note = document.getElementById('overlay-note');
           if (note) note.toggleAttribute('hidden', mapPlaced);
           applyContoursOnly();
+        }
+
+        // Take a slice panel's answers for the slice picked, which come with a
+        // render and with a render's error alike (#839): the picker follows
+        // them (#822) and so does the Overlay row (#840). A failed render would
+        // otherwise leave both on the previous slice's answer. A GRIB panel's
+        // messages carry none.
+        function applySliceAnswer(sliceGrid) {
+          if (!sliceGrid) return;
+          if (applySliceGrid(sliceGrid)) {
+            syncProjectionControls();
+            snapshotState();
+          }
+          applySlicePlacement(sliceGrid.placed);
         }
 
         // A cross-section has no projection and no coastlines to draw on it.
@@ -1388,7 +1408,7 @@ export function renderImagePanelHtml(
         }
 
         function requestRender() {
-          if (!lastPayload) {
+          if (!mountAnswered) {
             // Initial mount: provider posts ready-options-default automatically.
             return;
           }
@@ -1489,6 +1509,7 @@ export function renderImagePanelHtml(
 
         function handleGridReady(msg) {
           lastPayload = msg;
+          mountAnswered = true;
           // Re-label for the field actually drawn. A NetCDF panel switches
           // variables inside one webview, and name/units travel with the
           // variable; a GRIB panel sends the same strings every time, so this
@@ -1505,16 +1526,11 @@ export function renderImagePanelHtml(
           if (subtitle) subtitle.textContent = SUB_LINE;
           if (typeof msg.parameterUnits === 'string') UNITS = msg.parameterUnits;
           if (typeof msg.defaultPngName === 'string') DEFAULT_PNG_NAME = msg.defaultPngName;
-          // A slice panel's picker follows the slice on screen (#822). Before the
-          // overlay key below is read, so overlays are asked for in the
-          // projection the image was drawn in.
-          if (msg.sliceGrid && applySliceGrid(msg.sliceGrid)) {
-            syncProjectionControls();
-            snapshotState();
-          }
-          // The overlays follow whether it is placed (#840), also before the
-          // overlay and contour keys below are read.
-          if (msg.sliceGrid) applySlicePlacement(msg.sliceGrid.placed);
+          // A slice panel's picker and Overlay row follow the slice on screen.
+          // Before the overlay and contour keys below are read, so overlays are
+          // asked for in the projection the image was drawn in, and only for a
+          // slice that is placed.
+          applySliceAnswer(msg.sliceGrid);
           blit(msg);
           updateLogAvailability();
           animationFrameArrived();
@@ -1558,7 +1574,9 @@ export function renderImagePanelHtml(
           // A frame that fails ends playback rather than retrying it forever.
           stopAnimation();
           const err = msg.error || 'render failed';
+          mountAnswered = true;
           setStatus('Error: ' + err);
+          applySliceAnswer(msg.sliceGrid);
           // Self-heal the one render error the log toggle can cause: switching
           // to a field with no positive floor while log was on. Drop log and
           // re-render linearly rather than leaving the panel stuck on an error.
@@ -2596,7 +2614,8 @@ export function renderImagePanelHtml(
           // for, which a hide and show brings back even after the picker moved
           // on (#822). A saved map target is offered again here, and the
           // provider's first render — which draws it, or the source view if the
-          // restored slice cannot take it — says which, through applySliceGrid.
+          // restored slice cannot take it — says which, through applySliceAnswer.
+          // So does its error, if that render fails (#839).
           if (SLICE && !mapsOffered && MAP_PROJECTIONS.some((t) => t.value === s.projection)) {
             const projection = document.getElementById('picker-projection');
             if (projection) projection.innerHTML = projectionOptionsHtml(MAP_PROJECTIONS, true);

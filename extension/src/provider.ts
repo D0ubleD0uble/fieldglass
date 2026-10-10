@@ -1333,11 +1333,14 @@ export class FieldglassEditorProvider
     const paint = (requested: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare) => {
       const docHandle = subject.handle();
       if (!docHandle) {
+        // With no handle nothing is placed, so the picker and the Overlay row
+        // stop offering what only a placed slice takes (#839).
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: spec.variableIndex,
           error: subject.gone,
-        });
+          sliceGrid: sliceAnswer(null),
+        } satisfies GridErrorMessage);
         return;
       }
       // The picker offers the map targets for the slice it last drew (#822). A
@@ -1374,19 +1377,18 @@ export class FieldglassEditorProvider
         shown = { meta: sliceField(renderedVar(spec), grid), grid };
         panel.webview.postMessage({
           ...buildGridReadyMessage(rendered, sliceTitle(renderedVar(spec), spec.variableIndex), options),
-          sliceGrid: {
-            label: grid?.label ?? null,
-            reprojectable: grid?.reprojectable ?? false,
-            note: reprojectionNote(grid?.reprojectable ?? false, grid?.label ?? null),
-            placed: offersOverlays(grid?.placement),
-          },
+          sliceGrid: sliceAnswer(grid),
         } satisfies GridReadyMessage);
       } catch (err) {
+        // The answers go with the error too. The picker has moved onto this
+        // slice, and a failed render must not leave it, or the Overlay row, on
+        // the previous slice's answer (#839).
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: spec.variableIndex,
           error: `render failed: ${err}`,
-        });
+          sliceGrid: sliceAnswer(grid),
+        } satisfies GridErrorMessage);
       }
     };
 
@@ -1666,7 +1668,39 @@ export interface GridReadyMessage {
    *  `placed` is {@link offersOverlays} for it: whether the overlays,
    *  contours and arrows apply, which the Overlay row follows (#840). Absent
    *  for a GRIB panel, which draws one field. */
-  sliceGrid?: { label: string | null; reprojectable: boolean; note: string; placed: boolean };
+  sliceGrid?: SliceAnswer;
+}
+
+/** A slice's answers as the render panel takes them; see
+ *  {@link GridReadyMessage.sliceGrid}. */
+export interface SliceAnswer {
+  label: string | null;
+  reprojectable: boolean;
+  note: string;
+  placed: boolean;
+}
+
+/** The answers for a slice from its `SliceGrid`, or for one the handle could
+ *  not place (`null`): no family, the source view alone, no overlays. */
+export function sliceAnswer(grid: SliceGrid | null): SliceAnswer {
+  return {
+    label: grid?.label ?? null,
+    reprojectable: grid?.reprojectable ?? false,
+    note: reprojectionNote(grid?.reprojectable ?? false, grid?.label ?? null),
+    placed: offersOverlays(grid?.placement),
+  };
+}
+
+/** `gridError`: a render the provider could not draw. */
+export interface GridErrorMessage {
+  type: "gridError";
+  messageIndex: number;
+  error: string;
+  /** A slice panel's answers for the slice it was asked to draw (#839). The
+   *  picker and the Overlay row follow the slice the user picked whether or
+   *  not it drew, so a failed render does not leave them on the previous
+   *  slice's answer. Absent for a GRIB panel. */
+  sliceGrid?: SliceAnswer;
 }
 
 /** `overlayRequest` posted by the render panel when an overlay layer is
