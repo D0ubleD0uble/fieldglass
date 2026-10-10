@@ -118,7 +118,12 @@ def main() -> int:
     print(f"publishable crates: {', '.join(names)}", flush=True)
 
     start = time.monotonic()
-    scratch = Path(tempfile.mkdtemp(prefix="fieldglass-packaged-"))
+    scratch = Path(tempfile.mkdtemp(prefix="fieldglass-packaged-")).resolve()
+    if scratch.is_relative_to(REPO):
+        # cargo would find this checkout's workspace above the unpacked crates.
+        shutil.rmtree(scratch, ignore_errors=True)
+        print("error: TMPDIR is inside the checkout; point it elsewhere", file=sys.stderr)
+        return 2
     try:
         # One target directory for all eight: the siblings are the same source,
         # so a shared one compiles each dependency once.
