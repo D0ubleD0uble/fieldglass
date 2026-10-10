@@ -105,7 +105,8 @@ fn geostationary_projection_reproduces_oracle_geolocation() {
     };
     let x = read_scaled("x");
     let y = read_scaled("y");
-    let g = resolve_cf_geostationary(&gm_attrs, &x, &y).expect("geostationary resolves");
+    let g = resolve_cf_geostationary(&gm_attrs, &x, Some("rad"), &y, Some("rad"))
+        .expect("geostationary resolves");
 
     // Resolved parameters are the genuine GOES-16 (GOES-East) values.
     assert!(

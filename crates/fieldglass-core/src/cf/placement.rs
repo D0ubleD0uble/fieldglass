@@ -148,7 +148,9 @@ fn source_only() -> GridGeometry {
 /// that is missing as well as one that is out of range, since both are the
 /// mapping's own numbers building no grid. A mapping whose slice has no `x`/`y`
 /// coordinate arrays stays [`SOURCE_ONLY`]: nothing in the file says where its
-/// cells are, which is the case that label exists for.
+/// cells are, which is the case that label exists for. So do axes whose units
+/// are no angle or length: the mapping is stated, and only its coordinates
+/// cannot be read as scan angles (#966).
 ///
 /// The fingerprint folds in what the resolver reads, in a fixed order, and both
 /// axes, so two slices that state the same mapping still combine and two that
@@ -158,7 +160,10 @@ fn source_only() -> GridGeometry {
 /// to fingerprint alike. A numeric attribute is read as its first number and a
 /// missing one is recorded as absent, as the resolver reads them; the sweep
 /// axis is folded as the resolver interprets it, since an absent one is `x`.
-fn declined_space_view(gm_attrs: &[Attribute], x: &[f64], y: &[f64]) -> GridGeometry {
+/// Each axis's units are folded beside its values, trimmed, as the resolver
+/// reads them, since the same numbers in metres and in radians are different
+/// grids.
+fn declined_space_view(gm_attrs: &[Attribute], x: &Axis, y: &Axis) -> GridGeometry {
     let number = |f: GridFingerprint, value: Option<f64>| match value {
         // One NaN for every payload: a container may write any of them.
         Some(v) if v.is_nan() => f.with_bytes(&[2]),
@@ -185,8 +190,15 @@ fn declined_space_view(gm_attrs: &[Attribute], x: &[f64], y: &[f64]) -> GridGeom
     let sweep_x = text("sweep_angle_axis").is_none_or(|s| s.trim() != "y");
     f = f.with_bytes(&[u8::from(sweep_x)]);
     for axis in [x, y] {
-        f = f.with_bytes(&(axis.len() as u64).to_le_bytes());
-        f = axis.iter().fold(f, |f, v| number(f, Some(*v)));
+        f = match axis.units() {
+            Some(units) => f
+                .with_bytes(&[1])
+                .with_bytes(&(units.len() as u64).to_le_bytes())
+                .with_bytes(units.as_bytes()),
+            None => f.with_bytes(&[0]),
+        };
+        f = f.with_bytes(&(axis.values.len() as u64).to_le_bytes());
+        f = axis.values.iter().fold(f, |f, v| number(f, Some(*v)));
     }
     GridGeometry::Unsupported {
         // `GridGeometry::Geostationary`'s kind, which `declined_family` reads.
@@ -262,12 +274,18 @@ pub fn slice_placement(
     if let Some(gm_attrs) = grid_mapping_attrs(&catalog, entry) {
         match classify_grid_mapping(gm_attrs) {
             CfMapping::Geostationary => {
-                let x = coordinate_values_for_dim(source, &catalog, &x_axis.name)?;
-                let y = coordinate_values_for_dim(source, &catalog, &y_axis.name)?;
+                let x = axis_for_dim(source, &catalog, &x_axis.name)?;
+                let y = axis_for_dim(source, &catalog, &y_axis.name)?;
                 return Ok(unordered(match (x, y) {
-                    (Some(x), Some(y)) => resolve_cf_geostationary(gm_attrs, &x, &y)
-                        .as_ref()
-                        .map_or_else(|| declined_space_view(gm_attrs, &x, &y), GridGeometry::from),
+                    (Some(x), Some(y)) => resolve_cf_geostationary(
+                        gm_attrs,
+                        &x.values,
+                        x.units(),
+                        &y.values,
+                        y.units(),
+                    )
+                    .as_ref()
+                    .map_or_else(|| declined_space_view(gm_attrs, &x, &y), GridGeometry::from),
                     _ => source_only(),
                 }));
             }
@@ -429,14 +447,32 @@ fn coordinate_values(
     ))
 }
 
+/// A 1-D coordinate axis: its scaled values and the attributes beside them.
+struct Axis<'g> {
+    values: Vec<f64>,
+    attributes: &'g [Attribute],
+}
+
+impl Axis<'_> {
+    /// The axis's `units`, trimmed, when it states them as text.
+    fn units(&self) -> Option<&str> {
+        attribute(self.attributes, "units")
+            .and_then(AttributeValue::text)
+            .map(str::trim)
+    }
+}
+
 /// The 1-D coordinate axis of a dimension, or `None` when it has none.
-fn coordinate_values_for_dim(
+fn axis_for_dim<'g>(
     source: &dyn ArraySource,
-    catalog: &Catalog<'_>,
+    catalog: &Catalog<'g>,
     dim_name: &str,
-) -> Result<Option<Vec<f64>>, FieldglassError> {
+) -> Result<Option<Axis<'g>>, FieldglassError> {
     match catalog.coordinate_of(dim_name) {
-        Some(entry) => Ok(Some(coordinate_values(source, entry)?)),
+        Some(entry) => Ok(Some(Axis {
+            values: coordinate_values(source, entry)?,
+            attributes: &entry.array.attributes,
+        })),
         None => Ok(None),
     }
 }

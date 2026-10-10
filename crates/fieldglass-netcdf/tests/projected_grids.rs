@@ -27,6 +27,8 @@ const WRF_LATLON: &[u8] = include_bytes!("fixtures/wrf_latlon.nc");
 const WRF_LATLON_ORACLE: &str = include_str!("fixtures/wrf_latlon.nc.oracle.json");
 const GOES: &[u8] = include_bytes!("fixtures/goes_geostationary.nc");
 const GOES_ORACLE: &str = include_str!("fixtures/goes_geostationary.nc.oracle.json");
+const GOES_METRES: &[u8] = include_bytes!("fixtures/goes_geostationary_metres.nc");
+const GOES_METRES_ORACLE: &str = include_str!("fixtures/goes_geostationary_metres.nc.oracle.json");
 
 fn view(bytes: &[u8]) -> (NetcdfReader, DatasetView) {
     let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("parse");
@@ -227,7 +229,8 @@ fn goes_geostationary_grid_reproduces_oracle_geolocation() {
     };
     let x = read_scaled("x");
     let y = read_scaled("y");
-    let g = resolve_cf_geostationary(&gm_attrs, &x, &y).expect("geostationary resolves");
+    let g = resolve_cf_geostationary(&gm_attrs, &x, Some("rad"), &y, Some("rad"))
+        .expect("geostationary resolves");
 
     let proj = GeostationaryProjector::new(GeostationaryParams {
         ni: g.ni,
@@ -284,4 +287,105 @@ fn goes_geostationary_grid_reproduces_oracle_geolocation() {
         (nadir.1 - g.sub_lon_deg).abs() < 1e-6,
         "nadir longitude = sub-sat"
     );
+}
+
+/// The GOES grid with `x`/`y` in metres, PROJ's `+proj=geos` easting and
+/// northing, resolves through each axis's `units` to the scan angles of its
+/// radian twin and reproduces PROJ's own inverse (#966). It used to be placed
+/// as if each metre were a radian.
+#[test]
+fn goes_geostationary_metre_axes_reproduce_proj() {
+    let geos = |bytes: &[u8]| {
+        let (reader, view) = view(bytes);
+        let gm_attrs = view
+            .vars
+            .iter()
+            .find(|v| v.name() == "goes_imager_projection")
+            .expect("grid_mapping var")
+            .array
+            .attributes
+            .clone();
+        let axis = |name: &str| {
+            let var = view.vars.iter().find(|v| v.name() == name).unwrap();
+            let raw = decode_named(&reader, &view, name);
+            let units = var.units().map(str::to_string);
+            (apply_scale_offset(&raw, &var.array.attributes), units)
+        };
+        let (x, x_units) = axis("x");
+        let (y, y_units) = axis("y");
+        resolve_cf_geostationary(&gm_attrs, &x, x_units.as_deref(), &y, y_units.as_deref())
+            .expect("geostationary resolves")
+    };
+    let g = geos(GOES_METRES);
+    let radian = geos(GOES);
+    for (got, want) in [
+        (g.x0, radian.x0),
+        (g.dx_rad, radian.dx_rad),
+        (g.y0, radian.y0),
+        (g.dy_rad, radian.dy_rad),
+    ] {
+        assert!(
+            (got - want).abs() < 1e-12,
+            "{got} vs the radian file's {want}"
+        );
+    }
+    assert_eq!(
+        (
+            g.ni,
+            g.nj,
+            g.h_metres,
+            g.r_eq,
+            g.r_pol,
+            g.sub_lon_deg,
+            g.sweep_x
+        ),
+        (
+            radian.ni,
+            radian.nj,
+            radian.h_metres,
+            radian.r_eq,
+            radian.r_pol,
+            radian.sub_lon_deg,
+            radian.sweep_x
+        )
+    );
+
+    let proj = GeostationaryProjector::new(GeostationaryParams {
+        ni: g.ni,
+        nj: g.nj,
+        h_metres: g.h_metres,
+        r_eq: g.r_eq,
+        r_pol: g.r_pol,
+        sub_lon_deg: g.sub_lon_deg,
+        sweep_x: g.sweep_x,
+        x0: g.x0,
+        dx_rad: g.dx_rad,
+        y0: g.y0,
+        dy_rad: g.dy_rad,
+    });
+    let oracle: Value = serde_json::from_str(GOES_METRES_ORACLE).unwrap();
+    let samples = oracle["samples"].as_array().unwrap();
+    assert_eq!(samples.len(), (g.ni * g.nj) as usize, "every pixel sampled");
+    for s in samples {
+        let (i, j) = (
+            s["i"].as_u64().unwrap() as f64,
+            s["j"].as_u64().unwrap() as f64,
+        );
+        let (olat, olon) = (s["lat"].as_f64().unwrap(), s["lon"].as_f64().unwrap());
+        let (lat, lon) = proj
+            .scan_to_lonlat(g.x0 + i * g.dx_rad, g.y0 + j * g.dy_rad)
+            .unwrap_or_else(|| panic!("pixel ({i},{j}) on disk"));
+        // PROJ prints 12 decimals.
+        assert!(
+            (lat - olat).abs() < 1e-9 && (lon - olon).abs() < 1e-9,
+            "pixel ({i},{j}) → ({lat},{lon}), PROJ ({olat},{olon})",
+        );
+        let idx = proj.inverse(olat, olon).expect("PROJ lat/lon on grid");
+        assert!(
+            (idx.i - i).abs() < 1e-6 && (idx.j - j).abs() < 1e-6,
+            "({olat},{olon}) → index ({}, {}), expected ({i}, {j})",
+            idx.i,
+            idx.j
+        );
+    }
 }

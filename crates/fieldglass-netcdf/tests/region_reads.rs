@@ -60,6 +60,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/goes_geostationary.nc"),
     ),
     (
+        "goes_geostationary_metres.nc",
+        include_bytes!("fixtures/goes_geostationary_metres.nc"),
+    ),
+    (
         "hdf5_btree_k_sb1.h5",
         include_bytes!("fixtures/hdf5_btree_k_sb1.h5"),
     ),

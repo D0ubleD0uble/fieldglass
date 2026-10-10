@@ -89,17 +89,30 @@ pub struct GeostationaryGrid {
 
 /// Resolve a CF `geostationary` grid mapping. `gm_attrs` are the attributes of
 /// the `grid_mapping` variable a data variable points at; `x` / `y` are its
-/// decoded scan-angle coordinate arrays **in radians** (the caller applies any
-/// CF `scale_factor` / `add_offset` first — real GOES stores them as scaled
-/// `int16`). Returns `None` when the mapping is not geostationary, a required
-/// parameter is missing, or the parameters describe no camera to place a pixel
-/// from: axes that are no body ([`is_oblate_spheroid`]), or a camera that is not
-/// above the surface. PROJ refuses both, and a GRIB2 §3.90 stating either is
-/// declined the same way (#844).
+/// decoded coordinate arrays (the caller applies any CF `scale_factor` /
+/// `add_offset` first — real GOES stores them as scaled `int16`), and
+/// `x_units` / `y_units` their `units` attributes.
+///
+/// CF (Appendix F) allows the coordinates in either of two units. GOES-R
+/// writes scan angles in radians; satpy, pyresample and files converted
+/// through PROJ or GDAL write PROJ's `+proj=geos` easting and northing in
+/// metres, which are the scan angle times `perspective_point_height`. Metres
+/// and kilometres are divided back to radians. Missing units are read as
+/// radians only while every value could be one (`|v| <= π`). Any other unit
+/// describes no scan angle, and the mapping is declined (#966).
+///
+/// Returns `None` when the mapping is not geostationary, a required
+/// parameter is missing, an axis's units are not an angle or a length, or the
+/// parameters describe no camera to place a pixel from: axes that are no body
+/// ([`is_oblate_spheroid`]), or a camera that is not above the surface. PROJ
+/// refuses both, and a GRIB2 §3.90 stating either is declined the same way
+/// (#844).
 pub fn resolve_cf_geostationary(
     gm_attrs: &[Attribute],
     x: &[f64],
+    x_units: Option<&str>,
     y: &[f64],
+    y_units: Option<&str>,
 ) -> Option<GeostationaryGrid> {
     if attr(gm_attrs, "grid_mapping_name")?.trim() != "geostationary" {
         return None;
@@ -116,8 +129,8 @@ pub fn resolve_cf_geostationary(
     let sweep_x = attr(gm_attrs, "sweep_angle_axis")
         .map(|s| s.trim() != "y")
         .unwrap_or(true);
-    let (x0, dx_rad) = axis_first_step(x)?;
-    let (y0, dy_rad) = axis_first_step(y)?;
+    let (x0, dx_rad) = scan_angle_first_step(x, x_units, pph)?;
+    let (y0, dy_rad) = scan_angle_first_step(y, y_units, pph)?;
     // A coordinate axis longer than `u32::MAX` is not a grid the projectors can
     // describe; `None` sends it down the non-geostationary path rather than
     // wrapping the count.
@@ -135,6 +148,31 @@ pub fn resolve_cf_geostationary(
         y0,
         dy_rad,
     })
+}
+
+/// First scan angle and the signed step of a geostationary coordinate axis,
+/// radians, from values in `units` (see [`resolve_cf_geostationary`]). `pph`
+/// is `perspective_point_height`, the `h` PROJ's `+proj=geos` scales its
+/// angles by.
+///
+/// CF takes its units from UDUNITS, which matches a symbol exactly (`M` is
+/// mega, not metre) and a name in any case, so `Meters` is metres.
+fn scan_angle_first_step(values: &[f64], units: Option<&str>, pph: f64) -> Option<(f64, f64)> {
+    let per_radian = match units.map(str::trim) {
+        Some("rad") => 1.0,
+        Some("m") => pph,
+        Some("km") => pph / 1000.0,
+        Some(name) => match name.to_ascii_lowercase().as_str() {
+            "radian" | "radians" => 1.0,
+            "metre" | "metres" | "meter" | "meters" => pph,
+            "kilometre" | "kilometres" | "kilometer" | "kilometers" => pph / 1000.0,
+            _ => return None,
+        },
+        None if values.iter().all(|v| v.abs() <= std::f64::consts::PI) => 1.0,
+        None => return None,
+    };
+    let (first, step) = axis_first_step(values)?;
+    Some((first / per_radian, step / per_radian))
 }
 
 /// The sphere WRF projects on (`module_map_utils`). WRF fixes it at 6 370 000 m,
@@ -602,7 +640,8 @@ mod tests {
         ]);
         let x = [-0.02, -0.01, 0.0, 0.01];
         let y = [0.02, 0.01, 0.0, -0.01]; // descends north→south
-        let g = resolve_cf_geostationary(&gm, &x, &y).expect("geostationary resolves");
+        let g = resolve_cf_geostationary(&gm, &x, Some("rad"), &y, Some("rad"))
+            .expect("geostationary resolves");
         assert_eq!((g.ni, g.nj), (4, 4));
         assert_eq!(g.sub_lon_deg, -75.0);
         assert!(g.sweep_x);
@@ -619,14 +658,14 @@ mod tests {
         let y = [0.0, -0.01];
         // Wrong grid_mapping_name.
         let lcc = attrs(&[("grid_mapping_name", "lambert_conformal_conic")]);
-        assert!(resolve_cf_geostationary(&lcc, &x, &y).is_none());
+        assert!(resolve_cf_geostationary(&lcc, &x, None, &y, None).is_none());
         // Right name, missing the ellipsoid.
         let partial = attrs(&[
             ("grid_mapping_name", "geostationary"),
             ("perspective_point_height", "35786023.0"),
             ("longitude_of_projection_origin", "-75.0"),
         ]);
-        assert!(resolve_cf_geostationary(&partial, &x, &y).is_none());
+        assert!(resolve_cf_geostationary(&partial, &x, None, &y, None).is_none());
     }
 
     #[test]
@@ -639,8 +678,93 @@ mod tests {
             ("longitude_of_projection_origin", "0.0"),
             ("sweep_angle_axis", "y"),
         ]);
-        let g = resolve_cf_geostationary(&gm, &[0.0, 0.01], &[0.0, -0.01]).unwrap();
+        let g = resolve_cf_geostationary(&gm, &[0.0, 0.01], None, &[0.0, -0.01], None).unwrap();
         assert!(!g.sweep_x, "Meteosat sweeps about y");
+    }
+
+    /// The GOES-East mapping of the tests above.
+    fn goes_east() -> Vec<Attribute> {
+        attrs(&[
+            ("grid_mapping_name", "geostationary"),
+            ("perspective_point_height", "35786023.0"),
+            ("semi_major_axis", "6378137.0"),
+            ("semi_minor_axis", "6356752.31414"),
+            ("longitude_of_projection_origin", "-75.0"),
+            ("sweep_angle_axis", "x"),
+        ])
+    }
+
+    /// PROJ's `+proj=geos` easting and northing are the scan angle times
+    /// `perspective_point_height`, so an axis in metres or kilometres resolves
+    /// to the scan angles of its radian twin (#966).
+    #[test]
+    fn geostationary_axes_in_metres_resolve_to_scan_angles() {
+        const PPH: f64 = 35_786_023.0;
+        let gm = goes_east();
+        let x = [-0.02, -0.01, 0.0, 0.01];
+        let y = [0.02, 0.01, 0.0, -0.01];
+        let want = resolve_cf_geostationary(&gm, &x, Some("rad"), &y, Some("radians")).unwrap();
+        let scaled = |v: &[f64], by: f64| v.iter().map(|a| a * by).collect::<Vec<_>>();
+        for (units, by) in [
+            ("m", PPH),
+            ("metres", PPH),
+            ("meter", PPH),
+            ("Meters", PPH),
+            (" km ", PPH / 1000.0),
+            ("Kilometers", PPH / 1000.0),
+        ] {
+            let g = resolve_cf_geostationary(
+                &gm,
+                &scaled(&x, by),
+                Some(units),
+                &scaled(&y, by),
+                Some(units),
+            )
+            .unwrap_or_else(|| panic!("{units:?} resolves"));
+            for (got, want) in [
+                (g.x0, want.x0),
+                (g.dx_rad, want.dx_rad),
+                (g.y0, want.y0),
+                (g.dy_rad, want.dy_rad),
+            ] {
+                assert!((got - want).abs() < 1e-15, "{units:?}: {got} vs {want}");
+            }
+            assert_eq!((g.ni, g.nj, g.h_metres), (want.ni, want.nj, want.h_metres));
+        }
+    }
+
+    /// An axis whose units are neither an angle nor a length, or that has no
+    /// units and values no radian can be, declines the mapping rather than
+    /// placing each unit as a radian (#966). Missing units on values that fit
+    /// are radians, as GOES files before the attribute was checked read.
+    #[test]
+    fn geostationary_axes_in_other_units_decline() {
+        let gm = goes_east();
+        let rad = [-0.02, 0.0, 0.02];
+        let metres = [-715_720.46, 0.0, 715_720.46];
+        for units in [
+            "deg",
+            "degrees",
+            "1",
+            "",
+            "furlong",
+            "M",
+            "KM",
+            "RAD",
+            "microradian",
+        ] {
+            assert!(
+                resolve_cf_geostationary(&gm, &rad, Some(units), &rad, Some("rad")).is_none(),
+                "x in {units:?}"
+            );
+            assert!(
+                resolve_cf_geostationary(&gm, &rad, Some("rad"), &rad, Some(units)).is_none(),
+                "y in {units:?}"
+            );
+        }
+        assert!(resolve_cf_geostationary(&gm, &metres, None, &rad, None).is_none());
+        assert!(resolve_cf_geostationary(&gm, &rad, None, &metres, None).is_none());
+        assert!(resolve_cf_geostationary(&gm, &rad, None, &rad, None).is_some());
     }
 
     #[test]
