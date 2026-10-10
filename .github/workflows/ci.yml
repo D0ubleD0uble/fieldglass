@@ -65,6 +65,35 @@ jobs:
       - name: Check the published crate manifests
         run: cargo publish --workspace --dry-run
 
+  packaged-crate-tests:
+    name: Published crates' tests from the unpacked .crate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # A `.crate` carries only the files under its own crate directory, so a
+      # test that reads a sibling crate's fixture, a `fuzz/` seed, or a feature
+      # that comes from a path-only dev-dependency (which `cargo package`
+      # strips) passes in the workspace and fails for anyone who runs
+      # `cargo test` on the published crate (#926). `cargo publish --workspace
+      # --dry-run`, in the job above, builds the libraries and runs no tests.
+      #
+      # `tools/check_packaged_crate_tests.py` packages every publishable
+      # member, unpacks each outside the checkout, patches every sibling to its
+      # unpacked copy so nothing falls back to crates.io, and runs `cargo test`
+      # in each. No path filter: this workflow has none, and a change anywhere
+      # (a new test, a moved fixture) can break it.
+      - name: Test each published crate from its .crate
+        run: python3 tools/check_packaged_crate_tests.py
+
   wasm:
     name: wasm32 build, bundle size, decode benchmark
     runs-on: ubuntu-latest
