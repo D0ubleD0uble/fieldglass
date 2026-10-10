@@ -32,3 +32,7 @@ Optional but useful — would this fit inside the existing read-only viewer,
 or does it require new infrastructure (editing UI, 2-D rendering, GRIB2/NetCDF
 parsers, …)? Honest "I don't know" is fine.
 -->
+
+<!--
+Maintainer: add `needs-decision` if the approach is open; add `needs-judgement` if the last acceptance item is the owner's verdict.
+-->
