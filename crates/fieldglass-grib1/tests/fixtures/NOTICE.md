@@ -468,8 +468,11 @@ reach below 255 hPa, which defeats a mixed-precision layer.
 
 ## `../other_edition/regular_latlon_surface.grib2`
 
-A byte-for-byte copy of `fieldglass-grib2`'s fixture of the same name (see that
-crate's `tests/fixtures/NOTICE.md`; eccodes sample, Apache 2.0).
+A byte-for-byte copy of `fieldglass-grib2`'s fixture of the same name, sourced
+verbatim from the public ECMWF eccodes test data corpus
+(<https://sites.ecmwf.int/repository/eccodes/test-data/data/regular_latlon_surface.grib2>):
+one message of 2-metre temperature on a 16×31 regular lat/lon grid, simple
+packing. eccodes and its test data are released under the Apache 2.0 license.
 `tests/byte_source.rs` puts it between GRIB1 messages, where the scan has to
 step over it. It is copied rather than read from the sibling crate so that the
 published `fieldglass-grib1` carries every file its tests read (#926). It sits

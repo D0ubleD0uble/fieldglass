@@ -962,20 +962,39 @@ source fixture's decode value for value.
 
 ## `../other_edition/ieee32_cmc_wind.grib1`
 
-A byte-for-byte copy of `fieldglass-grib1`'s fixture of the same name (see that
-crate's `tests/fixtures/NOTICE.md`). `tests/byte_source.rs` puts it between
-GRIB2 messages, where the scan has to step over it. It is copied rather than
-read from the sibling crate so that the published `fieldglass-grib2` carries
-every file its tests read (#926). It sits in `tests/other_edition/`, outside
+A byte-for-byte copy of `fieldglass-grib1`'s fixture of the same name. It is
+that crate's `cmc_wind_300_2010052400_p012.grib`, a Canadian Meteorological
+Centre regional-model message (wind speed at 300 hPa, polar-stereographic 60 km
+grid, 2010-05-24 00Z + 12 h) originally distributed with the [pygrib sample data
+set](https://github.com/jswhit/pygrib/tree/master/sampledata) (MIT-licensed,
+J. Whitaker), re-encoded by eccodes 2.34.1 into IEEE 32-bit packing with
+`grib_set -r -s packingType=grid_ieee,precision=1`.
+
+`tests/byte_source.rs` puts it between GRIB2 messages, where the scan has to
+step over it. It is copied rather than read from the sibling crate so that the
+published `fieldglass-grib2` carries every file its tests read (#926). It sits in `tests/other_edition/`, outside
 this directory, so neither the fixture sweeps nor the napi display golden's
 corpus walk count it as a GRIB2 fixture.
 
 ## `../fuzz_seeds/`
 
 Byte-for-byte copies of two seeds from this crate's fuzz corpus
-(`fuzz/corpus/decode/`; provenance in `fuzz/README.md`):
-`jpeg2000_codestream_8192x8192_on_1x1.grib2` (#848) and
-`constant_field_bifourier_ellipse_wide.grib2` (#849). The fuzz directory is a
+(`fuzz/corpus/decode/`), both hand-edited from fixtures in this directory:
+
+- `jpeg2000_codestream_8192x8192_on_1x1.grib2` (300 bytes, #848) is
+  `jpeg2000_regular_latlon.grib2` (the eccodes test-data file
+  `regular_latlon_surface.grib2`, Apache 2.0, re-encoded by eccodes with
+  `packingType=grid_jpeg`) cut to a 1 × 1 grid with no bitmap, and its §7
+  replaced by a 102-byte single-tile codestream whose SIZ states an
+  8192 × 8192 image.
+- `constant_field_bifourier_ellipse_wide.grib2` (145 bytes, #849) is
+  `bifourier_rectangle_keepaxes.grib2` (built by
+  `tools/build_grib2_bifourier_fixtures.py` from eccodes'
+  `lambert_bf_grib2.tmpl` sample, Apache 2.0) with §3 cut to its bi-Fourier
+  head and an ellipse truncation N = 16,783,359, M = 0, a minimal §4
+  (template 4.0), §6 = 255, an empty §7 and a §5 count of 80.
+
+The fuzz directory is a
 separate package, so `cargo package` leaves it out; the tests that embed these
 seeds read the copies in `tests/fuzz_seeds/`, which the published crate carries
 (#926). They sit outside this directory because they are hostile inputs, not
