@@ -169,6 +169,8 @@ interface SlicePanelSubject {
   exportDir: vscode.Uri;
   /** The container's name, which the caption opens with: `"NetCDF"`, `"Zarr"`. */
   container: string;
+  /** What the container is, for a message about it: `"file"`, `"store"`. */
+  noun: string;
 }
 
 export class FieldglassEditorProvider
@@ -1231,6 +1233,7 @@ export class FieldglassEditorProvider
         gone: "NetCDF handle was disposed",
         exportDir: vscode.Uri.joinPath(document.uri, ".."),
         container: "NetCDF",
+        noun: "file",
       },
       handle,
       variableIndex,
@@ -1254,6 +1257,7 @@ export class FieldglassEditorProvider
         // folder is where a user expects an export to land.
         exportDir: storeUri,
         container: "Zarr",
+        noun: "store",
       },
       handle,
       variableIndex,
@@ -1272,12 +1276,12 @@ export class FieldglassEditorProvider
     handle: SlicePanelHandle,
     variableIndex: number,
   ): void {
-    const variables = handle.variables();
-    const initialVar =
+    let variables = handle.variables();
+    let initialVar =
       variables.find((v) => v.variableIndex === variableIndex) ?? variables[0];
     if (!initialVar) return;
 
-    const initial = defaultSliceSpec(initialVar);
+    let initial = defaultSliceSpec(initialVar);
     // The slice's own answers — its family, and whether it can be reprojected —
     // asked of the placement the handle renders from (#574), once per variable
     // and axis pair. A slice the handle cannot place at all still opens, on the
@@ -1311,8 +1315,8 @@ export class FieldglassEditorProvider
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
       { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [] },
     );
-    const slice: SlicePanelData = { variables, initial };
-    this.trackRenderPanel(panel, () => {
+    let slice: SlicePanelData = { variables, initial };
+    const write = () => {
       panel.webview.html = renderImagePanelHtml(
         panel.webview,
         shown.meta,
@@ -1321,7 +1325,49 @@ export class FieldglassEditorProvider
         combineOpRegistry(),
         slice,
       );
-    });
+    };
+    this.trackRenderPanel(panel, write);
+
+    // The handle the page's variable list was read from. A document closed and
+    // opened again brings a new handle, on a file that may have changed: its
+    // variables can be others, or the same ones numbered differently, and every
+    // request the page makes names a variable by its number in the old list.
+    // So the first request after the handle changes is not served. The panel is
+    // written again from the new file, and the page restores its selection by
+    // the variable's name (#839).
+    let pageHandle = handle;
+    // Said in place of the first render after that, when the variable the page
+    // was showing is no longer in the file.
+    let refusal: string | null = null;
+    // Set from the rewrite until the new page says it is ready. Anything the old
+    // page sent before it was replaced is still on its way, and names variables
+    // by the old numbers, so it is dropped rather than read from the new file.
+    let awaitingReady = false;
+    const adopt = (current: SlicePanelHandle, asked: SliceSpec | undefined): void => {
+      const name = (variables.find((v) => v.variableIndex === asked?.variableIndex) ?? initialVar).name;
+      const next = current.variables();
+      const same = next.find((v) => v.name === name);
+      const opened = same ?? next[0];
+      if (!opened) {
+        panel.webview.postMessage({
+          type: "gridError",
+          messageIndex: asked?.variableIndex ?? initial.variableIndex,
+          error: `The ${subject.container} ${subject.noun} no longer has a variable to draw.`,
+          sliceGrid: sliceAnswer(null),
+        } satisfies GridErrorMessage);
+        return;
+      }
+      pageHandle = current;
+      variables = next;
+      initialVar = opened;
+      initial = defaultSliceSpec(opened);
+      slice = { variables, initial };
+      refusal = same ? null : `${name} is no longer in the ${subject.noun}, so nothing was drawn. Pick a variable to draw.`;
+      const grid = gridOf(current, initial);
+      shown = { meta: sliceField(opened, grid), grid };
+      awaitingReady = true;
+      write();
+    };
 
     // The variable a render is actually drawing. The picker can move off the
     // one the panel opened on, and the heading and probe units have to follow
@@ -1333,11 +1379,15 @@ export class FieldglassEditorProvider
     const paint = (requested: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare) => {
       const docHandle = subject.handle();
       if (!docHandle) {
+        // With no handle nothing is placed, so the picker and the Overlay row
+        // stop offering what only a placed slice takes (#839).
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: spec.variableIndex,
           error: subject.gone,
-        });
+          sliceGrid: sliceAnswer(null),
+          handleGone: true,
+        } satisfies GridErrorMessage);
         return;
       }
       // The picker offers the map targets for the slice it last drew (#822). A
@@ -1374,19 +1424,18 @@ export class FieldglassEditorProvider
         shown = { meta: sliceField(renderedVar(spec), grid), grid };
         panel.webview.postMessage({
           ...buildGridReadyMessage(rendered, sliceTitle(renderedVar(spec), spec.variableIndex), options),
-          sliceGrid: {
-            label: grid?.label ?? null,
-            reprojectable: grid?.reprojectable ?? false,
-            note: reprojectionNote(grid?.reprojectable ?? false, grid?.label ?? null),
-            placed: offersOverlays(grid?.placement),
-          },
+          sliceGrid: sliceAnswer(grid),
         } satisfies GridReadyMessage);
       } catch (err) {
+        // The answers go with the error too. The picker has moved onto this
+        // slice, and a failed render must not leave it, or the Overlay row, on
+        // the previous slice's answer (#839).
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: spec.variableIndex,
           error: `render failed: ${err}`,
-        });
+          sliceGrid: sliceAnswer(grid),
+        } satisfies GridErrorMessage);
       }
     };
 
@@ -1556,6 +1605,32 @@ export class FieldglassEditorProvider
           | (ProbeRequest & { slice?: SliceSpec }),
       ) => {
         if (!m || typeof m.type !== "string") return;
+        const current = subject.handle();
+        if (m.type !== "exportPng") {
+          if (awaitingReady) {
+            if (m.type !== "ready") return;
+            awaitingReady = false;
+          }
+          // Checked for the new page's ready as well: the handle can have
+          // changed again while that page loaded, and its numbers are then the
+          // previous file's.
+          if (current && current !== pageHandle) {
+            adopt(current, (m as { slice?: SliceSpec }).slice);
+            return;
+          }
+        }
+        if (m.type === "ready" && refusal !== null) {
+          const spec = (m as { slice?: SliceSpec }).slice ?? initial;
+          panel.webview.postMessage({
+            type: "gridError",
+            messageIndex: spec.variableIndex,
+            error: refusal,
+            sliceGrid: sliceAnswer(current ? gridOf(current, spec) : null),
+            pickVariable: true,
+          } satisfies GridErrorMessage);
+          refusal = null;
+          return;
+        }
         // `ready` carries the webview's (state-restored) selections and slice,
         // exactly like a rerenderRequest, so a remount repaints what the user
         // had; a fresh panel sends its defaults.
@@ -1666,7 +1741,46 @@ export interface GridReadyMessage {
    *  `placed` is {@link offersOverlays} for it: whether the overlays,
    *  contours and arrows apply, which the Overlay row follows (#840). Absent
    *  for a GRIB panel, which draws one field. */
-  sliceGrid?: { label: string | null; reprojectable: boolean; note: string; placed: boolean };
+  sliceGrid?: SliceAnswer;
+}
+
+/** A slice's answers as the render panel takes them; see
+ *  {@link GridReadyMessage.sliceGrid}. */
+export interface SliceAnswer {
+  label: string | null;
+  reprojectable: boolean;
+  note: string;
+  placed: boolean;
+}
+
+/** The answers for a slice from its `SliceGrid`, or for one the handle could
+ *  not place (`null`): no family, the source view alone, no overlays. */
+export function sliceAnswer(grid: SliceGrid | null): SliceAnswer {
+  return {
+    label: grid?.label ?? null,
+    reprojectable: grid?.reprojectable ?? false,
+    note: reprojectionNote(grid?.reprojectable ?? false, grid?.label ?? null),
+    placed: offersOverlays(grid?.placement),
+  };
+}
+
+/** `gridError`: a render the provider could not draw. */
+export interface GridErrorMessage {
+  type: "gridError";
+  messageIndex: number;
+  error: string;
+  /** A slice panel's answers for the slice it was asked to draw (#839). The
+   *  picker and the Overlay row follow the slice the user picked whether or
+   *  not it drew, so a failed render does not leave them on the previous
+   *  slice's answer. Absent for a GRIB panel. */
+  sliceGrid?: SliceAnswer;
+  /** The panel has no handle, because the document's editor closed. The
+   *  answer is then about the handle, not the slice, so the panel withdraws
+   *  the map targets without saving that as the user's choice (#839). */
+  handleGone?: boolean;
+  /** The variable the panel was showing is gone from a file that changed, and
+   *  nothing was drawn: the panel asks for a variable to be picked (#839). */
+  pickVariable?: boolean;
 }
 
 /** `overlayRequest` posted by the render panel when an overlay layer is

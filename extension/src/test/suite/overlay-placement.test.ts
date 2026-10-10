@@ -8,224 +8,28 @@
 // requests is refused, and the panel used to send them anyway and show the
 // refusal as an error.
 //
-// These run the panel's own script in a real webview. The panel is opened the
-// way a user opens it, through the editor's message handler, and a small
-// driver script added to its page flips the controls a user would and reports
-// what the page shows. The test then reads what crossed the boundary in both
-// directions: the requests the panel sent, and the provider's answers.
+// These run the panel's own script in a real webview, through the driver in
+// `real-panel.ts`: the panel is opened the way a user opens it, the driver
+// flips the controls a user would, and the test reads what crossed the
+// boundary in both directions.
 
 import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import * as vscode from "vscode";
 
-import type { FieldglassApi } from "../../extension";
 import { loadNative } from "../../native";
-import type { FieldglassDocument, FieldglassEditorProvider } from "../../provider";
 import { UNPLACED_OVERLAY_NOTE, UNPLACED_VECTORS_NOTE } from "../../render-panel";
-
-const EXT_ID = "fieldglass.fieldglass";
-
-function extensionPath(): string {
-  const ext = vscode.extensions.getExtension(EXT_ID);
-  assert.ok(ext, "extension is installed");
-  return ext.extensionPath;
-}
-
-async function provider(): Promise<FieldglassEditorProvider> {
-  const ext = vscode.extensions.getExtension<FieldglassApi>(EXT_ID);
-  assert.ok(ext, "extension is installed");
-  return (await ext.activate()).provider;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Msg = any;
-
-/** What the driver reports of the page. */
-interface PageState {
-  overlayDisabled: boolean;
-  overlayHidden: boolean;
-  /** The Overlay row's note when shown, `null` when hidden. */
-  overlayNote: string | null;
-  vectorDisabled: boolean | null;
-  vectorNote: string | null;
-  coastlines: boolean;
-  graticule: boolean;
-  contours: boolean;
-  projection: string;
-  canvasVisibility: string;
-}
-
-/** Added to the panel's page ahead of its own script. It keeps the webview API
- *  the panel acquires, so it can answer on the same channel, and on each
- *  `test:drive` sets the named controls, fires their `change` like a user's
- *  edit, and reports the page. A message is handled after every one posted
- *  before it, so the report follows whatever the page did with those. */
-const DRIVER = `
-  (function () {
-    const acquire = window.acquireVsCodeApi;
-    let api = null;
-    window.acquireVsCodeApi = function () {
-      if (!api) api = acquire();
-      return api;
-    };
-    const byId = (id) => document.getElementById(id);
-    const shownText = (el) => (el && !el.hasAttribute('hidden') ? el.textContent : null);
-    function report() {
-      const overlays = byId('overlay-fieldset');
-      const vectors = byId('vector-fieldset');
-      return {
-        overlayDisabled: !!(overlays && overlays.disabled),
-        overlayHidden: !!(overlays && overlays.hasAttribute('hidden')),
-        overlayNote: shownText(byId('overlay-note')),
-        vectorDisabled: vectors ? vectors.disabled : null,
-        vectorNote: vectors ? byId('vector-note').textContent : null,
-        coastlines: byId('overlay-coastlines').checked,
-        graticule: byId('overlay-graticule').checked,
-        contours: byId('overlay-contours').checked,
-        projection: byId('picker-projection').value,
-        canvasVisibility: byId('canvas').style.visibility,
-      };
-    }
-    window.addEventListener('message', (ev) => {
-      const m = ev.data;
-      if (!m || m.type !== 'test:drive') return;
-      for (const a of m.actions) {
-        const el = byId(a.id);
-        if (!el) throw new Error('no #' + a.id);
-        if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      api.postMessage({ type: 'test:state', tag: m.tag, state: report() });
-    });
-  })();
-`;
-
-/** The page with the driver ahead of the panel's script, under its nonce. */
-function withDriver(html: string): string {
-  const nonce = /<script nonce="([^"]+)">/.exec(html);
-  assert.ok(nonce, "the panel script carries a nonce");
-  return html.replace("</head>", `<script nonce="${nonce[1]}">${DRIVER}</script>\n</head>`);
-}
-
-interface RealPanel {
-  /** What the page sent the provider, oldest first. */
-  received: Msg[];
-  /** What the provider posted to the page, oldest first. */
-  sent: Msg[];
-  /** Set controls as a user would, then read the page back. */
-  drive(actions: Array<{ id: string; value?: string | number; checked?: boolean }>): Promise<PageState>;
-  /** Wait for the provider to post a message matching `pred`, after `from`. */
-  waitSent(pred: (m: Msg) => boolean, from: number, what: string): Promise<Msg>;
-  dispose(): void;
-}
-
-async function waitUntil<T>(get: () => T | undefined, what: string, ms = 15_000): Promise<T> {
-  const until = Date.now() + ms;
-  for (;;) {
-    const got = get();
-    if (got !== undefined) return got;
-    if (Date.now() > until) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
-
-/** Run `open`, which makes the provider create one render panel, and hand back
- *  that real panel with the driver on its page and both directions recorded. */
-async function openReal(open: () => void): Promise<RealPanel> {
-  const received: Msg[] = [];
-  const sent: Msg[] = [];
-  let made: vscode.WebviewPanel | undefined;
-  const origCreate = vscode.window.createWebviewPanel;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (vscode.window as any).createWebviewPanel = (...args: Parameters<typeof origCreate>) => {
-    const panel = origCreate.apply(vscode.window, args);
-    const webview = panel.webview;
-    // The provider writes the page through `html`; the driver goes in on the way.
-    let proto = Object.getPrototypeOf(webview);
-    let html: PropertyDescriptor | undefined;
-    while (proto && !(html = Object.getOwnPropertyDescriptor(proto, "html"))) {
-      proto = Object.getPrototypeOf(proto);
-    }
-    assert.ok(html?.get && html.set, "the webview's html is an accessor");
-    const { get, set } = html;
-    Object.defineProperty(webview, "html", {
-      configurable: true,
-      get: () => get.call(webview),
-      set: (v: string) => set.call(webview, withDriver(v)),
-    });
-    const post = webview.postMessage.bind(webview);
-    webview.postMessage = (m: Msg) => {
-      sent.push(m);
-      return post(m);
-    };
-    webview.onDidReceiveMessage((m) => received.push(m));
-    made = panel;
-    return panel;
-  };
-  try {
-    open();
-  } finally {
-    vscode.window.createWebviewPanel = origCreate;
-  }
-  const panel = made;
-  assert.ok(panel, "a render panel was created");
-  let tag = 0;
-  return {
-    received,
-    sent,
-    drive: async (actions) => {
-      const mine = ++tag;
-      await panel.webview.postMessage({ type: "test:drive", tag: mine, actions });
-      const reply = await waitUntil(
-        () => received.find((m) => m.type === "test:state" && m.tag === mine),
-        `the page's report ${mine}`,
-      );
-      return reply.state as PageState;
-    },
-    waitSent: (pred, from, what) => waitUntil(() => sent.slice(from).find(pred), what),
-    dispose: () => panel.dispose(),
-  };
-}
-
-/** Open `file` in the editor, through a stand-in editor webview whose message
- *  handler the test calls the way the table's page does. */
-async function openEditor(
-  p: FieldglassEditorProvider,
-  file: string,
-): Promise<(m: object) => void> {
-  const doc = (await p.openCustomDocument(
-    vscode.Uri.file(file),
-    {} as vscode.CustomDocumentOpenContext,
-    new vscode.CancellationTokenSource().token,
-  )) as FieldglassDocument;
-  let handler: ((m: object) => void) | undefined;
-  const editor = {
-    webview: {
-      html: "",
-      options: {},
-      cspSource: "vscode-webview:",
-      onDidReceiveMessage: (cb: (m: object) => void) => {
-        handler = cb;
-        return { dispose: () => undefined };
-      },
-      postMessage: () => Promise.resolve(true),
-    },
-    onDidDispose: () => ({ dispose: () => undefined }),
-    onDidChangeViewState: () => ({ dispose: () => undefined }),
-    dispose: () => undefined,
-  };
-  await p.resolveCustomEditor(doc, editor as unknown as vscode.WebviewPanel);
-  assert.ok(handler, "the editor registers a message handler");
-  return handler;
-}
-
-const isType = (type: string) => (m: Msg) => m && m.type === type;
-const overlayTraffic = (m: Msg) =>
-  m && ["overlayRequest", "contourRequest", "vectorRequest"].includes(m.type);
-const refusals = (m: Msg) =>
-  m && ["overlayError", "contourError", "gridError"].includes(m.type);
+import {
+  extensionPath,
+  isType,
+  type Msg,
+  openEditor,
+  openReal,
+  overlayTraffic,
+  provider,
+  refusals,
+} from "./real-panel";
 
 suite("Overlays follow placement (#840)", function () {
   this.timeout(60_000);
@@ -245,7 +49,7 @@ suite("Overlays follow placement (#840)", function () {
     const latBnds = index("lat_bnds");
 
     const editor = await openEditor(p, file);
-    const panel = await openReal(() => editor({ type: "renderVariable", variableIndex: temperature }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
 
@@ -346,7 +150,7 @@ suite("Overlays follow placement (#840)", function () {
     assert.ok(latBnds, "the fixture has lat_bnds");
 
     const editor = await openEditor(p, file);
-    const panel = await openReal(() => editor({ type: "renderVariable", variableIndex: latBnds.variableIndex }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: latBnds.variableIndex }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await panel.drive([{ id: "overlay-coastlines", checked: true }]);
@@ -376,7 +180,7 @@ suite("Overlays follow placement (#840)", function () {
     assert.strictEqual(meta.placement, "unplaceable");
 
     const editor = await openEditor(p, file);
-    const panel = await openReal(() => editor({ type: "decodeGrid", messageIndex: 0 }));
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await panel.drive([
