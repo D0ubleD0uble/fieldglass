@@ -381,7 +381,7 @@ export function applyReprojectable(
  *  render sends it composed (`GridReadyMessage.sliceGrid`), so the panel script
  *  carries no copy of the wording. */
 export function reprojectionNote(reprojectable: boolean, label: string | null): string {
-  return reprojectable ? "" : "Reprojection isn't available for " + (label ?? "this") + " grids yet.";
+  return reprojectable ? "" : "Reprojection isn't available for " + (label === null ? "this grid" : label + " grids") + " yet.";
 }
 
 /** Whether the render panel offers its overlays for a field: the map layers,
