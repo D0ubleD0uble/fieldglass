@@ -22,7 +22,7 @@
 //! and precision, through [`Datatype::element_bits`](super::datatype::Datatype::element_bits)
 //! (#795).
 
-use super::cache::ExpandedKey;
+use super::cache::{ExpandedKey, MIN_KEPT_CHUNK_BYTES};
 use super::datatype::DatatypeClass;
 use super::layout::{ChunkIndex, ChunkedLayout, DataLayout};
 use super::object_header::{self, read_usize_le};
@@ -549,7 +549,10 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     // again (#939): a time scrub over chunks that span several planes would
     // otherwise inflate each chunk once per frame. Those are left out of the
     // plan, so the batch names exactly the chunks that will be read.
+    // A chunk under the memo's floor is never held, so it is not looked up
+    // either: a file of a million tiny chunks pays no lock per chunk.
     let filtered = !pipeline.filters.is_empty();
+    let memoised = filtered && chunk_bytes >= MIN_KEPT_CHUNK_BYTES;
     let key = |c: &ChunkRecord| -> ExpandedKey {
         (
             object_header_address,
@@ -561,7 +564,7 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     let held: Vec<Option<std::sync::Arc<Vec<u8>>>> = groups
         .iter()
         .map(|g| {
-            filtered
+            memoised
                 .then(|| probe.cache().expanded_chunk(source, key(g[0])))
                 .flatten()
         })
@@ -600,7 +603,7 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
                     )));
                 }
                 let expanded = std::sync::Arc::new(expanded);
-                if filtered {
+                if memoised {
                     probe
                         .cache()
                         .keep_expanded_chunk(source, key(chunk), &expanded);

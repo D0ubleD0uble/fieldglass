@@ -278,38 +278,58 @@ fn a_contiguous_region_reads_its_own_bytes() {
 }
 
 /// A filtered chunk read once is not read again while the file's memo holds
-/// it (#939): the next plane of a chunk that spans several planes plans and
-/// reads nothing but what it lacks, and its values are unchanged.
+/// it (#939): a second row of a chunk already read plans and reads nothing,
+/// and its values are unchanged. A chunk too small to be worth holding is read
+/// again, which is what keeps a file of a million tiny chunks from filling the
+/// memo (#939 review).
 #[test]
 fn a_held_chunk_is_not_read_again() {
-    let bytes: &[u8] = include_bytes!("fixtures/hdf5_v1_symboltable.h5");
+    // `t2m(120, 721, 1440)`, deflated, one 4 MB chunk a time step.
+    let bytes: &[u8] = include_bytes!("fixtures/netcdf4_large_sparse.nc");
     let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("opens");
     let probe = hdf5(&reader);
-    let addr = dataset(bytes, probe, "compressed"); // 8 x 8, deflated 4 x 4 chunks
+    let addr = dataset(bytes, probe, "t2m");
     let cold = |region: &[Range<u64>]| {
         let fresh = NetcdfReader::from_bytes(bytes.to_vec()).expect("opens");
         read_dataset_region(bytes, addr, hdf5(&fresh), region).expect("reads")
     };
 
     let first = Recording::new(bytes);
-    let row0 = read_dataset_region(&first, addr, probe, &[0..1, 0..8]).expect("row 0");
-    assert_eq!(first.prefetches()[0].len(), 2, "row 0 covers two chunks");
-    assert_eq!(row0, cold(&[0..1, 0..8]));
+    let row0 = read_dataset_region(&first, addr, probe, &[7..8, 0..1, 0..1440]).expect("row 0");
+    assert_eq!(first.prefetches()[0].len(), 1, "row 0 is in one chunk");
+    assert_eq!(row0, cold(&[7..8, 0..1, 0..1440]));
 
-    // Row 1 lies in the same two chunks: nothing left to fetch.
+    // Row 300 lies in the same chunk: nothing left to fetch.
     let second = Recording::new(bytes);
-    let row1 = read_dataset_region(&second, addr, probe, &[1..2, 0..8]).expect("row 1");
+    let row300 =
+        read_dataset_region(&second, addr, probe, &[7..8, 300..301, 0..1440]).expect("row 300");
     assert!(
         second.prefetches().iter().all(Vec::is_empty),
         "{:?}",
         second.prefetches()
     );
     assert!(second.reads_after_batch().is_empty());
-    assert_eq!(row1, cold(&[1..2, 0..8]));
+    assert_eq!(row300, cold(&[7..8, 300..301, 0..1440]));
 
-    // Row 4 is in the next chunk row: its two chunks and only those.
+    // The other stored step is its own chunk, read once.
     let third = Recording::new(bytes);
-    let row4 = read_dataset_region(&third, addr, probe, &[4..6, 2..6]).expect("rows 4-5");
-    assert_eq!(third.prefetches()[0].len(), 2);
-    assert_eq!(row4, cold(&[4..6, 2..6]));
+    let other =
+        read_dataset_region(&third, addr, probe, &[119..120, 5..6, 0..10]).expect("step 119");
+    assert_eq!(third.prefetches()[0].len(), 1);
+    assert_eq!(other, cold(&[119..120, 5..6, 0..10]));
+
+    // A deflated 4 x 4 chunk of doubles, 128 bytes, is under the memo's floor:
+    // the second row of it reads the chunk again.
+    let small: &[u8] = include_bytes!("fixtures/hdf5_v1_symboltable.h5");
+    let reader = NetcdfReader::from_bytes(small.to_vec()).expect("opens");
+    let probe = hdf5(&reader);
+    let addr = dataset(small, probe, "compressed");
+    read_dataset_region(small, addr, probe, &[0..1, 0..8]).expect("row 0");
+    let again = Recording::new(small);
+    read_dataset_region(&again, addr, probe, &[1..2, 0..8]).expect("row 1");
+    assert_eq!(
+        again.prefetches()[0].len(),
+        2,
+        "small chunks are read again"
+    );
 }

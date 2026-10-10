@@ -70,6 +70,26 @@ const HEADER_BYTE_BUDGET: usize = 64 << 20;
 /// library keep; the slices drawn from the chunks are the host's to retain.
 pub(crate) const CHUNK_BYTE_BUDGET: usize = 64 << 20;
 
+/// The smallest decompressed chunk the memo keeps.
+///
+/// Holding a chunk costs a map slot, an `Arc` and a `Vec` besides its bytes,
+/// and its memo is only worth that when inflating it again would cost more. A
+/// chunk under 16 KiB inflates in tens of microseconds, about what the
+/// bookkeeping of a large map costs per lookup, and admitting such chunks is
+/// what let 64 MiB hold a million entries (#939 review: 1 Mi chunks of 64
+/// bytes). Real scrub chunking is far above it: netCDF-C's default chunk of a
+/// 0.5° hourly field is 6 MB, and the perf corpus's smallest spanning chunk is
+/// 256 KiB.
+pub(crate) const MIN_KEPT_CHUNK_BYTES: usize = 16 << 10;
+
+/// What each kept chunk is charged on top of its bytes: its map slot, its
+/// place in the use order, the `Arc` and the `Vec` header.
+const ENTRY_OVERHEAD_BYTES: usize = 128;
+
+/// The most chunks the memo keeps, whatever their size: the budget over the
+/// smallest chunk it keeps, so 4,096.
+pub(crate) const MAX_KEPT_CHUNKS: usize = CHUNK_BYTE_BUDGET / MIN_KEPT_CHUNK_BYTES;
+
 /// What names one decompressed chunk: the dataset whose filters reversed it
 /// (by object-header address), and the stored chunk (address, stored size,
 /// and the filter mask over the pipeline's own filters, as the read compares
@@ -77,12 +97,64 @@ pub(crate) const CHUNK_BYTE_BUDGET: usize = 64 << 20;
 pub(crate) type ExpandedKey = (u64, u64, u32, u32);
 
 /// The decompressed-chunk memo: chunks by key, each with the tick it was last
-/// used at, and the bytes they hold, against [`CHUNK_BYTE_BUDGET`].
+/// used at, the keys in the order they were last used, and the bytes charged
+/// against [`CHUNK_BYTE_BUDGET`].
+///
+/// The use order is a `BTreeMap` from tick to key, so the least recently used
+/// is its first entry: a lookup, a keep and each eviction are `O(log n)`, not
+/// a scan of every entry (#939 review).
 #[derive(Debug, Default)]
-struct ExpandedStore {
+pub(crate) struct ExpandedStore {
     by_key: HashMap<ExpandedKey, (Arc<Vec<u8>>, u64)>,
+    by_use: std::collections::BTreeMap<u64, ExpandedKey>,
     bytes: usize,
     tick: u64,
+    /// Entries dropped to make room. Instrumentation for tests.
+    evicted: u64,
+}
+
+impl ExpandedStore {
+    /// What one kept chunk is charged.
+    fn charge(chunk: &[u8]) -> usize {
+        chunk.len() + ENTRY_OVERHEAD_BYTES
+    }
+
+    /// The chunk `key` names, if kept, marked as the most recently used.
+    pub(crate) fn get(&mut self, key: &ExpandedKey) -> Option<Arc<Vec<u8>>> {
+        self.tick += 1;
+        let tick = self.tick;
+        let entry = self.by_key.get_mut(key)?;
+        self.by_use.remove(&entry.1);
+        self.by_use.insert(tick, *key);
+        entry.1 = tick;
+        Some(Arc::clone(&entry.0))
+    }
+
+    /// Keep `chunk` as the most recently used, dropping the least recently
+    /// used past [`CHUNK_BYTE_BUDGET`] or [`MAX_KEPT_CHUNKS`]. A chunk under
+    /// [`MIN_KEPT_CHUNK_BYTES`] or over the whole budget is not kept.
+    pub(crate) fn keep(&mut self, key: ExpandedKey, chunk: &Arc<Vec<u8>>) {
+        if chunk.len() < MIN_KEPT_CHUNK_BYTES || Self::charge(chunk) > CHUNK_BYTE_BUDGET {
+            return;
+        }
+        self.tick += 1;
+        let tick = self.tick;
+        if let Some((old, used)) = self.by_key.insert(key, (Arc::clone(chunk), tick)) {
+            self.bytes -= Self::charge(&old);
+            self.by_use.remove(&used);
+        }
+        self.by_use.insert(tick, key);
+        self.bytes += Self::charge(chunk);
+        while self.bytes > CHUNK_BYTE_BUDGET || self.by_key.len() > MAX_KEPT_CHUNKS {
+            let Some((_, oldest)) = self.by_use.pop_first() else {
+                break;
+            };
+            if let Some((gone, _)) = self.by_key.remove(&oldest) {
+                self.bytes -= Self::charge(&gone);
+                self.evicted += 1;
+            }
+        }
+    }
 }
 
 /// Chunk-index address paired with the dataset's rank — see
@@ -331,57 +403,104 @@ impl Hdf5Cache {
         if !self.usable(source) {
             return None;
         }
-        let mut store = self
-            .expanded
+        self.expanded
             .lock()
-            .expect("hdf5 expanded-chunk cache poisoned");
-        store.tick += 1;
-        let tick = store.tick;
-        let entry = store.by_key.get_mut(&key)?;
-        entry.1 = tick;
-        Some(Arc::clone(&entry.0))
+            .expect("hdf5 expanded-chunk cache poisoned")
+            .get(&key)
     }
 
-    /// Keep a decompressed chunk, dropping the least recently used past
-    /// [`CHUNK_BYTE_BUDGET`]. A chunk larger than the whole budget is not kept.
+    /// Keep a decompressed chunk; see [`ExpandedStore::keep`] for what is kept
+    /// and what is dropped.
     pub(crate) fn keep_expanded_chunk<S: ByteSource + ?Sized>(
         &self,
         source: &S,
         key: ExpandedKey,
         chunk: &Arc<Vec<u8>>,
     ) {
-        if !self.usable(source) || chunk.len() > CHUNK_BYTE_BUDGET {
+        if !self.usable(source) {
             return;
         }
-        let mut store = self
-            .expanded
+        self.expanded
             .lock()
-            .expect("hdf5 expanded-chunk cache poisoned");
-        store.tick += 1;
-        let tick = store.tick;
-        if let Some((old, _)) = store.by_key.insert(key, (Arc::clone(chunk), tick)) {
-            store.bytes -= old.len();
-        }
-        store.bytes += chunk.len();
-        while store.bytes > CHUNK_BYTE_BUDGET {
-            // The oldest entry. A scan, since a full store holds at most a few
-            // thousand chunks and eviction happens once per chunk read.
-            let Some(oldest) = store
-                .by_key
-                .iter()
-                .min_by_key(|(_, (_, used))| *used)
-                .map(|(k, _)| *k)
-            else {
-                break;
-            };
-            if let Some((gone, _)) = store.by_key.remove(&oldest) {
-                store.bytes -= gone.len();
-            }
-        }
+            .expect("hdf5 expanded-chunk cache poisoned")
+            .keep(key, chunk);
     }
 
     /// Structure walks performed rather than served from the memo.
     pub(crate) fn traversals(&self) -> u64 {
         self.traversals.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chunk(bytes: usize) -> Arc<Vec<u8>> {
+        Arc::new(vec![7u8; bytes])
+    }
+
+    fn key(i: u64) -> ExpandedKey {
+        (1, i, 0, 0)
+    }
+
+    /// Chunks too small to be worth holding are not held, however many there
+    /// are: the #939 review's file of 1 Mi 64-byte chunks filled the memo with
+    /// a million entries and made every later keep scan them.
+    #[test]
+    fn small_chunks_are_not_kept() {
+        let mut store = ExpandedStore::default();
+        for i in 0..100_000 {
+            store.keep(key(i), &chunk(64));
+        }
+        assert!(store.by_key.is_empty());
+        assert_eq!(store.bytes, 0);
+        assert!(store.get(&key(5)).is_none());
+    }
+
+    /// Past the budget the least recently used goes, one entry per entry
+    /// kept, and a hit moves its chunk to the back of the order. The work is
+    /// counted rather than timed: each keep evicts at most what it displaces.
+    #[test]
+    fn the_least_recently_used_go_first_one_per_keep() {
+        let mut store = ExpandedStore::default();
+        let size = MIN_KEPT_CHUNK_BYTES;
+        let fits = CHUNK_BYTE_BUDGET / (size + ENTRY_OVERHEAD_BYTES);
+        assert!(fits < MAX_KEPT_CHUNKS);
+        for i in 0..fits as u64 {
+            store.keep(key(i), &chunk(size));
+        }
+        assert_eq!(store.by_key.len(), fits);
+        assert_eq!(store.evicted, 0);
+
+        // Touch the oldest, then keep one more: the second oldest goes.
+        assert!(store.get(&key(0)).is_some());
+        store.keep(key(fits as u64), &chunk(size));
+        assert_eq!(store.evicted, 1);
+        assert!(store.get(&key(0)).is_some(), "a hit is the most recent");
+        assert!(store.get(&key(1)).is_none(), "the least recent went");
+
+        // Many more: one eviction per keep, never a rescan, and the books
+        // agree with what is held.
+        let extra = 10 * fits as u64;
+        for i in 0..extra {
+            store.keep(key(1_000_000 + i), &chunk(size));
+        }
+        assert_eq!(store.evicted, 1 + extra);
+        assert_eq!(store.by_key.len(), fits);
+        assert_eq!(store.by_use.len(), fits);
+        assert_eq!(store.bytes, fits * (size + ENTRY_OVERHEAD_BYTES));
+        assert!(store.bytes <= CHUNK_BYTE_BUDGET);
+    }
+
+    /// Re-keeping a chunk replaces it rather than counting it twice.
+    #[test]
+    fn keeping_a_chunk_again_replaces_it() {
+        let mut store = ExpandedStore::default();
+        store.keep(key(1), &chunk(MIN_KEPT_CHUNK_BYTES));
+        store.keep(key(1), &chunk(MIN_KEPT_CHUNK_BYTES));
+        assert_eq!(store.by_key.len(), 1);
+        assert_eq!(store.by_use.len(), 1);
+        assert_eq!(store.bytes, MIN_KEPT_CHUNK_BYTES + ENTRY_OVERHEAD_BYTES);
     }
 }
