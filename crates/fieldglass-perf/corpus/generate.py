@@ -213,15 +213,19 @@ def classic_facts(path: Path, ni: int, nj: int, nt: int) -> dict:
 
 
 def hdf5_facts(path: Path) -> dict:
-    """Each plane's chunk, as HDF5 itself records it."""
+    """Each plane's chunks, as HDF5 itself records them. A chunk spanning
+    several time steps is listed under each of them, as a shard is for Zarr."""
     with h5py.File(path, "r") as f:
         ds = f["t"]
-        if ds.chunks is None or ds.chunks[0] != 1:
-            sys.exit(f"{path}: `t` must be chunked one time step per chunk, got {ds.chunks}")
+        if ds.chunks is None or ds.chunks[1:] != ds.shape[1:]:
+            sys.exit(f"{path}: `t` must be chunked whole planes at a time, got {ds.chunks}")
+        steps = ds.chunks[0]
         planes = [[] for _ in range(ds.shape[0])]
         for i in range(ds.id.get_num_chunks()):
             info = ds.id.get_chunk_info(i)
-            planes[info.chunk_offset[0]].append([info.byte_offset, info.size])
+            first = info.chunk_offset[0]
+            for k in range(first, min(first + steps, ds.shape[0])):
+                planes[k].append([info.byte_offset, info.size])
     return {"planes": planes}
 
 
@@ -331,6 +335,15 @@ def main() -> int:
         path = out / f"{name}.nc"
         write_netcdf(
             path, "NETCDF4", ni, nj, nt, zlib=True, complevel=4, shuffle=True, chunksizes=(1, nj, ni)
+        )
+        inputs[name] = {"file": path.name, "format": "netcdf", **common, **hdf5_facts(path)}
+
+        # Four time steps a chunk, so a scrub reuses each chunk it inflates
+        # rather than inflating it once a frame (#939).
+        name = f"netcdf4-zlib-span-{size}"
+        path = out / f"{name}.nc"
+        write_netcdf(
+            path, "NETCDF4", ni, nj, nt, zlib=True, complevel=4, shuffle=True, chunksizes=(4, nj, ni)
         )
         inputs[name] = {"file": path.name, "format": "netcdf", **common, **hdf5_facts(path)}
 

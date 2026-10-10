@@ -664,10 +664,17 @@ fn planes_bytes(corpus: &Corpus, name: &str, select: &mut dyn FnMut(u32) -> bool
             .map(|key| sizes.get(key).copied().unwrap_or(0))
             .sum()
     } else {
-        (0..planes)
+        // A chunk spanning several planes is listed under each of them, so the
+        // same rule: once, and only when no plane outside the selection needs it.
+        let needed: std::collections::BTreeSet<(u64, u64)> = (0..planes)
+            .filter(|&p| !select(p))
+            .flat_map(|p| corpus.plane_extents(name, p))
+            .collect();
+        let excluded: std::collections::BTreeSet<(u64, u64)> = (0..planes)
             .filter(|&p| select(p))
             .flat_map(|p| corpus.plane_extents(name, p))
-            .map(|(_, length)| length)
-            .sum()
+            .filter(|extent| !needed.contains(extent))
+            .collect();
+        excluded.iter().map(|(_, length)| length).sum()
     }
 }

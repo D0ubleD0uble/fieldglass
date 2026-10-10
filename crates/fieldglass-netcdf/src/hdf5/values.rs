@@ -22,6 +22,7 @@
 //! and precision, through [`Datatype::element_bits`](super::datatype::Datatype::element_bits)
 //! (#795).
 
+use super::cache::ExpandedKey;
 use super::datatype::DatatypeClass;
 use super::layout::{ChunkIndex, ChunkedLayout, DataLayout};
 use super::object_header::{self, read_usize_le};
@@ -167,6 +168,7 @@ fn read_dataset<S: ByteSource + ?Sized>(
     // Assemble the region's raw element bytes, then decode them uniformly.
     let raw = assemble_raw(
         source,
+        object_header_address,
         &data_layout,
         &shape,
         region,
@@ -250,6 +252,7 @@ fn element_count_u64(shape: &[u64]) -> Result<u64, FieldglassError> {
 #[allow(clippy::too_many_arguments)]
 fn assemble_raw<S: ByteSource + ?Sized>(
     source: &S,
+    object_header_address: u64,
     data_layout: &DataLayout,
     shape: &[u64],
     region: &[Range<u64>],
@@ -327,6 +330,7 @@ fn assemble_raw<S: ByteSource + ?Sized>(
         }
         DataLayout::Chunked(chunked) => assemble_chunked(
             source,
+            object_header_address,
             chunked,
             shape,
             region,
@@ -369,6 +373,7 @@ fn fill_buffer(span: usize, elem: usize, fill_default: Option<&[u8]>) -> Vec<u8>
 #[allow(clippy::too_many_arguments)]
 fn assemble_chunked<S: ByteSource + ?Sized>(
     source: &S,
+    object_header_address: u64,
     chunked: &ChunkedLayout,
     shape: &[u64],
     region: &[Range<u64>],
@@ -540,32 +545,69 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
             b.filter_mask & pipeline_bits
         )));
     }
+    // A filtered chunk the file's memo still holds decompressed is not read
+    // again (#939): a time scrub over chunks that span several planes would
+    // otherwise inflate each chunk once per frame. Those are left out of the
+    // plan, so the batch names exactly the chunks that will be read.
+    let filtered = !pipeline.filters.is_empty();
+    let key = |c: &ChunkRecord| -> ExpandedKey {
+        (
+            object_header_address,
+            c.address,
+            c.size,
+            c.filter_mask & pipeline_bits,
+        )
+    };
+    let held: Vec<Option<std::sync::Arc<Vec<u8>>>> = groups
+        .iter()
+        .map(|g| {
+            filtered
+                .then(|| probe.cache().expanded_chunk(source, key(g[0])))
+                .flatten()
+        })
+        .collect();
     let plan: Vec<ByteRange> = groups
         .iter()
-        .map(|g| ByteRange::new(g[0].address, u64::from(g[0].size)))
+        .zip(&held)
+        .filter(|(_, hit)| hit.is_none())
+        .map(|(g, _)| ByteRange::new(g[0].address, u64::from(g[0].size)))
         .collect();
     source.prefetch(&plan)?;
 
-    for group in groups {
+    for (group, hit) in groups.into_iter().zip(held) {
         let chunk = group[0];
-        let stored = read_at(source, chunk.address, chunk.size as usize)?;
-        let expanded = if pipeline.filters.is_empty() {
-            stored.into_owned()
-        } else {
-            let mask = chunk.filter_mask & pipeline_bits;
-            pipeline.reverse(stored.into_owned(), mask, elem, chunk_bytes)?
+        let expanded = match hit {
+            Some(hit) => hit,
+            None => {
+                let stored = read_at(source, chunk.address, chunk.size as usize)?;
+                let expanded = if filtered {
+                    let mask = chunk.filter_mask & pipeline_bits;
+                    pipeline.reverse(stored.into_owned(), mask, elem, chunk_bytes)?
+                } else {
+                    stored.into_owned()
+                };
+                // Exactly one chunk, not at least one: the copy reads only the
+                // first `chunk_bytes`, so a longer result would be cut
+                // silently, and a chunk that decodes to the wrong length is
+                // corrupt whichever way it is wrong. This is also the check
+                // that stands behind szip's size prefix when a
+                // length-changing filter precedes it. A held chunk passed it
+                // when it was kept.
+                if expanded.len() != chunk_bytes {
+                    return Err(FieldglassError::Parse(format!(
+                        "chunk decoded to {} bytes, expected {chunk_bytes}",
+                        expanded.len()
+                    )));
+                }
+                let expanded = std::sync::Arc::new(expanded);
+                if filtered {
+                    probe
+                        .cache()
+                        .keep_expanded_chunk(source, key(chunk), &expanded);
+                }
+                expanded
+            }
         };
-        // Exactly one chunk, not at least one: the copy reads only the first
-        // `chunk_bytes`, so a longer result would be cut silently, and
-        // a chunk that decodes to the wrong length is corrupt whichever way
-        // it is wrong. This is also the check that stands behind szip's size
-        // prefix when a length-changing filter precedes it.
-        if expanded.len() != chunk_bytes {
-            return Err(FieldglassError::Parse(format!(
-                "chunk decoded to {} bytes, expected {chunk_bytes}",
-                expanded.len()
-            )));
-        }
         // Only the part of the chunk inside the region is walked, one
         // contiguous run along the last dimension at a time (#837): a chunk
         // may legally be far larger than the dataset, and the region lies

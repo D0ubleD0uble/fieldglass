@@ -193,6 +193,10 @@ fn a_chunked_region_reads_only_the_chunks_it_overlaps() {
             "{name} is not chunked, so this proves nothing"
         );
         for &region in regions {
+            // A cold reader each time: the file's memo keeps decompressed
+            // chunks, and a warm one would rightly leave them out of the plan.
+            let cold = NetcdfReader::from_bytes(bytes.to_vec()).expect("opens");
+            let probe = hdf5(&cold);
             let source = Recording::new(bytes);
             read_dataset_region(&source, addr, probe, region)
                 .unwrap_or_else(|e| panic!("{name} {region:?}: {e}"));
@@ -271,4 +275,41 @@ fn a_contiguous_region_reads_its_own_bytes() {
         }
     }
     assert!(checked > 30, "only {checked} contiguous regions checked");
+}
+
+/// A filtered chunk read once is not read again while the file's memo holds
+/// it (#939): the next plane of a chunk that spans several planes plans and
+/// reads nothing but what it lacks, and its values are unchanged.
+#[test]
+fn a_held_chunk_is_not_read_again() {
+    let bytes: &[u8] = include_bytes!("fixtures/hdf5_v1_symboltable.h5");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("opens");
+    let probe = hdf5(&reader);
+    let addr = dataset(bytes, probe, "compressed"); // 8 x 8, deflated 4 x 4 chunks
+    let cold = |region: &[Range<u64>]| {
+        let fresh = NetcdfReader::from_bytes(bytes.to_vec()).expect("opens");
+        read_dataset_region(bytes, addr, hdf5(&fresh), region).expect("reads")
+    };
+
+    let first = Recording::new(bytes);
+    let row0 = read_dataset_region(&first, addr, probe, &[0..1, 0..8]).expect("row 0");
+    assert_eq!(first.prefetches()[0].len(), 2, "row 0 covers two chunks");
+    assert_eq!(row0, cold(&[0..1, 0..8]));
+
+    // Row 1 lies in the same two chunks: nothing left to fetch.
+    let second = Recording::new(bytes);
+    let row1 = read_dataset_region(&second, addr, probe, &[1..2, 0..8]).expect("row 1");
+    assert!(
+        second.prefetches().iter().all(Vec::is_empty),
+        "{:?}",
+        second.prefetches()
+    );
+    assert!(second.reads_after_batch().is_empty());
+    assert_eq!(row1, cold(&[1..2, 0..8]));
+
+    // Row 4 is in the next chunk row: its two chunks and only those.
+    let third = Recording::new(bytes);
+    let row4 = read_dataset_region(&third, addr, probe, &[4..6, 2..6]).expect("rows 4-5");
+    assert_eq!(third.prefetches()[0].len(), 2);
+    assert_eq!(row4, cold(&[4..6, 2..6]));
 }

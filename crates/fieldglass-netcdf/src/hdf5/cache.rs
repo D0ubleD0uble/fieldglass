@@ -55,6 +55,36 @@ use fieldglass_core::bytes::{ByteSource, SourceIdentity};
 /// set and far below a level that would matter next to the file itself.
 const HEADER_BYTE_BUDGET: usize = 64 << 20;
 
+/// Ceiling on the decompressed chunk bytes [`Hdf5Cache::expanded_chunk`] keeps
+/// across one file (#939).
+///
+/// A region read inflates every chunk it overlaps. A chunk usually spans more
+/// than one plane — netCDF-C's default chunking of a `(time, lat, lon)`
+/// variable puts 24 time steps in each — so a time scrub that read each plane
+/// on its own would inflate the same chunks once per frame. Holding the last
+/// few lets the next frame reuse them. 64 MiB holds the chunks one plane of a
+/// 0.25° global grid covers at netCDF-C's default chunking, and those of a
+/// 0.5° grid cut into 64 small chunks a plane; libhdf5's own cache is 1 MiB
+/// per dataset and netCDF-C raises it to tens. It is a memo of a pure
+/// function bounded by size, not by use, which is the kind ADR-0011 lets a
+/// library keep; the slices drawn from the chunks are the host's to retain.
+pub(crate) const CHUNK_BYTE_BUDGET: usize = 64 << 20;
+
+/// What names one decompressed chunk: the dataset whose filters reversed it
+/// (by object-header address), and the stored chunk (address, stored size,
+/// and the filter mask over the pipeline's own filters, as the read compares
+/// storage).
+pub(crate) type ExpandedKey = (u64, u64, u32, u32);
+
+/// The decompressed-chunk memo: chunks by key, each with the tick it was last
+/// used at, and the bytes they hold, against [`CHUNK_BYTE_BUDGET`].
+#[derive(Debug, Default)]
+struct ExpandedStore {
+    by_key: HashMap<ExpandedKey, (Arc<Vec<u8>>, u64)>,
+    bytes: usize,
+    tick: u64,
+}
+
 /// Chunk-index address paired with the dataset's rank — see
 /// [`Hdf5Cache::chunks`] for why the rank is part of the key.
 type ChunkIndexKey = (u64, usize);
@@ -94,6 +124,10 @@ pub(crate) struct Hdf5Cache {
     /// file that pointed two datasets of different rank at one index address
     /// would otherwise be served offsets of the wrong length.
     chunks: Mutex<HashMap<ChunkIndexKey, Arc<Vec<ChunkRecord>>>>,
+    /// Decompressed chunks, least recently used dropped first past
+    /// [`CHUNK_BYTE_BUDGET`]. Boxed so the probe, which a reader's backing
+    /// enum holds inline, does not grow by a map for it.
+    expanded: Box<Mutex<ExpandedStore>>,
     /// Structure walks actually performed, as opposed to served from the memo:
     /// object-header parses plus chunk-index collections. Instrumentation only —
     /// see [`Hdf5Probe::traversals`](super::Hdf5Probe::traversals).
@@ -283,6 +317,67 @@ impl Hdf5Cache {
             .expect("hdf5 chunk cache poisoned")
             .insert(key, Arc::clone(&built));
         Ok(built)
+    }
+
+    /// A decompressed chunk already held, marked as the most recently used.
+    ///
+    /// `None` when the memo may not answer for `source`, as for every other
+    /// entry here.
+    pub(crate) fn expanded_chunk<S: ByteSource + ?Sized>(
+        &self,
+        source: &S,
+        key: ExpandedKey,
+    ) -> Option<Arc<Vec<u8>>> {
+        if !self.usable(source) {
+            return None;
+        }
+        let mut store = self
+            .expanded
+            .lock()
+            .expect("hdf5 expanded-chunk cache poisoned");
+        store.tick += 1;
+        let tick = store.tick;
+        let entry = store.by_key.get_mut(&key)?;
+        entry.1 = tick;
+        Some(Arc::clone(&entry.0))
+    }
+
+    /// Keep a decompressed chunk, dropping the least recently used past
+    /// [`CHUNK_BYTE_BUDGET`]. A chunk larger than the whole budget is not kept.
+    pub(crate) fn keep_expanded_chunk<S: ByteSource + ?Sized>(
+        &self,
+        source: &S,
+        key: ExpandedKey,
+        chunk: &Arc<Vec<u8>>,
+    ) {
+        if !self.usable(source) || chunk.len() > CHUNK_BYTE_BUDGET {
+            return;
+        }
+        let mut store = self
+            .expanded
+            .lock()
+            .expect("hdf5 expanded-chunk cache poisoned");
+        store.tick += 1;
+        let tick = store.tick;
+        if let Some((old, _)) = store.by_key.insert(key, (Arc::clone(chunk), tick)) {
+            store.bytes -= old.len();
+        }
+        store.bytes += chunk.len();
+        while store.bytes > CHUNK_BYTE_BUDGET {
+            // The oldest entry. A scan, since a full store holds at most a few
+            // thousand chunks and eviction happens once per chunk read.
+            let Some(oldest) = store
+                .by_key
+                .iter()
+                .min_by_key(|(_, (_, used))| *used)
+                .map(|(k, _)| *k)
+            else {
+                break;
+            };
+            if let Some((gone, _)) = store.by_key.remove(&oldest) {
+                store.bytes -= gone.len();
+            }
+        }
     }
 
     /// Structure walks performed rather than served from the memo.

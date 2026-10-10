@@ -2041,6 +2041,12 @@ struct PlaneKey {
 /// side of it, and at most [`Self::CELLS`] cells across them. The newest plane
 /// is kept whatever its size: it is the one on screen, and every repaint of it
 /// would otherwise read it again.
+///
+/// Below it, the reader keeps the decompressed chunks it last read, up to
+/// 64 MiB a file (`fieldglass-netcdf`'s `CHUNK_BYTE_BUDGET`), so stepping to a
+/// plane that shares chunks with this one does not inflate them again (#939).
+/// That memo is bounded by size and is a pure function of the file, the kind
+/// ADR-0011 lets a library keep; which slices to keep is this memo's policy.
 #[derive(Debug, Default)]
 struct PlaneMemo {
     entries: std::collections::VecDeque<(PlaneKey, std::sync::Arc<Vec<Option<f64>>>)>,
