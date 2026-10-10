@@ -70,7 +70,10 @@ def publishable_crates() -> list[dict]:
 def unpack(archive: Path, dest: Path) -> Path:
     """Extract a `.crate` (gzip tar rooted at `<name>-<version>/`) under `dest`."""
     with tarfile.open(archive, "r:gz") as tar:
-        tar.extractall(dest, filter="data")
+        # Our own `cargo package` output, extracted with the `data` filter,
+        # which refuses absolute paths, `..` and links that leave `dest`.
+        for member in tar:
+            tar.extract(member, dest, filter="data")
     return dest / archive.name.removesuffix(".crate")
 
 
