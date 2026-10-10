@@ -875,15 +875,30 @@ impl GridFingerprint {
     /// The fingerprint of nothing, to fold inputs into.
     pub const EMPTY: Self = Self(0xcbf2_9ce4_8422_2325);
 
-    /// This fingerprint with `bytes` folded in.
+    /// The FNV prime the fold multiplies by.
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    /// This fingerprint with `bytes` folded in, a byte at a time.
     #[must_use]
     pub fn with_bytes(self, bytes: &[u8]) -> Self {
-        let mut h = self.0;
-        for &b in bytes {
-            h ^= u64::from(b);
-            h = h.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-        Self(h)
+        bytes.iter().fold(self, |f, &b| f.with_u64(u64::from(b)))
+    }
+
+    /// This fingerprint with one 64-bit word folded in whole: FNV-1a's step
+    /// over a word rather than a byte, eight times fewer multiplies for a
+    /// long run of floats, which is what [`SpatialIndex::fingerprint`]
+    /// folds.
+    ///
+    /// [`SpatialIndex::fingerprint`]: crate::SpatialIndex::fingerprint
+    #[must_use]
+    pub fn with_u64(self, word: u64) -> Self {
+        Self((self.0 ^ word).wrapping_mul(Self::PRIME))
+    }
+
+    /// The fingerprint as a number, for a key compared within one session.
+    #[must_use]
+    pub fn value(self) -> u64 {
+        self.0
     }
 
     /// The fingerprint of `bytes` alone.
