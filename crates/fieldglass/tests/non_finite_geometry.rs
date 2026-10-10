@@ -881,6 +881,15 @@ fn declined_pairs() -> Vec<(String, Vec<u8>, Vec<u8>)> {
     out
 }
 
+/// The refusal two declined grids of one family get when their files
+/// declare different grids: neither has a shape or a corner to quote.
+fn declare_different(family: &str) -> String {
+    format!(
+        "the two fields declare different {family} grids, and neither could be placed, \
+         so they cannot be combined"
+    )
+}
+
 /// Message 0 of `bytes`, decoded by a session of its own, as a host that
 /// opened the file twice would hold it.
 fn decoded(bytes: &[u8]) -> fieldglass::Field {
@@ -914,10 +923,7 @@ fn two_declined_grids_combine_only_when_they_declare_the_same_grid() {
             .combine(&fa, &fb, op)
             .expect_err("two declarations are two grids")
             .message();
-        assert!(
-            refused.contains("their grid differs") && refused.contains("not built; declared as"),
-            "{what}: {refused}"
-        );
+        assert_eq!(refused, declare_different(&fa.georef.label), "{what}");
         Session::open(a.clone())
             .expect("opens")
             .combine(&fa, &decoded(&a), op)
@@ -942,8 +948,11 @@ fn two_declined_grids_combine_only_when_they_declare_the_same_grid() {
             }
         }
         let values = vec![Some(1.0); (fa.ni * fa.nj) as usize];
-        assert!(
-            combine_values(&source(&pa), &values, &source(&pb), &values, op).is_err(),
+        assert_eq!(
+            combine_values(&source(&pa), &values, &source(&pb), &values, op)
+                .expect_err("two declarations are two grids")
+                .message(),
+            declare_different(&fa.georef.label),
             "{what}: placements"
         );
         combine_values(&source(&pa), &values, &source(&pa2), &values, op)
@@ -993,9 +1002,10 @@ fn two_declined_geostationary_slices_combine_only_when_they_declare_the_same_gri
                 .combine(fa, &fb, CombineOp::Difference)
                 .expect_err("two declarations are two grids")
                 .message();
-            assert!(
-                refused.contains("their grid differs"),
-                "{what_a} against {what_b}: {name}: {refused}"
+            assert_eq!(
+                refused,
+                declare_different("space_view"),
+                "{what_a} against {what_b}: {name}"
             );
             session
                 .combine(fa, &fa2, CombineOp::Difference)
@@ -1004,4 +1014,106 @@ fn two_declined_geostationary_slices_combine_only_when_they_declare_the_same_gri
         }
     }
     assert!(checked > 0, "the fixture has a geostationary slice");
+}
+
+/// The declined `semi_major_axis = 0` GOES slice, rewritten as an in-memory
+/// Zarr v2 store: the same axes and mapping numbers, but the mapping's
+/// attributes in another order, with a `long_name` the classic file does not
+/// have, and the axes stored as plain `f64` rather than scaled `int16`.
+/// `semi_major_axis` is `major`.
+fn declined_goes_as_zarr(major: f64) -> fieldglass::MemoryObjects {
+    let classic = Session::open(goes_with(6_378_137.0, 0.0)).expect("opens");
+    let rad = classic
+        .variables()
+        .iter()
+        .find(|v| v.name == "Rad")
+        .expect("the Rad variable")
+        .index;
+    let axis = |dim| {
+        classic
+            .axis_values(rad, dim)
+            .expect("an axis")
+            .coordinates
+            .expect("coordinates")
+    };
+    let (y, x) = (axis(0), axis(1));
+    let f64s = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let array = |shape: &str| {
+        format!(
+            r#"{{"zarr_format":2,"shape":{shape},"chunks":{shape},"dtype":"<f8","compressor":null,"fill_value":null,"order":"C","filters":null}}"#
+        )
+        .into_bytes()
+    };
+    let (nx, ny) = (x.len(), y.len());
+    let mapping = format!(
+        r#"{{"_ARRAY_DIMENSIONS":["one"],"long_name":"GOES-R ABI fixed grid projection","sweep_angle_axis":"x","longitude_of_projection_origin":-75.0,"semi_minor_axis":6356752.31414,"semi_major_axis":{major},"perspective_point_height":35786023.0,"grid_mapping_name":"geostationary"}}"#
+    );
+    fieldglass::MemoryObjects::from_iter(vec![
+        (".zgroup".to_string(), br#"{"zarr_format":2}"#.to_vec()),
+        ("goes_imager_projection/.zarray".to_string(), array("[1]")),
+        ("goes_imager_projection/.zattrs".to_string(), mapping.into_bytes()),
+        ("goes_imager_projection/0".to_string(), f64s(&[0.0])),
+        ("x/.zarray".to_string(), array(&format!("[{nx}]"))),
+        (
+            "x/.zattrs".to_string(),
+            br#"{"_ARRAY_DIMENSIONS":["x"],"units":"rad","axis":"X","standard_name":"projection_x_coordinate"}"#.to_vec(),
+        ),
+        ("x/0".to_string(), f64s(&x)),
+        ("y/.zarray".to_string(), array(&format!("[{ny}]"))),
+        (
+            "y/.zattrs".to_string(),
+            br#"{"_ARRAY_DIMENSIONS":["y"],"units":"rad","axis":"Y","standard_name":"projection_y_coordinate"}"#.to_vec(),
+        ),
+        ("y/0".to_string(), f64s(&y)),
+        ("Rad/.zarray".to_string(), array(&format!("[{ny},{nx}]"))),
+        (
+            "Rad/.zattrs".to_string(),
+            br#"{"_ARRAY_DIMENSIONS":["y","x"],"grid_mapping":"goes_imager_projection"}"#.to_vec(),
+        ),
+        ("Rad/0.0".to_string(), f64s(&vec![1.0; nx * ny])),
+    ])
+}
+
+/// A declined mapping is fingerprinted by what the resolver reads, not by how
+/// a container lists it: the same declined GOES grid as classic NetCDF and as
+/// a Zarr store whose mapping lists its attributes in another order, carries a
+/// `long_name`, and stores its axes unscaled still combines, and the store
+/// stating a different `semi_major_axis` does not (#962).
+#[test]
+fn a_declined_mapping_combines_across_containers_when_it_declares_the_same_grid() {
+    use fieldglass::CombineOp;
+
+    let classic = slices(goes_with(6_378_137.0, 0.0))
+        .into_iter()
+        .find(|(name, _)| name == "Rad")
+        .expect("Rad")
+        .1;
+    assert_eq!(classic.georef.label, "space_view");
+    let zarr = |major: f64| {
+        let session = Session::open_store(declined_goes_as_zarr(major)).expect("opens");
+        let rad = session
+            .variables()
+            .iter()
+            .find(|v| v.name == "Rad")
+            .expect("Rad")
+            .index;
+        session
+            .decode_slice(rad, 0, 1, &[0, 0], &DecodeOptions::default())
+            .expect("decodes")
+    };
+    let same = zarr(0.0);
+    assert_eq!(same.georef.label, "space_view");
+    assert_eq!(same.georef.placement, Placement::Unplaceable);
+
+    let session = Session::open(goes_with(6_378_137.0, 0.0)).expect("opens");
+    session
+        .combine(&classic, &same, CombineOp::Difference)
+        .unwrap_or_else(|e| panic!("one declared grid in two containers: {e}"));
+    assert_eq!(
+        session
+            .combine(&classic, &zarr(-1.0), CombineOp::Difference)
+            .expect_err("a different semi-major axis")
+            .message(),
+        declare_different("space_view")
+    );
 }

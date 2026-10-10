@@ -77,6 +77,21 @@ pub fn aligned(a: &Source<'_>, b: &Source<'_>) -> Result<(), Error> {
     // and two that declare different grids do not.
     match (&a.geometry, &b.geometry) {
         (Ok(ga), Ok(gb)) if same_grid(ga, gb) => Ok(()),
+        // Two declined grids of one family describe alike, since neither has
+        // a shape or a plane to show, so say what differs in words.
+        (Ok(ga), Ok(gb))
+            if ga
+                .declined_family()
+                .is_some_and(|f| gb.declined_family() == Some(f)) =>
+        {
+            Err(Error::Unsupported {
+                detail: format!(
+                    "the two fields declare different {} grids, and neither could be placed, \
+                     so they cannot be combined",
+                    ga.label()
+                ),
+            })
+        }
         (Ok(ga), Ok(gb)) => Err(mismatch("grid", &describe(ga), &describe(gb))),
         (ga, gb) => Err(mismatch("grid", &side(ga), &side(gb))),
     }
@@ -210,18 +225,6 @@ fn mismatch(property: &str, a: &str, b: &str) -> Error {
 /// longer reads as a geographic position the field is nowhere near.
 pub(crate) fn describe(g: &GridGeometry) -> String {
     let mut out = g.label().to_string();
-    // A declined grid has no shape or plane to show, and two of one family
-    // differ only here, so say which declaration each is.
-    if let GridGeometry::Unsupported {
-        declared: Some(declared),
-        ..
-    } = g
-    {
-        out.push_str(&format!(
-            " (not built; declared as {})",
-            String::from(*declared)
-        ));
-    }
     if let Some((ni, nj)) = g.dims() {
         out.push_str(&format!(" {ni}x{nj}"));
     }
