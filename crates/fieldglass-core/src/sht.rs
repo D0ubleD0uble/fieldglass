@@ -371,8 +371,12 @@ pub const fn grid_band_limit(ni: usize, nj: usize) -> u32 {
 ///
 /// At T127 the work budget ([`MAX_SYNTHESIS_WORK`]) admits every grid the
 /// allocation budget ([`MAX_SYNTHESIS_CELLS`]) does. The allocation budget is
-/// charged at the floor too, so a list of points within about 4 M values of
-/// it, which the spacing rule alone limited lower, can now be refused.
+/// charged at the floor too, and T127's tables add about
+/// `260·nlat + 257·nlon` values over T0's, so how near the cap a list of
+/// points the spacing rule alone limited lower can come now depends on its
+/// shape: about 4 M values short of it for a square set, but four polar-band
+/// latitudes × 300,000 longitudes, admitted at T0 with 2.1 M values, now
+/// needs 78 M and is refused.
 pub const POINT_LIST_BAND_LIMIT: u32 = 127;
 
 /// How far an axis's steps may differ and still count as evenly spaced in
@@ -457,7 +461,10 @@ const REGION_BREAK: f64 = 4.0;
 ///    [`POINT_LIST_BAND_LIMIT`]: MIR's default for a point list. The
 ///    transform never sums past the field's own truncation, so a field below
 ///    T127 is summed in full. A higher limit rules 1 to 3 find, such as T359
-///    for two caps at 0.5°, is kept.
+///    for two caps at 0.5°, is kept. Because a ring's largest gap is left
+///    out, a global ring with one missing column reads as a sector and is
+///    even, but with two missing columns apart it is not; a latitude line has
+///    no such gap, so one missing row makes it uneven.
 ///
 /// A smaller jump stays a step, so a regular grid with up to three rows
 /// missing is charged for the hole; four or more rows missing make two
@@ -1919,6 +1926,30 @@ mod tests {
             Some(0)
         );
         assert_eq!(grid_band_limit(3, 3), 0);
+        // The floor is the set's, not an axis's (#930): one more longitude
+        // makes the 3 × 3 a list of points, and the even latitudes' T1 does
+        // not hold it below T127.
+        assert_eq!(
+            points_band_limit(&[-60.0, 0.0, 60.0], &[0.0, 120.0, 240.0, 250.0]),
+            Some(POINT_LIST_BAND_LIMIT)
+        );
+        // Likewise 10° latitudes (T17) round a 0.5° ring with two columns
+        // missing apart. One missing column is a sector, and even.
+        let ring_without = |missing: &[usize]| -> Vec<f64> {
+            global_lons
+                .iter()
+                .enumerate()
+                .filter(|(k, _)| !missing.contains(k))
+                .map(|(_, &x)| x)
+                .collect()
+        };
+        let tens = axis(-90.0, 90.0, 10.0);
+        assert_eq!(points_band_limit(&tens, &ring_without(&[100])), Some(17));
+        assert_eq!(
+            points_band_limit(&tens, &ring_without(&[100, 400])),
+            Some(POINT_LIST_BAND_LIMIT)
+        );
+        assert_eq!(points_band_limit(&tens, &global_lons), Some(17));
         // Six longitudes at 60° carry T2, as do three latitudes 60° apart.
         assert_eq!(
             points_band_limit(&[-60.0, 0.0, 60.0], &axis(0.0, 300.0, 60.0)),
@@ -2006,6 +2037,11 @@ mod tests {
             );
             nlat = nlat * 2 + 1;
         }
+        // The allocation budget is charged at the floor, so the extra tables
+        // depend on the shape: four latitudes × 300,000 longitudes fit at T0
+        // and not at T127.
+        assert!(synthesis_cells(0, 4, 300_000) <= MAX_SYNTHESIS_CELLS);
+        assert!(synthesis_cells(floor, 4, 300_000) > MAX_SYNTHESIS_CELLS);
     }
 
     /// The rule never band-limits a grid below what master's rule did (#812):
