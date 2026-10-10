@@ -22,6 +22,11 @@
     encoding), exercising CF ``scale_factor``/``add_offset``.
   * ``goes_geostationary_classic.nc`` — the same dataset as a classic file, so
     a test can edit one grid-mapping attribute in place (#844).
+  * ``goes_geostationary_metres.nc`` — the same grid with ``x``/``y`` in
+    *metres* (#966), the PROJ ``+proj=geos`` easting and northing satpy and GDAL
+    write: scan angle × ``perspective_point_height``. Its oracle is PROJ's own
+    inverse (the ``proj`` CLI, which this one build step needs), checked against
+    the NumPy fixed-grid transcription the radian fixture's oracle uses.
 
 All four are **regular grids in a projected CRS** (Model A in decision 0004),
 deliberately tiny so they stay byte-small in git. The coordinate geometry is
@@ -41,6 +46,8 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
+import subprocess
 from pathlib import Path
 
 import netCDF4
@@ -427,10 +434,66 @@ def build_goes() -> None:
     (FIXTURES / "goes_geostationary.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print("  wrote goes_geostationary.nc.oracle.json")
 
+    build_goes_metres(lon0, pph, r_eq, r_pol, x_rad, y_rad, rad, samples)
 
-def write_goes(path, fmt, lon0, pph, r_eq, r_pol, x, y, rad) -> None:
+
+def proj_geos_inverse(xy_metres, lon0, pph, r_eq, r_pol):
+    """PROJ ``+proj=geos`` (sweep x) inverse of each ``(x, y)`` in metres, as
+    ``(lat, lon)`` degrees. Runs the ``proj`` CLI, so PROJ is the oracle."""
+    exe = shutil.which("proj")
+    if exe is None:
+        raise SystemExit("goes_geostationary_metres.nc needs the PROJ `proj` CLI")
+    args = [exe, "-I", "-f", "%.12f", "+proj=geos", f"+h={pph!r}", f"+a={r_eq!r}",
+            f"+b={r_pol!r}", f"+lon_0={lon0!r}", "+sweep=x"]
+    stdin = "".join(f"{float(x)!r} {float(y)!r}\n" for x, y in xy_metres)
+    out = subprocess.run(args, input=stdin, capture_output=True, text=True,
+                         encoding="utf-8", check=True)
+    return [(float(lat), float(lon)) for lon, lat in
+            (line.split() for line in out.stdout.splitlines())]
+
+
+def build_goes_metres(lon0, pph, r_eq, r_pol, x_rad, y_rad, rad, samples) -> None:
+    """The GOES grid with metre axes (#966): PROJ's easting and northing, which
+    are the scan angles times ``perspective_point_height``. Stored unpacked, as
+    satpy writes them."""
+    x_m = x_rad * pph
+    y_m = y_rad * pph
+    name = "goes_geostationary_metres.nc"
+    write_goes(FIXTURES / name, "NETCDF4", lon0, pph, r_eq, r_pol,
+               (x_m, None, None), (y_m, None, None), rad, units="m")
+    print(f"  wrote {name} ({(FIXTURES / name).stat().st_size} bytes)")
+
+    nx, ny = len(x_m), len(y_m)
+    grid = [(i, j) for j in range(ny) for i in range(nx)]
+    lat_lon = proj_geos_inverse([(x_m[i], y_m[j]) for i, j in grid], lon0, pph, r_eq, r_pol)
+    proj_samples = [{"i": i, "j": j, "x": float(x_m[i]), "y": float(y_m[j]),
+                     "lat": lat, "lon": lon}
+                    for (i, j), (lat, lon) in zip(grid, lat_lon)]
+    # PROJ agrees with the GOES-R PUG transcription behind the radian oracle,
+    # so the metre file and the radian file describe one grid.
+    pug = {(s["i"], s["j"]): s for s in samples}
+    assert len(pug) == len(proj_samples), "every pixel of the patch is on the disk"
+    for s in proj_samples:
+        p = pug[(s["i"], s["j"])]
+        assert abs(s["lat"] - p["lat"]) < 1e-9 and abs(s["lon"] - p["lon"]) < 1e-9, (s, p)
+    oracle = {
+        "projection": "geostationary",
+        "oracle": "PROJ +proj=geos +sweep=x inverse (proj CLI)",
+        "longitude_of_projection_origin": lon0,
+        "perspective_point_height": pph,
+        "semi_major_axis": r_eq, "semi_minor_axis": r_pol,
+        "h_metres": pph + r_eq, "sweep_angle_axis": "x", "nx": nx, "ny": ny,
+        "units": "m",
+        "samples": proj_samples,
+    }
+    (FIXTURES / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
+    print(f"  wrote {name}.oracle.json")
+
+
+def write_goes(path, fmt, lon0, pph, r_eq, r_pol, x, y, rad, units="rad") -> None:
     """Write the GOES fixture's dataset to ``path`` in netCDF4 format ``fmt``.
-    ``x`` and ``y`` are each ``(radians, scale_factor, add_offset)``."""
+    ``x`` and ``y`` are each ``(values, scale_factor, add_offset)``, in
+    ``units``. A ``None`` scale factor stores the values unpacked, as ``f8``."""
     x_rad, xs, xo = x
     y_rad, ys, yo = y
     ny, nx = rad.shape
@@ -448,16 +511,16 @@ def write_goes(path, fmt, lon0, pph, r_eq, r_pol, x, y, rad) -> None:
             "longitude_of_projection_origin": lon0,
             "sweep_angle_axis": "x",
         })
-        vx = d.createVariable("x", "i2", ("x",), contiguous=True)
-        vx.setncatts({"units": "rad", "axis": "X",
-                      "standard_name": "projection_x_coordinate",
-                      "scale_factor": xs, "add_offset": xo})
-        vx[:] = x_rad  # netCDF4 packs to int16 via scale_factor/add_offset
-        vy = d.createVariable("y", "i2", ("y",), contiguous=True)
-        vy.setncatts({"units": "rad", "axis": "Y",
-                      "standard_name": "projection_y_coordinate",
-                      "scale_factor": ys, "add_offset": yo})
-        vy[:] = y_rad
+        for name, axis, values, scale, offset in [("x", "X", x_rad, xs, xo),
+                                                  ("y", "Y", y_rad, ys, yo)]:
+            v = d.createVariable(name, "f8" if scale is None else "i2", (name,),
+                                 contiguous=True)
+            atts = {"units": units, "axis": axis,
+                    "standard_name": f"projection_{name}_coordinate"}
+            if scale is not None:
+                atts.update({"scale_factor": scale, "add_offset": offset})
+            v.setncatts(atts)
+            v[:] = values  # netCDF4 packs to int16 via scale_factor/add_offset
         vr = d.createVariable("Rad", "f4", ("y", "x"), contiguous=True)
         vr.setncatts({"units": "W m-2 sr-1 um-1", "grid_mapping": "goes_imager_projection"})
         vr[:, :] = rad

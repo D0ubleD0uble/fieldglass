@@ -507,8 +507,9 @@ fn a_cf_geostationary_mapping_that_describes_no_camera_is_not_placed() {
 }
 
 /// The CF geostationary fixture edited so its mapping describes no camera, as
-/// `(what, bytes)`: each axis and the camera height out of range, and the
-/// camera height missing.
+/// `(what, bytes)`: each axis and the camera height out of range, the camera
+/// height missing, and an `x` or `y` axis whose units are no angle or length,
+/// so its values are no scan angle (#966).
 fn declined_goes() -> Vec<(String, Vec<u8>)> {
     const SEMI_MAJOR: f64 = 6_378_137.0;
     const SEMI_MINOR: f64 = 6_356_752.314_14;
@@ -543,6 +544,22 @@ fn declined_goes() -> Vec<(String, Vec<u8>)> {
     assert_eq!(at.len(), 1, "the attribute name occurs once");
     bytes[at[0] + name.len() - 1] = b'X';
     out.push(("no perspective_point_height".to_string(), bytes));
+    // Each axis's `units = "rad"`, a classic `NC_CHAR` attribute of three
+    // characters padded to four, overwritten in place with `deg`.
+    let rad = b"\0\0\0\x03rad\0";
+    let at: Vec<usize> = std::fs::read(GOES)
+        .expect("fixture")
+        .windows(rad.len())
+        .enumerate()
+        .filter(|(_, w)| w == rad)
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(at.len(), 2, "x and y each state rad once");
+    for (axis, at) in ["x", "y"].into_iter().zip(at) {
+        let mut bytes = std::fs::read(GOES).expect("fixture");
+        bytes[at + 4..at + 7].copy_from_slice(b"deg");
+        out.push((format!("{axis} in deg"), bytes));
+    }
     out
 }
 

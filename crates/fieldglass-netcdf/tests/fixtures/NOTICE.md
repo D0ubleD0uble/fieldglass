@@ -589,7 +589,7 @@ qualified by the group that *defines* each dimension. Built by
 `tools/build_netcdf4_grouped_fixture.py` (run from the repo root; needs `netCDF4`);
 `tests/hdf5_nested_groups.rs` pins the resolver and the decode path against it.
 
-## Projected-grid fixtures (`wrf_lambert.nc`, `wrf_polar.nc`, `wrf_mercator.nc`, `wrf_latlon.nc`, `goes_geostationary.nc`, `goes_geostationary_classic.nc`)
+## Projected-grid fixtures (`wrf_lambert.nc`, `wrf_polar.nc`, `wrf_mercator.nc`, `wrf_latlon.nc`, `goes_geostationary.nc`, `goes_geostationary_classic.nc`, `goes_geostationary_metres.nc`)
 
 Targets for projected-grid geolocation (#168, #220, and #226; decision 0004) — regular
 grids in a projected CRS, rendered through the analytic-inverse warp (Model A).
@@ -641,8 +641,21 @@ a tautology.
   sets `semi_major_axis`, `semi_minor_axis` and `perspective_point_height` to
   values that describe no camera and checks the slice is not placed. The napi
   characterisation golden renders it identically to `goes_geostationary.nc`.
+  The same test overwrites one axis's `units = "rad"` with `deg` and checks
+  the mapping is declined (#966).
+- `goes_geostationary_metres.nc` (#966, NetCDF-4) is the same grid with `x` /
+  `y` in **metres**, stored unpacked as `f8` with `units = "m"`: the scan
+  angles times `perspective_point_height`, which is PROJ's `+proj=geos`
+  easting and northing and what satpy, pyresample and GDAL write. Its sibling
+  `goes_geostationary_metres.nc.oracle.json` is **PROJ's own inverse** (the
+  `proj` CLI, `+proj=geos +sweep=x`, PROJ 9.4.0 here) at every pixel, and the
+  builder asserts it agrees with the NumPy fixed-grid transcription behind the
+  radian oracle to 1e-9°. Building this one file needs PROJ installed.
+  `tests/projected_grids.rs` checks the Rust projector against it, and
+  `crates/fieldglass/tests/geostationary_units.rs` checks a `Session` places
+  it where it places `goes_geostationary.nc`.
 
-Each of the other five has a sibling `*.oracle.json` with the resolved projection parameters and
+Each of the other six has a sibling `*.oracle.json` with the resolved projection parameters and
 sampled `(i, j) ↔ (lat, lon)` geolocation. `tests/projected_grids.rs` resolves
 the projection from the on-disk metadata and asserts the `fieldglass_core`
 projector reproduces the oracle.
