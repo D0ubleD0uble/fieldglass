@@ -320,19 +320,33 @@ fn a_degenerate_grid_is_declined() {
     // `unsupported`, not `invalid_option`. The caller passed no options, so
     // blaming one was never right: it happened because the grid reported the
     // empty box at null island and the warp then rejected the zero-area window
-    // it derived from it. With no extent reported, the refusal names the grid.
+    // it derived from it. The refusal names the grid's parameters, as the
+    // render path's does for the same grid.
     assert_eq!(err.code(), "unsupported");
     assert!(
-        err.to_string().contains("no extent"),
+        err.to_string().contains("degenerate projection parameters"),
         "the message should say why: {err}"
     );
 
+    // A window the caller names does not place the grid either: it says where
+    // to look, not where the grid is. It used to warp through an inverse that
+    // answers nothing and return a raster with every cell masked (#843).
+    let mut window = fieldglass::WarpOptions::default();
+    window.bounds = Some([-20.0, 40.0, -30.0, 60.0]);
+    let windowed = session
+        .warp(&field, &window)
+        .expect_err("a window does not place the grid");
+    assert_eq!(windowed.to_string(), err.to_string());
+
     // The zero-area window check is still the one that answers for a window the
-    // caller asked for by hand, which is the case it is for.
+    // caller asked for by hand, on a grid that places, which is the case it is
+    // for.
+    let placed = open(FIXTURES[0].1);
+    let placed_field = placed.decode(0, &DecodeOptions::default()).expect("decode");
     let mut flat = fieldglass::WarpOptions::default();
     flat.bounds = Some([10.0, 10.0, 20.0, 30.0]);
-    let explicit = session
-        .warp(&field, &flat)
+    let explicit = placed
+        .warp(&placed_field, &flat)
         .expect_err("a flat window encloses no area");
     assert_eq!(explicit.code(), "invalid_option");
 }
