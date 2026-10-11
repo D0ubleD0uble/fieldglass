@@ -121,9 +121,11 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    - **One dense attribute or link** (a fractal-heap object) is skipped, and
      the file kept: the listing goes on without it, as it goes on without an
      attribute it cannot parse. One oversized attribute would otherwise make
-     the whole file unreadable, even from a buffer in memory. A skipped
-     object is not read and claims nothing, so a second record naming it is
-     skipped too. A `DIMENSION_LIST` skipped this way leaves its variable on
+     the whole file unreadable, even from a buffer in memory. Only a
+     well-formed object is skipped: it is checked to lie in the file and
+     claimed before its size is, so one past the end of the file, or a
+     second record naming one already claimed, is still a parse error, as
+     before. A `DIMENSION_LIST` skipped this way leaves its variable on
      anonymous `phony_dim_N` axes, as a variable with no `DIMENSION_LIST`
      has. Nothing reports the skip: the attributes `parse_bodies` drops are
      not reported either, and a host has no channel for either yet.
@@ -138,7 +140,7 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    checked before the chunk is planned or read. An unfiltered chunk is held to
    its own chunk's size (a parse error, refused after the read before). A
    filtered chunk's stored size, up to 4 GiB in a B-tree key, is held to the
-   256 MiB decoded-chunk ceiling of #970, as `ArrayError::ChunkTooLarge`: a
+   256 MiB decoded-chunk ceiling of #970, as `ArrayError::StoredChunkTooLarge`: a
    filter grows a chunk by a few bytes at most, so a chunk stored past the
    ceiling could not have passed it decoded. A contiguous dataset's region
    is checked to end inside the file before its run list and output buffer
@@ -164,9 +166,12 @@ that holds the file and declares a terabyte. Each is refused with no read
 longer than 64 KiB; before the change each asked for the gigabytes in one read.
 The same tests rewrite huge-object index records: `netcdf4_huge_attributes.nc`
 still lists every variable, drops only its two oversized attributes, and
-decodes; with `t`'s `DIMENSION_LIST` record pointed at one of them, `t` falls
-back to `phony_dim_0`; `hdf5_huge_link_name.h5` resolves without its
-oversized link. Before the change each file was refused. The managed-object
+decodes; with `t`'s `DIMENSION_LIST` record pointed at one of them and the
+`comment` record taken out of the index, `t` falls back to `phony_dim_0`;
+`hdf5_huge_link_name.h5` resolves without its oversized link. Before the
+change each file was refused. With the `comment` record left in, two records
+name one object and the listing is a parse error; an oversized object past
+the end of a buffer is a parse error too, not skipped. The managed-object
 and filtered-block caps are checked in `heap.rs`.
 
 ## Consequences

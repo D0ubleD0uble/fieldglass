@@ -168,15 +168,23 @@ impl Collections {
                 return Ok(data);
             }
             // Skipped, not read: an object passed over costs nothing, however
-            // large, so it is not held to the cap. It is skipped in steps a
-            // 32-bit `usize` holds, so that target passes an object past 4 GiB
-            // as a 64-bit one does rather than refusing the skip; a small one
-            // is one step inside the cursor's window, which stays held.
-            let mut left = padded;
-            while left > 0 {
-                let step = left.min(u64::from(u32::MAX));
-                cur.skip(checked_usize(step, "global-heap object size")?)?;
-                left -= step;
+            // large, so it is not held to the cap. `skip` keeps the cursor's
+            // window when the next header is inside it, so a run of small
+            // objects is read once; re-seating the cursor for each would drop
+            // the window and read the rest of the collection again per object.
+            // A skip `usize` cannot hold, past 4 GiB on a 32-bit target,
+            // re-seats the cursor instead, so that target passes the object
+            // as a 64-bit one does.
+            match usize::try_from(padded) {
+                Ok(padded) => cur.skip(padded)?,
+                Err(_) => {
+                    let next = at.checked_add(padded).ok_or_else(|| {
+                        FieldglassError::Parse(
+                            "global-heap object size exceeds the collection bounds".into(),
+                        )
+                    })?;
+                    cur = FileCursor::at(source, next)?;
+                }
             }
             scan.passed(index, (at, size), padded, header_bytes);
         }

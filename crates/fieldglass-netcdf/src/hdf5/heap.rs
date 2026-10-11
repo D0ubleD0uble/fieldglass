@@ -704,9 +704,11 @@ impl FractalHeap {
     /// In a NetCDF-4 file a heap object is one dense attribute or link
     /// message, and a valid file may hold one past the cap. A listing skips
     /// that one item and keeps the rest, as it skips an attribute it cannot
-    /// parse, rather than refusing the file over it (#997). Only the object's
-    /// own cap is skipped: every other refusal, a corrupt ID or a heap block
-    /// past its cap, still ends the listing.
+    /// parse, rather than refusing the file over it (#997). Only a
+    /// well-formed object past its own cap is skipped: the object is checked
+    /// to lie in the file and to overlap nothing already read before the cap
+    /// is, so a corrupt record, a heap block past its cap or a second record
+    /// naming the same object still ends the listing.
     pub(crate) fn object_within_cap<S: ByteSource + ?Sized>(
         &self,
         source: &S,
@@ -760,14 +762,24 @@ impl FractalHeap {
                 (r.address, r.length, r.filter_mask, r.memory_size)
             }
         };
-        // Both sizes, before either is read or inflated, and before the stored
-        // one is narrowed, so a length past the cap is refused as too large on
-        // every target. Before the claim too, as for a managed object: an
-        // object a listing skips for its size is never read, so it claims
-        // nothing, and another record naming it is skipped the same way.
+        // The record is checked as well formed first: in the file, and naming
+        // no range another record has. A corrupt one is a parse error whatever
+        // its size, so only a well-formed object can reach the cap and be
+        // skipped by a listing (#997).
+        if address
+            .checked_add(length)
+            .is_none_or(|end| end > source.size())
+        {
+            return Err(FieldglassError::Parse(
+                "huge heap object runs past end of file".into(),
+            ));
+        }
+        reads.huge.claim(address, length, "huge heap object")?;
+        // Then both sizes, before either is read or inflated, and before the
+        // stored one is narrowed, so a length past the cap is too large on
+        // every target.
         check_heap_object(length)?;
         check_heap_object(memory_size)?;
-        reads.huge.claim(address, length, "huge heap object")?;
         let length = checked_usize(length, "huge heap object length")?;
         let stored = read_at(source, address, length)
             .map_err(|_| FieldglassError::Parse("huge heap object runs past end of file".into()))?;
@@ -818,11 +830,12 @@ impl FractalHeap {
         }
         // A direct block may be as large as the heap says (libhdf5 allows
         // 2 GiB), and an in-file one is bounded only by the size the source
-        // declares, so the object is held to the cap too.
-        check_heap_object(length as u64)?;
+        // declares, so the object is held to the cap too. After the claim, as
+        // for a huge object, so an overlap is corrupt whatever the size.
         reads
             .managed
             .claim(offset, length as u64, "managed heap object")?;
+        check_heap_object(length as u64)?;
         match &block.content {
             BlockContent::InFile(file_addr) => {
                 let obj_addr = checked_add(*file_addr, within)?;

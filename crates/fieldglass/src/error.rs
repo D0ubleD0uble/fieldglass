@@ -35,14 +35,14 @@ pub enum Error {
     /// or the file is valid and the read is too large to make at once: a whole
     /// NetCDF variable past the reader's memory budget, a slice, a region or
     /// a Zarr chunk of more values than one field may hold, or a compressed
-    /// NetCDF-4 chunk that holds more values than one field may, or decodes to
-    /// more than one chunk may; or an HDF5 file that lists more than one
-    /// listing holds: more objects, more links in one group, or more bytes of
-    /// path-qualified names; or a classic NetCDF header longer than one header
-    /// may be; or an HDF5 file whose objects share a dense attribute or link
-    /// store or a local heap, which libhdf5 reads and this reader refuses; or
-    /// a zstd chunk whose frame states a larger window than a chunk of its
-    /// size may keep.
+    /// NetCDF-4 chunk that holds more values than one field may, or is stored
+    /// as or decodes to more than one chunk may; or an HDF5 file that lists
+    /// more than one listing holds: more objects, more links in one group, or
+    /// more bytes of path-qualified names; or a classic NetCDF header longer
+    /// than one header may be; or an HDF5 file whose objects share a dense
+    /// attribute or link store or a local heap, which libhdf5 reads and this
+    /// reader refuses; or a zstd chunk whose frame states a larger window than
+    /// a chunk of its size may keep.
     Unsupported {
         /// Which operation, and what about this message refuses it.
         detail: String,
@@ -133,10 +133,10 @@ impl From<FieldglassError> for Error {
         // `Decode` — which is what happened before #707 gave it a variant — told
         // a host its file was corrupt when its transfer was truncated, and those
         // call for opposite responses. A variable past the whole-variable
-        // budget, a read past the one-field cap, or a chunk past what one
-        // chunk may decode to, is a valid file asked for too much at once,
-        // not a corrupt one, so it is `Unsupported` rather than `Decode`
-        // (#847, #942, #970). So is a file listing more objects or longer
+        // budget, a read past the one-field cap, or a chunk decoding to or
+        // stored as more than one chunk may decode to, is a valid file asked
+        // for too much at once, not a corrupt one, so it is `Unsupported`
+        // rather than `Decode` (#847, #942, #970, #997). So is a file listing more objects or longer
         // names than one listing holds (#921), or sharing a dense store or a
         // local heap that libhdf5 reads (#987), and a zstd frame stating a
         // window larger than its chunk's decoder keeps (#989). Everything else
@@ -147,6 +147,7 @@ impl From<FieldglassError> for Error {
                 too_large @ (fieldglass_core::array::ArrayError::VariableTooLarge { .. }
                 | fieldglass_core::array::ArrayError::FieldTooLarge { .. }
                 | fieldglass_core::array::ArrayError::ChunkTooLarge { .. }
+                | fieldglass_core::array::ArrayError::StoredChunkTooLarge { .. }
                 | fieldglass_core::array::ArrayError::ListingTooLarge { .. }
                 | fieldglass_core::array::ArrayError::SharedStorage { .. }
                 | fieldglass_core::array::ArrayError::WindowTooLarge { .. }),

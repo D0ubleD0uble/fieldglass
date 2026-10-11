@@ -260,14 +260,14 @@ export type ApiError =
    * or the file is valid and the read is too large to make at once: a whole
    * NetCDF variable past the reader's memory budget, a slice, a region or
    * a Zarr chunk of more values than one field may hold, or a compressed
-   * NetCDF-4 chunk that holds more values than one field may, or decodes to
-   * more than one chunk may; or an HDF5 file that lists more than one
-   * listing holds: more objects, more links in one group, or more bytes of
-   * path-qualified names; or a classic NetCDF header longer than one header
-   * may be; or an HDF5 file whose objects share a dense attribute or link
-   * store or a local heap, which libhdf5 reads and this reader refuses; or
-   * a zstd chunk whose frame states a larger window than a chunk of its
-   * size may keep.
+   * NetCDF-4 chunk that holds more values than one field may, or is stored
+   * as or decodes to more than one chunk may; or an HDF5 file that lists
+   * more than one listing holds: more objects, more links in one group, or
+   * more bytes of path-qualified names; or a classic NetCDF header longer
+   * than one header may be; or an HDF5 file whose objects share a dense
+   * attribute or link store or a local heap, which libhdf5 reads and this
+   * reader refuses; or a zstd chunk whose frame states a larger window than
+   * a chunk of its size may keep.
    */
   | {
     code: "unsupported";

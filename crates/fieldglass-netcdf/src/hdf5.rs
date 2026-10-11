@@ -655,6 +655,10 @@ mod declared_tests {
     /// What the source declares itself to be: enough to hold [`CLAIM`] anywhere.
     const DECLARED: u64 = 1 << 40;
 
+    /// An address in the declared file well past the bytes a fixture holds,
+    /// where an object [`CLAIM`] bytes long overlaps nothing the reader reads.
+    const PAST_THE_HELD_BYTES: u64 = 1 << 36;
+
     const EARLIEST: &[u8] = include_bytes!("../tests/fixtures/hdf5_no_userblock_earliest.h5");
     const LATEST: &[u8] = include_bytes!("../tests/fixtures/hdf5_no_userblock_latest.h5");
     const HUGE_ATTRIBUTES: &[u8] = include_bytes!("../tests/fixtures/netcdf4_huge_attributes.nc");
@@ -830,11 +834,19 @@ mod declared_tests {
             })
             .collect();
         assert_eq!(leaves.len(), 2, "the global and the variable heap");
-        for leaf in leaves {
+        for (n, leaf) in leaves.into_iter().enumerate() {
             let length = u64_at(&file, leaf + 6 + 8);
             assert!(
                 (4096..65536).contains(&length),
                 "a huge object's length: {length}"
+            );
+            // Each object moves past the bytes held, into a part of the
+            // declared file nothing else is read from, so it is well formed:
+            // in the file and overlapping nothing. Only its length is wrong.
+            put(
+                &mut file,
+                leaf + 6,
+                &(PAST_THE_HELD_BYTES << n).to_le_bytes(),
             );
             put(&mut file, leaf + 6 + 8, &CLAIM.to_le_bytes());
             let sum = checksum_lookup3(&file[leaf..leaf + 30]);
@@ -913,6 +925,7 @@ mod declared_tests {
             })
             .expect("a one-record huge-object leaf");
         assert!((4096..65536).contains(&u64_at(&file, leaf + 6 + 8)));
+        put(&mut file, leaf + 6, &PAST_THE_HELD_BYTES.to_le_bytes());
         put(&mut file, leaf + 6 + 8, &CLAIM.to_le_bytes());
         let sum = checksum_lookup3(&file[leaf..leaf + 30]);
         put(&mut file, leaf + 30, &sum.to_le_bytes());
@@ -927,15 +940,15 @@ mod declared_tests {
         );
     }
 
-    /// `t`'s `DIMENSION_LIST` record repointed at its oversized `comment`, so
-    /// the attribute that names `t`'s dimension is the one skipped (#997). The
-    /// variable keeps its values and falls back to an anonymous axis, as one
-    /// with no `DIMENSION_LIST` does.
-    #[test]
-    fn a_dimension_list_past_the_cap_falls_back_to_phony_dimensions() {
+    /// `huge_attributes_past_the_cap` with `t`'s `DIMENSION_LIST` name-index
+    /// record pointed at the oversized `comment`. With `drop_comment`, the
+    /// `comment` record is taken out of the index, so one record names the
+    /// object; without it, two do.
+    fn dimension_list_past_the_cap(drop_comment: bool) -> Vec<u8> {
         let mut file = huge_attributes_past_the_cap();
-        // `t`'s attribute name index: type-8 records of heap ID(8), flags(1),
-        // creation order(4) and the name's lookup3 hash(4).
+        // `t`'s attribute name index is one leaf: signature, version, type,
+        // then type-8 records of heap ID(8), flags(1), creation order(4) and
+        // the name's lookup3 hash(4), then a checksum.
         let record = |file: &[u8], name: &str| -> usize {
             let hash = checksum_lookup3(name.as_bytes()).to_le_bytes();
             let at = find_all(file, &hash);
@@ -946,35 +959,92 @@ mod declared_tests {
         let comment = record(&file, "comment");
         let id: [u8; 8] = file[comment..comment + 8].try_into().unwrap();
         put(&mut file, dimension_list, &id);
-        // Re-checksum the leaf holding both: signature, version, type, then
-        // its records and a checksum.
+
         let leaf = find_all(&file, b"BTLF")
             .into_iter()
             .rfind(|&at| at < dimension_list && file[at + 5] == 8)
             .expect("the attribute name leaf");
-        let end = (1..64)
-            .map(|n| leaf + 6 + 17 * n)
-            .find(|&end| {
-                end > dimension_list.max(comment)
-                    && checksum_lookup3(&HUGE_ATTRIBUTES[leaf..end]) == u32_at(&file, end)
-            })
-            .expect("the leaf's checksum");
-        let sum = checksum_lookup3(&file[leaf..end]);
-        put(&mut file, end, &sum.to_le_bytes());
+        // Its header: signature, version, type, node size(4), record size(2),
+        // depth(2), split and merge percents, root address(8), root record
+        // count(2), total record count(8), then a checksum.
+        let header = find_all(&file, b"BTHD")
+            .into_iter()
+            .find(|&at| file[at + 5] == 8 && u64_at(&file, at + 16) == leaf as u64)
+            .expect("the attribute name index");
+        let count = usize::from(u16::from_le_bytes([file[header + 24], file[header + 25]]));
+        let mut records = leaf + 6 + 17 * count;
+        assert_eq!(
+            checksum_lookup3(&HUGE_ATTRIBUTES[leaf..records]),
+            u32_at(&file, records),
+            "the leaf's checksum"
+        );
+        if drop_comment {
+            file.copy_within(comment + 17..records, comment);
+            records -= 17;
+            let count = (count - 1) as u16;
+            put(&mut file, header + 24, &count.to_le_bytes());
+            put(&mut file, header + 26, &u64::from(count).to_le_bytes());
+            let sum = checksum_lookup3(&file[header..header + 34]);
+            put(&mut file, header + 34, &sum.to_le_bytes());
+        }
+        let sum = checksum_lookup3(&file[leaf..records]);
+        put(&mut file, records, &sum.to_le_bytes());
+        file
+    }
 
-        let (_, values, longest) = resolve_declared(&file);
+    /// A `DIMENSION_LIST` past the heap-object cap is the attribute skipped
+    /// (#997): `t` keeps its values and falls back to an anonymous axis, as a
+    /// variable with no `DIMENSION_LIST` does.
+    #[test]
+    fn a_dimension_list_past_the_cap_falls_back_to_phony_dimensions() {
+        let file = dimension_list_past_the_cap(true);
+        let (meta, values, longest) = resolve_declared(&file);
         assert_eq!(values, [Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
         assert!(
             longest <= MAX_WINDOW_BYTES as u64,
             "read {longest} bytes at once"
         );
-        let source = Declared::new(&file, DECLARED);
-        let meta = NetcdfReader::from_source(&source)
-            .and_then(|r| r.hdf5_metadata())
-            .expect("the metadata resolves");
         let t = meta.variables.iter().find(|v| v.name == "t").unwrap();
         assert_eq!(t.dimensions, ["phony_dim_0"]);
         assert!(!names(&t.attributes).contains(&"comment"));
+    }
+
+    /// Two records naming one oversized object is shared storage, which is
+    /// corrupt whatever the object's size, so the listing is refused rather
+    /// than both skipped (#997, #899).
+    #[test]
+    fn two_records_naming_one_oversized_object_are_refused_not_skipped() {
+        let (outcome, _) = open_declared(&dimension_list_past_the_cap(false));
+        let err = outcome.expect_err("a shared huge object");
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m.contains("overlaps one already read")),
+            "{err:?}"
+        );
+    }
+
+    /// A huge object whose record claims more than the cap and runs past the
+    /// end of a buffer is corrupt, not oversized, so it is a parse error
+    /// rather than skipped (#997).
+    #[test]
+    fn a_huge_object_past_the_end_of_the_file_is_refused_not_skipped() {
+        let mut file = HUGE_ATTRIBUTES.to_vec();
+        let leaf = find_all(&file, b"BTLF")
+            .into_iter()
+            .find(|&at| {
+                file[at + 5] == 1 && checksum_lookup3(&file[at..at + 30]) == u32_at(&file, at + 30)
+            })
+            .expect("a one-record huge-object leaf");
+        put(&mut file, leaf + 6 + 8, &CLAIM.to_le_bytes());
+        let sum = checksum_lookup3(&file[leaf..leaf + 30]);
+        put(&mut file, leaf + 30, &sum.to_le_bytes());
+
+        let err = NetcdfReader::from_bytes(file)
+            .and_then(|r| r.hdf5_metadata().map(drop))
+            .expect_err("a huge object past the end of the file");
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m == "huge heap object runs past end of file"),
+            "{err:?}"
+        );
     }
 
     /// A global-heap collection, holding the `DIMENSION_LIST` references, whose
@@ -1107,7 +1177,7 @@ mod declared_tests {
         assert!(
             matches!(
                 refused[0],
-                FieldglassError::Array(ArrayError::ChunkTooLarge { bytes, limit })
+                FieldglassError::Array(ArrayError::StoredChunkTooLarge { bytes, limit })
                     if *bytes == 1 << 31 && *limit == 256 << 20
             ),
             "{:?}",
