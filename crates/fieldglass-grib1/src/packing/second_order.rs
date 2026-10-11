@@ -57,6 +57,7 @@
 use fieldglass_core::{
     FieldglassError, StoredRuns,
     bits::{BitReader, bits_to_bytes, sign_magnitude_to_i64},
+    capped::group_needs,
     groups::{expand_groups_into, read_group_widths},
     spatial_diff::apply_spd_inverse,
 };
@@ -206,6 +207,23 @@ pub fn decode(
         byte_cursor += spd_bytes;
     }
 
+    check_groups(
+        bds,
+        &GroupBlocks {
+            num_groups,
+            width_of_widths,
+            width_of_lengths,
+            widths_at: byte_cursor,
+            n1,
+            n2,
+            bds_len,
+        },
+        header.bits_per_value,
+        usize::from(order_of_spd),
+        super::present_count(bitmap, expected_count)?,
+        expected_count,
+    )?;
+
     let widths_bytes = bits_to_bytes(num_groups, width_of_widths as usize).ok_or_else(|| {
         FieldglassError::Parse(format!(
             "BDS groupWidths byte length overflows ({num_groups}×{width_of_widths} bits)"
@@ -300,6 +318,102 @@ pub fn decode(
     // Scale (R + u·2^E) / 10^D, undo boustrophedonic ordering, interleave the
     // bitmap — shared with the classic second-order decoders.
     super::finalize_second_order(x, header, decimal_scale, runs, bitmap, expected_count)
+}
+
+/// Where a general-extended BDS keeps its group blocks, for [`check_groups`].
+struct GroupBlocks {
+    num_groups: usize,
+    width_of_widths: u8,
+    width_of_lengths: u8,
+    /// Byte offset of the group widths, just past the SPD block.
+    widths_at: usize,
+    /// Byte offset of the first-order values (`N1`, 0-indexed).
+    n1: usize,
+    /// Byte offset of the second-order values (`N2`, 0-indexed).
+    n2: usize,
+    /// The section length, already checked against the bytes present.
+    bds_len: usize,
+}
+
+/// Refuse a general-extended BDS that cannot fill what its header states,
+/// before the group tables or the output are allocated (#1001).
+///
+/// The width, length and first-order tables are read into vectors of
+/// `numberOfGroups` entries, and a table whose field width is 0 takes no
+/// bytes: a 25-byte section could state 16 Mi groups and have three tables
+/// of them stored before anything was summed. This reads the width and
+/// length blocks in place, storing nothing, and refuses the section unless
+/// it holds all three blocks, the lengths plus the SPD seeds make the present
+/// points, and the second-order values from `N2` hold every group's offsets.
+/// The tables then hold no more entries than the grid has points, and every
+/// point outside a zero-width group, which legitimately repeats its
+/// first-order value, has its bits in the section.
+fn check_groups(
+    bds: &[u8],
+    blocks: &GroupBlocks,
+    width_of_first_order: u8,
+    order_of_spd: usize,
+    present: usize,
+    expected_count: usize,
+) -> Result<(), FieldglassError> {
+    let GroupBlocks {
+        num_groups,
+        width_of_widths,
+        width_of_lengths,
+        widths_at,
+        n1,
+        n2,
+        bds_len,
+    } = *blocks;
+    if width_of_first_order > 32 {
+        return Err(FieldglassError::Parse(format!(
+            "BDS widthOfFirstOrderValues={width_of_first_order} > 32"
+        )));
+    }
+    let block = |bits: u8| bits_to_bytes(num_groups, usize::from(bits)).unwrap_or(usize::MAX);
+    let lengths_at = widths_at.saturating_add(block(width_of_widths));
+    let lengths_end = lengths_at.saturating_add(block(width_of_lengths));
+    let first_order_end = n1.saturating_add(block(width_of_first_order));
+    if lengths_end > bds_len || first_order_end > bds_len {
+        return Err(FieldglassError::Parse(format!(
+            "BDS of {bds_len} bytes is too short for the group widths, lengths and \
+             first-order values of {num_groups} groups"
+        )));
+    }
+
+    let mut widths = BitReader::new(&bds[widths_at..lengths_at]);
+    let mut lengths = BitReader::new(&bds[lengths_at..lengths_end]);
+    let needs = group_needs(num_groups, |g| {
+        let width = widths.read_bits(width_of_widths)?;
+        if width > 32 {
+            return Err(FieldglassError::Parse(format!(
+                "second-order packing: group {g} width {width} exceeds 32 bits"
+            )));
+        }
+        Ok((
+            u64::from(width),
+            u64::from(lengths.read_bits(width_of_lengths)?),
+        ))
+    })?;
+    let points = needs.points.saturating_add(order_of_spd as u64);
+    if points > expected_count as u64 {
+        return Err(FieldglassError::Parse(format!(
+            "BDS group lengths sum {points} exceeds grid size {expected_count}"
+        )));
+    }
+    if points != present as u64 {
+        return Err(FieldglassError::Parse(format!(
+            "BDS group lengths and SPD seeds make {points} values but {present} points are present"
+        )));
+    }
+    let held = ((bds_len - n2) as u64).saturating_mul(8);
+    if needs.offset_bits > held {
+        return Err(FieldglassError::Parse(format!(
+            "BDS second-order values need {} bits but the section holds {held} from N2",
+            needs.offset_bits
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

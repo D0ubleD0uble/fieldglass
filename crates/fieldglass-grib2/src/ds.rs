@@ -19,7 +19,8 @@ use fieldglass_core::bitmap::count_present;
 use fieldglass_core::scaling::{Scaling, decimal_factor, unpack_simple};
 use fieldglass_core::{
     FieldglassError, StoredRuns,
-    bits::{BitReader, sign_magnitude_to_i64},
+    bits::{BitReader, bits_to_bytes, sign_magnitude_to_i64},
+    capped,
     groups::{ComplexGroupLayout, expand_complex_groups, expand_groups_into, read_group_widths},
     spatial_diff::{apply_spd_inverse, apply_spd_inverse_skipping_missing},
 };
@@ -265,7 +266,7 @@ fn decode_complex_packing(
     }
 
     let mut reader = BitReader::new(ds_payload);
-    let scaled = decode_complex_groups(&mut reader, t, present_count)?;
+    let scaled = decode_complex_groups(&mut reader, ds_payload, 0, t, present_count)?;
 
     complex_scaled_to_values(t, scaled, bitmap, expected_count)
 }
@@ -379,7 +380,15 @@ fn decode_complex_spatial_diff(
     };
     let bias = sign_magnitude_to_i64(reader.read_bits(descriptor_bits)?, descriptor_bits);
 
-    let mut vals = decode_complex_groups(&mut reader, &t.complex, present_count)?;
+    // The group blocks start after the `order + 1` whole-octet descriptors.
+    let groups_at = (usize::from(order) + 1) * usize::from(octets);
+    let mut vals = decode_complex_groups(
+        &mut reader,
+        ds_payload,
+        groups_at,
+        &t.complex,
+        present_count,
+    )?;
 
     // Reverse the differencing. Missing slots take no part: the seeds land on
     // the first `order` present slots and each later present value recurses on
@@ -436,9 +445,13 @@ fn check_bitmap_present_count(
 /// `fieldglass-core`: on success the group lengths sum to `present_count`,
 /// every group is at most 32 bits wide, and each point is its group's
 /// reference plus its own offset. This wrapper rejects the Code Table values
-/// the kernel does not interpret.
+/// the kernel does not interpret, and runs [`check_complex_groups`] first so
+/// the kernel allocates nothing §7 cannot fill. `groups_at` is the byte of
+/// `ds_payload` where `reader` stands, the start of the group-reference block.
 fn decode_complex_groups(
     reader: &mut BitReader,
+    ds_payload: &[u8],
+    groups_at: usize,
     t: &ComplexPackingTemplate,
     present_count: usize,
 ) -> Result<Vec<Option<i64>>, FieldglassError> {
@@ -467,7 +480,96 @@ fn decode_complex_groups(
         length_last: t.group_length_last,
         missing_value_management: t.missing_value_management,
     };
+    check_complex_groups(ds_payload, groups_at, &layout, present_count)?;
     expand_complex_groups(reader, &layout, present_count)
+}
+
+/// Refuse a complex-packing §7 that cannot fill what its §5 states, before
+/// anything sized by the group count or the point count is allocated (#1001).
+///
+/// [`expand_complex_groups`] reads the three group tables into vectors of `NG`
+/// entries and then reserves the output, but a table whose field width is 0
+/// takes no bytes, so a §7 of a few bytes could state millions of groups and
+/// have them stored before the lengths were summed. This reads the width and
+/// length blocks in place, storing nothing, and refuses the section unless
+/// §7 holds all three blocks, the lengths sum to the present points, and §7
+/// holds every group's offsets after them. Then the tables hold no more
+/// entries than the output has points, and every point that is not in a
+/// zero-width group, which legitimately repeats its reference, has its bits
+/// in §7.
+///
+/// Conditions the kernel refuses before it allocates (a field over 32 bits,
+/// `NG` of 0 or above the present count) are left to it, so their errors are
+/// unchanged. The width and length rules are the kernel's: each block starts
+/// on an octet, a width is the stored value plus the width reference, a length
+/// the stored value times the increment plus the length reference, and the
+/// last group's length is `length_last`.
+fn check_complex_groups(
+    ds_payload: &[u8],
+    groups_at: usize,
+    layout: &ComplexGroupLayout,
+    present_count: usize,
+) -> Result<(), FieldglassError> {
+    let num_groups = layout.num_groups as usize;
+    if layout.reference_bits > 32
+        || layout.width_bits > 32
+        || layout.length_bits > 32
+        || num_groups == 0
+        || num_groups > present_count
+    {
+        return Ok(());
+    }
+    // `NG` is at most the present count, itself under the field cap, and every
+    // width at most 32, so these neither overflow nor saturate in practice.
+    let block = |bits: u8| bits_to_bytes(num_groups, usize::from(bits)).unwrap_or(usize::MAX);
+    let widths_at = groups_at.saturating_add(block(layout.reference_bits));
+    let lengths_at = widths_at.saturating_add(block(layout.width_bits));
+    let data_at = lengths_at.saturating_add(block(layout.length_bits));
+    let (Some(width_block), Some(length_block), Some(data)) = (
+        ds_payload.get(widths_at..lengths_at),
+        ds_payload.get(lengths_at..data_at),
+        ds_payload.get(data_at..),
+    ) else {
+        return Err(FieldglassError::Parse(format!(
+            "complex packing: §7 holds {} bytes, but the descriptors of {num_groups} groups \
+             end at byte {data_at}",
+            ds_payload.len()
+        )));
+    };
+
+    let mut widths = BitReader::new(width_block);
+    let mut lengths = BitReader::new(length_block);
+    let needs = capped::group_needs(num_groups, |g| {
+        let width =
+            u64::from(layout.width_reference) + u64::from(widths.read_bits(layout.width_bits)?);
+        if width > 32 {
+            return Err(FieldglassError::Parse(format!(
+                "complex packing: group {g} width {width} exceeds 32 bits"
+            )));
+        }
+        let stored = u64::from(lengths.read_bits(layout.length_bits)?);
+        let length = if g + 1 == num_groups {
+            u64::from(layout.length_last)
+        } else {
+            stored * u64::from(layout.length_increment) + u64::from(layout.length_reference)
+        };
+        Ok((width, length))
+    })?;
+    if needs.points != present_count as u64 {
+        return Err(FieldglassError::Parse(format!(
+            "complex packing: group lengths sum to {} but {present_count} values are required",
+            needs.points
+        )));
+    }
+    let held = (data.len() as u64).saturating_mul(8);
+    if needs.offset_bits > held {
+        return Err(FieldglassError::Parse(format!(
+            "complex packing: the groups' offsets need {} bits but §7 holds {held} after \
+             the group descriptors",
+            needs.offset_bits
+        )));
+    }
+    Ok(())
 }
 
 /// Decode IEEE floating-point packing (template 5.4). Each present grid point
@@ -587,6 +689,25 @@ fn decode_png_packing(
     let buf_size = reader.output_buffer_size().ok_or_else(|| {
         FieldglassError::Parse("PNG packing: decoded image size overflows usize".into())
     })?;
+    // IHDR states the image, not the bytes behind it (#1001): an image with
+    // only a few bytes of IDAT can state 64 Mi pixels, and the buffer was
+    // zeroed before IDAT was read. With no transformations the buffer is
+    // each image row's pixel bits rounded up to a byte, so it is at most the
+    // image's pixel bits in bytes plus one per row. IDAT is one zlib stream of
+    // scanlines (PNG specification, sections 7.3 and 8.2), and it carries
+    // every pixel bit plus one filter-type byte per scanline: one per image
+    // row, or under Adam7 at least that many, since every image row is a
+    // scanline of some pass. So the stream inflates to at least the buffer,
+    // and an image whose buffer is past what the whole of §7 can inflate to
+    // (`capped::inflate_bound`) is refused before the buffer is allocated.
+    let most = capped::inflate_bound(ds_payload.len());
+    if buf_size > most {
+        return Err(FieldglassError::Parse(format!(
+            "PNG packing: the image needs {buf_size} decoded bytes but §7 holds {} bytes, \
+             which inflate to at most {most}",
+            ds_payload.len()
+        )));
+    }
     let mut buf = vec![0u8; buf_size];
     let out = reader
         .next_frame(&mut buf)
@@ -915,6 +1036,9 @@ fn decode_jpeg2000_packing(
         }
     }
 
+    // `rust_j2k` sizes its image from SIZ before it reads any tile data, and
+    // offers no way to bound that by the codestream's length. The SIZ check
+    // above holds it to the present count, under the field cap (#1001).
     let image = rust_j2k::decode(ds_payload).map_err(|e| {
         FieldglassError::UnsupportedSection(format!("JPEG 2000 packing: decode failed: {e}"))
     })?;
@@ -1186,7 +1310,13 @@ fn decode_run_length_packing(
         codes.push(reader.read_bits(bits)? as u64);
     }
 
-    let mut decoded: Vec<Option<f64>> = Vec::with_capacity(present_count);
+    // Split the codes into runs and count their points before the output is
+    // reserved (#1001). The output is sized by the grid, but the points are
+    // in the runs: a §7 of a few codes can state 64 Mi of them or far fewer,
+    // and only a stream whose runs cover exactly the present points is
+    // handed a buffer for them. `runs` holds at most one entry per code.
+    let mut runs: Vec<(Option<f64>, usize)> = Vec::new();
+    let mut total = 0usize;
     let mut i = 0;
     while i < codes.len() {
         let v = codes[i];
@@ -1215,21 +1345,28 @@ fn decode_run_length_packing(
                 "run-length packing: level index {v} has no table entry"
             ))
         })?;
-        for _ in 0..run {
-            if decoded.len() == present_count {
-                return Err(FieldglassError::Parse(format!(
-                    "run-length packing: decoded run overflows the {present_count} expected values"
-                )));
-            }
-            decoded.push(level);
+        // A run that takes the total past the present points is refused here,
+        // so `total` and every run stay within `present_count`, a `usize`.
+        let room = (present_count - total) as u64;
+        if run > room {
+            return Err(FieldglassError::Parse(format!(
+                "run-length packing: decoded run overflows the {present_count} expected values"
+            )));
         }
+        let run = run as usize;
+        total += run;
+        runs.push((level, run));
     }
 
-    if decoded.len() != present_count {
+    if total != present_count {
         return Err(FieldglassError::Parse(format!(
-            "run-length packing: decoded {} values but {present_count} were expected",
-            decoded.len()
+            "run-length packing: decoded {total} values but {present_count} were expected"
         )));
+    }
+
+    let mut decoded: Vec<Option<f64>> = Vec::with_capacity(present_count);
+    for (level, run) in runs {
+        decoded.extend(std::iter::repeat_n(level, run));
     }
 
     interleave_optional(decoded, bitmap, expected_count)
@@ -1309,6 +1446,8 @@ fn decode_second_order(
         )));
     }
 
+    check_second_order_groups(ds_payload, t, present_count)?;
+
     // §7 blocks are byte-aligned, so realign after each — eccodes' `unsigned_bits`
     // accessors round every block up to a whole byte, and the second-order data
     // starts on a byte boundary.
@@ -1376,6 +1515,70 @@ fn decode_second_order(
     );
     let decoded = x.into_iter().map(|v| scaling.apply(v as f64)).collect();
     interleave_with_bitmap(decoded, bitmap, expected_count)
+}
+
+/// Refuse a second-order §7 that cannot fill what its §5 states, before the
+/// group tables or the output are allocated (#1001): [`check_complex_groups`]
+/// for templates 5.50001 and 5.50002.
+///
+/// The three tables are read into vectors of `NG` entries, and a table whose
+/// field width is 0 takes no bytes. So this reads the width and length blocks
+/// in place first and refuses the section unless §7 holds the three blocks,
+/// the lengths plus the SPD seeds make the present points, and §7 holds every
+/// group's offsets after the blocks. The caller has already checked the field
+/// widths, `NG` against the present count and the seed count.
+fn check_second_order_groups(
+    ds_payload: &[u8],
+    t: &SecondOrderPackingTemplate,
+    present_count: usize,
+) -> Result<(), FieldglassError> {
+    let num_groups = t.num_groups as usize;
+    let block = |bits: u8| bits_to_bytes(num_groups, usize::from(bits)).unwrap_or(usize::MAX);
+    let lengths_at = block(t.width_of_widths);
+    let first_order_at = lengths_at.saturating_add(block(t.width_of_lengths));
+    let data_at = first_order_at.saturating_add(block(t.width_of_first_order_values));
+    let (Some(width_block), Some(length_block), Some(data)) = (
+        ds_payload.get(..lengths_at),
+        ds_payload.get(lengths_at..first_order_at),
+        ds_payload.get(data_at..),
+    ) else {
+        return Err(FieldglassError::Parse(format!(
+            "second-order packing: §7 holds {} bytes, but the descriptors of {num_groups} \
+             groups end at byte {data_at}",
+            ds_payload.len()
+        )));
+    };
+
+    let mut widths = BitReader::new(width_block);
+    let mut lengths = BitReader::new(length_block);
+    let needs = capped::group_needs(num_groups, |g| {
+        let width = widths.read_bits(t.width_of_widths)?;
+        if width > 32 {
+            return Err(FieldglassError::Parse(format!(
+                "second-order packing: group {g} width {width} exceeds 32 bits"
+            )));
+        }
+        Ok((
+            u64::from(width),
+            u64::from(lengths.read_bits(t.width_of_lengths)?),
+        ))
+    })?;
+    let points = needs.points.saturating_add(u64::from(t.order_of_spd));
+    if points != present_count as u64 {
+        return Err(FieldglassError::Parse(format!(
+            "second-order packing: group lengths + SPD reconstruct {points} values but \
+             {present_count} are required"
+        )));
+    }
+    let held = (data.len() as u64).saturating_mul(8);
+    if needs.offset_bits > held {
+        return Err(FieldglassError::Parse(format!(
+            "second-order packing: the groups' offsets need {} bits but §7 holds {held} \
+             after the group descriptors",
+            needs.offset_bits
+        )));
+    }
+    Ok(())
 }
 
 /// Undo the template-5.50002 boustrophedonic row ordering in place, once the

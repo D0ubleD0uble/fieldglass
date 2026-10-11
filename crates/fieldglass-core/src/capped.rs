@@ -27,6 +27,13 @@
 //! A zstd decoder also holds the frame's window beside the output, which no
 //! output limit sees, so [`zstd_window_limit`] sets the largest window a frame
 //! may declare from the same limit (#989).
+//!
+//! GRIB's grouped packings state a group count and store each group's width
+//! and length, and a table sized by the count can be far larger than the
+//! section: with every descriptor zero bits wide, a 25-byte GRIB1 section can
+//! state 16 Mi groups. [`group_needs`] sums what the groups ask of their section
+//! without storing any of them, so a decoder can refuse one that cannot be
+//! filled before it allocates the tables or the output (#1001).
 
 use std::io::{self, Read};
 
@@ -189,6 +196,44 @@ pub fn zstd_single_segment(frame: &[u8]) -> bool {
         .is_some_and(|descriptor| descriptor & 0x20 != 0)
 }
 
+/// What a run of GRIB groups asks of its section, from [`group_needs`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct GroupNeeds {
+    /// The sum of the group lengths: the points the groups hold.
+    pub points: u64,
+    /// The sum of each group's length times its width: the bits of per-point
+    /// offsets the groups read after their descriptors.
+    pub offset_bits: u64,
+}
+
+/// Sum [`GroupNeeds`] over `count` groups, where `group(g)` reads group `g`'s
+/// width and length, without storing either (#1001).
+///
+/// A grouped decoder calls this before it allocates anything sized by the
+/// group count or the point count, then refuses a section whose groups do not
+/// hold the points it must produce, or whose offsets run past its end. What
+/// is left to allocate is then proved by the section: the group tables hold
+/// no more entries than the output has points, and every point that is not a
+/// zero-width group's run of its reference has its bits in the section.
+///
+/// The sums saturate, so a hostile width or length can only make them larger
+/// than any section, never wrap to a small one. An error from `group` stops
+/// the sum and is returned.
+pub fn group_needs<E>(
+    count: usize,
+    mut group: impl FnMut(usize) -> Result<(u64, u64), E>,
+) -> Result<GroupNeeds, E> {
+    let mut needs = GroupNeeds::default();
+    for g in 0..count {
+        let (width, length) = group(g)?;
+        needs.points = needs.points.saturating_add(length);
+        needs.offset_bits = needs
+            .offset_bits
+            .saturating_add(length.saturating_mul(width));
+    }
+    Ok(needs)
+}
+
 /// Whether `reader` has at least one more byte.
 fn read_one(reader: &mut impl Read) -> io::Result<bool> {
     let mut probe = [0u8; 1];
@@ -257,6 +302,32 @@ mod tests {
         assert_eq!(zstd_window_limit(usize::MAX, ceiling), ceiling);
         // A ceiling under 8 MiB wins: the caller's bound is never widened.
         assert_eq!(zstd_window_limit(4096, MIB), MIB);
+    }
+
+    /// Points and offset bits are summed over every group, a zero-width group
+    /// adding points but no bits, and the sums saturate rather than wrap.
+    #[test]
+    fn group_needs_sums_points_and_offset_bits_and_saturates() {
+        let groups = [(0u64, 5u64), (3, 4), (32, 2)];
+        let needs = group_needs(groups.len(), |g| Ok::<_, ()>(groups[g])).unwrap();
+        assert_eq!(
+            needs,
+            GroupNeeds {
+                points: 11,
+                offset_bits: 12 + 64,
+            }
+        );
+        let huge = group_needs(3, |_| Ok::<_, ()>((u64::MAX, u64::MAX))).unwrap();
+        assert_eq!(huge.points, u64::MAX);
+        assert_eq!(huge.offset_bits, u64::MAX);
+        assert_eq!(
+            group_needs(2, |g| if g == 1 { Err(g) } else { Ok((1, 1)) }),
+            Err(1)
+        );
+        assert_eq!(
+            group_needs(0, |_| Ok::<_, ()>((1, 1))).unwrap(),
+            GroupNeeds::default()
+        );
     }
 
     #[test]

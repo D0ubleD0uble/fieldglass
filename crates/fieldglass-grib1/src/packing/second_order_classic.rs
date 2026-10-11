@@ -57,6 +57,7 @@ use fieldglass_core::{
     FieldglassError, StoredRuns,
     bitmap::unpack_bitmap,
     bits::{BitReader, bits_to_bytes},
+    capped::group_needs,
     groups::expand_group_into,
 };
 
@@ -207,6 +208,24 @@ fn read_group_widths<'a>(
     Ok((widths, end))
 }
 
+/// Refuse a section whose second-order residuals, `bits` of them from
+/// `bds[x_start..]`, are not all there, before the output is reserved
+/// (#1001).
+fn check_residual_bits(
+    bits: u64,
+    bds: &[u8],
+    x_start: usize,
+    what: &str,
+) -> Result<(), FieldglassError> {
+    let held = (bds.len().saturating_sub(x_start) as u64).saturating_mul(8);
+    if bits > held {
+        return Err(FieldglassError::Parse(format!(
+            "BDS {what} second-order values need {bits} bits but the section holds {held}"
+        )));
+    }
+    Ok(())
+}
+
 /// `grid_second_order_row_by_row` (implied secondary bitmap: one group per
 /// row, `numberOfGroups == numberOfRows`; per-group widths). No SPD, no stored
 /// secondary bitmap.
@@ -237,8 +256,12 @@ pub fn decode_row_by_row(
         ..
     } = common_header(bds, header, expected_count)?;
 
-    let row_lengths = row_lengths(runs, num_groups, expected_count)?;
+    // The widths first: they are one octet per group, so the section proves
+    // the group count before the row lengths are laid out for it (#1001).
+    // The other way round, a 22-byte section stating 16 Mi groups had a
+    // vector of 16 Mi row lengths built before the widths were found missing.
     let (group_widths, fo_start) = read_group_widths(bds, num_groups, "row_by_row")?;
+    let row_lengths = row_lengths(runs, num_groups, expected_count)?;
 
     // offsetBeforeData = 21 + numberOfGroups: first-order values, then the
     // per-group second-order residual stream.
@@ -249,6 +272,14 @@ pub fn decode_row_by_row(
         width_of_first,
         "firstOrderValues",
     )?;
+
+    // Every row's residuals must be in the section before the grid's worth
+    // of output is reserved (#1001); a zero-width row repeats its first-order
+    // value and needs none.
+    let needs = group_needs(num_groups, |g| {
+        Ok::<_, FieldglassError>((u64::from(group_widths[g]), row_lengths[g] as u64))
+    })?;
+    check_residual_bits(needs.offset_bits, bds, x_start, "row_by_row")?;
 
     let mut so = BitReader::new(&bds[x_start..]);
     let mut x: Vec<i64> = Vec::with_capacity(expected_count);
@@ -435,6 +466,12 @@ pub fn decode_general(
             "general_grib1: secondary bitmap does not start a group at index 0".into(),
         ));
     }
+
+    let needs = group_needs(num_groups, |g| {
+        let end = starts.get(g + 1).copied().unwrap_or(p2);
+        Ok::<_, FieldglassError>((u64::from(group_widths[g]), (end - starts[g]) as u64))
+    })?;
+    check_residual_bits(needs.offset_bits, bds, x_start, "general_grib1")?;
 
     let mut so = BitReader::new(&bds[x_start..]);
     let mut x: Vec<i64> = Vec::with_capacity(p2);
