@@ -86,6 +86,17 @@ impl<S: ByteSource> NetcdfReader<S> {
     /// in windows that grow as the header turns out to be long, or the few
     /// fixed offsets an HDF5 signature may sit at and the superblock's first
     /// sixteen bytes. No variable's data is read.
+    ///
+    /// # Give the source an identity
+    ///
+    /// The HDF5 walk memoises what it has read (object headers, chunk records,
+    /// recently decompressed chunks) by file offset, so it serves the memo
+    /// only to a source whose [`ByteSource::identity`] says which file it is.
+    /// A source that declines is still read correctly, but every call walks
+    /// the metadata again and decompresses its chunks afresh. A host reading
+    /// over a transport should return
+    /// [`SourceIdentity::named`](fieldglass_core::SourceIdentity::named), for
+    /// example from the object's URL and its size or ETag.
     pub fn from_source(source: S) -> Result<Self, FieldglassError> {
         // Four bytes or none, so a three-byte "CDF" is no container rather
         // than a truncated header, as it was over a buffer.

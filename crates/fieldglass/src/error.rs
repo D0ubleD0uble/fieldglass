@@ -38,7 +38,8 @@ pub enum Error {
     /// NetCDF-4 chunk that holds more values than one field may, or decodes to
     /// more than one chunk may; or an HDF5 file that lists more than one
     /// listing holds: more objects, more links in one group, or more bytes of
-    /// path-qualified names.
+    /// path-qualified names; or a classic NetCDF header longer than one header
+    /// may be.
     Unsupported {
         /// Which operation, and what about this message refuses it.
         detail: String,

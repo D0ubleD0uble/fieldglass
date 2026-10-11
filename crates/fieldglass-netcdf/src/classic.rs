@@ -19,6 +19,7 @@
 
 use std::ops::Range;
 
+use fieldglass_core::array::ArrayError;
 use fieldglass_core::bytes::{FileCursor, checked_usize, read_exact, read_up_to};
 use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
 
@@ -346,6 +347,23 @@ pub const MAX_VAR_ELEMENTS: usize = fieldglass_core::MAX_VARIABLE_ELEMENTS;
 /// name is corrupt. Bounding to a constant — rather than the whole file size —
 /// keeps a small but malicious header from forcing a large allocation per name.
 pub const MAX_NAME_LEN: u64 = 1 << 20; // 1 MiB
+
+/// The most bytes a classic header may span: its dimensions, attributes and
+/// variable records together (#950).
+///
+/// Every count and length in the header is also checked against the file's
+/// size, but over a source read by range that size is what the host declares,
+/// not memory anyone holds. A header claiming one attribute as large as a
+/// declared terabyte would otherwise be fetched in one read at open, and then
+/// widened: a one-byte attribute value becomes an `f64` per element and a
+/// rendered string. 16 MiB bounds that at open to a few hundred megabytes in
+/// the worst case, and is thousands of times any real header, which is
+/// kilobytes even with a long `history`.
+///
+/// A policy cap, not a format limit: a valid file could pass it, so passing it
+/// is [`ArrayError::ListingTooLarge`](fieldglass_core::array::ArrayError),
+/// which says the file is fine, rather than a parse error.
+pub const MAX_HEADER_BYTES: u64 = 16 << 20;
 
 /// Parse a NetCDF classic header from the start of `bytes`. Stops walking
 /// after `var_list`; the rest of the file is variable data, which we ignore.
@@ -982,6 +1000,18 @@ impl<'a, S: ByteSource + ?Sized> Parser<'a, S> {
                 self.pos(),
                 self.cursor.remaining()
             )));
+        }
+        // Checked before the read, so a header past the cap costs nothing to
+        // refuse, however large the source says it is.
+        if self
+            .pos()
+            .checked_add(n as u64)
+            .is_none_or(|end| end > MAX_HEADER_BYTES)
+        {
+            return Err(FieldglassError::Array(ArrayError::ListingTooLarge {
+                what: "bytes of classic NetCDF header",
+                limit: MAX_HEADER_BYTES,
+            }));
         }
         self.cursor.take(n)
     }

@@ -11,10 +11,11 @@
 
 // Split by feature: a braced `use` list takes no `#[cfg]` on its members, so
 // the items behind `core`'s optional surfaces need their own statement (#552).
+use fieldglass_core::bytes::ByteSource;
 #[cfg(feature = "zarr")]
 use fieldglass_core::bytes::ObjectSource;
 #[cfg(any(feature = "grib1", feature = "grib2", feature = "netcdf"))]
-use fieldglass_core::bytes::{ByteSource, read_up_to};
+use fieldglass_core::bytes::read_up_to;
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use fieldglass_core::units::normalize_table_units;
 #[cfg(feature = "render")]
@@ -248,7 +249,6 @@ pub struct Session {
 /// costing the browser bundle a second copy of every decode path. The cost is a
 /// virtual call per `read`, against a decode that does far more work per slab
 /// than that.
-#[cfg(any(feature = "grib1", feature = "grib2", feature = "netcdf"))]
 type Bytes = Box<dyn ByteSource>;
 
 enum Reader {
@@ -906,64 +906,20 @@ impl Session {
     /// the host's fetched buffer straight in, and a range-fetched GRIB message
     /// has no filename to guess from.
     pub fn open(bytes: Vec<u8>) -> Result<Self, Error> {
-        let reader = match detect_from_bytes(&bytes) {
-            #[cfg(feature = "grib1")]
-            CoreFormat::Grib1 => Reader::Grib1(Box::new(
-                fieldglass_grib1::Grib1Reader::from_source(Box::new(bytes) as Bytes)?,
-            )),
-            #[cfg(not(feature = "grib1"))]
-            CoreFormat::Grib1 => {
-                return Err(Error::UnsupportedFormat {
-                    detail: "GRIB1; this build was compiled without the `grib1` feature"
-                        .to_string(),
-                });
-            }
-            #[cfg(feature = "grib2")]
-            CoreFormat::Grib2 => Reader::Grib2(Box::new(
-                fieldglass_grib2::Grib2Reader::from_source(Box::new(bytes) as Bytes)?,
-            )),
-            #[cfg(not(feature = "grib2"))]
-            CoreFormat::Grib2 => {
-                return Err(Error::UnsupportedFormat {
-                    detail: "GRIB2; this build was compiled without the `grib2` feature"
-                        .to_string(),
-                });
-            }
-            #[cfg(feature = "netcdf")]
-            CoreFormat::NetCdf => {
-                // Boxed like the GRIB readers' bytes, so this and
-                // `open_source` share one instantiation of the reader.
-                let reader =
-                    fieldglass_netcdf::NetcdfReader::from_source(Box::new(bytes) as Bytes)?;
-                // The view is resolved here, so a variable list costs one walk
-                // per file rather than one per question.
-                Reader::Arrays(Box::new(Arrays::new(
-                    Box::new(fieldglass_netcdf::NetcdfArrays::open(reader)?),
-                    SourceFormat::NetCdf,
-                )))
-            }
-            #[cfg(not(feature = "netcdf"))]
-            CoreFormat::NetCdf => {
-                return Err(Error::UnsupportedFormat {
-                    detail: "NetCDF; this build was compiled without the `netcdf` feature"
-                        .to_string(),
-                });
-            }
-            CoreFormat::Unknown => {
-                return Err(Error::UnsupportedFormat {
-                    detail: "the bytes match no container this build knows".to_string(),
-                });
-            }
-        };
-        Ok(Self { reader })
+        Self::from_detected(detect_from_bytes(&bytes), Box::new(bytes))
     }
 
     /// The reader a detected format asks for, over a source.
     ///
-    /// Shared by [`Session::open_source`] and, through it, the feature-gating
-    /// refusals — so a build without an edition says the same thing here as
-    /// [`Session::open`] says.
-    #[cfg(any(feature = "grib1", feature = "grib2", feature = "netcdf"))]
+    /// Shared by [`Session::open`] and [`Session::open_source`], so the two
+    /// build the same readers and a build without an edition refuses it in the
+    /// same words whichever way the file came in.
+    // A build with no ranged reader (Zarr alone) refuses every format here, so
+    // the source goes unread and the arm after the match is never reached.
+    #[cfg_attr(
+        not(any(feature = "grib1", feature = "grib2", feature = "netcdf")),
+        allow(unused_variables, unreachable_code)
+    )]
     fn from_detected(format: CoreFormat, source: Bytes) -> Result<Self, Error> {
         let reader = match format {
             #[cfg(feature = "grib1")]
@@ -988,6 +944,8 @@ impl Session {
                         .to_string(),
                 });
             }
+            // The view is resolved here, so a variable list costs one walk per
+            // file rather than one per question.
             #[cfg(feature = "netcdf")]
             CoreFormat::NetCdf => Reader::Arrays(Box::new(Arrays::new(
                 Box::new(fieldglass_netcdf::NetcdfArrays::open(
@@ -1030,9 +988,19 @@ impl Session {
     /// # Files, not stores
     ///
     /// A GRIB file of either edition, or a NetCDF file, classic or NetCDF-4.
-    /// A NetCDF file is read by range like a GRIB one (#950): opening reads its
-    /// header, or its superblock, and each later call the metadata and the
-    /// chunks or runs it needs. A Zarr store is keyed rather than ranged and
+    /// A NetCDF file is read by range like a GRIB one (#950). Opening reads a
+    /// classic file's header, or an HDF5 file's superblock and then its
+    /// metadata, because the session resolves the variable list once, at open.
+    /// After that each slice reads only its own runs or chunks.
+    ///
+    /// Have the source answer [`ByteSource::identity`], with
+    /// [`SourceIdentity::named`](fieldglass_core::bytes::SourceIdentity::named)
+    /// if it has nothing better. The HDF5 reader memoises what it walked
+    /// (object headers, chunk records, recently decompressed chunks) only for
+    /// a source that says which file it is. One that declines is read
+    /// correctly, but every slice walks the metadata again.
+    ///
+    /// A Zarr store is keyed rather than ranged and
     /// has `Session::open_store` — named rather than linked, because that one
     /// is behind the `zarr` feature and this is not.
     ///

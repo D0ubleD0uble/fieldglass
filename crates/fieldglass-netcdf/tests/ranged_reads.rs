@@ -15,9 +15,13 @@
 
 use std::ops::Range;
 
-use fieldglass_core::ByteRange;
+use std::borrow::Cow;
+
+use fieldglass_core::array::ArrayError;
 use fieldglass_core::bytes::FIRST_WINDOW_BYTES;
 use fieldglass_core::testing::Recording;
+use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
+use fieldglass_netcdf::classic::MAX_HEADER_BYTES;
 use fieldglass_netcdf::{NetcdfBacking, NetcdfReader};
 
 /// Classic files: fixed variables in all three versions, interleaved record
@@ -168,7 +172,7 @@ fn shared(a: &[(u64, u64)], b: &[(u64, u64)]) -> u64 {
 }
 
 /// Every range a recording saw: its reads and its batches.
-fn asked(source: &Recording<&[u8]>) -> Vec<ByteRange> {
+fn asked<S>(source: &Recording<S>) -> Vec<ByteRange> {
     let mut all = source.reads();
     all.extend(source.prefetches().into_iter().flatten());
     all
@@ -379,4 +383,92 @@ fn an_hdf5_plane_reads_its_own_chunks_and_no_others() {
         apart >= 10,
         "only {apart} planes had another plane's bytes beside them"
     );
+}
+
+/// A source that holds a few bytes and declares far more, as a remote object's
+/// stated length can. Past the held bytes it serves zeros, as a cursor's
+/// look-ahead window may ask for, but a read of more than a megabyte is
+/// refused, so a fetch of what the header claims fails the test rather than
+/// allocating it.
+struct Declared {
+    held: Vec<u8>,
+    size: u64,
+}
+
+impl ByteSource for Declared {
+    fn size(&self) -> u64 {
+        self.size
+    }
+
+    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
+        if range.len > 1 << 20 {
+            return Err(FieldglassError::Parse(format!(
+                "read of {} bytes at {}",
+                range.len, range.start
+            )));
+        }
+        let start = range.start as usize;
+        let out = (0..range.len as usize)
+            .map(|i| self.held.get(start + i).copied().unwrap_or(0))
+            .collect();
+        Ok(Cow::Owned(out))
+    }
+}
+
+/// A classic header claiming one attribute far past `MAX_HEADER_BYTES`, over a
+/// source that declares itself large enough to hold it, is refused before the
+/// attribute is read (#950): as a listing too large, which says the file is
+/// fine, and with no read anywhere near the size the header claimed.
+#[test]
+fn a_header_past_its_cap_is_refused_before_it_is_read() {
+    let header = |value_len: u32| {
+        let mut h = Vec::new();
+        h.extend_from_slice(b"CDF\x01");
+        h.extend_from_slice(&0u32.to_be_bytes()); // numrecs
+        h.extend_from_slice(&[0; 8]); // dim_list ABSENT
+        h.extend_from_slice(&0x0Cu32.to_be_bytes()); // NC_ATTRIBUTE
+        h.extend_from_slice(&1u32.to_be_bytes()); // one global attribute
+        h.extend_from_slice(&1u32.to_be_bytes()); // name length
+        h.extend_from_slice(b"a\0\0\0");
+        h.extend_from_slice(&1u32.to_be_bytes()); // NC_BYTE
+        h.extend_from_slice(&value_len.to_be_bytes());
+        h
+    };
+
+    // A gigabyte of attribute value, in a source that says it has two.
+    let source = Recording::new(Declared {
+        held: header(1 << 30),
+        size: 1 << 31,
+    });
+    let err = NetcdfReader::from_source(&source).expect_err("past the cap");
+    assert!(
+        matches!(
+            err,
+            FieldglassError::Array(ArrayError::ListingTooLarge { .. })
+        ),
+        "{err}"
+    );
+    assert!(err.to_string().contains("The file itself is fine"), "{err}");
+    let largest = asked(&source).iter().map(|r| r.len).max().unwrap_or(0);
+    assert!(
+        largest <= FIRST_WINDOW_BYTES as u64,
+        "read {largest} bytes at once"
+    );
+
+    // Just past the cap is refused too; the same header with a small value,
+    // in a source that holds it all, opens.
+    let past = (MAX_HEADER_BYTES as u32).saturating_sub(32);
+    let source = Declared {
+        held: header(past),
+        size: 1 << 31,
+    };
+    assert!(matches!(
+        NetcdfReader::from_source(source),
+        Err(FieldglassError::Array(ArrayError::ListingTooLarge { .. }))
+    ));
+    let mut small = header(4);
+    small.extend_from_slice(b"\x01\x02\x03\x04");
+    small.extend_from_slice(&[0; 8]); // var_list ABSENT
+    let size = small.len() as u64;
+    NetcdfReader::from_source(Declared { held: small, size }).expect("a small value opens");
 }
