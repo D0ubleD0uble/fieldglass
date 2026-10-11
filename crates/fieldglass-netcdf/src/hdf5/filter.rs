@@ -374,6 +374,22 @@ impl Limit {
         }
     }
 
+    /// How large a codec's output buffer starts, for `input_len` bytes of
+    /// stream.
+    ///
+    /// The chunk's own length when it is known: a valid chunk comes out
+    /// exactly that long, so one zeroed allocation holds it and nothing is
+    /// copied. Growing toward it instead would hold the old buffer and the
+    /// new one at once on each step, up to about twice the chunk for a moment
+    /// (#981). A ceiling is not a length, so there the first guess is
+    /// `miniz_oxide`'s own, twice the input, and the buffer doubles from it.
+    fn first_guess(self, input_len: usize) -> usize {
+        match self {
+            Limit::Length(n) => n,
+            Limit::Ceiling(_) => input_len.saturating_mul(2),
+        }
+    }
+
     /// The error for a `codec` stream that decompresses past this limit.
     fn exceeded(self, codec: &str) -> FieldglassError {
         FieldglassError::Parse(match self {
@@ -652,8 +668,7 @@ fn inflate_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError
     // anything already written.
     let flags = inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER
         | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-    // `miniz_oxide`'s own first guess, twice the input.
-    let hint = data.len().saturating_mul(2);
+    let hint = limit.first_guess(data.len());
     let mut out = Vec::new();
     // A zero limit leaves the buffer empty, which only an empty stream fits.
     capped::grow_toward(&mut out, hint, limit.bytes());
@@ -699,7 +714,7 @@ fn unzstd_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError>
     let decoder =
         ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, MAX_ZSTD_WINDOW)
             .map_err(|e| FieldglassError::Parse(format!("zstd frame header: {e}")))?;
-    capped::read_to_end_within(decoder, data.len().saturating_mul(2), limit.bytes())
+    capped::read_to_end_within(decoder, limit.first_guess(data.len()), limit.bytes())
         .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?
         .ok_or_else(|| limit.exceeded("zstd"))
 }

@@ -15,7 +15,7 @@ use fieldglass_core::capped;
 
 /// Inflate an RFC 1950 zlib stream to at most `limit` bytes.
 pub fn inflate_zlib(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
-    inflate(data, Framing::Zlib, limit, "zlib")
+    inflate(data, Framing::Zlib, first_guess(data), limit, "zlib")
 }
 
 /// The framing around the DEFLATE stream [`inflate`] reads.
@@ -28,8 +28,18 @@ pub(crate) enum Framing {
     Raw,
 }
 
-/// Inflate one DEFLATE stream to at most `limit` bytes; `what` names the
-/// stream in an error.
+/// `miniz_oxide`'s own first guess at a stream's output, twice its length:
+/// the start for a buffer whose final length is not known.
+pub(crate) fn first_guess(data: &[u8]) -> usize {
+    data.len().saturating_mul(2)
+}
+
+/// Inflate one DEFLATE stream to at most `limit` bytes, into a buffer that
+/// starts at `hint` bytes; `what` names the stream in an error.
+///
+/// A caller that knows the exact output length passes it as `hint`, so a valid
+/// stream fills one zeroed allocation and nothing is copied; growing toward it
+/// would briefly hold the old buffer and the new one on each step.
 ///
 /// `miniz_oxide`'s `decompress_to_vec_*_with_limit` caps what it writes but
 /// grows its buffer with `Vec::resize`, whose amortised growth can reserve
@@ -39,6 +49,7 @@ pub(crate) enum Framing {
 pub(crate) fn inflate(
     data: &[u8],
     framing: Framing,
+    hint: usize,
     limit: usize,
     what: &str,
 ) -> Result<Vec<u8>, FieldglassError> {
@@ -51,8 +62,6 @@ pub(crate) fn inflate(
     if let Framing::Zlib = framing {
         flags |= inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER;
     }
-    // `miniz_oxide`'s own first guess, twice the input.
-    let hint = data.len().saturating_mul(2);
     let mut out = Vec::new();
     // A zero limit leaves the buffer empty, which only an empty stream fits.
     capped::grow_toward(&mut out, hint, limit);
@@ -89,14 +98,13 @@ pub(crate) fn inflate(
 /// Inflate an RFC 1952 gzip member: parse the header, inflate the raw stream,
 /// and check the trailer's length against what came out.
 ///
-/// The trailing CRC-32 is *not* checked. It would be a second checksum over
-/// data the storage layer has already checksummed, and `miniz_oxide` has no
-/// bounded entry point that verifies it; the length check below is the part
-/// that catches a truncated member, which is the failure that actually
-/// happens.
+/// The trailing CRC-32 is *not* checked: this crate has no CRC-32 (IEEE)
+/// implementation, and the `crc32c` codec's Castagnoli polynomial is a
+/// different checksum. The length check below is the part that catches a
+/// truncated member, which is the failure that actually happens.
 pub fn inflate_gzip(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
     let body = gzip_body(data)?;
-    let out = inflate(body, Framing::Raw, limit, "gzip")?;
+    let out = inflate(body, Framing::Raw, first_guess(body), limit, "gzip")?;
     // ISIZE is the uncompressed length modulo 2^32, which is exactly how the
     // trailer states it, so the comparison is on the low 32 bits.
     let isize_field = u32::from_le_bytes([
@@ -296,7 +304,7 @@ mod tests {
                         miniz_oxide::inflate::decompress_to_vec_zlib(&zlib).unwrap()
                     );
                     assert!(got.capacity() <= limit, "capacity {}", got.capacity());
-                    let got = inflate(&raw, Framing::Raw, limit, "raw").unwrap();
+                    let got = inflate(&raw, Framing::Raw, first_guess(&raw), limit, "raw").unwrap();
                     assert_eq!(got, miniz_oxide::inflate::decompress_to_vec(&raw).unwrap());
                     assert!(got.capacity() <= limit, "capacity {}", got.capacity());
                 }

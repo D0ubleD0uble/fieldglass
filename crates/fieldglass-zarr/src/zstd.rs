@@ -32,11 +32,22 @@ const MAX_WINDOW: u64 = 64 << 20;
 
 /// Decompress one zstd frame, refusing anything that decodes past `limit`.
 pub fn decompress(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
+    decompress_into(data, data.len().saturating_mul(2), limit)
+}
+
+/// [`decompress`] into a buffer that starts at `hint` bytes. A caller that
+/// knows the exact output length passes it, so a valid frame fills one
+/// allocation and nothing is copied.
+pub(crate) fn decompress_into(
+    data: &[u8],
+    hint: usize,
+    limit: usize,
+) -> Result<Vec<u8>, FieldglassError> {
     let decoder = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, MAX_WINDOW)
         .map_err(|e| FieldglassError::Parse(format!("zstd frame header: {e}")))?;
     // Not `read_to_end`, whose amortised growth can reserve nearly twice the
     // limit (#981): this buffer never grows past it.
-    capped::read_to_end_within(decoder, data.len().saturating_mul(2), limit)
+    capped::read_to_end_within(decoder, hint, limit)
         .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?
         .ok_or_else(|| {
             FieldglassError::Parse(format!(

@@ -49,6 +49,11 @@ pub fn grow_toward(buf: &mut Vec<u8>, hint: usize, limit: usize) -> bool {
 /// The buffer is never more than `limit` bytes. Telling a stream of exactly
 /// `limit` bytes from a longer one takes one more byte, which is read into a
 /// one-byte probe on the stack rather than into the buffer.
+///
+/// Each `read` asks for at most [`READ_STEP`] bytes. A decoder that buffers
+/// what it decodes until the caller's slice is full, as `ruzstd` does, would
+/// otherwise hold a second copy of the output: handed one 3 MiB slice,
+/// `ruzstd` grew its own buffer to 4 MiB beside it (#981).
 pub fn read_to_end_within(
     mut reader: impl Read,
     hint: usize,
@@ -64,7 +69,8 @@ pub fn read_to_end_within(
                 Some(buf)
             });
         }
-        match reader.read(&mut buf[filled..]) {
+        let end = buf.len().min(filled.saturating_add(READ_STEP));
+        match reader.read(&mut buf[filled..end]) {
             Ok(0) => {
                 buf.truncate(filled);
                 return Ok(Some(buf));
@@ -75,6 +81,11 @@ pub fn read_to_end_within(
         }
     }
 }
+
+/// The most [`read_to_end_within`] asks a reader for at once: zstd's largest
+/// block, so a streaming decoder need not hold more than a block past its
+/// window to answer.
+pub const READ_STEP: usize = 128 << 10;
 
 /// Whether `reader` has at least one more byte.
 fn read_one(reader: &mut impl Read) -> io::Result<bool> {
