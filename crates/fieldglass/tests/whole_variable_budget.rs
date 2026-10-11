@@ -31,6 +31,8 @@ const AT_FIELD_CAP: &[u8] =
     include_bytes!("../../fieldglass-netcdf/tests/fixtures/fill_only_at_field_cap.nc");
 const CHUNK_PAST_CEILING: &[u8] =
     include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_chunk_past_ceiling.h5");
+const ZSTD_WIDE_WINDOW: &[u8] =
+    include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_zstd_wide_window.h5");
 
 /// The session's largest variable, by index, and its rank.
 fn largest(session: &Session) -> (u32, usize) {
@@ -194,5 +196,37 @@ fn a_variable_in_chunks_too_large_to_decode_is_unsupported() {
                 "{name}: {message}"
             );
         }
+    }
+}
+
+/// A zstd chunk whose frame states a window far past the chunk is refused as
+/// `unsupported`, for a slice and a line alike (#989): a frame may legally
+/// state a window wider than its content, so the file is not called corrupt.
+/// The reader-level test, with what the read allocates, is
+/// `fieldglass-netcdf`'s `tests/hdf5_codec_bombs.rs`.
+#[test]
+fn a_zstd_window_too_large_to_keep_is_unsupported() {
+    let session = Session::open(ZSTD_WIDE_WINDOW.to_vec()).expect("the file opens");
+    let var = session
+        .variables()
+        .into_iter()
+        .find(|v| v.name.trim_start_matches('/') == "zstd_wide_window")
+        .expect("zstd_wide_window is listed");
+    let options = DecodeOptions::default();
+    let slice = session
+        .decode_slice(var.index, 0, 1, &[0, 0], &options)
+        .expect_err("a slice is refused");
+    let line = session
+        .decode_line(var.index, 1, &[2, 0], &options)
+        .expect_err("a line is refused");
+    for refused in [slice, line] {
+        assert_eq!(refused.code(), "unsupported", "{refused:?}");
+        let message = refused.to_string();
+        assert!(
+            message.contains("zstd chunks ask to keep 64.0 MiB of history")
+                && message.contains("more than the 8.0 MiB")
+                && message.contains("The file itself is fine"),
+            "{message}"
+        );
     }
 }

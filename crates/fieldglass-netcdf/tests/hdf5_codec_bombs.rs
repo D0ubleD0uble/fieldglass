@@ -30,6 +30,7 @@ use std::cell::Cell;
 use std::ops::Range;
 
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::ArrayError;
 use fieldglass_netcdf::NetcdfReader;
 use serde_json::Value;
 
@@ -311,5 +312,65 @@ fn a_short_zstd_frame_in_a_256_mib_chunk_zeroes_no_more_than_it_can_fill() {
             "held {} bytes at once",
             r.peak
         );
+    }
+}
+
+const WIDE_WINDOW: &[u8] = include_bytes!("fixtures/hdf5_zstd_wide_window.h5");
+const WIDE_WINDOW_ORACLE: &str = include_str!("fixtures/hdf5_zstd_wide_window.h5.oracle.json");
+
+/// A zstd frame stating a 64 MiB window in a 4 KiB `[zstd]` chunk, from
+/// `tools/build_zstd_wide_window_fixtures.py` (#989).
+///
+/// `ruzstd` hands back nothing until it holds more than the frame's window,
+/// which RFC 8878 section 3.1.1.1.2 makes a decoder keep, so the chunk's
+/// 4,096-byte limit saw no output until the decoder held 64 MiB. Before #989
+/// a read made one 134,217,729-byte allocation and held 201,348,425 bytes at
+/// once, then refused the chunk as decompressing past its length. The window
+/// a decoder may keep is now `max(chunk, 8 MiB)`, 8 MiB being the RFC's
+/// recommended minimum, so the frame is refused at its header and the
+/// decoder holds none of it. A frame may legally state a window larger than
+/// its content, so the refusal says the file is fine.
+#[test]
+fn a_zstd_window_far_past_its_chunk_is_refused_before_the_decoder_holds_it() {
+    let o: Value = serde_json::from_str(WIDE_WINDOW_ORACLE).expect("oracle JSON");
+    assert_eq!(o["pipeline"], serde_json::json!([32015]), "{o}");
+    assert_eq!(o["chunk_bytes"], 4096);
+    assert_eq!(o["zstd_single_segment"], false);
+    assert_eq!(o["zstd_window_bytes"], 64 << 20);
+    // libhdf5's zstd filter fails the read too, as a filter failure.
+    assert!(o["libhdf5_error"].is_string(), "{o}");
+
+    let reader = NetcdfReader::from_bytes(WIDE_WINDOW.to_vec()).expect("parse");
+    let view = reader.view().expect("view");
+    let index = view
+        .vars
+        .iter()
+        .find(|v| v.name() == "zstd_wide_window")
+        .expect("zstd_wide_window is listed")
+        .decode_index;
+    for region in [false, true] {
+        let (largest, peak, result) = measured(|| {
+            if region {
+                reader.decode_region_raw(index, &CELL)
+            } else {
+                reader.decode_variable_raw(index)
+            }
+        });
+        assert!(
+            largest < OVERHEAD,
+            "largest allocation {largest} bytes, {peak} held at once"
+        );
+        assert!(peak < OVERHEAD, "held {peak} bytes at once");
+        match result {
+            Err(FieldglassError::Array(ArrayError::WindowTooLarge {
+                codec: "zstd",
+                window,
+                limit,
+            })) => {
+                assert_eq!(window, 64 << 20);
+                assert_eq!(limit, 8 << 20);
+            }
+            other => panic!("region {region}: expected the window refused, got {other:?}"),
+        }
     }
 }

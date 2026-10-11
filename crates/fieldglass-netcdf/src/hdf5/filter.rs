@@ -28,6 +28,7 @@ use fieldglass_aec::sz::{self, SzParams};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::ArrayError;
 use fieldglass_core::capped;
+use ruzstd::decoding::errors::FrameDecoderError;
 // The shuffle filter's inverse is the byte transpose blosc and Zarr use too, so
 // it lives once in core, which proves it (#203). A chunk that is not a whole
 // number of elements keeps its trailing bytes in place, as libhdf5 does.
@@ -83,6 +84,12 @@ const MAX_DECOMPRESSED_CHUNK: usize = 256 << 20;
 /// is deliberately tighter than `ruzstd`'s 100 MiB default: the guarantee
 /// should be ours, and stated, rather than inherited from an upstream default
 /// that a version bump could quietly widen.
+///
+/// Each frame is held to less when its chunk is smaller: the window may be
+/// the codec's output limit, or 8 MiB if that is more
+/// ([`capped::zstd_window_limit`], #989). Past that a frame is refused as
+/// [`ArrayError::WindowTooLarge`], which says the file is fine, unless it is
+/// single-segment and so decodes past the limit.
 const MAX_ZSTD_WINDOW: u64 = 64 << 20;
 
 /// One stage of a filter pipeline.
@@ -713,12 +720,33 @@ fn inflate_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError
 /// growth could reserve nearly twice the limit (#981).
 fn unzstd_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError> {
     // Two ceilings, because a crafted frame has two ways to ask for memory.
-    // [`MAX_ZSTD_WINDOW`] bounds the buffer sized from the frame header, which
-    // is allocated before any output exists and so is invisible to the output
-    // bound; `limit` bounds the output itself.
-    let decoder =
-        ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, MAX_ZSTD_WINDOW)
-            .map_err(|e| FieldglassError::Parse(format!("zstd frame header: {e}")))?;
+    // The window bounds the buffer sized from the frame header, which the
+    // decoder fills before it hands back any output and so is invisible to
+    // the output bound; `limit` bounds the output itself. The window follows
+    // the limit, between 8 MiB and [`MAX_ZSTD_WINDOW`], so a frame cannot make
+    // the decoder hold far more than the chunk (#989).
+    let window = capped::zstd_window_limit(limit.bytes(), MAX_ZSTD_WINDOW);
+    let decoder = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, window)
+        .map_err(|e| match e {
+            FrameDecoderError::WindowSizeTooBig { requested, .. } => {
+                // A single-segment frame's window is its content size, so one
+                // past the limit decodes past it: the chunk the output bound
+                // refuses, refused before it is decoded.
+                if capped::zstd_single_segment(data)
+                    && requested > u64::try_from(limit.bytes()).unwrap_or(u64::MAX)
+                {
+                    limit.exceeded("zstd")
+                } else {
+                    ArrayError::WindowTooLarge {
+                        codec: "zstd",
+                        window: requested,
+                        limit: window,
+                    }
+                    .into()
+                }
+            }
+            e => FieldglassError::Parse(format!("zstd frame header: {e}")),
+        })?;
     let hint = limit.first_guess(data.len(), capped::unzstd_bound);
     capped::read_to_end_within(decoder, hint, limit.bytes())
         .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?
@@ -1119,32 +1147,34 @@ mod tests {
         let frame = [0x28u8, 0xB5, 0x2F, 0xFD, 0x00, 0xF8];
         let err = unzstd_bounded(&frame, Limit::Ceiling(MAX_DECOMPRESSED_CHUNK)).unwrap_err();
         assert!(
-            matches!(&err, FieldglassError::Parse(m) if m.contains("frame header")),
+            matches!(
+                &err,
+                FieldglassError::Array(ArrayError::WindowTooLarge {
+                    window: 0x200_0000_0000,
+                    ..
+                })
+            ),
             "expected the header to be rejected, got {err:?}"
         );
 
         // The ceiling is *ours*, not whatever the decoder defaults to. This
-        // window is 72 MiB — inside `ruzstd`'s 100 MiB default, outside our
-        // 64 MiB one — so it fails only because we set the bound ourselves. If
-        // a future bump changed the upstream default, this would still hold.
-        // The ceiling is *ours*, not whatever the decoder defaults to. This
         // frame is otherwise complete and valid — same header, then one raw
         // block of four bytes — and declares a 72 MiB window, inside `ruzstd`'s
-        // 100 MiB default but outside our 64 MiB one. Under the default it
-        // decodes to `AA BB CC DD`; it fails here only because we set the
-        // bound, so a future bump that widened the upstream default could not
-        // pass this test unnoticed.
-        let valid_but_wide = [
-            0x28u8, 0xB5, 0x2F, 0xFD, // magic
-            0x00, // frame header descriptor: no content size, no dictionary
-            0x81, // window descriptor: exponent 16, mantissa 1 => 72 MiB
-            0x21, 0x00, 0x00, // block header: last block, raw, 4 bytes
-            0xAA, 0xBB, 0xCC, 0xDD, // the block's literal bytes
-        ];
+        // 100 MiB default but outside our 64 MiB one, which is all a chunk past
+        // 64 MiB gets. Under the default it decodes to `AA BB CC DD`; it fails
+        // here only because we set the bound, so a future bump that widened
+        // the upstream default could not pass this test unnoticed.
         let err =
-            unzstd_bounded(&valid_but_wide, Limit::Ceiling(MAX_DECOMPRESSED_CHUNK)).unwrap_err();
+            unzstd_bounded(&windowed(0x81), Limit::Ceiling(MAX_DECOMPRESSED_CHUNK)).unwrap_err();
         assert!(
-            matches!(&err, FieldglassError::Parse(m) if m.contains("frame header")),
+            matches!(
+                &err,
+                FieldglassError::Array(ArrayError::WindowTooLarge {
+                    codec: "zstd",
+                    window: 0x480_0000,
+                    limit: MAX_ZSTD_WINDOW,
+                })
+            ),
             "expected our window bound to refuse this frame, got {err:?}"
         );
 
@@ -1155,6 +1185,68 @@ mod tests {
         assert!(
             unzstd_bounded(&ok, Limit::Ceiling(MAX_DECOMPRESSED_CHUNK)).is_ok(),
             "an ordinary frame must still decode"
+        );
+    }
+
+    /// A valid frame of one raw 4-byte block, `AA BB CC DD`, behind a frame
+    /// header stating no content size and the window `descriptor`
+    /// (`exponent << 3 | mantissa`, RFC 8878 section 3.1.1.1.2).
+    fn windowed(descriptor: u8) -> [u8; 13] {
+        [
+            0x28, 0xB5, 0x2F, 0xFD,       // magic
+            0x00,       // frame header descriptor: no content size, no dictionary
+            descriptor, // window descriptor
+            0x21, 0x00, 0x00, // block header: last block, raw, 4 bytes
+            0xAA, 0xBB, 0xCC, 0xDD,
+        ]
+    }
+
+    /// The window follows the chunk (#989): a 4-byte chunk accepts a frame
+    /// stating 8 MiB, the RFC's recommended minimum, and refuses one stating
+    /// 9 MiB as a window too large, which says the file is fine. The chunk's
+    /// own length and a ceiling behind another filter bound it alike.
+    #[test]
+    fn a_small_chunk_takes_an_8_mib_window_and_no_more() {
+        for limit in [Limit::Length(4), Limit::Ceiling(4)] {
+            // Exponent 13: 8 MiB, and with mantissa 1, 9 MiB.
+            assert_eq!(
+                unzstd_bounded(&windowed(0x68), limit).unwrap(),
+                [0xAA, 0xBB, 0xCC, 0xDD]
+            );
+            let err = unzstd_bounded(&windowed(0x69), limit).unwrap_err();
+            assert!(
+                matches!(
+                    &err,
+                    FieldglassError::Array(ArrayError::WindowTooLarge {
+                        window: 0x90_0000,
+                        limit: 0x80_0000,
+                        ..
+                    })
+                ),
+                "got {err:?}"
+            );
+        }
+        // A ceiling of 9 MiB takes it.
+        assert!(unzstd_bounded(&windowed(0x69), Limit::Ceiling(9 << 20)).is_ok());
+    }
+
+    /// A single-segment frame's window is its content size, so one stating
+    /// more than the chunk is the chunk the output bound refuses, refused from
+    /// its header with the same error.
+    #[test]
+    fn a_single_segment_frame_past_the_chunk_is_refused_as_past_it() {
+        let frame = [
+            0x28u8, 0xB5, 0x2F, 0xFD, // magic
+            0xA0, // single-segment, 4-byte content size
+            0x00, 0x00, 0x00, 0x01, // Frame_Content_Size: 16 MiB
+            0x21, 0x00, 0x00, // block header: last block, raw, 4 bytes
+            0xAA, 0xBB, 0xCC, 0xDD,
+        ];
+        let err = unzstd_bounded(&frame, Limit::Length(4096)).unwrap_err();
+        assert!(
+            matches!(&err, FieldglassError::Parse(m)
+                if m == "zstd chunk decompresses past the chunk's 4096-byte length"),
+            "got {err:?}"
         );
     }
 

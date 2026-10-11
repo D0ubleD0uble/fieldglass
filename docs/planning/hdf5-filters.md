@@ -128,6 +128,24 @@ until the caller's slice is full, so the output is read in steps of one zstd
 block (`capped::READ_STEP`, 128 KiB); handed a whole 3 MiB chunk at once it
 held a second 4 MiB copy beside the output.
 
+**The window has to follow the chunk (#989).** `ruzstd` returns nothing until
+it holds more than the window, so a frame stating 64 MiB in a 4 KiB chunk had
+the decoder hold 64 MiB, in a ring of 128 MiB (about 192 MiB at once while it
+grew), before the output limit saw a byte. A fixed `MAX_ZSTD_WINDOW` cannot fix
+that without refusing valid chunks of the same size, so each frame's window is
+now held to `capped::zstd_window_limit`: the codec's output limit, but never
+under 8 MiB and never past `MAX_ZSTD_WINDOW`. RFC 8878 section 3.1.1.1.2 lets a
+decoder refuse a window past its own limit and recommends accepting at least
+8 MiB. Neither HDF5 nor Zarr uses dictionaries, so a decode stopped at the
+limit never reaches back further than the limit. A single-segment frame's window
+is its content size, so one refused here would decode past the limit anyway, and
+it is refused with the same error the output bound gives. Only a frame stating a
+window wider than its content and than 8 MiB is refused while valid, as
+`ArrayError::WindowTooLarge`, which says the file is fine. One-shot writers
+(libhdf5's zstd filter through `hdf5plugin`, numcodecs, `ruzstd`) do not write
+those: every committed zstd fixture is single-segment, or states a window of at
+most 512 KiB.
+
 ## Why szip is a project, not a quick win
 
 The entropy coder (CCSDS 121.0 extended-Rice) is shared with GRIB2 5.42. The

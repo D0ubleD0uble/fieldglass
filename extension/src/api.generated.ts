@@ -266,7 +266,9 @@ export type ApiError =
    * listing holds: more objects, more links in one group, or more bytes of
    * path-qualified names; or a classic NetCDF header longer than one header
    * may be; or an HDF5 file whose objects share a dense attribute or link
-   * store or a local heap, which libhdf5 reads and this reader refuses.
+   * store or a local heap, which libhdf5 reads and this reader refuses; or
+   * a zstd chunk whose frame states a larger window than a chunk of its
+   * size may keep.
    */
   | {
     code: "unsupported";

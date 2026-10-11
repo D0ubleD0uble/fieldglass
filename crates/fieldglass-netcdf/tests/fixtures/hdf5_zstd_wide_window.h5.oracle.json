@@ -1,0 +1,23 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), hdf5plugin 7.0.0, the chunk written with write_direct_chunk",
+  "note": "a hand-built zstd frame stating a 64 MiB window in a 4 KiB chunk; fieldglass refuses the window from the frame header (#989)",
+  "dtype": "uint8",
+  "shape": [
+    64,
+    64
+  ],
+  "chunks": [
+    64,
+    64
+  ],
+  "chunk_bytes": 4096,
+  "pipeline": [
+    32015
+  ],
+  "chunk_byte_offset": 4176,
+  "chunk_stored_bytes": 4102,
+  "zstd_single_segment": false,
+  "zstd_window_bytes": 67108864,
+  "zstd_decoded_bytes": 134217728,
+  "libhdf5_error": "OSError: Can't synchronously read data (filter returned failure during read)"
+}
