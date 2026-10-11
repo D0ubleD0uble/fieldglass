@@ -201,6 +201,9 @@ impl std::fmt::Debug for Hdf5Probe {
 ///
 /// What is legitimately shared is not claimed: one global-heap collection
 /// holds the `DIMENSION_LIST` references of many variables.
+///
+/// libhdf5 reads objects sharing a dense store and groups sharing a local
+/// heap, so refusing them is a known divergence; ADR-0016 records why.
 #[derive(Debug, Default)]
 pub(crate) struct Listing {
     /// Every block this listing has read, as file ranges.

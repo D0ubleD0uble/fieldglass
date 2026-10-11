@@ -96,6 +96,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/hdf5_deep_group_chain.h5"),
     ),
     (
+        "hdf5_deep_group_chain_past_name_cap.h5",
+        include_bytes!("fixtures/hdf5_deep_group_chain_past_name_cap.h5"),
+    ),
+    (
         "hdf5_duplicate_chunk_records.h5",
         include_bytes!("fixtures/hdf5_duplicate_chunk_records.h5"),
     ),

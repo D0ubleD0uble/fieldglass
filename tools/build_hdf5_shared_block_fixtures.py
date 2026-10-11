@@ -29,6 +29,11 @@ block once per object unless a listing refuses the second reference.
     ``v`` with twelve attributes in dense storage, also linked as ``w``. A
     valid file, not patched: one object reached by two names is still one
     object, and must not read as two sharing one store.
+  * ``hdf5_deep_group_chain_past_name_cap.h5`` (``libver="latest"``): 100
+    nested groups named with 360 characters, and at the bottom a dataset
+    ``v`` with 2,000 more hard links to it. A valid file, not patched; its
+    2,001 names of about 36 KB each total 72 MB, past the 64 MiB a listing
+    holds.
 
 Every checksum a patch touches (version-2 object headers) is recomputed.
 h5py reads the valid two; ``NOTICE.md`` records what it makes of the others.
@@ -272,6 +277,20 @@ def deep_group_chain(path: Path, scale: int) -> None:
     h5(path, "latest", build)
 
 
+def deep_chain_past_name_cap(path: Path, scale: int) -> None:
+    del scale  # sized to pass the reader's name cap, whatever the scale
+
+    def build(f):
+        g = f
+        for i in range(100):
+            g = g.create_group(f"{i:03d}" + "n" * 357)
+        v = g.create_dataset("v", data=np.arange(4, dtype="f4"), track_times=False)
+        for i in range(2000):
+            g[f"h{i:04d}"] = v
+
+    h5(path, "latest", build)
+
+
 def hard_linked_dense_attributes(path: Path, scale: int) -> None:
     del scale  # one object, whatever the scale
 
@@ -291,6 +310,7 @@ BUILDERS = {
     "hdf5_shared_local_heap.h5": shared_local_heap,
     "hdf5_deep_group_chain.h5": deep_group_chain,
     "hdf5_hard_linked_dense_attributes.h5": hard_linked_dense_attributes,
+    "hdf5_deep_group_chain_past_name_cap.h5": deep_chain_past_name_cap,
 }
 
 

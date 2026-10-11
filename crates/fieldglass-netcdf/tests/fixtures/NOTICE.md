@@ -393,9 +393,9 @@ of the second shape, 8,192 references to one `SNOD`, made a 197 KB file use
 3.85 GB. `tests/hdf5_shared_snod.rs` checks both refusals through a
 recording source.
 
-## Shared block fixtures (`hdf5_shared_continuation.h5`, `hdf5_shared_attribute_storage.h5`, `hdf5_shared_link_storage.h5`, `hdf5_shared_local_heap.h5`, `hdf5_deep_group_chain.h5`, `hdf5_hard_linked_dense_attributes.h5`)
+## Shared block fixtures (`hdf5_shared_continuation.h5`, `hdf5_shared_attribute_storage.h5`, `hdf5_shared_link_storage.h5`, `hdf5_shared_local_heap.h5`, `hdf5_deep_group_chain.h5`, `hdf5_hard_linked_dense_attributes.h5`, `hdf5_deep_group_chain_past_name_cap.h5`)
 
-Six files for #921, built by `tools/build_hdf5_shared_block_fixtures.py`
+Seven files for #921, built by `tools/build_hdf5_shared_block_fixtures.py`
 (reproducible byte for byte) from h5py 3.16.0 files (libhdf5 2.0.0). In the
 first four, many objects or groups name one stored block, which a valid file
 gives to one object alone; the builder patches h5py's output and recomputes
@@ -427,6 +427,13 @@ shapes with `K` times the objects, for measuring.
   dataset `v`, `[0, 1, 2, 3]` with twelve `int32` attributes `a00` to `a11` in
   dense storage, also linked as `w`. A valid file, not patched; h5py lists the
   twelve attributes under both names.
+- `hdf5_deep_group_chain_past_name_cap.h5` (116,727 bytes, `libver='latest'`):
+  100 nested groups named with 360 characters, and at the bottom a dataset
+  `v` with 2,000 more hard links to it. A valid file, not patched; h5py visits
+  all 101 objects. Its 2,001 path-qualified names come to 72 MB, past the
+  64 MiB one listing holds, so Fieldglass refuses it as
+  `ArrayError::ListingTooLarge`, which says the file is fine and reaches a
+  host as `unsupported`.
 
 Read once per object, the shared block made the listing's cost grow with the
 number of objects times the block: the attribute file resolved at 103 MB of
@@ -435,14 +442,17 @@ whole-file listing reads and refuses a second claim from another object, so it
 refuses the first four and reads each shared block at most twice.
 
 **Known divergence from libhdf5.** libhdf5 reads the attribute, link and
-local-heap files, giving every object the shared contents. The format does not
-state that these are shared: the Attribute Info and Link Info messages name
-"the fractal heap" storing the object's dense attributes or links, and a
-symbol-table group stores its link names in "the group's local heap"
+local-heap files, giving every object the shared contents. The specification
+implies one owner without forbidding a second: the Attribute Info and Link
+Info messages name "the fractal heap" storing the object's dense attributes
+or links, and a group stores its link names in "the group's local heap"
 (HDF5 File Format Specification version 3, "Attribute Info Message", "Link
-Info Message", "Local Heaps"). No writer shares one, and reading it once per
-object is what makes a small file expensive, so Fieldglass refuses it, as it
-refused two members of one group sharing a name (#901).
+Info Message", "Local Heaps"). So, unlike two members sharing a name (#901),
+these files are not malformed by any rule the specification states. No writer
+produces one, and reading the shared block once per object is what makes a
+small file expensive, so Fieldglass refuses them as a robustness policy.
+The continuation file is not a divergence: libhdf5 refuses it too.
+ADR-0016 records the decision.
 `tests/hdf5_shared_blocks.rs` checks each refusal, how often the block is
 read, and the listing's peak heap; the chain lists at 1.3 MB of peak heap
 where it took 73 MB, and the hard-linked file lists both names with all twelve

@@ -10,13 +10,17 @@
 //! Measured before the fix, release build, peak RSS of the whole process
 //! (the PR records the table): the continuation fixture listed in 27 ms at
 //! 67 MB, the attribute fixture resolved in 103 ms at 103 MB, the link fixture
-//! in 81 ms at 58 MB, the local-heap fixture in 15 ms at 25 MB, and the chain
-//! in 28 ms at 62 MB. At four times the objects (or depth) the same shapes
-//! took up to 671 ms and 590 MB.
+//! listed in 36 ms at 36 MB, the local-heap fixture resolved in 15 ms at
+//! 25 MB, and the chain listed in 28 ms at 62 MB. At four times the objects
+//! (or depth) the same shapes took up to 671 ms and 590 MB.
+//!
+//! A valid file whose names pass the 64 MiB a listing holds is refused as
+//! [`ArrayError::ListingTooLarge`], which says the file is fine.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
+use fieldglass_core::array::ArrayError;
 use fieldglass_core::testing::Recording;
 use fieldglass_netcdf::{
     FieldglassError, Hdf5Probe, NetcdfBacking, NetcdfReader, list_all_children,
@@ -38,6 +42,9 @@ const LOCAL_HEAP: &[u8] = include_bytes!("fixtures/hdf5_shared_local_heap.h5");
 const CHAIN: &[u8] = include_bytes!("fixtures/hdf5_deep_group_chain.h5");
 /// One dataset with twelve attributes in dense storage, linked as `v` and `w`.
 const HARD_LINKED: &[u8] = include_bytes!("fixtures/hdf5_hard_linked_dense_attributes.h5");
+/// 100 nested groups named with 360 characters, and one dataset with 2,001
+/// names at the bottom: 72 MB of path-qualified names.
+const PAST_NAME_CAP: &[u8] = include_bytes!("fixtures/hdf5_deep_group_chain_past_name_cap.h5");
 
 struct Tracking;
 
@@ -234,4 +241,24 @@ fn one_object_reached_by_two_names_is_not_two_objects_sharing_a_store() {
     }
     assert_eq!(meta.variables[0].decode_index, 0);
     assert_eq!(meta.variables[1].decode_index, 1);
+}
+
+#[test]
+fn names_past_what_a_listing_holds_are_too_large_not_corrupt() {
+    // h5py visits all 101 objects; the file is valid, only larger than one
+    // listing keeps, so the refusal says so rather than reporting a parse
+    // error.
+    let p = probe(PAST_NAME_CAP);
+    let err = list_all_children(PAST_NAME_CAP, &p).expect_err("past the name cap");
+    assert!(
+        matches!(
+            err,
+            FieldglassError::Array(ArrayError::ListingTooLarge {
+                limit: 67_108_864,
+                ..
+            })
+        ),
+        "{err:?}"
+    );
+    assert!(err.to_string().contains("The file itself is fine"), "{err}");
 }

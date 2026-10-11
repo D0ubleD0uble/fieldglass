@@ -27,6 +27,7 @@ use super::object_header::{self, read_uint_le};
 use super::source::{ClaimedRanges, Cursor, Fields, FileCursor, read_up_to, scan_windows};
 use super::{BtreeK, Hdf5Probe, Listing};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::ArrayError;
 use fieldglass_core::bytes::ByteSource;
 use std::collections::HashSet;
 
@@ -45,7 +46,13 @@ const SIG_SNOD: &[u8; 4] = b"SNOD";
 /// Link-name B-tree v2 record: `hash(4)` then the fractal-heap ID.
 const LINK_RECORD_HEAP_ID_OFFSET: usize = 4;
 
-/// Upper bound on children enumerated from one group — guards malformed counts.
+/// Upper bound on the objects one listing holds: the members of one group, or
+/// the datasets of the whole tree.
+///
+/// A policy cap, not a format limit: a valid file could hold more, so passing
+/// it is [`ArrayError::ListingTooLarge`], which says the file is fine (#921),
+/// rather than a parse error. A million objects is far past any real NetCDF-4
+/// file.
 const MAX_CHILDREN: usize = 1 << 20;
 /// Upper bound on B-tree v1 nodes visited — guards cyclic sibling/child links.
 const MAX_BTREE_NODES: usize = 4096;
@@ -58,7 +65,18 @@ const MAX_BTREE_NODES: usize = 4096;
 /// writes it out once per object: the names grow with objects times depth,
 /// not with the file. 64 MiB is a million objects named with 64-byte paths,
 /// far beyond any real NetCDF-4 file, and the same ceiling as the header memo.
+/// A valid file can pass it, so passing it is
+/// [`ArrayError::ListingTooLarge`], as for [`MAX_CHILDREN`].
 const MAX_LISTED_NAME_BYTES: usize = 64 << 20;
+
+/// The refusal for a listing past one of its caps: the file is fine, it holds
+/// more than one listing keeps.
+fn too_large(what: &'static str, limit: usize) -> FieldglassError {
+    FieldglassError::Array(ArrayError::ListingTooLarge {
+        what,
+        limit: limit as u64,
+    })
+}
 
 /// Ceiling on a link name read out of a local heap.
 ///
@@ -262,9 +280,7 @@ fn walk_all_children<S: ByteSource + ?Sized>(
         // The `frame` borrow ends here (below only touches `stack` as a whole).
 
         if out.len() >= MAX_CHILDREN {
-            return Err(FieldglassError::Parse(
-                "HDF5 group tree has too many objects".into(),
-            ));
+            return Err(too_large("objects", MAX_CHILDREN));
         }
         // Root-group children keep their bare name (`temp`); a child of a nested
         // group is qualified by that group's leading-slash path (`/G/temp`).
@@ -293,10 +309,10 @@ fn walk_all_children<S: ByteSource + ?Sized>(
                 };
                 name_bytes = name_bytes.saturating_add(name.len());
                 if name_bytes > MAX_LISTED_NAME_BYTES {
-                    return Err(FieldglassError::Parse(format!(
-                        "HDF5 group tree names its objects with more than {MAX_LISTED_NAME_BYTES} \
-                         bytes of paths"
-                    )));
+                    return Err(too_large(
+                        "bytes of path-qualified names",
+                        MAX_LISTED_NAME_BYTES,
+                    ));
                 }
                 out.push(GroupChild { name, ..child });
             }
@@ -473,9 +489,7 @@ fn collect_snods<S: ByteSource + ?Sized>(
             let child = cur.uint(o)?;
             if level == 0 {
                 if out.len() >= MAX_CHILDREN {
-                    return Err(FieldglassError::Parse(
-                        "B-tree v1 has too many nodes".into(),
-                    ));
+                    return Err(too_large("symbol-table nodes in one group", MAX_CHILDREN));
                 }
                 out.push(child);
             } else {
@@ -704,7 +718,7 @@ fn parse_link_message(body: &[u8], osize: u8) -> Result<Option<(String, u64)>, F
 
 fn push_link(out: &mut Vec<(String, u64)>, name: String, addr: u64) -> Result<(), FieldglassError> {
     if out.len() >= MAX_CHILDREN {
-        return Err(FieldglassError::Parse("group has too many links".into()));
+        return Err(too_large("links in one group", MAX_CHILDREN));
     }
     out.push((name, addr));
     Ok(())
