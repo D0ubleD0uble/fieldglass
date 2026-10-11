@@ -35,6 +35,21 @@ plus 4 KiB for deflate, zstd and fletcher32 as before, and 33 times for an
 szip, and it applies to deflate and zstd as well as to szip's prefix.
 Decision 6 records the szip factor and the one case it does not cover.
 
+**Amended** (2026-10-11, #975): two lengths the szip path took on trust are
+now held to what the stream and its parameters allow. The size prefix may be
+no more than the stream can code: no coded data set covers more than a
+64-block segment for less than the option ID, a selector bit and the
+five-bit ROS code (CCSDS 121.0-B-3 Tables 3-2 and 5-1), so `B` bits code at
+most `⌊64·B / (id + 6)⌋` blocks (`Params::max_samples`,
+`SzParams::max_decompressed_len`), and a short stream stating up to 256 MiB
+is refused before anything is allocated for it. A codec before szip is held
+to the longest stream szip's own parameters allow
+(`SzParams::max_compressed_len`), still at most 33 times the chunk: about
+1.01 times it for the parameters libhdf5 usually writes, and under twice it
+for any it writes. GRIB2 5.42 applies the
+first bound to its grid's count before reserving the output. Decision 6
+records both.
+
 ## Context
 
 GRIB2 template 5.42 and the HDF5 szip filter (id 4) use the same entropy coder,
@@ -250,7 +265,9 @@ SZIP (#248). So:
   uncompressed-size prefix (`H5Zszip.c:273-300`), and the length rules. The
   prefix must be at most `MAX_DECOMPRESSED_CHUNK` and, when every filter before
   szip preserves length, equal the expected chunk length. The chunk length must
-  be a multiple of the szip pixel width (and of `bpp/8` for 32 and 64). The
+  be a multiple of the szip pixel width (and of `bpp/8` for 32 and 64), and
+  no more than the stream can code (`SzParams::max_decompressed_len`, #975),
+  which is checked before the output is allocated. The
   element width need not equal the pixel width (D2): HDF5 writes a precision-16
   `<i4` with bpp 16, and libsz decodes it exactly.
 - **A length-changing filter before szip** (deflate, zstd or fletcher32 earlier
@@ -281,7 +298,14 @@ SZIP (#248). So:
   block in an option longer than the uncompressed one (CCSDS 121.0-B leaves
   the choice to the encoder), and a codec after either would be refused.
   No known writer produces one, and the bound is what keeps a file from
-  inflating a bomb behind an szip it put there itself.
+  inflating a bomb behind an szip it put there itself. Since #975 the
+  factor is only the cap: the bound is the longest stream the filter's own
+  parameters allow from such an encoder (`SzParams::max_compressed_len`,
+  `id + J·n` bits a block over whole padded scanlines), which for
+  libhdf5's scanlines, never shorter than a block, is under twice the chunk
+  (about 1.01 times it when a scanline is whole blocks). Blocks
+  over 32 with scanlines shorter than a block stay capped at 33 times, so
+  the case above is still refused.
 - **A stream that codes more pixels than the chunk** is refused by the codec
   for 32- and 64-bit pixels (`AecError::TrailingInput`, decision 4, #794).
   With no filter or only shuffle before szip and a correct prefix, it passes

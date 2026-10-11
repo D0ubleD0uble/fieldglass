@@ -1505,6 +1505,15 @@ netcdf/hdf5_szip_hand.h5#rsi1_i2	combine/a_minus_b/render/source/nearest	ok w=5 
 netcdf/hdf5_szip_hand.h5#rsi1_i2	meta	family=source ni=5 nj=8 reprojectable=false supports=none	56fea5396f4c5165
 netcdf/hdf5_szip_hand.h5#rsi1_i2	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip_hand.h5#rsi1_i2	render/source/nearest	ok w=5 h=8 opaque=40	983ac99315617aae
+netcdf/hdf5_szip_hostile.h5	file	parsed=true fields=2	fc2e429795c3205d
+netcdf/hdf5_szip_hostile.h5#szip_deflate_bomb	combine/a_minus_b/render/source/nearest	err: parse error: deflate chunk decompresses past the #-byte ceiling	dabda2d6a9e4566a
+netcdf/hdf5_szip_hostile.h5#szip_deflate_bomb	meta	family=source ni=4 nj=4 reprojectable=false	070d9a0b23a4759d
+netcdf/hdf5_szip_hostile.h5#szip_deflate_bomb	render/equirectangular/nearest	err: parse error: deflate chunk decompresses past the #-byte ceiling	dabda2d6a9e4566a
+netcdf/hdf5_szip_hostile.h5#szip_deflate_bomb	render/source/nearest	err: parse error: deflate chunk decompresses past the #-byte ceiling	dabda2d6a9e4566a
+netcdf/hdf5_szip_hostile.h5#szip_short_stream	combine/a_minus_b/render/source/nearest	err: parse error: szip chunk declares # bytes, but its #-byte stream codes at most #	695d16facb1ba5db
+netcdf/hdf5_szip_hostile.h5#szip_short_stream	meta	family=source ni=4 nj=4 reprojectable=false	070d9a0b23a4759d
+netcdf/hdf5_szip_hostile.h5#szip_short_stream	render/equirectangular/nearest	err: parse error: szip chunk declares # bytes, but its #-byte stream codes at most #	695d16facb1ba5db
+netcdf/hdf5_szip_hostile.h5#szip_short_stream	render/source/nearest	err: parse error: szip chunk declares # bytes, but its #-byte stream codes at most #	695d16facb1ba5db
 netcdf/hdf5_szip_long_stream.h5	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/hdf5_szip_long_stream.h5#f8_long_stream	combine/a_minus_b/render/source/nearest	err: parse error: szip decompress failed: an szip output of # bytes is shorter than its stream of #- or #-bit pixels: # bytes are left after the last pixel	21b7b0239821cc8d
 netcdf/hdf5_szip_long_stream.h5#f8_long_stream	meta	family=source ni=8 nj=4 reprojectable=false supports=none	41424ecfd8a83171
