@@ -71,6 +71,10 @@ export interface SlicePanelData {
 /** One selectable "field B" for the compare / difference-map picker (#239): a
  *  GRIB message in the same file, with a human label. Field A is the message
  *  the panel opened on. */
+/** The heading of a GRIB panel whose message is gone from its changed file,
+ *  while it waits for one to be picked (#959). */
+export const NO_MESSAGE_HEADING = "No message drawn";
+
 export interface CompareFieldOption {
   index: number;
   label: string;
@@ -754,7 +758,8 @@ export function renderImagePanelHtml(
   colormaps: PickerColormap[],
   combineOps: CombineOpInfo[],
   slice?: SlicePanelData,
-  compareFields?: CompareFieldOption[]
+  compareFields?: CompareFieldOption[],
+  pickMessages?: CompareFieldOption[],
 ): string {
   const cspNonce = nonce();
   const csp = [
@@ -1771,7 +1776,7 @@ export function renderImagePanelHtml(
           if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
           const colorbar = document.getElementById('colorbar');
           if (colorbar) colorbar.hidden = true;
-          TITLE_LINE = 'No message drawn';
+          TITLE_LINE = ${JSON.stringify(NO_MESSAGE_HEADING)};
           SUB_LINE = '';
           const h1 = document.getElementById('title-line');
           if (h1) h1.textContent = TITLE_LINE;
@@ -3152,6 +3157,10 @@ export function renderImagePanelHtml(
           else if (msg.type === 'exportPngDone') handleExportPngDone(msg);
         });
 
+        // A GRIB panel written while it waits for a message to be picked
+        // (#959) opens on the picker, not on the message that is gone.
+        const PICK = ${pickMessages ? JSON.stringify(pickMessages).replace(/</g, "\\u003c") : "null"};
+        if (PICK) offerMessages(PICK);
         restoreState();
         attachControls();
         // Attach the (possibly restored) selections so the provider's first
@@ -3388,9 +3397,9 @@ export function renderImagePanelHtml(
   </style>
 </head>
 <body>
-  <h1 id="title-line">${escapeHtml(titleLine)}</h1>
-  <div class="subtitle">${escapeHtml(subLine)}</div>
-  <div class="projection" id="projection-summary">${escapeHtml(projectionSummary)}</div>
+  <h1 id="title-line">${escapeHtml(pickMessages ? NO_MESSAGE_HEADING : titleLine)}</h1>
+  <div class="subtitle">${pickMessages ? "" : escapeHtml(subLine)}</div>
+  <div class="projection" id="projection-summary">${pickMessages ? "" : escapeHtml(projectionSummary)}</div>
   <div class="toolbar" role="toolbar" aria-label="Render settings">
     <div class="toolbar-row">
       <button type="button" id="export-png">Export PNG…</button>

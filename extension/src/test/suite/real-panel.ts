@@ -177,6 +177,8 @@ export interface RealPanel {
   /** Write the panel again the way an imported colormap does, which reloads
    *  the page from its HTML and restores its saved state. */
   rebuild(): void;
+  /** The page as the provider last wrote it, driver included. */
+  html(): string;
   /** Run `cb` once, as the provider next writes the page, before the new page
    *  can send anything. */
   onNextWrite(cb: () => void): void;
@@ -274,6 +276,7 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
         throw new Error(`${err.message}; the provider sent [${got.join(", ")}]`);
       }),
     rebuild: build,
+    html: () => panel.webview.html,
     onNextWrite: (cb) => {
       nextWrite = cb;
     },

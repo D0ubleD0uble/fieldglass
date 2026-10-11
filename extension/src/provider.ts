@@ -812,6 +812,10 @@ export class FieldglassEditorProvider
     // page was written.
     let listed: MessageInfo[] = opened ? listMessages(opened) : [];
     let compareFields: CompareFieldOption[] | undefined = opened ? fieldsOf(listed) : undefined;
+    // Set while the panel's message is not exactly once in its changed file:
+    // the new file's messages, to pick one from (#959). Declared before the
+    // first write, which reads it.
+    let picking: CompareFieldOption[] | null = null;
 
     const write = () => {
       panel.webview.html = renderImagePanelHtml(
@@ -822,6 +826,9 @@ export class FieldglassEditorProvider
         combineOpRegistry(),
         undefined,
         compareFields,
+        // Written while no message is chosen (an imported colormap rebuilds
+        // every panel): the page opens on the picker, never on the old heading.
+        picking ?? undefined,
       );
     };
     this.trackRenderPanel(panel, write);
@@ -833,7 +840,6 @@ export class FieldglassEditorProvider
     // heading. None, or more than one, is refused, and the new file's messages
     // are offered instead (`picking`); nothing is drawn until one is picked.
     const gate = new PanelHandleGate<Grib1Handle | Grib2Handle>(opened);
-    let picking: CompareFieldOption[] | null = null;
     const refuse = () => {
       if (!picking) return;
       panel.webview.postMessage({

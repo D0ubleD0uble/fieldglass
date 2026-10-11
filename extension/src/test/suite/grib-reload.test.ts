@@ -19,6 +19,7 @@ import * as path from "path";
 
 import { loadNative } from "../../native";
 import { gribFieldLabel, MESSAGE_GONE } from "../../provider";
+import { NO_MESSAGE_HEADING } from "../../render-panel";
 import {
   type Editor,
   extensionPath,
@@ -175,6 +176,22 @@ suite("A GRIB render panel whose file changed", function () {
         panel.sent.slice(from).filter((m) => m.type !== "test:drive").map((m) => m.type),
         [],
       );
+
+      // Written again meanwhile, as an imported colormap writes every panel,
+      // the page opens on the picker, not on the old heading, and still draws
+      // nothing.
+      from = panel.sent.length;
+      panel.rebuild();
+      assert.ok(
+        panel.html().includes(`<h1 id="title-line">${NO_MESSAGE_HEADING}</h1>`),
+        "the page is written with no message's heading",
+      );
+      assert.ok(!panel.html().includes(opened.titleLine), "and not the old one");
+      await panel.waitSent(isType("gridError"), from, "the refusal, again");
+      state = await panel.drive([]);
+      assert.deepStrictEqual(state.messageOffers, labels(after));
+      assert.strictEqual(state.title, NO_MESSAGE_HEADING);
+      assert.ok(!panel.sent.slice(from).some(isType("gridReady")), "nothing drawn");
 
       // Picking one of the new file's messages draws it under its heading.
       from = panel.sent.length;
