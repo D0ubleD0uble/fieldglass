@@ -29,6 +29,8 @@ const HUGE_FIXED_ARRAY: &[u8] =
     include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_fixed_array_huge_count.h5");
 const AT_FIELD_CAP: &[u8] =
     include_bytes!("../../fieldglass-netcdf/tests/fixtures/fill_only_at_field_cap.nc");
+const CHUNK_PAST_CEILING: &[u8] =
+    include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_chunk_past_ceiling.h5");
 
 /// The session's largest variable, by index, and its rank.
 fn largest(session: &Session) -> (u32, usize) {
@@ -149,4 +151,48 @@ fn refused_hostile_count(message: &str) -> bool {
     message.contains("chunk grid has 17179869184 chunks")
         || (cfg!(target_pointer_width = "32")
             && message.contains("17179869184 does not fit this target's address space"))
+}
+
+/// A 4 × 4 variable stored in compressed chunks too large to decode is
+/// refused as `unsupported`, not as a corrupt file, for a slice and a line
+/// alike (#970). Before, the reader inflated 256 MiB of the chunk and failed
+/// with a parse error the session reported as `decode`.
+#[test]
+fn a_variable_in_chunks_too_large_to_decode_is_unsupported() {
+    let session = Session::open(CHUNK_PAST_CEILING.to_vec()).expect("the file opens");
+    for (name, says) in [
+        (
+            "zstd_f8_past_ceiling",
+            "stored in chunks that decode to 320.0 MiB each",
+        ),
+        (
+            "deflate_f8_bomb",
+            "stored in chunks that decode to 320.0 MiB each",
+        ),
+        (
+            "zstd_f4_past_field_cap",
+            "asks for 268435456 values at once",
+        ),
+    ] {
+        let var = session
+            .variables()
+            .into_iter()
+            .find(|v| v.name.trim_start_matches('/') == name)
+            .unwrap_or_else(|| panic!("{name} is listed"));
+        let options = DecodeOptions::default();
+        let slice = session
+            .decode_slice(var.index, 0, 1, &[0, 0], &options)
+            .expect_err("a slice is refused");
+        let line = session
+            .decode_line(var.index, 1, &[2, 0], &options)
+            .expect_err("a line is refused");
+        for refused in [slice, line] {
+            assert_eq!(refused.code(), "unsupported", "{name}: {refused:?}");
+            let message = refused.to_string();
+            assert!(
+                message.contains(says) && message.contains("The file itself is fine"),
+                "{name}: {message}"
+            );
+        }
+    }
 }

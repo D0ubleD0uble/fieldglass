@@ -125,14 +125,16 @@ impl From<FieldglassError> for Error {
         // `Decode` — which is what happened before #707 gave it a variant — told
         // a host its file was corrupt when its transfer was truncated, and those
         // call for opposite responses. A variable past the whole-variable
-        // budget, or a read past the one-field cap, is a valid file asked for
-        // too much at once, not a corrupt one, so it is `Unsupported` rather
-        // than `Decode` (#847, #942). Everything else is still the long tail.
+        // budget, a read past the one-field cap, or a chunk past what one
+        // chunk may decode to, is a valid file asked for too much at once,
+        // not a corrupt one, so it is `Unsupported` rather than `Decode`
+        // (#847, #942, #970). Everything else is still the long tail.
         match e {
             FieldglassError::ShortRead { at, got, wanted } => Self::ShortRead { at, got, wanted },
             FieldglassError::Array(
                 too_large @ (fieldglass_core::array::ArrayError::VariableTooLarge { .. }
-                | fieldglass_core::array::ArrayError::FieldTooLarge { .. }),
+                | fieldglass_core::array::ArrayError::FieldTooLarge { .. }
+                | fieldglass_core::array::ArrayError::ChunkTooLarge { .. }),
             ) => Self::Unsupported {
                 detail: too_large.to_string(),
             },

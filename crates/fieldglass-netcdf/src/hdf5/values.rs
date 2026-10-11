@@ -545,13 +545,26 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
             b.filter_mask & pipeline_bits
         )));
     }
+    let filtered = !pipeline.filters.is_empty();
+    // A chunk a filter will run on is decoded whole, so one too large to hold
+    // is refused here, before any chunk is read or inflated (#970). Its
+    // dimensions are the file's own and may dwarf the dataset: a 55 KB file
+    // can declare a gigabyte chunk. A chunk every filter skipped is read at
+    // its stored size, as an unfiltered one is, and an unstored one is fill,
+    // so neither is refused.
+    if filtered
+        && groups
+            .iter()
+            .any(|g| g[0].filter_mask & pipeline_bits != pipeline_bits)
+    {
+        super::filter::check_chunk_size(&chunk_shape, chunk_bytes)?;
+    }
     // A filtered chunk the file's memo still holds decompressed is not read
     // again (#939): a time scrub over chunks that span several planes would
     // otherwise inflate each chunk once per frame. Those are left out of the
     // plan, so the batch names exactly the chunks that will be read.
     // A chunk under the memo's floor is never held, so it is not looked up
     // either: a file of a million tiny chunks pays no lock per chunk.
-    let filtered = !pipeline.filters.is_empty();
     let memoised = filtered && chunk_bytes >= MIN_KEPT_CHUNK_BYTES;
     let key = |c: &ChunkRecord| -> ExpandedKey {
         (

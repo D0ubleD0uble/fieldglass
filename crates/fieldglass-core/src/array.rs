@@ -290,6 +290,27 @@ pub enum ArrayError {
         limit: u64,
     },
 
+    /// A compressed chunk that would decode to more bytes than a reader holds
+    /// for one chunk, refused before it is read.
+    ///
+    /// A chunk is decoded whole however little of it a read wants, so no read
+    /// of a variable stored this way can be served. The file is not at fault:
+    /// a chunk may legally be far larger than its variable, and one this large
+    /// is valid, only more than this reader decodes at once (#970).
+    #[error(
+        "this variable is stored in chunks that decode to {} each, and a chunk \
+         is decoded whole: more than the {} one chunk may decode to. The file \
+         itself is fine",
+        human_bytes(*bytes),
+        human_bytes(*limit)
+    )]
+    ChunkTooLarge {
+        /// What one chunk decodes to, saturated at `u64::MAX`.
+        bytes: u64,
+        /// The most one chunk may decode to.
+        limit: u64,
+    },
+
     /// A chunk key separator that is not one of the two the conventions use.
     #[error("{found:?} is not a chunk key separator; expected \".\" or \"/\"")]
     BadSeparator {
@@ -1365,6 +1386,20 @@ impl CfUnpacking {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A chunk too large to decode says so in sizes a reader can take in, and
+    /// says the file is fine (#970).
+    #[test]
+    fn a_chunk_too_large_says_the_file_is_fine() {
+        let message = ArrayError::ChunkTooLarge {
+            bytes: 320 << 20,
+            limit: 256 << 20,
+        }
+        .to_string();
+        assert!(message.contains("decode to 320.0 MiB each"), "{message}");
+        assert!(message.contains("more than the 256.0 MiB"), "{message}");
+        assert!(message.contains("The file itself is fine"), "{message}");
+    }
 
     /// The whole-variable budget counts the output and the stored bytes, and
     /// its edge is inclusive.
