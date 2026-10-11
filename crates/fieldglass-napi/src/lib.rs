@@ -3195,6 +3195,7 @@ impl ZarrHandle {
             .as_str()
             .to_string(),
             reprojectable: placed.geometry().reprojectable(placed.scan()),
+            supports: grid_support(placed.geometry()),
         })
     }
 
@@ -3314,10 +3315,10 @@ impl ZarrHandle {
 /// Where one slice sits, as a picker asks it — what
 /// [`NetcdfHandle::slice_grid`] and [`ZarrHandle::slice_grid`] return (#574).
 ///
-/// Three answers and not the API's `Georef`, which carries the geometry itself:
+/// A few answers and not the API's `Georef`, which carries the geometry itself:
 /// for a curvilinear slice that is every cell centre, and a global ocean mesh
-/// would cross as hundreds of megabytes to caption a panel. These three are the
-/// ones the panel reads, and each is the umbrella's rule, not this crate's.
+/// would cross as hundreds of megabytes to caption a panel. These are the ones
+/// the panel reads, and each is the umbrella's rule, not this crate's.
 #[derive(Debug)]
 #[napi(object)]
 pub struct SliceGrid {
@@ -3333,6 +3334,17 @@ pub struct SliceGrid {
     /// Whether the panel may offer the reprojection targets:
     /// `GridGeometry::reprojectable` of the slice's own geometry and scan.
     pub reprojectable: bool,
+    /// Which of contours, arrows, the long CSV and the zonal mean the slice
+    /// takes: `fieldglass::GridSupport::of` its geometry, the API's own type
+    /// and wire form (#945).
+    #[napi(ts_type = "GridSupport")]
+    pub supports: serde_json::Value,
+}
+
+/// [`fieldglass::GridSupport::of`] a slice's geometry, in the wire form the
+/// API's `GridSupport` declares.
+fn grid_support(geometry: &GridGeometry) -> serde_json::Value {
+    serde_json::to_value(fieldglass::GridSupport::of(geometry)).expect("four booleans serialise")
 }
 
 impl SliceGrid {
@@ -3344,6 +3356,7 @@ impl SliceGrid {
                 .as_str()
                 .to_string(),
             reprojectable: placed.geometry.reprojectable(placed.scan),
+            supports: grid_support(&placed.geometry),
         }
     }
 }
@@ -4127,6 +4140,26 @@ mod planar_offer_needs_a_placeable_projection_tests {
         assert!(
             !geos_meta(&inside_the_earth).reprojectable,
             "a satellite below the surface must stay source-only"
+        );
+    }
+
+    /// The slice picker's point-operation answers are the umbrella's (#945): a
+    /// full disc reprojects and takes no contours, arrows, long CSV or zonal
+    /// mean; a Lambert domain takes the first three and no zonal mean.
+    #[test]
+    fn a_slice_says_which_point_operations_its_grid_takes() {
+        let none = serde_json::json!({
+            "contours": false, "vectors": false, "longCsv": false, "zonalMean": false
+        });
+        let geos = geos_meta(&cf_geostationary());
+        assert!(geos.reprojectable);
+        assert_eq!(geos.supports, none, "a space view takes no point operation");
+        assert_eq!(
+            lambert_meta(&wrf_lambert()).supports,
+            serde_json::json!({
+                "contours": true, "vectors": true, "longCsv": true, "zonalMean": false
+            }),
+            "a Lambert grid's rows are not circles of latitude"
         );
     }
 

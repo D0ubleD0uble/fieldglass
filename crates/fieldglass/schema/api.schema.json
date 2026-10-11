@@ -568,6 +568,10 @@
             "jConsecutive"
           ],
           "type": "object"
+        },
+        "supports": {
+          "$ref": "#/$defs/GridSupport",
+          "description": "Which operations that need each grid point's position this grid\ntakes: contours, arrows, the long CSV and the zonal mean (#945).\n[`GridSupport::of`] the [`geometry`](Self::geometry)."
         }
       },
       "required": [
@@ -580,11 +584,40 @@
         "corners",
         "placement",
         "reprojectable",
+        "supports",
         "pointsPerRow",
         "proj4",
         "affine",
         "periodicX",
         "scan"
+      ],
+      "type": "object"
+    },
+    "GridSupport": {
+      "description": "Which of the operations that need a position for each grid point this\ngrid takes (#945).\n\nThe answers are the umbrella's own gates, asked ahead of time:\n`contours` is whether `render::contour_polylines` would draw this grid,\n`vectors` whether `render::vector_polylines` would, `long_csv` whether\n`render::field_csv` would write its `\"long\"` layout, and `zonal_mean`\nwhether `render::zonal_mean` would average it. So a host can disable\nan offer with a reason instead of making the call and showing the\nrefusal, and it needs no list of grid families to do so.\n\n**Not derivable from [`Placement`] or\n[`Georef::reprojectable`].** A full-disc space view is placed and\nreprojects, and none of its point operations is taken: its corner\npixels look past the Earth and have no position. A lat/lon grid\nscanned east to west does not reproject and takes all four. A rotated\nor projected grid takes contours, arrows and the long CSV, and no\nzonal mean, because its rows are not circles of latitude.\n\nEach answer is about the grid alone. A call can still be refused for\nits other inputs: a u and a v that do not line up, values of the wrong\nlength.",
+      "properties": {
+        "contours": {
+          "description": "Contour lines can be traced and placed on a map.",
+          "type": "boolean"
+        },
+        "longCsv": {
+          "description": "The long CSV layout (`lat,lon,value` per point) can be written. The\nmatrix layout needs no position and is taken by every grid.",
+          "type": "boolean"
+        },
+        "vectors": {
+          "description": "Wind or current arrows can be drawn, with this grid as the u\ncomponent's.",
+          "type": "boolean"
+        },
+        "zonalMean": {
+          "description": "A zonal mean can be taken: the grid's rows are circles of latitude.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contours",
+        "vectors",
+        "longCsv",
+        "zonalMean"
       ],
       "type": "object"
     },
@@ -869,6 +902,10 @@
             "null"
           ]
         },
+        "supports": {
+          "$ref": "#/$defs/GridSupport",
+          "description": "Which operations that need each grid point's position the grid\nthis message's values land on takes (#945): [`Georef::supports`]\nof the same grid [`placement`](Self::placement) describes, and none\nwhen there is no grid. About the values, as `reprojectable` is."
+        },
         "totalLengthBytes": {
           "description": "The length the message declares for itself, in bytes.\n\nDistinct from [`offset_bytes`](Self::offset_bytes), which says where\nit starts. Together they are the range a host would re-fetch.",
           "format": "uint64",
@@ -915,6 +952,7 @@
         "grid",
         "placement",
         "reprojectable",
+        "supports",
         "sizeLabel",
         "truncation",
         "forecastHours",

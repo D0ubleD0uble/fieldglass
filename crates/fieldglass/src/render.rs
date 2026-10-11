@@ -50,11 +50,15 @@ use fieldglass_core::{
     project_polylines,
     warp::{PreparedTarget, TargetProjection, WarpedRaster, warp},
 };
+// The forward map is built only by the operations that need one.
 #[cfg(any(feature = "render", feature = "analysis"))]
+use fieldglass_core::{ForwardAt, normalise_lon};
+// Ungated with the gate they serve: `GridSupport::of` asks it on every build,
+// because a `Georef` carries its answers whatever the features.
 use fieldglass_core::{
-    ForwardAt, GeostationaryProjector, LambertAzimuthalProjector, LambertProjector,
-    PlanarGridProjector, PolarStereoProjector, TransverseMercatorProjector, normalise_lon,
-    plane_spans_a_grid_cell, projection::planar_grid_is_placeable,
+    GeostationaryProjector, LambertAzimuthalProjector, LambertProjector, PlanarGridProjector,
+    PolarStereoProjector, TransverseMercatorProjector, plane_spans_a_grid_cell,
+    projection::planar_grid_is_placeable,
 };
 #[cfg(all(feature = "render", feature = "analysis"))]
 use fieldglass_core::{
@@ -1179,18 +1183,20 @@ fn raise_to_min_raster(dims: (u32, u32)) -> (u32, u32) {
 /// [`GridGeometry::forward`], [`GridGeometry::lonlat_bbox`] and
 /// [`GridGeometry::reprojectable`] gate on, so a grid this accepts is one all
 /// four answer for.
-#[cfg(any(feature = "render", feature = "analysis"))]
 pub(crate) fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Error> {
     let placeable = |ok: bool, proj: &dyn PlanarGridProjector| {
-        planar_grid_is_placeable(ok, proj).then_some(()).ok_or({
-            Error::Unsupported {
+        // Lazily: the refusal is a formatted string, and a grid that passes
+        // (every warp, overlay and contour call on a planar grid, and every
+        // `GridSupport::of`) has no use for it.
+        planar_grid_is_placeable(ok, proj)
+            .then_some(())
+            .ok_or_else(|| Error::Unsupported {
                 detail: format!(
                     "grid type {:?} declares degenerate projection parameters, so its \
                      grid points have no geographic position",
                     geometry.kind()
                 ),
-            }
-        })
+            })
     };
     match geometry {
         GridGeometry::Lambert(p) => {
@@ -1251,7 +1257,6 @@ pub(crate) fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Re
 /// lat/lon grid is not supported, and the contour one would then list rotated
 /// lat/lon among the families that are. One wording for every operation that
 /// needs a position, so they cannot drift apart.
-#[cfg(any(feature = "render", feature = "analysis"))]
 fn declined_detail(family: &str, consequence: &str) -> String {
     format!(
         "the {family:?} grid's geometry could not be built from the parameters its file \
@@ -1270,7 +1275,6 @@ fn declined_detail(family: &str, consequence: &str) -> String {
 /// the Geostationary arm names its axes for the same reason. The cell floor is
 /// [`plane_spans_a_grid_cell`], which passes a grid with no spacing vacuously,
 /// so a zero step still gets the generic refusal below.
-#[cfg(any(feature = "render", feature = "analysis"))]
 fn require_declared_radius(
     geometry: &GridGeometry,
     radius_m: f64,
@@ -1680,30 +1684,87 @@ impl crate::api::Field {
 /// [`forward_bilinear`] interpolates along.
 #[cfg(any(feature = "render", feature = "analysis"))]
 fn forward_geolocation(geometry: &GridGeometry) -> Option<ForwardAt<'_>> {
+    if !has_forward_map(geometry) {
+        return None;
+    }
     let place = geometry.forward_at();
-    match geometry {
-        // Space view has grid points off the disc entirely; an unmodelled family
-        // has no map at all.
-        //
-        // The wildcard below is forced: `GridGeometry` is `#[non_exhaustive]`,
-        // so a `match` in this crate cannot be exhaustive over it. A family
-        // added there without an arm here would read as "no forward map" rather
-        // than failing to compile, which is why
-        // `the_geolocatable_table_matches_the_dispatch` walks
-        // [`GEOLOCATABLE_GRIDS`] and asserts each entry really has one.
-        GridGeometry::Geostationary(_) | GridGeometry::Unsupported { .. } => None,
+    Some(match geometry {
         GridGeometry::Lambert(_)
         | GridGeometry::PolarStereo(_)
         | GridGeometry::TransverseMercator(_)
-        | GridGeometry::LambertAzimuthal(_) => Some(Box::new(move |i, j| {
-            place(i, j).map(|(lat, lon)| (lat, normalise_lon(lon)))
-        })),
-        GridGeometry::LatLon(_)
+        | GridGeometry::LambertAzimuthal(_) => {
+            Box::new(move |i, j| place(i, j).map(|(lat, lon)| (lat, normalise_lon(lon))))
+        }
+        _ => place,
+    })
+}
+
+/// Whether a geometry's family has the forward map [`forward_geolocation`]
+/// builds, asked without building it (a boxed closure).
+///
+/// Space view has grid points off the disc entirely, and an unmodelled family
+/// has no map at all; those are the two `false`s. The wildcard is forced:
+/// `GridGeometry` is `#[non_exhaustive]`, so a `match` in this crate cannot be
+/// exhaustive over it, and a family added there without an arm here reads as
+/// "no forward map" rather than failing to compile. That is why
+/// `the_geolocatable_table_matches_the_dispatch` walks `GEOLOCATABLE_GRIDS`
+/// and asserts each entry really has one.
+fn has_forward_map(geometry: &GridGeometry) -> bool {
+    match geometry {
+        GridGeometry::Lambert(_)
+        | GridGeometry::PolarStereo(_)
+        | GridGeometry::TransverseMercator(_)
+        | GridGeometry::LambertAzimuthal(_)
+        | GridGeometry::LatLon(_)
         | GridGeometry::Gaussian(_)
         | GridGeometry::Mercator(_)
         | GridGeometry::RotatedLatLon(_)
-        | GridGeometry::Lookup(_) => Some(place),
-        _ => None,
+        | GridGeometry::Lookup(_) => true,
+        // `Geostationary` and `Unsupported`, and any family added later.
+        _ => false,
+    }
+}
+
+/// Whether every row of a grid is a circle of latitude, which is what
+/// `zonal_mean` averages along: regular lat/lon, Gaussian and Mercator, and
+/// the reduced families, which reach here as their regular siblings. A rotated
+/// grid's rows cross latitudes, and so do a projected grid's.
+fn rows_are_latitude_circles(geometry: &GridGeometry) -> bool {
+    matches!(
+        geometry,
+        GridGeometry::LatLon(_) | GridGeometry::Gaussian(_) | GridGeometry::Mercator(_)
+    )
+}
+
+impl crate::api::GridSupport {
+    /// What this grid takes, from the gates the operations themselves ask
+    /// (#945).
+    ///
+    /// Contours, arrows and the long CSV all need a position for every grid
+    /// point, and refuse a grid through one gate (`require_forward_geolocation`):
+    /// a family with a forward map, whose own numbers place its points. The
+    /// answer here is that gate's two halves asked directly, so the two cannot
+    /// disagree. A space view has no forward map, because the pixels past the
+    /// Earth's limb have no position; a planar grid on degenerate constants has
+    /// one that places nothing. The zonal mean asks the check `zonal_mean`
+    /// makes, whether the rows are circles of latitude. (Named, not linked:
+    /// the operations are behind `render` and `analysis`, and this is not.)
+    ///
+    /// Hosts read these from [`Georef::supports`](crate::Georef::supports) and
+    /// [`MessageInfo::supports`](crate::MessageInfo::supports). This is public
+    /// for a host that answers for a placement it holds without a `Georef`,
+    /// such as the addon's slice picker.
+    pub fn of(geometry: &GridGeometry) -> Self {
+        // Neither half allocates for a grid that passes: this runs on every
+        // `Georef` a session builds.
+        let positions =
+            has_forward_map(geometry) && require_reprojectable(geometry, geometry.label()).is_ok();
+        Self {
+            contours: positions,
+            vectors: positions,
+            long_csv: positions,
+            zonal_mean: rows_are_latitude_circles(geometry),
+        }
     }
 }
 
@@ -2538,18 +2599,15 @@ pub fn zonal_mean(
     units: Option<&str>,
 ) -> Result<crate::Line, Error> {
     let geometry = source.geometry.as_ref().map_err(Clone::clone)?;
-    match geometry {
-        GridGeometry::LatLon(_) | GridGeometry::Gaussian(_) | GridGeometry::Mercator(_) => {}
-        _ => {
-            return Err(Error::Unsupported {
-                detail: format!(
-                    "a zonal mean needs rows that are circles of latitude, which grid type \
-                     {:?} does not have (only regular lat/lon, Gaussian, Mercator and their \
-                     reduced forms)",
-                    source.refused_as()
-                ),
-            });
-        }
+    if !rows_are_latitude_circles(geometry) {
+        return Err(Error::Unsupported {
+            detail: format!(
+                "a zonal mean needs rows that are circles of latitude, which grid type \
+                 {:?} does not have (only regular lat/lon, Gaussian, Mercator and their \
+                 reduced forms)",
+                source.refused_as()
+            ),
+        });
     }
     require_values_for_shape(source, values)?;
     let (ni, nj) = (source.ni as usize, source.nj as usize);

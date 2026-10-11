@@ -17,6 +17,7 @@ import type { PickerColormap } from "./color-tables";
 import type {
   CombineOpInfo,
   Georef,
+  GridSupport,
   MessageInfo,
   NetcdfVariableMeta,
   Placement,
@@ -41,6 +42,7 @@ export type PanelField = Pick<
   | "uvRelativeToGrid"
   | "reprojectable"
   | "placement"
+  | "supports"
   | "truncation"
 > & {
   grid: Pick<Georef, "label"> | null;
@@ -196,7 +198,12 @@ ${options}
  *  file holds two messages to pair. `uvRelativeToGrid` decides whether the
  *  components are read along the grid's axes; it comes from the message rather
  *  than from the user, because the file states it. */
-function vectorFieldsetHtml(fields: CompareFieldOption[], gridRelative: boolean, placed: boolean): string {
+function vectorFieldsetHtml(
+  fields: CompareFieldOption[],
+  gridRelative: boolean,
+  placed: boolean,
+  takesArrows: boolean,
+): string {
   if (fields.length < 2) {
     return "";
   }
@@ -204,9 +211,11 @@ function vectorFieldsetHtml(fields: CompareFieldOption[], gridRelative: boolean,
     .map((f) => `          <option value="${f.index}">${escapeHtml(f.label)}</option>`)
     .join("\n");
   // Arrows are drawn along the grid's own geometry, so a message nothing
-  // places takes none (#840). A GRIB panel draws one message, so this is
-  // settled when the panel is written.
-  return `    <fieldset id="vector-fieldset"${placed ? "" : " disabled"}>
+  // places takes none (#840), and neither does a placed one some of whose
+  // points have no position (#945). A GRIB panel draws one message, so this
+  // is settled when the panel is written.
+  const offered = placed && takesArrows;
+  return `    <fieldset id="vector-fieldset"${offered ? "" : " disabled"}>
       <legend>Vectors:</legend>
       <label><input type="checkbox" id="overlay-vectors"> Arrows</label>
       <label>V component
@@ -223,9 +232,11 @@ ${options}
       <span class="picker-note" id="vector-note">${
         !placed
           ? UNPLACED_VECTORS_NOTE
-          : gridRelative
-            ? "This file states its components along the grid's axes; they are rotated to true north."
-            : ""
+          : !takesArrows
+            ? NO_VECTORS_NOTE
+            : gridRelative
+              ? "This file states its components along the grid's axes; they are rotated to true north."
+              : ""
       }</span>
     </fieldset>
 `;
@@ -422,6 +433,43 @@ export const UNPLACED_OVERLAY_NOTE = "Overlays need a grid placed on the Earth, 
 
 /** Shown in the Vectors row when {@link offersOverlays} is false. */
 export const UNPLACED_VECTORS_NOTE = "Arrows need a grid placed on the Earth, and this one isn't.";
+
+/** What a field takes when nothing answered for it: none of the point
+ *  operations. A slice the handle could not place, or a message with no grid. */
+export const NO_SUPPORT: GridSupport = { contours: false, vectors: false, longCsv: false, zonalMean: false };
+
+/** Shown beside Contours on a placed field that takes none (#945). Which
+ *  grids those are is Rust's answer (`GridSupport`), not a list kept here; today
+ *  it is a full-disc satellite view, whose corner pixels look past the Earth. */
+export const NO_CONTOURS_NOTE = "Contours need a position for every grid point, and some of this grid's points have none.";
+
+/** {@link NO_CONTOURS_NOTE} for the Vectors row. */
+export const NO_VECTORS_NOTE = "Arrows need a position for every grid point, and some of this grid's points have none.";
+
+/** Said in the CSV layout prompt when a placed field's grid does not take the
+ *  long layout (#945). */
+export const NO_LONG_CSV_NOTE = "The long layout needs a position for every grid point, and some of this grid's points have none.";
+
+/** {@link NO_LONG_CSV_NOTE} for a field nothing places on the Earth, where no
+ *  point has a position, worded like the Overlay row's note. */
+export const UNPLACED_LONG_CSV_NOTE = "The long layout needs a grid placed on the Earth, and this one isn't.";
+
+/** Shown beside the Zonal average toggle on a placed field that takes none
+ *  (#945): a rotated or projected grid. */
+export const NO_ZONAL_NOTE = "A zonal average needs rows that are circles of latitude, and this grid's rows aren't.";
+
+/** {@link NO_ZONAL_NOTE} for a field nothing places on the Earth, which has no
+ *  latitude at all, worded like the Overlay row's note. */
+export const UNPLACED_ZONAL_NOTE = "A zonal average needs a grid placed on the Earth, and this one isn't.";
+
+/** The reason beside a disabled Zonal average toggle: whether the field is
+ *  placed decides which (#945). Serialized into the panel script, so it must
+ *  not reference anything outside itself. */
+export function zonalNote(placed: boolean): string {
+  return placed
+    ? "A zonal average needs rows that are circles of latitude, and this grid's rows aren't."
+    : "A zonal average needs a grid placed on the Earth, and this one isn't.";
+}
 
 /** Up to `count` evenly spaced indices along an axis of `length` points, always
  *  including the first and last. Where a cross-section puts its tick labels.
@@ -723,6 +771,12 @@ export function renderImagePanelHtml(
   // Whether the overlays are offered for the field the panel is written for.
   // A slice panel then follows each slice it draws (#840).
   const placed = offersOverlays(meta.placement);
+  // Which point operations the field takes, Rust's answer (#945). A slice
+  // panel follows each slice it draws for these too.
+  const supports: GridSupport = meta.supports ?? NO_SUPPORT;
+  // The contour note speaks for a placed field only: on one nothing places,
+  // the Overlay row's own note already says why.
+  const contourNote = placed && !supports.contours;
 
   const script = `
     <script nonce="${cspNonce}">
@@ -801,11 +855,16 @@ export function renderImagePanelHtml(
         // the field the panel was written for, and a slice panel takes each
         // slice render's.
         let mapPlaced = ${JSON.stringify(placed)};
+        // Which point operations the field on screen takes (#945): Rust's
+        // answer, taken like mapPlaced. Contours, arrows and the zonal average
+        // are offered only where it says so, with the reason where it does not.
+        let fieldSupports = ${JSON.stringify(supports)};
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
         ${composeProbeValue.toString()}
         ${composeRangeText.toString()}
         ${composeVectorScale.toString()}
+        ${zonalNote.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -1061,14 +1120,38 @@ export function renderImagePanelHtml(
           return mapPlaced && !isCrossSection();
         }
 
+        // Contours apply where overlays do and the grid takes them (#945).
+        function contoursOffered() {
+          return overlaysOffered() && fieldSupports.contours === true;
+        }
+
         // Take a slice render's answer to whether it is placed (#840): the
         // Overlay row is disabled, with the reason, for a slice that is not.
-        function applySlicePlacement(placed) {
+        // And to which point operations it takes (#945): the Contours controls
+        // and the Zonal average toggle are disabled, with the reason, for a
+        // slice that takes none.
+        function applySlicePlacement(placed, supports) {
           mapPlaced = placed === true;
+          if (supports) fieldSupports = supports;
           const overlays = document.getElementById('overlay-fieldset');
           if (overlays) overlays.disabled = !mapPlaced;
           const note = document.getElementById('overlay-note');
           if (note) note.toggleAttribute('hidden', mapPlaced);
+          // Spoken for a placed slice only; the Overlay note covers the rest.
+          const noContours = mapPlaced && fieldSupports.contours !== true;
+          for (const id of ['overlay-contours', 'color-contours', 'width-contours', 'contour-interval', 'contours-only']) {
+            const el = document.getElementById(id);
+            if (el) el.disabled = noContours;
+          }
+          const contourNote = document.getElementById('contour-note');
+          if (contourNote) contourNote.toggleAttribute('hidden', !noContours);
+          const zonal = document.getElementById('zonal-toggle');
+          if (zonal) zonal.disabled = fieldSupports.zonalMean !== true;
+          const zonalReason = document.getElementById('zonal-note');
+          if (zonalReason) {
+            zonalReason.toggleAttribute('hidden', fieldSupports.zonalMean === true);
+            zonalReason.textContent = zonalNote(mapPlaced);
+          }
           applyContoursOnly();
         }
 
@@ -1091,7 +1174,7 @@ export function renderImagePanelHtml(
             syncProjectionControls();
             snapshotState();
           }
-          applySlicePlacement(sliceGrid.placed);
+          applySlicePlacement(sliceGrid.placed, sliceGrid.supports);
         }
 
         // A cross-section has no projection and no coastlines to draw on it.
@@ -1856,7 +1939,8 @@ export function renderImagePanelHtml(
         }
 
         function vectorsEnabled() {
-          return overlaysOffered() && !!(document.getElementById('overlay-vectors') || {}).checked;
+          return overlaysOffered() && fieldSupports.vectors === true &&
+            !!(document.getElementById('overlay-vectors') || {}).checked;
         }
 
         // Ask the provider for the arrows of this message paired with the chosen
@@ -1900,7 +1984,7 @@ export function renderImagePanelHtml(
         }
 
         function contoursEnabled() {
-          return overlaysOffered() && !!(document.getElementById('overlay-contours') || {}).checked;
+          return contoursOffered() && !!(document.getElementById('overlay-contours') || {}).checked;
         }
 
         // Ask the provider for the field's contour isolines, projected onto the
@@ -1954,11 +2038,11 @@ export function renderImagePanelHtml(
 
         // Contours-only mode hides the colour raster so the isolines read on a
         // blank background; the overlay canvas (contours + coastlines) stays.
-        // Only while contours apply (#840): on a field that takes none, the
+        // Only while contours apply (#840, #945): on a field that takes none, the
         // panel would otherwise show nothing at all.
         function applyContoursOnly() {
           const canvas = document.getElementById('canvas');
-          const only = overlaysOffered() && !!(document.getElementById('contours-only') || {}).checked;
+          const only = contoursOffered() && !!(document.getElementById('contours-only') || {}).checked;
           if (canvas) canvas.style.visibility = only ? 'hidden' : 'visible';
         }
 
@@ -2235,9 +2319,12 @@ export function renderImagePanelHtml(
         // Each row's mean over longitude, drawn with the same plot as a cell's
         // line. It describes the whole field, so it has no cell and no axis to
         // pick, and a re-render asks for it again rather than clearing it.
+        // Only for a field whose rows are circles of latitude (#945): on any
+        // other the toggle is disabled with the reason, and keeps its state
+        // for the next field that takes it.
         function zonalOn() {
           const toggle = document.getElementById('zonal-toggle');
-          return !!(toggle && toggle.checked);
+          return fieldSupports.zonalMean === true && !!(toggle && toggle.checked);
         }
 
         function requestZonal() {
@@ -2247,7 +2334,7 @@ export function renderImagePanelHtml(
         {
           const toggle = document.getElementById('zonal-toggle');
           if (toggle) toggle.addEventListener('change', () => {
-            if (toggle.checked) {
+            if (zonalOn()) {
               lineCell = null;
               setAxisPickerHidden(true);
               requestZonal();
@@ -3280,7 +3367,7 @@ ${slice
     </div>
 ${colormapFieldsetHtml(colormaps)}
 ${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compareFields ?? [], combineOps)}
-${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, placed)}
+${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, placed, supports.vectors)}
     <fieldset>
       <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
@@ -3336,20 +3423,22 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
         <label id="graticule-spacing-label" class="spacing-hidden">spacing
           <input type="number" id="graticule-spacing" value="30" min="5" max="90" step="5"></label>
       </span>
-      <span class="overlay-layer">
-        <label><input type="checkbox" id="overlay-contours"> Contours</label>
-        <input type="color" id="color-contours" class="layer-color" aria-label="Contour colour">
-        <input type="number" id="width-contours" class="layer-width" value="0.8" min="0.2" max="5" step="0.1" aria-label="Contour line weight">
+      <span class="overlay-layer" id="contour-layer">
+        <label><input type="checkbox" id="overlay-contours"${contourNote ? " disabled" : ""}> Contours</label>
+        <input type="color" id="color-contours" class="layer-color" aria-label="Contour colour"${contourNote ? " disabled" : ""}>
+        <input type="number" id="width-contours" class="layer-width" value="0.8" min="0.2" max="5" step="0.1" aria-label="Contour line weight"${contourNote ? " disabled" : ""}>
         <label id="contour-interval-label" class="spacing-hidden">interval
-          <input type="number" id="contour-interval" min="0" step="any" placeholder="auto" title="Level spacing; blank picks ~8 nice levels"></label>
-        <label><input type="checkbox" id="contours-only"> only</label>
+          <input type="number" id="contour-interval" min="0" step="any" placeholder="auto" title="Level spacing; blank picks ~8 nice levels"${contourNote ? " disabled" : ""}></label>
+        <label><input type="checkbox" id="contours-only"${contourNote ? " disabled" : ""}> only</label>
+        <span class="picker-note" id="contour-note"${contourNote ? "" : " hidden"}>${NO_CONTOURS_NOTE}</span>
       </span>
     </fieldset>
   </div>
   <div id="status">Rendering…</div>
   <div id="contour-status" class="contour-status" aria-live="polite"></div>
   <div id="probe" class="probe-readout" aria-live="polite"></div>
-  <label class="zonal-toggle"><input type="checkbox" id="zonal-toggle"> Zonal average</label>
+  <label class="zonal-toggle"><input type="checkbox" id="zonal-toggle"${supports.zonalMean ? "" : " disabled"}> Zonal average</label>
+  <span class="picker-note" id="zonal-note"${supports.zonalMean ? " hidden" : ""}>${zonalNote(placed)}</span>
   <div id="line-panel" class="line-panel" hidden>
     <label class="line-axis" id="line-axis-label">Plot along <select id="line-axis"></select></label>
     <svg id="line-plot" class="line-plot" role="img" aria-label="The variable through the probed cell"></svg>

@@ -41,6 +41,13 @@ export interface PageState {
   coastlines: boolean;
   graticule: boolean;
   contours: boolean;
+  /** Whether the Contours checkbox is disabled, and the note beside it when
+   *  shown (#945). */
+  contoursDisabled: boolean;
+  contourNote: string | null;
+  /** Whether the Zonal average toggle is disabled, and its note when shown. */
+  zonalDisabled: boolean;
+  zonalNote: string | null;
   projection: string;
   /** Every target the projection picker offers, in order. */
   projectionOffers: string[];
@@ -92,6 +99,10 @@ const DRIVER = `
         coastlines: byId('overlay-coastlines').checked,
         graticule: byId('overlay-graticule').checked,
         contours: byId('overlay-contours').checked,
+        contoursDisabled: byId('overlay-contours').disabled,
+        contourNote: shownText(byId('contour-note')),
+        zonalDisabled: byId('zonal-toggle').disabled,
+        zonalNote: shownText(byId('zonal-note')),
         projection: picker.value,
         projectionOffers: Array.from(picker.options).map((o) => o.value),
         reprojectNote: shownText(byId('reproject-note')),

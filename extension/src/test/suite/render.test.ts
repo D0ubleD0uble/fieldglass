@@ -1013,6 +1013,7 @@ suite("render-panel HTML", () => {
       uvRelativeToGrid: null,
       reprojectable: true,
       placement: "placed",
+      supports: { contours: true, vectors: true, longCsv: true, zonalMean: true },
       truncation: null,
       grid: null,
     };
@@ -1845,7 +1846,12 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
 
     // A 1-D lat/lon coordinate pair places the slice.
     const placed = picker("temperature");
-    assert.deepStrictEqual(placed.grid, { label: "latlon", placement: "placed", reprojectable: true });
+    assert.deepStrictEqual(placed.grid, {
+      label: "latlon",
+      placement: "placed",
+      reprojectable: true,
+      supports: { contours: true, vectors: true, longCsv: true, zonalMean: true },
+    });
     assert.ok(placed.offered.includes("equirectangular"), `got ${placed.offered.join(", ")}`);
     assert.ok(placed.html.includes("NetCDF slice — latlon"), "the caption names the slice's family");
 
@@ -1855,6 +1861,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       label: "source",
       placement: "unplaceable",
       reprojectable: false,
+      supports: { contours: false, vectors: false, longCsv: false, zonalMean: false },
     });
     assert.deepStrictEqual(unplaced.offered, ["source"], `got ${unplaced.offered.join(", ")}`);
     assert.ok(unplaced.html.includes(UNPLACED_REPROJECT_NOTE), "the note says the slice is not placed (#960)");
@@ -2393,6 +2400,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       uvRelativeToGrid: null,
       reprojectable: true,
       placement: "placed",
+      supports: { contours: true, vectors: true, longCsv: true, zonalMean: true },
       truncation: null,
       grid: { label: "latlon" },
     };

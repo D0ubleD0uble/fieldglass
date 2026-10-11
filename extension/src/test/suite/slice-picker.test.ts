@@ -32,6 +32,10 @@ const EXT_ID = "fieldglass.fieldglass";
 
 /** The note beside the picker for a slice with no coordinates (#960). */
 const UNPLACED_NOTE = "Reprojection needs a grid placed on the Earth, and this one isn't.";
+/** A slice's point-operation answers (#945): none for one nothing places, all
+ *  four for a lat/lon slice. */
+const NONE = { contours: false, vectors: false, longCsv: false, zonalMean: false };
+const LATLON = { contours: true, vectors: true, longCsv: true, zonalMean: true };
 
 function extensionPath(): string {
   const ext = vscode.extensions.getExtension(EXT_ID);
@@ -312,14 +316,14 @@ suite("Slice panel projection picker", () => {
     panel.send({ type: "ready", projection: "source", resampling: "nearest", flipY: false, slice: latBndsSlice });
     const first = panel.posted[panel.posted.length - 1] as GridReadyMessage;
     assert.strictEqual(first.type, "gridReady");
-    assert.deepStrictEqual(first.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false });
+    assert.deepStrictEqual(first.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false, supports: NONE });
     assert.strictEqual(picker.take(first), false);
     assert.deepStrictEqual(picker.offers(), ["source"]);
 
     // Move the same panel onto temperature. The render says it can be
     // reprojected, so the picker offers the map targets…
     const onTemperature = render(panel, temperatureSlice, picker.value);
-    assert.deepStrictEqual(onTemperature.sliceGrid, { label: "latlon", reprojectable: true, note: "", placed: true });
+    assert.deepStrictEqual(onTemperature.sliceGrid, { label: "latlon", reprojectable: true, note: "", placed: true, supports: LATLON });
     assert.strictEqual(picker.take(onTemperature), false, "source stays selected");
     assert.ok(picker.offers().includes("equirectangular"), `got ${picker.offers().join(", ")}`);
     assert.strictEqual(picker.noteHidden, true, "and the note goes");
@@ -348,7 +352,7 @@ suite("Slice panel projection picker", () => {
     const back = render(panel, latBndsSlice, picker.value);
     assert.strictEqual(back.options.projection, "source", "drawn in the source view");
     assert.strictEqual(back.usedLatMin, null, "with no geographic extent");
-    assert.deepStrictEqual(back.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false });
+    assert.deepStrictEqual(back.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false, supports: NONE });
     assert.strictEqual(picker.take(back), true, "the selection moves");
     assert.strictEqual(picker.value, "source");
     assert.deepStrictEqual(picker.offers(), ["source"]);
@@ -372,7 +376,7 @@ suite("Slice panel projection picker", () => {
     panel.send({ type: "ready", projection: "source", resampling: "nearest", flipY: false });
     const first = panel.posted[panel.posted.length - 1] as GridReadyMessage;
     assert.strictEqual(first.type, "gridReady");
-    assert.deepStrictEqual(first.sliceGrid, { label: "latlon", reprojectable: true, note: "", placed: true });
+    assert.deepStrictEqual(first.sliceGrid, { label: "latlon", reprojectable: true, note: "", placed: true, supports: LATLON });
     const variableIndex = first.messageIndex;
 
     picker.choose("equirectangular");
@@ -382,7 +386,7 @@ suite("Slice panel projection picker", () => {
 
     const transposed = render(panel, { variableIndex, yDim: 1, xDim: 0, sliceIndices: [0, 0] }, picker.value);
     assert.strictEqual(transposed.options.projection, "source", "drawn in the source view, not refused");
-    assert.deepStrictEqual(transposed.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false });
+    assert.deepStrictEqual(transposed.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false, supports: NONE });
     assert.strictEqual(picker.take(transposed), true);
     assert.strictEqual(picker.value, "source");
     assert.deepStrictEqual(picker.offers(), ["source"]);

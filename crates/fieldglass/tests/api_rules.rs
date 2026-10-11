@@ -35,10 +35,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
     Addressing, Affine, AxisUnits, AxisValues, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype,
-    Error, Field, FullDetail, Georef, Identification, Isoline, LeftOutArray, Line, MessageInfo,
-    MessageProbe, PaletteOptions, PixelProbe, Placement, Probe, Projected, Raster, RenderOptions,
-    ResolvedOptions, SourceFormat, SpectralTruncation, Stats, TargetKind, Values, VariableInfo,
-    VectorOptions, WarpOptions, WarpTarget, Warped,
+    Error, Field, FullDetail, Georef, GridSupport, Identification, Isoline, LeftOutArray, Line,
+    MessageInfo, MessageProbe, PaletteOptions, PixelProbe, Placement, Probe, Projected, Raster,
+    RenderOptions, ResolvedOptions, SourceFormat, SpectralTruncation, Stats, TargetKind, Values,
+    VariableInfo, VectorOptions, WarpOptions, WarpTarget, Warped,
 };
 
 // ---------------------------------------------------------------------------
@@ -93,6 +93,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Affine", Class::Wire, ""),
     // Why a grid can or cannot be placed, beside the corners it explains (#776).
     ("Placement", Class::Wire, ""),
+    // Which point operations a grid takes, asked ahead of the call (#945).
+    ("GridSupport", Class::Wire, ""),
     // That a spectral field's map is band-limited below what it declares (#637).
     ("SpectralTruncation", Class::Wire, ""),
     ("Georef", Class::Wire, ""),
@@ -346,6 +348,7 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<AxisUnits>();
     is_wire_shaped::<Affine>();
     is_wire_shaped::<Placement>();
+    is_wire_shaped::<GridSupport>();
     is_wire_shaped::<SpectralTruncation>();
     is_wire_shaped::<Georef>();
     is_wire_shaped::<Values>();
@@ -436,6 +439,10 @@ fn every_wire_type_round_trips_through_json() {
         r#"{"x0":0.0,"y0":87.8638,"dx":2.8125,"dy":null,"units":"degrees"}"#,
     );
     round_trip::<Placement>("Placement", r#""predefined_unresolved""#);
+    round_trip::<GridSupport>(
+        "GridSupport",
+        r#"{"contours":true,"vectors":true,"longCsv":true,"zonalMean":false}"#,
+    );
     round_trip::<Identification>("Identification", r#"{"edition":"grib1","p1Octet":null}"#);
     round_trip::<Identification>(
         "Identification",
@@ -513,7 +520,7 @@ fn every_wire_type_round_trips_through_json() {
 /// A `Georef` as it crosses the wire. `geometry` is `core`'s tagged enum and is
 /// described loosely to a schema consumer on purpose, so the smallest real
 /// variant stands in for it here.
-const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever"},"kind":"latlon","label":"latlon","ni":2,"nj":2,"boundsLonlat":[-1.0,1.0,-2.0,2.0],"corners":[1.0,-1.0,-2.0,2.0],"placement":"placed","reprojectable":true,"pointsPerRow":null,"proj4":"+proj=longlat","affine":{"x0":0.0,"y0":1.0,"dx":1.0,"dy":-1.0,"units":"degrees"},"periodicX":false,"scan":{"iNegative":false,"jPositive":true,"jConsecutive":false}}"#;
+const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever"},"kind":"latlon","label":"latlon","ni":2,"nj":2,"boundsLonlat":[-1.0,1.0,-2.0,2.0],"corners":[1.0,-1.0,-2.0,2.0],"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true},"pointsPerRow":null,"proj4":"+proj=longlat","affine":{"x0":0.0,"y0":1.0,"dx":1.0,"dy":-1.0,"units":"degrees"},"periodicX":false,"scan":{"iNegative":false,"jPositive":true,"jConsecutive":false}}"#;
 
 /// A `Field`, with the smallest raster that still has a mask and statistics.
 const LINE_JSON: &str = r#"{"values":{"dtype":"f64","data":[6.0,18.0]},"mask":[1,1],"stats":{"min":6.0,"max":18.0,"validCount":2},"variable":"temperature","units":"K","dimension":"time","coordinates":[0.0,6.0],"coordinateUnits":"hours since 2020-01-01 00:00:00"}"#;
@@ -521,7 +528,7 @@ const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
-const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
+const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
 
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a
@@ -536,6 +543,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "AxisUnits",
     "Affine",
     "Placement",
+    "GridSupport",
     "Identification",
     "SpectralTruncation",
     "Values",
@@ -1508,6 +1516,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<AxisUnits>("AxisUnits");
     check_schema::<Affine>("Affine");
     check_schema::<Placement>("Placement");
+    check_schema::<GridSupport>("GridSupport");
     check_schema::<Identification>("Identification");
     check_schema::<SpectralTruncation>("SpectralTruncation");
     check_schema::<Addressing>("Addressing");
@@ -1548,6 +1557,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "AxisUnits",
     "Affine",
     "Placement",
+    "GridSupport",
     "Identification",
     "SpectralTruncation",
     "Addressing",
@@ -1698,7 +1708,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
         )*};
     }
     register!(returned:
-        SourceFormat, Dtype, AxisUnits, Affine, Placement, Georef, Values, Stats, Field, Line,
+        SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, Line,
         MessageInfo, Identification, Addressing, DimensionInfo, VariableInfo, AxisValues, LeftOutArray,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
         Error, Raster,
