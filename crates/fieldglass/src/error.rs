@@ -36,7 +36,9 @@ pub enum Error {
     /// NetCDF variable past the reader's memory budget, a slice, a region or
     /// a Zarr chunk of more values than one field may hold, or a compressed
     /// NetCDF-4 chunk that holds more values than one field may, or decodes to
-    /// more than one chunk may.
+    /// more than one chunk may; or an HDF5 file that lists more than one
+    /// listing holds: more objects, more links in one group, or more bytes of
+    /// path-qualified names.
     Unsupported {
         /// Which operation, and what about this message refuses it.
         detail: String,
