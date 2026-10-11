@@ -241,27 +241,35 @@ fn an_unparsed_template_is_compared_by_its_octets() {
     );
 }
 
-/// The ensemble member of 4.1 is not part of the identity yet: whether it
-/// should be is an open decision on #959. Two members of one field match, so
-/// a file holding both refuses as ambiguous. This test is the record of that
-/// state, and changes with the decision.
-#[test]
-fn ensemble_members_share_an_identity_until_decided() {
-    let one = identities(with_template(1, 0, &[3, 1, 20]));
-    let two = identities(with_template(1, 0, &[3, 2, 20]));
-    assert_eq!(one, two);
+/// `bytes` (one GRIB2 message) with `value` written at `octet` (1-based, as
+/// the WMO tables count) of section `number`.
+fn patched(mut bytes: Vec<u8>, number: u8, octet: usize, value: &[u8]) -> Vec<u8> {
+    let mut at = 16;
+    loop {
+        let len = u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+        if bytes[at + 4] == number {
+            bytes[at + octet - 1..at + octet - 1 + value.len()].copy_from_slice(value);
+            return bytes;
+        }
+        at += len;
+    }
 }
 
 /// The committed eccodes-encoded 4.1 and 4.12 messages (#959): their identity
 /// is read from the octets eccodes wrote, the parameter and level of the
-/// common block and, for 4.12, the interval after its own two octets. Neither
-/// carries its ensemble or derived block in the identity yet.
+/// common block, the member of 4.1 and the derived forecast and interval of
+/// 4.12. Those blocks are named fields, not `product_octets`, so nothing is
+/// counted twice.
 #[test]
 fn eccodes_written_shared_layout_messages_read_their_identity() {
     let member = identities(read(GRIB2, "ensemble_member_4_1.grib2"));
     let MessageIdentity::Grib2 {
         product_template,
         product_octets,
+        ensemble_type,
+        ensemble_member,
+        derived_forecast,
+        local_centre,
         parameter_category,
         parameter_number,
         first_surface,
@@ -274,8 +282,11 @@ fn eccodes_written_shared_layout_messages_read_their_identity() {
     assert_eq!(*product_template, 1);
     assert_eq!(
         *product_octets, None,
-        "the ensemble block waits on #959's decision"
+        "the ensemble block is read into fields"
     );
+    assert_eq!((*ensemble_type, *ensemble_member), (Some(3), Some(7)));
+    assert_eq!(*derived_forecast, None);
+    assert_eq!(*local_centre, None, "temperature is a WMO parameter");
     assert_eq!((*parameter_category, *parameter_number), (Some(0), Some(0)));
     assert_eq!(first_surface.map(|s| s.surface_type), Some(103));
     assert!(statistics.is_empty());
@@ -284,6 +295,8 @@ fn eccodes_written_shared_layout_messages_read_their_identity() {
     let MessageIdentity::Grib2 {
         product_template,
         product_octets,
+        ensemble_member,
+        derived_forecast,
         range_end,
         statistics,
         ..
@@ -294,8 +307,10 @@ fn eccodes_written_shared_layout_messages_read_their_identity() {
     assert_eq!(*product_template, 12);
     assert_eq!(
         *product_octets, None,
-        "the derived block waits on #959's decision"
+        "the derived block is read into a field"
     );
+    assert_eq!(*ensemble_member, None);
+    assert_eq!(*derived_forecast, Some(0), "an unweighted mean");
     assert_eq!(range_end.as_deref(), Some("2008-02-06T18:00:00Z"));
     assert_eq!(statistics.len(), 1);
     assert_eq!(
@@ -308,4 +323,68 @@ fn eccodes_written_shared_layout_messages_read_their_identity() {
         "a 6 h maximum"
     );
     assert_ne!(member[0], derived[0]);
+}
+
+/// Two members of one ensemble field are two messages (decided on #959,
+/// 2026-10-11): member 7 and member 8 of the committed 4.1 message do not
+/// match, and member 7 moved behind member 8 in a file is found there.
+#[test]
+fn two_members_of_one_field_are_two_messages() {
+    let seven = read(GRIB2, "ensemble_member_4_1.grib2");
+    // §4 octet 36 is the perturbation number.
+    let eight = patched(seven.clone(), 4, 36, &[8]);
+    let wanted = &identities(seven.clone())[0];
+    assert!(
+        matches(&identities(eight.clone()), wanted).is_empty(),
+        "another member"
+    );
+    assert_eq!(
+        matches(&identities(concat(&[&eight, &seven])), wanted),
+        vec![1]
+    );
+}
+
+/// A mean and a spread of one field are two messages: the committed 4.12
+/// message (derived forecast 0, an unweighted mean) and the same with §4
+/// octet 35 set to 4 (the spread of all members, Code Table 4.7) do not match.
+#[test]
+fn a_mean_and_a_spread_are_two_messages() {
+    let mean = read(GRIB2, "derived_max_4_12.grib2");
+    let spread = patched(mean.clone(), 4, 35, &[4]);
+    let wanted = &identities(mean.clone())[0];
+    assert!(matches(&identities(spread.clone()), wanted).is_empty());
+    assert_eq!(
+        matches(&identities(concat(&[&spread, &mean])), wanted),
+        vec![1]
+    );
+}
+
+/// A local parameter (category or number 192-254, Code Tables 4.1 and 4.2)
+/// names its centre, so the same codes from two centres are two messages.
+/// A WMO parameter means the same from any centre, and matches.
+#[test]
+fn a_local_parameter_from_two_centres_is_two_messages() {
+    // §1 octets 6-7 are the originating centre: 7 is NCEP, 98 ECMWF.
+    let from = |centre: u16, parameter: u8| {
+        identities(patched(
+            with_template(0, parameter, &[]),
+            1,
+            6,
+            &centre.to_be_bytes(),
+        ))
+    };
+    let ncep = from(7, 192);
+    let MessageIdentity::Grib2 { local_centre, .. } = &ncep[0] else {
+        panic!("GRIB2");
+    };
+    assert_eq!(*local_centre, Some(7));
+    assert!(
+        matches(&from(98, 192), &ncep[0]).is_empty(),
+        "another centre's 192"
+    );
+    assert_eq!(
+        matches(&from(98, 0), &from(7, 0)[0]),
+        vec![0],
+        "WMO temperature"
+    );
 }

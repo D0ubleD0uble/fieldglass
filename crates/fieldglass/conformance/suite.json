@@ -132,12 +132,15 @@
         },
         "identity": {
           "dataPoints": 496,
+          "derivedForecast": null,
           "dimensions": [
             16,
             31
           ],
           "discipline": 0,
           "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
           "firstSurface": {
             "scaleFactor": 0,
             "scaledValue": 2,
@@ -146,6 +149,7 @@
           "forecastTime": 0,
           "forecastTimeUnit": 1,
           "gridTemplate": 0,
+          "localCentre": null,
           "parameterCategory": 0,
           "parameterNumber": 0,
           "productOctets": null,
@@ -2116,12 +2120,15 @@
         },
         "identity": {
           "dataPoints": 8192,
+          "derivedForecast": null,
           "dimensions": [
             128,
             64
           ],
           "discipline": 0,
           "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
           "firstSurface": {
             "scaleFactor": null,
             "scaledValue": null,
@@ -2130,6 +2137,7 @@
           "forecastTime": 0,
           "forecastTimeUnit": 1,
           "gridTemplate": 40,
+          "localCentre": null,
           "parameterCategory": 0,
           "parameterNumber": 0,
           "productOctets": null,
@@ -4153,12 +4161,15 @@
         },
         "identity": {
           "dataPoints": 6114,
+          "derivedForecast": null,
           "dimensions": [
             128,
             64
           ],
           "discipline": 0,
           "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
           "firstSurface": {
             "scaleFactor": 0,
             "scaledValue": 100000,
@@ -4167,6 +4178,7 @@
           "forecastTime": 0,
           "forecastTimeUnit": 1,
           "gridTemplate": 40,
+          "localCentre": null,
           "parameterCategory": 0,
           "parameterNumber": 0,
           "productOctets": null,
@@ -6663,12 +6675,15 @@
         },
         "identity": {
           "dataPoints": 6045,
+          "derivedForecast": null,
           "dimensions": [
             93,
             65
           ],
           "discipline": 0,
           "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
           "firstSurface": {
             "scaleFactor": 0,
             "scaledValue": 0,
@@ -6677,6 +6692,7 @@
           "forecastTime": 24,
           "forecastTimeUnit": 1,
           "gridTemplate": 30,
+          "localCentre": 7,
           "parameterCategory": 3,
           "parameterNumber": 192,
           "productOctets": null,
@@ -8653,12 +8669,15 @@
         },
         "identity": {
           "dataPoints": 720,
+          "derivedForecast": null,
           "dimensions": [
             24,
             30
           ],
           "discipline": 0,
           "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
           "firstSurface": {
             "scaleFactor": null,
             "scaledValue": null,
@@ -8667,6 +8686,7 @@
           "forecastTime": 0,
           "forecastTimeUnit": 1,
           "gridTemplate": 12,
+          "localCentre": null,
           "parameterCategory": 0,
           "parameterNumber": 0,
           "productOctets": null,
@@ -10635,12 +10655,15 @@
         },
         "identity": {
           "dataPoints": 496,
+          "derivedForecast": null,
           "dimensions": [
             16,
             31
           ],
           "discipline": 0,
           "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
           "firstSurface": {
             "scaleFactor": null,
             "scaledValue": null,
@@ -10649,6 +10672,7 @@
           "forecastTime": 0,
           "forecastTimeUnit": 1,
           "gridTemplate": 1,
+          "localCentre": null,
           "parameterCategory": 0,
           "parameterNumber": 0,
           "productOctets": null,
@@ -12584,12 +12608,15 @@
         },
         "identity": {
           "dataPoints": 496,
+          "derivedForecast": null,
           "dimensions": [
             16,
             31
           ],
           "discipline": 0,
           "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
           "firstSurface": {
             "scaleFactor": null,
             "scaledValue": null,
@@ -12598,6 +12625,7 @@
           "forecastTime": 0,
           "forecastTimeUnit": 1,
           "gridTemplate": 20,
+          "localCentre": null,
           "parameterCategory": 0,
           "parameterNumber": 0,
           "productOctets": null,
@@ -14235,9 +14263,12 @@
         },
         "identity": {
           "dataPoints": 4160,
+          "derivedForecast": null,
           "dimensions": null,
           "discipline": 0,
           "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
           "firstSurface": {
             "scaleFactor": null,
             "scaledValue": null,
@@ -14246,6 +14277,7 @@
           "forecastTime": 0,
           "forecastTimeUnit": 1,
           "gridTemplate": 50,
+          "localCentre": null,
           "parameterCategory": 0,
           "parameterNumber": 0,
           "productOctets": null,
@@ -16218,9 +16250,12 @@
         },
         "identity": {
           "dataPoints": 192,
+          "derivedForecast": null,
           "dimensions": null,
           "discipline": 0,
           "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
           "firstSurface": {
             "scaleFactor": null,
             "scaledValue": null,
@@ -16229,6 +16264,7 @@
           "forecastTime": 0,
           "forecastTimeUnit": 1,
           "gridTemplate": 150,
+          "localCentre": null,
           "parameterCategory": 0,
           "parameterNumber": 0,
           "productOctets": null,
@@ -23639,9 +23675,12 @@
         },
         "identity": {
           "dataPoints": 147840,
+          "derivedForecast": null,
           "dimensions": null,
           "discipline": 0,
           "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
           "firstSurface": {
             "scaleFactor": null,
             "scaledValue": null,
@@ -23650,6 +23689,7 @@
           "forecastTime": 0,
           "forecastTimeUnit": 1,
           "gridTemplate": 50,
+          "localCentre": null,
           "parameterCategory": 0,
           "parameterNumber": 0,
           "productOctets": null,

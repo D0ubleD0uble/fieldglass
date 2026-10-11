@@ -549,7 +549,7 @@ const MESSAGE_IDENTITY_GRIB1_JSON: &str = r#"{"edition":"grib1","tableVersion":1
 
 /// A GRIB2 `MessageIdentity` with every optional field present, a statistical
 /// range among them.
-const MESSAGE_IDENTITY_GRIB2_JSON: &str = r#"{"edition":"grib2","discipline":0,"productTemplate":9,"productOctets":"0102030000000001000000000a","parameterCategory":1,"parameterNumber":8,"firstSurface":{"surfaceType":1,"scaleFactor":null,"scaledValue":null},"secondSurface":{"surfaceType":255,"scaleFactor":null,"scaledValue":null},"referenceTime":"2026-01-01T00:00:00Z","forecastTimeUnit":1,"forecastTime":0,"rangeEnd":"2026-01-01T06:00:00Z","statistics":[{"process":1,"lengthUnit":1,"length":6}],"gridTemplate":0,"dimensions":[1440,721],"dataPoints":1038240}"#;
+const MESSAGE_IDENTITY_GRIB2_JSON: &str = r#"{"edition":"grib2","discipline":0,"productTemplate":11,"productOctets":"0d","ensembleType":3,"ensembleMember":7,"derivedForecast":2,"localCentre":7,"parameterCategory":1,"parameterNumber":8,"firstSurface":{"surfaceType":1,"scaleFactor":null,"scaledValue":null},"secondSurface":{"surfaceType":255,"scaleFactor":null,"scaledValue":null},"referenceTime":"2026-01-01T00:00:00Z","forecastTimeUnit":1,"forecastTime":0,"rangeEnd":"2026-01-01T06:00:00Z","statistics":[{"process":1,"lengthUnit":1,"length":6}],"gridTemplate":0,"dimensions":[1440,721],"dataPoints":1038240}"#;
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.

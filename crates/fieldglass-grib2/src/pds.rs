@@ -343,6 +343,34 @@ impl ProductDefinitionSection {
         }
     }
 
+    /// The ensemble a member forecast belongs to and which member it is:
+    /// `(type of ensemble forecast, perturbation number)`, Code Table 4.6 and
+    /// §4 octets 35-36 of templates 4.1 and 4.11. `None` for every other
+    /// template.
+    pub fn ensemble_member(&self) -> Option<(u8, u8)> {
+        match &self.template {
+            ProductTemplate::EnsembleTimeInterval(t) => {
+                Some((t.ensemble_type, t.perturbation_number))
+            }
+            ProductTemplate::SharedLayout(t) if t.number == 1 => {
+                Some((*t.qualifier.first()?, *t.qualifier.get(1)?))
+            }
+            _ => None,
+        }
+    }
+
+    /// The derived forecast (Code Table 4.7, §4 octet 35) of templates 4.2 and
+    /// 4.12: an unweighted mean, a spread, a probability-weighted mean… `None`
+    /// for every other template.
+    pub fn derived_forecast(&self) -> Option<u8> {
+        match &self.template {
+            ProductTemplate::SharedLayout(t) if matches!(t.number, 2 | 12) => {
+                t.qualifier.first().copied()
+            }
+            _ => None,
+        }
+    }
+
     /// `(category, number)` parameter pair, when the template carries it.
     /// Every template sharing 4.0's layout does; `None` for a template this
     /// crate does not read.
@@ -833,6 +861,7 @@ mod tests {
         assert_eq!(t.ensemble_type, 3);
         assert_eq!(t.perturbation_number, 5);
         assert_eq!(t.num_forecasts_in_ensemble, 20);
+        assert_eq!(pds.ensemble_member(), Some((3, 5)));
 
         let stats = pds.stats().unwrap();
         assert_eq!(stats.end_hour, 18);
@@ -972,6 +1001,8 @@ mod tests {
         assert_eq!(pds.template_name(), "horizontal(4.1)");
         assert_eq!(pds.common(), reference.common());
         assert_eq!(pds.unread_octets(), &[3, 7, 20]);
+        assert_eq!(pds.ensemble_member(), Some((3, 7)));
+        assert_eq!(pds.derived_forecast(), None);
         assert!(pds.stats().is_none());
     }
 
@@ -989,6 +1020,8 @@ mod tests {
         push_be(&mut tail, 0, 4);
         let pds = parse_product_definition(&build_shared(12, &tail)).expect("4.12");
         assert_eq!(pds.unread_octets(), &[0, 20]);
+        assert_eq!(pds.derived_forecast(), Some(0));
+        assert_eq!(pds.ensemble_member(), None);
         let stats = pds.stats().expect("4.12 is statistical");
         assert_eq!(stats.end_time_iso8601(), "2026-01-01T06:00:00Z");
         assert_eq!(stats.specs.len(), 1);

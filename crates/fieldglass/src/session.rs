@@ -2769,22 +2769,30 @@ fn grib2_identity(msg: &fieldglass_grib2::Grib2Message) -> MessageIdentity {
         scaled_value: s.scaled_value,
     };
     let stats = msg.pds.stats();
-    // Templates whose own block is an ensemble member (4.1) or a derived
-    // forecast (4.2, 4.12) leave it out until #959's owner decides whether it
-    // is part of the identity; 4.11's member is parsed and likewise left out.
-    // A template the reader could not parse keeps every octet, whatever its
-    // number.
+    // The ensemble block (4.1) and the derived-forecast block (4.2, 4.12) are
+    // read into named fields below, and their counts are not part of the
+    // identity, so neither reaches `product_octets` (#959). A template the
+    // reader could not parse keeps every octet, whatever its number.
     let unread = match &msg.pds.template {
         fieldglass_grib2::ProductTemplate::SharedLayout(t) if matches!(t.number, 1 | 2 | 12) => {
             &[][..]
         }
         _ => msg.pds.unread_octets(),
     };
+    let ensemble = msg.pds.ensemble_member();
+    // Code Tables 4.1 and 4.2 reserve 192-254 for local use.
+    let local = common.is_some_and(|c| {
+        (192..=254).contains(&c.parameter_category) || (192..=254).contains(&c.parameter_number)
+    });
     MessageIdentity::Grib2 {
         discipline: msg.is.discipline,
         product_template: msg.pds.template_number,
         product_octets: (!unread.is_empty())
             .then(|| unread.iter().map(|b| format!("{b:02x}")).collect()),
+        ensemble_type: ensemble.map(|(kind, _)| kind),
+        ensemble_member: ensemble.map(|(_, member)| member),
+        derived_forecast: msg.pds.derived_forecast(),
+        local_centre: local.then_some(msg.ids.centre),
         parameter_category: common.map(|c| c.parameter_category),
         parameter_number: common.map(|c| c.parameter_number),
         first_surface: common.map(|c| surface(&c.first_surface)),

@@ -939,6 +939,16 @@
               "minimum": 0,
               "type": "integer"
             },
+            "derivedForecast": {
+              "description": "The derived forecast (Code Table 4.7, §4 octet 35) of 4.2 and\n4.12: a mean and a spread of one field are two messages. `None`\nfor any other template.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "dimensions": {
               "description": "Columns and rows, the widest row for a reduced grid. `None` for a\ntemplate that has none.",
               "items": {
@@ -963,6 +973,26 @@
             "edition": {
               "const": "grib2",
               "type": "string"
+            },
+            "ensembleMember": {
+              "description": "Which member (the perturbation number, §4 octet 36) of 4.1 and\n4.11, so two members of one field are two messages (decided on\n#959, 2026-10-11). `None` for any other template.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "ensembleType": {
+              "description": "The type of ensemble forecast (Code Table 4.6, §4 octet 35) of a\nmember forecast, templates 4.1 and 4.11. `None` for any other.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "firstSurface": {
               "anyOf": [
@@ -1000,6 +1030,16 @@
               "minimum": 0,
               "type": "integer"
             },
+            "localCentre": {
+              "description": "The originating centre (§1 octets 6-7), when the parameter is\nthe centre's own: a category or a number from 192 to 254, which\nCode Tables 4.1 and 4.2 reserve for local use, so the same codes\nmean another parameter at another centre. `None` for a WMO\nparameter, as GRIB1's `local_centre` is.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "parameterCategory": {
               "description": "The parameter category (Code Table 4.1), `None` for a product\ntemplate the reader does not parse.",
               "format": "uint8",
@@ -1021,7 +1061,7 @@
               ]
             },
             "productOctets": {
-              "description": "The template's octets the fields here do not read, as lowercase\nhex, so that two fields they would tell apart never match:\nevery octet from 10 on for a template the reader does not\nparse, and the probability (4.5, 4.9), percentile (4.6, 4.10)\nor spatial-processing (4.15) block of one it does. `None` when\nnothing is left unread.\n\nNot the ensemble block of 4.1 (and 4.11) or the derived-forecast\nblock of 4.2 and 4.12: whether a member or a derived product is\npart of a message's identity is an open decision on #959, and\nthose would be their own fields here, not octets.",
+              "description": "The template's octets the fields here do not read, as lowercase\nhex, so that two fields they would tell apart never match:\nevery octet from 10 on for a template the reader does not\nparse, and the probability (4.5, 4.9), percentile (4.6, 4.10)\nor spatial-processing (4.15) block of one it does. `None` when\nnothing is left unread.\n\nNot the ensemble block of 4.1 and 4.11 or the derived-forecast\nblock of 4.2 and 4.12, which are the named fields below rather\nthan octets, so nothing is counted twice. The ensemble size and\nmember count those blocks also carry are not part of a message's\nidentity.",
               "type": [
                 "string",
                 "null"
@@ -1069,6 +1109,10 @@
             "discipline",
             "productTemplate",
             "productOctets",
+            "ensembleType",
+            "ensembleMember",
+            "derivedForecast",
+            "localCentre",
             "parameterCategory",
             "parameterNumber",
             "firstSurface",

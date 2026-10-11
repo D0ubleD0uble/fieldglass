@@ -900,12 +900,38 @@ export type MessageIdentity =
      * or spatial-processing (4.15) block of one it does. `None` when
      * nothing is left unread.
      *
-     * Not the ensemble block of 4.1 (and 4.11) or the derived-forecast
-     * block of 4.2 and 4.12: whether a member or a derived product is
-     * part of a message's identity is an open decision on #959, and
-     * those would be their own fields here, not octets.
+     * Not the ensemble block of 4.1 and 4.11 or the derived-forecast
+     * block of 4.2 and 4.12, which are the named fields below rather
+     * than octets, so nothing is counted twice. The ensemble size and
+     * member count those blocks also carry are not part of a message's
+     * identity.
      */
     productOctets: string | null;
+    /**
+     * The type of ensemble forecast (Code Table 4.6, §4 octet 35) of a
+     * member forecast, templates 4.1 and 4.11. `None` for any other.
+     */
+    ensembleType: number | null;
+    /**
+     * Which member (the perturbation number, §4 octet 36) of 4.1 and
+     * 4.11, so two members of one field are two messages (decided on
+     * #959, 2026-10-11). `None` for any other template.
+     */
+    ensembleMember: number | null;
+    /**
+     * The derived forecast (Code Table 4.7, §4 octet 35) of 4.2 and
+     * 4.12: a mean and a spread of one field are two messages. `None`
+     * for any other template.
+     */
+    derivedForecast: number | null;
+    /**
+     * The originating centre (§1 octets 6-7), when the parameter is
+     * the centre's own: a category or a number from 192 to 254, which
+     * Code Tables 4.1 and 4.2 reserve for local use, so the same codes
+     * mean another parameter at another centre. `None` for a WMO
+     * parameter, as GRIB1's `local_centre` is.
+     */
+    localCentre: number | null;
     /**
      * The parameter category (Code Table 4.1), `None` for a product
      * template the reader does not parse.
