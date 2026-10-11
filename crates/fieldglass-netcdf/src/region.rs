@@ -124,7 +124,8 @@ pub(crate) fn runs(
 ///
 /// Arithmetic only, so a caller can check the region against the bytes behind
 /// it before it builds a run, a range or anything else per element (#1000).
-/// `None` when the offset overflows a `u64`. An empty region ends at 0.
+/// `None` when the offset overflows a `u64`. A region with an empty range on
+/// any axis ends at 0; a rank-0 region (a scalar) is one element and ends at 1.
 pub(crate) fn end(shape: &[u64], region: &[Range<u64>]) -> Option<u64> {
     if region.iter().any(|r| r.start >= r.end) {
         return Some(0);

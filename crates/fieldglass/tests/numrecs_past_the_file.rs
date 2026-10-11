@@ -124,6 +124,17 @@ fn v(session: &Session) -> (u32, Vec<u64>) {
     (index as u32, lengths)
 }
 
+/// A read refused because its records lie past the file's end, not for some
+/// other reason: the reader's decode error, naming the source's size.
+fn refused_past_the_file(name: &str, what: &str, err: Option<fieldglass::Error>) {
+    let err = err.unwrap_or_else(|| panic!("{name}: {what} is refused"));
+    assert_eq!(err.code(), "decode", "{name}: {what}: {err}");
+    assert!(
+        err.message().contains("source size"),
+        "{name}: {what}: {err}"
+    );
+}
+
 #[test]
 fn reads_of_records_the_file_lacks_are_refused_before_their_ranges_are_built() {
     for (name, bytes) in HUGE {
@@ -134,11 +145,11 @@ fn reads_of_records_the_file_lacks_are_refused_before_their_ranges_are_built() {
         assert_eq!(lengths, [60_000_000, 1], "{name}");
 
         let (peak, slice) = peak_while(|| session.decode_slice(index, 0, 1, &[0, 0], &opts()));
-        assert!(slice.is_err(), "{name}: a slice over every stated record");
+        refused_past_the_file(name, "a slice over every stated record", slice.err());
         assert!(peak < SMALL, "{name}: the refused slice held {peak} bytes");
 
         let (peak, line) = peak_while(|| session.decode_line(index, 0, &[0, 0], &opts()));
-        assert!(line.is_err(), "{name}: a line along every stated record");
+        refused_past_the_file(name, "a line along every stated record", line.err());
         assert!(peak < SMALL, "{name}: the refused line held {peak} bytes");
 
         // A coordinate that cannot be read leaves the axis unlabelled rather
