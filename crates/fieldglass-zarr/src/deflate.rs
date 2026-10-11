@@ -11,25 +11,100 @@
 //! (`FEXTRA`) is length-prefixed in a way a fixed-size skip gets wrong.
 
 use fieldglass_core::FieldglassError;
+use fieldglass_core::capped;
 
-/// Inflate an RFC 1950 zlib stream.
+/// Inflate an RFC 1950 zlib stream to at most `limit` bytes.
 pub fn inflate_zlib(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
-    miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(data, limit)
-        .map_err(|e| FieldglassError::Parse(format!("zlib stream failed to inflate: {e:?}")))
+    inflate(data, Framing::Zlib, first_guess(data), limit, "zlib")
+}
+
+/// The framing around the DEFLATE stream [`inflate`] reads.
+#[derive(Clone, Copy)]
+pub(crate) enum Framing {
+    /// RFC 1950: a two-byte header and an Adler-32 trailer, both checked.
+    Zlib,
+    /// RFC 1951 alone: what is left of a gzip member once its header is
+    /// parsed.
+    Raw,
+}
+
+/// `miniz_oxide`'s own first guess at a stream's output, twice its length:
+/// the start for a buffer whose final length is not known.
+pub(crate) fn first_guess(data: &[u8]) -> usize {
+    data.len().saturating_mul(2)
+}
+
+/// Inflate one DEFLATE stream to at most `limit` bytes, into a buffer that
+/// starts at `hint` bytes; `what` names the stream in an error.
+///
+/// A caller that knows the exact output length passes it as `hint`, so a valid
+/// stream fills one zeroed allocation and nothing is copied; growing toward it
+/// would briefly hold the old buffer and the new one on each step.
+///
+/// `miniz_oxide`'s `decompress_to_vec_*_with_limit` caps what it writes but
+/// grows its buffer with `Vec::resize`, whose amortised growth can reserve
+/// nearly twice the limit on the last step (#981). So the loop is ours, around
+/// the same decoder with the same flags, and grows the buffer with
+/// [`capped::grow_toward`]: nothing it allocates is larger than `limit`.
+pub(crate) fn inflate(
+    data: &[u8],
+    framing: Framing,
+    hint: usize,
+    limit: usize,
+    what: &str,
+) -> Result<Vec<u8>, FieldglassError> {
+    use miniz_oxide::inflate::TINFLStatus;
+    use miniz_oxide::inflate::core::{DecompressorOxide, decompress, inflate_flags};
+
+    // The output is one slice that never wraps, so a back-reference can reach
+    // anything already written.
+    let mut flags = inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+    if let Framing::Zlib = framing {
+        flags |= inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER;
+    }
+    let mut out = Vec::new();
+    // A zero limit leaves the buffer empty, which only an empty stream fits.
+    capped::grow_toward(&mut out, hint, limit);
+    let mut state = Box::<DecompressorOxide>::default();
+    let mut input = data;
+    let mut written = 0;
+    loop {
+        let (status, consumed, produced) = decompress(&mut state, input, &mut out, written, flags);
+        written += produced;
+        input = input.get(consumed..).unwrap_or_default();
+        match status {
+            TINFLStatus::Done => {
+                out.truncate(written);
+                return Ok(out);
+            }
+            TINFLStatus::HasMoreOutput => {
+                if !capped::grow_toward(&mut out, hint, limit) {
+                    return Err(FieldglassError::Parse(format!(
+                        "{what} stream inflates past the {limit}-byte ceiling"
+                    )));
+                }
+            }
+            // Only the status: the partial output that `DecompressError`'s
+            // `Debug` used to print could put megabytes into the message.
+            failed => {
+                return Err(FieldglassError::Parse(format!(
+                    "{what} stream failed to inflate: {failed:?}"
+                )));
+            }
+        }
+    }
 }
 
 /// Inflate an RFC 1952 gzip member: parse the header, inflate the raw stream,
 /// and check the trailer's length against what came out.
 ///
-/// The trailing CRC-32 is *not* checked. It would be a second checksum over
-/// data the storage layer has already checksummed, and `miniz_oxide` has no
-/// bounded entry point that verifies it; the length check below is the part
-/// that catches a truncated member, which is the failure that actually
-/// happens.
+/// The trailing CRC-32 is *not* checked: this crate has no CRC-32 (IEEE)
+/// implementation, and the `crc32c` codec's Castagnoli polynomial is a
+/// different checksum. The length check below is the part that catches a
+/// truncated member, which is the failure that actually happens.
 pub fn inflate_gzip(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
     let body = gzip_body(data)?;
-    let out = miniz_oxide::inflate::decompress_to_vec_with_limit(body, limit)
-        .map_err(|e| FieldglassError::Parse(format!("gzip stream failed to inflate: {e:?}")))?;
+    let out = inflate(body, Framing::Raw, first_guess(body), limit, "gzip")?;
     // ISIZE is the uncompressed length modulo 2^32, which is exactly how the
     // trailer states it, so the comparison is on the low 32 bits.
     let isize_field = u32::from_le_bytes([
@@ -210,5 +285,44 @@ mod tests {
         assert!(inflate_gzip(&gzip(&payload, 0, &[]), 64).is_err());
         let zlib = miniz_oxide::deflate::compress_to_vec_zlib(&payload, 6);
         assert!(inflate_zlib(&zlib, 64).is_err());
+    }
+
+    /// Both framings give what `miniz_oxide`'s own unbounded decoders give, at
+    /// the exact length and past it, and the buffer never holds more than the
+    /// limit (#981).
+    #[test]
+    fn inflate_matches_miniz_and_reserves_within_the_limit() {
+        let ramp: Vec<u8> = (0..300_001u64).map(|i| (i * i % 251) as u8).collect();
+        for payload in [Vec::new(), vec![0; 1 << 20], ramp] {
+            for level in [0, 6, 10] {
+                let zlib = miniz_oxide::deflate::compress_to_vec_zlib(&payload, level);
+                let raw = miniz_oxide::deflate::compress_to_vec(&payload, level);
+                for limit in [payload.len(), payload.len() * 3 + 5] {
+                    let got = inflate_zlib(&zlib, limit).unwrap();
+                    assert_eq!(
+                        got,
+                        miniz_oxide::inflate::decompress_to_vec_zlib(&zlib).unwrap()
+                    );
+                    assert!(got.capacity() <= limit, "capacity {}", got.capacity());
+                    let got = inflate(&raw, Framing::Raw, first_guess(&raw), limit, "raw").unwrap();
+                    assert_eq!(got, miniz_oxide::inflate::decompress_to_vec(&raw).unwrap());
+                    assert!(got.capacity() <= limit, "capacity {}", got.capacity());
+                }
+            }
+        }
+    }
+
+    /// A corrupt stream names the decoder's status and nothing more. Before
+    /// #981 the message printed every byte inflated before the failure.
+    #[test]
+    fn a_corrupt_stream_reports_its_status_not_its_output() {
+        let mut zlib = miniz_oxide::deflate::compress_to_vec_zlib(&[0u8; 100_000], 6);
+        let at = zlib.len() - 2;
+        zlib[at] ^= 0xFF; // inside the Adler-32 trailer
+        let err = inflate_zlib(&zlib, 100_000).unwrap_err();
+        let FieldglassError::Parse(m) = err else {
+            panic!("{err:?}")
+        };
+        assert_eq!(m, "zlib stream failed to inflate: Adler32Mismatch");
     }
 }

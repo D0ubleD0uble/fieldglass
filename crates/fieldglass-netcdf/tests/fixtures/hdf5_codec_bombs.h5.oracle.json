@@ -1,0 +1,94 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), hdf5plugin 7.0.0, chunks written with write_direct_chunk",
+  "note": "deflate and zstd chunks that decompress far past their own length; fieldglass stops each at that length without reserving past it (#981)",
+  "bomb_inflated_bytes": 33554432,
+  "datasets": {
+    "deflate_bomb": {
+      "dtype": "uint8",
+      "shape": [
+        4,
+        4
+      ],
+      "chunks": [
+        1536,
+        2048
+      ],
+      "chunk_bytes": 3145728,
+      "pipeline": [
+        1
+      ],
+      "chunk_byte_offset": 4136,
+      "chunk_stored_bytes": 32623,
+      "libhdf5_values": [
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    "zstd_bomb": {
+      "dtype": "uint8",
+      "shape": [
+        4,
+        4
+      ],
+      "chunks": [
+        1536,
+        2048
+      ],
+      "chunk_bytes": 3145728,
+      "pipeline": [
+        32015
+      ],
+      "chunk_byte_offset": 39679,
+      "chunk_stored_bytes": 1043,
+      "zstd_window_bytes": 524288,
+      "libhdf5_values": [
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    }
+  }
+}

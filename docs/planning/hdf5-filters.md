@@ -93,6 +93,32 @@ produces a byte of output?* That allocation needs its own bound, and a test that
 distinguishes your bound from the library's — one that merely proves "an absurd
 value is rejected" will pass against the library's default and tell you nothing.
 
+**A limit on output is not a limit on memory (#981).** Both codecs stopped
+writing at their limit, but the buffer they wrote into grew by doubling:
+`miniz_oxide`'s `decompress_to_vec_zlib_with_limit` through `Vec::resize`, and
+zstd through `read_to_end`. Amortised growth sets the new capacity to at least
+twice the old one, so the step that reached the limit could reserve nearly
+twice it: a bomb behind szip stopped at 4,722,688 bytes reserved 8,351,488,
+and near the 256 MiB ceiling that is about 512 MiB. Both now grow through
+`fieldglass_core::capped`, which doubles the length as before but reserves
+exactly what it grows to and never past the limit, around the same
+`miniz_oxide` decoder and the same flags; Zarr's zlib, gzip, zstd and blosc
+codecs share it. The tests measure the largest single allocation under a
+tracking allocator, because a test of the length a codec returns cannot see
+its capacity. When the chunk's length is known the buffer starts at it, so a
+valid chunk is one zeroed allocation and nothing is copied; growing toward it
+held the old and new buffers at once on each step, which the largest single
+allocation does not show, so the test measures the peak held as well.
+
+`ruzstd` sizes its own ring buffer the same way, to the next power of two
+past what it holds plus one byte: up to about twice the window, which
+`MAX_ZSTD_WINDOW` bounds and the output limit does not. A single-segment frame
+states its content size instead of a window, and the ring is sized from that,
+`next_power_of_two(content) + 1`. `ruzstd` also buffers whatever it decodes
+until the caller's slice is full, so the output is read in steps of one zstd
+block (`capped::READ_STEP`, 128 KiB); handed a whole 3 MiB chunk at once it
+held a second 4 MiB copy beside the output.
+
 ## Why szip is a project, not a quick win
 
 The entropy coder (CCSDS 121.0 extended-Rice) is shared with GRIB2 5.42. The
