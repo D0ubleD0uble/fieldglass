@@ -791,6 +791,205 @@ export interface Line {
 }
 
 /**
+ * The facts that make a GRIB message the same message in another copy of
+ * its file (#959): the parameter, the level, the reference time, the
+ * forecast step or time range, and the grid. This is how wgrib2 and
+ * eccodes tell one field from another.
+ *
+ * Two messages are the same message when their identities are equal. A
+ * host holding message `i` of a file that changed on disk looks for its
+ * identity among the new file's messages: exactly one match is that
+ * message, wherever it now sits; none means it is gone, and more than one
+ * that the new file does not say which. Neither of the last two is
+ * resolved by position, since a position the new file reuses can hold a
+ * different field.
+ *
+ * The codes are as the message writes them, not the names a table gives
+ * them, so two codes a table names alike stay apart. A file that states the
+ * same level or step in other units or another scale factor does not
+ * match; refusing there is safe, and matching a different field is not.
+ */
+export type MessageIdentity =
+  /**
+   * WMO FM 92 GRIB edition 1.
+   */
+  | {
+    edition: "grib1";
+    /**
+     * The parameter table version (PDS octet 4).
+     */
+    tableVersion: number;
+    /**
+     * The parameter (PDS octet 9, Code Table 2 of `table_version`).
+     */
+    parameter: number;
+    /**
+     * The originating centre (PDS octet 5), when it defines the
+     * parameter: a table version from 128, or a parameter from 128 in
+     * any table, both of which FM 92 leaves to the centre. `None` for a
+     * parameter of a WMO table, which means the same from any centre.
+     */
+    localCentre: number | null;
+    /**
+     * The level type (PDS octet 10, Code Table 3).
+     */
+    levelType: number;
+    /**
+     * PDS octets 11 and 12 as written: one value or a layer's two,
+     * depending on `level_type`.
+     */
+    levelOctets: [number, number];
+    /**
+     * The reference time as RFC 3339, as `MessageInfo::reference_time`.
+     */
+    referenceTime: string;
+    /**
+     * The unit of `p1` and `p2` (PDS octet 18, Code Table 4).
+     */
+    timeUnit: number;
+    /**
+     * P1 (PDS octet 19).
+     */
+    p1: number;
+    /**
+     * P2 (PDS octet 20).
+     */
+    p2: number;
+    /**
+     * The time range indicator (PDS octet 21, Code Table 5), which
+     * says how `p1` and `p2` make a step or a range.
+     */
+    timeRange: number;
+    /**
+     * The data representation type (GDS octet 6, Code Table 6), or
+     * `None` when the message has no GDS.
+     */
+    gridType: number | null;
+    /**
+     * The predefined grid number (PDS octet 7) when the message has no
+     * GDS, which makes it the message's only grid. `None` otherwise.
+     */
+    gridNumber: number | null;
+    /**
+     * Columns and rows: `Ni`/`Nj` (the widest row for a reduced grid),
+     * or the pentagonal resolution `J`/`K` for spherical harmonics.
+     * `None` without a GDS, or for a grid type this build does not read.
+     */
+    dimensions: [number, number] | null;
+  }
+  /**
+   * WMO FM 92 GRIB edition 2.
+   */
+  | {
+    edition: "grib2";
+    /**
+     * The discipline (§0 octet 7, Code Table 0.0).
+     */
+    discipline: number;
+    /**
+     * The product definition template (§4 octets 8-9, Code Table
+     * 4.0). The fields below are read from octets 10-34, which every
+     * template the reader parses lays out as 4.0 does.
+     */
+    productTemplate: number;
+    /**
+     * The template's octets the fields here do not read, as lowercase
+     * hex, so that two fields they would tell apart never match:
+     * every octet from 10 on for a template the reader does not
+     * parse, and the probability (4.5, 4.9), percentile (4.6, 4.10)
+     * or spatial-processing (4.15) block of one it does. `None` when
+     * nothing is left unread.
+     *
+     * Not the ensemble block of 4.1 and 4.11 or the derived-forecast
+     * block of 4.2 and 4.12, which are the named fields below rather
+     * than octets, so nothing is counted twice. The ensemble size and
+     * member count those blocks also carry are not part of a message's
+     * identity.
+     */
+    productOctets: string | null;
+    /**
+     * The type of ensemble forecast (Code Table 4.6, §4 octet 35) of a
+     * member forecast, templates 4.1 and 4.11. `None` for any other.
+     */
+    ensembleType: number | null;
+    /**
+     * Which member (the perturbation number, §4 octet 36) of 4.1 and
+     * 4.11, so two members of one field are two messages (decided on
+     * #959, 2026-10-11). `None` for any other template.
+     */
+    ensembleMember: number | null;
+    /**
+     * The derived forecast (Code Table 4.7, §4 octet 35) of 4.2 and
+     * 4.12: a mean and a spread of one field are two messages. `None`
+     * for any other template.
+     */
+    derivedForecast: number | null;
+    /**
+     * The originating centre (§1 octets 6-7), when the parameter is
+     * the centre's own: a category or a number from 192 to 254, which
+     * Code Tables 4.1 and 4.2 reserve for local use, so the same codes
+     * mean another parameter at another centre. `None` for a WMO
+     * parameter, as GRIB1's `local_centre` is.
+     */
+    localCentre: number | null;
+    /**
+     * The parameter category (Code Table 4.1), `None` for a product
+     * template the reader does not parse.
+     */
+    parameterCategory: number | null;
+    /**
+     * The parameter number (Code Table 4.2), `None` likewise.
+     */
+    parameterNumber: number | null;
+    /**
+     * The level, or a layer's top. `None` for a product template that
+     * carries no surface.
+     */
+    firstSurface: SurfaceCodes | null;
+    /**
+     * A layer's bottom: type 255 for a single level. `None` likewise.
+     */
+    secondSurface: SurfaceCodes | null;
+    /**
+     * The reference time as RFC 3339, as `MessageInfo::reference_time`.
+     */
+    referenceTime: string;
+    /**
+     * The unit of `forecast_time` (Code Table 4.4). `None` for a
+     * product template that carries no forecast time.
+     */
+    forecastTimeUnit: number | null;
+    /**
+     * The forecast step, or the start of a statistical range.
+     */
+    forecastTime: number | null;
+    /**
+     * The end of a statistical range as RFC 3339 (templates 4.8 and
+     * 4.11). `None` for a field at an instant.
+     */
+    rangeEnd: string | null;
+    /**
+     * What was done over the range, outermost first; empty for a field
+     * at an instant.
+     */
+    statistics: StatisticalStep[];
+    /**
+     * The grid definition template (§3 octets 13-14, Code Table 3.1).
+     */
+    gridTemplate: number;
+    /**
+     * Columns and rows, the widest row for a reduced grid. `None` for a
+     * template that has none.
+     */
+    dimensions: [number, number] | null;
+    /**
+     * The number of data points §3 states (octets 7-10), which tells
+     * apart two grids `dimensions` cannot.
+     */
+    dataPoints: number;
+  };
+
+/**
  * One message's metadata, built on demand.
  *
  * Lazy by design: a thousand-message file should not serialise a thousand
@@ -960,6 +1159,12 @@ export interface MessageInfo {
    * variant, so a host never reads "not applicable" as "absent".
    */
   identification: Identification;
+  /**
+   * What makes this message the same message in another copy of its
+   * file (#959). A host that holds a message from a file that has since
+   * changed finds it again by comparing this: see `MessageIdentity`.
+   */
+  identity: MessageIdentity;
   /**
    * The length the message declares for itself, in bytes.
    *
@@ -1395,6 +1600,25 @@ export interface SpectralTruncation {
 }
 
 /**
+ * One step of a GRIB2 statistical process (one time-range specification of
+ * templates 4.8 and 4.11), as §4 writes it.
+ */
+export interface StatisticalStep {
+  /**
+   * The process: average, accumulation, maximum… (Code Table 4.10).
+   */
+  process: number;
+  /**
+   * The unit of `length` (Code Table 4.4).
+   */
+  lengthUnit: number;
+  /**
+   * How long the process runs over.
+   */
+  length: number;
+}
+
+/**
  * Range and count of the present cells. Absent cells are excluded, so an
  * all-masked field reports no range at all rather than `±inf`.
  */
@@ -1411,6 +1635,24 @@ export interface Stats {
    * How many cells are present, i.e. the count of `1`s in the mask.
    */
   validCount: number;
+}
+
+/**
+ * A GRIB2 fixed surface (Code Table 4.5) as §4 writes it.
+ */
+export interface SurfaceCodes {
+  /**
+   * The surface type; 255 is missing.
+   */
+  surfaceType: number;
+  /**
+   * The decimal scale factor, `None` when coded missing.
+   */
+  scaleFactor: number | null;
+  /**
+   * The scaled value, `None` when coded missing.
+   */
+  scaledValue: number | null;
 }
 
 /**

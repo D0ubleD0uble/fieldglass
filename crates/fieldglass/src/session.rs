@@ -57,6 +57,9 @@ use crate::api::SpectralTruncation;
 // The edition-tagged identification only a GRIB message carries (#773).
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use crate::api::Identification;
+// What makes a GRIB message the same message in another copy of its file (#959).
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+use crate::api::MessageIdentity;
 // The axis a cross-section labels itself from: only an array container has one
 // (#171), so the import is gated the way its readers are.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
@@ -2715,7 +2718,104 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
             // number.
             p1_octet: (msg.pds.time_range != 10).then_some(i32::from(msg.pds.p1)),
         },
+        identity: grib1_identity(msg),
         total_length_bytes: u64::from(msg.is.total_length),
+    }
+}
+
+/// The GRIB1 half of [`MessageIdentity`] (#959): the PDS and GDS codes as
+/// written.
+#[cfg(feature = "grib1")]
+fn grib1_identity(msg: &fieldglass_grib1::Grib1Message) -> MessageIdentity {
+    let pds = &msg.pds;
+    // FM 92 Code Table 2: table versions from 128, and parameters from 128 in
+    // any version, are the originating centre's own, so the same code means
+    // another parameter at another centre.
+    let local = pds.table_version >= 128 || pds.parameter_id >= 128;
+    let dimensions = msg.gds.as_ref().and_then(|gds| match gds {
+        fieldglass_grib1::GridDescription::SphericalHarmonic(sh) => {
+            Some([u32::from(sh.j), u32::from(sh.k)])
+        }
+        _ => gds.dimensions().map(|(ni, nj)| [ni, nj]),
+    });
+    MessageIdentity::Grib1 {
+        table_version: pds.table_version,
+        parameter: pds.parameter_id,
+        local_centre: local.then_some(pds.originating_centre),
+        level_type: pds.level_type,
+        level_octets: [pds.level_value_1, pds.level_value_2],
+        reference_time: fieldglass_grib1::reference_time(pds),
+        time_unit: pds.time_unit,
+        p1: pds.p1,
+        p2: pds.p2,
+        time_range: pds.time_range,
+        grid_type: msg
+            .gds
+            .as_ref()
+            .map(fieldglass_grib1::GridDescription::grid_type),
+        grid_number: msg.gds.is_none().then_some(pds.grid_number),
+        dimensions,
+    }
+}
+
+/// The GRIB2 half of [`MessageIdentity`] (#959): the §0, §1, §3 and §4 codes
+/// as written.
+#[cfg(feature = "grib2")]
+fn grib2_identity(msg: &fieldglass_grib2::Grib2Message) -> MessageIdentity {
+    let common = msg.pds.common();
+    let surface = |s: &fieldglass_grib2::pds::FixedSurface| crate::api::SurfaceCodes {
+        surface_type: s.surface_type,
+        scale_factor: s.scale_factor,
+        scaled_value: s.scaled_value,
+    };
+    let stats = msg.pds.stats();
+    // The ensemble block (4.1) and the derived-forecast block (4.2, 4.12) are
+    // read into named fields below, and their counts are not part of the
+    // identity, so neither reaches `product_octets` (#959). A template the
+    // reader could not parse keeps every octet, whatever its number.
+    let unread = match &msg.pds.template {
+        fieldglass_grib2::ProductTemplate::SharedLayout(t) if matches!(t.number, 1 | 2 | 12) => {
+            &[][..]
+        }
+        _ => msg.pds.unread_octets(),
+    };
+    let ensemble = msg.pds.ensemble_member();
+    // Code Tables 4.1 and 4.2 reserve 192-254 for local use.
+    let local = common.is_some_and(|c| {
+        (192..=254).contains(&c.parameter_category) || (192..=254).contains(&c.parameter_number)
+    });
+    MessageIdentity::Grib2 {
+        discipline: msg.is.discipline,
+        product_template: msg.pds.template_number,
+        product_octets: (!unread.is_empty())
+            .then(|| unread.iter().map(|b| format!("{b:02x}")).collect()),
+        ensemble_type: ensemble.map(|(kind, _)| kind),
+        ensemble_member: ensemble.map(|(_, member)| member),
+        derived_forecast: msg.pds.derived_forecast(),
+        local_centre: local.then_some(msg.ids.centre),
+        parameter_category: common.map(|c| c.parameter_category),
+        parameter_number: common.map(|c| c.parameter_number),
+        first_surface: common.map(|c| surface(&c.first_surface)),
+        second_surface: common.map(|c| surface(&c.second_surface)),
+        reference_time: msg.ids.reference_time_iso8601(),
+        forecast_time_unit: common.map(|c| c.forecast_time_unit),
+        forecast_time: common.map(|c| c.forecast_time),
+        range_end: stats.map(fieldglass_grib2::pds::StatisticalProcessing::end_time_iso8601),
+        statistics: stats
+            .map(|st| {
+                st.specs
+                    .iter()
+                    .map(|spec| crate::api::StatisticalStep {
+                        process: spec.stat_process,
+                        length_unit: spec.stat_length_unit,
+                        length: spec.stat_length,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        grid_template: msg.gds.template_number,
+        dimensions: msg.gds.dimensions().map(|(ni, nj)| [ni, nj]),
+        data_points: msg.gds.num_data_points,
     }
 }
 
@@ -2827,6 +2927,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
                 msg.ids.data_type,
             ),
         },
+        identity: grib2_identity(msg),
         total_length_bytes: msg.is.total_length,
     }
 }

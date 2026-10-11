@@ -36,9 +36,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use fieldglass::{
     Addressing, Affine, AxisUnits, AxisValues, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype,
     Error, Field, FullDetail, Georef, GridSupport, Identification, Isoline, LeftOutArray, Line,
-    MessageInfo, MessageProbe, PaletteOptions, PixelProbe, Placement, Probe, Projected, Raster,
-    RenderOptions, ResolvedOptions, SourceFormat, SpectralTruncation, Stats, TargetKind, Values,
-    VariableInfo, VectorOptions, WarpOptions, WarpTarget, Warped,
+    MessageIdentity, MessageInfo, MessageProbe, PaletteOptions, PixelProbe, Placement, Probe,
+    Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat, SpectralTruncation,
+    StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo, VectorOptions,
+    WarpOptions, WarpTarget, Warped,
 };
 
 // ---------------------------------------------------------------------------
@@ -106,6 +107,11 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("MessageInfo", Class::Wire, ""),
     // The edition and the identification only that edition carries (#773).
     ("Identification", Class::Wire, ""),
+    // What makes a GRIB message the same message in a changed file (#959),
+    // and the two §4 groups it carries as written.
+    ("MessageIdentity", Class::Wire, ""),
+    ("SurfaceCodes", Class::Wire, ""),
+    ("StatisticalStep", Class::Wire, ""),
     // The second addressing mode (#662): how a container is addressed, and the
     // variables and dimensions that addressing names.
     ("Addressing", Class::Wire, ""),
@@ -448,6 +454,16 @@ fn every_wire_type_round_trips_through_json() {
         "Identification",
         r#"{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"}"#,
     );
+    round_trip::<MessageIdentity>("MessageIdentity", MESSAGE_IDENTITY_GRIB1_JSON);
+    round_trip::<MessageIdentity>("MessageIdentity", MESSAGE_IDENTITY_GRIB2_JSON);
+    round_trip::<SurfaceCodes>(
+        "SurfaceCodes",
+        r#"{"surfaceType":100,"scaleFactor":0,"scaledValue":50000}"#,
+    );
+    round_trip::<StatisticalStep>(
+        "StatisticalStep",
+        r#"{"process":1,"lengthUnit":1,"length":6}"#,
+    );
     round_trip::<SpectralTruncation>(
         "SpectralTruncation",
         r#"{"declared":7999,"truncatedTo":359}"#,
@@ -491,7 +507,9 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<Line>("Line", LINE_JSON);
     round_trip::<MessageInfo>(
         "MessageInfo",
-        &MESSAGE_INFO_JSON.replace("GEOREF", GEOREF_JSON),
+        &MESSAGE_INFO_JSON
+            .replace("GEOREF", GEOREF_JSON)
+            .replace("IDENTITY", MESSAGE_IDENTITY_GRIB2_JSON),
     );
     round_trip::<CombineOpInfo>("CombineOpInfo", r#"{"value":"a_minus_b","label":"A − B"}"#);
     round_trip::<Addressing>("Addressing", r#""variables""#);
@@ -526,9 +544,16 @@ const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever
 const LINE_JSON: &str = r#"{"values":{"dtype":"f64","data":[6.0,18.0]},"mask":[1,1],"stats":{"min":6.0,"max":18.0,"validCount":2},"variable":"temperature","units":"K","dimension":"time","coordinates":[0.0,6.0],"coordinateUnits":"hours since 2020-01-01 00:00:00"}"#;
 const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"truncation":{"declared":7999,"truncatedTo":359},"stats":{"min":1.0,"max":3.0,"validCount":3},"parameter":"Temperature","units":"K"}"#;
 
+/// A GRIB1 `MessageIdentity` with every optional field present.
+const MESSAGE_IDENTITY_GRIB1_JSON: &str = r#"{"edition":"grib1","tableVersion":128,"parameter":167,"localCentre":98,"levelType":1,"levelOctets":[0,0],"referenceTime":"2026-01-01T00:00:00Z","timeUnit":1,"p1":6,"p2":0,"timeRange":0,"gridType":0,"gridNumber":255,"dimensions":[360,181]}"#;
+
+/// A GRIB2 `MessageIdentity` with every optional field present, a statistical
+/// range among them.
+const MESSAGE_IDENTITY_GRIB2_JSON: &str = r#"{"edition":"grib2","discipline":0,"productTemplate":11,"productOctets":"0d","ensembleType":3,"ensembleMember":7,"derivedForecast":2,"localCentre":7,"parameterCategory":1,"parameterNumber":8,"firstSurface":{"surfaceType":1,"scaleFactor":null,"scaledValue":null},"secondSurface":{"surfaceType":255,"scaleFactor":null,"scaledValue":null},"referenceTime":"2026-01-01T00:00:00Z","forecastTimeUnit":1,"forecastTime":0,"rangeEnd":"2026-01-01T06:00:00Z","statistics":[{"process":1,"lengthUnit":1,"length":6}],"gridTemplate":0,"dimensions":[1440,721],"dataPoints":1038240}"#;
+
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
-const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
+const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"identity":IDENTITY,"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
 
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a
@@ -545,6 +570,9 @@ const ROUND_TRIPPED: &[&str] = &[
     "Placement",
     "GridSupport",
     "Identification",
+    "MessageIdentity",
+    "SurfaceCodes",
+    "StatisticalStep",
     "SpectralTruncation",
     "Values",
     "Stats",
@@ -1518,6 +1546,9 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<Placement>("Placement");
     check_schema::<GridSupport>("GridSupport");
     check_schema::<Identification>("Identification");
+    check_schema::<MessageIdentity>("MessageIdentity");
+    check_schema::<SurfaceCodes>("SurfaceCodes");
+    check_schema::<StatisticalStep>("StatisticalStep");
     check_schema::<SpectralTruncation>("SpectralTruncation");
     check_schema::<Addressing>("Addressing");
     check_schema::<DimensionInfo>("DimensionInfo");
@@ -1559,6 +1590,9 @@ const SCHEMA_CHECKED: &[&str] = &[
     "Placement",
     "GridSupport",
     "Identification",
+    "MessageIdentity",
+    "SurfaceCodes",
+    "StatisticalStep",
     "SpectralTruncation",
     "Addressing",
     "DimensionInfo",
@@ -1709,7 +1743,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     }
     register!(returned:
         SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, Line,
-        MessageInfo, Identification, Addressing, DimensionInfo, VariableInfo, AxisValues, LeftOutArray,
+        MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, LeftOutArray,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
         Error, Raster,
     );

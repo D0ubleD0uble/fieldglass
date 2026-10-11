@@ -916,6 +916,31 @@ one-bit edit applied in memory rather than a second committed file, the same way
   byte-identical with and without the bit set, so the pin's reduced geoiterator
   ignores it and the decoder leaves such a grid alone.
 
+## `ensemble_member_4_1.grib2` / `derived_max_4_12.grib2` (#959)
+
+The only fixtures in product templates that share 4.0's layout through §4
+octet 34 without being 4.0, 4.8 or 4.11. `fieldglass-grib2` reads those
+templates (4.1, 4.2, 4.5, 4.6, 4.7, 4.9, 4.10, 4.12, 4.15) through that common
+block since #959, and these pin the octets it reads against eccodes:
+
+- `ensemble_member_4_1.grib2`: template 4.1, ensemble type 3, member 7 of 20.
+- `derived_max_4_12.grib2`: template 4.12, derived forecast 0 (unweighted mean)
+  of 20 members, over a 0-6 h maximum (statistical process 2). Its 4.8-style
+  interval follows the template's own two octets, so it shows the reader finds
+  that block in the right place.
+
+Built by `tools/build_grib2_shared_layout_fixtures.py` from
+`regular_latlon_surface.grib2` (above) with only §4 changed, so the grid,
+packing and values are that fixture's (16 × 31, about 1.2 KB each). Encoded
+with the `eccodes` PyPI wheel (2.48), which writes these templates from their
+keys; **verified with the pinned 2.34.1**: the builder reads the template
+number, parameter and ensemble or interval keys back through `grib_get` and
+fails on any mismatch, and `tools/regenerate-eccodes-snapshots.py` records the
+§4 keys (parameter, both surfaces, forecast time, statistical process, its
+length and the interval's end) in each `.eccodes.ref.json`, which
+`tests/eccodes_reference.rs` compares field by field. eccodes is released under
+the Apache 2.0 license.
+
 ## CCSDS `ccsdsFlags` fixtures (#756)
 
 Four 5.42 fixtures re-flag a committed CCSDS fixture with the pinned eccodes
