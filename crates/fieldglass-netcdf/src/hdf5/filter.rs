@@ -179,10 +179,10 @@ impl FilterPipeline {
     /// plus 4 KiB for fletcher32, deflate and zstd, 33 times for szip. The
     /// caller must still check that the result is exactly `expected_len`.
     ///
-    /// An `expected_len` past [`MAX_DECOMPRESSED_CHUNK`] is refused as
+    /// An `expected_len` past 256 MiB (`MAX_DECOMPRESSED_CHUNK`) is refused as
     /// [`ArrayError::ChunkTooLarge`] before any filter runs, unless the mask
     /// skips every filter and the chunk passes through as stored. A chunk
-    /// reader refuses it before reading the chunk ([`check_chunk_size`]);
+    /// reader refuses it before reading the chunk (`check_chunk_size`);
     /// this is the backstop for any other caller, and is what keeps every
     /// codec's exact length within the ceiling.
     pub fn reverse(
