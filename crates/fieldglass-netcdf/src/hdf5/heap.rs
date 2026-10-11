@@ -27,7 +27,7 @@ use fieldglass_core::bytes::{ByteSource, checked_usize};
 
 /// What a second claim of a fractal heap or B-tree v2 header means: two
 /// objects share one dense attribute or link store (ADR-0016 decision 2).
-const DENSE_STORE: &str = "dense attribute or link storage";
+const DENSE_STORE: &str = "dense attribute or link store";
 
 const SIG_BTREE_V2_HDR: &[u8; 4] = b"BTHD";
 const SIG_BTREE_V2_INTERNAL: &[u8; 4] = b"BTIN";

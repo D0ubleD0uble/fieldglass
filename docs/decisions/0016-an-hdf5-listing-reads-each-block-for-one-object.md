@@ -71,10 +71,10 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
 
    | Claim | Class |
    | --- | --- |
-   | fractal-heap header, B-tree v2 header (a dense attribute or link store) claimed again | `SharedStorage`, "dense attribute or link storage" |
+   | fractal-heap header, B-tree v2 header (a dense attribute or link store, or a heap's huge-object index) claimed again | `SharedStorage`, "dense attribute or link store" |
    | local heap header or data segment claimed again | `SharedStorage`, "local heap" |
    | object-header chunk, B-tree v1 node, `SNOD`, group member name, B-tree v2 node, huge or managed heap object | `Parse`: the specification or libhdf5 treats a second name for these as corrupt (ADR-0014) |
-   | a store claim that overlaps anything but an identical earlier store claim | `Parse` |
+   | a store claim that overlaps anything but an identical earlier claim of the same kind (a local heap header laid on another heap's data segment is corrupt) | `Parse` |
 3. **Exempt:** an object reached by two hard links is one object. Its header
    chunks are claimed on its first visit, and resolution describes it once and
    lists it under each name. A global-heap collection is legitimately shared

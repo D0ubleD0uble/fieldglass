@@ -240,13 +240,13 @@ pub(crate) struct ClaimedRanges {
     /// The first few ranges, held inline: a header has its chunk 0 and a
     /// continuation or two, a small B-tree a node or two, and a map that is
     /// never inserted into never allocates. Start, end (exclusive) and whether
-    /// the range is a store (see [`ClaimedRanges::claim_store`]).
-    inline: [(u64, u64, bool); CLAIMS_INLINE],
+    /// the range is a store, and which kind (see [`ClaimedRanges::claim_store`]).
+    inline: [(u64, u64, Option<&'static str>); CLAIMS_INLINE],
     /// How many of `inline` are in use.
     held: usize,
-    /// Start → end (exclusive) and store flag of every range past the inline
+    /// Start → end (exclusive) and store kind of every range past the inline
     /// ones.
-    ranges: std::collections::BTreeMap<u64, (u64, bool)>,
+    ranges: std::collections::BTreeMap<u64, (u64, Option<&'static str>)>,
 }
 
 /// Ranges [`ClaimedRanges`] holds before it allocates.
@@ -277,16 +277,17 @@ impl ClaimedRanges {
     /// by a store claim is [`ArrayError::SharedStorage`], which says the file
     /// is fine and reaches a host as `unsupported`. `store` names what is
     /// shared. An overlap that is not an exact repeat of an earlier store
-    /// claim (a store overlapping an object header, a heap cutting across
+    /// claim of the same kind, `what` (a store overlapping an object header, a
+    /// heap header laid on another heap's data segment, a heap cutting across
     /// another) is still [`FieldglassError::Parse`].
     pub(crate) fn claim_store(
         &mut self,
         start: u64,
         len: u64,
-        what: &str,
+        what: &'static str,
         store: &'static str,
     ) -> Result<(), FieldglassError> {
-        self.claim_as(start, len, what, Some(store))
+        self.claim_as(start, len, what, Some((what, store)))
     }
 
     fn claim_as(
@@ -294,7 +295,7 @@ impl ClaimedRanges {
         start: u64,
         len: u64,
         what: &str,
-        store: Option<&'static str>,
+        store: Option<(&'static str, &'static str)>,
     ) -> Result<(), FieldglassError> {
         let end = start.checked_add(len.max(1)).ok_or_else(|| {
             FieldglassError::Parse(format!("{what} at {start} runs past the address space"))
@@ -308,8 +309,8 @@ impl ClaimedRanges {
             || after.is_some_and(|(&s, _)| s < end);
         if overlaps {
             // The same block, claimed again as a store.
-            if let Some(store) = store
-                && self.is_store(start, end)
+            if let Some((kind, store)) = store
+                && self.is_store(start, end, kind)
             {
                 return Err(FieldglassError::Array(ArrayError::SharedStorage {
                     what: store,
@@ -319,25 +320,25 @@ impl ClaimedRanges {
                 "{what} at {start} overlaps one already read; each is read once"
             )));
         }
-        let is_store = store.is_some();
+        let kind = store.map(|(kind, _)| kind);
         if self.held < CLAIMS_INLINE {
-            self.inline[self.held] = (start, end, is_store);
+            self.inline[self.held] = (start, end, kind);
             self.held += 1;
         } else {
-            self.ranges.insert(start, (end, is_store));
+            self.ranges.insert(start, (end, kind));
         }
         Ok(())
     }
 
-    /// Whether exactly `start..end` was claimed as a store.
-    fn is_store(&self, start: u64, end: u64) -> bool {
+    /// Whether exactly `start..end` was claimed as a store of this `kind`.
+    fn is_store(&self, start: u64, end: u64, kind: &str) -> bool {
         self.inline[..self.held]
             .iter()
-            .any(|&(s, e, store)| store && s == start && e == end)
+            .any(|&(s, e, k)| k == Some(kind) && s == start && e == end)
             || self
                 .ranges
                 .get(&start)
-                .is_some_and(|&(e, store)| store && e == end)
+                .is_some_and(|&(e, k)| k == Some(kind) && e == end)
     }
 }
 
@@ -524,8 +525,12 @@ mod claimed_ranges_tests {
             c.claim_store(100, 50, "heap header", "heap").unwrap_err()
         ));
         // A different range cutting across a store, or a store cutting across
-        // a plain claim, or a plain claim repeating a store, is corrupt.
+        // a plain claim, or a plain claim repeating a store, or a store of
+        // another kind repeating this one (a header laid on a data segment), is
+        // corrupt.
         for err in [
+            c.claim_store(100, 50, "heap data segment", "heap")
+                .unwrap_err(),
             c.claim_store(120, 50, "heap header", "heap").unwrap_err(),
             c.claim_store(200, 10, "heap header", "heap").unwrap_err(),
             c.claim(100, 50, "chunk").unwrap_err(),

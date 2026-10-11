@@ -165,7 +165,7 @@ fn datasets_sharing_one_dense_attribute_store_are_refused() {
     assert_eq!(list_all_children(&source, &p).unwrap().len(), 257);
     source.clear();
     let (peak, resolved) = peak_while(|| resolve_hdf5_metadata(&source, &p));
-    refused_by_policy(resolved, "dense attribute or link storage");
+    refused_by_policy(resolved, "dense attribute or link store");
     // `owner`'s 64 attributes, each read once. Every dataset read all 64,
     // twice: 32,896 reads.
     assert!(reads_of(&source, 3000) <= 64, "{}", reads_of(&source, 3000));
@@ -178,7 +178,7 @@ fn groups_sharing_one_dense_link_store_are_refused() {
     let p = probe(LINKS);
     let source = Recording::new(LINKS);
     let (peak, listed) = peak_while(|| list_all_children(&source, &p));
-    refused_by_policy(listed, "dense attribute or link storage");
+    refused_by_policy(listed, "dense attribute or link store");
     // `owner`'s 64 link names, each read once, and its B-tree leaf. Every
     // group read all 64.
     let names: Vec<_> = source

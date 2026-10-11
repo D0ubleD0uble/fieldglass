@@ -8,6 +8,10 @@
 //! names one listing holds. h5py visits all of it. Embedded so the
 //! `wasm32-wasip1` run reads it. The reader-level test is `fieldglass-netcdf`'s
 //! `tests/hdf5_shared_blocks.rs`.
+//!
+//! The shared-block fixtures (`hdf5_shared_*.h5`) are valid files that libhdf5
+//! reads, except the continuation one, which it refuses too. The three it reads
+//! are `unsupported` and the continuation file is `decode` (#987).
 
 use fieldglass::Session;
 
@@ -40,8 +44,8 @@ const CONTINUATION: &[u8] =
 #[test]
 fn a_store_libhdf5_reads_is_unsupported_and_a_block_it_refuses_is_decode() {
     for (name, bytes, store) in [
-        ("attributes", ATTRIBUTES, "dense attribute or link storage"),
-        ("links", LINKS, "dense attribute or link storage"),
+        ("attributes", ATTRIBUTES, "dense attribute or link store"),
+        ("links", LINKS, "dense attribute or link store"),
         ("local heap", LOCAL_HEAP, "local heap"),
     ] {
         let refused = Session::open(bytes.to_vec()).expect_err(name);
