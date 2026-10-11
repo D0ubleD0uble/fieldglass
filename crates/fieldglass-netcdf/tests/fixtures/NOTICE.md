@@ -393,6 +393,61 @@ of the second shape, 8,192 references to one `SNOD`, made a 197 KB file use
 3.85 GB. `tests/hdf5_shared_snod.rs` checks both refusals through a
 recording source.
 
+## Shared block fixtures (`hdf5_shared_continuation.h5`, `hdf5_shared_attribute_storage.h5`, `hdf5_shared_link_storage.h5`, `hdf5_shared_local_heap.h5`, `hdf5_deep_group_chain.h5`, `hdf5_hard_linked_dense_attributes.h5`)
+
+Six files for #921, built by `tools/build_hdf5_shared_block_fixtures.py`
+(reproducible byte for byte) from h5py 3.16.0 files (libhdf5 2.0.0). In the
+first four, many objects or groups name one stored block, which a valid file
+gives to one object alone; the builder patches h5py's output and recomputes
+every version-2 object-header checksum it touches. `--scale K` builds the same
+shapes with `K` times the objects, for measuring.
+
+- `hdf5_shared_continuation.h5` (360,520 bytes, `libver='earliest'`): 256
+  datasets, each of whose version-1 headers turns its free-space message into
+  a continuation to one appended 256 KiB chunk of NIL messages. libhdf5 opens
+  the first dataset and refuses the second ("incorrect number of chunks after
+  deserializing object header chunk").
+- `hdf5_shared_attribute_storage.h5` (329,003 bytes, `libver='latest'`):
+  dataset `owner` holds 64 attributes of 3,000 bytes in dense storage. 256
+  datasets point their Attribute Info message at its fractal heap and name
+  B-tree. h5py lists the 64 attributes on every one.
+- `hdf5_shared_link_storage.h5` (122,964 bytes, `libver='latest'`): group
+  `owner` holds 64 hard links, named with 1,000 characters, to one dataset, in
+  dense storage. 256 groups point their Link Info message at its heap and
+  B-tree. h5py lists the 64 members of every one.
+- `hdf5_shared_local_heap.h5` (265,848 bytes, `libver='earliest'`): the root
+  holds a dataset named with 60,000 `L` characters and 128 groups. Each group
+  points its symbol-table message at the root's local heap, and its one entry
+  at the long name and the long-named dataset. h5py lists every group's one
+  member.
+- `hdf5_deep_group_chain.h5` (212,863 bytes, `libver='latest'`): 600 nested
+  groups named with 200 characters, and a dataset `v` = `[0, 1, 2, 3]` at the
+  bottom. A valid file, not patched; h5py visits all 601 objects.
+- `hdf5_hard_linked_dense_attributes.h5` (3,088 bytes, `libver='latest'`):
+  dataset `v`, `[0, 1, 2, 3]` with twelve `int32` attributes `a00` to `a11` in
+  dense storage, also linked as `w`. A valid file, not patched; h5py lists the
+  twelve attributes under both names.
+
+Read once per object, the shared block made the listing's cost grow with the
+number of objects times the block: the attribute file resolved at 103 MB of
+RSS, and at four times the objects 403 MB. Fieldglass now claims every block a
+whole-file listing reads and refuses a second claim from another object, so it
+refuses the first four and reads each shared block at most twice.
+
+**Known divergence from libhdf5.** libhdf5 reads the attribute, link and
+local-heap files, giving every object the shared contents. The format does not
+state that these are shared: the Attribute Info and Link Info messages name
+"the fractal heap" storing the object's dense attributes or links, and a
+symbol-table group stores its link names in "the group's local heap"
+(HDF5 File Format Specification version 3, "Attribute Info Message", "Link
+Info Message", "Local Heaps"). No writer shares one, and reading it once per
+object is what makes a small file expensive, so Fieldglass refuses it, as it
+refused two members of one group sharing a name (#901).
+`tests/hdf5_shared_blocks.rs` checks each refusal, how often the block is
+read, and the listing's peak heap; the chain lists at 1.3 MB of peak heap
+where it took 73 MB, and the hard-linked file lists both names with all twelve
+attributes.
+
 ## Local heap segment fixtures (`hdf5_local_heap_short.h5`, `hdf5_local_heap_unterminated.h5`)
 
 Two files for #908, built by `tools/build_hdf5_local_heap_fixture.py`

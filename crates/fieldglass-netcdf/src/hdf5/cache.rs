@@ -38,7 +38,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use super::BtreeK;
 use super::group::GroupChild;
-use super::object_header::{self, ObjectHeader};
+use super::object_header::{self, HeaderChunks, ObjectHeader};
 use super::values::ChunkRecord;
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteSource, SourceIdentity};
@@ -161,12 +161,16 @@ impl ExpandedStore {
 /// [`Hdf5Cache::chunks`] for why the rank is part of the key.
 type ChunkIndexKey = (u64, usize);
 
+/// A parsed object header with the file ranges it was read from, which a
+/// whole-file listing claims (#921).
+pub(crate) type WalkedHeader = (Arc<ObjectHeader>, Arc<HeaderChunks>);
+
 /// The object-header memo and the bytes it is holding, behind one lock so the
 /// two cannot disagree — two threads that miss on the same offset would
 /// otherwise each add its size to a separately-locked total.
 #[derive(Debug, Default)]
 struct HeaderStore {
-    by_offset: HashMap<u64, Arc<ObjectHeader>>,
+    by_offset: HashMap<u64, WalkedHeader>,
     /// Retained message bytes, against [`HEADER_BYTE_BUDGET`].
     bytes: usize,
 }
@@ -242,30 +246,32 @@ impl Hdf5Cache {
     /// contract — a probe carries another file's offset sizes otherwise — but a
     /// memo makes a mismatch return *stale* data rather than a parse error, so
     /// it is worth stating.
+    ///
+    /// Returned with the file ranges the header was read from.
     pub(crate) fn header<S: ByteSource + ?Sized>(
         &self,
         source: &S,
         offset: u64,
         offset_size: u8,
         length_size: u8,
-    ) -> Result<Arc<ObjectHeader>, FieldglassError> {
+    ) -> Result<WalkedHeader, FieldglassError> {
+        let walk = || -> Result<WalkedHeader, FieldglassError> {
+            let (header, chunks) =
+                object_header::walk_chunks(source, offset, offset_size, length_size)?;
+            Ok((Arc::new(header), Arc::new(chunks)))
+        };
         if !self.usable(source) {
             self.traversals.fetch_add(1, Ordering::Relaxed);
-            return Ok(Arc::new(object_header::walk(
-                source,
-                offset,
-                offset_size,
-                length_size,
-            )?));
+            return walk();
         }
-        if let Some(hit) = self
+        if let Some((header, chunks)) = self
             .headers
             .lock()
             .expect("hdf5 header cache poisoned")
             .by_offset
             .get(&offset)
         {
-            return Ok(Arc::clone(hit));
+            return Ok((Arc::clone(header), Arc::clone(chunks)));
         }
 
         // Parsed outside the lock: a malformed header can walk a long
@@ -274,23 +280,21 @@ impl Hdf5Cache {
         // same offset; the loser adopts the winner's copy below, so callers
         // still share one header rather than two.
         self.traversals.fetch_add(1, Ordering::Relaxed);
-        let header = Arc::new(object_header::walk(
-            source,
-            offset,
-            offset_size,
-            length_size,
-        )?);
-        let retained: usize = header.messages.iter().map(|m| m.body.len()).sum();
+        let (header, chunks) = walk()?;
+        let retained: usize = header.messages.iter().map(|m| m.body.len()).sum::<usize>()
+            + chunks.len() * std::mem::size_of::<(u64, u64)>();
 
         let mut store = self.headers.lock().expect("hdf5 header cache poisoned");
-        if let Some(won) = store.by_offset.get(&offset) {
-            return Ok(Arc::clone(won));
+        if let Some((header, chunks)) = store.by_offset.get(&offset) {
+            return Ok((Arc::clone(header), Arc::clone(chunks)));
         }
         if store.bytes + retained <= HEADER_BYTE_BUDGET {
             store.bytes += retained;
-            store.by_offset.insert(offset, Arc::clone(&header));
+            store
+                .by_offset
+                .insert(offset, (Arc::clone(&header), Arc::clone(&chunks)));
         }
-        Ok(header)
+        Ok((header, chunks))
     }
 
     /// The whole-file depth-first child list, walked only once.

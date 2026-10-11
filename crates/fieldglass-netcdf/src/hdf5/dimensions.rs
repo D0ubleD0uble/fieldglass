@@ -37,6 +37,7 @@ use super::datatype::{self, VlenBase};
 use super::global_heap;
 use super::group::{self, ChildKind};
 use super::object_header::read_uint_le;
+use super::source::ClaimedRanges;
 use super::{Hdf5Probe, root_group_address};
 use crate::classic::NcType;
 // The netCDF-C naming rule for anonymous axes, in core since #704 so the Zarr
@@ -147,6 +148,7 @@ pub struct Hdf5Metadata {
 
 /// A dimension scale, keyed in the table by its object-header address so a
 /// `DIMENSION_LIST` reference can resolve back to its name.
+#[derive(Clone)]
 struct DimScale {
     name: String,
     length: u64,
@@ -158,6 +160,7 @@ struct DimScale {
 }
 
 /// Per-dataset facts gathered in one header walk, reused across both passes.
+#[derive(Clone)]
 struct DatasetInfo {
     address: u64,
     name: String,
@@ -170,6 +173,9 @@ struct DatasetInfo {
     unlimited_axes: Vec<bool>,
     attributes: Vec<Hdf5Attribute>,
     scale: Option<DimScale>,
+    /// The raw `DIMENSION_LIST`, read with the other attributes, for a dataset
+    /// that is not itself a scale.
+    dimension_list: Option<attribute::RawAttribute>,
 }
 
 /// Resolve the root group's dimensions, variables, and global attributes.
@@ -187,21 +193,47 @@ pub fn resolve<S: ByteSource + ?Sized>(
     probe: &Hdf5Probe,
 ) -> Result<Hdf5Metadata, FieldglassError> {
     let mut unsupported = Vec::new();
-    let datasets: Vec<Option<DatasetInfo>> = group::all_children(source, probe)?
-        .iter()
-        .filter(|c| c.kind == ChildKind::Dataset)
-        .map(|child| match describe(source, probe, child.clone()) {
-            Ok(info) => Ok(Some(info)),
-            Err(e @ FieldglassError::UnsupportedSection(_)) => {
+    // The file ranges the listing has read: every object's dense attribute
+    // storage is claimed in it, so objects sharing one store are refused
+    // rather than each reading all of it (#921).
+    let mut file = ClaimedRanges::default();
+    // An object reached by two hard links is one object, described once and
+    // listed under each name. Described again, its attribute storage would
+    // be claimed twice.
+    let mut seen: HashMap<u64, Result<usize, String>> = HashMap::new();
+    let mut datasets: Vec<Option<DatasetInfo>> = Vec::new();
+    let children = group::all_children(source, probe)?;
+    for child in children.iter().filter(|c| c.kind == ChildKind::Dataset) {
+        let described = match seen.get(&child.object_header_address) {
+            Some(Ok(first)) => datasets[*first]
+                .clone()
+                .map(|info| info.renamed(&child.name)),
+            Some(Err(reason)) => {
                 unsupported.push(UnsupportedVariable {
                     name: child.name.clone(),
-                    reason: e.to_string(),
+                    reason: reason.clone(),
                 });
-                Ok(None)
+                None
             }
-            Err(other) => Err(other),
-        })
-        .collect::<Result<_, _>>()?;
+            None => match describe(source, probe, child.clone(), &mut file) {
+                Ok(info) => {
+                    seen.insert(child.object_header_address, Ok(datasets.len()));
+                    Some(info)
+                }
+                Err(e @ FieldglassError::UnsupportedSection(_)) => {
+                    let reason = e.to_string();
+                    seen.insert(child.object_header_address, Err(reason.clone()));
+                    unsupported.push(UnsupportedVariable {
+                        name: child.name.clone(),
+                        reason,
+                    });
+                    None
+                }
+                Err(other) => return Err(other),
+            },
+        };
+        datasets.push(described);
+    }
 
     // Pass 1: a table from each scale's object-header address to its name, plus
     // the ordered dimension list.
@@ -226,9 +258,17 @@ pub fn resolve<S: ByteSource + ?Sized>(
     by_name.sort_by(|(_, a), (_, b)| a.name.cmp(&b.name));
     let mut phony = PhonyDimensions::default();
     let mut dimension_names: Vec<Vec<String>> = vec![Vec::new(); datasets.len()];
+    // One scan of each global-heap collection, however many variables refer
+    // into it (#921).
+    let mut collections = global_heap::Collections::default();
     for (index, d) in by_name {
-        dimension_names[index] =
-            resolve_variable_dimensions(source, probe, d, &name_by_address, &mut phony)?;
+        dimension_names[index] = resolve_variable_dimensions(
+            source,
+            probe,
+            d,
+            &name_by_address,
+            (&mut phony, &mut collections),
+        )?;
     }
 
     let dimensions = build_dimensions(&datasets, &phony);
@@ -258,10 +298,10 @@ pub fn resolve<S: ByteSource + ?Sized>(
     }
     variables.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let global_attributes = visible_attributes(&attribute::list_attributes(
-        source,
-        root_group_address(source, probe)?,
-        probe,
+    let root = root_group_address(source, probe)?;
+    let global_attributes = visible_attributes(&attribute::parse_bodies(
+        &attribute::message_bodies_in(source, root, probe, &mut file)?,
+        probe.length_size,
     )?);
 
     Ok(Hdf5Metadata {
@@ -274,13 +314,18 @@ pub fn resolve<S: ByteSource + ?Sized>(
 
 /// Gather one dataset's name, element type, rank, attributes, and — if it is a
 /// dimension scale — its scale entry, from a single header walk.
+///
+/// The attributes are read once, dense storage claimed in `file`, and the raw
+/// `DIMENSION_LIST` is taken from the same read.
 fn describe<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
     child: group::GroupChild,
+    file: &mut ClaimedRanges,
 ) -> Result<DatasetInfo, FieldglassError> {
     let shape = dataset::describe(source, child.object_header_address, probe)?;
-    let attributes = attribute::list_attributes(source, child.object_header_address, probe)?;
+    let bodies = attribute::message_bodies_in(source, child.object_header_address, probe, file)?;
+    let attributes = attribute::parse_bodies(&bodies, probe.length_size)?;
     let attr = |name: &str| attributes.iter().find(|a| a.name == name);
 
     let is_scale = attr("CLASS").is_some_and(|a| a.value == "DIMENSION_SCALE");
@@ -298,6 +343,12 @@ fn describe<S: ByteSource + ?Sized>(
             has_coordinate_values: !placeholder,
         }
     });
+    // A coordinate variable's axis is itself; any other reads its list.
+    let dimension_list = if scale.is_none() {
+        attribute::raw_in_bodies(&bodies, "DIMENSION_LIST", probe.length_size)?
+    } else {
+        None
+    };
 
     Ok(DatasetInfo {
         address: child.object_header_address,
@@ -317,7 +368,21 @@ fn describe<S: ByteSource + ?Sized>(
         extents: shape.dataspace.dims,
         attributes,
         scale,
+        dimension_list,
     })
+}
+
+impl DatasetInfo {
+    /// The same dataset under another of its names: a second hard link to it.
+    /// A scale's dimension is named by the link it is reached through, as
+    /// describing it again under that name did.
+    fn renamed(mut self, name: &str) -> Self {
+        name.clone_into(&mut self.name);
+        if let Some(scale) = &mut self.scale {
+            name.clone_into(&mut scale.name);
+        }
+        self
+    }
 }
 
 /// Build the dimension list, ordered by `_Netcdf4Dimid` (falling back to
@@ -368,15 +433,21 @@ fn resolve_variable_dimensions<S: ByteSource + ?Sized>(
     probe: &Hdf5Probe,
     d: &DatasetInfo,
     name_by_address: &HashMap<u64, String>,
-    phony: &mut PhonyDimensions,
+    (phony, collections): (&mut PhonyDimensions, &mut global_heap::Collections),
 ) -> Result<Vec<String>, FieldglassError> {
     if d.scale.is_some() {
         // A coordinate variable carries no DIMENSION_LIST; its axis is its own
         // dimension.
         return Ok(vec![d.name.clone()]);
     }
-    match attribute::raw_attribute(source, d.address, probe, "DIMENSION_LIST")? {
-        Some(raw) => decode_dimension_list(source, probe, &raw, d.extents.len(), name_by_address),
+    match &d.dimension_list {
+        Some(raw) => decode_dimension_list(
+            source,
+            probe,
+            raw,
+            (d.extents.len(), name_by_address),
+            collections,
+        ),
         None => Ok(phony.axes_for(&d.extents, &d.unlimited_axes)),
     }
 }
@@ -388,8 +459,8 @@ fn decode_dimension_list<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
     raw: &attribute::RawAttribute,
-    rank: usize,
-    name_by_address: &HashMap<u64, String>,
+    (rank, name_by_address): (usize, &HashMap<u64, String>),
+    collections: &mut global_heap::Collections,
 ) -> Result<Vec<String>, FieldglassError> {
     let vlen = datatype::decode_vlen(&raw.datatype_bytes)?;
     if !vlen.is_sequence || !matches!(vlen.base, VlenBase::Reference(_)) {
@@ -433,7 +504,7 @@ fn decode_dimension_list<S: ByteSource + ?Sized>(
                 FieldglassError::Parse("DIMENSION_LIST global-heap object index exceeds u16".into())
             })?;
         let object =
-            global_heap::read_object(source, collection_addr, object_index, probe.length_size)?;
+            collections.read_object(source, collection_addr, object_index, probe.length_size)?;
         // netCDF-4 attaches exactly one scale per axis; take the first reference.
         let referenced = read_uint_le(&object, 0, o)?;
         let name = name_by_address.get(&referenced).ok_or_else(|| {
