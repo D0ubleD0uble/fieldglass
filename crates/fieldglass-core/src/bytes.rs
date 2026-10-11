@@ -172,6 +172,18 @@ pub enum SourceIdentity {
         /// forgot to version it.
         size: u64,
     },
+    /// Another source's bytes, read from `offset` on.
+    ///
+    /// What an adapter that shifts addresses answers, such as the HDF5
+    /// reader's view of a file from its superblock past a userblock (#936).
+    /// The same bytes from a different start are a different source to a memo
+    /// keyed by offset, so the shift is part of the identity.
+    Offset {
+        /// The identity of the source being read from `offset` on.
+        source: Box<SourceIdentity>,
+        /// How far into that source this one begins.
+        offset: u64,
+    },
 }
 
 impl SourceIdentity {
@@ -194,6 +206,19 @@ impl SourceIdentity {
         Self::Named {
             name: name.into(),
             size,
+        }
+    }
+
+    /// The identity of this source read from `offset` on. Offset 0 is the
+    /// source itself, so it answers `self` unchanged.
+    #[must_use]
+    pub fn offset(self, offset: u64) -> Self {
+        if offset == 0 {
+            return self;
+        }
+        Self::Offset {
+            source: Box::new(self),
+            offset,
         }
     }
 }

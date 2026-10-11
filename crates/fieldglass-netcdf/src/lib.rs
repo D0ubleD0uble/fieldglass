@@ -49,6 +49,8 @@ pub use fieldglass_core::{GridGeometry, Scan};
 // ranges out and `classic::decode_variable_raw_from` takes a source back:
 // the seam is unusable from outside if its two types cannot be named.
 pub use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
+// What `hdf5::Addressed`'s `ByteSource::identity` returns (#936).
+pub use fieldglass_core::SourceIdentity;
 pub use geometry::{
     AxisKind, CurvilinearCoords, DatasetView, RenderableVariable, SliceGeometry, VarView,
     corner_and_regularity, detect_axis, extract_plane, synthesize_geometry,

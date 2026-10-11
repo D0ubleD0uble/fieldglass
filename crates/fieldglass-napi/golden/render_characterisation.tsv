@@ -1353,6 +1353,24 @@ netcdf/hdf5_implicit_index.h5#implicit_partial	render/equirectangular/nearest	er
 netcdf/hdf5_implicit_index.h5#implicit_partial	render/source/nearest	ok w=7 h=5 opaque=35	dc1054ebff3c5295
 netcdf/hdf5_local_heap_short.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_local_heap_unterminated.h5	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/hdf5_no_userblock_earliest.h5	file	parsed=true fields=2	fc2e429795c3205d
+netcdf/hdf5_no_userblock_earliest.h5#c	combine/a_minus_b/render/source/nearest	ok w=8 h=6 opaque=48	f2c623b28b1637da
+netcdf/hdf5_no_userblock_earliest.h5#c	meta	family=source ni=8 nj=6 reprojectable=false	697d93c1d205e745
+netcdf/hdf5_no_userblock_earliest.h5#c	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_no_userblock_earliest.h5#c	render/source/nearest	ok w=8 h=6 opaque=48	aebd49db031a8df1
+netcdf/hdf5_no_userblock_earliest.h5#v	combine/a_minus_b/render/source/nearest	ok w=5 h=4 opaque=20	7ff81f344a5847f8
+netcdf/hdf5_no_userblock_earliest.h5#v	meta	family=latlon ni=5 nj=4 reprojectable=true	75f56ed880eac410
+netcdf/hdf5_no_userblock_earliest.h5#v	render/equirectangular/nearest	ok w=720 h=576 opaque=414000	abdf2c1348ee8822
+netcdf/hdf5_no_userblock_earliest.h5#v	render/source/nearest	ok w=5 h=4 opaque=20	f0c8495dc0c1ceb0
+netcdf/hdf5_no_userblock_latest.h5	file	parsed=true fields=2	fc2e429795c3205d
+netcdf/hdf5_no_userblock_latest.h5#c	combine/a_minus_b/render/source/nearest	ok w=8 h=6 opaque=48	f2c623b28b1637da
+netcdf/hdf5_no_userblock_latest.h5#c	meta	family=source ni=8 nj=6 reprojectable=false	697d93c1d205e745
+netcdf/hdf5_no_userblock_latest.h5#c	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_no_userblock_latest.h5#c	render/source/nearest	ok w=8 h=6 opaque=48	aebd49db031a8df1
+netcdf/hdf5_no_userblock_latest.h5#v	combine/a_minus_b/render/source/nearest	ok w=5 h=4 opaque=20	7ff81f344a5847f8
+netcdf/hdf5_no_userblock_latest.h5#v	meta	family=latlon ni=5 nj=4 reprojectable=true	75f56ed880eac410
+netcdf/hdf5_no_userblock_latest.h5#v	render/equirectangular/nearest	ok w=720 h=576 opaque=414000	abdf2c1348ee8822
+netcdf/hdf5_no_userblock_latest.h5#v	render/source/nearest	ok w=5 h=4 opaque=20	f0c8495dc0c1ceb0
 netcdf/hdf5_off_grid_chunk_record.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_outside_chunk_record.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_oversized_chunk.h5	file	parsed=true fields=0	fc2e409795c31cf7
@@ -1475,6 +1493,24 @@ netcdf/hdf5_szip_long_stream.h5#f8_long_stream	combine/a_minus_b/render/source/n
 netcdf/hdf5_szip_long_stream.h5#f8_long_stream	meta	family=source ni=8 nj=4 reprojectable=false	c6cfc286beefff7d
 netcdf/hdf5_szip_long_stream.h5#f8_long_stream	render/equirectangular/nearest	err: parse error: szip decompress failed: an szip output of # bytes is shorter than its stream of #- or #-bit pixels: # bytes are left after the last pixel	21b7b0239821cc8d
 netcdf/hdf5_szip_long_stream.h5#f8_long_stream	render/source/nearest	err: parse error: szip decompress failed: an szip output of # bytes is shorter than its stream of #- or #-bit pixels: # bytes are left after the last pixel	21b7b0239821cc8d
+netcdf/hdf5_userblock_earliest.h5	file	parsed=true fields=2	fc2e429795c3205d
+netcdf/hdf5_userblock_earliest.h5#c	combine/a_minus_b/render/source/nearest	ok w=8 h=6 opaque=48	f2c623b28b1637da
+netcdf/hdf5_userblock_earliest.h5#c	meta	family=source ni=8 nj=6 reprojectable=false	697d93c1d205e745
+netcdf/hdf5_userblock_earliest.h5#c	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_userblock_earliest.h5#c	render/source/nearest	ok w=8 h=6 opaque=48	aebd49db031a8df1
+netcdf/hdf5_userblock_earliest.h5#v	combine/a_minus_b/render/source/nearest	ok w=5 h=4 opaque=20	7ff81f344a5847f8
+netcdf/hdf5_userblock_earliest.h5#v	meta	family=latlon ni=5 nj=4 reprojectable=true	75f56ed880eac410
+netcdf/hdf5_userblock_earliest.h5#v	render/equirectangular/nearest	ok w=720 h=576 opaque=414000	abdf2c1348ee8822
+netcdf/hdf5_userblock_earliest.h5#v	render/source/nearest	ok w=5 h=4 opaque=20	f0c8495dc0c1ceb0
+netcdf/hdf5_userblock_latest.h5	file	parsed=true fields=2	fc2e429795c3205d
+netcdf/hdf5_userblock_latest.h5#c	combine/a_minus_b/render/source/nearest	ok w=8 h=6 opaque=48	f2c623b28b1637da
+netcdf/hdf5_userblock_latest.h5#c	meta	family=source ni=8 nj=6 reprojectable=false	697d93c1d205e745
+netcdf/hdf5_userblock_latest.h5#c	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_userblock_latest.h5#c	render/source/nearest	ok w=8 h=6 opaque=48	aebd49db031a8df1
+netcdf/hdf5_userblock_latest.h5#v	combine/a_minus_b/render/source/nearest	ok w=5 h=4 opaque=20	7ff81f344a5847f8
+netcdf/hdf5_userblock_latest.h5#v	meta	family=latlon ni=5 nj=4 reprojectable=true	75f56ed880eac410
+netcdf/hdf5_userblock_latest.h5#v	render/equirectangular/nearest	ok w=720 h=576 opaque=414000	abdf2c1348ee8822
+netcdf/hdf5_userblock_latest.h5#v	render/source/nearest	ok w=5 h=4 opaque=20	f0c8495dc0c1ceb0
 netcdf/hdf5_v1_symboltable.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_v1_symboltable.h5#compressed	combine/a_minus_b/render/source/nearest	ok w=8 h=8 opaque=64	29a44140c38c441a
 netcdf/hdf5_v1_symboltable.h5#compressed	meta	family=source ni=8 nj=8 reprojectable=false	4d0d1b7eddd01ecd

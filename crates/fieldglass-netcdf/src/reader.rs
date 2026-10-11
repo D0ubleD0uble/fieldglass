@@ -9,6 +9,7 @@ use crate::geometry::{DatasetView, VarView};
 use crate::hdf5::{self, Hdf5Probe};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::CfUnpacking;
+use fieldglass_core::bytes::ByteSource;
 
 /// Which on-disk layout backs a NetCDF file.
 #[derive(Debug, Clone)]
@@ -58,7 +59,8 @@ impl NetcdfReader {
         let backing = if data.len() >= 4 && &data[0..3] == b"CDF" {
             let header = classic::parse_header(&data)?;
             NetcdfBacking::Classic(header)
-        } else if data.len() >= 8 && data[0..8] == hdf5::HDF5_SIGNATURE {
+        } else if hdf5::find_signature(&data).is_some() {
+            // At byte 0, or after a userblock (#936).
             let probe = hdf5::probe(&data)?;
             NetcdfBacking::Hdf5(probe)
         } else {
@@ -93,8 +95,9 @@ impl NetcdfReader {
                 classic::decode_variable_raw(header, &self.data, var_index)
             }
             NetcdfBacking::Hdf5(probe) => {
-                let addr = hdf5_dataset_address(&self.data, probe, var_index)?;
-                hdf5::values::read_dataset_values(&self.data, addr, probe)
+                let file = probe.addressed(&self.data);
+                let addr = hdf5_dataset_address(&file, probe, var_index)?;
+                hdf5::values::read_dataset_values(&file, addr, probe)
             }
         }
     }
@@ -126,8 +129,9 @@ impl NetcdfReader {
                 classic::decode_region_raw_from(header, &self.data, var_index, region)
             }
             NetcdfBacking::Hdf5(probe) => {
-                let addr = hdf5_dataset_address(&self.data, probe, var_index)?;
-                hdf5::values::read_dataset_region(&self.data, addr, probe, region)
+                let file = probe.addressed(&self.data);
+                let addr = hdf5_dataset_address(&file, probe, var_index)?;
+                hdf5::values::read_dataset_region(&file, addr, probe, region)
             }
         }
     }
@@ -146,7 +150,9 @@ impl NetcdfReader {
     /// [`hdf5::dimensions::Hdf5Metadata::unsupported`] (#550).
     pub fn hdf5_metadata(&self) -> Result<hdf5::dimensions::Hdf5Metadata, FieldglassError> {
         match &self.backing {
-            NetcdfBacking::Hdf5(probe) => hdf5::dimensions::resolve(&self.data, probe),
+            NetcdfBacking::Hdf5(probe) => {
+                hdf5::dimensions::resolve(&probe.addressed(&self.data), probe)
+            }
             NetcdfBacking::Classic(_) => Err(FieldglassError::WrongLayout(
                 "hdf5_metadata is only for the NetCDF-4 / HDF5 backing".into(),
             )),
@@ -160,8 +166,9 @@ impl NetcdfReader {
         match &self.backing {
             NetcdfBacking::Classic(header) => classic::variable_shape(header, var_index),
             NetcdfBacking::Hdf5(probe) => {
-                let addr = hdf5_dataset_address(&self.data, probe, var_index)?;
-                let shape = hdf5::dataset::describe(&self.data, addr, probe)?;
+                let file = probe.addressed(&self.data);
+                let addr = hdf5_dataset_address(&file, probe, var_index)?;
+                let shape = hdf5::dataset::describe(&file, addr, probe)?;
                 Ok(shape.dataspace.dims)
             }
         }
@@ -252,12 +259,12 @@ impl NetcdfReader {
 /// This is the identical order [`hdf5::dimensions::resolve`] walks, so a
 /// variable's `decode_index` from the resolved metadata indexes here directly —
 /// including variables in nested groups (#219).
-fn hdf5_dataset_address(
-    bytes: &[u8],
+fn hdf5_dataset_address<S: ByteSource + ?Sized>(
+    file: &S,
     probe: &hdf5::Hdf5Probe,
     var_index: usize,
 ) -> Result<u64, FieldglassError> {
-    let children = hdf5::group::all_children(bytes, probe)?;
+    let children = hdf5::group::all_children(file, probe)?;
     let datasets = children
         .iter()
         .filter(|c| c.kind == hdf5::group::ChildKind::Dataset);

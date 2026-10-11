@@ -433,6 +433,28 @@ instead of skipping it lists only `a` (#919). Each oracle records what h5py list
 hard links; `tests/hdf5_soft_links.rs` checks that both list `a`, `m` and `z`
 and decode all three.
 
+## Userblock fixtures (`hdf5_userblock_{earliest,latest}.h5`, `hdf5_no_userblock_{earliest,latest}.h5`)
+
+Four files for #936, built by `tools/build_hdf5_userblock_fixtures.py` with
+h5py 3.16.0 (libhdf5 2.0.0), reproducible byte for byte. Each root holds a
+contiguous `float32` `v` [4, 5] with a numeric and a fixed-length string
+attribute, on the dimension scales `y` and `x` (so `DIMENSION_LIST` sends the
+reader into the global heap), and a chunked, deflated `int16` `c` [6, 8]. The
+`hdf5_userblock_*` files are written with `userblock_size=512`, and the builder
+then writes a text header into the userblock; the `hdf5_no_userblock_*` twins
+are the same content without one. `earliest` is the default format
+(superblock version 0), `latest` is `libver='latest'` (version 3).
+
+In the userblock files the signature is at byte 512 and the superblock's
+stored Base Address is 512 too; every other address is relative to it. libhdf5
+takes the signature's offset as the base when the stored field differs
+(`H5F__super_read`), and the reader does the same without reading the field.
+Each oracle records the signature offset, the stored base, the members, every
+value and `v`'s dimension names as h5py reads them back.
+`tests/hdf5_userblock.rs` checks that each userblock file lists and decodes
+exactly as its twin and as the oracle, and the umbrella's
+`tests/hdf5_userblock.rs` does the same through `Session::open`.
+
 ## Offset and length size fixtures (`hdf5_sizes_o8_l4.h5`, `hdf5_sizes_o4_l8.h5`)
 
 Two files for #922, built by `tools/build_hdf5_size_fixtures.py` with h5py
