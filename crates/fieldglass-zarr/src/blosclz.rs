@@ -32,6 +32,23 @@ const MAX_DISTANCE: usize = 8191;
 /// one meaning three, so three is added back.
 const MIN_MATCH: usize = 3;
 
+/// The most a BloscLZ stream of `input_len` bytes can decode to: 255 bytes
+/// per byte.
+///
+/// A literal token copies its run from the stream, one byte out per byte in.
+/// A match costs its token and at least one distance byte, and codes at most
+/// 6 + 2 bytes, or 7 + 2 plus its "and more" bytes, each adding at most 255
+/// (`blosclz_decompress` in c-blosc's `blosc/blosclz.c`). So a match with `k`
+/// such bytes codes at most `9 + 255k` bytes from `2 + k`, never more than
+/// 255 a byte.
+///
+/// Where an output buffer starts when the container states the length, so a
+/// short stream is not handed more than it could fill (#986). It is a start,
+/// not a limit: the decoder still checks every write against `expected`.
+pub(crate) fn max_output(input_len: usize) -> usize {
+    input_len.saturating_mul(255)
+}
+
 /// Decompress one BloscLZ stream into a buffer of exactly `expected` bytes.
 ///
 /// As with LZ4, the length is a parameter: the stream states no output size,
@@ -48,7 +65,8 @@ pub fn decompress(input: &[u8], expected: usize) -> Result<Vec<u8>, FieldglassEr
         };
     }
 
-    let mut out: Vec<u8> = Vec::with_capacity(expected);
+    // `expected` is the container's number, not the stream's (#986).
+    let mut out: Vec<u8> = Vec::with_capacity(expected.min(max_output(input.len())));
     let mut pos = 0usize;
     // Only the first token is masked: the encoder sets bit 5 of the opening
     // byte as a marker, and that byte is always a literal token, whose own
@@ -167,6 +185,27 @@ fn too_long(would_be: usize, expected: usize) -> FieldglassError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The densest stream there is: a one-byte literal, then one match at
+    /// distance 1 whose length runs on in `k` bytes of 255 and a closing 254.
+    /// It decodes to exactly what it should and stays within [`max_output`],
+    /// which a valid stream's start relies on (#986).
+    #[test]
+    fn the_densest_stream_stays_within_max_output() {
+        for k in [0usize, 1, 100, 10_000] {
+            let mut stream = vec![0x00, 0xAB, 0xE0];
+            stream.extend(std::iter::repeat_n(255u8, k));
+            stream.extend([254, 0x00]);
+            let len = 1 + 7 + 255 * k + 254 + MIN_MATCH - 1;
+            let out = decompress(&stream, len).expect("valid stream");
+            assert_eq!(out, vec![0xAB; len]);
+            assert!(
+                len <= max_output(stream.len()),
+                "{len} from {}",
+                stream.len()
+            );
+        }
+    }
 
     /// The opening token is masked to five bits, so the marker bit the encoder
     /// sets does not turn a four-literal run into a match.

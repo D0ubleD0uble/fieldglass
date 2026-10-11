@@ -97,6 +97,16 @@ fn decoder(compressor: &str) -> ChunkDecoder {
     ChunkDecoder::from_v2_metadata(&meta).expect("metadata")
 }
 
+/// A v2 `uint8` array of one chunk of `bytes` under `compressor`.
+fn decoder_of(compressor: &str, bytes: usize) -> ChunkDecoder {
+    let meta = format!(
+        r#"{{"zarr_format": 2, "shape": [{bytes}], "chunks": [{bytes}],
+            "dtype": "|u1", "compressor": {compressor}, "fill_value": 0,
+            "order": "C", "filters": null}}"#
+    );
+    ChunkDecoder::from_v2_metadata(&meta).expect("metadata")
+}
+
 /// The parse error reading `stored` gives, and the largest allocation the
 /// read made. The decoder is built before arming.
 fn refusal(compressor: &str, stored: &[u8]) -> (usize, String) {
@@ -232,34 +242,73 @@ fn blosc_bombs_reserve_no_more_than_their_chunk() {
     );
 }
 
-/// A blosc buffer stating one 3 MiB block, around a stream of 64 bytes.
-/// blosc reserves the buffer and the block from its header before decoding,
-/// two of 3 MiB. #981 then started the inner codec's buffer at the stream's
-/// stated length as well, a third 3 MiB, zeroed before the stream ended and
-/// the block's length check refused it (#986). That start is now bounded by
-/// what the stream's own bytes can decode to: 1,032 per byte of zlib
-/// (RFC 1951), 128 KiB per three bytes of zstd (RFC 8878).
+/// What every short blosc buffer's header states: one block of 256 MiB.
+const STATED: usize = 256 << 20;
+
+/// An LZ4 block of 64 zero bytes, hand-built: one literal zero, a match at
+/// offset 1 of 4 + 15 + 40 bytes, then four literal zeros to end the block.
+const LZ4_64: [u8; 10] = [0x1F, 0, 1, 0, 40, 0x40, 0, 0, 0, 0];
+
+/// A BloscLZ stream of 64 zero bytes, hand-built: a one-byte literal run of a
+/// zero, then a match at distance 1 of 7 + 54 + 2 bytes.
+const BLOSCLZ_64: [u8; 5] = [0x00, 0x00, 0xE0, 54, 0x00];
+
+/// A blosc buffer of a few dozen bytes whose header states one 256 MiB block,
+/// around a stream of 64 bytes, for each compressor blosc decodes. blosc
+/// reserved the buffer and the block from its header before any stream
+/// proved them, and the inner codec its output too: three 256 MiB
+/// reservations, 805,306,527 bytes held at once for the 29-byte blosclz
+/// buffer (#986). Each is now bounded by what the bytes behind it could
+/// decode to: 255 per byte of blosclz or LZ4, 1,032 of zlib (RFC 1951), and
+/// 128 KiB per three bytes of zstd (RFC 8878), the loosest. The read holds
+/// 11,124 bytes at once for blosclz, 14,944 for LZ4, 104,461 for zlib and
+/// 3,154,667 for zstd.
 #[test]
-fn a_short_blosc_stream_is_not_handed_its_stated_length_to_fill() {
-    let compressor = r#"{"id": "blosc", "cname": "zlib", "clevel": 9, "shuffle": 0}"#;
-    let decoder = decoder(compressor);
+fn a_tiny_blosc_buffer_stating_256_mib_reserves_what_its_bytes_could_fill() {
     let zlib = miniz_oxide::deflate::compress_to_vec_zlib(&[0; 64], 9);
     let zstd = ruzstd::encoding::compress_to_vec(
         &[0u8; 64][..],
         ruzstd::encoding::CompressionLevel::Fastest,
     );
-    for (format, stream) in [(3, zlib), (4, zstd)] {
-        let (_, peak, m) = measured_refusal(&decoder, compressor, &blosc(format, &stream));
+    let cases: [(&str, u8, &[u8], usize); 4] = [
+        ("blosclz", 0, &BLOSCLZ_64, 64 << 10),
+        ("lz4", 1, &LZ4_64, 64 << 10),
+        ("zlib", 3, &zlib, 256 << 10),
+        ("zstd", 4, &zstd, 4 << 20),
+    ];
+    for (cname, format, stream, bound) in cases {
+        let compressor =
+            format!(r#"{{"id": "blosc", "cname": "{cname}", "clevel": 9, "shuffle": 0}}"#);
+        let decoder = decoder_of(&compressor, STATED);
+        let stored = blosc_of(format, stream, STATED);
+        let (_, peak, m) = measured_refusal(&decoder, &compressor, &stored);
         assert!(
-            m.contains(&format!("decoded to 64 bytes, not the {CHUNK_BYTES}")),
-            "format {format}: {m}"
+            m.contains("decoded to 64 bytes, not the 268435456"),
+            "{cname}: {m}"
         );
-        // The buffer and the block, and the codec's start beside them, which
-        // is under a megabyte for either stream: 6,323,677 bytes held at once
-        // for zlib and 6,955,755 for zstd, where zlib held 9,447,733 before.
-        assert!(
-            peak <= 2 * CHUNK_BYTES + (1 << 20),
-            "format {format}: held {peak} bytes at once"
-        );
+        assert!(peak <= bound, "{cname}: held {peak} bytes at once");
     }
+}
+
+/// A Zarr v3 chunk of `(16384, 16384)` bytes, 256 MiB, under `transpose`,
+/// stored as 64 bytes. The transpose zeroed a buffer of the chunk's length
+/// before its first copy found the data short (#986); it now refuses a chunk
+/// whose length is not the chunk's before allocating anything for it.
+#[test]
+fn a_short_transposed_chunk_is_refused_before_its_buffer_is_zeroed() {
+    let meta = r#"{"zarr_format": 3, "node_type": "array", "shape": [16384, 16384],
+        "data_type": "uint8",
+        "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [16384, 16384]}},
+        "chunk_key_encoding": {"name": "default"}, "fill_value": 0,
+        "codecs": [{"name": "transpose", "configuration": {"order": [1, 0]}},
+                   {"name": "bytes"}]}"#;
+    let decoder = ChunkDecoder::from_v3_metadata(meta).expect("metadata");
+    let (largest, _, m) = measured_refusal(&decoder, "transpose", &[0u8; 64]);
+    assert!(
+        m.contains("a transposed chunk of 64 bytes cannot hold 268435456 elements"),
+        "{m}"
+    );
+    // The stored bytes' copy and nothing near the chunk: master zeroed
+    // 268,435,456 bytes here.
+    assert!(largest < 4096, "largest allocation {largest} bytes");
 }

@@ -342,8 +342,20 @@ fn untranspose(
         stored_strides[axis] = stored_strides[axis + 1] * stored_shape[axis + 1];
     }
 
+    // The chunk's shape is the metadata's number, not the data's: a few bytes
+    // under a large chunk would otherwise have the whole chunk zeroed before
+    // the first copy found them short (#986). A transposed chunk holds every
+    // element exactly once, so its length must be the chunk's.
     let count: usize = shape.iter().product();
-    let mut out = vec![0u8; count * element_size];
+    let bytes = count.checked_mul(element_size);
+    if bytes != Some(data.len()) {
+        return Err(FieldglassError::Parse(format!(
+            "a transposed chunk of {} bytes cannot hold {count} elements of \
+             {element_size} bytes",
+            data.len()
+        )));
+    }
+    let mut out = vec![0u8; data.len()];
     let mut index = vec![0usize; shape.len()];
     for target in 0..count {
         // `index` walks the array's own axes in C order; the source element is

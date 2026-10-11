@@ -31,6 +31,23 @@ use fieldglass_core::FieldglassError;
 /// The shortest match LZ4 encodes; the token's low nibble counts from it.
 const MIN_MATCH: usize = 4;
 
+/// The most an LZ4 block of `input_len` bytes can decode to: 255 bytes per
+/// byte.
+///
+/// Literals are copied from the block, one byte out per byte in. A match
+/// costs a token and a two-byte offset, and codes at most 4 + 15 bytes
+/// before its length runs on in extra bytes, each adding at most 255 (LZ4
+/// Block Format Description, "Sequence" and "Match length"). So a match
+/// with `k` extra bytes codes at most `19 + 255k` bytes from `3 + k`, never
+/// more than 255 a byte.
+///
+/// Where an output buffer starts when the container states the length, so
+/// a short block is not handed more than it could fill (#986). It is a start,
+/// not a limit: the decoder still checks every write against `expected`.
+pub(crate) fn max_output(input_len: usize) -> usize {
+    input_len.saturating_mul(255)
+}
+
 /// Decompress one LZ4 block into a buffer of exactly `expected` bytes.
 ///
 /// The output length is a parameter rather than something recovered from the
@@ -38,7 +55,9 @@ const MIN_MATCH: usize = 4;
 /// a different length than the container promised is a corrupt chunk, and is
 /// refused rather than returned short.
 pub fn decompress(input: &[u8], expected: usize) -> Result<Vec<u8>, FieldglassError> {
-    let mut out: Vec<u8> = Vec::with_capacity(expected);
+    // `expected` is the container's number, not the block's: a few bytes
+    // stating 256 MiB reserve what they could fill, not 256 MiB (#986).
+    let mut out: Vec<u8> = Vec::with_capacity(expected.min(max_output(input.len())));
     let mut pos = 0usize;
 
     while pos < input.len() {
@@ -172,6 +191,23 @@ fn overflow(would_be: usize, expected: usize) -> FieldglassError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The densest block there is: one literal, then one match whose length
+    /// runs on in `k` bytes of 255 and a closing 254, then the empty literal
+    /// run that ends the block. It decodes to exactly what it should and stays
+    /// within [`max_output`], which a valid block's start relies on (#986).
+    #[test]
+    fn the_densest_block_stays_within_max_output() {
+        for k in [0usize, 1, 100, 10_000] {
+            let mut block = vec![0x1F, 0xAB, 1, 0];
+            block.extend(std::iter::repeat_n(255u8, k));
+            block.extend([254, 0x00]);
+            let len = 1 + MIN_MATCH + 15 + 255 * k + 254;
+            let out = decompress(&block, len).expect("valid block");
+            assert_eq!(out, vec![0xAB; len]);
+            assert!(len <= max_output(block.len()), "{len} from {}", block.len());
+        }
+    }
 
     /// A hand-built block, so the test states the format rather than replaying
     /// an encoder's output. Token `0x50` = five literals, no match; the block
