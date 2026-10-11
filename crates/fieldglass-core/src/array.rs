@@ -345,6 +345,31 @@ pub enum ArrayError {
         what: &'static str,
     },
 
+    /// A compressed chunk whose frame asks its decoder to keep more history
+    /// than this reader allows for a chunk of its size, refused before the
+    /// decoder holds any of it (#989).
+    ///
+    /// A zstd decoder must keep the frame's whole window (RFC 8878 section
+    /// 3.1.1.1.2) before it can hand back a byte, so the window, not the
+    /// chunk, sets what it holds. The RFC lets a decoder refuse a window past
+    /// its own limit. The file is not at fault: a frame may legally state a
+    /// window far larger than its content.
+    #[error(
+        "this variable's {codec} chunks ask to keep {} of history while they \
+         decode, more than the {} this reader keeps for a chunk this size. The \
+         file itself is fine",
+        human_bytes(*window),
+        human_bytes(*limit)
+    )]
+    WindowTooLarge {
+        /// The codec, as the message names it (`"zstd"`).
+        codec: &'static str,
+        /// The window the frame states, in bytes.
+        window: u64,
+        /// The most this chunk's decoder may keep.
+        limit: u64,
+    },
+
     /// A chunk key separator that is not one of the two the conventions use.
     #[error("{found:?} is not a chunk key separator; expected \".\" or \"/\"")]
     BadSeparator {
@@ -1432,6 +1457,24 @@ mod tests {
         .to_string();
         assert!(message.contains("decode to 320.0 MiB each"), "{message}");
         assert!(message.contains("more than the 256.0 MiB"), "{message}");
+        assert!(message.contains("The file itself is fine"), "{message}");
+    }
+
+    /// A zstd window too large to keep says how large, and that the file is
+    /// fine (#989).
+    #[test]
+    fn a_window_too_large_says_the_file_is_fine() {
+        let message = ArrayError::WindowTooLarge {
+            codec: "zstd",
+            window: 64 << 20,
+            limit: 8 << 20,
+        }
+        .to_string();
+        assert!(
+            message.contains("zstd chunks ask to keep 64.0 MiB"),
+            "{message}"
+        );
+        assert!(message.contains("more than the 8.0 MiB"), "{message}");
         assert!(message.contains("The file itself is fine"), "{message}");
     }
 

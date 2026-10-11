@@ -1695,6 +1695,11 @@ netcdf/hdf5_zstd.h5#zstd_high	combine/a_minus_b/render/source/nearest	ok w=8 h=8
 netcdf/hdf5_zstd.h5#zstd_high	meta	family=source ni=8 nj=8 reprojectable=false supports=none	aea3f45014539dd9
 netcdf/hdf5_zstd.h5#zstd_high	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_zstd.h5#zstd_high	render/source/nearest	ok w=8 h=8 opaque=64	fbb902e3d623b637
+netcdf/hdf5_zstd_wide_window.h5	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/hdf5_zstd_wide_window.h5#zstd_wide_window	combine/a_minus_b/render/source/nearest	err: this variable's zstd chunks ask to keep #.# MiB of history while they decode, more than the #.# MiB this reader keeps for a chunk this size. The file itself is fine	8821c83a163596fa
+netcdf/hdf5_zstd_wide_window.h5#zstd_wide_window	meta	family=source ni=64 nj=64 reprojectable=false supports=none	af30f1e12cead543
+netcdf/hdf5_zstd_wide_window.h5#zstd_wide_window	render/equirectangular/nearest	err: this variable's zstd chunks ask to keep #.# MiB of history while they decode, more than the #.# MiB this reader keeps for a chunk this size. The file itself is fine	8821c83a163596fa
+netcdf/hdf5_zstd_wide_window.h5#zstd_wide_window	render/source/nearest	err: this variable's zstd chunks ask to keep #.# MiB of history while they decode, more than the #.# MiB this reader keeps for a chunk this size. The file itself is fine	8821c83a163596fa
 netcdf/mirs_swath_n21.nc	file	parsed=true fields=4	fc2e3c9795c3162b
 netcdf/mirs_swath_n21.nc#RR	combine/a_minus_b/render/source/nearest	ok w=96 h=100 opaque=0	0fc9dd5563def1ab
 netcdf/mirs_swath_n21.nc#RR	meta	family=curvilinear ni=96 nj=100 reprojectable=true supports=contours,vectors,long_csv	882dc623daf6dfaf

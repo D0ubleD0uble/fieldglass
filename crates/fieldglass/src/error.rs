@@ -40,7 +40,9 @@ pub enum Error {
     /// listing holds: more objects, more links in one group, or more bytes of
     /// path-qualified names; or a classic NetCDF header longer than one header
     /// may be; or an HDF5 file whose objects share a dense attribute or link
-    /// store or a local heap, which libhdf5 reads and this reader refuses.
+    /// store or a local heap, which libhdf5 reads and this reader refuses; or
+    /// a zstd chunk whose frame states a larger window than a chunk of its
+    /// size may keep.
     Unsupported {
         /// Which operation, and what about this message refuses it.
         detail: String,
@@ -136,8 +138,9 @@ impl From<FieldglassError> for Error {
         // not a corrupt one, so it is `Unsupported` rather than `Decode`
         // (#847, #942, #970). So is a file listing more objects or longer
         // names than one listing holds (#921), or sharing a dense store or a
-        // local heap that libhdf5 reads (#987). Everything else is still the
-        // long tail.
+        // local heap that libhdf5 reads (#987), and a zstd frame stating a
+        // window larger than its chunk's decoder keeps (#989). Everything else
+        // is still the long tail.
         match e {
             FieldglassError::ShortRead { at, got, wanted } => Self::ShortRead { at, got, wanted },
             FieldglassError::Array(
@@ -145,7 +148,8 @@ impl From<FieldglassError> for Error {
                 | fieldglass_core::array::ArrayError::FieldTooLarge { .. }
                 | fieldglass_core::array::ArrayError::ChunkTooLarge { .. }
                 | fieldglass_core::array::ArrayError::ListingTooLarge { .. }
-                | fieldglass_core::array::ArrayError::SharedStorage { .. }),
+                | fieldglass_core::array::ArrayError::SharedStorage { .. }
+                | fieldglass_core::array::ArrayError::WindowTooLarge { .. }),
             ) => Self::Unsupported {
                 detail: too_large.to_string(),
             },

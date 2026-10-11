@@ -23,6 +23,10 @@
 //! [`unzstd_bound`]: a few bytes stating 256 MiB are not handed 256 MiB to
 //! fill (#986). Those two are arithmetic on the formats' limits, so they too
 //! depend on nothing.
+//!
+//! A zstd decoder also holds the frame's window beside the output, which no
+//! output limit sees, so [`zstd_window_limit`] sets the largest window a frame
+//! may declare from the same limit (#989).
 
 use std::io::{self, Read};
 
@@ -142,6 +146,49 @@ const ZSTD_BLOCK_HEADER: usize = 3;
 /// The most one zstd block decompresses to (RFC 8878 section 3.1.1.2.4).
 const ZSTD_MAX_BLOCK: usize = 128 << 10;
 
+/// The largest window a zstd decoder whose output is held to `limit` bytes
+/// lets a frame declare: `limit`, but never under 8 MiB and never past
+/// `ceiling` (#989).
+///
+/// A decoder keeps the frame's whole window, `Window_Size` (RFC 8878 section
+/// 3.1.1.1.2), before it can hand back a byte: `ruzstd` returns nothing until
+/// it holds more than the window, in a ring of up to twice it. So the window,
+/// not the output limit, sets what a decode holds, and a frame stating 64 MiB
+/// in a 4 KiB chunk held about 192 MiB before the limit saw any output.
+///
+/// The RFC lets a decoder refuse a frame whose window is past its own limit,
+/// and recommends accepting at least 8 MiB, so a window up to that decodes
+/// whatever its output. Past it, the output limit is the bound: with no
+/// dictionary, which neither HDF5 nor Zarr uses, a decode stopped at `limit`
+/// bytes never reaches back further than that. A single-segment frame's
+/// window is its content size, so one refused here would have decoded past
+/// the limit anyway; only a frame stating a window wider than its content,
+/// which a streaming writer with no pledged size can produce, is refused
+/// while valid.
+pub fn zstd_window_limit(limit: usize, ceiling: u64) -> u64 {
+    u64::try_from(limit)
+        .unwrap_or(u64::MAX)
+        .max(ZSTD_RECOMMENDED_WINDOW)
+        .min(ceiling)
+}
+
+/// The window RFC 8878 recommends every decoder accept: "at least 8 MB"
+/// (section 3.1.1.1.2).
+const ZSTD_RECOMMENDED_WINDOW: u64 = 8 << 20;
+
+/// Whether `frame` begins with a single-segment zstd frame header, whose
+/// window is its content size (RFC 8878 section 3.1.1.1.1:
+/// `Single_Segment_Flag`, bit 5 of the byte after the magic number).
+///
+/// `false` for bytes too short to say; it reads that one bit and checks
+/// nothing else, so it is only meaningful once a decoder has accepted the
+/// header.
+pub fn zstd_single_segment(frame: &[u8]) -> bool {
+    frame
+        .get(4)
+        .is_some_and(|descriptor| descriptor & 0x20 != 0)
+}
+
 /// Whether `reader` has at least one more byte.
 fn read_one(reader: &mut impl Read) -> io::Result<bool> {
     let mut probe = [0u8; 1];
@@ -194,6 +241,34 @@ mod tests {
         assert_eq!(unzstd_bound(18), 6 * (128 << 10));
         assert_eq!(inflate_bound(usize::MAX), usize::MAX);
         assert_eq!(unzstd_bound(usize::MAX), usize::MAX);
+    }
+
+    /// The window is the output limit, raised to the RFC's 8 MiB and capped
+    /// by the caller's ceiling, edges included (#989).
+    #[test]
+    fn the_zstd_window_follows_the_limit_between_8_mib_and_the_ceiling() {
+        const MIB: u64 = 1 << 20;
+        let ceiling = 64 * MIB;
+        assert_eq!(zstd_window_limit(0, ceiling), 8 * MIB);
+        assert_eq!(zstd_window_limit(4096, ceiling), 8 * MIB);
+        assert_eq!(zstd_window_limit(8 << 20, ceiling), 8 * MIB);
+        assert_eq!(zstd_window_limit((8 << 20) + 1, ceiling), 8 * MIB + 1);
+        assert_eq!(zstd_window_limit(64 << 20, ceiling), ceiling);
+        assert_eq!(zstd_window_limit(usize::MAX, ceiling), ceiling);
+        // A ceiling under 8 MiB wins: the caller's bound is never widened.
+        assert_eq!(zstd_window_limit(4096, MIB), MIB);
+    }
+
+    #[test]
+    fn the_single_segment_flag_is_bit_5_of_the_descriptor() {
+        let magic = [0x28, 0xB5, 0x2F, 0xFD];
+        assert!(zstd_single_segment(&[magic.as_slice(), &[0x20]].concat()));
+        assert!(zstd_single_segment(&[magic.as_slice(), &[0xE4]].concat()));
+        assert!(!zstd_single_segment(
+            &[magic.as_slice(), &[0x00, 0x80]].concat()
+        ));
+        assert!(!zstd_single_segment(&[magic.as_slice(), &[0xDF]].concat()));
+        assert!(!zstd_single_segment(&magic));
     }
 
     #[test]

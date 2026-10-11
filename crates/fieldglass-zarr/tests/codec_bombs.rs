@@ -312,3 +312,71 @@ fn a_short_transposed_chunk_is_refused_before_its_buffer_is_zeroed() {
     // 268,435,456 bytes here.
     assert!(largest < 4096, "largest allocation {largest} bytes");
 }
+
+/// A zstd frame stating a 64 MiB window as the one 4 KiB chunk of a v2
+/// store, from `tools/build_zstd_wide_window_fixtures.py` (#989), read
+/// through `ZarrStore` the way a host reads a region.
+///
+/// `ruzstd` hands back nothing until it holds more than the frame's window,
+/// which RFC 8878 section 3.1.1.1.2 makes a decoder keep, so the chunk's
+/// 4,096-byte limit saw no output until the decoder held 64 MiB. The window
+/// a decoder may keep is now `max(chunk, 8 MiB)`, 8 MiB being the RFC's
+/// recommended minimum, so the frame is refused at its header and the decoder
+/// holds none of it. A frame may legally state a window larger than its
+/// content, so the refusal says the file is fine.
+#[test]
+fn a_zstd_window_far_past_its_chunk_is_refused_before_the_decoder_holds_it() {
+    use fieldglass_core::array::{ArrayError, ArraySource};
+    use fieldglass_core::bytes::MemoryObjects;
+    use fieldglass_zarr::ZarrStore;
+
+    // Embedded, not read at run time, so the wasm32-wasip1 run needs no path.
+    let frame: &[u8] = include_bytes!("fixtures/zstd_wide_window/0.0");
+    assert_eq!(frame[..4], [0x28, 0xB5, 0x2F, 0xFD], "zstd magic");
+    assert_eq!(frame[4] & 0x20, 0, "windowed, not single-segment");
+    assert_eq!(frame[5], 0x80, "Window_Size 2^26, 64 MiB");
+    let objects = MemoryObjects::from_iter([
+        (
+            ".zarray",
+            include_bytes!("fixtures/zstd_wide_window/.zarray").to_vec(),
+        ),
+        ("0.0", frame.to_vec()),
+    ]);
+    let store = ZarrStore::open(&objects).expect("the store opens");
+    let source: &dyn ArraySource = &store;
+    let (name, _) = source
+        .group()
+        .arrays_qualified()
+        .into_iter()
+        .next()
+        .expect("one array");
+    for region in [[0..64, 0..64], [0..1, 0..1]] {
+        LARGEST.with(|l| l.set(0));
+        LIVE.with(|l| l.set(0));
+        PEAK.with(|p| p.set(0));
+        ARMED.with(|a| a.set(true));
+        let result = source.read_region(&name, &region);
+        ARMED.with(|a| a.set(false));
+        let (largest, peak) = (LARGEST.with(Cell::get), PEAK.with(Cell::get));
+        // The whole region's output, 4,096 values of 16 bytes, is the largest
+        // allocation, beside the stored frame's copy and the read's
+        // bookkeeping: about 70 KB at once. Before #989 the read made one
+        // 134,217,729-byte allocation and held 201,409,484 bytes at once.
+        assert!(
+            largest <= 64 << 10,
+            "largest allocation {largest} bytes, {peak} held at once"
+        );
+        assert!(peak < 128 << 10, "held {peak} bytes at once");
+        match result {
+            Err(FieldglassError::Array(ArrayError::WindowTooLarge {
+                codec: "zstd",
+                window,
+                limit,
+            })) => {
+                assert_eq!(window, 64 << 20);
+                assert_eq!(limit, 8 << 20);
+            }
+            other => panic!("{region:?}: expected the window refused, got {other:?}"),
+        }
+    }
+}

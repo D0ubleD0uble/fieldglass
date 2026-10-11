@@ -276,6 +276,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
     ),
     ("hdf5_zstd.h5", include_bytes!("fixtures/hdf5_zstd.h5")),
     (
+        "hdf5_zstd_wide_window.h5",
+        include_bytes!("fixtures/hdf5_zstd_wide_window.h5"),
+    ),
+    (
         "mirs_swath_n21.nc",
         include_bytes!("fixtures/mirs_swath_n21.nc"),
     ),
