@@ -87,6 +87,18 @@ GRIB2_KEYS: list[str] = [
     "typeOfFirstFixedSurface",
     "scaleFactorOfFirstFixedSurface",
     "scaledValueOfFirstFixedSurface",
+    "typeOfSecondFixedSurface",
+    "scaleFactorOfSecondFixedSurface",
+    "scaledValueOfSecondFixedSurface",
+    # The statistical interval of 4.8, 4.11 and the templates laid out like
+    # them (4.9, 4.10, 4.12): what was done, over how long, ending when (#959).
+    "typeOfStatisticalProcessing",
+    "indicatorOfUnitForTimeRange",
+    "lengthOfTimeRange",
+    "yearOfEndOfOverallTimeInterval",
+    "monthOfEndOfOverallTimeInterval",
+    "dayOfEndOfOverallTimeInterval",
+    "hourOfEndOfOverallTimeInterval",
     # §5 Data Representation
     "dataRepresentationTemplateNumber",
     "referenceValue",

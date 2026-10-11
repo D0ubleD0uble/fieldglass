@@ -251,3 +251,61 @@ fn ensemble_members_share_an_identity_until_decided() {
     let two = identities(with_template(1, 0, &[3, 2, 20]));
     assert_eq!(one, two);
 }
+
+/// The committed eccodes-encoded 4.1 and 4.12 messages (#959): their identity
+/// is read from the octets eccodes wrote, the parameter and level of the
+/// common block and, for 4.12, the interval after its own two octets. Neither
+/// carries its ensemble or derived block in the identity yet.
+#[test]
+fn eccodes_written_shared_layout_messages_read_their_identity() {
+    let member = identities(read(GRIB2, "ensemble_member_4_1.grib2"));
+    let MessageIdentity::Grib2 {
+        product_template,
+        product_octets,
+        parameter_category,
+        parameter_number,
+        first_surface,
+        statistics,
+        ..
+    } = &member[0]
+    else {
+        panic!("GRIB2");
+    };
+    assert_eq!(*product_template, 1);
+    assert_eq!(
+        *product_octets, None,
+        "the ensemble block waits on #959's decision"
+    );
+    assert_eq!((*parameter_category, *parameter_number), (Some(0), Some(0)));
+    assert_eq!(first_surface.map(|s| s.surface_type), Some(103));
+    assert!(statistics.is_empty());
+
+    let derived = identities(read(GRIB2, "derived_max_4_12.grib2"));
+    let MessageIdentity::Grib2 {
+        product_template,
+        product_octets,
+        range_end,
+        statistics,
+        ..
+    } = &derived[0]
+    else {
+        panic!("GRIB2");
+    };
+    assert_eq!(*product_template, 12);
+    assert_eq!(
+        *product_octets, None,
+        "the derived block waits on #959's decision"
+    );
+    assert_eq!(range_end.as_deref(), Some("2008-02-06T18:00:00Z"));
+    assert_eq!(statistics.len(), 1);
+    assert_eq!(
+        (
+            statistics[0].process,
+            statistics[0].length_unit,
+            statistics[0].length
+        ),
+        (2, 1, 6),
+        "a 6 h maximum"
+    );
+    assert_ne!(member[0], derived[0]);
+}
