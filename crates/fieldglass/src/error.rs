@@ -36,7 +36,9 @@ pub enum Error {
     /// NetCDF variable past the reader's memory budget, a slice, a region or
     /// a Zarr chunk of more values than one field may hold, or a compressed
     /// NetCDF-4 chunk that holds more values than one field may, or decodes to
-    /// more than one chunk may.
+    /// more than one chunk may; or an HDF5 file that lists more than one
+    /// listing holds: more objects, more links in one group, or more bytes of
+    /// path-qualified names.
     Unsupported {
         /// Which operation, and what about this message refuses it.
         detail: String,
@@ -130,13 +132,16 @@ impl From<FieldglassError> for Error {
         // budget, a read past the one-field cap, or a chunk past what one
         // chunk may decode to, is a valid file asked for too much at once,
         // not a corrupt one, so it is `Unsupported` rather than `Decode`
-        // (#847, #942, #970). Everything else is still the long tail.
+        // (#847, #942, #970). So is a file listing more objects or longer
+        // names than one listing holds (#921). Everything else is still the
+        // long tail.
         match e {
             FieldglassError::ShortRead { at, got, wanted } => Self::ShortRead { at, got, wanted },
             FieldglassError::Array(
                 too_large @ (fieldglass_core::array::ArrayError::VariableTooLarge { .. }
                 | fieldglass_core::array::ArrayError::FieldTooLarge { .. }
-                | fieldglass_core::array::ArrayError::ChunkTooLarge { .. }),
+                | fieldglass_core::array::ArrayError::ChunkTooLarge { .. }
+                | fieldglass_core::array::ArrayError::ListingTooLarge { .. }),
             ) => Self::Unsupported {
                 detail: too_large.to_string(),
             },

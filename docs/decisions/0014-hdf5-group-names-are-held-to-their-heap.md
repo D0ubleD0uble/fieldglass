@@ -1,6 +1,8 @@
 # 0014 — An HDF5 symbol-table group's nodes and names are read once, inside their heap
 
-**Status:** Accepted (2026-10-06). Answers #901 and #908.
+**Status:** Accepted (2026-10-06). Answers #901 and #908. Decision 1 is widened
+from one group to the whole listing by
+[ADR-0016](0016-an-hdf5-listing-reads-each-block-for-one-object.md) (#921).
 
 ## Context
 

@@ -93,6 +93,26 @@ pub(crate) fn btree_v2_records<S: ByteSource + ?Sized>(
     lsize: u8,
     record_layout: &dyn Fn(u8, usize) -> Result<(), FieldglassError>,
 ) -> Result<(u8, Vec<Vec<u8>>), FieldglassError> {
+    let mut claimed = ClaimedRanges::default();
+    btree_v2_records_in(source, addr, (osize, lsize), record_layout, &mut claimed)
+}
+
+/// [`btree_v2_records`], claiming the header and every node in `claimed`, the
+/// file ranges a whole listing has read (#921). Objects whose dense storage
+/// names one B-tree, or B-trees that share a node, are refused at the second
+/// claim rather than walked once per object.
+pub(crate) fn btree_v2_records_in<S: ByteSource + ?Sized>(
+    source: &S,
+    addr: u64,
+    (osize, lsize): (u8, u8),
+    record_layout: &dyn Fn(u8, usize) -> Result<(), FieldglassError>,
+    claimed: &mut ClaimedRanges,
+) -> Result<(u8, Vec<Vec<u8>>), FieldglassError> {
+    // Signature, version, type, node size (4), record size (2), depth (2),
+    // split and merge percents, the root's address and record count (2), the
+    // tree's record count, and the checksum.
+    let header_len = 22 + u64::from(osize) + u64::from(lsize);
+    claimed.claim(addr, header_len, "B-tree v2 header")?;
     let mut hdr = FileCursor::at(source, addr)?;
     hdr.tag(SIG_BTREE_V2_HDR)?;
     hdr.skip(1)?; // version
@@ -130,7 +150,6 @@ pub(crate) fn btree_v2_records<S: ByteSource + ?Sized>(
     let levels = BTreeV2Levels::compute(node_size, record_size, osize as usize, depth)?;
 
     let mut records = Vec::new();
-    let mut claimed = ClaimedRanges::default();
     walk_btree_v2_node(
         source,
         root_addr,
@@ -139,7 +158,7 @@ pub(crate) fn btree_v2_records<S: ByteSource + ?Sized>(
         record_size,
         osize as usize,
         &levels,
-        (node_size as u64, &mut claimed),
+        (node_size as u64, claimed),
         &mut records,
     )?;
     Ok((btree_type, records))
@@ -385,10 +404,25 @@ pub(crate) struct FractalHeap {
 /// valid heap holds has storage of its own, so a listing claims each managed
 /// object's range of the heap's address space and each huge object's range of
 /// the file, and refuses a second claim on either.
-#[derive(Debug, Default)]
-pub(crate) struct HeapReads {
+///
+/// A huge object is claimed among the file ranges of the whole listing (#921),
+/// not of this heap: two heaps' huge IDs can name one range of the file as
+/// easily as two records of one heap can.
+#[derive(Debug)]
+pub(crate) struct HeapReads<'a> {
     managed: ClaimedRanges,
-    huge: ClaimedRanges,
+    huge: &'a mut ClaimedRanges,
+}
+
+impl<'a> HeapReads<'a> {
+    /// One heap's reads, claiming its huge objects in `file`, the file ranges
+    /// the listing has read.
+    pub(crate) fn new(file: &'a mut ClaimedRanges) -> Self {
+        Self {
+            managed: ClaimedRanges::default(),
+            huge: file,
+        }
+    }
 }
 
 /// How this heap's huge-object IDs are encoded ("Fractal Heap ID for Huge
@@ -417,11 +451,16 @@ struct HugeRecord {
 }
 
 impl FractalHeap {
+    /// Parse the heap whose header is at `addr`, claiming the header and its
+    /// huge-object B-tree in `file`, the file ranges the listing has read
+    /// (#921): objects whose dense storage names one heap would otherwise
+    /// each read all of it.
     pub(crate) fn parse<S: ByteSource + ?Sized>(
         source: &S,
         addr: u64,
         osize: u8,
         lsize: u8,
+        file: &mut ClaimedRanges,
     ) -> Result<Self, FieldglassError> {
         let o = osize as usize;
         let l = lsize as usize;
@@ -470,6 +509,8 @@ impl FractalHeap {
         } else {
             None
         };
+        // The header ends with a checksum after the fields read here.
+        file.claim(addr, cur.position() - addr + 4, "fractal-heap header")?;
 
         let offset_bytes = max_heap_bits.div_ceil(8);
         // A managed heap ID is flags(1) + offset(offset_bytes) + length(>=1).
@@ -559,7 +600,13 @@ impl FractalHeap {
             let records = if huge_count == 0 || is_undefined_address(huge_btree_addr, osize) {
                 Vec::new()
             } else {
-                read_huge_records(source, huge_btree_addr, osize, lsize, filter.is_some())?
+                read_huge_records(
+                    source,
+                    huge_btree_addr,
+                    (osize, lsize),
+                    filter.is_some(),
+                    file,
+                )?
             };
             HugeIds::Indirect { key_bytes, records }
         };
@@ -771,9 +818,9 @@ fn tiny_object(id: &[u8]) -> Result<Vec<u8>, FieldglassError> {
 fn read_huge_records<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
-    osize: u8,
-    lsize: u8,
+    (osize, lsize): (u8, u8),
     filtered: bool,
+    file: &mut ClaimedRanges,
 ) -> Result<Vec<HugeRecord>, FieldglassError> {
     let (o, l) = (osize as usize, lsize as usize);
     let (want_type, want_size) = if filtered {
@@ -791,7 +838,7 @@ fn read_huge_records<S: ByteSource + ?Sized>(
             )))
         }
     };
-    let (_, raw) = btree_v2_records(source, addr, osize, lsize, &layout)?;
+    let (_, raw) = btree_v2_records_in(source, addr, (osize, lsize), &layout, file)?;
     let mut records = raw
         .iter()
         .map(|r| {
@@ -1479,7 +1526,7 @@ mod tests {
     fn a_direct_block_named_at_a_second_offset_is_refused() {
         let mut buf = frhp_indirect();
         put(&mut buf, 0x100 + 15 + 8, &BLOCK0_ADDR.to_le_bytes());
-        let err = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8)
+        let err = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default())
             .err()
             .expect("the second entry is at offset 64, the block says 0");
         assert!(
@@ -1496,12 +1543,17 @@ mod tests {
     fn a_managed_object_past_its_block_is_refused() {
         let buf = frhp_indirect();
         let source = fieldglass_core::testing::Recording::new(buf.as_slice());
-        let heap = FractalHeap::parse(&source, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&source, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         let mut id = vec![0u8];
         id.extend_from_slice(&(64u16 + BLOCK_PREFIX as u16).to_le_bytes());
         id.extend_from_slice(&100u16.to_le_bytes()); // past the 64-byte block
         let err = heap
-            .object(&source, &id, &mut HeapReads::default())
+            .object(
+                &source,
+                &id,
+                &mut HeapReads::new(&mut ClaimedRanges::default()),
+            )
             .unwrap_err();
         assert!(
             err.to_string().contains("past end of direct block"),
@@ -1520,14 +1572,16 @@ mod tests {
     #[test]
     fn one_listing_reads_each_object_once() {
         let buf = frhp_indirect();
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         let id = |offset: u16, len: u16| {
             let mut id = vec![0u8];
             id.extend_from_slice(&offset.to_le_bytes());
             id.extend_from_slice(&len.to_le_bytes());
             id
         };
-        let mut reads = HeapReads::default();
+        let mut file = ClaimedRanges::default();
+        let mut reads = HeapReads::new(&mut file);
         heap.object(&buf, &id(64 + 15, 4), &mut reads).unwrap();
         assert!(
             heap.object(&buf, &id(64 + 15, 4), &mut reads).is_err(),
@@ -1539,20 +1593,26 @@ mod tests {
         );
         heap.object(&buf, &id(64 + 19, 4), &mut reads).unwrap(); // adjacent is fine
         // A fresh listing may read it again.
-        heap.object(&buf, &id(64 + 15, 4), &mut HeapReads::default())
-            .unwrap();
+        heap.object(
+            &buf,
+            &id(64 + 15, 4),
+            &mut HeapReads::new(&mut ClaimedRanges::default()),
+        )
+        .unwrap();
 
         // Huge objects are claimed by their range of the file.
         let mut buf = frhp_indirect();
         put(&mut buf, 5, &17u16.to_le_bytes());
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         let huge = |addr: u64, len: u64| {
             let mut id = vec![0x10];
             id.extend_from_slice(&addr.to_le_bytes());
             id.extend_from_slice(&len.to_le_bytes());
             id
         };
-        let mut reads = HeapReads::default();
+        let mut file = ClaimedRanges::default();
+        let mut reads = HeapReads::new(&mut file);
         heap.object(&buf, &huge(0x3E0, 16), &mut reads).unwrap();
         assert!(
             heap.object(&buf, &huge(0x3E8, 16), &mut reads).is_err(),
@@ -1566,7 +1626,7 @@ mod tests {
     fn a_direct_block_past_the_end_of_the_file_is_refused() {
         let mut buf = frhp_indirect();
         buf.truncate(BLOCK1_ADDR as usize + 32); // the second block is 64 bytes
-        let err = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8)
+        let err = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default())
             .err()
             .expect("refused");
         assert!(err.to_string().contains("runs past end of file"), "{err}");
@@ -1580,17 +1640,26 @@ mod tests {
         let mut buf = frhp_indirect();
         put_undef(&mut buf, 132, 8); // root block address
         put(&mut buf, 140, &0u16.to_le_bytes()); // and no rows, as libhdf5 writes it
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).expect("parses");
+        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default())
+            .expect("parses");
         let err = heap
-            .object(&buf, &[0, 79, 0, 4, 0], &mut HeapReads::default())
+            .object(
+                &buf,
+                &[0, 79, 0, 4, 0],
+                &mut HeapReads::new(&mut ClaimedRanges::default()),
+            )
             .unwrap_err();
         assert!(
             err.to_string().contains("outside any direct block"),
             "{err}"
         );
         assert_eq!(
-            heap.object(&buf, &[0x21, 7, 8, 0, 0], &mut HeapReads::default())
-                .unwrap(),
+            heap.object(
+                &buf,
+                &[0x21, 7, 8, 0, 0],
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .unwrap(),
             [7, 8]
         );
     }
@@ -1601,26 +1670,41 @@ mod tests {
     #[test]
     fn a_tiny_object_is_read_from_its_heap_id() {
         let buf = frhp_indirect(); // heap ID length 5
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         assert_eq!(
-            heap.object(&buf, &[0x22, 7, 8, 9, 0], &mut HeapReads::default())
-                .unwrap(),
+            heap.object(
+                &buf,
+                &[0x22, 7, 8, 9, 0],
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .unwrap(),
             [7, 8, 9]
         );
         assert!(
-            heap.object(&buf, &[0x24, 7, 8, 9, 0], &mut HeapReads::default())
-                .is_err(),
+            heap.object(
+                &buf,
+                &[0x24, 7, 8, 9, 0],
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .is_err(),
             "five bytes in a 5-byte ID"
         );
 
         let mut buf = frhp_indirect();
         put(&mut buf, 5, &20u16.to_le_bytes()); // an extended-form ID
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         let mut id = vec![0x20, 2]; // length 0x002 + 1 = 3
         id.extend_from_slice(&[4, 5, 6]);
         id.resize(20, 0);
         assert_eq!(
-            heap.object(&buf, &id, &mut HeapReads::default()).unwrap(),
+            heap.object(
+                &buf,
+                &id,
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .unwrap(),
             [4, 5, 6]
         );
     }
@@ -1632,17 +1716,28 @@ mod tests {
         let mut buf = frhp_indirect();
         put(&mut buf, 5, &17u16.to_le_bytes()); // flags + address + length
         put(&mut buf, 0x3F0, b"HUGE!");
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         let mut id = vec![0x10];
         id.extend_from_slice(&0x3F0u64.to_le_bytes());
         id.extend_from_slice(&5u64.to_le_bytes());
         assert_eq!(
-            heap.object(&buf, &id, &mut HeapReads::default()).unwrap(),
+            heap.object(
+                &buf,
+                &id,
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .unwrap(),
             b"HUGE!"
         );
         id[9..17].copy_from_slice(&0x1000u64.to_le_bytes());
         assert!(
-            heap.object(&buf, &id, &mut HeapReads::default()).is_err(),
+            heap.object(
+                &buf,
+                &id,
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .is_err(),
             "past the end of the file"
         );
     }
@@ -1652,9 +1747,14 @@ mod tests {
     #[test]
     fn an_indirect_huge_id_with_no_record_is_refused() {
         let buf = frhp_indirect(); // 5-byte IDs: a 4-byte key, no index
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         let err = heap
-            .object(&buf, &[0x10, 1, 0, 0, 0], &mut HeapReads::default())
+            .object(
+                &buf,
+                &[0x10, 1, 0, 0, 0],
+                &mut HeapReads::new(&mut ClaimedRanges::default()),
+            )
             .unwrap_err();
         assert!(err.to_string().contains("huge object 1 is not in"), "{err}");
     }
@@ -1667,7 +1767,8 @@ mod tests {
         let in_block = BLOCK_PREFIX; // first object slot after the block prefix
         put(&mut buf, BLOCK1_ADDR as usize + in_block, &payload);
 
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         // Heap offset = second block's logical start (64) + position within it.
         let offset = 64u64 + in_block as u64;
         let mut id = vec![0u8]; // flags: managed
@@ -1675,7 +1776,12 @@ mod tests {
         id.extend_from_slice(&(payload.len() as u16).to_le_bytes()); // length (2)
 
         assert_eq!(
-            heap.object(&buf, &id, &mut HeapReads::default()).unwrap(),
+            heap.object(
+                &buf,
+                &id,
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .unwrap(),
             payload
         );
     }
@@ -1750,7 +1856,8 @@ mod tests {
         put(&mut buf, CI_ROOT_DB as usize + BLOCK_PREFIX, &root_obj);
         put(&mut buf, CI_CHILD_DB as usize + BLOCK_PREFIX, &child_obj);
 
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         let id = |logical: u64| {
             let offset = logical + BLOCK_PREFIX as u64;
             let mut id = vec![0u8]; // flags: managed
@@ -1761,13 +1868,21 @@ mod tests {
         // The root direct block sits at logical 0; the child indirect block
         // governs logical 512.., and its row-1 direct block at logical 640.
         assert_eq!(
-            heap.object(&buf, &id(0), &mut HeapReads::default())
-                .unwrap(),
+            heap.object(
+                &buf,
+                &id(0),
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .unwrap(),
             root_obj
         );
         assert_eq!(
-            heap.object(&buf, &id(640), &mut HeapReads::default())
-                .unwrap(),
+            heap.object(
+                &buf,
+                &id(640),
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .unwrap(),
             child_obj
         );
     }
@@ -1791,7 +1906,7 @@ mod tests {
         let mut buf = frhp_child_indirect();
         put(&mut buf, 112, &48u64.to_le_bytes()); // starting_block_size = 48
         assert!(matches!(
-            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()),
             Err(FieldglassError::Parse(_))
         ));
     }
@@ -1802,7 +1917,7 @@ mod tests {
         // Corrupt the child indirect block's heap header back-pointer.
         put(&mut buf, CI_CHILD_IB as usize + 5, &0xDEADu64.to_le_bytes());
         assert!(matches!(
-            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()),
             Err(FieldglassError::Parse(_))
         ));
     }
@@ -1814,7 +1929,7 @@ mod tests {
         // doubling-table walk arrived at — a corruption signal.
         put(&mut buf, CI_CHILD_IB as usize + 13, &999u16.to_le_bytes());
         assert!(matches!(
-            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()),
             Err(FieldglassError::Parse(_))
         ));
     }
@@ -1897,10 +2012,16 @@ mod tests {
         let on_disk = zlib(&image);
         let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &deflate_pipeline_body());
 
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         let id = managed_id(BLOCK_PREFIX as u64, payload.len());
         assert_eq!(
-            heap.object(&buf, &id, &mut HeapReads::default()).unwrap(),
+            heap.object(
+                &buf,
+                &id,
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .unwrap(),
             payload
         );
     }
@@ -1938,11 +2059,17 @@ mod tests {
         put(&mut buf, BLOCK0_ADDR as usize, &block0);
         put(&mut buf, BLOCK1_ADDR as usize, &block1);
 
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         // Second block's logical start (64) + position within it.
         let id = managed_id(64 + BLOCK_PREFIX as u64, payload.len());
         assert_eq!(
-            heap.object(&buf, &id, &mut HeapReads::default()).unwrap(),
+            heap.object(
+                &buf,
+                &id,
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .unwrap(),
             payload
         );
     }
@@ -1955,10 +2082,16 @@ mod tests {
         let image = fhdb_image(64, HEAP_ADDR, &payload);
         let buf = frhp_filtered_single(&image, image.len(), 0b1, &deflate_pipeline_body());
 
-        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let heap =
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
         let id = managed_id(BLOCK_PREFIX as u64, payload.len());
         assert_eq!(
-            heap.object(&buf, &id, &mut HeapReads::default()).unwrap(),
+            heap.object(
+                &buf,
+                &id,
+                &mut HeapReads::new(&mut ClaimedRanges::default())
+            )
+            .unwrap(),
             payload
         );
     }
@@ -1970,7 +2103,7 @@ mod tests {
             2u8, 1, /*id*/ 5, 0, /*flags*/ 0, 0, /*nvalues*/ 0, 0,
         ];
         let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &nbit);
-        assert!(FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).is_err());
+        assert!(FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).is_err());
     }
 
     #[test]
@@ -1979,7 +2112,7 @@ mod tests {
         let on_disk = zlib(&fhdb_image(64, 0x9999, &[0x01]));
         let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &deflate_pipeline_body());
         assert!(matches!(
-            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()),
             Err(FieldglassError::Parse(_))
         ));
     }
@@ -1990,7 +2123,7 @@ mod tests {
         let on_disk = zlib(&fhdb_image(32, HEAP_ADDR, &[0x01]));
         let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &deflate_pipeline_body());
         assert!(matches!(
-            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()),
             Err(FieldglassError::Parse(_))
         ));
     }
@@ -2004,7 +2137,7 @@ mod tests {
         image.resize(1 << 20, 0);
         let on_disk = zlib(&image);
         let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &deflate_pipeline_body());
-        match FractalHeap::parse(&buf, HEAP_ADDR, 8, 8) {
+        match FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()) {
             Err(FieldglassError::Parse(m)) => {
                 assert!(m.contains("past the chunk's 64-byte length"), "{m}")
             }
@@ -2019,7 +2152,7 @@ mod tests {
         // Claim an on-disk size that runs past the buffer.
         let buf = frhp_filtered_single(&on_disk, 0x10000, 0, &deflate_pipeline_body());
         assert!(matches!(
-            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()),
             Err(FieldglassError::Parse(_))
         ));
     }

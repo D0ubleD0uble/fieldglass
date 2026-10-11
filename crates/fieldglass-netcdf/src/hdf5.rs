@@ -126,6 +126,7 @@ impl Hdf5Probe {
     ) -> Result<std::sync::Arc<object_header::ObjectHeader>, FieldglassError> {
         self.cache
             .header(source, offset, self.offset_size, self.length_size)
+            .map(|(header, _)| header)
     }
 
     /// How many structure walks this probe has actually performed — object
@@ -178,6 +179,57 @@ impl std::fmt::Debug for Hdf5Probe {
             .field("length_size", &self.length_size)
             .field("base_address", &self.base_address)
             .finish()
+    }
+}
+
+/// What one whole-file listing has read, so that no block is read for two
+/// objects (#921).
+///
+/// The bounds from #895, #899 and #901 hold within one structure: one object
+/// header, one B-tree, one group's names, one heap's objects. They did not
+/// span the objects of a listing, so a block that many objects named was read
+/// and copied once per object: many headers continuing into one chunk, many
+/// datasets pointing at one dense attribute store, many groups sharing one
+/// local heap. In a valid file each of those belongs to one object (each group
+/// has its own local heap, each object its own dense storage), so a listing
+/// claims the file range of every block it reads and refuses a second claim,
+/// as [`ClaimedRanges`](source::ClaimedRanges) does inside one structure.
+///
+/// An object reached twice, by two hard links, is still one object. Its header
+/// chunks are claimed on its first visit only, and the walks that read an
+/// object's other blocks visit each object once.
+///
+/// What is legitimately shared is not claimed: one global-heap collection
+/// holds the `DIMENSION_LIST` references of many variables.
+///
+/// libhdf5 reads objects sharing a dense store and groups sharing a local
+/// heap, so refusing them is a known divergence; ADR-0016 records why.
+#[derive(Debug, Default)]
+pub(crate) struct Listing {
+    /// Every block this listing has read, as file ranges.
+    pub(crate) file: source::ClaimedRanges,
+    /// The object headers whose chunks are claimed in `file`.
+    headers: std::collections::HashSet<u64>,
+}
+
+impl Listing {
+    /// The object header at `offset`, its chunks claimed on its first visit.
+    pub(crate) fn header<S: ByteSource + ?Sized>(
+        &mut self,
+        source: &S,
+        probe: &Hdf5Probe,
+        offset: u64,
+    ) -> Result<std::sync::Arc<object_header::ObjectHeader>, FieldglassError> {
+        let (header, chunks) =
+            probe
+                .cache
+                .header(source, offset, probe.offset_size, probe.length_size)?;
+        if self.headers.insert(offset) {
+            for &(start, len) in chunks.iter() {
+                self.file.claim(start, len, "object-header chunk")?;
+            }
+        }
+        Ok(header)
     }
 }
 

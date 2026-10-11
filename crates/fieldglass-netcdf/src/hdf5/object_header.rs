@@ -89,16 +89,49 @@ pub fn walk<S: ByteSource + ?Sized>(
     offset_size: u8,
     length_size: u8,
 ) -> Result<ObjectHeader, FieldglassError> {
+    walk_chunks(source, offset, offset_size, length_size).map(|(header, _)| header)
+}
+
+/// The file ranges an object header was read from: chunk 0, prefix included,
+/// then each continuation chunk, as `(start, length)`.
+///
+/// A whole-file listing claims them, so that two headers naming one chunk are
+/// refused rather than read once per header (#921).
+pub(crate) type HeaderChunks = Vec<(u64, u64)>;
+
+/// [`walk`], also returning the [`HeaderChunks`] the header occupies.
+pub(crate) fn walk_chunks<S: ByteSource + ?Sized>(
+    source: &S,
+    offset: u64,
+    offset_size: u8,
+    length_size: u8,
+) -> Result<(ObjectHeader, HeaderChunks), FieldglassError> {
     let prefix = read_up_to(source, offset, HEADER_PROBE_BYTES)?;
-    if prefix.starts_with(OHDR_SIGNATURE) {
-        parse_v2(source, offset, &prefix, offset_size, length_size)
+    let mut chunks = Vec::new();
+    let header = if prefix.starts_with(OHDR_SIGNATURE) {
+        parse_v2(
+            source,
+            offset,
+            &prefix,
+            offset_size,
+            length_size,
+            &mut chunks,
+        )
     } else if prefix.first() == Some(&1) {
-        parse_v1(source, offset, &prefix, offset_size, length_size)
+        parse_v1(
+            source,
+            offset,
+            &prefix,
+            offset_size,
+            length_size,
+            &mut chunks,
+        )
     } else {
         Err(FieldglassError::Parse(format!(
             "no recognizable object header at offset {offset} (expected v1 prefix or OHDR)"
         )))
-    }
+    }?;
+    Ok((header, chunks))
 }
 
 /// Version-1 object header: 12-byte prefix, 4 bytes of padding, then the
@@ -109,6 +142,7 @@ fn parse_v1<S: ByteSource + ?Sized>(
     prefix: &[u8],
     offset_size: u8,
     length_size: u8,
+    chunks_read: &mut HeaderChunks,
 ) -> Result<ObjectHeader, FieldglassError> {
     // Prefix: version(1) reserved(1) num_messages(2) ref_count(4) size(4) = 12,
     // then 4 bytes of padding so messages begin on an 8-byte boundary.
@@ -125,6 +159,7 @@ fn parse_v1<S: ByteSource + ?Sized>(
     let mut claimed = ClaimedRanges::default();
     let header_len = (header_size as u64).saturating_add(16);
     claimed.claim(start, header_len, "object header")?;
+    chunks_read.push((start, header_len));
 
     let mut chunks = 0usize;
     while let Some((run_start, run_len)) = queue.pop_front() {
@@ -141,6 +176,7 @@ fn parse_v1<S: ByteSource + ?Sized>(
                 run_len as u64,
                 "object-header continuation chunk",
             )?;
+            chunks_read.push((run_start, run_len as u64));
         }
         // One read for the whole run, then a purely local parse of it.
         let run = read_at(source, run_start, run_len)?;
@@ -187,6 +223,7 @@ fn parse_v2<S: ByteSource + ?Sized>(
     prefix: &[u8],
     offset_size: u8,
     length_size: u8,
+    chunks_read: &mut HeaderChunks,
 ) -> Result<ObjectHeader, FieldglassError> {
     // OHDR(4) version(1) flags(1), then optional time/phase-change fields.
     // The signature was matched by the caller; only version 2 is defined.
@@ -235,6 +272,7 @@ fn parse_v2<S: ByteSource + ?Sized>(
     // only its own bytes, so a chunk that continues to itself still verifies.
     let mut claimed = ClaimedRanges::default();
     claimed.claim(start, image_len as u64, "object header")?;
+    chunks_read.push((start, image_len as u64));
     parse_v2_run(
         &image[pos..checksum_at],
         track_creation_order,
@@ -257,6 +295,7 @@ fn parse_v2<S: ByteSource + ?Sized>(
             chunk_len as u64,
             "object-header continuation chunk",
         )?;
+        chunks_read.push((chunk_start, chunk_len as u64));
         // OCHK(4) + messages + checksum(4): at least 8 bytes of framing.
         if chunk_len < 8 {
             return Err(FieldglassError::Parse(

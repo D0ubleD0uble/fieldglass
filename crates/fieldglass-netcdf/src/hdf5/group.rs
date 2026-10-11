@@ -25,8 +25,9 @@
 use super::heap::{self, FractalHeap};
 use super::object_header::{self, read_uint_le};
 use super::source::{ClaimedRanges, Cursor, Fields, FileCursor, read_up_to, scan_windows};
-use super::{BtreeK, Hdf5Probe};
+use super::{BtreeK, Hdf5Probe, Listing};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::ArrayError;
 use fieldglass_core::bytes::ByteSource;
 use std::collections::HashSet;
 
@@ -45,10 +46,37 @@ const SIG_SNOD: &[u8; 4] = b"SNOD";
 /// Link-name B-tree v2 record: `hash(4)` then the fractal-heap ID.
 const LINK_RECORD_HEAP_ID_OFFSET: usize = 4;
 
-/// Upper bound on children enumerated from one group — guards malformed counts.
+/// Upper bound on the objects one listing holds: the members of one group, or
+/// the datasets of the whole tree.
+///
+/// A policy cap, not a format limit: a valid file could hold more, so passing
+/// it is [`ArrayError::ListingTooLarge`], which says the file is fine (#921),
+/// rather than a parse error. A million objects is far past any real NetCDF-4
+/// file.
 const MAX_CHILDREN: usize = 1 << 20;
 /// Upper bound on B-tree v1 nodes visited — guards cyclic sibling/child links.
 const MAX_BTREE_NODES: usize = 4096;
+
+/// Ceiling on the bytes of the path-qualified names one whole-file listing
+/// gives its objects (#921).
+///
+/// Each object's name carries the path of every group above it, so objects
+/// deep in a chain of nested groups share one long prefix and the listing
+/// writes it out once per object: the names grow with objects times depth,
+/// not with the file. 64 MiB is a million objects named with 64-byte paths,
+/// far beyond any real NetCDF-4 file, and the same ceiling as the header memo.
+/// A valid file can pass it, so passing it is
+/// [`ArrayError::ListingTooLarge`], as for [`MAX_CHILDREN`].
+const MAX_LISTED_NAME_BYTES: usize = 64 << 20;
+
+/// The refusal for a listing past one of its caps: the file is fine, it holds
+/// more than one listing keeps.
+fn too_large(what: &'static str, limit: usize) -> FieldglassError {
+    FieldglassError::Array(ArrayError::ListingTooLarge {
+        what,
+        limit: limit as u64,
+    })
+}
 
 /// Ceiling on a link name read out of a local heap.
 ///
@@ -105,9 +133,22 @@ pub fn list_group_children<S: ByteSource + ?Sized>(
     group_addr: u64,
     probe: &Hdf5Probe,
 ) -> Result<Vec<GroupChild>, FieldglassError> {
+    group_children(source, group_addr, probe, &mut Listing::default())
+}
+
+/// [`list_group_children`] as one step of a whole-file listing: the group's
+/// header, its link structures and each child's header are claimed in
+/// `listing`, so a block another group or object already used is refused
+/// (#921).
+fn group_children<S: ByteSource + ?Sized>(
+    source: &S,
+    group_addr: u64,
+    probe: &Hdf5Probe,
+    listing: &mut Listing,
+) -> Result<Vec<GroupChild>, FieldglassError> {
     let osize = probe.offset_size;
     let lsize = probe.length_size;
-    let header = probe.header(source, group_addr)?;
+    let header = listing.header(source, probe, group_addr)?;
 
     // A group uses exactly one of the two link layouts. Symbol Table wins if
     // present (legacy files); otherwise Link Info drives the modern path.
@@ -119,12 +160,18 @@ pub fn list_group_children<S: ByteSource + ?Sized>(
         symbol_table_links(
             source,
             &msg.body,
-            osize,
-            lsize,
+            (osize, lsize),
             super::btree_k(source, probe)?,
+            &mut listing.file,
         )?
     } else if let Some(msg) = header.messages.iter().find(|m| m.msg_type == MSG_LINK_INFO) {
-        link_info_links(source, &header, &msg.body, osize, lsize)?
+        link_info_links(
+            source,
+            &header,
+            &msg.body,
+            (osize, lsize),
+            &mut listing.file,
+        )?
     } else {
         Vec::new()
     };
@@ -133,7 +180,7 @@ pub fn list_group_children<S: ByteSource + ?Sized>(
     links
         .into_iter()
         .map(|(name, addr)| {
-            let kind = classify(source, addr, probe)?;
+            let kind = classify(source, addr, probe, listing)?;
             Ok(GroupChild {
                 name,
                 object_header_address: addr,
@@ -162,8 +209,13 @@ pub fn list_group_children<S: ByteSource + ?Sized>(
 /// The traversal is an explicit frame stack, not native recursion: a
 /// pathologically deep group chain (thousands of nested groups, each tiny on
 /// disk) would otherwise overflow the call stack. Each frame holds one group's
-/// name-sorted children, a cursor into them, and that group's path prefix;
-/// `visited` bounds the total number of groups the stack can hold.
+/// name-sorted children, a cursor into them, and the length of that group's
+/// path prefix in the one path the frames share; `visited` bounds the total
+/// number of groups the stack can hold.
+///
+/// Every block the walk reads is claimed once across the whole file, so a
+/// block that two groups or objects name is refused (#921), and the names it
+/// gives are held to 64 MiB in all.
 pub fn list_all_children<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
@@ -191,22 +243,32 @@ fn walk_all_children<S: ByteSource + ?Sized>(
     probe: &Hdf5Probe,
 ) -> Result<Vec<GroupChild>, FieldglassError> {
     /// One group's in-progress traversal: its children, the next to visit, and
-    /// the path prefix (`""` for the root, `/G` for a nested group `G`).
+    /// how much of the shared path is this group's prefix (`""` for the root,
+    /// `/G` for a nested group `G`).
     struct Frame {
         children: Vec<GroupChild>,
         next: usize,
-        prefix: String,
+        prefix_len: usize,
     }
 
+    // Every block the walk reads is claimed once across all its groups and
+    // objects (#921).
+    let mut listing = Listing::default();
     let root = super::root_group_address(source, probe)?;
     let mut out = Vec::new();
     let mut visited = HashSet::new();
     visited.insert(root);
     let mut stack = vec![Frame {
-        children: list_group_children(source, root, probe)?,
+        children: group_children(source, root, probe, &mut listing)?,
         next: 0,
-        prefix: String::new(),
+        prefix_len: 0,
     }];
+    // The path of the group being listed. Each frame holds only its length,
+    // so a chain of nested groups costs its path once rather than a copy per
+    // level, which grew with the square of the depth: 2,400 nested groups of
+    // 200-character names peaked at 590 MB (#921).
+    let mut path = String::new();
+    let mut name_bytes = 0usize;
 
     while let Some(frame) = stack.last_mut() {
         let Some(child) = frame.children.get(frame.next).cloned() else {
@@ -214,37 +276,44 @@ fn walk_all_children<S: ByteSource + ?Sized>(
             continue;
         };
         frame.next += 1;
-        let prefix = frame.prefix.clone();
+        path.truncate(frame.prefix_len);
         // The `frame` borrow ends here (below only touches `stack` as a whole).
 
         if out.len() >= MAX_CHILDREN {
-            return Err(FieldglassError::Parse(
-                "HDF5 group tree has too many objects".into(),
-            ));
+            return Err(too_large("objects", MAX_CHILDREN));
         }
         // Root-group children keep their bare name (`temp`); a child of a nested
         // group is qualified by that group's leading-slash path (`/G/temp`).
-        let path = format!("{prefix}/{}", child.name);
         match child.kind {
             ChildKind::Group => {
                 // A hard-link cycle (or a shared subgroup reached twice) would
                 // otherwise loop forever / double-count; skip an already-seen
-                // group object. `path` (e.g. `/G`) becomes the child prefix.
+                // group object. Its path (e.g. `/G`) becomes the child prefix.
                 if visited.insert(child.object_header_address) {
-                    let children = list_group_children(source, child.object_header_address, probe)?;
+                    let children =
+                        group_children(source, child.object_header_address, probe, &mut listing)?;
+                    path.push('/');
+                    path.push_str(&child.name);
                     stack.push(Frame {
                         children,
                         next: 0,
-                        prefix: path,
+                        prefix_len: path.len(),
                     });
                 }
             }
             ChildKind::Dataset | ChildKind::CommittedDatatype => {
-                let name = if prefix.is_empty() {
+                let name = if path.is_empty() {
                     child.name.clone()
                 } else {
-                    path
+                    format!("{path}/{}", child.name)
                 };
+                name_bytes = name_bytes.saturating_add(name.len());
+                if name_bytes > MAX_LISTED_NAME_BYTES {
+                    return Err(too_large(
+                        "bytes of path-qualified names",
+                        MAX_LISTED_NAME_BYTES,
+                    ));
+                }
                 out.push(GroupChild { name, ..child });
             }
         }
@@ -253,12 +322,14 @@ fn walk_all_children<S: ByteSource + ?Sized>(
 }
 
 /// Classify a child by walking its object header and inspecting message types.
+/// The header's chunks are claimed in `listing` on its first visit.
 fn classify<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
     probe: &Hdf5Probe,
+    listing: &mut Listing,
 ) -> Result<ChildKind, FieldglassError> {
-    let header = probe.header(source, addr)?;
+    let header = listing.header(source, probe, addr)?;
     let has = |t: u16| header.messages.iter().any(|m| m.msg_type == t);
     // Groups carry link structures; datasets carry a dataspace; a committed
     // datatype is a bare datatype with no dataspace.
@@ -283,9 +354,9 @@ fn classify<S: ByteSource + ?Sized>(
 fn symbol_table_links<S: ByteSource + ?Sized>(
     source: &S,
     body: &[u8],
-    osize: u8,
-    lsize: u8,
+    (osize, lsize): (u8, u8),
     k: BtreeK,
+    file: &mut ClaimedRanges,
 ) -> Result<Vec<(String, u64)>, FieldglassError> {
     let o = osize as usize;
     if body.len() < 2 * o {
@@ -295,13 +366,15 @@ fn symbol_table_links<S: ByteSource + ?Sized>(
     }
     let btree_addr = read_uint_le(body, 0, o)?;
     let heap_addr = read_uint_le(body, o, o)?;
-    let heap_data = local_heap_data_segment(source, heap_addr, osize, lsize)?;
+    let heap_data = local_heap_data_segment(source, heap_addr, (osize, lsize), file)?;
 
     // Every B-tree node and SNOD is claimed by its range of the file, and
     // every name by its range of the heap, so none is read twice (#901): one
     // SNOD named 8,192 times, its entries all naming one 60 KB name, made a
     // 197 KB file use 3.85 GB. A valid group gives each its own storage.
-    let mut nodes = ClaimedRanges::default();
+    // `file` is the file ranges the whole listing has read, so two groups
+    // sharing a node or a heap are refused too (#921); the names are offsets
+    // in this group's heap, which no other group may use.
     let mut names = ClaimedRanges::default();
     let mut snods = Vec::new();
     collect_snods(
@@ -310,7 +383,7 @@ fn symbol_table_links<S: ByteSource + ?Sized>(
         (osize, lsize),
         k.group_node_max(),
         &mut snods,
-        &mut nodes,
+        file,
     )?;
 
     let mut links = Vec::new();
@@ -322,7 +395,7 @@ fn symbol_table_links<S: ByteSource + ?Sized>(
             (osize, lsize),
             k.symbol_node_max(),
             &mut links,
-            (&mut nodes, &mut names),
+            (&mut *file, &mut names),
         )?;
     }
     Ok(links)
@@ -340,11 +413,15 @@ struct HeapSegment {
 const SYMBOL_TABLE_SOFT_LINK: u64 = 2;
 
 /// Read a local heap's header and return its data segment.
+///
+/// The header and the data segment are claimed in `file`, the file ranges the
+/// listing has read: each group has a local heap of its own, and groups that
+/// shared one read every name in it once per group (#921).
 fn local_heap_data_segment<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
-    osize: u8,
-    lsize: u8,
+    (osize, lsize): (u8, u8),
+    file: &mut ClaimedRanges,
 ) -> Result<HeapSegment, FieldglassError> {
     let mut cur = FileCursor::at(source, addr)?;
     cur.tag(SIG_LOCAL_HEAP)?;
@@ -352,6 +429,8 @@ fn local_heap_data_segment<S: ByteSource + ?Sized>(
     let size = cur.uint(lsize as usize)?; // data segment size
     cur.uint(lsize as usize)?; // free-list head offset
     let address = cur.uint(osize as usize)?; // address of data segment
+    file.claim(addr, cur.position() - addr, "local heap")?;
+    file.claim(address, size, "local heap data segment")?;
     Ok(HeapSegment { address, size })
 }
 
@@ -410,9 +489,7 @@ fn collect_snods<S: ByteSource + ?Sized>(
             let child = cur.uint(o)?;
             if level == 0 {
                 if out.len() >= MAX_CHILDREN {
-                    return Err(FieldglassError::Parse(
-                        "B-tree v1 has too many nodes".into(),
-                    ));
+                    return Err(too_large("symbol-table nodes in one group", MAX_CHILDREN));
                 }
                 out.push(child);
             } else {
@@ -543,8 +620,8 @@ fn link_info_links<S: ByteSource + ?Sized>(
     source: &S,
     header: &object_header::ObjectHeader,
     body: &[u8],
-    osize: u8,
-    lsize: u8,
+    (osize, lsize): (u8, u8),
+    file: &mut ClaimedRanges,
 ) -> Result<Vec<(String, u64)>, FieldglassError> {
     let o = osize as usize;
     // version (1) + flags (1), then an optional maximum creation index, a
@@ -572,7 +649,10 @@ fn link_info_links<S: ByteSource + ?Sized>(
     }
 
     let btree_addr = read_uint_le(body, pos + o, o)?;
-    let heap = FractalHeap::parse(source, heap_addr, osize, lsize)?;
+    // The heap, the B-tree and any huge link are claimed in `file`, so groups
+    // sharing one dense link store are refused rather than each listing all
+    // of it (#921).
+    let heap = FractalHeap::parse(source, heap_addr, osize, lsize, file)?;
     // The format fixes a link record's layout: a 4-byte name hash or 8-byte
     // creation order, then the 7-byte fractal-heap ID (#895).
     let layout = |t: u8, size: usize| match (t, size) {
@@ -585,7 +665,8 @@ fn link_info_links<S: ByteSource + ?Sized>(
             "unsupported B-tree v2 type {t} for links"
         ))),
     };
-    let (btree_type, records) = heap::btree_v2_records(source, btree_addr, osize, lsize, &layout)?;
+    let (btree_type, records) =
+        heap::btree_v2_records_in(source, btree_addr, (osize, lsize), &layout, file)?;
     if btree_type != 5 && btree_type != 6 {
         return Err(FieldglassError::Parse(format!(
             "unsupported B-tree v2 type {btree_type} for links"
@@ -594,7 +675,7 @@ fn link_info_links<S: ByteSource + ?Sized>(
 
     let mut links = Vec::new();
     // One per listing, so no heap object is read twice (#899 review).
-    let mut reads = heap::HeapReads::default();
+    let mut reads = heap::HeapReads::new(file);
     for record in records {
         let id = record
             .get(LINK_RECORD_HEAP_ID_OFFSET..LINK_RECORD_HEAP_ID_OFFSET + heap.heap_id_len)
@@ -637,7 +718,7 @@ fn parse_link_message(body: &[u8], osize: u8) -> Result<Option<(String, u64)>, F
 
 fn push_link(out: &mut Vec<(String, u64)>, name: String, addr: u64) -> Result<(), FieldglassError> {
     if out.len() >= MAX_CHILDREN {
-        return Err(FieldglassError::Parse("group has too many links".into()));
+        return Err(too_large("links in one group", MAX_CHILDREN));
     }
     out.push((name, addr));
     Ok(())
@@ -716,7 +797,14 @@ mod tests {
         let mut body = Vec::new();
         body.extend_from_slice(&0x300u64.to_le_bytes()); // B-tree v1 address
         body.extend_from_slice(&0x100u64.to_le_bytes()); // local heap address
-        let links = symbol_table_links(&buf, &body, 8, 8, BtreeK::default()).unwrap();
+        let links = symbol_table_links(
+            &buf,
+            &body,
+            (8, 8),
+            BtreeK::default(),
+            &mut ClaimedRanges::default(),
+        )
+        .unwrap();
         assert_eq!(
             links,
             vec![("alpha".to_string(), 0xAAAA), ("beta".to_string(), 0xBBBB)]
@@ -726,7 +814,8 @@ mod tests {
     #[test]
     fn rejects_bad_local_heap_signature() {
         let buf = vec![0u8; 64];
-        let err = local_heap_data_segment(&buf, 0, 8, 8).unwrap_err();
+        let err =
+            local_heap_data_segment(&buf, 0, (8, 8), &mut ClaimedRanges::default()).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)));
     }
 
@@ -752,7 +841,8 @@ mod tests {
         let mut body = Vec::new();
         body.extend_from_slice(&4096u64.to_le_bytes());
         body.extend_from_slice(&4096u64.to_le_bytes());
-        assert!(symbol_table_links(&buf, &body, 8, 8, BtreeK::default()).is_err());
+        let mut file = ClaimedRanges::default();
+        assert!(symbol_table_links(&buf, &body, (8, 8), BtreeK::default(), &mut file).is_err());
     }
 
     #[test]

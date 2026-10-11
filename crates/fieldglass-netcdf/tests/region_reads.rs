@@ -92,6 +92,14 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/hdf5_conflicting_chunk_records_swapped.h5"),
     ),
     (
+        "hdf5_deep_group_chain.h5",
+        include_bytes!("fixtures/hdf5_deep_group_chain.h5"),
+    ),
+    (
+        "hdf5_deep_group_chain_past_name_cap.h5",
+        include_bytes!("fixtures/hdf5_deep_group_chain_past_name_cap.h5"),
+    ),
+    (
         "hdf5_duplicate_chunk_records.h5",
         include_bytes!("fixtures/hdf5_duplicate_chunk_records.h5"),
     ),
@@ -114,6 +122,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
     (
         "hdf5_fletcher32.h5",
         include_bytes!("fixtures/hdf5_fletcher32.h5"),
+    ),
+    (
+        "hdf5_hard_linked_dense_attributes.h5",
+        include_bytes!("fixtures/hdf5_hard_linked_dense_attributes.h5"),
     ),
     (
         "hdf5_huge_link_name.h5",
@@ -160,6 +172,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/hdf5_phony_dims.h5"),
     ),
     (
+        "hdf5_shared_attribute_storage.h5",
+        include_bytes!("fixtures/hdf5_shared_attribute_storage.h5"),
+    ),
+    (
         "hdf5_shared_chunk_records.h5",
         include_bytes!("fixtures/hdf5_shared_chunk_records.h5"),
     ),
@@ -172,12 +188,24 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/hdf5_shared_chunk_records_sizes.h5"),
     ),
     (
+        "hdf5_shared_continuation.h5",
+        include_bytes!("fixtures/hdf5_shared_continuation.h5"),
+    ),
+    (
         "hdf5_shared_group_name.h5",
         include_bytes!("fixtures/hdf5_shared_group_name.h5"),
     ),
     (
         "hdf5_shared_huge_attribute.h5",
         include_bytes!("fixtures/hdf5_shared_huge_attribute.h5"),
+    ),
+    (
+        "hdf5_shared_link_storage.h5",
+        include_bytes!("fixtures/hdf5_shared_link_storage.h5"),
+    ),
+    (
+        "hdf5_shared_local_heap.h5",
+        include_bytes!("fixtures/hdf5_shared_local_heap.h5"),
     ),
     (
         "hdf5_shared_snod.h5",

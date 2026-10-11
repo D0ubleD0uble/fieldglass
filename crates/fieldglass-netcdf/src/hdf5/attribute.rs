@@ -16,7 +16,7 @@ use super::dataspace::{self, Dataspace};
 use super::datatype::{self, Datatype, DatatypeClass};
 use super::heap::{self, FractalHeap};
 use super::object_header::{self, read_uint_le};
-use super::source::{Cursor, Fields};
+use super::source::{ClaimedRanges, Cursor, Fields};
 use crate::classic;
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::ByteSource;
@@ -83,13 +83,24 @@ pub fn list_attributes<S: ByteSource + ?Sized>(
     object_header_address: u64,
     probe: &Hdf5Probe,
 ) -> Result<Vec<Hdf5Attribute>, FieldglassError> {
+    let mut file = ClaimedRanges::default();
+    let bodies = message_bodies_in(source, object_header_address, probe, &mut file)?;
+    parse_bodies(&bodies, probe.length_size)
+}
+
+/// The attributes in an object's message bodies, sorted by name: what
+/// [`list_attributes`] returns once [`message_bodies_in`] has read them.
+pub(crate) fn parse_bodies(
+    bodies: &[Vec<u8>],
+    length_size: u8,
+) -> Result<Vec<Hdf5Attribute>, FieldglassError> {
     let mut attrs = Vec::new();
     // An attribute we can't parse — most often one whose datatype we don't decode
     // (e.g. a NetCDF-4 `DIMENSION_LIST`, which is variable-length), but a
     // malformed one too — is skipped rather than failing the whole list, so the
     // rest of an object's attributes, and its value decode, still come through.
-    for body in attribute_message_bodies(source, object_header_address, probe)? {
-        if let Ok(attr) = parse_attribute_message(&body, probe.length_size) {
+    for body in bodies {
+        if let Ok(attr) = parse_attribute_message(body, length_size) {
             push_attribute(&mut attrs, attr)?;
         }
     }
@@ -107,14 +118,26 @@ pub fn raw_attribute<S: ByteSource + ?Sized>(
     probe: &Hdf5Probe,
     name: &str,
 ) -> Result<Option<RawAttribute>, FieldglassError> {
-    for body in attribute_message_bodies(source, object_header_address, probe)? {
-        let Ok(split) = split_attribute_message(&body) else {
+    let mut file = ClaimedRanges::default();
+    let bodies = message_bodies_in(source, object_header_address, probe, &mut file)?;
+    raw_in_bodies(&bodies, name, probe.length_size)
+}
+
+/// The attribute named `name` among an object's message bodies, as
+/// [`raw_attribute`] finds it once [`message_bodies_in`] has read them.
+pub(crate) fn raw_in_bodies(
+    bodies: &[Vec<u8>],
+    name: &str,
+    length_size: u8,
+) -> Result<Option<RawAttribute>, FieldglassError> {
+    for body in bodies {
+        let Ok(split) = split_attribute_message(body) else {
             continue;
         };
         if split.name != name {
             continue;
         }
-        let dataspace = dataspace::decode(split.dataspace_bytes, probe.length_size)?;
+        let dataspace = dataspace::decode(split.dataspace_bytes, length_size)?;
         return Ok(Some(RawAttribute {
             name: split.name,
             datatype_bytes: split.datatype_bytes.to_vec(),
@@ -129,10 +152,15 @@ pub fn raw_attribute<S: ByteSource + ?Sized>(
 /// inline (messages in the header) and dense (Attribute Info → fractal heap +
 /// B-tree v2). The single source of attribute messages for both the human and
 /// raw decode paths.
-fn attribute_message_bodies<S: ByteSource + ?Sized>(
+///
+/// `file` is the file ranges the listing has read: the dense storage's heap,
+/// B-tree and huge objects are claimed in it, so a listing that reads many
+/// objects refuses two of them sharing one store (#921).
+pub(crate) fn message_bodies_in<S: ByteSource + ?Sized>(
     source: &S,
     object_header_address: u64,
     probe: &Hdf5Probe,
+    file: &mut ClaimedRanges,
 ) -> Result<Vec<Vec<u8>>, FieldglassError> {
     let header = probe.header(source, object_header_address)?;
 
@@ -147,7 +175,7 @@ fn attribute_message_bodies<S: ByteSource + ?Sized>(
         .iter()
         .find(|m| m.msg_type == MSG_ATTRIBUTE_INFO)
     {
-        read_dense_attribute_bodies(source, &msg.body, probe, &mut bodies)?;
+        read_dense_attribute_bodies(source, &msg.body, probe, &mut bodies, file)?;
     }
     Ok(bodies)
 }
@@ -158,6 +186,7 @@ fn read_dense_attribute_bodies<S: ByteSource + ?Sized>(
     body: &[u8],
     probe: &Hdf5Probe,
     out: &mut Vec<Vec<u8>>,
+    file: &mut ClaimedRanges,
 ) -> Result<(), FieldglassError> {
     let o = probe.offset_size as usize;
     // version (1) + flags (1), then optional max-creation-index (2).
@@ -178,7 +207,13 @@ fn read_dense_attribute_bodies<S: ByteSource + ?Sized>(
     }
     let btree_addr = read_uint_le(body, pos + o, o)?;
 
-    let heap = FractalHeap::parse(source, heap_addr, probe.offset_size, probe.length_size)?;
+    let heap = FractalHeap::parse(
+        source,
+        heap_addr,
+        probe.offset_size,
+        probe.length_size,
+        file,
+    )?;
     // The format fixes an attribute record's layout: the 8-byte fractal-heap
     // ID, a message flag byte, a 4-byte creation order, and (type 8) a 4-byte
     // name hash (#895).
@@ -192,12 +227,12 @@ fn read_dense_attribute_bodies<S: ByteSource + ?Sized>(
             "unsupported B-tree v2 type {t} for attributes"
         ))),
     };
-    let (btree_type, records) = heap::btree_v2_records(
+    let (btree_type, records) = heap::btree_v2_records_in(
         source,
         btree_addr,
-        probe.offset_size,
-        probe.length_size,
+        (probe.offset_size, probe.length_size),
         &layout,
+        file,
     )?;
     if btree_type != 8 && btree_type != 9 {
         return Err(FieldglassError::Parse(format!(
@@ -206,7 +241,7 @@ fn read_dense_attribute_bodies<S: ByteSource + ?Sized>(
     }
 
     // One per listing, so no heap object is read twice (#899 review).
-    let mut reads = heap::HeapReads::default();
+    let mut reads = heap::HeapReads::new(file);
     for record in records {
         let id = record
             .get(ATTR_RECORD_HEAP_ID_OFFSET..ATTR_RECORD_HEAP_ID_OFFSET + heap.heap_id_len)

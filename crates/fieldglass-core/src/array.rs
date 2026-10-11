@@ -311,6 +311,23 @@ pub enum ArrayError {
         limit: u64,
     },
 
+    /// A container that lists more than one listing of it will hold: more
+    /// objects, or more bytes of path-qualified names, than the reader keeps
+    /// (#921).
+    ///
+    /// The file is not at fault: a valid file can be this large, and the
+    /// message says so.
+    #[error(
+        "this file lists more than {limit} {what}, more than one listing of it holds. \
+         The file itself is fine"
+    )]
+    ListingTooLarge {
+        /// What was counted, as the message names it (`"objects"`).
+        what: &'static str,
+        /// The most one listing holds.
+        limit: u64,
+    },
+
     /// A chunk key separator that is not one of the two the conventions use.
     #[error("{found:?} is not a chunk key separator; expected \".\" or \"/\"")]
     BadSeparator {
@@ -1398,6 +1415,19 @@ mod tests {
         .to_string();
         assert!(message.contains("decode to 320.0 MiB each"), "{message}");
         assert!(message.contains("more than the 256.0 MiB"), "{message}");
+        assert!(message.contains("The file itself is fine"), "{message}");
+    }
+
+    /// A listing too large to hold says what it counted and that the file is
+    /// fine (#921).
+    #[test]
+    fn a_listing_too_large_says_the_file_is_fine() {
+        let message = ArrayError::ListingTooLarge {
+            what: "objects",
+            limit: 1 << 20,
+        }
+        .to_string();
+        assert!(message.contains("more than 1048576 objects"), "{message}");
         assert!(message.contains("The file itself is fine"), "{message}");
     }
 

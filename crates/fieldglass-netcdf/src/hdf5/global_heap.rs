@@ -14,7 +14,10 @@
 //!
 //! Reference: HDF5 file format specification version 3, "Global Heap".
 
-use super::source::{Fields, FileCursor};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+
+use super::source::{Fields, FileCursor, read_at};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteSource, checked_usize};
 
@@ -46,12 +49,127 @@ pub fn read_object<S: ByteSource + ?Sized>(
     object_index: u16,
     length_size: u8,
 ) -> Result<Vec<u8>, FieldglassError> {
-    if object_index == 0 {
-        return Err(FieldglassError::Parse(
-            "global-heap object index 0 is the free-space marker, not an object".into(),
-        ));
+    Collections::default().read_object(source, collection_addr, object_index, length_size)
+}
+
+/// The global-heap collections one listing has looked objects up in, each
+/// scanned at most once (#921).
+///
+/// A collection is legitimately shared: netCDF-C puts the `DIMENSION_LIST`
+/// references of many variables in one, and a lookup has to scan the
+/// collection's objects in order to find one. Scanned afresh per lookup, a
+/// collection of `n` objects that `n` variables each refer into cost `n²`
+/// object headers. This remembers where each object scanned past lies and
+/// where the scan stopped, so a later lookup either finds its object or
+/// carries on from there.
+///
+/// It answers as a fresh scan would. A scan stops at the object it is looking
+/// for, so of the objects either side of a malformed one, the one before is
+/// found and the one after refused, whichever is asked for first.
+#[derive(Debug, Default)]
+pub(crate) struct Collections {
+    by_address: HashMap<u64, Scan>,
+}
+
+/// How far one collection has been scanned.
+#[derive(Debug)]
+struct Scan {
+    /// The objects scanned past: index → where its data starts, and its size.
+    /// The first object with an index is the one a lookup finds.
+    found: HashMap<u16, (u64, usize)>,
+    /// The file offset of the next object header.
+    next: u64,
+    /// The collection's bytes from `next` on.
+    remaining: usize,
+    /// Object headers read so far, against [`MAX_GLOBAL_HEAP_OBJECTS`].
+    objects: usize,
+    /// The run ended: the free-space object, or no room for another header.
+    ended: bool,
+}
+
+impl Collections {
+    /// [`read_object`], scanning each collection at most once across calls.
+    pub(crate) fn read_object<S: ByteSource + ?Sized>(
+        &mut self,
+        source: &S,
+        collection_addr: u64,
+        object_index: u16,
+        length_size: u8,
+    ) -> Result<Vec<u8>, FieldglassError> {
+        if object_index == 0 {
+            return Err(FieldglassError::Parse(
+                "global-heap object index 0 is the free-space marker, not an object".into(),
+            ));
+        }
+        let l = length_size as usize;
+        let header_len = header_len(l);
+        let scan = match self.by_address.entry(collection_addr) {
+            Entry::Occupied(e) => e.into_mut(),
+            Entry::Vacant(e) => e.insert(open(source, collection_addr, l)?),
+        };
+        if let Some(&(at, size)) = scan.found.get(&object_index) {
+            return Ok(read_at(source, at, size)?.into_owned());
+        }
+
+        let mut cur = FileCursor::at(source, scan.next)?;
+        while !scan.ended && scan.objects < MAX_GLOBAL_HEAP_OBJECTS {
+            if scan.remaining < header_len {
+                scan.ended = true;
+                break;
+            }
+            let index = cur.u16()?;
+            cur.skip(2 + 4)?; // reference count + reserved
+            let size = cur.usize(l)?;
+            cur.skip(header_len - HEADER_FIXED - l)?; // alignment padding
+            // Index 0 is the free-space object that terminates the run.
+            if index == 0 {
+                scan.ended = true;
+                break;
+            }
+            // The object's data must fit in what the collection has left; this
+            // both rejects a corrupt oversized object (a cross-object misread)
+            // and keeps the padding below from overflowing. The scan stays at
+            // this object, so a later lookup past it is refused the same way.
+            let body_budget = scan.remaining - header_len;
+            if size > body_budget {
+                return Err(FieldglassError::Parse(
+                    "global-heap object size exceeds the collection bounds".into(),
+                ));
+            }
+            let padded = size.next_multiple_of(8);
+            let at = cur.position();
+            if index == object_index {
+                let data = cur.take(size)?.to_vec();
+                scan.passed(index, (at, size), padded, header_len);
+                return Ok(data);
+            }
+            cur.skip(padded)?;
+            scan.passed(index, (at, size), padded, header_len);
+        }
+
+        Err(FieldglassError::Parse(format!(
+            "global-heap object {object_index} not found in collection"
+        )))
     }
-    let l = length_size as usize;
+}
+
+impl Scan {
+    /// Record the object `index` whose data is `size` bytes at `at`, and move
+    /// past it and its padding.
+    fn passed(&mut self, index: u16, (at, size): (u64, usize), padded: usize, header_len: usize) {
+        self.found.entry(index).or_insert((at, size));
+        self.next = at.saturating_add(padded as u64);
+        self.remaining = self.remaining.saturating_sub(header_len + padded);
+        self.objects += 1;
+    }
+}
+
+/// Read a collection's header and start a scan of its objects.
+fn open<S: ByteSource + ?Sized>(
+    source: &S,
+    collection_addr: u64,
+    l: usize,
+) -> Result<Scan, FieldglassError> {
     let mut cur = FileCursor::at(source, collection_addr)?;
     cur.tag(SIG_GLOBAL_HEAP)?;
     cur.skip(4)?; // version (1) + reserved (3)
@@ -71,40 +189,13 @@ pub fn read_object<S: ByteSource + ?Sized>(
     // remains after it. An object's header is the same length.
     let header_len = header_len(l);
     cur.skip(header_len - HEADER_FIXED - l)?; // alignment padding
-    let mut remaining = collection_size.saturating_sub(header_len);
-
-    for _ in 0..MAX_GLOBAL_HEAP_OBJECTS {
-        if remaining < header_len {
-            break;
-        }
-        let index = cur.u16()?;
-        cur.skip(2 + 4)?; // reference count + reserved
-        let size = cur.usize(l)?;
-        cur.skip(header_len - HEADER_FIXED - l)?; // alignment padding
-        // Index 0 is the free-space object that terminates the run.
-        if index == 0 {
-            break;
-        }
-        // The object's data must fit in what the collection has left; this both
-        // rejects a corrupt oversized object (a cross-object misread) and keeps
-        // the padding below from overflowing.
-        let body_budget = remaining - header_len;
-        if size > body_budget {
-            return Err(FieldglassError::Parse(
-                "global-heap object size exceeds the collection bounds".into(),
-            ));
-        }
-        let padded = size.next_multiple_of(8);
-        if index == object_index {
-            return Ok(cur.take(size)?.to_vec());
-        }
-        cur.skip(padded)?;
-        remaining = remaining.saturating_sub(header_len + padded);
-    }
-
-    Err(FieldglassError::Parse(format!(
-        "global-heap object {object_index} not found in collection"
-    )))
+    Ok(Scan {
+        found: HashMap::new(),
+        next: cur.position(),
+        remaining: collection_size.saturating_sub(header_len),
+        objects: 0,
+        ended: false,
+    })
 }
 
 #[cfg(test)]
@@ -192,5 +283,49 @@ mod tests {
         assert!(read_object(&buf, 0, 9, 8).is_err());
         // And the matched-object path is bounded too.
         assert!(read_object(&buf, 0, 5, 8).is_err());
+    }
+
+    /// Many lookups into one collection scan it once (#921): looked up from
+    /// the last object back, a fresh scan per lookup read every object header
+    /// before its own, `n²/2` of them.
+    #[test]
+    fn a_collection_is_scanned_once_however_many_lookups() {
+        const N: u16 = 512;
+        let data: Vec<[u8; 8]> = (1..=N).map(|i| u64::from(i).to_le_bytes()).collect();
+        let objects: Vec<(u16, &[u8])> = (1..=N).zip(&data).map(|(i, d)| (i, &d[..])).collect();
+        let buf = collection(&objects);
+        let source = fieldglass_core::testing::Recording::new(buf.as_slice());
+        let mut collections = Collections::default();
+        for i in (1..=N).rev() {
+            let got = collections.read_object(&source, 0, i, 8).unwrap();
+            assert_eq!(got, u64::from(i).to_le_bytes());
+        }
+        let read: u64 = source.reads().iter().map(|r| r.len).sum();
+        // The collection once, then each object's own eight bytes.
+        assert!(
+            read <= 2 * buf.len() as u64 + 8 * u64::from(N),
+            "{read} bytes read from a {}-byte collection",
+            buf.len()
+        );
+    }
+
+    /// The memo answers as a fresh scan does on either side of a malformed
+    /// object, in either order of asking: the object before it is found and
+    /// the one after it refused.
+    #[test]
+    fn a_malformed_object_stops_the_scan_the_same_way_whatever_is_asked_first() {
+        let mut buf = collection(&[(1, &[0xAA]), (2, &[0xBB]), (3, &[0xCC])]);
+        // Object 2's header is at 16 + 24; give it a size past the collection.
+        let size_at = 16 + 24 + 8;
+        buf[size_at..size_at + 8].copy_from_slice(&(1u64 << 40).to_le_bytes());
+        for order in [[1u16, 3], [3, 1]] {
+            let mut collections = Collections::default();
+            for index in order {
+                let memo = collections.read_object(&buf, 0, index, 8);
+                let fresh = read_object(&buf, 0, index, 8);
+                assert_eq!(memo.is_ok(), fresh.is_ok(), "{order:?} {index}");
+                assert_eq!(memo.is_ok(), index == 1, "{order:?} {index}");
+            }
+        }
     }
 }
