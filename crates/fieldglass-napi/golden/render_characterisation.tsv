@@ -1306,19 +1306,19 @@ netcdf/hdf5_btreev2_multilevel.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_child_indirect.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_chunk_past_ceiling.h5	file	parsed=true fields=4	fc2e3c9795c3162b
 netcdf/hdf5_chunk_past_ceiling.h5#deflate_f8_bomb	combine/a_minus_b/render/source/nearest	err: this variable is stored in chunks that decode to #.# MiB each, and a chunk is decoded whole: more than the #.# MiB one chunk may decode to. The file itself is fine	d4cee7ba76a72b7d
-netcdf/hdf5_chunk_past_ceiling.h5#deflate_f8_bomb	meta	family=source ni=4 nj=4 reprojectable=false	070d9a0b23a4759d
+netcdf/hdf5_chunk_past_ceiling.h5#deflate_f8_bomb	meta	family=source ni=4 nj=4 reprojectable=false supports=none	970f548d03b27e39
 netcdf/hdf5_chunk_past_ceiling.h5#deflate_f8_bomb	render/equirectangular/nearest	err: this variable is stored in chunks that decode to #.# MiB each, and a chunk is decoded whole: more than the #.# MiB one chunk may decode to. The file itself is fine	d4cee7ba76a72b7d
 netcdf/hdf5_chunk_past_ceiling.h5#deflate_f8_bomb	render/source/nearest	err: this variable is stored in chunks that decode to #.# MiB each, and a chunk is decoded whole: more than the #.# MiB one chunk may decode to. The file itself is fine	d4cee7ba76a72b7d
 netcdf/hdf5_chunk_past_ceiling.h5#deflate_f8_unwritten	combine/a_minus_b/render/source/nearest	ok w=4 h=4 opaque=16	2520e337a9e44dc2
-netcdf/hdf5_chunk_past_ceiling.h5#deflate_f8_unwritten	meta	family=source ni=4 nj=4 reprojectable=false	070d9a0b23a4759d
+netcdf/hdf5_chunk_past_ceiling.h5#deflate_f8_unwritten	meta	family=source ni=4 nj=4 reprojectable=false supports=none	970f548d03b27e39
 netcdf/hdf5_chunk_past_ceiling.h5#deflate_f8_unwritten	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_chunk_past_ceiling.h5#deflate_f8_unwritten	render/source/nearest	ok w=4 h=4 opaque=16	2520e337a9e44dc2
 netcdf/hdf5_chunk_past_ceiling.h5#zstd_f4_past_field_cap	combine/a_minus_b/render/source/nearest	err: this read asks for # values at once, more than the # one field may hold. The file itself is fine	90c9033bf83df553
-netcdf/hdf5_chunk_past_ceiling.h5#zstd_f4_past_field_cap	meta	family=source ni=4 nj=4 reprojectable=false	070d9a0b23a4759d
+netcdf/hdf5_chunk_past_ceiling.h5#zstd_f4_past_field_cap	meta	family=source ni=4 nj=4 reprojectable=false supports=none	970f548d03b27e39
 netcdf/hdf5_chunk_past_ceiling.h5#zstd_f4_past_field_cap	render/equirectangular/nearest	err: this read asks for # values at once, more than the # one field may hold. The file itself is fine	90c9033bf83df553
 netcdf/hdf5_chunk_past_ceiling.h5#zstd_f4_past_field_cap	render/source/nearest	err: this read asks for # values at once, more than the # one field may hold. The file itself is fine	90c9033bf83df553
 netcdf/hdf5_chunk_past_ceiling.h5#zstd_f8_past_ceiling	combine/a_minus_b/render/source/nearest	err: this variable is stored in chunks that decode to #.# MiB each, and a chunk is decoded whole: more than the #.# MiB one chunk may decode to. The file itself is fine	d4cee7ba76a72b7d
-netcdf/hdf5_chunk_past_ceiling.h5#zstd_f8_past_ceiling	meta	family=source ni=4 nj=4 reprojectable=false	070d9a0b23a4759d
+netcdf/hdf5_chunk_past_ceiling.h5#zstd_f8_past_ceiling	meta	family=source ni=4 nj=4 reprojectable=false supports=none	970f548d03b27e39
 netcdf/hdf5_chunk_past_ceiling.h5#zstd_f8_past_ceiling	render/equirectangular/nearest	err: this variable is stored in chunks that decode to #.# MiB each, and a chunk is decoded whole: more than the #.# MiB one chunk may decode to. The file itself is fine	d4cee7ba76a72b7d
 netcdf/hdf5_chunk_past_ceiling.h5#zstd_f8_past_ceiling	render/source/nearest	err: this variable is stored in chunks that decode to #.# MiB each, and a chunk is decoded whole: more than the #.# MiB one chunk may decode to. The file itself is fine	d4cee7ba76a72b7d
 netcdf/hdf5_conflicting_chunk_records.h5	file	parsed=true fields=0	fc2e409795c31cf7
