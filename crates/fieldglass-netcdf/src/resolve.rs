@@ -9,6 +9,7 @@
 //! through [`NetcdfArrays`].
 
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::ByteSource;
 use fieldglass_core::projection::GridGeometry;
 
 pub use fieldglass_core::cf::placement::{
@@ -19,7 +20,7 @@ use crate::arrays::{NetcdfArrays, presented};
 use crate::geometry::{DatasetView, RenderableVariable};
 use crate::reader::NetcdfReader;
 
-impl NetcdfReader {
+impl<S: ByteSource> NetcdfReader<S> {
     /// Which geometry the 2-D slice of `var` on axes `(y_dim, x_dim)` has.
     ///
     /// The precedence and its guard are described on

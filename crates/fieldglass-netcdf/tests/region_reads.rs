@@ -17,6 +17,8 @@
 use std::ops::Range;
 
 use fieldglass_core::array::ArraySource;
+use fieldglass_core::testing::Copying;
+use fieldglass_core::{ByteSource, FieldglassError};
 use fieldglass_netcdf::{NetcdfArrays, NetcdfReader, extract_plane};
 
 /// Every NetCDF and HDF5 file under `tests/fixtures`, embedded so the test runs
@@ -439,11 +441,38 @@ fn regions(shape: &[u64], rng: &mut Rng) -> Vec<Vec<Range<u64>>> {
 
 #[test]
 fn a_region_read_is_the_whole_read_cut_to_the_region() {
+    regions_are_whole_reads_cut(|_, bytes| NetcdfReader::from_bytes(bytes.to_vec()));
+}
+
+/// The same property over a source read by range (#950): every read a copy,
+/// so nothing can lean on borrowing the whole file, and the identity a
+/// transport would name rather than one taken from the buffer.
+#[test]
+fn a_region_read_over_a_ranged_source_is_the_whole_read_cut_to_the_region() {
+    // Every fixture that opens from a buffer opens by range too, so the loop
+    // below skips none the owned run compares.
+    for &(name, bytes) in FIXTURES {
+        assert_eq!(
+            NetcdfReader::from_source(Copying::new(bytes.to_vec(), name)).is_ok(),
+            NetcdfReader::from_bytes(bytes.to_vec()).is_ok(),
+            "{name}"
+        );
+    }
+    regions_are_whole_reads_cut(|name, bytes| {
+        NetcdfReader::from_source(Copying::new(bytes.to_vec(), name))
+    });
+}
+
+/// For every variable of every fixture, opened by `open`: random regions
+/// equal the whole decode cut to them.
+fn regions_are_whole_reads_cut<S: ByteSource>(
+    open: impl Fn(&str, &[u8]) -> Result<NetcdfReader<S>, FieldglassError>,
+) {
     let mut rng = Rng(939);
     let mut compared = 0usize;
     let mut chunked_planes = 0usize;
     for &(name, bytes) in FIXTURES {
-        let Ok(reader) = NetcdfReader::from_bytes(bytes.to_vec()) else {
+        let Ok(reader) = open(name, bytes) else {
             continue;
         };
         for index in 0.. {

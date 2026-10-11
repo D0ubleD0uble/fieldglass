@@ -17,10 +17,12 @@
 //! is where they are made to agree. A root-level variable has no `/` in either.
 
 use std::borrow::Borrow;
+use std::marker::PhantomData;
 use std::ops::Range;
 
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::{ArraySource, Group, LeftOut};
+use fieldglass_core::bytes::ByteSource;
 
 use crate::geometry::DatasetView;
 use crate::reader::NetcdfReader;
@@ -35,28 +37,44 @@ pub(crate) fn presented(name: &str) -> &str {
 /// Generic over whether it owns its reader and view or borrows them, so one
 /// implementation serves both a `Session` that keeps the file open (owned) and
 /// this crate's own [`NetcdfReader::slice_placement`] family, which is handed
-/// a view it must not rebuild (borrowed).
-#[derive(Debug)]
-pub struct NetcdfArrays<R = NetcdfReader, V = DatasetView> {
+/// a view it must not rebuild (borrowed). `S` is the source the reader reads
+/// through (#950): a buffer by default, or whatever [`ByteSource`] a host
+/// opened the reader over.
+pub struct NetcdfArrays<R = NetcdfReader, V = DatasetView, S = Vec<u8>> {
     reader: R,
     view: V,
     group: Group,
+    /// `S` is named by `R`'s bound and nowhere in the fields, so it is held
+    /// here; `fn() -> S` keeps it from asking anything of `S` itself.
+    source: PhantomData<fn() -> S>,
 }
 
-impl NetcdfArrays {
+/// Written rather than derived, so the bound is on the reader and view a
+/// caller can see and not on `S`: a `dyn ByteSource` is not `Debug`.
+impl<R: std::fmt::Debug, V: std::fmt::Debug, S> std::fmt::Debug for NetcdfArrays<R, V, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NetcdfArrays")
+            .field("reader", &self.reader)
+            .field("view", &self.view)
+            .field("group", &self.group)
+            .finish()
+    }
+}
+
+impl<S: ByteSource> NetcdfArrays<NetcdfReader<S>, DatasetView, S> {
     /// Open a reader's variables, resolving its view once.
     ///
     /// # Errors
     ///
     /// Where [`NetcdfReader::view`] does: an HDF5 layout outside the decoded
     /// subset.
-    pub fn open(reader: NetcdfReader) -> Result<Self, FieldglassError> {
+    pub fn open(reader: NetcdfReader<S>) -> Result<Self, FieldglassError> {
         let view = reader.view()?;
         Ok(Self::new(reader, view))
     }
 }
 
-impl<R: Borrow<NetcdfReader>, V: Borrow<DatasetView>> NetcdfArrays<R, V> {
+impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> NetcdfArrays<R, V, S> {
     /// Present `reader`'s variables as `view` describes them.
     pub fn new(reader: R, view: V) -> Self {
         let mut group = view.borrow().group();
@@ -73,11 +91,12 @@ impl<R: Borrow<NetcdfReader>, V: Borrow<DatasetView>> NetcdfArrays<R, V> {
             reader,
             view,
             group,
+            source: PhantomData,
         }
     }
 
     /// The reader the values come from.
-    pub fn reader(&self) -> &NetcdfReader {
+    pub fn reader(&self) -> &NetcdfReader<S> {
         self.reader.borrow()
     }
 
@@ -87,7 +106,9 @@ impl<R: Borrow<NetcdfReader>, V: Borrow<DatasetView>> NetcdfArrays<R, V> {
     }
 }
 
-impl<R: Borrow<NetcdfReader>, V: Borrow<DatasetView>> ArraySource for NetcdfArrays<R, V> {
+impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> ArraySource
+    for NetcdfArrays<R, V, S>
+{
     fn group(&self) -> &Group {
         &self.group
     }
