@@ -684,7 +684,11 @@ fn link_info_links<S: ByteSource + ?Sized>(
         let id = record
             .get(LINK_RECORD_HEAP_ID_OFFSET..LINK_RECORD_HEAP_ID_OFFSET + heap.heap_id_len)
             .ok_or_else(|| FieldglassError::Parse("link record too small for a heap ID".into()))?;
-        let object = heap.object(source, id, &mut reads)?;
+        // A link past the heap-object cap is skipped, so the group keeps its
+        // other members (#997), as it skips a soft or external link.
+        let Some(object) = heap.object_within_cap(source, id, &mut reads)? else {
+            continue;
+        };
         if let Some(link) = parse_link_message(&object, osize)? {
             push_link(&mut links, link.0, link.1)?;
         }

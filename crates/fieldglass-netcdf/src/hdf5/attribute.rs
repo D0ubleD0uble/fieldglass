@@ -248,8 +248,11 @@ fn read_dense_attribute_bodies<S: ByteSource + ?Sized>(
             .ok_or_else(|| {
                 FieldglassError::Parse("attribute record too small for a heap ID".into())
             })?;
-        let message = heap.object(source, id, &mut reads)?;
-        out.push(message);
+        // An attribute past the heap-object cap is skipped, not the file
+        // refused over it (#997), as `parse_bodies` skips one it cannot parse.
+        if let Some(message) = heap.object_within_cap(source, id, &mut reads)? {
+            out.push(message);
+        }
     }
     Ok(())
 }

@@ -325,6 +325,24 @@ pub(super) fn check_chunk_size(
     Ok(())
 }
 
+/// Refuse a filtered chunk stored as more than `MAX_DECOMPRESSED_CHUNK`
+/// bytes, before it is planned or read (#997).
+///
+/// A filtered chunk is read whole at the size its index states, up to 4 GiB
+/// in a B-tree key and more in a single-chunk layout, and nothing else bounds
+/// that read but the size a ranged source declares. A filter may legally
+/// grow a chunk, but only slightly (fletcher32 adds 4 bytes, deflate a few
+/// per block), so a chunk whose decoded length passes [`check_chunk_size`]
+/// is not stored at this size. It is too large rather than corrupt, as the
+/// decoded refusal is. The size stays a `u64` to the check, so a 32-bit
+/// target refuses it the same way.
+pub(super) fn check_stored_chunk_size(stored: u64) -> Result<(), FieldglassError> {
+    if stored > MAX_DECOMPRESSED_CHUNK as u64 {
+        return Err(chunk_too_large(stored));
+    }
+    Ok(())
+}
+
 /// [`ArrayError::ChunkTooLarge`] for a chunk of `bytes` decoded.
 pub(super) fn chunk_too_large(bytes: u64) -> FieldglassError {
     ArrayError::ChunkTooLarge {

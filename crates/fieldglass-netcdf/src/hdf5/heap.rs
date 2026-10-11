@@ -407,7 +407,7 @@ enum BlockContent {
 struct HeapFilter {
     pipeline: FilterPipeline,
     lsize: usize,
-    root_filtered_size: usize,
+    root_filtered_size: u64,
     root_filter_mask: u32,
 }
 
@@ -534,7 +534,7 @@ impl FractalHeap {
         // case; the doubling table carries a filtered size + mask per direct
         // block in its indirect block instead.
         let filter = if io_filter_len != 0 {
-            let root_filtered_size = cur.usize(l)?;
+            let root_filtered_size = cur.uint(l)?;
             let root_filter_mask = cur.uint(4)? as u32;
             let pipeline = FilterPipeline::decode(cur.take(io_filter_len)?)?;
             Some(HeapFilter {
@@ -699,6 +699,31 @@ impl FractalHeap {
         }
     }
 
+    /// [`object`](Self::object), or `None` for one past the heap-object cap.
+    ///
+    /// In a NetCDF-4 file a heap object is one dense attribute or link
+    /// message, and a valid file may hold one past the cap. A listing skips
+    /// that one item and keeps the rest, as it skips an attribute it cannot
+    /// parse, rather than refusing the file over it (#997). Only the object's
+    /// own cap is skipped: every other refusal, a corrupt ID or a heap block
+    /// past its cap, still ends the listing.
+    pub(crate) fn object_within_cap<S: ByteSource + ?Sized>(
+        &self,
+        source: &S,
+        id: &[u8],
+        reads: &mut HeapReads,
+    ) -> Result<Option<Vec<u8>>, FieldglassError> {
+        match self.object(source, id, reads) {
+            Ok(object) => Ok(Some(object)),
+            Err(FieldglassError::Array(ArrayError::ListingTooLarge { what, .. }))
+                if what == HEAP_OBJECT_BYTES =>
+            {
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// A huge object: located from its ID directly, or through the huge-object
     /// B-tree, then read from the file and, in a filtered heap, reversed.
     fn huge_object<S: ByteSource + ?Sized>(
@@ -735,12 +760,14 @@ impl FractalHeap {
                 (r.address, r.length, r.filter_mask, r.memory_size)
             }
         };
-        reads.huge.claim(address, length, "huge heap object")?;
         // Both sizes, before either is read or inflated, and before the stored
         // one is narrowed, so a length past the cap is refused as too large on
-        // every target.
+        // every target. Before the claim too, as for a managed object: an
+        // object a listing skips for its size is never read, so it claims
+        // nothing, and another record naming it is skipped the same way.
         check_heap_object(length)?;
         check_heap_object(memory_size)?;
+        reads.huge.claim(address, length, "huge heap object")?;
         let length = checked_usize(length, "huge heap object length")?;
         let stored = read_at(source, address, length)
             .map_err(|_| FieldglassError::Parse("huge heap object runs past end of file".into()))?;
@@ -952,7 +979,7 @@ fn validate_direct_block<S: ByteSource + ?Sized>(
 fn decode_filtered_direct_block<S: ByteSource + ?Sized>(
     source: &S,
     block_addr: u64,
-    filtered_size: usize,
+    filtered_size: u64,
     filter_mask: u32,
     pipeline: &FilterPipeline,
     heap_addr: u64,
@@ -962,7 +989,12 @@ fn decode_filtered_direct_block<S: ByteSource + ?Sized>(
     logical_size: u64,
 ) -> Result<Vec<u8>, FieldglassError> {
     check_filtered_block(logical_size)?;
-    check_filtered_block(filtered_size as u64)?;
+    // Both sizes stay `u64` to the cap, so a 32-bit target refuses a size
+    // past it as too large, as a 64-bit one does, not as one that does not
+    // fit `usize` (#997). In range from here on.
+    check_filtered_block(filtered_size)?;
+    let filtered_size = usize::try_from(filtered_size)
+        .map_err(|_| FieldglassError::Parse("implausible filtered direct block size".into()))?;
     let stored = read_at(source, block_addr, filtered_size).map_err(|_| {
         FieldglassError::Parse("filtered direct block runs past end of file".into())
     })?;
@@ -1139,7 +1171,7 @@ fn walk_indirect<S: ByteSource + ?Sized>(
             // or not), so these fields are read before the undefined-address
             // check. Child-indirect entries are unfiltered and have no prefix.
             let (filtered_size, filter_mask) = match (is_direct, filter) {
-                (true, Some(hf)) => (cur.usize(hf.lsize)?, cur.uint(4)? as u32),
+                (true, Some(hf)) => (cur.uint(hf.lsize)?, cur.uint(4)? as u32),
                 _ => (0, 0),
             };
             // An undefined address marks an unallocated table slot — skip it, but

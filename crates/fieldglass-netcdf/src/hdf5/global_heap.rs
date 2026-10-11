@@ -168,8 +168,16 @@ impl Collections {
                 return Ok(data);
             }
             // Skipped, not read: an object passed over costs nothing, however
-            // large, so it is not held to the cap.
-            cur.skip(checked_usize(padded, "global-heap object size")?)?;
+            // large, so it is not held to the cap. It is skipped in steps a
+            // 32-bit `usize` holds, so that target passes an object past 4 GiB
+            // as a 64-bit one does rather than refusing the skip; a small one
+            // is one step inside the cursor's window, which stays held.
+            let mut left = padded;
+            while left > 0 {
+                let step = left.min(u64::from(u32::MAX));
+                cur.skip(checked_usize(step, "global-heap object size")?)?;
+                left -= step;
+            }
             scan.passed(index, (at, size), padded, header_bytes);
         }
 

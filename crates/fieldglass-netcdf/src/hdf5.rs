@@ -817,33 +817,164 @@ mod declared_tests {
         assert_refused_before_the_read(LATEST, &file, HEADER);
     }
 
-    /// A huge fractal-heap object, a dense attribute too large to be managed,
-    /// whose huge-object B-tree record claims gigabytes (#997). The record's leaf
-    /// is re-checksummed so it verifies.
-    #[test]
-    fn a_huge_heap_object_past_the_cap_is_refused_before_the_read() {
+    /// `netcdf4_huge_attributes.nc` with each huge heap object, the global
+    /// `history` and `t`'s `comment`, claiming gigabytes in its huge-object
+    /// B-tree record. Each record's leaf (type 1: address, length, ID, eight
+    /// bytes each, one record) is re-checksummed so it verifies.
+    fn huge_attributes_past_the_cap() -> Vec<u8> {
         let mut file = HUGE_ATTRIBUTES.to_vec();
-        // A huge-object index leaf (record type 1: address, length, ID, eight
-        // bytes each) holding the one record its heap has.
+        let leaves: Vec<usize> = find_all(&file, b"BTLF")
+            .into_iter()
+            .filter(|&at| {
+                file[at + 5] == 1 && checksum_lookup3(&file[at..at + 30]) == u32_at(&file, at + 30)
+            })
+            .collect();
+        assert_eq!(leaves.len(), 2, "the global and the variable heap");
+        for leaf in leaves {
+            let length = u64_at(&file, leaf + 6 + 8);
+            assert!(
+                (4096..65536).contains(&length),
+                "a huge object's length: {length}"
+            );
+            put(&mut file, leaf + 6 + 8, &CLAIM.to_le_bytes());
+            let sum = checksum_lookup3(&file[leaf..leaf + 30]);
+            put(&mut file, leaf + 30, &sum.to_le_bytes());
+        }
+        file
+    }
+
+    /// The metadata of `file` over a declared source, its variable `t`'s
+    /// values, and the longest single read.
+    fn resolve_declared(file: &[u8]) -> (super::dimensions::Hdf5Metadata, Vec<Option<f64>>, u64) {
+        let source = Recording::new(Declared::new(file, DECLARED));
+        let reader = NetcdfReader::from_source(&source).expect("the file opens");
+        let meta = reader.hdf5_metadata().expect("the metadata resolves");
+        let t = meta.variables.iter().find(|v| v.name == "t").expect("t");
+        let values = reader
+            .decode_variable_raw(t.decode_index)
+            .expect("t decodes");
+        let longest = source.reads().iter().map(|r| r.len).max().unwrap_or(0);
+        (meta, values, longest)
+    }
+
+    fn names(attributes: &[super::attribute::Hdf5Attribute]) -> Vec<&str> {
+        attributes.iter().map(|a| a.name.as_str()).collect()
+    }
+
+    /// A dense attribute past the heap-object cap is skipped, and the file
+    /// kept (#997): the global `history` and `t`'s `comment` each claim
+    /// gigabytes, and the file still lists its variables, their other
+    /// attributes and dimensions, and decodes, with no long read.
+    #[test]
+    fn an_attribute_past_the_cap_is_skipped_and_the_file_kept() {
+        let (before, values, _) = resolve_declared(HUGE_ATTRIBUTES);
+        assert_eq!(values, [Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
+        let t_before = before.variables.iter().find(|v| v.name == "t").unwrap();
+        assert!(names(&before.global_attributes).contains(&"history"));
+        assert!(names(&t_before.attributes).contains(&"comment"));
+        assert_eq!(t_before.dimensions, ["x"]);
+
+        let (after, values, longest) = resolve_declared(&huge_attributes_past_the_cap());
+        assert_eq!(values, [Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
+        assert!(
+            longest <= MAX_WINDOW_BYTES as u64,
+            "read {longest} bytes at once"
+        );
+        let t_after = after.variables.iter().find(|v| v.name == "t").unwrap();
+        let without = |all: Vec<&str>, gone: &str| -> Vec<String> {
+            all.into_iter()
+                .filter(|n| *n != gone)
+                .map(str::to_owned)
+                .collect()
+        };
+        assert_eq!(
+            names(&after.global_attributes),
+            without(names(&before.global_attributes), "history")
+        );
+        assert_eq!(
+            names(&t_after.attributes),
+            without(names(&t_before.attributes), "comment")
+        );
+        assert_eq!(t_after.dimensions, t_before.dimensions);
+        assert_eq!(after.dimensions.len(), before.dimensions.len());
+    }
+
+    /// A dense link past the heap-object cap is skipped, and the group kept
+    /// (#997): `hdf5_huge_link_name.h5`'s one huge link, a subgroup with a
+    /// 5,000-character name, claims gigabytes in its huge-object record.
+    #[test]
+    fn a_link_past_the_cap_is_skipped_and_the_group_kept() {
+        const HUGE_LINK: &[u8] = include_bytes!("../tests/fixtures/hdf5_huge_link_name.h5");
+        let mut file = HUGE_LINK.to_vec();
         let leaf = find_all(&file, b"BTLF")
             .into_iter()
             .find(|&at| {
                 file[at + 5] == 1 && checksum_lookup3(&file[at..at + 30]) == u32_at(&file, at + 30)
             })
             .expect("a one-record huge-object leaf");
-        let length = u64_at(&file, leaf + 6 + 8);
-        assert!(
-            (4096..65536).contains(&length),
-            "a huge object's length: {length}"
-        );
-        // The object moves past the bytes held, into the part of the declared
-        // file nothing else is read from, so no claim of the listing's stands
-        // between it and the read: only its length does.
-        put(&mut file, leaf + 6, &(1u64 << 36).to_le_bytes());
+        assert!((4096..65536).contains(&u64_at(&file, leaf + 6 + 8)));
         put(&mut file, leaf + 6 + 8, &CLAIM.to_le_bytes());
         let sum = checksum_lookup3(&file[leaf..leaf + 30]);
         put(&mut file, leaf + 30, &sum.to_le_bytes());
-        assert_refused_before_the_read(HUGE_ATTRIBUTES, &file, "bytes in one HDF5 heap object");
+
+        let (outcome, _) = open_declared(HUGE_LINK);
+        outcome.expect("the fixture resolves");
+        let (outcome, longest) = open_declared(&file);
+        outcome.expect("the group resolves without its oversized link");
+        assert!(
+            longest <= MAX_WINDOW_BYTES as u64,
+            "read {longest} bytes at once"
+        );
+    }
+
+    /// `t`'s `DIMENSION_LIST` record repointed at its oversized `comment`, so
+    /// the attribute that names `t`'s dimension is the one skipped (#997). The
+    /// variable keeps its values and falls back to an anonymous axis, as one
+    /// with no `DIMENSION_LIST` does.
+    #[test]
+    fn a_dimension_list_past_the_cap_falls_back_to_phony_dimensions() {
+        let mut file = huge_attributes_past_the_cap();
+        // `t`'s attribute name index: type-8 records of heap ID(8), flags(1),
+        // creation order(4) and the name's lookup3 hash(4).
+        let record = |file: &[u8], name: &str| -> usize {
+            let hash = checksum_lookup3(name.as_bytes()).to_le_bytes();
+            let at = find_all(file, &hash);
+            assert_eq!(at.len(), 1, "one record names {name}");
+            at[0] - 13
+        };
+        let dimension_list = record(&file, "DIMENSION_LIST");
+        let comment = record(&file, "comment");
+        let id: [u8; 8] = file[comment..comment + 8].try_into().unwrap();
+        put(&mut file, dimension_list, &id);
+        // Re-checksum the leaf holding both: signature, version, type, then
+        // its records and a checksum.
+        let leaf = find_all(&file, b"BTLF")
+            .into_iter()
+            .rfind(|&at| at < dimension_list && file[at + 5] == 8)
+            .expect("the attribute name leaf");
+        let end = (1..64)
+            .map(|n| leaf + 6 + 17 * n)
+            .find(|&end| {
+                end > dimension_list.max(comment)
+                    && checksum_lookup3(&HUGE_ATTRIBUTES[leaf..end]) == u32_at(&file, end)
+            })
+            .expect("the leaf's checksum");
+        let sum = checksum_lookup3(&file[leaf..end]);
+        put(&mut file, end, &sum.to_le_bytes());
+
+        let (_, values, longest) = resolve_declared(&file);
+        assert_eq!(values, [Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
+        assert!(
+            longest <= MAX_WINDOW_BYTES as u64,
+            "read {longest} bytes at once"
+        );
+        let source = Declared::new(&file, DECLARED);
+        let meta = NetcdfReader::from_source(&source)
+            .and_then(|r| r.hdf5_metadata())
+            .expect("the metadata resolves");
+        let t = meta.variables.iter().find(|v| v.name == "t").unwrap();
+        assert_eq!(t.dimensions, ["phony_dim_0"]);
+        assert!(!names(&t.attributes).contains(&"comment"));
     }
 
     /// A global-heap collection, holding the `DIMENSION_LIST` references, whose
@@ -896,8 +1027,91 @@ mod declared_tests {
         let err = outcome.expect_err("a chunk of the wrong size");
         assert!(
             err.to_string()
-                .contains("chunk decoded to 2147483648 bytes, expected 4"),
+                .contains("chunk stored as 2147483648 bytes, expected 4"),
             "{err}"
+        );
+        assert!(
+            longest <= MAX_WINDOW_BYTES as u64,
+            "read {longest} bytes at once"
+        );
+    }
+
+    const V1_SYMBOLTABLE: &[u8] = include_bytes!("../tests/fixtures/hdf5_v1_symboltable.h5");
+
+    /// A filtered chunk whose version-1 B-tree key states gigabytes of stored
+    /// bytes (#997). A filtered chunk is read whole at its stored size, and
+    /// only its decoded size was held to the 256 MiB chunk ceiling, so the read
+    /// was bounded by nothing but the size the source declares.
+    #[test]
+    fn a_filtered_chunk_stored_past_the_ceiling_is_refused_before_the_read() {
+        // Every dataset in the file, decoded, with the longest single read.
+        let decode_all = |file: &[u8]| {
+            let source = Recording::new(Declared::new(file, DECLARED));
+            let reader = NetcdfReader::from_source(&source).expect("the file opens");
+            let outcomes: Vec<_> = (0..)
+                .take_while(|&i| reader.variable_shape(i).is_ok())
+                .map(|i| reader.decode_variable_raw(i).map(drop))
+                .collect();
+            let longest = source.reads().iter().map(|r| r.len).max().unwrap_or(0);
+            (outcomes, longest)
+        };
+        let (outcomes, _) = decode_all(V1_SYMBOLTABLE);
+        assert_eq!(outcomes.len(), 9);
+        // `label` is text, which value decode refuses; every other dataset
+        // decodes.
+        let decoded = |outcomes: &[Result<(), FieldglassError>]| {
+            outcomes
+                .iter()
+                .filter(|o| !matches!(o, Err(FieldglassError::UnsupportedSection(_))))
+                .count()
+        };
+        assert_eq!(decoded(&outcomes), 8, "{outcomes:?}");
+        assert!(
+            outcomes
+                .iter()
+                .all(|o| matches!(o, Ok(()) | Err(FieldglassError::UnsupportedSection(_)))),
+            "{outcomes:?}"
+        );
+
+        // `compressed` is 8×8 float32 in 4×4 chunks through shuffle and
+        // deflate: a raw-data leaf (type 1, level 0) whose rank-2 keys are
+        // size(4) mask(4) offsets(3 × 8), each followed by an 8-byte child
+        // address. Its stored sizes are deflate's, so not the 64 bytes an
+        // unfiltered 4×4 float32 chunk is stored as.
+        let mut file = V1_SYMBOLTABLE.to_vec();
+        let mut rewritten = 0;
+        for leaf in find_all(&file, b"TREE") {
+            if file[leaf + 4] != 1 || file[leaf + 5] != 0 {
+                continue;
+            }
+            let entries = usize::from(u16::from_le_bytes([file[leaf + 6], file[leaf + 7]]));
+            let key = |i: usize| leaf + 24 + i * 40;
+            // The only leaf of four chunks: the other is a rank-1 dataset's.
+            if entries != 4 || u32_at(&file, key(0)) == 64 {
+                continue;
+            }
+            for i in 0..entries {
+                put(&mut file, key(i), &(1u32 << 31).to_le_bytes());
+            }
+            rewritten += 1;
+        }
+        assert_eq!(rewritten, 1, "the one filtered raw-data leaf");
+
+        let (outcomes, longest) = decode_all(&file);
+        let refused: Vec<_> = outcomes
+            .iter()
+            .filter_map(|o| o.as_ref().err())
+            .filter(|e| !matches!(e, FieldglassError::UnsupportedSection(_)))
+            .collect();
+        assert_eq!(refused.len(), 1, "{outcomes:?}");
+        assert!(
+            matches!(
+                refused[0],
+                FieldglassError::Array(ArrayError::ChunkTooLarge { bytes, limit })
+                    if *bytes == 1 << 31 && *limit == 256 << 20
+            ),
+            "{:?}",
+            refused[0]
         );
         assert!(
             longest <= MAX_WINDOW_BYTES as u64,

@@ -115,11 +115,37 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
 
    libhdf5 lets a heap declare direct blocks of up to 2 GiB
    (`H5HF_MAX_DIRECT_SIZE_LIMIT`), and nothing in the format bounds a header
-   chunk or a global-heap object, so a valid file can pass each cap. Passing
-   one is `ArrayError::ListingTooLarge`, as in decision 4; the filtered block
-   past 64 MiB was a parse error before. An unfiltered data chunk, the one
-   other read sized by a field the file states, is held to its own chunk's
-   size before it is read; it was refused after the read already.
+   chunk or a global-heap object, so a valid file can pass each cap. What
+   passing one costs depends on what the structure is:
+
+   - **One dense attribute or link** (a fractal-heap object) is skipped, and
+     the file kept: the listing goes on without it, as it goes on without an
+     attribute it cannot parse. One oversized attribute would otherwise make
+     the whole file unreadable, even from a buffer in memory. A skipped
+     object is not read and claims nothing, so a second record naming it is
+     skipped too. A `DIMENSION_LIST` skipped this way leaves its variable on
+     anonymous `phony_dim_N` axes, as a variable with no `DIMENSION_LIST`
+     has. Nothing reports the skip: the attributes `parse_bodies` drops are
+     not reported either, and a host has no channel for either yet.
+   - **Structure the listing stands on** is refused as
+     `ArrayError::ListingTooLarge`, as in decision 4: an object header, which
+     holds a dataset's layout and its compact attributes together; a
+     global-heap object, the `DIMENSION_LIST` references a lookup resolves;
+     and a filtered heap block, which holds many objects. The filtered block
+     past 64 MiB was a parse error before.
+
+   Two data-chunk reads are sized by fields the file states, and both are now
+   checked before the chunk is planned or read. An unfiltered chunk is held to
+   its own chunk's size (a parse error, refused after the read before). A
+   filtered chunk's stored size, up to 4 GiB in a B-tree key, is held to the
+   256 MiB decoded-chunk ceiling of #970, as `ArrayError::ChunkTooLarge`: a
+   filter grows a chunk by a few bytes at most, so a chunk stored past the
+   ceiling could not have passed it decoded. A contiguous dataset's region
+   is checked to end inside the file before its run list and output buffer
+   are built: both are bounded only by the field cap, so a 2.7 KB file
+   declaring 8,192 × 8,191 float32 values held 268 MB before its first read
+   found the data missing (`crates/fieldglass/tests/contiguous_past_the_file.rs`,
+   through the reader and `Session`; it now holds under 4 MiB).
 
 The evidence is the fixtures above, their `NOTICE.md` entry and
 `crates/fieldglass-netcdf/tests/hdf5_shared_blocks.rs`, which checks each
@@ -131,12 +157,17 @@ than corrupt (also through `Session` in
 
 For decision 5, `declared_tests` in `crates/fieldglass-netcdf/src/hdf5.rs` rewrites
 one length field of a committed fixture to claim gigabytes (a v1 header size, a
-v1 and a v2 continuation, a v2 chunk-0 size, a huge-object index record, a
-global-heap object, an unfiltered chunk's B-tree key) and opens it through
+v1 and a v2 continuation, a v2 chunk-0 size, a global-heap object, an
+unfiltered and a filtered chunk's B-tree key) and opens it through
 `NetcdfReader::from_source` over `fieldglass_core::testing::Declared`, a source
 that holds the file and declares a terabyte. Each is refused with no read
 longer than 64 KiB; before the change each asked for the gigabytes in one read.
-The managed-object and filtered-block forms are checked in `heap.rs`.
+The same tests rewrite huge-object index records: `netcdf4_huge_attributes.nc`
+still lists every variable, drops only its two oversized attributes, and
+decodes; with `t`'s `DIMENSION_LIST` record pointed at one of them, `t` falls
+back to `phony_dim_0`; `hdf5_huge_link_name.h5` resolves without its
+oversized link. Before the change each file was refused. The managed-object
+and filtered-block caps are checked in `heap.rs`.
 
 ## Consequences
 
