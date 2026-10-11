@@ -158,6 +158,11 @@ GRIB. A region read spells the chunk keys it covers from core, prefetches them
 in one batch and then reads them, and `tests/stores.rs` holds it to exactly
 that through a recorded `MemoryObjects`.
 
+`fieldglass-netcdf`'s `hdf5::Addressed` is a `ByteSource` over another one,
+shifted by the HDF5 superblock's base address, so a file that begins with a
+userblock is walked with the addresses it states (#936). It is the one place
+an HDF5 address becomes a file offset.
+
 ```mermaid
 classDiagram
     class ByteSource {
@@ -187,6 +192,7 @@ classDiagram
     }
 
     ByteSource <|.. Vec
+    ByteSource <|.. Addressed
     ObjectSource <|.. MemoryObjects
     ObjectSource <|.. KerchunkObjects
     ObjectSource <|.. DirectoryObjects

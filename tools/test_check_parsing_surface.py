@@ -347,7 +347,7 @@ class TheRepoItselfPasses(unittest.TestCase):
     def test_the_documented_surface_is_the_one_in_use(self):
         self.assertEqual(chk.check(), [])
 
-    def test_the_surface_is_the_eighteen_modules_measured(self):
+    def test_the_surface_is_the_nineteen_modules_measured(self):
         # Pinned so that widening the surface comes past a reviewer here as well
         # as in the two doc regions.
         lib = (chk.CORE / "src" / "lib.rs").read_text(encoding="utf-8")
@@ -362,6 +362,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "bytes",
                 "cct_tables",
                 "cf",
+                "detect",
                 "error",
                 "global_grid",
                 "groups",
@@ -378,19 +379,21 @@ class TheRepoItselfPasses(unittest.TestCase):
         )
 
     def test_the_ungated_modules_left_out_are_left_out_on_purpose(self):
-        # `detect` and `units` are ungated and unused by any format crate
-        # library. If one of them starts being used, the gate above fires; this
+        # `units` is ungated and unused by any format crate library. If it
+        # starts being used, the gate above fires; this
         # asserts the reason the doc gives for excluding them. `spatial_index`
         # was on this list until #549 gave `fieldglass-netcdf` a swath to
         # index, and `array`, the shared array model (#677, #678, ADR-0010),
         # until #684 built that crate's dataset view on it. #704 moved the swath
         # placement into core's `cf`, so `spatial_index` is back: `cf` uses it,
-        # no format crate library names it.
+        # no format crate library names it. `detect` left this list with #936:
+        # `fieldglass-netcdf` shares its HDF5 signature search, so detection
+        # and the reader find the same files.
         lib = (chk.CORE / "src" / "lib.rs").read_text(encoding="utf-8")
         modules = chk.core_modules(lib)
         ungated = {m for m, feature in modules.items() if feature is None}
         listed = {n for n in chk.documented_surface(lib) if n in modules}
-        self.assertEqual(sorted(ungated - listed), ["detect", "spatial_index", "units"])
+        self.assertEqual(sorted(ungated - listed), ["spatial_index", "units"])
 
 
 if __name__ == "__main__":

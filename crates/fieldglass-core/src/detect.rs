@@ -3,6 +3,47 @@ use std::fs::File;
 #[cfg(feature = "fs")]
 use std::io::Read;
 
+use crate::bytes::{ByteSource, read_up_to};
+
+/// The HDF5 signature, `\x89HDF\r\n\x1a\n`, which opens a NetCDF-4 file's
+/// superblock.
+pub const HDF5_SIGNATURE: [u8; 8] = [0x89, b'H', b'D', b'F', b'\r', b'\n', 0x1a, b'\n'];
+
+/// Where [`find_hdf5_signature`] looks: byte 0, then 512 and each power of two
+/// after it, through 16384.
+///
+/// An HDF5 file may begin with a userblock, a power of two from 512 bytes up,
+/// and the superblock then follows it (#936). The specification places no top
+/// on its size and libhdf5 searches to the end of the file; a bounded list
+/// keeps detection a handful of small reads over any source. A userblock larger
+/// than 16 KiB is rare enough that such a file reads as not HDF5.
+pub const HDF5_SIGNATURE_OFFSETS: [u64; 7] = [0, 512, 1024, 2048, 4096, 8192, 16384];
+
+/// How many leading bytes [`detect_from_bytes`] can look at: through the HDF5
+/// signature at the last offset [`HDF5_SIGNATURE_OFFSETS`] names. A host that
+/// detects from a prefix of the file passes at least this much, or a NetCDF-4
+/// file with a userblock reads as unknown.
+pub const DETECT_WINDOW: usize = 16384 + HDF5_SIGNATURE.len();
+
+/// The offset of the HDF5 signature in `source`, if it is at one of
+/// [`HDF5_SIGNATURE_OFFSETS`].
+///
+/// The offset is the superblock's: the userblock's size, and the base every
+/// other address in the file is relative to. A source that ends, or fails to
+/// read, before the next offset has no signature past it.
+pub fn find_hdf5_signature<S: ByteSource + ?Sized>(source: &S) -> Option<u64> {
+    for off in HDF5_SIGNATURE_OFFSETS {
+        let at = read_up_to(source, off, HDF5_SIGNATURE.len()).ok()?;
+        if at.len() < HDF5_SIGNATURE.len() {
+            return None;
+        }
+        if at[..] == HDF5_SIGNATURE {
+            return Some(off);
+        }
+    }
+    None
+}
+
 /// What the leading bytes of a file turned out to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Format {
@@ -18,6 +59,10 @@ pub enum Format {
 
 /// Detect format from the first bytes of a file.
 /// Returns `Unknown` if the bytes don't match any known magic sequence.
+///
+/// GRIB and classic NetCDF are told by their first eight bytes. An HDF5 file
+/// may put its signature after a userblock, as far as [`DETECT_WINDOW`] in, so
+/// a prefix shorter than that misses one that does.
 pub fn detect_from_bytes(bytes: &[u8]) -> Format {
     // GRIB: first 4 bytes are ASCII "GRIB"; edition is at byte offset 7.
     if bytes.len() >= 8 && &bytes[0..4] == b"GRIB" {
@@ -31,8 +76,8 @@ pub fn detect_from_bytes(bytes: &[u8]) -> Format {
     if bytes.len() >= 4 && &bytes[0..3] == b"CDF" && matches!(bytes[3], 1 | 2 | 5) {
         return Format::NetCdf;
     }
-    // NetCDF-4 / HDF5: "\x89HDF\r\n\x1a\n"
-    if bytes.len() >= 8 && &bytes[0..8] == b"\x89HDF\r\n\x1a\n" {
+    // NetCDF-4 / HDF5: "\x89HDF\r\n\x1a\n", at byte 0 or after a userblock.
+    if find_hdf5_signature(bytes).is_some() {
         return Format::NetCdf;
     }
     Format::Unknown
@@ -48,10 +93,12 @@ pub fn detect_from_bytes(bytes: &[u8]) -> Format {
 /// extension.
 #[cfg(feature = "fs")]
 pub fn detect_format(file_path: &str) -> Format {
-    if let Ok(mut f) = File::open(file_path) {
-        let mut buf = [0u8; 8];
-        if let Ok(n) = f.read(&mut buf) {
-            match detect_from_bytes(&buf[..n]) {
+    if let Ok(f) = File::open(file_path) {
+        // `take` + `read_to_end` rather than one `read`, which may return
+        // fewer bytes than the file holds.
+        let mut buf = Vec::with_capacity(DETECT_WINDOW);
+        if f.take(DETECT_WINDOW as u64).read_to_end(&mut buf).is_ok() {
+            match detect_from_bytes(&buf) {
                 Format::Unknown => {}
                 fmt => return fmt,
             }
@@ -114,6 +161,40 @@ mod tests {
         assert!(matches!(detect_from_bytes(b"CDF\x04"), Format::Unknown));
     }
 
+    /// `len` zero bytes with the HDF5 signature at `at`.
+    fn signature_at(at: usize, len: usize) -> Vec<u8> {
+        let mut bytes = vec![0u8; len];
+        bytes[at..at + HDF5_SIGNATURE.len()].copy_from_slice(&HDF5_SIGNATURE);
+        bytes
+    }
+
+    #[test]
+    fn an_hdf5_signature_after_a_userblock_is_netcdf() {
+        for at in HDF5_SIGNATURE_OFFSETS {
+            let at = at as usize;
+            let bytes = signature_at(at, at + 64);
+            assert_eq!(find_hdf5_signature(&bytes[..]), Some(at as u64));
+            assert!(matches!(detect_from_bytes(&bytes), Format::NetCdf), "{at}");
+        }
+        // The last offset is inside the window a host is told to pass.
+        assert_eq!(DETECT_WINDOW, 16384 + 8);
+        let bytes = signature_at(16384, DETECT_WINDOW);
+        assert!(matches!(detect_from_bytes(&bytes), Format::NetCdf));
+    }
+
+    #[test]
+    fn an_hdf5_signature_off_the_searched_offsets_is_unknown() {
+        // Past the last offset searched, between two of them, and cut off by
+        // the end of the buffer.
+        for (at, len) in [(32768, 32768 + 64), (256, 1024), (100, 200)] {
+            let bytes = signature_at(at, len);
+            assert_eq!(find_hdf5_signature(&bytes[..]), None, "{at}");
+            assert!(matches!(detect_from_bytes(&bytes), Format::Unknown), "{at}");
+        }
+        let bytes = signature_at(512, 1024);
+        assert!(matches!(detect_from_bytes(&bytes[..515]), Format::Unknown));
+    }
+
     #[test]
     fn short_and_unrecognised_buffers_are_unknown() {
         assert!(matches!(detect_from_bytes(b""), Format::Unknown));
@@ -173,6 +254,15 @@ mod fs_tests {
     #[test]
     fn extension_is_the_fallback_when_the_bytes_say_nothing() {
         let file = temp_file(".nc", b"not a data file");
+        assert!(matches!(detect_format(path_of(&file)), Format::NetCdf));
+    }
+
+    #[test]
+    fn a_file_with_a_userblock_is_read_far_enough_to_find_its_signature() {
+        // Named `.bin` so only the bytes can say NetCDF.
+        let mut bytes = vec![0u8; 2048 + 64];
+        bytes[2048..2056].copy_from_slice(&HDF5_SIGNATURE);
+        let file = temp_file(".bin", &bytes);
         assert!(matches!(detect_format(path_of(&file)), Format::NetCdf));
     }
 

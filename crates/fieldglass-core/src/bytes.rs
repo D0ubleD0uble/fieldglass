@@ -88,7 +88,9 @@ impl ByteRange {
 /// Both ends rather than one: a container writes its header at the front and
 /// its end-of-file mark at the back, so two different files of one size
 /// disagree at one end or the other long before they disagree in the middle.
-/// 256 is comfortably past HDF5's superblock and NetCDF classic's header start,
+/// 256 is comfortably past HDF5's superblock and NetCDF classic's header start
+/// (for an HDF5 file with a userblock, [`SourceIdentity::offset`] samples the
+/// superblock itself, since the userblock may be all zeros or a fixed header),
 /// and small enough that hashing it on every memo lookup is not worth measuring
 /// against the walk it saves.
 const SAMPLE_BYTES: usize = 256;
@@ -172,6 +174,25 @@ pub enum SourceIdentity {
         /// forgot to version it.
         size: u64,
     },
+    /// Another source's bytes, read from `offset` on.
+    ///
+    /// What an adapter that shifts addresses answers, such as the HDF5
+    /// reader's view of a file from its superblock past a userblock (#936).
+    /// The same bytes from a different start are a different source to a memo
+    /// keyed by offset, so the shift is part of the identity.
+    ///
+    /// The bytes at the new start are sampled too. The outer source's sample
+    /// covers its first 256 bytes, which past a userblock are the userblock:
+    /// often zeros or a tool's fixed header, and the same in two different
+    /// files.
+    Offset {
+        /// The identity of the source being read from `offset` on.
+        source: Box<SourceIdentity>,
+        /// How far into that source this one begins.
+        offset: u64,
+        /// FNV-1a over up to 256 bytes from `offset` on.
+        sample: u64,
+    },
 }
 
 impl SourceIdentity {
@@ -194,6 +215,21 @@ impl SourceIdentity {
         Self::Named {
             name: name.into(),
             size,
+        }
+    }
+
+    /// The identity of this source read from `offset` on, where `head` is the
+    /// first bytes from `offset` (up to 256 of them are sampled). Offset 0 is
+    /// the source itself, so it answers `self` unchanged.
+    #[must_use]
+    pub fn offset(self, offset: u64, head: &[u8]) -> Self {
+        if offset == 0 {
+            return self;
+        }
+        Self::Offset {
+            source: Box::new(self),
+            offset,
+            sample: sample_of(&head[..head.len().min(SAMPLE_BYTES)]),
         }
     }
 }
