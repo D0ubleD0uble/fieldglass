@@ -149,9 +149,10 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
   when the cycle shipped user-facing features.
 
 - [ ] **Manual smoke test in a dev host (F5)** — open one fixture from each format and exercise the user-facing path:
-  - GRIB1: render a temperature message from a multi-message file; toggle projection picker (Source / Equirectangular) and resampling (Nearest / Bilinear); confirm the canvas paints and the caption reads correctly on both picker positions.
+  - GRIB1: render the temperature message in `reduced_gg_n32.grib1` (no committed GRIB file holds more than one message); toggle projection picker (Source / Equirectangular) and resampling (Nearest / Bilinear); confirm the canvas paints and the caption reads correctly on both picker positions.
   - GRIB2: open a simple-packed fixture (`regular_latlon_surface.grib2`); confirm message table populates and Render works.
   - NetCDF: open a classic `.nc` (`netcdf_classic_dummy.nc`); confirm the dataset-metadata view renders dimensions, attributes, and variables.
+  - Zarr: *Fieldglass: Open Zarr Store…* on `crates/fieldglass-zarr/tests/fixtures/stores/cf_v2`; confirm a render panel opens and draws a variable.
 
   The integration tests cover the wire path, but a visual sanity check is the last guard against regressions that only manifest in the UI (CSS, picker wiring, colorbar).
 
