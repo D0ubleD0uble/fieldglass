@@ -234,6 +234,20 @@ pub fn group_needs<E>(
     Ok(needs)
 }
 
+/// Whether `ahead` bytes, allocated from a section's stated counts before
+/// its data is read, are no more than its `section_len` bytes could fill:
+/// [`inflate_bound`], the most a stream of that length can produce, the bound
+/// a codec's first buffer starts at (#986).
+///
+/// A grouped decoder skips the [`group_needs`] pass when this holds, since
+/// what it would protect is already held to the section's bytes. That pass
+/// reads every group descriptor a second time, which on a typical field is
+/// about 7% of the decode, and a field big enough to need it is one whose
+/// section is small beside it, so has few descriptors to read (#1001).
+pub fn section_can_fill(ahead: usize, section_len: usize) -> bool {
+    ahead <= inflate_bound(section_len)
+}
+
 /// Whether `reader` has at least one more byte.
 fn read_one(reader: &mut impl Read) -> io::Result<bool> {
     let mut probe = [0u8; 1];
@@ -328,6 +342,16 @@ mod tests {
             group_needs(0, |_| Ok::<_, ()>((1, 1))).unwrap(),
             GroupNeeds::default()
         );
+    }
+
+    /// A section can fill up to its inflate bound, edge included.
+    #[test]
+    fn a_section_can_fill_up_to_its_inflate_bound() {
+        assert!(section_can_fill(0, 0));
+        assert!(!section_can_fill(1, 0));
+        assert!(section_can_fill(1032 * 25, 25));
+        assert!(!section_can_fill(1032 * 25 + 1, 25));
+        assert!(section_can_fill(usize::MAX, usize::MAX));
     }
 
     #[test]

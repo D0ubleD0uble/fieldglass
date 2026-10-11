@@ -57,7 +57,7 @@
 use fieldglass_core::{
     FieldglassError, StoredRuns,
     bits::{BitReader, bits_to_bytes, sign_magnitude_to_i64},
-    capped::group_needs,
+    capped::{group_needs, section_can_fill},
     groups::{expand_groups_into, read_group_widths},
     spatial_diff::apply_spd_inverse,
 };
@@ -347,7 +347,10 @@ struct GroupBlocks {
 /// points, and the second-order values from `N2` hold every group's offsets.
 /// The tables then hold no more entries than the grid has points, and every
 /// point outside a zero-width group, which legitimately repeats its
-/// first-order value, has its bits in the section.
+/// first-order value, has its bits in the section. The blocks are always
+/// checked; the pass over them only when the tables and output are more than
+/// the section could fill (`capped::section_can_fill`), since otherwise its
+/// size already holds them.
 fn check_groups(
     bds: &[u8],
     blocks: &GroupBlocks,
@@ -379,6 +382,16 @@ fn check_groups(
             "BDS of {bds_len} bytes is too short for the group widths, lengths and \
              first-order values of {num_groups} groups"
         )));
+    }
+
+    // The three tables (`u8` widths, `u32` lengths and first-order values)
+    // and the output; when the section could fill them, nothing more is
+    // needed.
+    let ahead = num_groups
+        .saturating_mul(size_of::<u8>() + 2 * size_of::<u32>())
+        .saturating_add(present.saturating_mul(size_of::<i64>()));
+    if section_can_fill(ahead, bds_len) {
+        return Ok(());
     }
 
     let mut widths = BitReader::new(&bds[widths_at..lengths_at]);

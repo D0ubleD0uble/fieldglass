@@ -496,7 +496,10 @@ fn decode_complex_groups(
 /// holds every group's offsets after them. Then the tables hold no more
 /// entries than the output has points, and every point that is not in a
 /// zero-width group, which legitimately repeats its reference, has its bits
-/// in §7.
+/// in §7. The descriptor blocks are always checked; the pass over them only
+/// when the tables and output are more than §7 could fill
+/// ([`capped::section_can_fill`]), since otherwise §7's size already holds
+/// them.
 ///
 /// Conditions the kernel refuses before it allocates (a field over 32 bits,
 /// `NG` of 0 or above the present count) are left to it, so their errors are
@@ -536,6 +539,15 @@ fn check_complex_groups(
             ds_payload.len()
         )));
     };
+
+    // The kernel's three tables (`u32` references, `u64` widths, `usize`
+    // lengths) and its output; when §7 could fill them, nothing more is needed.
+    let ahead = num_groups
+        .saturating_mul(size_of::<u32>() + size_of::<u64>() + size_of::<usize>())
+        .saturating_add(present_count.saturating_mul(size_of::<Option<i64>>()));
+    if capped::section_can_fill(ahead, ds_payload.len()) {
+        return Ok(());
+    }
 
     let mut widths = BitReader::new(width_block);
     let mut lengths = BitReader::new(length_block);
@@ -1310,33 +1322,36 @@ fn decode_run_length_packing(
         codes.push(reader.read_bits(bits)? as u64);
     }
 
-    // Split the codes into runs and count their points before the output is
-    // reserved (#1001). The output is sized by the grid, but the points are
-    // in the runs: a §7 of a few codes can state 64 Mi of them or far fewer,
-    // and only a stream whose runs cover exactly the present points is
-    // handed a buffer for them. `runs` holds at most one entry per code.
-    let mut runs: Vec<(Option<f64>, usize)> = Vec::new();
+    // Count the runs' points before the output is reserved (#1001). The
+    // output is sized by the grid, but the points are in the runs: a §7 of a
+    // few codes can state 64 Mi of them or far fewer, and only a stream whose
+    // runs cover exactly the present points is handed a buffer for them. The
+    // codes are walked twice, once to count and once to fill, so the count
+    // stores nothing.
     let mut total = 0usize;
     let mut i = 0;
     while i < codes.len() {
-        let v = codes[i];
-        if v > max {
-            // A run-length digit with no open run: malformed stream.
+        let (_, run, next) = next_run(&codes, i, max, range)?;
+        // A run that takes the total past the present points is refused here,
+        // so `total` and every run stay within `present_count`, a `usize`.
+        if run > (present_count - total) as u64 {
             return Err(FieldglassError::Parse(format!(
-                "run-length packing: code {v} at position {i} exceeds max_level_value {max} with no open run"
+                "run-length packing: decoded run overflows the {present_count} expected values"
             )));
         }
-        i += 1;
-        // Run length: 1 for the level itself, plus base-`range` digits (LSB
-        // first). Saturating arithmetic keeps a hostile stream from panicking;
-        // an over-long run is caught by the present-count overflow check below.
-        let mut run = 1u64;
-        let mut factor = 1u64;
-        while i < codes.len() && codes[i] > max {
-            run = run.saturating_add(factor.saturating_mul(codes[i] - max - 1));
-            factor = factor.saturating_mul(range);
-            i += 1;
-        }
+        total += run as usize;
+        i = next;
+    }
+    if total != present_count {
+        return Err(FieldglassError::Parse(format!(
+            "run-length packing: decoded {total} values but {present_count} were expected"
+        )));
+    }
+
+    let mut decoded: Vec<Option<f64>> = Vec::with_capacity(present_count);
+    let mut i = 0;
+    while i < codes.len() {
+        let (v, run, next) = next_run(&codes, i, max, range)?;
         // `v <= max <= number_of_level_values == levels.len() - 1`, so this
         // index is always in range — and bounded by an in-memory length, so it
         // fits `usize` on a 32-bit target too. `get` keeps it total regardless.
@@ -1345,31 +1360,41 @@ fn decode_run_length_packing(
                 "run-length packing: level index {v} has no table entry"
             ))
         })?;
-        // A run that takes the total past the present points is refused here,
-        // so `total` and every run stay within `present_count`, a `usize`.
-        let room = (present_count - total) as u64;
-        if run > room {
-            return Err(FieldglassError::Parse(format!(
-                "run-length packing: decoded run overflows the {present_count} expected values"
-            )));
-        }
-        let run = run as usize;
-        total += run;
-        runs.push((level, run));
-    }
-
-    if total != present_count {
-        return Err(FieldglassError::Parse(format!(
-            "run-length packing: decoded {total} values but {present_count} were expected"
-        )));
-    }
-
-    let mut decoded: Vec<Option<f64>> = Vec::with_capacity(present_count);
-    for (level, run) in runs {
-        decoded.extend(std::iter::repeat_n(level, run));
+        // The count above held every run within `present_count`.
+        decoded.extend(std::iter::repeat_n(level, run as usize));
+        i = next;
     }
 
     interleave_optional(decoded, bitmap, expected_count)
+}
+
+/// The run-length run that opens at code `i`: its level `v`, its length, and
+/// the index of the code after it. A code `v <= max` opens the run; the codes
+/// above `max` that follow are base-`range` digits of its length past 1,
+/// least significant first. Saturating arithmetic keeps a hostile stream from
+/// panicking; the caller refuses an over-long run.
+fn next_run(
+    codes: &[u64],
+    mut i: usize,
+    max: u64,
+    range: u64,
+) -> Result<(u64, u64, usize), FieldglassError> {
+    let v = codes[i];
+    if v > max {
+        // A run-length digit with no open run: malformed stream.
+        return Err(FieldglassError::Parse(format!(
+            "run-length packing: code {v} at position {i} exceeds max_level_value {max} with no open run"
+        )));
+    }
+    i += 1;
+    let mut run = 1u64;
+    let mut factor = 1u64;
+    while i < codes.len() && codes[i] > max {
+        run = run.saturating_add(factor.saturating_mul(codes[i] - max - 1));
+        factor = factor.saturating_mul(range);
+        i += 1;
+    }
+    Ok((v, run, i))
 }
 
 /// Decode second-order (general-extended) packing (templates 5.50001 and
@@ -1525,8 +1550,10 @@ fn decode_second_order(
 /// field width is 0 takes no bytes. So this reads the width and length blocks
 /// in place first and refuses the section unless §7 holds the three blocks,
 /// the lengths plus the SPD seeds make the present points, and §7 holds every
-/// group's offsets after the blocks. The caller has already checked the field
-/// widths, `NG` against the present count and the seed count.
+/// group's offsets after the blocks. As there, the pass runs only when the
+/// tables and output are more than §7 could fill. The caller has already
+/// checked the field widths, `NG` against the present count and the seed
+/// count.
 fn check_second_order_groups(
     ds_payload: &[u8],
     t: &SecondOrderPackingTemplate,
@@ -1548,6 +1575,15 @@ fn check_second_order_groups(
             ds_payload.len()
         )));
     };
+
+    // The three tables (`u8` widths, `u32` lengths and first-order values)
+    // and the output; when §7 could fill them, nothing more is needed.
+    let ahead = num_groups
+        .saturating_mul(size_of::<u8>() + 2 * size_of::<u32>())
+        .saturating_add(present_count.saturating_mul(size_of::<i64>()));
+    if capped::section_can_fill(ahead, ds_payload.len()) {
+        return Ok(());
+    }
 
     let mut widths = BitReader::new(width_block);
     let mut lengths = BitReader::new(length_block);
