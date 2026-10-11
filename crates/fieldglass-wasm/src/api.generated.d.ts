@@ -887,8 +887,28 @@ export type MessageIdentity =
      */
     discipline: number;
     /**
+     * The product definition template (§4 octets 8-9, Code Table
+     * 4.0). The fields below are read from octets 10-34, which every
+     * template the reader parses lays out as 4.0 does.
+     */
+    productTemplate: number;
+    /**
+     * The template's octets the fields here do not read, as lowercase
+     * hex, so that two fields they would tell apart never match:
+     * every octet from 10 on for a template the reader does not
+     * parse, and the probability (4.5, 4.9), percentile (4.6, 4.10)
+     * or spatial-processing (4.15) block of one it does. `None` when
+     * nothing is left unread.
+     *
+     * Not the ensemble block of 4.1 (and 4.11) or the derived-forecast
+     * block of 4.2 and 4.12: whether a member or a derived product is
+     * part of a message's identity is an open decision on #959, and
+     * those would be their own fields here, not octets.
+     */
+    productOctets: string | null;
+    /**
      * The parameter category (Code Table 4.1), `None` for a product
-     * template that carries none.
+     * template the reader does not parse.
      */
     parameterCategory: number | null;
     /**

@@ -397,6 +397,8 @@ mod tests {
             // Not what `verify_message` reads either (#959).
             identity: crate::api::MessageIdentity::Grib2 {
                 discipline: 0,
+                product_template: 0,
+                product_octets: None,
                 parameter_category: Some(0),
                 parameter_number: Some(0),
                 first_surface: None,

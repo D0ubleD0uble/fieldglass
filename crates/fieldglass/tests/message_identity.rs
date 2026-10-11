@@ -145,3 +145,109 @@ fn a_grib1_parameter_names_its_centre_only_when_the_table_is_local() {
         );
     }
 }
+
+/// `regular_latlon_surface.grib2` with its §4 rewritten to product template
+/// `template`, parameter number `parameter`, and `tail` appended after octet
+/// 34, the end of 4.0's layout. §4's length and §0's total length follow.
+fn with_template(template: u16, parameter: u8, tail: &[u8]) -> Vec<u8> {
+    let bytes = read(GRIB2, "regular_latlon_surface.grib2");
+    let mut at = 16;
+    loop {
+        let len = u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+        if bytes[at + 4] == 4 {
+            assert_eq!(
+                len, 34,
+                "the fixture's §4 is template 4.0 with no coordinates"
+            );
+            let mut section = bytes[at..at + len].to_vec();
+            section[7..9].copy_from_slice(&template.to_be_bytes());
+            section[10] = parameter;
+            section.extend_from_slice(tail);
+            let new_len = section.len() as u32;
+            section[0..4].copy_from_slice(&new_len.to_be_bytes());
+            let mut out = [&bytes[..at], &section[..], &bytes[at + len..]].concat();
+            let total = out.len() as u64;
+            out[8..16].copy_from_slice(&total.to_be_bytes());
+            return out;
+        }
+        at += len;
+    }
+}
+
+/// A template with 4.0's layout but no type of its own in the reader (here
+/// 4.1, an ensemble member) is read through octet 34 (#959). Before, its
+/// parameter, level and step were absent from the identity, so a file whose
+/// one message changed parameter at the same time and grid still matched,
+/// and a panel drew the new parameter as the old one.
+#[test]
+fn a_shared_layout_template_tells_parameters_apart() {
+    let temperature = identities(with_template(1, 0, &[3, 1, 20]));
+    let potential = identities(with_template(1, 2, &[3, 1, 20]));
+    assert!(matches!(
+        temperature[0],
+        MessageIdentity::Grib2 {
+            product_template: 1,
+            parameter_number: Some(0),
+            ..
+        }
+    ));
+    assert!(
+        matches(&potential, &temperature[0]).is_empty(),
+        "another parameter"
+    );
+    // The same message, rewritten into another file, is still the message.
+    let again = identities(concat(&[
+        &with_template(1, 2, &[3, 1, 20]),
+        &with_template(1, 0, &[3, 1, 20]),
+    ]));
+    assert_eq!(matches(&again, &temperature[0]), vec![1]);
+}
+
+/// The block a shared-layout template adds after octet 34 is compared as
+/// written where it says which field this is: a 50th and a 90th percentile
+/// (4.6) of one parameter are two messages.
+#[test]
+fn a_percentile_is_part_of_the_identity() {
+    let median = identities(with_template(6, 0, &[50]));
+    let p90 = identities(with_template(6, 0, &[90]));
+    assert!(matches(&p90, &median[0]).is_empty());
+    assert_eq!(
+        matches(&identities(with_template(6, 0, &[50])), &median[0]),
+        vec![0]
+    );
+}
+
+/// A template the reader does not parse at all keeps every octet in the
+/// identity, so two of them differing anywhere, the parameter included, do
+/// not match, and two identical ones do.
+#[test]
+fn an_unparsed_template_is_compared_by_its_octets() {
+    let a = identities(with_template(99, 0, &[]));
+    let b = identities(with_template(99, 2, &[]));
+    let MessageIdentity::Grib2 {
+        product_octets,
+        parameter_category,
+        ..
+    } = &a[0]
+    else {
+        panic!("GRIB2");
+    };
+    assert_eq!(*parameter_category, None, "the reader does not parse 4.99");
+    assert!(product_octets.is_some());
+    assert!(matches(&b, &a[0]).is_empty());
+    assert_eq!(
+        matches(&identities(with_template(99, 0, &[])), &a[0]),
+        vec![0]
+    );
+}
+
+/// The ensemble member of 4.1 is not part of the identity yet: whether it
+/// should be is an open decision on #959. Two members of one field match, so
+/// a file holding both refuses as ambiguous. This test is the record of that
+/// state, and changes with the decision.
+#[test]
+fn ensemble_members_share_an_identity_until_decided() {
+    let one = identities(with_template(1, 0, &[3, 1, 20]));
+    let two = identities(with_template(1, 0, &[3, 2, 20]));
+    assert_eq!(one, two);
+}

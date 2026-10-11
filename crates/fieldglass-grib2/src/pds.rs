@@ -9,8 +9,11 @@
 //! - **4.11** — individual ensemble forecast at a horizontal level over a time interval
 //!
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
-//! Section 4 layout + Templates 4.0 / 4.8 / 4.11. Unsupported template
-//! numbers parse as [`ProductTemplate::Unsupported`] so callers still see
+//! Section 4 layout + Templates 4.0 / 4.8 / 4.11. The templates that share
+//! 4.0's layout through octet 34 (4.1, 4.2, 4.5, 4.6, 4.7, 4.9, 4.10, 4.12,
+//! 4.15) parse as [`ProductTemplate::SharedLayout`], with that common block
+//! read and the rest kept as written. Any other template number parses as
+//! [`ProductTemplate::Unsupported`], with its octets, so callers still see
 //! the section header without erroring out.
 
 use crate::section::{SectionHeader, parse_section_header};
@@ -241,8 +244,59 @@ pub enum ProductTemplate {
     HorizontalTimeInterval(Template48),
     /// §4.11.
     EnsembleTimeInterval(Template411),
-    /// A template this build does not model, carrying its number.
-    Unsupported(u16),
+    /// A template this build has no type of its own for, whose octets 10–34
+    /// are 4.0's horizontal common block (#959): 4.1, 4.2, 4.5, 4.6, 4.7, 4.9,
+    /// 4.10, 4.12 and 4.15. Boxed, as these are rare, so the common case pays
+    /// nothing for the variant.
+    SharedLayout(Box<SharedLayoutTemplate>),
+    /// A template this build does not read, carrying its number and its
+    /// octets from 10 to the end of the section as written.
+    Unsupported(u16, Box<[u8]>),
+}
+
+/// A product template laid out as 4.0 up to octet 34, then a block of its
+/// own, then for the statistical templates (4.9, 4.10, 4.12) the time-interval
+/// block 4.8 has. Per WMO FM 92 Code Table 4.0 and the template definitions:
+///
+/// | Template | Block after octet 34 | Then |
+/// |---|---|---|
+/// | 4.1 | ensemble: type, perturbation number, members (3) | — |
+/// | 4.2 | derived forecast and members (2) | — |
+/// | 4.5 | probability: number, count, type, limits (13) | — |
+/// | 4.6 | percentile (1) | — |
+/// | 4.7 | none (4.0's layout, an analysis or forecast error) | — |
+/// | 4.9 | probability, as 4.5 (13) | statistics |
+/// | 4.10 | percentile (1) | statistics |
+/// | 4.12 | derived forecast and members (2) | statistics |
+/// | 4.15 | statistical process, spatial processing, points used (3) | — |
+#[derive(Debug, Clone, PartialEq)]
+pub struct SharedLayoutTemplate {
+    /// The template number.
+    pub number: u16,
+    /// The parameter, generating process, forecast time and surfaces.
+    pub common: HorizontalProductCommon,
+    /// The template's own block after octet 34, as written; empty for 4.7.
+    pub qualifier: Box<[u8]>,
+    /// The interval, and what was done over it, for 4.9, 4.10 and 4.12.
+    pub stats: Option<StatisticalProcessing>,
+}
+
+/// The length of the block a template sharing 4.0's layout has after octet 34,
+/// and whether the statistical block follows it. `None` for a template that
+/// does not share the layout.
+fn shared_layout(number: u16) -> Option<(usize, bool)> {
+    match number {
+        1 => Some((3, false)),
+        2 => Some((2, false)),
+        5 => Some((13, false)),
+        6 => Some((1, false)),
+        7 => Some((0, false)),
+        9 => Some((13, true)),
+        10 => Some((1, true)),
+        12 => Some((2, true)),
+        15 => Some((3, false)),
+        _ => None,
+    }
 }
 
 /// Parsed contents of the Product Definition Section.
@@ -268,13 +322,30 @@ impl ProductDefinitionSection {
             ProductTemplate::HorizontalAnalysisForecast(_) => "horizontal".to_string(),
             ProductTemplate::HorizontalTimeInterval(_) => "horizontal-interval".to_string(),
             ProductTemplate::EnsembleTimeInterval(_) => "ensemble-interval".to_string(),
-            ProductTemplate::Unsupported(n) => format!("unsupported(4.{n})"),
+            ProductTemplate::SharedLayout(t) => format!("horizontal(4.{})", t.number),
+            ProductTemplate::Unsupported(n, _) => format!("unsupported(4.{n})"),
+        }
+    }
+
+    /// The template's octets this crate does not read into fields, as written:
+    /// for a template sharing 4.0's layout, its own block after octet 34 (see
+    /// [`SharedLayoutTemplate`]); for one this crate does not read at all,
+    /// every octet from 10 on. Empty for 4.0, 4.8 and 4.11, which are read
+    /// whole.
+    ///
+    /// What a caller that must tell two fields apart compares when it cannot
+    /// name what these octets mean (#959).
+    pub fn unread_octets(&self) -> &[u8] {
+        match &self.template {
+            ProductTemplate::SharedLayout(t) => &t.qualifier,
+            ProductTemplate::Unsupported(_, octets) => octets,
+            _ => &[],
         }
     }
 
     /// `(category, number)` parameter pair, when the template carries it.
-    /// All three currently-supported templates do; `None` is reserved for
-    /// future non-horizontal templates routed through `Unsupported`.
+    /// Every template sharing 4.0's layout does; `None` for a template this
+    /// crate does not read.
     pub fn parameter(&self) -> Option<(u8, u8)> {
         self.common()
             .map(|c| (c.parameter_category, c.parameter_number))
@@ -286,7 +357,8 @@ impl ProductDefinitionSection {
             ProductTemplate::HorizontalAnalysisForecast(t) => Some(&t.common),
             ProductTemplate::HorizontalTimeInterval(t) => Some(&t.common),
             ProductTemplate::EnsembleTimeInterval(t) => Some(&t.common),
-            ProductTemplate::Unsupported(_) => None,
+            ProductTemplate::SharedLayout(t) => Some(&t.common),
+            ProductTemplate::Unsupported(..) => None,
         }
     }
 
@@ -295,6 +367,7 @@ impl ProductDefinitionSection {
         match &self.template {
             ProductTemplate::HorizontalTimeInterval(t) => Some(&t.stats),
             ProductTemplate::EnsembleTimeInterval(t) => Some(&t.stats),
+            ProductTemplate::SharedLayout(t) => t.stats.as_ref(),
             _ => None,
         }
     }
@@ -339,7 +412,14 @@ pub fn parse_product_definition_with_header(
         0 => ProductTemplate::HorizontalAnalysisForecast(parse_template_4_0(payload)?),
         8 => ProductTemplate::HorizontalTimeInterval(parse_template_4_8(payload)?),
         11 => ProductTemplate::EnsembleTimeInterval(parse_template_4_11(payload)?),
-        other => ProductTemplate::Unsupported(other),
+        // A template sharing 4.0's layout that is too short for it is kept as
+        // unread octets rather than refused: before #959 every such template
+        // opened, read or not.
+        other => match shared_layout(other).and_then(|layout| parse_shared(other, layout, payload))
+        {
+            Some(t) => ProductTemplate::SharedLayout(Box::new(t)),
+            None => ProductTemplate::Unsupported(other, payload.into()),
+        },
     };
 
     Ok(ProductDefinitionSection {
@@ -371,6 +451,28 @@ fn parse_horizontal_common(payload: &[u8]) -> Result<HorizontalProductCommon, Fi
         forecast_time: read_signed_i32(&payload[9..13]),
         first_surface: read_fixed_surface(&payload[13..13 + SURFACE_TRIPLE_LEN]),
         second_surface: read_fixed_surface(&payload[19..19 + SURFACE_TRIPLE_LEN]),
+    })
+}
+
+/// A template sharing 4.0's layout, read as [`SharedLayoutTemplate`]; `None`
+/// when the section is too short for the layout it states.
+fn parse_shared(
+    number: u16,
+    (block, statistical): (usize, bool),
+    payload: &[u8],
+) -> Option<SharedLayoutTemplate> {
+    let common = parse_horizontal_common(payload).ok()?;
+    let qualifier = payload.get(HORIZONTAL_CORE_LEN..HORIZONTAL_CORE_LEN + block)?;
+    let stats = if statistical {
+        Some(parse_statistics(payload.get(HORIZONTAL_CORE_LEN + block..)?).ok()?)
+    } else {
+        None
+    };
+    Some(SharedLayoutTemplate {
+        number,
+        common,
+        qualifier: qualifier.into(),
+        stats,
     })
 }
 
@@ -839,10 +941,68 @@ mod tests {
         // Template number lives at section octets 8–9 = bytes 7–8.
         bytes[7..9].copy_from_slice(&99u16.to_be_bytes());
         let pds = parse_product_definition(&bytes).expect("parse");
-        assert!(matches!(pds.template, ProductTemplate::Unsupported(99)));
+        assert!(matches!(pds.template, ProductTemplate::Unsupported(99, _)));
         assert_eq!(pds.template_name(), "unsupported(4.99)");
         assert_eq!(pds.parameter(), None);
         assert!(pds.common().is_none());
         assert!(pds.stats().is_none());
+        // The octets it holds are kept, so a caller can still tell two apart.
+        assert_eq!(pds.unread_octets(), &bytes[9..]);
+    }
+
+    /// 4.0 with a different template number and `tail` appended.
+    fn build_shared(number: u16, tail: &[u8]) -> Vec<u8> {
+        let mut bytes = build_pds_4_0();
+        bytes[7..9].copy_from_slice(&number.to_be_bytes());
+        bytes.extend_from_slice(tail);
+        let len = bytes.len() as u32;
+        bytes[0..4].copy_from_slice(&len.to_be_bytes());
+        bytes
+    }
+
+    /// A template sharing 4.0's layout is read through octet 34 as 4.0 is
+    /// (#959): its parameter, surfaces and forecast time are the right
+    /// octets, and its own block is kept as written.
+    #[test]
+    fn a_template_sharing_the_layout_reads_the_common_block() {
+        let reference = parse_product_definition(&build_pds_4_0()).expect("4.0");
+        // 4.1: ensemble type 3, member 7 of 20.
+        let pds = parse_product_definition(&build_shared(1, &[3, 7, 20])).expect("4.1");
+        assert!(matches!(pds.template, ProductTemplate::SharedLayout(_)));
+        assert_eq!(pds.template_name(), "horizontal(4.1)");
+        assert_eq!(pds.common(), reference.common());
+        assert_eq!(pds.unread_octets(), &[3, 7, 20]);
+        assert!(pds.stats().is_none());
+    }
+
+    /// 4.12 carries 4.8's statistical block after its own two octets.
+    #[test]
+    fn a_statistical_template_sharing_the_layout_reads_its_interval() {
+        let mut tail = vec![0, 20]; // derived forecast 0 (unweighted mean), 20 members
+        push_be(&mut tail, 2026, 2);
+        tail.extend_from_slice(&[1, 1, 6, 0, 0]); // end 2026-01-01T06:00:00
+        tail.push(1); // one time range
+        push_be(&mut tail, 0, 4); // no values missing
+        tail.extend_from_slice(&[1, 2, 1]); // accumulation, successive, hours
+        push_be(&mut tail, 6, 4);
+        tail.push(1);
+        push_be(&mut tail, 0, 4);
+        let pds = parse_product_definition(&build_shared(12, &tail)).expect("4.12");
+        assert_eq!(pds.unread_octets(), &[0, 20]);
+        let stats = pds.stats().expect("4.12 is statistical");
+        assert_eq!(stats.end_time_iso8601(), "2026-01-01T06:00:00Z");
+        assert_eq!(stats.specs.len(), 1);
+        assert_eq!(
+            (stats.specs[0].stat_process, stats.specs[0].stat_length),
+            (1, 6)
+        );
+    }
+
+    /// One too short for the layout it states still opens, as unread octets.
+    #[test]
+    fn a_shared_layout_template_too_short_for_it_is_kept_unread() {
+        let pds = parse_product_definition(&build_shared(5, &[1, 2])).expect("opens");
+        assert!(matches!(pds.template, ProductTemplate::Unsupported(5, _)));
+        assert!(pds.common().is_none());
     }
 }

@@ -148,6 +148,8 @@
           "gridTemplate": 0,
           "parameterCategory": 0,
           "parameterNumber": 0,
+          "productOctets": null,
+          "productTemplate": 0,
           "rangeEnd": null,
           "referenceTime": "2008-02-06T12:00:00Z",
           "secondSurface": {
@@ -2130,6 +2132,8 @@
           "gridTemplate": 40,
           "parameterCategory": 0,
           "parameterNumber": 0,
+          "productOctets": null,
+          "productTemplate": 0,
           "rangeEnd": null,
           "referenceTime": "2007-03-23T12:00:00Z",
           "secondSurface": {
@@ -4165,6 +4169,8 @@
           "gridTemplate": 40,
           "parameterCategory": 0,
           "parameterNumber": 0,
+          "productOctets": null,
+          "productTemplate": 0,
           "rangeEnd": null,
           "referenceTime": "2008-02-06T12:00:00Z",
           "secondSurface": {
@@ -6673,6 +6679,8 @@
           "gridTemplate": 30,
           "parameterCategory": 3,
           "parameterNumber": 192,
+          "productOctets": null,
+          "productTemplate": 0,
           "rangeEnd": null,
           "referenceTime": "2004-12-08T12:00:00Z",
           "secondSurface": {
@@ -8661,6 +8669,8 @@
           "gridTemplate": 12,
           "parameterCategory": 0,
           "parameterNumber": 0,
+          "productOctets": null,
+          "productTemplate": 0,
           "rangeEnd": null,
           "referenceTime": "2007-03-23T12:00:00Z",
           "secondSurface": {
@@ -10641,6 +10651,8 @@
           "gridTemplate": 1,
           "parameterCategory": 0,
           "parameterNumber": 0,
+          "productOctets": null,
+          "productTemplate": 0,
           "rangeEnd": null,
           "referenceTime": "2007-03-23T12:00:00Z",
           "secondSurface": {
@@ -12588,6 +12600,8 @@
           "gridTemplate": 20,
           "parameterCategory": 0,
           "parameterNumber": 0,
+          "productOctets": null,
+          "productTemplate": 0,
           "rangeEnd": null,
           "referenceTime": "2007-03-23T12:00:00Z",
           "secondSurface": {
@@ -14234,6 +14248,8 @@
           "gridTemplate": 50,
           "parameterCategory": 0,
           "parameterNumber": 0,
+          "productOctets": null,
+          "productTemplate": 0,
           "rangeEnd": null,
           "referenceTime": "2007-04-24T12:00:00Z",
           "secondSurface": {
@@ -16215,6 +16231,8 @@
           "gridTemplate": 150,
           "parameterCategory": 0,
           "parameterNumber": 0,
+          "productOctets": null,
+          "productTemplate": 0,
           "rangeEnd": null,
           "referenceTime": "2007-03-23T12:00:00Z",
           "secondSurface": {
@@ -23634,6 +23652,8 @@
           "gridTemplate": 50,
           "parameterCategory": 0,
           "parameterNumber": 0,
+          "productOctets": null,
+          "productTemplate": 0,
           "rangeEnd": null,
           "referenceTime": "2007-04-24T12:00:00Z",
           "secondSurface": {

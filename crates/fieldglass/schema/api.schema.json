@@ -1001,7 +1001,7 @@
               "type": "integer"
             },
             "parameterCategory": {
-              "description": "The parameter category (Code Table 4.1), `None` for a product\ntemplate that carries none.",
+              "description": "The parameter category (Code Table 4.1), `None` for a product\ntemplate the reader does not parse.",
               "format": "uint8",
               "maximum": 255,
               "minimum": 0,
@@ -1019,6 +1019,20 @@
                 "integer",
                 "null"
               ]
+            },
+            "productOctets": {
+              "description": "The template's octets the fields here do not read, as lowercase\nhex, so that two fields they would tell apart never match:\nevery octet from 10 on for a template the reader does not\nparse, and the probability (4.5, 4.9), percentile (4.6, 4.10)\nor spatial-processing (4.15) block of one it does. `None` when\nnothing is left unread.\n\nNot the ensemble block of 4.1 (and 4.11) or the derived-forecast\nblock of 4.2 and 4.12: whether a member or a derived product is\npart of a message's identity is an open decision on #959, and\nthose would be their own fields here, not octets.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "productTemplate": {
+              "description": "The product definition template (§4 octets 8-9, Code Table\n4.0). The fields below are read from octets 10-34, which every\ntemplate the reader parses lays out as 4.0 does.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
             },
             "rangeEnd": {
               "description": "The end of a statistical range as RFC 3339 (templates 4.8 and\n4.11). `None` for a field at an instant.",
@@ -1053,6 +1067,8 @@
           "required": [
             "edition",
             "discipline",
+            "productTemplate",
+            "productOctets",
             "parameterCategory",
             "parameterNumber",
             "firstSurface",
