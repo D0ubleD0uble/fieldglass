@@ -304,6 +304,44 @@ api_type! {
         PredefinedUnresolved,
     }
 
+    /// Which of the operations that need a position for each grid point this
+    /// grid takes (#945).
+    ///
+    /// The answers are the umbrella's own gates, asked ahead of time:
+    /// `contours` is whether `render::contour_polylines` would draw this grid,
+    /// `vectors` whether `render::vector_polylines` would, `long_csv` whether
+    /// `render::field_csv` would write its `"long"` layout, and `zonal_mean`
+    /// whether `render::zonal_mean` would average it. So a host can disable
+    /// an offer with a reason instead of making the call and showing the
+    /// refusal, and it needs no list of grid families to do so.
+    ///
+    /// **Not derivable from [`Placement`] or
+    /// [`Georef::reprojectable`].** A full-disc space view is placed and
+    /// reprojects, and none of its point operations is taken: its corner
+    /// pixels look past the Earth and have no position. A lat/lon grid
+    /// scanned east to west does not reproject and takes all four. A rotated
+    /// or projected grid takes contours, arrows and the long CSV, and no
+    /// zonal mean, because its rows are not circles of latitude.
+    ///
+    /// Each answer is about the grid alone. A call can still be refused for
+    /// its other inputs: a u and a v that do not line up, values of the wrong
+    /// length.
+    #[derive(Copy, Eq, Default)]
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct GridSupport {
+        /// Contour lines can be traced and placed on a map.
+        pub contours: bool,
+        /// Wind or current arrows can be drawn, with this grid as the u
+        /// component's.
+        pub vectors: bool,
+        /// The long CSV layout (`lat,lon,value` per point) can be written. The
+        /// matrix layout needs no position and is taken by every grid.
+        pub long_csv: bool,
+        /// A zonal mean can be taken: the grid's rows are circles of latitude.
+        pub zonal_mean: bool,
+    }
+
     /// Where a grid's raster sits in the plane [`Georef::proj4`] names: the
     /// first scanned point's cell centre, the step from it along each axis,
     /// and the units all four are measured in.
@@ -434,6 +472,10 @@ api_type! {
         /// larger than the Earth radius the message declares. Deriving it in a
         /// host would mean a family list and the scan rule in every host.
         pub reprojectable: bool,
+        /// Which operations that need each grid point's position this grid
+        /// takes: contours, arrows, the long CSV and the zonal mean (#945).
+        /// [`GridSupport::of`] the [`geometry`](Self::geometry).
+        pub supports: GridSupport,
         /// Points per row for a **reduced** grid — `PL`, the number of values
         /// each row really holds — and `None` for every other family (#244).
         ///
@@ -719,6 +761,11 @@ api_type! {
         /// declared grid does not reproject and its synthesised lat/lon field
         /// does, so this is `true`.
         pub reprojectable: bool,
+        /// Which operations that need each grid point's position the grid
+        /// this message's values land on takes (#945): [`Georef::supports`]
+        /// of the same grid [`placement`](Self::placement) describes, and none
+        /// when there is no grid. About the values, as `reprojectable` is.
+        pub supports: GridSupport,
         /// How the file names its own grid where `Ni × Nj` is not how it is
         /// described — `N32`, `O1280`, `T639`.
         pub size_label: Option<String>,
@@ -1293,6 +1340,7 @@ impl Georef {
                 dims => Placement::from_extent(dims, bbox.is_some()),
             },
             reprojectable: geom.reprojectable(scan),
+            supports: GridSupport::of(geom),
             points_per_row: None,
             proj4: geom.proj4(),
             affine,

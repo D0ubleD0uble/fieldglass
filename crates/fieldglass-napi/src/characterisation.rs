@@ -785,9 +785,27 @@ fn meta_row(subject: &Subject<'_>) -> Row {
             format!(" shown=T{} of T{}", t.truncated_to, t.declared)
         }
     };
+    // Which point operations the grid takes (#945), in the open so the golden
+    // shows each family's answer beside the contour and CSV rows it predicts;
+    // `the_meta_rows_predict_the_contour_and_csv_rows` holds them together.
+    let s = georef.supports;
+    let taken: Vec<&str> = [
+        (s.contours, "contours"),
+        (s.vectors, "vectors"),
+        (s.long_csv, "long_csv"),
+        (s.zonal_mean, "zonal_mean"),
+    ]
+    .into_iter()
+    .filter_map(|(on, name)| on.then_some(name))
+    .collect();
+    let supports = if taken.is_empty() {
+        "none".to_string()
+    } else {
+        taken.join(",")
+    };
     Row {
         portable: format!(
-            "family={} ni={ni} nj={nj} reprojectable={}{truncation}",
+            "family={} ni={ni} nj={nj} reprojectable={} supports={supports}{truncation}",
             georef.label, georef.reprojectable,
         ),
         exact: h,
@@ -1317,6 +1335,66 @@ fn every_deep_field_is_still_in_the_recording() {
             "{field} is named in DEEP_FIELDS but has no deep cases recorded"
         );
     }
+}
+
+/// A field's `supports=` answer (#945) says what its contour and long-CSV rows
+/// recorded: `contours` exactly when every contour row drew, `long_csv` exactly
+/// when the long CSV was written.
+///
+/// That is the panel's promise: the Contours toggle is offered where the
+/// contours draw and nowhere else, for every placed family the corpus holds.
+/// Map targets are compared only where the field reprojects, because the
+/// picker offers none elsewhere. A field whose placement did not resolve has
+/// no answer and is skipped; its rows are refused for that reason.
+#[test]
+fn the_meta_rows_predict_the_contour_and_csv_rows() {
+    if updating() {
+        return;
+    }
+    let golden = recorded();
+    let mut checked = [0usize; 2];
+    let mut disagree = Vec::new();
+    for ((field, case), row) in &golden {
+        let long_csv = case == "csv/long";
+        if !(long_csv || case.starts_with("contours/")) {
+            continue;
+        }
+        let Some(meta) = golden.get(&(field.clone(), "meta".to_string())) else {
+            continue;
+        };
+        let Some(supports) = meta
+            .portable
+            .split(' ')
+            .find_map(|w| w.strip_prefix("supports="))
+        else {
+            continue;
+        };
+        if !long_csv
+            && !case.starts_with("contours/source/")
+            && !meta.portable.contains("reprojectable=true")
+        {
+            continue;
+        }
+        let want = if long_csv { "long_csv" } else { "contours" };
+        let offered = supports.split(',').any(|s| s == want);
+        let drew = row.portable.starts_with("ok");
+        checked[usize::from(offered)] += 1;
+        if offered != drew {
+            disagree.push(format!(
+                "{field} {case}: supports={supports} but {}",
+                row.portable
+            ));
+        }
+    }
+    assert!(
+        checked[0] > 0 && checked[1] > 0,
+        "the golden should hold rows on both sides of the answer: {checked:?}"
+    );
+    assert!(
+        disagree.is_empty(),
+        "the meta row's answer disagrees with what the operation did:\n{}",
+        disagree.join("\n")
+    );
 }
 
 /// Every file in the three fixture directories is either data this golden

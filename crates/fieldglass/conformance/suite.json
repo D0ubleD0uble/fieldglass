@@ -116,6 +116,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "identification": {
@@ -136,6 +142,12 @@
         "reprojectable": true,
         "sizeLabel": null,
         "subCentre": null,
+        "supports": {
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": true
+        },
         "totalLengthBytes": 1188,
         "truncation": null,
         "units": "K",
@@ -207,6 +219,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 496,
@@ -316,6 +334,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 496,
@@ -425,6 +449,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 496,
@@ -1428,6 +1458,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 496,
@@ -1537,6 +1573,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 496,
@@ -1646,6 +1688,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 496,
@@ -1755,6 +1803,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 496,
@@ -1864,6 +1918,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 496,
@@ -2011,6 +2071,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "identification": {
@@ -2031,6 +2097,12 @@
         "reprojectable": true,
         "sizeLabel": null,
         "subCentre": null,
+        "supports": {
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": true
+        },
         "totalLengthBytes": 179,
         "truncation": null,
         "units": "K",
@@ -2102,6 +2174,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -2211,6 +2289,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -2320,6 +2404,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -3311,6 +3401,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -3420,6 +3516,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -3529,6 +3631,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -3638,6 +3746,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -3747,6 +3861,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -3959,6 +4079,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "identification": {
@@ -3979,6 +4105,12 @@
         "reprojectable": true,
         "sizeLabel": "N32",
         "subCentre": null,
+        "supports": {
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": true
+        },
         "totalLengthBytes": 10260,
         "truncation": null,
         "units": "K",
@@ -4115,6 +4247,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -4289,6 +4427,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -4463,6 +4607,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -5537,6 +5687,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -5711,6 +5867,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -5885,6 +6047,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -6059,6 +6227,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -6233,6 +6407,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 8192,
@@ -6380,6 +6560,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "identification": {
@@ -6400,6 +6586,12 @@
         "reprojectable": true,
         "sizeLabel": null,
         "subCentre": null,
+        "supports": {
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": false
+        },
         "totalLengthBytes": 10012,
         "truncation": null,
         "units": "Pa",
@@ -6471,6 +6663,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 6045,
@@ -6580,6 +6778,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 6045,
@@ -6689,6 +6893,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 6045,
@@ -7698,6 +7908,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 6045,
@@ -7807,6 +8023,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 6045,
@@ -7916,6 +8138,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 6045,
@@ -8025,6 +8253,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 6045,
@@ -8134,6 +8368,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 6045,
@@ -8281,6 +8521,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "identification": {
@@ -8301,6 +8547,12 @@
         "reprojectable": true,
         "sizeLabel": null,
         "subCentre": null,
+        "supports": {
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": false
+        },
         "totalLengthBytes": 1631,
         "truncation": null,
         "units": "K",
@@ -8372,6 +8624,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 720,
@@ -8481,6 +8739,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 720,
@@ -8590,6 +8854,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 720,
@@ -9591,6 +9861,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 720,
@@ -9700,6 +9976,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 720,
@@ -9809,6 +10091,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 720,
@@ -9918,6 +10206,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 720,
@@ -10027,6 +10321,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 720,
@@ -10174,6 +10474,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "identification": {
@@ -10194,6 +10500,12 @@
         "reprojectable": true,
         "sizeLabel": null,
         "subCentre": null,
+        "supports": {
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": false
+        },
         "totalLengthBytes": 191,
         "truncation": null,
         "units": "K",
@@ -10265,6 +10577,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -10374,6 +10692,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -10483,6 +10807,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -11462,6 +11792,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -11571,6 +11907,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -11680,6 +12022,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -11789,6 +12137,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -11898,6 +12252,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -12034,6 +12394,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "identification": {
@@ -12054,6 +12420,12 @@
         "reprojectable": false,
         "sizeLabel": null,
         "subCentre": null,
+        "supports": {
+          "contours": false,
+          "longCsv": false,
+          "vectors": false,
+          "zonalMean": false
+        },
         "totalLengthBytes": 189,
         "truncation": null,
         "units": "K",
@@ -12109,6 +12481,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -12202,6 +12580,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -12295,6 +12679,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -13093,6 +13483,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -13186,6 +13582,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -13279,6 +13681,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -13372,6 +13780,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -13465,6 +13879,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "len": 496,
@@ -13596,6 +14016,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "identification": {
@@ -13616,6 +14042,12 @@
         "reprojectable": true,
         "sizeLabel": "T63",
         "subCentre": null,
+        "supports": {
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": true
+        },
         "totalLengthBytes": 8473,
         "truncation": null,
         "units": "K",
@@ -13687,6 +14119,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 259920,
@@ -13796,6 +14234,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 259920,
@@ -13905,6 +14349,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 259920,
@@ -14926,6 +15376,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 259920,
@@ -15035,6 +15491,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 259920,
@@ -15144,6 +15606,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 259920,
@@ -15253,6 +15721,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 259920,
@@ -15362,6 +15836,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 259920,
@@ -15493,6 +15973,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "identification": {
@@ -15513,6 +15999,12 @@
         "reprojectable": true,
         "sizeLabel": "Nside 4",
         "subCentre": null,
+        "supports": {
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": true
+        },
         "totalLengthBytes": 725,
         "truncation": null,
         "units": "K",
@@ -15584,6 +16076,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 364,
@@ -15693,6 +16191,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 364,
@@ -15802,6 +16306,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 364,
@@ -16825,6 +17335,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 364,
@@ -16934,6 +17450,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 364,
@@ -17043,6 +17565,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 364,
@@ -17152,6 +17680,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 364,
@@ -17261,6 +17795,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 364,
@@ -17408,6 +17948,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "identification": {
@@ -17426,6 +17972,12 @@
         "reprojectable": true,
         "sizeLabel": null,
         "subCentre": null,
+        "supports": {
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": true
+        },
         "totalLengthBytes": 188,
         "truncation": null,
         "units": "K",
@@ -17497,6 +18049,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 40,
@@ -17606,6 +18164,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 40,
@@ -17715,6 +18279,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 40,
@@ -18714,6 +19284,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 40,
@@ -18823,6 +19399,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 40,
@@ -18932,6 +19514,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 40,
@@ -19041,6 +19629,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 40,
@@ -19150,6 +19744,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 40,
@@ -19297,6 +19897,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "identification": {
@@ -19315,6 +19921,12 @@
         "reprojectable": true,
         "sizeLabel": null,
         "subCentre": null,
+        "supports": {
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": false
+        },
         "totalLengthBytes": 14524,
         "truncation": null,
         "units": "m s⁻¹",
@@ -19386,6 +19998,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 12825,
@@ -19495,6 +20113,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 12825,
@@ -19604,6 +20228,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 12825,
@@ -20605,6 +21235,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 12825,
@@ -20714,6 +21350,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 12825,
@@ -20823,6 +21465,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 12825,
@@ -20932,6 +21580,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 12825,
@@ -21041,6 +21695,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 12825,
@@ -21327,6 +21987,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 16020,
@@ -21674,6 +22340,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 16020,
@@ -22193,6 +22865,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 1024,
@@ -22426,6 +23104,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": true
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 1024,
@@ -22640,6 +23324,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "identification": {
@@ -22660,6 +23350,12 @@
         "reprojectable": true,
         "sizeLabel": "T383",
         "subCentre": null,
+        "supports": {
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": true
+        },
         "totalLengthBytes": 147994,
         "truncation": {
           "declared": 383,
@@ -22734,6 +23430,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
           }
         },
         "len": 259920,
@@ -25817,6 +26519,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": false,
+            "longCsv": false,
+            "vectors": false,
+            "zonalMean": false
           }
         },
         "len": 100,
@@ -25918,6 +26626,12 @@
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
+          },
+          "supports": {
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
           }
         },
         "len": 9600,

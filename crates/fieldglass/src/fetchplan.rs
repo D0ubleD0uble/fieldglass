@@ -378,6 +378,7 @@ mod tests {
             grid: None,
             placement: crate::api::Placement::NoRaster,
             reprojectable: false,
+            supports: crate::api::GridSupport::default(),
             size_label: None,
             truncation: None,
             // Identification this helper's caller does not look at: these tests

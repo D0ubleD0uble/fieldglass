@@ -45,12 +45,12 @@ use crate::api::Isoline;
 use crate::api::Warped;
 // Only the message streams name a placement themselves; a slice's comes from
 // `Georef::from_slice`.
-#[cfg(any(feature = "grib1", feature = "grib2"))]
-use crate::api::Placement;
 use crate::api::{
     Addressing, DimensionInfo, Dtype, Field, FullDetail, Georef, LeftOutArray, Line, MessageInfo,
     MessageProbe, Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
 };
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+use crate::api::{GridSupport, Placement};
 // The band-limit label only a spectral message carries (#637).
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use crate::api::SpectralTruncation;
@@ -2557,8 +2557,8 @@ fn synthesised_georef(grid: fieldglass_core::GlobalGrid) -> Georef {
     Georef::from_declared(&geometry, Scan::north_down(), &declared)
 }
 
-/// `(placement, reprojectable)` of the grid a message's values land on — the
-/// two [`MessageInfo`] answers a message list reads (#776).
+/// `(placement, reprojectable, supports)` of the grid a message's values land
+/// on — the [`MessageInfo`] answers a message list reads (#776, #945).
 ///
 /// The synthesis grid when the family has one, the declared grid otherwise, and
 /// `without_grid` with no grid at all. The declared grid is the right answer for
@@ -2570,12 +2570,14 @@ fn landing(
     synthesis: Option<fieldglass_core::GlobalGrid>,
     declared: Option<&Georef>,
     without_grid: Placement,
-) -> (Placement, bool) {
+) -> (Placement, bool, GridSupport) {
     if let Some(grid) = synthesis {
         let placed = synthesised_georef(grid);
-        return (placed.placement, placed.reprojectable);
+        return (placed.placement, placed.reprojectable, placed.supports);
     }
-    declared.map_or((without_grid, false), |g| (g.placement, g.reprojectable))
+    declared.map_or((without_grid, false, GridSupport::default()), |g| {
+        (g.placement, g.reprojectable, g.supports)
+    })
 }
 
 /// What a GRIB1 grid the geometry has no points for is (#776).
@@ -2676,7 +2678,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
     } else {
         Placement::PredefinedUnresolved
     };
-    let (placement, reprojectable) =
+    let (placement, reprojectable, supports) =
         landing(reader.synthesis_grid(index), grid.as_ref(), without_grid);
     MessageInfo {
         // Round-trips the `u32` handle `Session::message` was given and
@@ -2697,6 +2699,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         grid,
         placement,
         reprojectable,
+        supports,
         forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds),
         uv_relative_to_grid: msg.gds.as_ref().and_then(|g| g.uv_relative_to_grid()),
         originating_centre: fieldglass_grib1::tables_cct::lookup_centre(msg.pds.originating_centre)
@@ -2776,7 +2779,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
     .with_points_per_row(msg.gds.points_per_row());
     // Every GRIB2 message carries a §3, so the no-grid answer is unreachable;
     // `NoRaster` is what it would be.
-    let (placement, reprojectable) = landing(
+    let (placement, reprojectable, supports) = landing(
         reader.synthesis_grid(index),
         Some(&grid),
         Placement::NoRaster,
@@ -2797,6 +2800,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         grid: Some(grid),
         placement,
         reprojectable,
+        supports,
         size_label: msg.gds.size_label(),
         truncation: reader.synthesis_truncation(index).map(Into::into),
         forecast_hours: common.and_then(fieldglass_grib2::forecast_hours),

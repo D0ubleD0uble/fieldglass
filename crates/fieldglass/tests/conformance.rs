@@ -332,3 +332,219 @@ fn perturb(value: &mut serde_json::Value) -> bool {
         _ => false,
     }
 }
+
+// ---------------------------------------------------------------------------
+// The per-grid answers agree with the operations (#945)
+// ---------------------------------------------------------------------------
+
+/// The field's values, masked cells as `None`, in raster order.
+fn optional_values(field: &fieldglass::Field) -> Vec<Option<f64>> {
+    let dense: Vec<f64> = match &field.values {
+        fieldglass::Values::F64(v) => v.clone(),
+        fieldglass::Values::F32(v) => v.iter().map(|&x| f64::from(x)).collect(),
+        other => panic!("a values width this test does not read: {other:?}"),
+    };
+    field
+        .mask
+        .iter()
+        .zip(dense)
+        .map(|(&m, v)| (m == 1).then_some(v))
+        .collect()
+}
+
+/// Each of [`fieldglass::GridSupport`]'s answers for `field`, against what
+/// the operation it describes does with the field.
+///
+/// Contours and arrows are asked on the source view and on two maps, because a
+/// host offers the toggle once for every target. The arrows pair the field with
+/// itself, which lines up by construction, so a refusal can only be the grid's.
+fn assert_support_agrees(session: &fieldglass::Session, field: &fieldglass::Field, what: &str) {
+    use fieldglass::render::{
+        RenderOptions, VectorOptions, contour_polylines, vector_polylines, zonal_mean,
+    };
+
+    let supports = field.georef.supports;
+    let source = field.source();
+    let values = optional_values(field);
+    for projection in ["source", "equirectangular", "mollweide"] {
+        if projection != "source" && !field.georef.reprojectable {
+            // The projection picker offers no map for this grid.
+            continue;
+        }
+        let mut options = RenderOptions::default();
+        options.projection = projection.to_string();
+        let contours = contour_polylines(&source, &values, &options, None);
+        assert_eq!(
+            supports.contours,
+            contours.is_ok(),
+            "{what}: supports.contours = {} but contour_polylines on {projection} gave {contours:?}",
+            supports.contours,
+        );
+        let arrows = vector_polylines(
+            &source,
+            &values,
+            &source,
+            &values,
+            &options,
+            &VectorOptions::default(),
+        );
+        assert_eq!(
+            supports.vectors,
+            arrows.is_ok(),
+            "{what}: supports.vectors = {} but vector_polylines on {projection} gave {:?}",
+            supports.vectors,
+            arrows.as_ref().err(),
+        );
+    }
+    let long = session.field_csv(&source, &values, "long");
+    assert_eq!(
+        supports.long_csv,
+        long.is_ok(),
+        "{what}: supports.long_csv = {} but the long CSV gave {:?}",
+        supports.long_csv,
+        long.as_ref().err(),
+    );
+    let zonal = zonal_mean(&source, &values, None, None);
+    assert_eq!(
+        supports.zonal_mean,
+        zonal.is_ok(),
+        "{what}: supports.zonal_mean = {} but zonal_mean gave {:?}",
+        supports.zonal_mean,
+        zonal.as_ref().err(),
+    );
+}
+
+/// Every field the conformance suite addresses: its `GridSupport` says what
+/// the four operations do with it, and a message's answer before decoding is
+/// the decoded field's (#945).
+///
+/// The suite is the set every host is held to, so this is "the flag agrees
+/// with `projectContours` for every recorded case". It is not vacuous: the
+/// suite holds a grid that takes all four (lat/lon), one that takes no zonal
+/// mean (rotated lat/lon), and one that takes none (the degenerate polar
+/// stereographic grid), and the tallies below say so.
+#[test]
+fn grid_support_agrees_with_the_operations_for_every_field_in_the_suite() {
+    use conformance::Op;
+
+    let mut seen = std::collections::BTreeSet::new();
+    let mut tally = [[0usize; 2]; 4];
+    for case in cases() {
+        // The corrupt-input cases address a field that does not open.
+        if case.args.truncate.is_some() || case.args.short_read.is_some() {
+            continue;
+        }
+        let Ok(bytes) = read(&case.fixture) else {
+            continue;
+        };
+        let Ok(session) = fieldglass::Session::open(bytes) else {
+            continue;
+        };
+        let options = fieldglass::DecodeOptions::new(fieldglass::Dtype::F64);
+        let (key, field) = match case.op {
+            Op::DecodeSlice => {
+                let (Some(variable), Some(y), Some(x), Some(indices)) = (
+                    case.args.variable,
+                    case.args.y_dim,
+                    case.args.x_dim,
+                    case.args.slice_indices.clone(),
+                ) else {
+                    continue;
+                };
+                let key = format!("{}#{variable}/{y}/{x}/{indices:?}", case.fixture);
+                (
+                    key,
+                    session.decode_slice(variable, y, x, &indices, &options),
+                )
+            }
+            _ if session.addressing() == fieldglass::Addressing::Messages => {
+                let key = format!("{}#{}", case.fixture, case.args.index);
+                (key, session.decode(case.args.index, &options))
+            }
+            _ => continue,
+        };
+        // A field that does not decode has no grid to ask about.
+        let Ok(field) = field else { continue };
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        if session.addressing() == fieldglass::Addressing::Messages {
+            let info = session
+                .message(case.args.index)
+                .expect("a decoded message has its info");
+            assert_eq!(
+                info.supports, field.georef.supports,
+                "{key}: the message list's answer is the decoded field's"
+            );
+        }
+        assert_support_agrees(&session, &field, &key);
+        let s = field.georef.supports;
+        for (k, on) in [s.contours, s.vectors, s.long_csv, s.zonal_mean]
+            .into_iter()
+            .enumerate()
+        {
+            tally[k][usize::from(on)] += 1;
+        }
+    }
+    assert!(
+        seen.len() >= 12,
+        "only {} fields in the suite decoded",
+        seen.len()
+    );
+    for (k, name) in ["contours", "vectors", "long_csv", "zonal_mean"]
+        .iter()
+        .enumerate()
+    {
+        assert!(
+            tally[k][0] > 0 && tally[k][1] > 0,
+            "the suite should hold a field that takes {name} and one that does not: {:?}",
+            tally[k]
+        );
+    }
+}
+
+/// A full-disc space view is placed and reprojects, and takes none of the four:
+/// its pixels past the limb have no position (#945). Every committed space view.
+#[test]
+fn a_space_view_is_placed_and_takes_no_point_operation() {
+    for file in [
+        "fieldglass-netcdf/tests/fixtures/goes_geostationary.nc",
+        "fieldglass-netcdf/tests/fixtures/goes_geostationary_classic.nc",
+        "fieldglass-netcdf/tests/fixtures/goes_geostationary_metres.nc",
+        "fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc",
+    ] {
+        let session = fieldglass::Session::open(read(file).expect("fixture")).expect("opens");
+        // The image is the last two axes (`y`, `x`) of the first variable with
+        // two: a satellite file carries no CF axis hint for a scan angle.
+        let variable = session
+            .variables()
+            .into_iter()
+            .find(|v| v.dims.len() >= 2)
+            .unwrap_or_else(|| panic!("{file} has a variable to draw"));
+        let rank = u32::try_from(variable.dims.len()).expect("a handful of axes");
+        let (y, x) = (rank - 2, rank - 1);
+        let indices = vec![0; variable.dims.len()];
+        let field = session
+            .decode_slice(
+                variable.index,
+                y,
+                x,
+                &indices,
+                &fieldglass::DecodeOptions::new(fieldglass::Dtype::F64),
+            )
+            .expect("decodes");
+        assert_eq!(field.georef.kind, "space_view", "{file}");
+        assert_eq!(
+            field.georef.placement,
+            fieldglass::Placement::Placed,
+            "{file}"
+        );
+        assert!(field.georef.reprojectable, "{file}");
+        assert_eq!(
+            field.georef.supports,
+            fieldglass::GridSupport::default(),
+            "{file}"
+        );
+        assert_support_agrees(&session, &field, file);
+    }
+}

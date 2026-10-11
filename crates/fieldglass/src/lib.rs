@@ -142,8 +142,8 @@ pub use align::component_frame;
 pub use api::Warped;
 pub use api::{
     Addressing, Affine, AxisUnits, AxisValues, DimensionInfo, Dtype, Field, FullDetail, Georef,
-    Identification, LeftOutArray, Line, MessageInfo, MessageProbe, Placement, Probe, Scan,
-    SourceFormat, SpectralTruncation, Stats, Values, VariableInfo,
+    GridSupport, Identification, LeftOutArray, Line, MessageInfo, MessageProbe, Placement, Probe,
+    Scan, SourceFormat, SpectralTruncation, Stats, Values, VariableInfo,
 };
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};
