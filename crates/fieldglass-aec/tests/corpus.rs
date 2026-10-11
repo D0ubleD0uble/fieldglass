@@ -147,6 +147,14 @@ fn every_case_decodes_to_the_oracles_bytes() {
         let samples = usize::try_from(uint(case, "samples")).unwrap();
         let path = format!("{FIXTURES}/{}", text(case, "stream"));
         let stream = std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        // The spec's bound holds for every stream: no libaec stream codes
+        // more samples than `max_samples` allows for its length.
+        if text(case, "kind") != "truncated" && samples > params.max_samples(stream.len()) {
+            failures.push(format!(
+                "{name}: {samples} samples from {} bytes, past max_samples",
+                stream.len()
+            ));
+        }
         let mut out = vec![0u8; samples * params.bytes_per_sample()];
         let result = decode_to_bytes(&stream, &params, &mut out);
         let verdict = match (text(case, "kind"), result) {

@@ -694,6 +694,20 @@ fn decode_ccsds_packing(
     )
     .map_err(aec_error)?;
 
+    // The count comes from the grid, not the stream, and no stream codes
+    // more samples than its length allows (CCSDS 121.0-B-3 Tables 3-2 and
+    // 5-1). So a §7 too short for the grid is refused here, before the
+    // output is reserved for a field it cannot fill (#975). The codec would
+    // refuse it too, as a truncated stream, but only after the reservation.
+    let most = params.max_samples(ds_payload.len());
+    if present_count > most {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "CCSDS packing: §7 holds {} bytes, which code at most {most} values, \
+             but {present_count} are present",
+            ds_payload.len()
+        )));
+    }
+
     // `present_count` is capped upstream (`MAX_FIELD_POINTS`), so this
     // allocation is bounded by the grid, not by anything §7 says.
     let mut sink = ScaleSink {
@@ -2873,6 +2887,25 @@ mod tests {
             "expected UnsupportedSection, got: {err:?}"
         );
         assert!(err.to_string().contains("CCSDS packing"), "got: {err}");
+    }
+
+    #[test]
+    fn ccsds_packing_refuses_a_grid_its_stream_cannot_code_up_front() {
+        // 20 bytes of 12-bit samples (a 4-bit identifier) in blocks of 16
+        // code at most ⌊64·160 / 10⌋ = 1024 blocks, 16,384 values: one more
+        // is refused before the output is reserved, with the same error kind
+        // the codec gives a truncated stream (#975).
+        let template = aec_template(12, 16, 2, 0.0, 0);
+        let err =
+            decode_values(&AEC_U16[..20], template.clone(), None, 16_385).expect_err("must reject");
+        assert!(
+            matches!(&err, FieldglassError::UnsupportedSection(m)
+                if m.contains("§7 holds 20 bytes, which code at most 16384 values, but 16385")),
+            "got: {err:?}"
+        );
+        // At the bound the codec decides, and finds the stream short.
+        let err = decode_values(&AEC_U16[..20], template, None, 16_384).expect_err("short");
+        assert!(err.to_string().contains("AEC decode failed"), "got: {err}");
     }
 
     #[test]

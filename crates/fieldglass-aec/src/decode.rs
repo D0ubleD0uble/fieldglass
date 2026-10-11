@@ -194,13 +194,7 @@ impl<'a> Kernel<'a> {
     fn new(input: &'a [u8], params: &Params) -> Self {
         let n = u32::from(params.bits_per_sample());
         let flags = params.flags();
-        let id_len = match n {
-            1..=2 if flags.contains(Flags::RESTRICTED) => 1,
-            3..=4 if flags.contains(Flags::RESTRICTED) => 2,
-            1..=8 => 3,
-            9..=16 => 4,
-            _ => 5,
-        };
+        let id_len = id_len(n, flags);
         let max_code = u64::from(u32::MAX >> (32 - n));
         let mapping = if !flags.contains(Flags::PREPROCESS) {
             Mapping::None
@@ -458,6 +452,45 @@ enum Cds {
     Block,
     /// A run of `blocks` zero blocks.
     ZeroRun { blocks: u32 },
+}
+
+/// The most samples a stream of `input_len` bytes can decode to.
+///
+/// Every coded data set (CCSDS 121.0-B-3 §5.2) opens with an option
+/// identifier of `id` bits ([`id_len`], Table 5-1) and codes one block,
+/// except a zero-block run. A run is the identifier, a selector bit and a
+/// fundamental sequence of `fs` zeros and a one (Table 3-2), and covers `fs +
+/// 1` blocks for `fs` up to 3, the rest of a 64-block segment for `fs = 4`
+/// (ROS), and `fs` blocks from 5 to 63. So the most blocks per bit is ROS's:
+/// at most 64 blocks for `id + 6` bits. Every other data set codes fewer per
+/// bit: a block costs at least `id + 1` bits (an uncompressed block of one
+/// wanted sample), a run of `fs + 1 ≤ 4` blocks costs `id + fs + 2`, and a
+/// run of `fs ≥ 5` blocks costs `id + fs + 2`. A reference sample and RSI
+/// padding only add bits. A stream of `B` bits therefore codes at most
+/// `⌊64·B / (id + 6)⌋` blocks of `J` samples, whatever encoder wrote it.
+///
+/// The bound is reached: a stream of nothing but ROS runs codes 64 blocks
+/// every `id + 6` bits.
+pub(crate) fn max_samples(params: &Params, input_len: usize) -> usize {
+    let id = id_len(u32::from(params.bits_per_sample()), params.flags());
+    let bits = (input_len as u128) * 8;
+    let blocks = bits * u128::from(SEGMENT_BLOCKS) / u128::from(id + 6);
+    let samples = blocks * u128::from(params.block_size());
+    usize::try_from(samples).unwrap_or(usize::MAX)
+}
+
+/// Width of the option identifier for `n`-bit samples (CCSDS 121.0-B-3
+/// Table 5-1): 3 bits up to 8 bits per sample, 4 up to 16 and 5 beyond, or
+/// 1 and 2 for the restricted set at 1 to 2 and 3 to 4 bits.
+pub(crate) const fn id_len(n: u32, flags: Flags) -> u32 {
+    let restricted = flags.contains(Flags::RESTRICTED);
+    match n {
+        1..=2 if restricted => 1,
+        3..=4 if restricted => 2,
+        0..=8 => 3,
+        9..=16 => 4,
+        _ => 5,
+    }
 }
 
 /// How many zero blocks a zero-block CDS covers, given its fundamental

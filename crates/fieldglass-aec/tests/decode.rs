@@ -429,3 +429,47 @@ fn the_sink_path_and_the_byte_path_agree_over_the_corpus() {
     }
     assert!(runs > 100, "the corpus exercises zero-block runs ({runs})");
 }
+
+/// `Params::max_samples` is reached exactly by a stream of nothing but ROS
+/// runs (CCSDS 121.0-B-3 Table 3-2): each is a 3-bit identifier, a selector
+/// bit and the code `00001`, 9 bits for a whole 64-block segment. Sixteen of
+/// them are 144 bits, 18 bytes, and code 1,024 blocks of 32, which is
+/// `⌊64·144 / 9⌋` blocks: one sample more is past the end of the stream, and
+/// so past the bound.
+#[test]
+fn a_stream_of_ros_runs_reaches_max_samples_exactly() {
+    let p = params(8, 32, 128, Flags::empty());
+    let mut bits = Bits::default();
+    for _ in 0..16 {
+        bits.put(0b000, 3).put(0, 1).fs(4);
+    }
+    let stream = bits.done();
+    assert_eq!(stream.len(), 18);
+    let most = p.max_samples(stream.len());
+    assert_eq!(most, 1024 * 32);
+
+    let sink = collect(&stream, &p, most).unwrap();
+    assert_eq!(sink.samples.len(), most);
+    assert!(sink.samples.iter().all(|&v| v == 0));
+    assert!(matches!(
+        collect(&stream, &p, most + 1),
+        Err(AecError::Truncated { decoded, .. }) if decoded == most
+    ));
+}
+
+/// The bound's identifier width follows Table 5-1, restricted set included:
+/// a 1-bit identifier at 2 bits per sample makes a ROS run 7 bits, a 5-bit
+/// one at 32 bits makes it 11.
+#[test]
+fn max_samples_follows_the_identifier_width() {
+    let width = |bits, flags| params(bits, 16, 128, flags).max_samples(7 * 11);
+    // 616 bits: ⌊64·616 / (id + 6)⌋ blocks of 16.
+    assert_eq!(width(2, Flags::RESTRICTED), 64 * 616 / 7 * 16);
+    assert_eq!(width(4, Flags::RESTRICTED), 64 * 616 / 8 * 16);
+    assert_eq!(width(2, Flags::empty()), 64 * 616 / 9 * 16);
+    assert_eq!(width(16, Flags::empty()), 64 * 616 / 10 * 16);
+    assert_eq!(width(32, Flags::empty()), 64 * 616 / 11 * 16);
+    assert_eq!(params(8, 16, 1, Flags::empty()).max_samples(0), 0);
+    // Saturates rather than wrapping on a 32-bit target.
+    assert!(params(8, 256, 1, Flags::empty()).max_samples(usize::MAX) == usize::MAX);
+}

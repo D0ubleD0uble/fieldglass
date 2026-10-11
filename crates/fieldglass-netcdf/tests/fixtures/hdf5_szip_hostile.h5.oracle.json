@@ -1,0 +1,82 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), chunks written with write_direct_chunk",
+  "note": "szip chunks whose stated length is far past what their bytes hold; fieldglass refuses each before allocating that length (#975)",
+  "bomb_inflated_bytes": 33554432,
+  "datasets": {
+    "szip_deflate_bomb": {
+      "dtype": "uint8",
+      "shape": [
+        4,
+        4
+      ],
+      "chunks": [
+        2048,
+        2048
+      ],
+      "chunk_bytes": 4194304,
+      "pipeline": [
+        4,
+        1
+      ],
+      "szip_cd_values": [
+        141,
+        32,
+        8,
+        2048
+      ],
+      "chunk_byte_offset": 9072,
+      "chunk_stored_bytes": 32623,
+      "libhdf5_error": "OSError: Can't synchronously read data (filter returned failure during read)"
+    },
+    "szip_short_stream": {
+      "dtype": "float32",
+      "shape": [
+        4,
+        4
+      ],
+      "chunks": [
+        8192,
+        8192
+      ],
+      "chunk_bytes": 268435456,
+      "pipeline": [
+        2,
+        4
+      ],
+      "szip_cd_values": [
+        169,
+        32,
+        32,
+        4096
+      ],
+      "chunk_byte_offset": 4136,
+      "chunk_stored_bytes": 20,
+      "libhdf5_values": [
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      ]
+    }
+  }
+}

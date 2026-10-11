@@ -176,8 +176,9 @@ impl FilterPipeline {
     /// against it, and deflate and zstd stop there (#813). Behind a filter
     /// that changes the length, all three are bounded instead by the chunk's
     /// length grown by the worst case of each filter before them: an eighth
-    /// plus 4 KiB for fletcher32, deflate and zstd, 33 times for szip. The
-    /// caller must still check that the result is exactly `expected_len`.
+    /// plus 4 KiB for fletcher32, deflate and zstd, and for szip the longest
+    /// stream its parameters allow, at most 33 times. The caller must still
+    /// check that the result is exactly `expected_len`.
     ///
     /// An `expected_len` past 256 MiB (`MAX_DECOMPRESSED_CHUNK`) is refused as
     /// [`ArrayError::ChunkTooLarge`] before any filter runs, unless the mask
@@ -195,6 +196,13 @@ impl FilterPipeline {
         let runs = |index: usize| filter_mask & (1u32 << index) == 0;
         if expected_len > MAX_DECOMPRESSED_CHUNK && (0..self.filters.len()).any(runs) {
             return Err(chunk_too_large(expected_len as u64));
+        }
+        // An szip's parameters bound the codec before it (`limit_behind`), so
+        // a set the codec does not take is refused before anything runs.
+        for (index, filter) in self.filters.iter().enumerate() {
+            if filter.id == FILTER_SZIP && runs(index) {
+                szip_params(&filter.client_data)?;
+            }
         }
         for (index, filter) in self.filters.iter().enumerate().rev() {
             if filter_mask & (1u32 << index) != 0 {
@@ -262,11 +270,11 @@ impl FilterPipeline {
     /// [`growth_limit`].
     ///
     /// Each filter's growth is bounded: shuffle keeps the length, fletcher32,
-    /// deflate and zstd grow it by [`growth_limit`]'s margin, and szip by up to
-    /// [`SZIP_MAX_GROWTH`] times. szip's is the one that matters: it is too
-    /// large to bound by the chunk plus an eighth, which could refuse a file
-    /// libhdf5 reads, but the pipeline is the file's to choose, so lifting the
-    /// bound to the 256 MiB ceiling behind one would let any file sidestep it.
+    /// deflate and zstd grow it by [`growth_limit`]'s margin, and szip by
+    /// [`szip_growth`]. szip's is the one that matters: it is too large to
+    /// bound by the chunk plus an eighth, which could refuse a file libhdf5
+    /// reads, but the pipeline is the file's to choose, so lifting the bound
+    /// to the 256 MiB ceiling behind one would let any file sidestep it.
     fn limit_behind(&self, index: usize, filter_mask: u32, expected_len: usize) -> usize {
         let grown = self.filters[..index]
             .iter()
@@ -274,9 +282,7 @@ impl FilterPipeline {
             .filter(|&(i, _)| filter_mask & (1u32 << i) == 0)
             .fold(expected_len, |len, (_, f)| match f.id {
                 FILTER_SHUFFLE => len,
-                FILTER_SZIP => len
-                    .saturating_mul(SZIP_MAX_GROWTH)
-                    .saturating_add(SZIP_SLACK),
+                FILTER_SZIP => szip_growth(&f.client_data, len),
                 _ => growth_limit(len),
             });
         grown
@@ -398,11 +404,39 @@ fn growth_limit(expected_len: usize) -> usize {
 /// can carry a header larger than an eighth of the data.
 const SZIP_SLACK: usize = 4096;
 
-/// The most an szip stream can be, as a multiple of the bytes it codes.
+/// The most an szip filter's output may be when it codes `len` bytes: the
+/// longest stream its parameters allow from an encoder that chooses each
+/// block's option as libaec's does ([`SzParams::max_compressed_len`]), and
+/// never more than [`SZIP_MAX_GROWTH`] times `len`, plus [`SZIP_SLACK`] for
+/// the size prefix and the last byte's padding.
 ///
-/// libsz takes the shortest option per block, so none of its blocks is longer
-/// than the uncompressed one: an ID of at most 5 bits plus `J·n` bits for `J`
-/// pixels of `n` bits (CCSDS 121.0-B §5.1; libsz never sets the restricted
+/// The parameters make the bound tight. libhdf5 never picks a scanline
+/// shorter than a block (`set_local`), so padding at most doubles one, and a
+/// block costs at most 3 + 32·8 bits for 32 bytes: a real chunk's stream is
+/// at most about twice the chunk, and about 1.01 times it when the scanline
+/// is a whole number of blocks. A codec before szip may inflate only that
+/// far, not 33 times (#975). The factor of
+/// 33 still caps a block of over 32 pixels with scanlines shorter than it,
+/// which ADR-0012 decision 6 keeps refused behind a codec. Parameters the
+/// codec refuses never reach here: [`FilterPipeline::reverse`] refuses them
+/// first.
+fn szip_growth(cd_values: &[u32], len: usize) -> usize {
+    let worst = len.saturating_mul(SZIP_MAX_GROWTH);
+    szip_params(cd_values)
+        .map_or(worst, |p| p.max_compressed_len(len).min(worst))
+        .saturating_add(SZIP_SLACK)
+}
+
+/// The most an szip stream can be, as a multiple of the bytes it codes,
+/// whatever its parameters. [`szip_growth`] takes the tighter of this and
+/// what the filter's own parameters allow.
+///
+/// libsz takes the shortest option for a block that is not all zeros, so
+/// none of those is longer than the uncompressed one: an ID of at most 5 bits
+/// plus `J·n` bits for `J` pixels of `n` bits. A one-block zero run with a
+/// reference sample is `ID + n + 2` bits, longer only at 1-bit pixels in
+/// blocks of 2, where it is still far under this factor (CCSDS 121.0-B §5.1;
+/// libsz never sets the restricted
 /// option, so the ID is 3 bits up to 8 bits per pixel, 4 to 16, 5 beyond:
 /// `fieldglass-aec`'s `decode.rs`). The standard leaves that choice to the
 /// encoder, so this bounds encoders that choose the way libsz does; ADR-0012
@@ -438,7 +472,10 @@ const SZIP_MAX_GROWTH: usize = 33;
 /// - a whole number of szip pixels. The pixel is the width bits per pixel
 ///   rounds up to (1, 2, 4 or 8 bytes), not the dataset's element: libhdf5
 ///   codes a 16-bit-precision `int32` at 16 bits per pixel, and the chunk is
-///   still a whole number of those (ADR-0012 decision D2).
+///   still a whole number of those (ADR-0012 decision D2);
+/// - at most what the stream can code
+///   ([`SzParams::max_decompressed_len`]), so a short stream declaring a
+///   large chunk allocates nothing for it (#975).
 ///
 /// Parameters `fieldglass_aec` does not accept are
 /// [`FieldglassError::UnsupportedSection`]; a stream that does not decode to
@@ -449,16 +486,7 @@ fn unszip(
     exact: Option<usize>,
     limit: usize,
 ) -> Result<Vec<u8>, FieldglassError> {
-    let &[mask, ppb, bpp, pps] = cd_values else {
-        return Err(FieldglassError::Parse(format!(
-            "szip filter carries {} client data values, expected {SZIP_CD_VALUES} \
-             (mask, pixels per block, bits per pixel, pixels per scanline)",
-            cd_values.len()
-        )));
-    };
-    // The swap: HDF5 stores (mask, ppb, bpp, pps), libsz takes (mask, bpp, ppb, pps).
-    let params = SzParams::new(mask, bpp, ppb, pps).map_err(szip_error)?;
-
+    let params = szip_params(cd_values)?;
     let (prefix, stream) = data.split_first_chunk::<SZIP_PREFIX_LEN>().ok_or_else(|| {
         FieldglassError::Parse(format!(
             "szip chunk of {} bytes is too short for its {SZIP_PREFIX_LEN}-byte size prefix",
@@ -484,13 +512,39 @@ fn unszip(
     if !len.is_multiple_of(pixel) {
         return Err(FieldglassError::Parse(format!(
             "szip chunk declares {len} bytes, not a whole number of {pixel}-byte pixels \
-             at {bpp} bits per pixel"
+             at {} bits per pixel",
+            params.bits_per_pixel()
+        )));
+    }
+    // The prefix is the file's number, not the stream's: a few bytes of
+    // stream can declare a chunk of up to 256 MiB. No stream codes more than
+    // its length allows (CCSDS 121.0-B-3 Tables 3-2 and 5-1), so a longer
+    // one is refused before its buffer is allocated (#975).
+    let most = params.max_decompressed_len(stream.len());
+    if len > most {
+        return Err(FieldglassError::Parse(format!(
+            "szip chunk declares {len} bytes, but its {}-byte stream codes at most {most}",
+            stream.len()
         )));
     }
 
     let mut out = vec![0u8; len];
     sz::decompress(stream, &params, &mut out).map_err(szip_error)?;
     Ok(out)
+}
+
+/// An szip filter's parameters from its `cd_values`, which are in libhdf5's
+/// order `(mask, pixels per block, bits per pixel, pixels per scanline)`:
+/// [`SzParams`] takes libsz's, with the middle two swapped.
+fn szip_params(cd_values: &[u32]) -> Result<SzParams, FieldglassError> {
+    let &[mask, ppb, bpp, pps] = cd_values else {
+        return Err(FieldglassError::Parse(format!(
+            "szip filter carries {} client data values, expected {SZIP_CD_VALUES} \
+             (mask, pixels per block, bits per pixel, pixels per scanline)",
+            cd_values.len()
+        )));
+    };
+    SzParams::new(mask, bpp, ppb, pps).map_err(szip_error)
 }
 
 /// Map a codec error onto the reader's: a parameter set the codec does not
@@ -1044,13 +1098,7 @@ mod tests {
     }
 
     fn szip_pipeline(before: &[u16], cd: &[u32]) -> FilterPipeline {
-        let mut filters: Vec<Filter> = before
-            .iter()
-            .map(|&id| Filter {
-                id,
-                client_data: vec![1],
-            })
-            .collect();
+        let mut filters: Vec<Filter> = before.iter().map(|&id| filter_of(id)).collect();
         filters.push(Filter {
             id: FILTER_SZIP,
             client_data: cd.to_vec(),
@@ -1227,7 +1275,8 @@ mod tests {
     /// Behind a length-changing filter the prefix is bounded by the chunk's
     /// length plus an eighth plus 4 KiB, not by the 256 MiB ceiling: a prefix
     /// between the two is refused before it is allocated. At the bound itself
-    /// the prefix passes the check and the stream fails later, in the codec.
+    /// the prefix passes that check, and the stream's own length refuses it
+    /// next: 8 bytes of stream code at most 455 pixels here (#975).
     #[test]
     fn szip_behind_a_length_changing_filter_is_bounded_by_the_chunk() {
         let expected = 64;
@@ -1244,19 +1293,60 @@ mod tests {
         assert!(m.contains(&format!("past the {bound}-byte ceiling")), "{m}");
         let at = u32::try_from(bound).unwrap();
         let m = parse_message(pipeline.reverse(szip_chunk(at), 0, 1, expected));
-        assert!(m.contains("szip decompress failed"), "{m}");
+        assert!(m.contains("but its 8-byte stream codes at most 455"), "{m}");
     }
 
-    /// A pipeline of `ids` in write order, each with one client value.
+    /// The prefix is held to what the stream can code before anything is
+    /// allocated for it (#975): `SZ_STREAM`'s 8 bytes are 64 bits, at most
+    /// `⌊64·64 / 9⌋ = 455` blocks of 2 with one pixel each, so 455 bytes.
+    /// That is the most it may state, with or without the length known.
+    #[test]
+    fn szip_prefix_is_held_to_what_the_stream_can_code() {
+        let most = SzParams::new(0, 8, 2, 1)
+            .unwrap()
+            .max_decompressed_len(SZ_STREAM.len());
+        assert_eq!(most, 455);
+        for exact in [None, Some(456)] {
+            let m = parse_message(unszip(&szip_chunk(456), &SZ_CD, exact, 4096));
+            assert!(
+                m.contains("declares 456 bytes, but its 8-byte stream codes at most 455"),
+                "{exact:?}: {m}"
+            );
+        }
+        // At the bound the prefix passes, and the codec finds the stream short.
+        let m = parse_message(unszip(&szip_chunk(455), &SZ_CD, Some(455), 4096));
+        assert!(m.contains("szip decompress failed"), "{m}");
+        // Behind shuffle, 256 MiB stated by a short stream is refused the
+        // same way, not zeroed first.
+        let ceiling = u32::try_from(MAX_DECOMPRESSED_CHUNK).unwrap();
+        let m = parse_message(szip_pipeline(&[FILTER_SHUFFLE], &SZ_CD).reverse(
+            szip_chunk(ceiling),
+            0,
+            1,
+            MAX_DECOMPRESSED_CHUNK,
+        ));
+        assert!(m.contains("codes at most 455"), "{m}");
+    }
+
+    /// The szip `cd_values` libhdf5 wrote for `hdf5_szip_hostile.h5`'s
+    /// `uint8` chunk of `(2048, 2048)`: EC, blocks of 32, 8 bits, scanlines of
+    /// 2048. Its scanlines are whole blocks, as libhdf5's always are.
+    const HDF5_SZ_CD: [u32; 4] = [141, 32, 8, 2048];
+
+    /// A filter of `id` with one client value, or [`HDF5_SZ_CD`] for szip.
+    fn filter_of(id: u16) -> Filter {
+        let client_data = if id == FILTER_SZIP {
+            HDF5_SZ_CD.to_vec()
+        } else {
+            vec![1]
+        };
+        Filter { id, client_data }
+    }
+
+    /// A pipeline of `ids` in write order, built by [`filter_of`].
     fn pipeline_of(ids: &[u16]) -> FilterPipeline {
         FilterPipeline {
-            filters: ids
-                .iter()
-                .map(|&id| Filter {
-                    id,
-                    client_data: vec![1],
-                })
-                .collect(),
+            filters: ids.iter().map(|&id| filter_of(id)).collect(),
         }
     }
 
@@ -1438,7 +1528,7 @@ mod tests {
     /// both of these taking the full ceiling.
     #[test]
     fn an_szip_ahead_does_not_reopen_the_ceiling() {
-        let bound = growth_limit(64).max(64 * SZIP_MAX_GROWTH + SZIP_SLACK);
+        let bound = growth_limit(64).max(szip_growth(&HDF5_SZ_CD, 64));
         // A deflate bomb behind szip stops at szip's worst-case growth, not
         // after inflating 1 MiB.
         let m = parse_message(pipeline_of(&[FILTER_SZIP, FILTER_DEFLATE]).reverse(
@@ -1465,7 +1555,7 @@ mod tests {
     #[test]
     fn the_bound_behind_filters_chains_their_worst_growth() {
         let grown = growth_limit(64);
-        let szip = |len: usize| len * SZIP_MAX_GROWTH + SZIP_SLACK;
+        let szip = |len: usize| szip_growth(&HDF5_SZ_CD, len);
         for (ids, mask, want) in [
             (&[FILTER_SZIP, FILTER_DEFLATE][..], 0, szip(64)),
             (&[FILTER_SZIP, FILTER_ZSTD][..], 0, szip(64)),
@@ -1525,5 +1615,62 @@ mod tests {
         // Shorter than the prefix itself.
         let m = parse_message(unszip(&[3, 0, 0], &SZ_CD, None, MAX_DECOMPRESSED_CHUNK));
         assert!(m.contains("size prefix"), "{m}");
+    }
+
+    /// szip's growth comes from its parameters (#975). With libhdf5's, whose
+    /// scanlines are whole blocks, a block of 32 bytes is at most 3 + 256
+    /// bits, so the stream is at most 259/256 of the chunk, and a codec
+    /// before szip gets the chunk plus an eighth, not 33 times it. An 8 MiB
+    /// chunk used to let it inflate to the 256 MiB ceiling.
+    #[test]
+    fn szip_growth_follows_its_parameters() {
+        let chunk = 8 << 20;
+        assert_eq!(
+            szip_growth(&HDF5_SZ_CD, chunk),
+            chunk / 256 * 259 + SZIP_SLACK
+        );
+        let pipeline = pipeline_of(&[FILTER_SZIP, FILTER_DEFLATE]);
+        assert_eq!(pipeline.limit_behind(1, 0, chunk), growth_limit(chunk));
+        assert!(growth_limit(chunk) < 10 << 20);
+        // 1-bit pixels in blocks of 2 with preprocessing: libaec writes a
+        // one-block zero run as 3 + 1 + 1 + 1 bits, more than the 3 + 2 of
+        // an uncompressed block, so 64 pixels may take 24 bytes, not 20.
+        assert_eq!(szip_growth(&[32 | 128, 2, 1, 2], 64), 24 + SZIP_SLACK);
+        // One pixel per scanline at blocks of 32: each 8-bit pixel is a whole
+        // block, 259 bits, which is under 33 times.
+        assert_eq!(
+            szip_growth(&[0, 32, 8, 1], 64),
+            (64 * 259_usize).div_ceil(8) + SZIP_SLACK
+        );
+        // Blocks of 256 with one pixel per scanline could be 256 times the
+        // chunk; the factor of 33 still caps them (ADR-0012 decision 6).
+        assert_eq!(
+            szip_growth(&[0, 256, 8, 1], 64),
+            64 * SZIP_MAX_GROWTH + SZIP_SLACK
+        );
+    }
+
+    /// szip's parameters are checked before any filter runs, since they bound
+    /// the codec before it: a set the codec does not take is unsupported,
+    /// and the deflate bomb behind it is never inflated.
+    #[test]
+    fn szip_parameters_are_checked_before_the_codec_ahead_of_it() {
+        let pipeline = FilterPipeline {
+            filters: vec![
+                Filter {
+                    id: FILTER_SZIP,
+                    client_data: vec![0, 7, 8, 1],
+                },
+                filter_of(FILTER_DEFLATE),
+            ],
+        };
+        let err = pipeline.reverse(zlib_bomb(), 0, 1, 64).unwrap_err();
+        assert!(
+            matches!(&err, FieldglassError::UnsupportedSection(m) if m.contains("szip")),
+            "{err:?}"
+        );
+        // Skipped for this chunk, its parameters do not matter.
+        let err = pipeline.reverse(zlib_bomb(), 0b1, 1, 64).unwrap_err();
+        assert!(err.to_string().contains("64-byte length"), "{err:?}");
     }
 }

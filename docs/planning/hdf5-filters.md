@@ -143,14 +143,23 @@ forward:
   (only shuffle does), it must equal the chunk's length; and it must be a whole
   number of szip pixels. The pixel is set by bits per pixel, not by the element:
   libhdf5 codes a 16-bit-precision `int32` at 16 bits per pixel, so the pixel is
-  half the element (ADR-0012 decision D2).
+  half the element (ADR-0012 decision D2). It must also be no more than the
+  stream can code (#975). No coded data set covers more than a 64-block
+  segment for less than the option ID, a selector bit and the five-bit ROS
+  code (CCSDS 121.0-B-3 Tables 3-2 and 5-1), so `B` bits code at most
+  `64·B / (id + 6)` blocks (`SzParams::max_decompressed_len`). Before that
+  check, a 20-byte chunk stating 256 MiB had 256 MiB zeroed first.
 - **A length-changing filter before szip is decoded, not refused.** libhdf5
   writes `[deflate, szip]` and reads it back, so refusing it would reject valid
   files. The prefix is then deflate's output length, which nothing outside the
   stream records, so it is bounded, not matched: at most the chunk's length
   plus an eighth plus 4 KiB, which covers deflate's, zstd's and fletcher32's
-  growth and stops a tiny chunk from committing a 256 MiB buffer, and 33
-  times the chunk plus 4 KiB behind an szip (#813). The chunk
+  growth and stops a tiny chunk from committing a 256 MiB buffer, and behind
+  an szip the longest stream its parameters allow for the chunk, at most 33
+  times it, plus 4 KiB (#813, #975). With libhdf5's parameters that is about
+  1.01 times the chunk when a scanline is a whole number of blocks, and under
+  twice it otherwise (`SzParams::max_compressed_len`), so a 4 MiB chunk no
+  longer lets a bomb behind szip inflate to 132 MiB. The chunk
   must then come back exactly its own length; before #421 a longer result was
   silently cut.
 - **A stream longer than its chunk is refused, for 32- and 64-bit pixels.**
