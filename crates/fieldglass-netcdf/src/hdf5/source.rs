@@ -48,6 +48,9 @@ use fieldglass_core::bytes::{ByteRange, ByteSource, SourceIdentity, checked_usiz
 
 pub(crate) use fieldglass_core::bytes::{FileCursor, read_at, read_up_to, scan_windows};
 
+/// How much of the superblock [`Addressed::identity`] samples.
+const SAMPLE_BYTES: usize = 256;
+
 use super::object_header::read_uint_le;
 
 /// A file seen from its superblock's base address: HDF5 address `a` is file
@@ -97,8 +100,16 @@ impl<S: ByteSource> ByteSource for Addressed<S> {
         self.file.size().saturating_sub(self.base)
     }
 
+    /// The file's identity, shifted and with the superblock sampled. A file
+    /// whose bytes at the base cannot be read declines, which only costs the
+    /// memo.
     fn identity(&self) -> Option<SourceIdentity> {
-        self.file.identity().map(|id| id.offset(self.base))
+        let id = self.file.identity()?;
+        if self.base == 0 {
+            return Some(id);
+        }
+        let head = read_up_to(&self.file, self.base, SAMPLE_BYTES).ok()?;
+        Some(id.offset(self.base, &head))
     }
 
     fn prefetch(&self, ranges: &[ByteRange]) -> Result<(), FieldglassError> {
@@ -341,6 +352,63 @@ mod tests {
         let mut cur = FileCursor::at(&bytes, 0).expect("in range");
         Fields::skip(&mut cur, 4 * 3000).expect("in range");
         assert_eq!(cur.uint(4).expect("word in range"), 3000);
+    }
+}
+
+#[cfg(test)]
+mod addressed_tests {
+    use super::*;
+    use fieldglass_core::testing::Recording;
+
+    fn file() -> Vec<u8> {
+        (0..=255u8).cycle().take(2048).collect()
+    }
+
+    #[test]
+    fn reads_and_prefetches_are_shifted_by_the_base() {
+        let file = Recording::new(file());
+        let view = Addressed::new(&file, 512);
+        assert_eq!(view.size(), 2048 - 512);
+        assert_eq!(&*view.read(ByteRange::new(4, 3)).unwrap(), &[4, 5, 6]);
+        view.prefetch(&[ByteRange::new(0, 8), ByteRange::new(100, 4)])
+            .unwrap();
+        assert_eq!(
+            file.prefetches(),
+            [vec![ByteRange::new(512, 8), ByteRange::new(612, 4)]]
+        );
+        assert_eq!(file.reads(), [ByteRange::new(516, 3)]);
+        // Past the end of the view is past the end of the file.
+        assert!(view.read(ByteRange::new(1536, 1)).is_err());
+    }
+
+    #[test]
+    fn an_address_past_the_address_space_is_refused() {
+        let file = file();
+        let view = Addressed::new(&file, 512);
+        assert!(view.read(ByteRange::new(u64::MAX, 1)).is_err());
+        assert!(view.prefetch(&[ByteRange::new(u64::MAX, 1)]).is_err());
+        // A base past the file leaves nothing to read.
+        let past = Addressed::new(&file, 4096);
+        assert_eq!(past.size(), 0);
+        assert!(past.read(ByteRange::new(0, 1)).is_err());
+    }
+
+    #[test]
+    fn a_shifted_view_is_a_different_source_from_the_file() {
+        let file = file();
+        let id = file.identity().unwrap();
+        assert_eq!(Addressed::new(&file, 0).identity(), Some(id.clone()));
+        let shifted = Addressed::new(&file, 512).identity().unwrap();
+        assert_ne!(shifted, id);
+        assert_ne!(Addressed::new(&file, 1024).identity().unwrap(), shifted);
+        // The same userblock and the same tail but a different superblock:
+        // the sample at the base tells the two apart.
+        let mut other = file.clone();
+        other[600] ^= 0xFF;
+        let mut buffer = file.clone();
+        let before = Addressed::new(&buffer, 512).identity();
+        buffer.copy_from_slice(&other);
+        assert_ne!(Addressed::new(&buffer, 512).identity(), before);
     }
 }
 

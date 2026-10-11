@@ -116,8 +116,16 @@ fn a_file_with_a_userblock_reads_as_its_twin_without_one() {
                 // read from the global heap at an address the file states.
                 assert_eq!(dimensions, &strings(&oracle["v_dims"]), "{what}");
                 assert_eq!(dimensions, &["y", "x"], "{what}");
-                assert!(attributes.contains("\"K\""), "{what}: {attributes}");
-                assert!(attributes.contains("2.5"), "{what}: {attributes}");
+                let units = oracle["v_units"].as_str().unwrap();
+                let scale = oracle["v_scale"].as_f64().unwrap();
+                assert_eq!(
+                    attributes,
+                    &format!(
+                        "[Attribute {{ name: \"scale\", value: Numbers([{scale:?}]) }}, \
+                         Attribute {{ name: \"units\", value: Text(\"{units}\") }}]"
+                    ),
+                    "{what}"
+                );
             }
         }
 

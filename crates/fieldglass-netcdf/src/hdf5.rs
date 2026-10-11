@@ -279,7 +279,10 @@ pub fn root_group_address<S: ByteSource + ?Sized>(
     probe: &Hdf5Probe,
 ) -> Result<u64, FieldglassError> {
     // Memoised: the whole-file walk bootstraps from here, and it is on the hot
-    // path of every metadata and decode call (#414).
+    // path of every metadata and decode call (#414). Checked before the memo
+    // binds, so a raw userblock file passed by mistake does not bind it to the
+    // wrong source for the life of the probe.
+    superblock_at_base(source)?;
     probe
         .cache()
         .root(source, || read_root_group_address(source, probe))
@@ -289,7 +292,6 @@ fn read_root_group_address<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
 ) -> Result<u64, FieldglassError> {
-    superblock_at_base(source)?;
     let o = probe.offset_size as usize;
     if o == 0 || o > 8 {
         return Err(FieldglassError::Parse(format!(
@@ -405,6 +407,7 @@ pub fn btree_k<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
 ) -> Result<BtreeK, FieldglassError> {
+    superblock_at_base(source)?;
     probe
         .cache()
         .btree_k(source, || read_btree_k(source, probe))
@@ -414,7 +417,6 @@ fn read_btree_k<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
 ) -> Result<BtreeK, FieldglassError> {
-    superblock_at_base(source)?;
     let u16_at = |bytes: &[u8], at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]);
     let k = match probe.superblock_version {
         // After the signature (8), four version bytes, the two sizes and a
