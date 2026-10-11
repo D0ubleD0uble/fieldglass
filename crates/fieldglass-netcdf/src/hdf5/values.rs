@@ -407,15 +407,8 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
             "chunked layout has a zero-length chunk dimension".into(),
         ));
     }
-    let chunk_elems: usize = chunked
-        .chunk_dims
-        .iter()
-        .try_fold(1usize, |acc, &d| acc.checked_mul(d as usize))
-        .ok_or_else(|| FieldglassError::Parse("chunk element count overflows usize".into()))?;
-    let chunk_bytes = chunk_elems
-        .checked_mul(elem)
-        .ok_or_else(|| FieldglassError::Parse("chunk byte size overflows usize".into()))?;
     let chunk_shape: Vec<u64> = chunked.chunk_dims.iter().map(|&d| u64::from(d)).collect();
+    let chunk_bytes = chunk_byte_size(&chunk_shape, elem, !pipeline.filters.is_empty())?;
 
     // Every chunk index resolves to the same per-chunk record; only the way the
     // records are located differs. An unallocated index leaves the buffer as
@@ -640,6 +633,44 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
         }
     }
     Ok(raw)
+}
+
+/// The bytes one chunk of `chunk_shape` holds, at `elem` bytes an element.
+///
+/// A product past `usize` is a chunk no read here could hold. For a filtered
+/// chunk, which is decoded whole, that is the same refusal
+/// [`check_chunk_size`](super::filter::check_chunk_size) makes, a valid file
+/// asked for too much: so on `wasm32`, where a chunk of 2^32 values already
+/// overflows, it is still `FieldTooLarge` or `ChunkTooLarge` rather than a
+/// parse error (#970). An unfiltered chunk is read at its stored size, so its
+/// overflow stays a parse error, as before.
+fn chunk_byte_size(
+    chunk_shape: &[u64],
+    elem: usize,
+    filtered: bool,
+) -> Result<usize, FieldglassError> {
+    let elements = chunk_shape
+        .iter()
+        .try_fold(1usize, |acc, &d| acc.checked_mul(usize::try_from(d).ok()?));
+    let Some(elements) = elements else {
+        if filtered {
+            // Past `usize`, so past the field cap on every target.
+            fieldglass_core::array::field_element_count(chunk_shape)?;
+        }
+        return Err(FieldglassError::Parse(
+            "chunk element count overflows usize".into(),
+        ));
+    };
+    elements.checked_mul(elem).ok_or_else(|| {
+        if filtered {
+            let bytes = chunk_shape
+                .iter()
+                .fold(elem as u64, |acc, &d| acc.saturating_mul(d));
+            super::filter::chunk_too_large(bytes)
+        } else {
+            FieldglassError::Parse("chunk byte size overflows usize".into())
+        }
+    })
 }
 
 /// One leaf entry of a version-1 chunk B-tree: where a chunk lives and the
@@ -1503,6 +1534,56 @@ fn missing_sentinels<S: ByteSource + ?Sized>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A filtered chunk too large to address is refused as too large, not as
+    /// a corrupt file, on 64-bit and 32-bit targets alike (#970). An
+    /// unfiltered one keeps its parse error.
+    #[test]
+    fn a_filtered_chunk_past_usize_is_too_large_not_corrupt() {
+        use fieldglass_core::array::ArrayError;
+        let too_large = |r: Result<usize, FieldglassError>| {
+            matches!(
+                r,
+                Err(FieldglassError::Array(
+                    ArrayError::FieldTooLarge { .. } | ArrayError::ChunkTooLarge { .. }
+                ))
+            )
+        };
+        let max = u64::from(u32::MAX);
+        // Past `u64` in values: past `usize` everywhere.
+        let past_u64 = [max, max, max];
+        assert!(matches!(
+            chunk_byte_size(&past_u64, 4, true),
+            Err(FieldglassError::Array(ArrayError::FieldTooLarge {
+                elements: u64::MAX,
+                ..
+            }))
+        ));
+        assert!(matches!(
+            chunk_byte_size(&past_u64, 4, false),
+            Err(FieldglassError::Parse(_))
+        ));
+        // Fits `u64` in values, past it in bytes on 64-bit; past `usize` in
+        // values already on 32-bit.
+        assert!(too_large(chunk_byte_size(&[max, max], 8, true)));
+        assert!(matches!(
+            chunk_byte_size(&[max, max], 8, false),
+            Err(FieldglassError::Parse(_))
+        ));
+        // 2^32 values: the wasm32 case. Overflows there, and is a plain size
+        // on 64-bit, where `check_chunk_size` refuses it before any read.
+        let wasm = [1 << 16, 1 << 16];
+        #[cfg(target_pointer_width = "32")]
+        assert!(too_large(chunk_byte_size(&wasm, 4, true)));
+        #[cfg(target_pointer_width = "64")]
+        {
+            assert_eq!(chunk_byte_size(&wasm, 4, true).unwrap(), 1 << 34);
+            assert!(too_large(
+                super::super::filter::check_chunk_size(&wasm, 1 << 34).map(|()| 0)
+            ));
+        }
+        assert_eq!(chunk_byte_size(&[4, 8], 8, true).unwrap(), 256);
+    }
 
     /// The element-by-element walk `scatter_chunk` replaced (#837): every
     /// element of the chunk, placed when it lands inside the shape.

@@ -194,7 +194,7 @@ impl FilterPipeline {
     ) -> Result<Vec<u8>, FieldglassError> {
         let runs = |index: usize| filter_mask & (1u32 << index) == 0;
         if expected_len > MAX_DECOMPRESSED_CHUNK && (0..self.filters.len()).any(runs) {
-            return Err(chunk_too_large(expected_len));
+            return Err(chunk_too_large(expected_len as u64));
         }
         for (index, filter) in self.filters.iter().enumerate().rev() {
             if filter_mask & (1u32 << index) != 0 {
@@ -306,15 +306,15 @@ pub(super) fn check_chunk_size(
 ) -> Result<(), FieldglassError> {
     fieldglass_core::array::field_element_count(chunk_dims)?;
     if chunk_bytes > MAX_DECOMPRESSED_CHUNK {
-        return Err(chunk_too_large(chunk_bytes));
+        return Err(chunk_too_large(chunk_bytes as u64));
     }
     Ok(())
 }
 
 /// [`ArrayError::ChunkTooLarge`] for a chunk of `bytes` decoded.
-fn chunk_too_large(bytes: usize) -> FieldglassError {
+pub(super) fn chunk_too_large(bytes: u64) -> FieldglassError {
     ArrayError::ChunkTooLarge {
-        bytes: u64::try_from(bytes).unwrap_or(u64::MAX),
+        bytes,
         limit: MAX_DECOMPRESSED_CHUNK as u64,
     }
     .into()
