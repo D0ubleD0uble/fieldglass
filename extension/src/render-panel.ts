@@ -376,13 +376,37 @@ export function applyReprojectable(
 }
 
 /** The note beside the projection picker: why there is nothing but the source
- *  view, or nothing at all for a field that can be reprojected. `label` is the
- *  grid's family, `null` when the field could not be placed at all. A slice
- *  render sends it composed (`GridReadyMessage.sliceGrid`), so the panel script
+ *  view, or nothing at all for a field that can be reprojected (#960).
+ *
+ *  Keyed on the placement Rust reports, never on the family: a grid of a
+ *  family this build reprojects can still be declined because its own numbers
+ *  place nothing (a Lambert grid on an Earth of radius zero is `unplaceable`
+ *  under the label `lambert`). Only an `unsupported` template is a family this
+ *  build does not support yet. A placed grid that does not reproject (a
+ *  lat/lon grid scanned east to west) is that one grid, not its family.
+ *  Everything else has nothing placed on the Earth, which the Overlay row's
+ *  {@link UNPLACED_OVERLAY_NOTE} says too.
+ *
+ *  `label` is the grid's family, `null` when there is no grid. A slice render
+ *  sends the note composed (`GridReadyMessage.sliceGrid`), so the panel script
  *  carries no copy of the wording. */
-export function reprojectionNote(reprojectable: boolean, label: string | null): string {
-  return reprojectable ? "" : "Reprojection isn't available for " + (label === null ? "this grid" : label + " grids") + " yet.";
+export function reprojectionNote(
+  reprojectable: boolean,
+  placement: Placement | null | undefined,
+  label: string | null,
+): string {
+  if (reprojectable) return "";
+  if (placement === "unsupported") {
+    return "Reprojection isn't available for " + (label === null ? "this grid" : label + " grids") + " yet.";
+  }
+  if (placement === "placed") {
+    return "Reprojection isn't available for this " + (label === null ? "" : label + " ") + "grid.";
+  }
+  return UNPLACED_REPROJECT_NOTE;
 }
+
+/** {@link reprojectionNote} for a field nothing places on the Earth. */
+export const UNPLACED_REPROJECT_NOTE = "Reprojection needs a grid placed on the Earth, and this one isn't.";
 
 /** Whether the render panel offers its overlays for a field: the map layers,
  *  the graticule, contours and arrows all project through the field's
@@ -3224,7 +3248,7 @@ ${slice
         <select id="picker-projection">${projectionOptionsHtml(MAP_PROJECTIONS, meta.reprojectable)}</select>
         <span class="picker-note" id="reproject-note"${meta.reprojectable ? " hidden" : ""}>${
           // The label is the grid family the file names; the rest is constant.
-          reprojectionNote(meta.reprojectable, meta.grid ? escapeHtml(meta.grid.label) : null)}</span>
+          reprojectionNote(meta.reprojectable, meta.placement, meta.grid ? escapeHtml(meta.grid.label) : null)}</span>
       </label>
       <span id="preset-ortho" hidden>
         <label>Center lon

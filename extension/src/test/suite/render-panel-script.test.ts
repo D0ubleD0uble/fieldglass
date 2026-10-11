@@ -34,7 +34,7 @@ import {
 } from "./real-panel";
 
 /** The note beside the picker for a slice the handle cannot place at all. */
-const NOTHING_PLACES = reprojectionNote(false, null);
+const NOTHING_PLACES = reprojectionNote(false, undefined, null);
 
 function fixture(name: string): string {
   return path.join(extensionPath(), "src", "test", "fixtures", name);
