@@ -490,3 +490,71 @@ fn a_bad_code_after_the_last_pixel_is_never_read() {
         Err(AecError::InvalidCode { sample: 9, .. })
     ));
 }
+
+/// Both szip bounds hold over every stream libsz wrote: its output fits in
+/// what `max_decompressed_len` allows for the stream, which is the spec's
+/// bound for any encoder, and the stream is no longer than
+/// `max_compressed_len` allows for the output, which holds for an encoder
+/// that never codes a block longer than the uncompressed option, as libaec's
+/// does.
+#[test]
+fn every_libsz_stream_is_within_both_bounds() {
+    let mut failures = Vec::new();
+    let mut closest = 0;
+    for case in cases() {
+        let decoded = case.params.max_decompressed_len(case.stream.len());
+        if case.dest_len > decoded {
+            failures.push(format!(
+                "{}: {} bytes from a {}-byte stream, past {decoded}",
+                case.name,
+                case.dest_len,
+                case.stream.len()
+            ));
+        }
+        let encoded = case.params.max_compressed_len(case.dest_len);
+        if case.stream.len() > encoded {
+            failures.push(format!(
+                "{}: a {}-byte stream for {} bytes, past {encoded}",
+                case.name,
+                case.stream.len(),
+                case.dest_len
+            ));
+        }
+        // Per mille of the encoder bound the stream reaches.
+        closest = closest.max(case.stream.len() * 1000 / encoded.max(1));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    // Some libsz stream (an incompressible one) comes close to the bound,
+    // so it is not slack enough to hide a mistake.
+    assert!(
+        closest > 900,
+        "the closest stream is {closest}\u{2030} of the bound"
+    );
+}
+
+/// A stream of ROS runs, the most output per bit any stream codes, fills
+/// exactly `max_decompressed_len` and no more: 16 runs of 9 bits are 18
+/// bytes and 1,024 blocks of 32 pixels. With scanlines of 2,032 pixels padded
+/// to 2,048 (an RSI of 64 blocks, so each run is one scanline) the same
+/// stream codes 16 scanlines, 32,512 pixels, and the bound drops the pads
+/// too.
+#[test]
+fn a_stream_of_ros_runs_fills_max_decompressed_len_exactly() {
+    let mut bits = Bits::default();
+    for _ in 0..16 {
+        bits.put(0b000, 3).put(0, 1).fs(4);
+    }
+    let stream = bits.done();
+    for (pps, most) in [(4096, 32 * 1024), (2032, 16 * 2032)] {
+        let params = SzParams::new(0, 8, 32, pps).unwrap();
+        assert_eq!(params.max_decompressed_len(stream.len()), most, "pps {pps}");
+        let mut out = vec![0xEE; most];
+        sz::decompress(&stream, &params, &mut out).unwrap();
+        assert!(out.iter().all(|&b| b == 0));
+        let mut out = vec![0; most + 1];
+        assert!(matches!(
+            sz::decompress(&stream, &params, &mut out),
+            Err(AecError::Truncated { .. })
+        ));
+    }
+}

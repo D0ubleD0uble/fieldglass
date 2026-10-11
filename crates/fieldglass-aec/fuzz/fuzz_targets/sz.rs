@@ -13,7 +13,9 @@
 //! * refuse a length that is not a whole number of pixels, and only that,
 //!   before decoding;
 //! * agree with the reference on the verdict, and on success on every byte;
-//! * on `Truncated`, report fewer samples than it was asked for.
+//! * on `Truncated`, report fewer samples than it was asked for;
+//! * on success, have filled no more than `SzParams::max_decompressed_len`
+//!   allows for the stream.
 //!
 //! Two differences are allowed, the two ADR-0012 records:
 //!
@@ -203,6 +205,15 @@ fuzz_target!(|data: &[u8]| {
 
     let mut out = vec![0u8; len];
     let got = sz::decompress(stream, &params, &mut out);
+    // An output the stream fills is within the spec's bound for its length,
+    // which callers use to refuse a declared length before allocating it.
+    if got.is_ok() {
+        assert!(
+            len <= params.max_decompressed_len(stream.len()),
+            "{len} bytes from a {}-byte stream",
+            stream.len()
+        );
+    }
 
     let pixel = params.bytes_per_pixel();
     if len % pixel != 0 {

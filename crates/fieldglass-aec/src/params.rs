@@ -226,6 +226,31 @@ impl Params {
         self.flags
     }
 
+    /// The most samples any stream of `input_len` bytes can decode to under
+    /// these parameters, whatever encoder wrote it.
+    ///
+    /// No coded data set covers more blocks per bit than a zero-block run
+    /// to the end of its 64-block segment, which costs the option
+    /// identifier (3 to 5 bits, CCSDS 121.0-B-3 Table 5-1, or 1 to 2 with
+    /// [`Flags::RESTRICTED`]), a selector bit and the five-bit ROS code
+    /// (Table 3-2). So `B` bits code at most `⌊64·B / (id + 6)⌋` blocks of
+    /// [`Self::block_size`] samples, and a stream of nothing but such runs
+    /// reaches it. A caller that sizes its output from a count the stream does
+    /// not carry can refuse a count past this before allocating for it.
+    ///
+    /// ```
+    /// use fieldglass_aec::{Flags, Params};
+    ///
+    /// // 8-bit samples: a 3-bit identifier, so 9 bits per 64 blocks of 32.
+    /// let params = Params::new(8, 32, 128, Flags::empty())?;
+    /// assert_eq!(params.max_samples(9), 72 / 9 * 64 * 32);
+    /// assert_eq!(params.max_samples(0), 0);
+    /// # Ok::<(), fieldglass_aec::AecError>(())
+    /// ```
+    pub fn max_samples(&self, input_len: usize) -> usize {
+        crate::decode::max_samples(self, input_len)
+    }
+
     /// Bytes per decoded sample in libaec's output layout: 1 up to 8 bits, 2
     /// up to 16, 3 from 17 to 24 bits with [`Flags::THREE_BYTE`], and 4
     /// otherwise.

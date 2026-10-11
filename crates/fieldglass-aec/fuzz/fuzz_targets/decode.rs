@@ -11,7 +11,9 @@
 //!   `count` on `Ok`;
 //! * on `Truncated`, report the samples the sink actually received;
 //! * with no preprocessing, deliver only n-bit values (a larger code is an
-//!   `InvalidCode`, never a wrapped sample).
+//!   `InvalidCode`, never a wrapped sample);
+//! * whatever the verdict, deliver no more samples than
+//!   `Params::max_samples` allows for the stream's length.
 
 #![no_main]
 
@@ -85,4 +87,12 @@ fuzz_target!(|data: &[u8]| {
         }
         Err(_) => assert!(sink.received <= count),
     }
+    // Whatever the verdict, no stream codes more samples than its length
+    // allows (CCSDS 121.0-B-3 Tables 3-2 and 5-1, `Params::max_samples`).
+    assert!(
+        sink.received <= params.max_samples(stream.len()),
+        "{} samples from {} bytes",
+        sink.received,
+        stream.len()
+    );
 });
