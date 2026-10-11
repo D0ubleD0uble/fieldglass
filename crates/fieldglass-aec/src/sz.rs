@@ -270,20 +270,26 @@ impl SzParams {
         unpadded_index(stream, pps, line).saturating_mul(self.aec.bytes_per_sample())
     }
 
-    /// The longest stream an encoder that never codes a block in more bits
-    /// than its uncompressed option writes for an output of `out_len` bytes,
-    /// in bytes.
+    /// The longest stream an encoder that codes each block as libaec's does
+    /// writes for an output of `out_len` bytes, in bytes.
     ///
-    /// The uncompressed option is the identifier and every sample as it is,
-    /// `id + J·n` bits for `J` samples of `n` bits, the reference sample
-    /// among them (CCSDS 121.0-B-3 §5.2, Table 5-1). libsz pads every
-    /// scanline to whole blocks, the last one included, so an output of `P`
-    /// samples is `⌈P / pps⌉` scanlines of `rsi` blocks. libaec's encoder
-    /// takes the shortest option for each block, and so stays within this.
-    /// The standard leaves that choice to the encoder, so this is not a
-    /// bound on every valid stream, only on every stream from such an
-    /// encoder: a caller can use it to bound a length the stream's container
-    /// does not record.
+    /// libaec's encoder (1.1.7 `encode.c`) codes a block that is not all
+    /// zeros in the shortest of split, second extension and uncompressed
+    /// (`m_select_code_option`), so never past the uncompressed option: the
+    /// identifier and every sample as it is, `id + J·n` bits for `J`
+    /// samples of `n` bits, the reference sample among them (CCSDS
+    /// 121.0-B-3 §5.2, Table 5-1). A run of zero blocks it codes as a run
+    /// without comparing (`m_check_zero_block`, `m_encode_zero`), and a
+    /// one-block run is the identifier, the selector bit, the reference
+    /// sample and a one-bit code: `id + n + 2` bits, which is more than
+    /// uncompressed at 1-bit samples in blocks of 2. A longer run costs
+    /// less per block. So a block is at most `id + max(J·n, n + 2)` bits.
+    /// libsz pads every scanline to whole blocks, the last one included, so
+    /// an output of `P` samples is `⌈P / pps⌉` scanlines of `rsi` blocks.
+    /// The standard leaves the choice of option to the encoder, so this is
+    /// not a bound on every valid stream, only on every stream from an
+    /// encoder that chooses this way: a caller can use it to bound a length
+    /// the stream's container does not record.
     ///
     /// ```
     /// use fieldglass_aec::sz::SzParams;
@@ -302,8 +308,9 @@ impl SzParams {
         let samples = out_len.div_ceil(aec.bytes_per_sample());
         let scanlines = samples.div_ceil(self.pixels_per_scanline as usize);
         let blocks = (scanlines as u128) * u128::from(aec.rsi());
-        let block_bits =
-            u128::from(id_len(n, aec.flags())) + u128::from(aec.block_size()) * u128::from(n);
+        // Uncompressed, or a one-block zero run with its reference sample.
+        let block_bits = u128::from(id_len(n, aec.flags()))
+            + (u128::from(aec.block_size()) * u128::from(n)).max(u128::from(n) + 2);
         usize::try_from((blocks * block_bits).div_ceil(8)).unwrap_or(usize::MAX)
     }
 

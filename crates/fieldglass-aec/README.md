@@ -73,9 +73,8 @@ The caller owns the output, so it chooses its size. `max_decompressed_len`
 (and `Params::max_samples` for the plain coder) is the most a stream of a
 given length can decode to under CCSDS 121.0-B-3, whatever wrote it, so a
 stated length past it can be refused without allocating it.
-`max_compressed_len` is the reverse for an encoder that, like libsz, never
-codes a block longer than it is uncompressed: the longest stream it writes
-for a given output.
+`max_compressed_len` is the reverse for an encoder that chooses each block's
+option as libsz does: the longest stream it writes for a given output.
 
 Parameters are checked as libsz checks them: 1 to 32 or 64 bits per pixel, an
 even number of pixels per block up to 256, and 1 to 4096 pixels per scanline.

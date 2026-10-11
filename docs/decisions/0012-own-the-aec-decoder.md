@@ -44,7 +44,10 @@ most `⌊64·B / (id + 6)⌋` blocks (`Params::max_samples`,
 `SzParams::max_decompressed_len`), and a short stream stating up to 256 MiB
 is refused before anything is allocated for it. A codec before szip is held
 to the longest stream szip's own parameters allow
-(`SzParams::max_compressed_len`), still at most 33 times the chunk: about
+(`SzParams::max_compressed_len`: `id + max(J·n, n + 2)` bits a block,
+since libaec codes a zero run without comparing it to the uncompressed
+option, and a one-block run with its reference sample is `id + n + 2`
+bits), still at most 33 times the chunk: about
 1.01 times it for the parameters libhdf5 usually writes, and under twice it
 for any it writes. GRIB2 5.42 applies the
 first bound to its grid's count before reserving the output. Decision 6
@@ -300,8 +303,11 @@ SZIP (#248). So:
   No known writer produces one, and the bound is what keeps a file from
   inflating a bomb behind an szip it put there itself. Since #975 the
   factor is only the cap: the bound is the longest stream the filter's own
-  parameters allow from such an encoder (`SzParams::max_compressed_len`,
-  `id + J·n` bits a block over whole padded scanlines), which for
+  parameters allow from libaec's encoder (`SzParams::max_compressed_len`,
+  `id + max(J·n, n + 2)` bits a block over whole padded scanlines; the
+  `n + 2` is a one-block zero run with its reference sample, which libaec
+  writes without comparing it to the uncompressed option, and which is
+  longer only at 1-bit pixels in blocks of 2), which for
   libhdf5's scanlines, never shorter than a block, is under twice the chunk
   (about 1.01 times it when a scanline is whole blocks). Blocks
   over 32 with scanlines shorter than a block stay capped at 33 times, so

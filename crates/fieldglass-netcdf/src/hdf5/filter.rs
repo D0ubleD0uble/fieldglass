@@ -405,8 +405,8 @@ fn growth_limit(expected_len: usize) -> usize {
 const SZIP_SLACK: usize = 4096;
 
 /// The most an szip filter's output may be when it codes `len` bytes: the
-/// longest stream its parameters allow from an encoder that never codes a
-/// block longer than uncompressed ([`SzParams::max_compressed_len`]), and
+/// longest stream its parameters allow from an encoder that chooses each
+/// block's option as libaec's does ([`SzParams::max_compressed_len`]), and
 /// never more than [`SZIP_MAX_GROWTH`] times `len`, plus [`SZIP_SLACK`] for
 /// the size prefix and the last byte's padding.
 ///
@@ -431,9 +431,12 @@ fn szip_growth(cd_values: &[u32], len: usize) -> usize {
 /// whatever its parameters. [`szip_growth`] takes the tighter of this and
 /// what the filter's own parameters allow.
 ///
-/// libsz takes the shortest option per block, so none of its blocks is longer
-/// than the uncompressed one: an ID of at most 5 bits plus `J·n` bits for `J`
-/// pixels of `n` bits (CCSDS 121.0-B §5.1; libsz never sets the restricted
+/// libsz takes the shortest option for a block that is not all zeros, so
+/// none of those is longer than the uncompressed one: an ID of at most 5 bits
+/// plus `J·n` bits for `J` pixels of `n` bits. A one-block zero run with a
+/// reference sample is `ID + n + 2` bits, longer only at 1-bit pixels in
+/// blocks of 2, where it is still far under this factor (CCSDS 121.0-B §5.1;
+/// libsz never sets the restricted
 /// option, so the ID is 3 bits up to 8 bits per pixel, 4 to 16, 5 beyond:
 /// `fieldglass-aec`'s `decode.rs`). The standard leaves that choice to the
 /// encoder, so this bounds encoders that choose the way libsz does; ADR-0012
@@ -1629,6 +1632,10 @@ mod tests {
         let pipeline = pipeline_of(&[FILTER_SZIP, FILTER_DEFLATE]);
         assert_eq!(pipeline.limit_behind(1, 0, chunk), growth_limit(chunk));
         assert!(growth_limit(chunk) < 10 << 20);
+        // 1-bit pixels in blocks of 2 with preprocessing: libaec writes a
+        // one-block zero run as 3 + 1 + 1 + 1 bits, more than the 3 + 2 of
+        // an uncompressed block, so 64 pixels may take 24 bytes, not 20.
+        assert_eq!(szip_growth(&[32 | 128, 2, 1, 2], 64), 24 + SZIP_SLACK);
         // One pixel per scanline at blocks of 32: each 8-bit pixel is a whole
         // block, 259 bits, which is under 33 times.
         assert_eq!(

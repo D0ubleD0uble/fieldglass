@@ -495,8 +495,7 @@ fn a_bad_code_after_the_last_pixel_is_never_read() {
 /// what `max_decompressed_len` allows for the stream, which is the spec's
 /// bound for any encoder, and the stream is no longer than
 /// `max_compressed_len` allows for the output, which holds for an encoder
-/// that never codes a block longer than the uncompressed option, as libaec's
-/// does.
+/// that chooses each block's option as libaec's does.
 #[test]
 fn every_libsz_stream_is_within_both_bounds() {
     let mut failures = Vec::new();
@@ -557,4 +556,42 @@ fn a_stream_of_ros_runs_fills_max_decompressed_len_exactly() {
             Err(AecError::Truncated { .. })
         ));
     }
+}
+
+/// libaec codes a run of zero blocks without comparing it to the
+/// uncompressed option (1.1.7 `encode.c`, `m_check_zero_block`), so a
+/// one-block run with its reference sample, `id + 1 + n + 1` bits, can be
+/// longer than an uncompressed block, `id + J·n`. That happens only at 1-bit
+/// pixels in blocks of 2: 6 bits against 5. With preprocessing and a
+/// scanline of one block, constant data is one such run per block.
+/// `max_compressed_len` must allow for it (#975 review).
+///
+/// The stream is libsz's own: `SZ_BufftoBuffCompress` from the libaec 1.1.4
+/// bundled in the h5py 3.16 wheel (`szip_compress` in
+/// `tools/build_hdf5_fixtures.py`), over 64 pixels of value 1 with mask
+/// `NN | RAW`, 1 bit per pixel, 2 pixels per block, 2 per scanline. Each
+/// 6-bit group `000011` is the identifier, the zero-block selector, the
+/// reference sample 1 and the code for one block.
+#[test]
+fn a_one_block_zero_run_is_within_max_compressed_len() {
+    const LIBSZ: [u8; 24] = [
+        0x0C, 0x30, 0xC3, 0x0C, 0x30, 0xC3, 0x0C, 0x30, 0xC3, 0x0C, 0x30, 0xC3, 0x0C, 0x30, 0xC3,
+        0x0C, 0x30, 0xC3, 0x0C, 0x30, 0xC3, 0x0C, 0x30, 0xC3,
+    ];
+    let params = SzParams::new(sz::NN_OPTION_MASK | sz::RAW_OPTION_MASK, 1, 2, 2).unwrap();
+    let mut out = [0u8; 64];
+    sz::decompress(&LIBSZ, &params, &mut out).unwrap();
+    assert_eq!(out, [1; 64]);
+
+    // The same stream built by hand: 32 runs of one block.
+    let mut bits = Bits::default();
+    for _ in 0..32 {
+        bits.put(0b000, 3).put(0, 1).put(1, 1).fs(0);
+    }
+    assert_eq!(bits.done(), LIBSZ);
+
+    // 32 blocks of 3 + max(2, 3) bits is the stream exactly; `id + J·n`
+    // alone would allow 20 bytes.
+    assert_eq!(params.max_compressed_len(64), LIBSZ.len());
+    assert_eq!((32 * (3 + 2_usize)).div_ceil(8), 20);
 }
