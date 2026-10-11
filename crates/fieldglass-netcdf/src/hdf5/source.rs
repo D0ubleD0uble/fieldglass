@@ -21,6 +21,14 @@
 //! there. This module adds the little-endian field reads HDF5 structures are
 //! made of.
 //!
+//! # Addresses are relative to the superblock
+//!
+//! An HDF5 address is not a file offset. It is relative to the superblock's
+//! base address, which is where the signature sits: byte 0 for most files, and
+//! 512, 1024, … for a file that begins with a userblock (#936). [`Addressed`]
+//! is the one place that adds the base. Every walker reads through it, so each
+//! address it follows is used exactly as the file states it.
+//!
 //! # What this module deliberately does not do
 //!
 //! **It does not prefetch.** ADR-0005 records that HDF5 fails the strong form
@@ -33,12 +41,92 @@
 //!
 //! [ADR-0005]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md
 
+use std::borrow::Cow;
+
 use fieldglass_core::FieldglassError;
-use fieldglass_core::bytes::{ByteSource, checked_usize};
+use fieldglass_core::bytes::{ByteRange, ByteSource, SourceIdentity, checked_usize};
 
 pub(crate) use fieldglass_core::bytes::{FileCursor, read_at, read_up_to, scan_windows};
 
+/// How much of the superblock [`Addressed::identity`] samples.
+const SAMPLE_BYTES: usize = 256;
+
 use super::object_header::read_uint_le;
+
+/// A file seen from its superblock's base address: HDF5 address `a` is file
+/// offset `base + a` (#936).
+///
+/// The HDF5 reader walks the file through this, so the base is added here and
+/// nowhere else. Its [`size`](ByteSource::size) is the file's from the base on,
+/// which is the end-of-file every address is checked against. Prefer
+/// [`Hdf5Probe::addressed`](super::Hdf5Probe::addressed), which takes the base
+/// from the probe of the same file.
+///
+/// The base must be the signature's offset, as libhdf5 reads it
+/// (`H5F__super_read` overrides a stored base address that differs). A view
+/// of a view adds the base twice, so wrap the file once.
+#[derive(Debug, Clone, Copy)]
+pub struct Addressed<S> {
+    file: S,
+    base: u64,
+}
+
+impl<S: ByteSource> Addressed<S> {
+    /// `file` read from `base` on.
+    pub fn new(file: S, base: u64) -> Self {
+        Self { file, base }
+    }
+
+    /// The file offset of HDF5 address 0.
+    pub fn base(&self) -> u64 {
+        self.base
+    }
+
+    /// The file offset `range` covers. An address past the end of the address
+    /// space is refused, as a range past the file's end would be.
+    fn absolute(&self, range: ByteRange) -> Result<ByteRange, FieldglassError> {
+        let start = range.start.checked_add(self.base).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "HDF5 address {} runs past the address space",
+                range.start
+            ))
+        })?;
+        Ok(ByteRange::new(start, range.len))
+    }
+}
+
+impl<S: ByteSource> ByteSource for Addressed<S> {
+    fn size(&self) -> u64 {
+        self.file.size().saturating_sub(self.base)
+    }
+
+    /// The file's identity, shifted and with the superblock sampled. A file
+    /// whose bytes at the base cannot be read declines, which only costs the
+    /// memo.
+    fn identity(&self) -> Option<SourceIdentity> {
+        let id = self.file.identity()?;
+        if self.base == 0 {
+            return Some(id);
+        }
+        let head = read_up_to(&self.file, self.base, SAMPLE_BYTES).ok()?;
+        Some(id.offset(self.base, &head))
+    }
+
+    fn prefetch(&self, ranges: &[ByteRange]) -> Result<(), FieldglassError> {
+        if self.base == 0 {
+            return self.file.prefetch(ranges);
+        }
+        let absolute = ranges
+            .iter()
+            .map(|&r| self.absolute(r))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.file.prefetch(&absolute)
+    }
+
+    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
+        self.file.read(self.absolute(range)?)
+    }
+}
 
 /// The little-endian field reads both cursors offer.
 ///
@@ -264,6 +352,63 @@ mod tests {
         let mut cur = FileCursor::at(&bytes, 0).expect("in range");
         Fields::skip(&mut cur, 4 * 3000).expect("in range");
         assert_eq!(cur.uint(4).expect("word in range"), 3000);
+    }
+}
+
+#[cfg(test)]
+mod addressed_tests {
+    use super::*;
+    use fieldglass_core::testing::Recording;
+
+    fn file() -> Vec<u8> {
+        (0..=255u8).cycle().take(2048).collect()
+    }
+
+    #[test]
+    fn reads_and_prefetches_are_shifted_by_the_base() {
+        let file = Recording::new(file());
+        let view = Addressed::new(&file, 512);
+        assert_eq!(view.size(), 2048 - 512);
+        assert_eq!(&*view.read(ByteRange::new(4, 3)).unwrap(), &[4, 5, 6]);
+        view.prefetch(&[ByteRange::new(0, 8), ByteRange::new(100, 4)])
+            .unwrap();
+        assert_eq!(
+            file.prefetches(),
+            [vec![ByteRange::new(512, 8), ByteRange::new(612, 4)]]
+        );
+        assert_eq!(file.reads(), [ByteRange::new(516, 3)]);
+        // Past the end of the view is past the end of the file.
+        assert!(view.read(ByteRange::new(1536, 1)).is_err());
+    }
+
+    #[test]
+    fn an_address_past_the_address_space_is_refused() {
+        let file = file();
+        let view = Addressed::new(&file, 512);
+        assert!(view.read(ByteRange::new(u64::MAX, 1)).is_err());
+        assert!(view.prefetch(&[ByteRange::new(u64::MAX, 1)]).is_err());
+        // A base past the file leaves nothing to read.
+        let past = Addressed::new(&file, 4096);
+        assert_eq!(past.size(), 0);
+        assert!(past.read(ByteRange::new(0, 1)).is_err());
+    }
+
+    #[test]
+    fn a_shifted_view_is_a_different_source_from_the_file() {
+        let file = file();
+        let id = file.identity().unwrap();
+        assert_eq!(Addressed::new(&file, 0).identity(), Some(id.clone()));
+        let shifted = Addressed::new(&file, 512).identity().unwrap();
+        assert_ne!(shifted, id);
+        assert_ne!(Addressed::new(&file, 1024).identity().unwrap(), shifted);
+        // The same userblock and the same tail but a different superblock:
+        // the sample at the base tells the two apart.
+        let mut other = file.clone();
+        other[600] ^= 0xFF;
+        let mut buffer = file.clone();
+        let before = Addressed::new(&buffer, 512).identity();
+        buffer.copy_from_slice(&other);
+        assert_ne!(Addressed::new(&buffer, 512).identity(), before);
     }
 }
 

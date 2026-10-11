@@ -132,6 +132,14 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/hdf5_local_heap_unterminated.h5"),
     ),
     (
+        "hdf5_no_userblock_earliest.h5",
+        include_bytes!("fixtures/hdf5_no_userblock_earliest.h5"),
+    ),
+    (
+        "hdf5_no_userblock_latest.h5",
+        include_bytes!("fixtures/hdf5_no_userblock_latest.h5"),
+    ),
+    (
         "hdf5_off_grid_chunk_record.h5",
         include_bytes!("fixtures/hdf5_off_grid_chunk_record.h5"),
     ),
@@ -199,6 +207,14 @@ const FIXTURES: &[(&str, &[u8])] = &[
     (
         "hdf5_szip_long_stream.h5",
         include_bytes!("fixtures/hdf5_szip_long_stream.h5"),
+    ),
+    (
+        "hdf5_userblock_earliest.h5",
+        include_bytes!("fixtures/hdf5_userblock_earliest.h5"),
+    ),
+    (
+        "hdf5_userblock_latest.h5",
+        include_bytes!("fixtures/hdf5_userblock_latest.h5"),
     ),
     (
         "hdf5_v1_symboltable.h5",

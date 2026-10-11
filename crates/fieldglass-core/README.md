@@ -24,14 +24,15 @@ and last of those are synthesized onto, `array`, the dataset structure
 file in, and `cf`, the CF conventions read over that structure: which arrays
 render, and where a slice of one is placed. `fieldglass-netcdf` also takes
 `shuffle`, the byte transpose HDF5's shuffle filter applies, which Zarr's
-reader shares.
+reader shares, and `detect`, whose HDF5 signature search it shares so detection
+and the reader find the same files.
 <!-- /parsing-surface -->
 
 On top of that sits an optional viewer layer (warp, overlay, colormap) used by
 the rendering front end, and an analysis layer (contours, CSV, field
-arithmetic). Three further modules are ungated but are not part of the parsing
-surface, because no format crate uses them: format detection, unit conversion,
-and the spatial index `cf` builds to place a swath.
+arithmetic). Two further modules are ungated but are not part of the parsing
+surface, because no format crate uses them: unit conversion and the spatial
+index `cf` builds to place a swath.
 
 The readers themselves are concrete types in their own crates, not
 implementations of a trait declared here. What is a trait here is a choice made

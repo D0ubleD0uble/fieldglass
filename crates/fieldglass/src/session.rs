@@ -516,9 +516,11 @@ fn build_field(
     }
 }
 
-/// Everything [`detect_from_bytes`] looks at: `"GRIB"` plus the edition octet,
-/// `CDF\x01`, or the HDF5 signature. Opening from a source reads this much and
-/// not the file (#709).
+/// Enough for [`detect_from_bytes`] to tell a message stream: `"GRIB"` plus the
+/// edition octet. Opening from a source reads this much and not the file
+/// (#709). A NetCDF-4 file with a userblock has its HDF5 signature further in
+/// and reads as no container here (#936), which is refused either way: this
+/// path opens message streams only.
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 const DETECT_PREFIX: usize = 8;
 
@@ -1000,8 +1002,8 @@ impl Session {
     /// [ADR-0006] exists to prevent.
     ///
     /// The format is detected from the first eight bytes, which is all
-    /// [`detect_from_bytes`] reads, so opening costs one small read and not the
-    /// file.
+    /// [`detect_from_bytes`] needs to tell a GRIB edition, so opening costs one
+    /// small read and not the file.
     ///
     /// # Only message streams
     ///
@@ -1023,8 +1025,8 @@ impl Session {
     #[cfg(any(feature = "grib1", feature = "grib2"))]
     pub fn open_source<S: ByteSource + 'static>(source: S) -> Result<Self, Error> {
         let source: Bytes = Box::new(source);
-        // Eight bytes is everything `detect_from_bytes` looks at: "GRIB" plus
-        // the edition octet, `CDF\x01`, or the HDF5 signature. `read_up_to`
+        // Eight bytes is everything `detect_from_bytes` needs for a GRIB
+        // edition: "GRIB" plus the edition octet. `read_up_to`
         // rather than a fixed read, so a source shorter than that says "no
         // container" instead of "short read".
         let head = read_up_to(&source, 0, DETECT_PREFIX)?;

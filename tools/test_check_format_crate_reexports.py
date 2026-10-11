@@ -611,6 +611,9 @@ class TheRepoItselfPasses(unittest.TestCase):
                 # a tuple of two strings.
                 "LeftOut",
                 "SlicePlacement",
+                # What `hdf5::Addressed`, the superblock-relative view of a
+                # file, answers for its memo identity (#936).
+                "SourceIdentity",
             },
         }
         for crate, names in expected.items():

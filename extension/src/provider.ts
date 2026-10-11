@@ -371,7 +371,10 @@ export class FieldglassEditorProvider
 
     const native = loadNative();
     const header = document.bytes.slice(0, 32);
-    const format = native ? native.detectBytes(header) : "unknown";
+    // The whole buffer, not `header`: an HDF5 file may put its signature after
+    // a userblock, up to 16 KiB in (#936), and detection reads no further than
+    // that. The buffer is passed without a copy.
+    const format = native ? native.detectBytes(document.bytes) : "unknown";
 
     const handle = native ? this.openOrReuseHandle(document, format) : undefined;
     const messages = handle ? listMessages(handle) : undefined;

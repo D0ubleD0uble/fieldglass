@@ -16,6 +16,10 @@
 //! file — and records why the traversal prefetches nothing while the chunk
 //! fetch does.
 //!
+//! An HDF5 address is relative to the superblock, which a userblock can put
+//! past byte 0 (#936). The walkers read through [`Addressed`], which adds that
+//! base in one place; [`Hdf5Probe::addressed`] makes one for a probed file.
+//!
 //! [`ByteSource`]: fieldglass_core::bytes::ByteSource
 //!
 //! [ADR-0005]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md
@@ -26,6 +30,9 @@
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::ByteSource;
 use source::read_up_to;
+
+pub use fieldglass_core::HDF5_SIGNATURE;
+pub use source::Addressed;
 
 pub mod attribute;
 pub(crate) mod cache;
@@ -41,9 +48,6 @@ pub mod layout;
 pub mod object_header;
 pub(crate) mod source;
 pub mod values;
-
-/// HDF5 signature: `\x89HDF\r\n\x1a\n`.
-pub const HDF5_SIGNATURE: [u8; 8] = [0x89, b'H', b'D', b'F', b'\r', b'\n', 0x1a, b'\n'];
 
 /// Header message type of a B-tree 'K' Values message.
 const MSG_BTREE_K: u16 = 0x0013;
@@ -64,6 +68,12 @@ const MSG_BTREE_K: u16 = 0x0013;
 /// That guard used to be the slice's *length*, which two files of equal size
 /// pass — they aliased, and the second was answered with the first's structure
 /// (#681).
+///
+/// Every traversal function takes the file as [`addressed`](Self::addressed)
+/// returns it, so that the addresses the file states are offsets into what it
+/// reads. The superblock readers refuse a file whose superblock is not at 0 in
+/// what they are given, so passing the raw bytes of a file with a userblock is
+/// an error rather than a walk of the wrong bytes.
 #[derive(Default)]
 pub struct Hdf5Probe {
     /// Superblock version byte. Versions 0 and 1 share a layout; versions 2
@@ -73,6 +83,10 @@ pub struct Hdf5Probe {
     pub offset_size: u8,
     /// Size of file lengths in bytes (typically 8).
     pub length_size: u8,
+    /// File offset of the superblock, which every address in the file is
+    /// relative to: the size of the userblock before it, 0 when there is none
+    /// (#936).
+    pub base_address: u64,
     /// Per-file traversal memo. Not part of the probe's identity.
     cache: cache::Hdf5Cache,
 }
@@ -86,8 +100,18 @@ impl Hdf5Probe {
             superblock_version,
             offset_size,
             length_size,
+            base_address: 0,
             cache: cache::Hdf5Cache::default(),
         }
+    }
+
+    /// `file` as the traversal reads it: from [`base_address`](Self::base_address)
+    /// on, so an address the file states is an offset into it (#936).
+    ///
+    /// Pass the same file this probe was read from, unwrapped. For a file
+    /// without a userblock this reads exactly the bytes `file` does.
+    pub fn addressed<'a, S: ByteSource + ?Sized>(&self, file: &'a S) -> Addressed<&'a S> {
+        Addressed::new(file, self.base_address)
     }
 
     /// The object header at `offset`, parsed once per file.
@@ -128,7 +152,10 @@ impl Hdf5Probe {
 // rather than sharing (or copying) another probe's work.
 impl Clone for Hdf5Probe {
     fn clone(&self) -> Self {
-        Self::new(self.superblock_version, self.offset_size, self.length_size)
+        Self {
+            base_address: self.base_address,
+            ..Self::new(self.superblock_version, self.offset_size, self.length_size)
+        }
     }
 }
 
@@ -137,6 +164,7 @@ impl PartialEq for Hdf5Probe {
         self.superblock_version == other.superblock_version
             && self.offset_size == other.offset_size
             && self.length_size == other.length_size
+            && self.base_address == other.base_address
     }
 }
 
@@ -148,15 +176,9 @@ impl std::fmt::Debug for Hdf5Probe {
             .field("superblock_version", &self.superblock_version)
             .field("offset_size", &self.offset_size)
             .field("length_size", &self.length_size)
+            .field("base_address", &self.base_address)
             .finish()
     }
-}
-
-/// HDF5 stores the signature at one of a sequence of offsets — 0, 512, 1024,
-/// 2048, … each doubled. This list covers the practical range; files with
-/// signatures further out are rare enough we don't search forever.
-fn signature_offsets() -> [u64; 7] {
-    [0, 512, 1024, 2048, 4096, 8192, 16384]
 }
 
 /// The "this is not an HDF5 file" error, quoting the bytes that are there.
@@ -171,19 +193,29 @@ fn not_hdf5<S: ByteSource + ?Sized>(source: &S) -> FieldglassError {
 
 /// Find the file offset at which the HDF5 signature appears, if any.
 ///
-/// A handful of fixed offsets rather than a scan, so this is a bounded number
-/// of small reads over any source rather than a walk of the whole file.
+/// HDF5 stores the signature at byte 0 or after a userblock, at 512, 1024,
+/// 2048, … each doubled. A handful of fixed offsets rather than a scan
+/// ([`fieldglass_core::HDF5_SIGNATURE_OFFSETS`]), so this is a bounded number
+/// of small reads over any source rather than a walk of the whole file. The
+/// search is `core`'s, so format detection finds exactly the files this does.
 pub fn find_signature<S: ByteSource + ?Sized>(source: &S) -> Option<u64> {
-    for off in signature_offsets() {
-        let at = read_up_to(source, off, HDF5_SIGNATURE.len()).ok()?;
-        if at.len() < HDF5_SIGNATURE.len() {
-            return None;
-        }
-        if at[..HDF5_SIGNATURE.len()] == HDF5_SIGNATURE {
-            return Some(off);
-        }
+    fieldglass_core::find_hdf5_signature(source)
+}
+
+/// Check that `source` is a file as [`Hdf5Probe::addressed`] returns it, with
+/// its superblock at 0, before a superblock field is read from it.
+///
+/// A file with a userblock passed unwrapped has its superblock further in;
+/// reading on would follow the addresses it states into the userblock's bytes.
+fn superblock_at_base<S: ByteSource + ?Sized>(source: &S) -> Result<(), FieldglassError> {
+    match find_signature(source) {
+        Some(0) => Ok(()),
+        Some(at) => Err(FieldglassError::Parse(format!(
+            "HDF5 superblock is at byte {at}, after a userblock: read the file \
+             through Hdf5Probe::addressed, which makes its addresses offsets"
+        ))),
+        None => Err(not_hdf5(source)),
     }
-    None
 }
 
 /// Probe the HDF5 superblock. Reads only the fields whose offsets are
@@ -226,7 +258,13 @@ pub fn probe<S: ByteSource + ?Sized>(source: &S) -> Result<Hdf5Probe, Fieldglass
         }
     };
 
-    Ok(Hdf5Probe::new(version, offset_size, length_size))
+    // The superblock's own Base Address field is not read: libhdf5 overrides
+    // it with the signature's offset when they differ (`H5F__super_read`), and
+    // the specification constrains the two to be equal.
+    Ok(Hdf5Probe {
+        base_address: off,
+        ..Hdf5Probe::new(version, offset_size, length_size)
+    })
 }
 
 /// File offset of the root group's object header, read from the superblock.
@@ -241,7 +279,10 @@ pub fn root_group_address<S: ByteSource + ?Sized>(
     probe: &Hdf5Probe,
 ) -> Result<u64, FieldglassError> {
     // Memoised: the whole-file walk bootstraps from here, and it is on the hot
-    // path of every metadata and decode call (#414).
+    // path of every metadata and decode call (#414). Checked before the memo
+    // binds, so a raw userblock file passed by mistake does not bind it to the
+    // wrong source for the life of the probe.
+    superblock_at_base(source)?;
     probe
         .cache()
         .root(source, || read_root_group_address(source, probe))
@@ -251,14 +292,13 @@ fn read_root_group_address<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
 ) -> Result<u64, FieldglassError> {
-    let base = find_signature(source).ok_or_else(|| not_hdf5(source))?;
     let o = probe.offset_size as usize;
     if o == 0 || o > 8 {
         return Err(FieldglassError::Parse(format!(
             "unsupported HDF5 offset size {o}"
         )));
     }
-    // Offsets are relative to the superblock signature. Layouts:
+    // Offsets are from the superblock signature, at 0. Layouts:
     //   v0: 24 fixed bytes (through file-consistency flags), then 4 addresses
     //       (base/free-space/eof/driver) and the root symbol-table entry whose
     //       first two fields are link-name offset + object-header address.
@@ -268,15 +308,13 @@ fn read_root_group_address<S: ByteSource + ?Sized>(
     //   v1: as v0 but with 4 extra bytes (indexed-storage K + reserved).
     //   v2/3: 12 fixed bytes, then base/superblock-extension/eof addresses and
     //         the root-group object-header address.
-    // `base` is a file address, `o` at most 8 and `l` at most 255, so the
-    // arithmetic is in `u64` and cannot overflow: the signature offsets top
-    // out at 16384.
+    // `o` is at most 8 and `l` at most 255, so the arithmetic cannot overflow.
     let o64 = o as u64;
     let l64 = u64::from(probe.length_size);
     let addr_off = match probe.superblock_version {
-        0 => base + 24 + 4 * o64 + l64,
-        1 => base + 28 + 4 * o64 + l64,
-        2 | 3 => base + 12 + 3 * o64,
+        0 => 24 + 4 * o64 + l64,
+        1 => 28 + 4 * o64 + l64,
+        2 | 3 => 12 + 3 * o64,
         v => {
             return Err(FieldglassError::Parse(format!(
                 "unsupported HDF5 superblock version {v}"
@@ -369,6 +407,7 @@ pub fn btree_k<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
 ) -> Result<BtreeK, FieldglassError> {
+    superblock_at_base(source)?;
     probe
         .cache()
         .btree_k(source, || read_btree_k(source, probe))
@@ -378,7 +417,6 @@ fn read_btree_k<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
 ) -> Result<BtreeK, FieldglassError> {
-    let base = find_signature(source).ok_or_else(|| not_hdf5(source))?;
     let u16_at = |bytes: &[u8], at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]);
     let k = match probe.superblock_version {
         // After the signature (8), four version bytes, the two sizes and a
@@ -386,7 +424,7 @@ fn read_btree_k<S: ByteSource + ?Sized>(
         // consistency flags (4), and in version 1 Indexed Storage Internal
         // Node K.
         0 | 1 => {
-            let fields = source::read_at(source, base + 16, 10)?;
+            let fields = source::read_at(source, 16, 10)?;
             BtreeK {
                 group_leaf: u16_at(&fields, 0),
                 group_internal: u16_at(&fields, 2),
@@ -401,7 +439,7 @@ fn read_btree_k<S: ByteSource + ?Sized>(
             // Twelve fixed bytes, the base address, then the superblock
             // extension's address.
             let o = probe.offset_size;
-            let field = source::read_at(source, base + 12 + u64::from(o), usize::from(o))?;
+            let field = source::read_at(source, 12 + u64::from(o), usize::from(o))?;
             let extension = object_header::read_uint_le(&field, 0, usize::from(o))?;
             if group::is_undefined(extension, o) {
                 return Ok(BtreeK::default());

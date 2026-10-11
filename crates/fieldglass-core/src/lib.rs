@@ -29,7 +29,8 @@
 //! structure: which arrays render, and where a slice of one is placed (#704).
 //! `fieldglass-netcdf` also takes [`shuffle`], the byte transpose HDF5's
 //! shuffle filter applies, which Zarr's reader shares and which carries a
-//! Verus proof.
+//! Verus proof, and [`detect`](mod@detect), whose HDF5 signature search it
+//! shares so detection and the reader find the same files (#936).
 //! <!-- /parsing-surface -->
 //!
 //! What those modules have in common is that none of them is behind a feature,
@@ -37,7 +38,7 @@
 //! builds the three format crate libraries against a `core` with every feature
 //! off, so reaching for gated code fails there rather than at a consumer — and
 //! checks the list above against what those libraries actually name, which is
-//! the stronger claim the sentence is making. `detect`, `units` and
+//! the stronger claim the sentence is making. `units` and
 //! `spatial_index` (which `cf` builds over a swath's coordinates) are ungated
 //! too and are deliberately not on it: no format crate library uses them, and
 //! a list that quietly grows says nothing about how small the surface is.
@@ -146,6 +147,7 @@ pub use detect::Format;
 #[cfg(feature = "fs")]
 pub use detect::detect_format;
 pub use detect::detect_from_bytes;
+pub use detect::{DETECT_WINDOW, HDF5_SIGNATURE, HDF5_SIGNATURE_OFFSETS, find_hdf5_signature};
 pub use error::{FieldglassError, printable_bytes};
 pub use global_grid::{GlobalGrid, SynthesisedField};
 #[cfg(feature = "render")]
