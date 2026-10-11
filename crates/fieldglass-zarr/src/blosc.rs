@@ -28,6 +28,7 @@ use crate::blosclz;
 use crate::lz4;
 use crate::shuffle::{unbitshuffle, unshuffle};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::capped;
 
 /// Fixed header size, and the offset the block-offset array starts at.
 const HEADER_LEN: usize = 16;
@@ -342,16 +343,22 @@ fn decode_stream(
             // ceiling is the stream's own declared size, which the container
             // has already bounded.
             // The length is exact, so it is also where the buffer starts: one
-            // allocation for a valid stream, nothing copied (#981).
+            // allocation for a valid stream, nothing copied (#981). But the
+            // header states it, not the stream, so the start is no more than
+            // the stream's bytes could fill (#986).
             crate::deflate::inflate(
                 payload,
                 crate::deflate::Framing::Zlib,
-                expected,
+                expected.min(capped::inflate_bound(payload.len())),
                 expected,
                 "blosc zlib",
             )
         }
-        Inner::Zstd => crate::zstd::decompress_into(payload, expected, expected),
+        Inner::Zstd => crate::zstd::decompress_into(
+            payload,
+            expected.min(capped::unzstd_bound(payload.len())),
+            expected,
+        ),
         Inner::Snappy => Err(FieldglassError::UnsupportedSection(
             "blosc buffer uses the snappy compressor, which is not decoded (blosclz, lz4, \
              lz4hc, zlib and zstd are)"

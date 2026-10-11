@@ -375,17 +375,22 @@ impl Limit {
     }
 
     /// How large a codec's output buffer starts, for `input_len` bytes of
-    /// stream.
+    /// stream that can decode to at most `most(input_len)` bytes.
     ///
     /// The chunk's own length when it is known: a valid chunk comes out
     /// exactly that long, so one zeroed allocation holds it and nothing is
     /// copied. Growing toward it instead would hold the old buffer and the
     /// new one at once on each step, up to about twice the chunk for a moment
-    /// (#981). A ceiling is not a length, so there the first guess is
-    /// `miniz_oxide`'s own, twice the input, and the buffer doubles from it.
-    fn first_guess(self, input_len: usize) -> usize {
+    /// (#981). But that length comes from the chunk's dimensions, not the
+    /// stream, so it is bounded by what the stream could fill: a 12-byte
+    /// stream in a chunk stating 256 MiB had all 256 MiB zeroed before the
+    /// length check refused it (#986). A valid chunk is never past `most`, so
+    /// it still starts at its length. A ceiling is not a length, so there the
+    /// first guess is `miniz_oxide`'s own, twice the input, and the buffer
+    /// doubles from it.
+    fn first_guess(self, input_len: usize, most: fn(usize) -> usize) -> usize {
         match self {
-            Limit::Length(n) => n,
+            Limit::Length(n) => n.min(most(input_len)),
             Limit::Ceiling(_) => input_len.saturating_mul(2),
         }
     }
@@ -668,7 +673,7 @@ fn inflate_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError
     // anything already written.
     let flags = inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER
         | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-    let hint = limit.first_guess(data.len());
+    let hint = limit.first_guess(data.len(), capped::inflate_bound);
     let mut out = Vec::new();
     // A zero limit leaves the buffer empty, which only an empty stream fits.
     capped::grow_toward(&mut out, hint, limit.bytes());
@@ -714,7 +719,8 @@ fn unzstd_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError>
     let decoder =
         ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, MAX_ZSTD_WINDOW)
             .map_err(|e| FieldglassError::Parse(format!("zstd frame header: {e}")))?;
-    capped::read_to_end_within(decoder, limit.first_guess(data.len()), limit.bytes())
+    let hint = limit.first_guess(data.len(), capped::unzstd_bound);
+    capped::read_to_end_within(decoder, hint, limit.bytes())
         .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?
         .ok_or_else(|| limit.exceeded("zstd"))
 }

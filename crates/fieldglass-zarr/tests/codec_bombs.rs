@@ -33,13 +33,25 @@ struct Tracking;
 thread_local! {
     static ARMED: Cell<bool> = const { Cell::new(false) };
     static LARGEST: Cell<usize> = const { Cell::new(0) };
+    /// Bytes allocated minus bytes freed since arming. Signed: the read may
+    /// free blocks allocated before it.
+    static LIVE: Cell<isize> = const { Cell::new(0) };
+    static PEAK: Cell<isize> = const { Cell::new(0) };
 }
 
-fn note(size: usize) {
+/// Record a block of `size` bytes coming into being while `freed` bytes go
+/// away. A `realloc` that moves holds both at once, so the peak counts the
+/// new block before the old one is subtracted.
+fn note(size: usize, freed: usize) {
     // `try_with`: the allocator also runs while thread-locals are torn down.
     let _ = ARMED.try_with(|armed| {
         if armed.get() {
             let _ = LARGEST.try_with(|largest| largest.set(largest.get().max(size)));
+            let _ = LIVE.try_with(|live| {
+                let held = live.get() + size as isize;
+                let _ = PEAK.try_with(|peak| peak.set(peak.get().max(held)));
+                live.set(held - freed as isize);
+            });
         }
     });
 }
@@ -48,24 +60,25 @@ fn note(size: usize) {
 // const-initialised thread-locals, which never allocate.
 unsafe impl GlobalAlloc for Tracking {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        note(layout.size());
+        note(layout.size(), 0);
         // SAFETY: the caller's contract for `alloc`, passed through.
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        note(layout.size());
+        note(layout.size(), 0);
         // SAFETY: as above.
         unsafe { System.alloc_zeroed(layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        note(new_size);
+        note(new_size, layout.size());
         // SAFETY: as above.
         unsafe { System.realloc(ptr, layout, new_size) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        note(0, layout.size());
         // SAFETY: as above.
         unsafe { System.dealloc(ptr, layout) }
     }
@@ -87,13 +100,26 @@ fn decoder(compressor: &str) -> ChunkDecoder {
 /// The parse error reading `stored` gives, and the largest allocation the
 /// read made. The decoder is built before arming.
 fn refusal(compressor: &str, stored: &[u8]) -> (usize, String) {
-    let decoder = decoder(compressor);
+    let (largest, _, m) = measured_refusal(&decoder(compressor), compressor, stored);
+    (largest, m)
+}
+
+/// The parse error `decoder` gives for `stored`, with the largest allocation
+/// the read made and the most it held at once.
+fn measured_refusal(
+    decoder: &ChunkDecoder,
+    compressor: &str,
+    stored: &[u8],
+) -> (usize, usize, String) {
     LARGEST.with(|l| l.set(0));
+    LIVE.with(|l| l.set(0));
+    PEAK.with(|p| p.set(0));
     ARMED.with(|a| a.set(true));
     let result = decoder.decode(stored);
     ARMED.with(|a| a.set(false));
+    let peak = PEAK.with(Cell::get).max(0) as usize;
     match result {
-        Err(FieldglassError::Parse(m)) => (LARGEST.with(Cell::get), m),
+        Err(FieldglassError::Parse(m)) => (LARGEST.with(Cell::get), peak, m),
         other => panic!("{compressor}: expected a parse error, got {other:?}"),
     }
 }
@@ -126,12 +152,17 @@ fn gzip_bomb() -> Vec<u8> {
 /// so the header passes, around `stream` in compressor format `format` (3 is
 /// zlib, 4 zstd).
 fn blosc(format: u8, stream: &[u8]) -> Vec<u8> {
+    blosc_of(format, stream, CHUNK_BYTES)
+}
+
+/// [`blosc`] for a buffer and a block that state `bytes`.
+fn blosc_of(format: u8, stream: &[u8], bytes: usize) -> Vec<u8> {
     const HEADER: usize = 16;
     const DONT_SPLIT: u8 = 0x10;
     let start = HEADER + 4;
     let total = start + 4 + stream.len();
     let mut out = vec![2, 1, (format << 5) | DONT_SPLIT, 1];
-    for word in [CHUNK_BYTES, CHUNK_BYTES, total, start] {
+    for word in [bytes, bytes, total, start] {
         out.extend_from_slice(&(word as u32).to_le_bytes());
     }
     out.extend_from_slice(&(stream.len() as i32).to_le_bytes());
@@ -199,4 +230,36 @@ fn blosc_bombs_reserve_no_more_than_their_chunk() {
         &blosc(4, &zstd_bomb()),
         "zstd stream decompresses past the 3145728-byte ceiling",
     );
+}
+
+/// A blosc buffer stating one 3 MiB block, around a stream of 64 bytes.
+/// blosc reserves the buffer and the block from its header before decoding,
+/// two of 3 MiB. #981 then started the inner codec's buffer at the stream's
+/// stated length as well, a third 3 MiB, zeroed before the stream ended and
+/// the block's length check refused it (#986). That start is now bounded by
+/// what the stream's own bytes can decode to: 1,032 per byte of zlib
+/// (RFC 1951), 128 KiB per three bytes of zstd (RFC 8878).
+#[test]
+fn a_short_blosc_stream_is_not_handed_its_stated_length_to_fill() {
+    let compressor = r#"{"id": "blosc", "cname": "zlib", "clevel": 9, "shuffle": 0}"#;
+    let decoder = decoder(compressor);
+    let zlib = miniz_oxide::deflate::compress_to_vec_zlib(&[0; 64], 9);
+    let zstd = ruzstd::encoding::compress_to_vec(
+        &[0u8; 64][..],
+        ruzstd::encoding::CompressionLevel::Fastest,
+    );
+    for (format, stream) in [(3, zlib), (4, zstd)] {
+        let (_, peak, m) = measured_refusal(&decoder, compressor, &blosc(format, &stream));
+        assert!(
+            m.contains(&format!("decoded to 64 bytes, not the {CHUNK_BYTES}")),
+            "format {format}: {m}"
+        );
+        // The buffer and the block, and the codec's start beside them, which
+        // is under a megabyte for either stream: 6,323,677 bytes held at once
+        // for zlib and 6,955,755 for zstd, where zlib held 9,447,733 before.
+        assert!(
+            peak <= 2 * CHUNK_BYTES + (1 << 20),
+            "format {format}: held {peak} bytes at once"
+        );
+    }
 }

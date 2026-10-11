@@ -15,6 +15,14 @@
 //! crates that need them (`miniz_oxide` and `ruzstd` are dependencies of the
 //! NetCDF and Zarr readers, not of this crate); what they share is this
 //! growth rule, which depends on nothing.
+//!
+//! A buffer whose final length is known starts at that length, so a valid
+//! stream fills one allocation and nothing is copied. But the length comes
+//! from the container, not the stream, so the start is also bounded by the
+//! most the stream's own bytes can decode to, [`inflate_bound`] and
+//! [`unzstd_bound`]: a few bytes stating 256 MiB are not handed 256 MiB to
+//! fill (#986). Those two are arithmetic on the formats' limits, so they too
+//! depend on nothing.
 
 use std::io::{self, Read};
 
@@ -85,7 +93,54 @@ pub fn read_to_end_within(
 /// The most [`read_to_end_within`] asks a reader for at once: zstd's largest
 /// block, so a streaming decoder need not hold more than a block past its
 /// window to answer.
-pub const READ_STEP: usize = 128 << 10;
+pub const READ_STEP: usize = ZSTD_MAX_BLOCK;
+
+/// The most a DEFLATE stream (RFC 1951) of `input_len` bytes can inflate to:
+/// 1,032 bytes per input byte.
+///
+/// The cheapest output DEFLATE codes is a match of 258 bytes, the longest
+/// there is (length code 285, no extra bits; RFC 1951 section 3.2.5), behind
+/// a one-bit literal/length code and a one-bit distance code with no extra
+/// bits. No code is shorter than one bit: a dynamic block's code lengths
+/// start at one, and even a lone distance code "is encoded using one bit,
+/// not zero bits" (section 3.2.7). So every two bits of input code at most
+/// 258 bytes, 1,032 per byte; a literal codes one byte in at least one bit,
+/// and block headers and a zlib wrapper code nothing at all.
+///
+/// A start for an output buffer whose final length is stated by something
+/// other than the stream, as `min(stated, inflate_bound(input))`: a stream
+/// that can really fill the stated length gets it in one allocation, and one
+/// that cannot is never handed more than it could fill (#986). It is a start,
+/// not a limit, so a decoder that somehow went past it would only grow.
+pub fn inflate_bound(input_len: usize) -> usize {
+    input_len.saturating_mul(DEFLATE_MAX_EXPANSION)
+}
+
+/// Bytes of output one byte of DEFLATE can code at most; see
+/// [`inflate_bound`].
+const DEFLATE_MAX_EXPANSION: usize = 1032;
+
+/// The most a zstd frame (RFC 8878) of `input_len` bytes can decompress to:
+/// 128 KiB for every three bytes.
+///
+/// A frame's data is a run of blocks, each behind a three-byte header
+/// (RFC 8878 section 3.1.1.2), and no block decompresses past
+/// `Block_Maximum_Size`, at most 128 KiB: "This maximum is applicable to both
+/// the decompressed size and the compressed size of any block in the frame"
+/// (section 3.1.1.2.4). The bound counts every three input bytes as a whole
+/// block, which is loose by the frame header and the block contents, and is
+/// used the same way as [`inflate_bound`], as a start and never as a limit.
+pub fn unzstd_bound(input_len: usize) -> usize {
+    input_len
+        .div_ceil(ZSTD_BLOCK_HEADER)
+        .saturating_mul(ZSTD_MAX_BLOCK)
+}
+
+/// The size of a zstd block header (RFC 8878 section 3.1.1.2).
+const ZSTD_BLOCK_HEADER: usize = 3;
+
+/// The most one zstd block decompresses to (RFC 8878 section 3.1.1.2.4).
+const ZSTD_MAX_BLOCK: usize = 128 << 10;
 
 /// Whether `reader` has at least one more byte.
 fn read_one(reader: &mut impl Read) -> io::Result<bool> {
@@ -126,6 +181,19 @@ mod tests {
         let mut buf = vec![0u8; 1_600];
         buf.resize(3_000, 0);
         assert!(buf.capacity() >= 3_200, "capacity {}", buf.capacity());
+    }
+
+    /// The bounds per input byte, and that a hostile input length saturates
+    /// rather than wrapping to a small start.
+    #[test]
+    fn codec_bounds_scale_with_the_input_and_saturate() {
+        assert_eq!(inflate_bound(0), 0);
+        assert_eq!(inflate_bound(12), 12_384);
+        assert_eq!(unzstd_bound(0), 0);
+        assert_eq!(unzstd_bound(17), 6 * (128 << 10));
+        assert_eq!(unzstd_bound(18), 6 * (128 << 10));
+        assert_eq!(inflate_bound(usize::MAX), usize::MAX);
+        assert_eq!(unzstd_bound(usize::MAX), usize::MAX);
     }
 
     #[test]

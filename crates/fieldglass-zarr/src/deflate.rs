@@ -39,7 +39,9 @@ pub(crate) fn first_guess(data: &[u8]) -> usize {
 ///
 /// A caller that knows the exact output length passes it as `hint`, so a valid
 /// stream fills one zeroed allocation and nothing is copied; growing toward it
-/// would briefly hold the old buffer and the new one on each step.
+/// would briefly hold the old buffer and the new one on each step. A length
+/// stated outside the stream is first bounded by [`capped::inflate_bound`], so
+/// a short stream is not handed more than it could fill (#986).
 ///
 /// `miniz_oxide`'s `decompress_to_vec_*_with_limit` caps what it writes but
 /// grows its buffer with `Vec::resize`, whose amortised growth can reserve
@@ -308,6 +310,26 @@ mod tests {
                     assert_eq!(got, miniz_oxide::inflate::decompress_to_vec(&raw).unwrap());
                     assert!(got.capacity() <= limit, "capacity {}", got.capacity());
                 }
+            }
+        }
+    }
+
+    /// The densest streams `miniz_oxide` writes stay inside
+    /// [`capped::inflate_bound`], so a valid stream whose length is stated
+    /// always starts at that length (#986).
+    #[test]
+    fn the_densest_streams_stay_within_the_inflate_bound() {
+        let zeros = vec![0u8; 8 << 20];
+        for level in [1, 6, 9, 10] {
+            let zlib = miniz_oxide::deflate::compress_to_vec_zlib(&zeros, level);
+            let raw = miniz_oxide::deflate::compress_to_vec(&zeros, level);
+            for stream in [zlib, raw] {
+                assert!(
+                    zeros.len() <= capped::inflate_bound(stream.len()),
+                    "level {level}: {} bytes from {}",
+                    zeros.len(),
+                    stream.len()
+                );
             }
         }
     }

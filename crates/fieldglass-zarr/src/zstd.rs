@@ -36,8 +36,10 @@ pub fn decompress(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError>
 }
 
 /// [`decompress`] into a buffer that starts at `hint` bytes. A caller that
-/// knows the exact output length passes it, so a valid frame fills one
-/// allocation and nothing is copied.
+/// knows the exact output length passes it, bounded by
+/// [`capped::unzstd_bound`] when something other than the frame states it,
+/// so a valid frame fills one allocation, nothing is copied, and a short
+/// frame is not handed more than it could fill (#986).
 pub(crate) fn decompress_into(
     data: &[u8],
     hint: usize,
@@ -94,6 +96,26 @@ mod tests {
             matches!(&err, FieldglassError::Parse(m) if m.contains("frame header")),
             "got {err:?}"
         );
+    }
+
+    /// The densest frames `ruzstd` writes stay inside
+    /// [`capped::unzstd_bound`], so a valid frame whose length is stated
+    /// always starts at that length (#986).
+    #[test]
+    fn the_densest_frames_stay_within_the_unzstd_bound() {
+        let zeros = vec![0u8; 8 << 20];
+        for level in [
+            ruzstd::encoding::CompressionLevel::Uncompressed,
+            ruzstd::encoding::CompressionLevel::Fastest,
+        ] {
+            let frame = ruzstd::encoding::compress_to_vec(zeros.as_slice(), level);
+            assert!(
+                zeros.len() <= capped::unzstd_bound(frame.len()),
+                "{} bytes from {}",
+                zeros.len(),
+                frame.len()
+            );
+        }
     }
 
     #[test]
