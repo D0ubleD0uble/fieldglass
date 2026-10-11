@@ -25,3 +25,33 @@ fn a_listing_past_the_name_cap_is_unsupported_not_a_decode_error() {
         "{message}"
     );
 }
+
+// A file that shares a store libhdf5 reads is refused by policy, not as corrupt
+// (#987). The shared continuation chunk is refused by libhdf5 too, so it is.
+const ATTRIBUTES: &[u8] =
+    include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_shared_attribute_storage.h5");
+const LINKS: &[u8] =
+    include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_shared_link_storage.h5");
+const LOCAL_HEAP: &[u8] =
+    include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_shared_local_heap.h5");
+const CONTINUATION: &[u8] =
+    include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_shared_continuation.h5");
+
+#[test]
+fn a_store_libhdf5_reads_is_unsupported_and_a_block_it_refuses_is_decode() {
+    for (name, bytes, store) in [
+        ("attributes", ATTRIBUTES, "dense attribute or link storage"),
+        ("links", LINKS, "dense attribute or link storage"),
+        ("local heap", LOCAL_HEAP, "local heap"),
+    ] {
+        let refused = Session::open(bytes.to_vec()).expect_err(name);
+        assert_eq!(refused.code(), "unsupported", "{name}: {refused:?}");
+        let message = refused.to_string();
+        assert!(
+            message.contains(store) && message.contains("The file itself is fine"),
+            "{name}: {message}"
+        );
+    }
+    let corrupt = Session::open(CONTINUATION.to_vec()).expect_err("shared continuation");
+    assert_eq!(corrupt.code(), "decode", "{corrupt:?}");
+}

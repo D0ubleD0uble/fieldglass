@@ -44,6 +44,7 @@
 use std::borrow::Cow;
 
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::ArrayError;
 use fieldglass_core::bytes::{ByteRange, ByteSource, SourceIdentity, checked_usize};
 
 pub(crate) use fieldglass_core::bytes::{FileCursor, read_at, read_up_to, scan_windows};
@@ -238,12 +239,14 @@ impl<S: ByteSource + ?Sized> Fields for FileCursor<'_, S> {
 pub(crate) struct ClaimedRanges {
     /// The first few ranges, held inline: a header has its chunk 0 and a
     /// continuation or two, a small B-tree a node or two, and a map that is
-    /// never inserted into never allocates. Start and end (exclusive).
-    inline: [(u64, u64); CLAIMS_INLINE],
+    /// never inserted into never allocates. Start, end (exclusive) and whether
+    /// the range is a store (see [`ClaimedRanges::claim_store`]).
+    inline: [(u64, u64, bool); CLAIMS_INLINE],
     /// How many of `inline` are in use.
     held: usize,
-    /// Start → end (exclusive) of every range past the inline ones.
-    ranges: std::collections::BTreeMap<u64, u64>,
+    /// Start → end (exclusive) and store flag of every range past the inline
+    /// ones.
+    ranges: std::collections::BTreeMap<u64, (u64, bool)>,
 }
 
 /// Ranges [`ClaimedRanges`] holds before it allocates.
@@ -253,11 +256,45 @@ impl ClaimedRanges {
     /// Claim `len` bytes at `start` for `what`, refusing them if they overlap
     /// any range already claimed. An empty range claims its one address, so a
     /// zero-length block named twice is still caught.
+    ///
+    /// An overlap is [`FieldglassError::Parse`]: a structure that names one
+    /// block twice breaks a rule the specification states or one libhdf5
+    /// enforces, so the file is corrupt.
     pub(crate) fn claim(
         &mut self,
         start: u64,
         len: u64,
         what: &str,
+    ) -> Result<(), FieldglassError> {
+        self.claim_as(start, len, what, None)
+    }
+
+    /// [`claim`](Self::claim) for a store one object owns and a valid file
+    /// could still share between objects: a dense attribute or link store, a
+    /// local heap (ADR-0016 decision 2).
+    ///
+    /// libhdf5 reads these shared, so a second claim of the very same block
+    /// by a store claim is [`ArrayError::SharedStorage`], which says the file
+    /// is fine and reaches a host as `unsupported`. `store` names what is
+    /// shared. An overlap that is not an exact repeat of an earlier store
+    /// claim (a store overlapping an object header, a heap cutting across
+    /// another) is still [`FieldglassError::Parse`].
+    pub(crate) fn claim_store(
+        &mut self,
+        start: u64,
+        len: u64,
+        what: &str,
+        store: &'static str,
+    ) -> Result<(), FieldglassError> {
+        self.claim_as(start, len, what, Some(store))
+    }
+
+    fn claim_as(
+        &mut self,
+        start: u64,
+        len: u64,
+        what: &str,
+        store: Option<&'static str>,
     ) -> Result<(), FieldglassError> {
         let end = start.checked_add(len.max(1)).ok_or_else(|| {
             FieldglassError::Parse(format!("{what} at {start} runs past the address space"))
@@ -266,21 +303,41 @@ impl ClaimedRanges {
         let after = self.ranges.range(start..).next();
         let overlaps = self.inline[..self.held]
             .iter()
-            .any(|&(s, e)| s < end && start < e)
-            || before.is_some_and(|(_, &e)| e > start)
+            .any(|&(s, e, _)| s < end && start < e)
+            || before.is_some_and(|(_, &(e, _))| e > start)
             || after.is_some_and(|(&s, _)| s < end);
         if overlaps {
+            // The same block, claimed again as a store.
+            if let Some(store) = store
+                && self.is_store(start, end)
+            {
+                return Err(FieldglassError::Array(ArrayError::SharedStorage {
+                    what: store,
+                }));
+            }
             return Err(FieldglassError::Parse(format!(
                 "{what} at {start} overlaps one already read; each is read once"
             )));
         }
+        let is_store = store.is_some();
         if self.held < CLAIMS_INLINE {
-            self.inline[self.held] = (start, end);
+            self.inline[self.held] = (start, end, is_store);
             self.held += 1;
         } else {
-            self.ranges.insert(start, end);
+            self.ranges.insert(start, (end, is_store));
         }
         Ok(())
+    }
+
+    /// Whether exactly `start..end` was claimed as a store.
+    fn is_store(&self, start: u64, end: u64) -> bool {
+        self.inline[..self.held]
+            .iter()
+            .any(|&(s, e, store)| store && s == start && e == end)
+            || self
+                .ranges
+                .get(&start)
+                .is_some_and(|&(e, store)| store && e == end)
     }
 }
 
@@ -414,7 +471,7 @@ mod addressed_tests {
 
 #[cfg(test)]
 mod claimed_ranges_tests {
-    use super::ClaimedRanges;
+    use super::{ArrayError, ClaimedRanges, FieldglassError};
 
     #[test]
     fn a_range_may_be_claimed_once_and_never_overlapped() {
@@ -449,5 +506,43 @@ mod claimed_ranges_tests {
             "an empty range claims its address"
         );
         assert!(c.claim(u64::MAX, 2, "node").is_err(), "overflow is refused");
+    }
+
+    #[test]
+    fn a_store_claimed_twice_is_shared_storage_and_any_other_overlap_is_corrupt() {
+        let shared = |e: FieldglassError| {
+            matches!(
+                e,
+                FieldglassError::Array(ArrayError::SharedStorage { what: "heap" })
+            )
+        };
+        let mut c = ClaimedRanges::default();
+        c.claim_store(100, 50, "heap header", "heap").unwrap();
+        c.claim(200, 10, "chunk").unwrap();
+        // The same block again, as a store: valid but shared.
+        assert!(shared(
+            c.claim_store(100, 50, "heap header", "heap").unwrap_err()
+        ));
+        // A different range cutting across a store, or a store cutting across
+        // a plain claim, or a plain claim repeating a store, is corrupt.
+        for err in [
+            c.claim_store(120, 50, "heap header", "heap").unwrap_err(),
+            c.claim_store(200, 10, "heap header", "heap").unwrap_err(),
+            c.claim(100, 50, "chunk").unwrap_err(),
+        ] {
+            assert!(matches!(err, FieldglassError::Parse(_)), "{err:?}");
+        }
+        // The same holds once the ranges spill out of the inline slots.
+        for start in [300, 400, 500, 600] {
+            c.claim(start, 10, "chunk").unwrap();
+        }
+        c.claim_store(700, 10, "heap header", "heap").unwrap();
+        assert!(shared(
+            c.claim_store(700, 10, "heap header", "heap").unwrap_err()
+        ));
+        assert!(matches!(
+            c.claim_store(705, 10, "heap header", "heap").unwrap_err(),
+            FieldglassError::Parse(_)
+        ));
     }
 }
