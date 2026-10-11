@@ -768,7 +768,9 @@ export function renderImagePanelHtml(
     `style-src ${webview.cspSource} 'unsafe-inline'`,
     `img-src ${webview.cspSource} blob: data:`,
   ].join("; ");
-  const titleLine = composeTitleLine(meta);
+  // A GRIB panel written while it waits for a message to be picked names
+  // none (#959), in the heading and in what the PNG export would draw.
+  const titleLine = pickMessages ? NO_MESSAGE_HEADING : composeTitleLine(meta);
   // `level` is the bare value ("300", "100 – 85"); `levelType` carries the
   // unit and surface name ("(hPa) Isobaric level", "Cloud base level").
   // Together they read naturally as "300 (hPa) Isobaric level". For surface
@@ -783,7 +785,7 @@ export function renderImagePanelHtml(
     : meta.levelType;
   const subBase = [levelDescription, meta.referenceTime, meta.forecast]
     .filter((s) => !!s).join(" · ");
-  const subLine = composeSubtitle(subBase, composeTruncationNote(meta));
+  const subLine = pickMessages ? "" : composeSubtitle(subBase, composeTruncationNote(meta));
   const defaultPngName = composeDefaultPngName(meta);
   // Whether the overlays are offered for the field the panel is written for.
   // A slice panel then follows each slice it draws (#840).
@@ -3397,8 +3399,8 @@ export function renderImagePanelHtml(
   </style>
 </head>
 <body>
-  <h1 id="title-line">${escapeHtml(pickMessages ? NO_MESSAGE_HEADING : titleLine)}</h1>
-  <div class="subtitle">${pickMessages ? "" : escapeHtml(subLine)}</div>
+  <h1 id="title-line">${escapeHtml(titleLine)}</h1>
+  <div class="subtitle">${escapeHtml(subLine)}</div>
   <div class="projection" id="projection-summary">${pickMessages ? "" : escapeHtml(projectionSummary)}</div>
   <div class="toolbar" role="toolbar" aria-label="Render settings">
     <div class="toolbar-row">
