@@ -105,9 +105,19 @@ exactly what it grows to and never past the limit, around the same
 `miniz_oxide` decoder and the same flags; Zarr's zlib, gzip, zstd and blosc
 codecs share it. The tests measure the largest single allocation under a
 tracking allocator, because a test of the length a codec returns cannot see
-its capacity. `ruzstd` sizes its own window buffer the same way, up to about
-twice the window, which `MAX_ZSTD_WINDOW` bounds and the output limit does
-not.
+its capacity. When the chunk's length is known the buffer starts at it, so a
+valid chunk is one zeroed allocation and nothing is copied; growing toward it
+held the old and new buffers at once on each step, which the largest single
+allocation does not show, so the test measures the peak held as well.
+
+`ruzstd` sizes its own ring buffer the same way, to the next power of two
+past what it holds plus one byte: up to about twice the window, which
+`MAX_ZSTD_WINDOW` bounds and the output limit does not. A single-segment frame
+states its content size instead of a window, and the ring is sized from that,
+`next_power_of_two(content) + 1`. `ruzstd` also buffers whatever it decodes
+until the caller's slice is full, so the output is read in steps of one zstd
+block (`capped::READ_STEP`, 128 KiB); handed a whole 3 MiB chunk at once it
+held a second 4 MiB copy beside the output.
 
 ## Why szip is a project, not a quick win
 
