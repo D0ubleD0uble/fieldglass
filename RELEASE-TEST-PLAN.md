@@ -37,8 +37,9 @@ cannot support.
 ## 0. Setup (once)
 
 ```sh
-# From the repo root, on master.
-git checkout master && git pull
+# From the repo root, at the commit being released (RELEASING.md's
+# $RELEASE_SHA, the prep merge), not whatever master holds now.
+git fetch origin && git checkout "$RELEASE_SHA"
 
 # Build the native module into the extension so the dev host runs current Rust,
 # then compile the TypeScript.
@@ -67,7 +68,11 @@ which is wind *speed* at 300 hPa, not a u/v pair. Arrows, Compare on GRIB and
 the reload checks all need two or more messages, and no committed NetCDF or Zarr
 file has a real time or level axis to animate. This step builds those files.
 Everything lands in `samples/0.6.0/`, which git ignores. It needs `curl`, and
-`xarray` with `zarr` 3 and `netCDF4` for the Zarr stores.
+`xarray`, `zarr` 3 and `netCDF4` in the `python3` you run it with. If that
+Python lacks them, make a throwaway environment for this step:
+`python3 -m venv /tmp/fg-venv && /tmp/fg-venv/bin/pip install xarray 'zarr>=3' netCDF4`,
+then run the Python steps below with `/tmp/fg-venv/bin/python` in place of
+`python3`.
 
 ```sh
 mkdir -p samples/0.6.0 && cd samples/0.6.0
@@ -90,6 +95,16 @@ import xarray as xr
 ds = xr.open_dataset('ncep_air_daily_2024.nc')
 ds.to_zarr('air_v2.zarr', zarr_format=2, consolidated=True, mode='w')
 ds.to_zarr('air_v3.zarr', zarr_format=3, consolidated=False, mode='w')
+"
+
+# A failed download can leave an HTML error page under the right name. This
+# must print nothing.
+for f in gfs_wind.grib2 hrrr_wind.grib2; do [ "$(head -c4 "$f")" = GRIB ] || echo "BAD $f"; done
+python3 -c "
+import netCDF4
+for f in ['ncep_air_daily_2024.nc', 'ncep_air_levels_ltm.nc']:
+    d = netCDF4.Dataset(f)
+    assert d['air'].shape[0] in (366, 12), f
 "
 cd ../..
 
@@ -204,6 +219,7 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1` | 13 |
 | `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` | 1, 15 |
 | `F: crates/fieldglass-grib2/tests/fixtures/ccsds_flags46_12bit.grib2` | 17 |
+| `F: extension/src/test/fixtures/healpix_n4_ring.grib2` | 1, 14 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc` | 22, 25 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/fill_only_*.nc` | 27 |
 | HDF5 and NetCDF-4 fixtures under `crates/fieldglass-netcdf/tests/fixtures/` | 10, 26, 29, 30, 31, 32, 34 |
@@ -385,9 +401,10 @@ A depth axis with fill values used to fail to draw; no file here has one.
       arrows over the same states (same date and cycle). Directions agree to
       within the difference two models give, on both the west and east edges
       of the domain. HRRR components run along the Lambert grid, whose axes
-      are turned about 17° from north at the east and west edges, so a
-      missing rotation shows as arrows that agree in the middle and disagree
-      at the edges.
+      are turned from north by sin 38.5° × (lon + 97.5°): about 15° to 23°
+      along the east and west edges, most at the northern corners. A missing
+      rotation shows as arrows that agree in the middle and disagree at the
+      edges.
 
 **`B: samples/0.6.0/cmc_pair.grib`**
 
@@ -493,6 +510,10 @@ does not open yet (#248). There is no real-world szip file in the samples.
 - [ ] Message 0's level reads `Ground or water surface`, not `Cloud base
       level`, and shows no level number.
 
+The four level types now read in their table's unit (a height in centimetres,
+eta levels and layers, the kPa top of a mixed-precision layer) have no file
+here; `crates/fieldglass-grib1/tests/code_tables.rs` covers them.
+
 ## 13. A code a table does not name shows as its number (#774)
 
 **`B: samples/0.6.0/grib1_names.grib1`** (same file as §11)
@@ -520,6 +541,10 @@ The other wordings (`Production status 200`, `Fixed surface 242`,
       `Stochastically Perturbed Parametrization Tendency (SPPT)`.
 - [ ] Its units are empty, not `Numeric`, in the message table, the panel
       title and the colour bar.
+
+**`F: extension/src/test/fixtures/healpix_n4_ring.grib2`** (also used in §1)
+
+- [ ] The Grid column names the HEALPix grid, not `Unknown grid template`.
 
 `crates/fieldglass-grib2/tests/wmo_code_tables.rs` holds every other label to the
 WMO tables.
@@ -565,9 +590,11 @@ accuracy up to T8192 is checked in CI (`tests/spectral_truncation.rs`,
 
 **`F: crates/fieldglass-grib2/tests/fixtures/ccsds_flags46_12bit.grib2`**
 
-- [ ] Opens and draws a global field. eccodes fails on this file; Fieldglass
-      decodes it (ADR-0012). Values are compared with eccodes bit for bit in
-      CI (`tests/decode_ccsds.rs`).
+- [ ] Opens and draws a global field with a maximum near 314.7. The pinned
+      eccodes 2.34.1 fails on this file (`AEC_DATA_ERROR`); Fieldglass decodes
+      it (ADR-0012). In CI (`tests/decode_ccsds.rs`) its values are checked
+      against eccodes' decode of the source field it was repacked from, not
+      against eccodes' decode of this file.
 
 ## 18. A NetCDF or Zarr panel offers only what the slice can do (#574, #822, #831)
 
@@ -599,7 +626,7 @@ The same rule on a Zarr store is covered by
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc`** (same file as §18)
 
 - [ ] On `temperature`, turn on coastlines and contours. Switch to
-      `lat_bnds`: the overlays, contours and arrows are disabled, with
+      `lat_bnds`: the overlays and contours are disabled, with
       "Overlays need a grid placed on the Earth, and this one isn't." No
       error is shown.
 - [ ] Switch back to `temperature`: the coastlines and contours you had on
@@ -607,30 +634,35 @@ The same rule on a Zarr store is covered by
 
 **`F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2`** (same file as §19)
 
-- [ ] The overlays and arrows are disabled with the same kind of note.
+- [ ] The overlays are disabled with "Overlays need a grid placed on the
+      Earth, and this one isn't." The file holds one message, so there is no
+      Vectors row; refusing arrows on an unplaced grid is covered by
+      `extension/src/test/suite/overlay-placement.test.ts`.
 
-## 21. Contours, arrows, the long CSV and the zonal average gated by grid (#945, #979)
+## 21. Contours, the long CSV and the zonal average gated by grid (#945, #979)
 
-**`F: crates/fieldglass-netcdf/tests/fixtures/goes_geostationary.nc`**, `Rad`
+**`F: crates/fieldglass-netcdf/tests/fixtures/goes_geostationary.nc`** (`Rad`), **`F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc`** (`CMI`) and **`S: samples/goes.nc`**
 
-- [ ] The field is placed: coastlines are offered and draw. Contours and the
-      zonal average are disabled, each with a note, and Export CSV offers only
-      the matrix layout. Nothing shows an error.
+The first two are small sectors with every pixel on the Earth; `goes.nc` is a
+mesoscale sector. The same notes apply to all three, and to a full disc.
 
-**`F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc`** and **`S: samples/goes.nc`** — *confirm after #979 merges*
+- [ ] The field is placed: coastlines are offered and draw.
+- [ ] Contours are disabled with "Contours aren't available for
+      satellite-view grids yet."
+- [ ] The zonal average is disabled with "A zonal average needs rows that
+      are circles of latitude, and this grid's rows aren't."
+- [ ] Export CSV offers only the matrix layout, and its prompt says "The long
+      layout isn't available for satellite-view grids yet."
+- [ ] No note claims that some of the grid's points have no position, and
+      nothing shows an error.
 
-- [ ] The note beside disabled Contours gives the same reason the operation
-      would. Both files are sectors with every pixel on the Earth, so the
-      0.6.0 note "some of this grid's points have none" is wrong for them
-      (#979). After #979 either Contours, arrows and the long CSV are offered
-      and work on these sectors, or the notes say these operations are not
-      available for satellite-view grids yet. Whichever #979 chose, the note
-      must not claim missing positions on a sector.
+A NetCDF panel has no Vectors row, so arrows are not checked here.
 
 **`S: samples/hrrr.grib2`** (Lambert)
 
-- [ ] Contours and arrows stay offered and draw. Only the zonal average is
-      disabled (§8).
+- [ ] Contours stay offered and draw. Only the zonal average is disabled
+      (§8). The file holds one message, so it has no Vectors row; arrows on a
+      Lambert grid are checked on `hrrr_wind.grib2` in §6.
 
 ## 22. A NetCDF or Zarr panel copes with its file changing or closing (#839)
 
@@ -655,7 +687,9 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       copy `members_8_7.grib2` over `members.grib2` and open it again. Make the
       panel draw again (*Developer: Reload Webviews*, or import a colour
       table, which rebuilds every open panel). It draws member 8, now message 0,
-      under its own heading.
+      under its own heading. Before the change, set Compare with message 0
+      (member 7) as Field B; after it, Field B is still member 7, now
+      message 1.
 - [ ] Close the editor again, copy `members_8_8.grib2` over it (member 8 twice)
       and reopen. The panel draws nothing, its heading reads `No message
       drawn`, and it lists the file's messages to pick from.
@@ -753,8 +787,11 @@ Process Explorer*) does not jump by hundreds of MB.
       `deflate_f8_unwritten` stores no chunk and reads as its fill value.
 - [ ] `hdf5_szip_hostile.h5`: both datasets refused (#975).
 - [ ] `hdf5_codec_bombs.h5`: both bombs refused as a corrupt chunk (#981).
-      *Confirm after #992 merges:* the short `[shuffle, deflate]` and
-      `[shuffle, zstd]` streams it adds are refused the same way (#986).
+      `deflate_short_stream` and `zstd_short_stream` are each refused as a
+      chunk that decoded to 64 bytes, expected 268,435,456, with no jump in
+      memory (#986). The matching bounds on Zarr's blosc, LZ4 and transpose
+      paths are covered only by tests (`fieldglass-zarr`'s
+      `tests/codec_bombs.rs`).
 - [ ] `hdf5_shared_attribute_storage.h5`, `hdf5_shared_link_storage.h5`,
       `hdf5_shared_local_heap.h5`: refused rather than read (#921).
       *Confirm after #991 merges:* the message says the file is fine and
@@ -806,9 +843,11 @@ its own row and column.
 
 **`F: crates/fieldglass-grib1/tests/fixtures/`** `reduced_gg_second_order.grib1`, `reduced_gg_second_order_boust.grib1`, `reduced_gg_row_by_row.grib1`, `reduced_gg_row_by_row_boust.grib1`; **`F: crates/fieldglass-grib2/tests/fixtures/`** `second_order_reduced_gaussian.grib2`, `second_order_boust_reduced_gaussian.grib2`
 
-All hold the same smooth field on an N32 reduced Gaussian grid.
+Each pair is one field on an N32 reduced Gaussian grid, stored two ways: the
+GRIB1 pairs a smooth synthetic field, the GRIB2 pair a pressure-level
+temperature. Compare within a pair, not across them.
 
-- [ ] **priority** Each pair draws the same picture, smooth from row to row.
+- [ ] **priority** The two files of each pair draw the same picture.
       A reversed row shows as a comb: every second row offset or mirrored
       against its neighbours. The row-by-row files used to be refused.
 
