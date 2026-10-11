@@ -51,6 +51,7 @@ import {
   composeTitleLine,
   composeTruncationNote,
   renderImagePanelHtml,
+  UNPLACED_REPROJECT_NOTE,
   type PanelField,
   type SlicePanelData,
 } from "../../render-panel";
@@ -1170,7 +1171,7 @@ suite("render-panel HTML", () => {
     assert.strictEqual(meta.reprojectable, false);
     const { offered, html } = offeredProjections(meta);
     assert.deepStrictEqual(offered, ["source"], `bi-Fourier must stay source-only, got ${offered.join(", ")}`);
-    assert.ok(/Reprojection isn't available/.test(html), "bi-Fourier must keep the source-only note");
+    assert.ok(html.includes(UNPLACED_REPROJECT_NOTE), "bi-Fourier must keep the source-only note");
   });
 
   test("the message table offers Render exactly where Rust places the values (#776)", () => {
@@ -1856,7 +1857,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       reprojectable: false,
     });
     assert.deepStrictEqual(unplaced.offered, ["source"], `got ${unplaced.offered.join(", ")}`);
-    assert.ok(/Reprojection isn't available for source grids/.test(unplaced.html));
+    assert.ok(unplaced.html.includes(UNPLACED_REPROJECT_NOTE), "the note says the slice is not placed (#960)");
     assert.ok(unplaced.html.includes("NetCDF slice — source"), "the caption says so too");
   });
 

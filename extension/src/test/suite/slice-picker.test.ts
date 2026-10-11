@@ -24,13 +24,14 @@ import {
   projectionOptionsHtml,
   renderImagePanelHtml,
   reprojectionNote,
+  UNPLACED_REPROJECT_NOTE,
   type PanelField,
 } from "../../render-panel";
 
 const EXT_ID = "fieldglass.fieldglass";
 
-/** The note beside the picker for a slice with no coordinates. */
-const UNPLACED_NOTE = "Reprojection isn't available for source grids yet.";
+/** The note beside the picker for a slice with no coordinates (#960). */
+const UNPLACED_NOTE = "Reprojection needs a grid placed on the Earth, and this one isn't.";
 
 function extensionPath(): string {
   const ext = vscode.extensions.getExtension(EXT_ID);
@@ -204,9 +205,34 @@ suite("Slice panel projection picker", () => {
       "equal_earth",
     ]);
     assert.deepStrictEqual(offered(projectionOptionsHtml(MAP_PROJECTIONS, false)), ["source"]);
-    assert.strictEqual(reprojectionNote(true, "latlon"), "");
-    assert.strictEqual(reprojectionNote(false, "source"), UNPLACED_NOTE);
-    assert.strictEqual(reprojectionNote(false, null), "Reprojection isn't available for this grid yet.");
+    assert.strictEqual(reprojectionNote(true, "placed", "latlon"), "");
+  });
+
+  test("the projection note is keyed on placement, not on the family (#960)", () => {
+    assert.strictEqual(UNPLACED_REPROJECT_NOTE, UNPLACED_NOTE);
+    // A slice no coordinates place, and a declined grid of a family this
+    // build reprojects: neither family is unsupported, the grid is not placed.
+    assert.strictEqual(reprojectionNote(false, "unplaceable", "source"), UNPLACED_NOTE);
+    assert.strictEqual(reprojectionNote(false, "unplaceable", "lambert"), UNPLACED_NOTE);
+    assert.strictEqual(reprojectionNote(false, "unplaceable", "space_view"), UNPLACED_NOTE);
+    // Nothing to place, or no answer at all.
+    assert.strictEqual(reprojectionNote(false, "no_raster", "bifourier"), UNPLACED_NOTE);
+    assert.strictEqual(reprojectionNote(false, "predefined_unresolved", null), UNPLACED_NOTE);
+    assert.strictEqual(reprojectionNote(false, undefined, null), UNPLACED_NOTE);
+    // A template this build does not model keeps "not yet".
+    assert.strictEqual(
+      reprojectionNote(false, "unsupported", "unsupported(3.4)"),
+      "Reprojection isn't available for unsupported(3.4) grids yet.",
+    );
+    assert.strictEqual(reprojectionNote(false, "unsupported", null), "Reprojection isn't available for this grid yet.");
+    // A placed grid that declines (a lat/lon grid scanned east to west) is
+    // that grid, not its family.
+    assert.strictEqual(reprojectionNote(false, "placed", "latlon"), "Reprojection isn't available for this latlon grid.");
+    assert.strictEqual(reprojectionNote(false, "placed", null), "Reprojection isn't available for this grid.");
+    // A grid that reprojects has no note, whatever else is said.
+    for (const placement of ["placed", "unplaceable", "unsupported", undefined] as const) {
+      assert.strictEqual(reprojectionNote(true, placement, "lambert"), "");
+    }
   });
 
   // The note's own `display: block` overrides the UA stylesheet's [hidden]

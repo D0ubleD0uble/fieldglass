@@ -1762,7 +1762,7 @@ export function sliceAnswer(grid: SliceGrid | null): SliceAnswer {
   return {
     label: grid?.label ?? null,
     reprojectable: grid?.reprojectable ?? false,
-    note: reprojectionNote(grid?.reprojectable ?? false, grid?.label ?? null),
+    note: reprojectionNote(grid?.reprojectable ?? false, grid?.placement, grid?.label ?? null),
     placed: offersOverlays(grid?.placement),
   };
 }
