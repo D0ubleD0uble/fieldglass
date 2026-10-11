@@ -227,9 +227,9 @@ function vectorFieldsetHtml(
   }
   const options = messageOptionsHtml(fields);
   // Arrows are drawn along the grid's own geometry, so a message nothing
-  // places takes none (#840), and neither does a placed one some of whose
-  // points have no position (#945). A GRIB panel draws one message, so this
-  // is settled when the panel is written.
+  // places takes none (#840), and neither does a placed one the library
+  // cannot yet map to the Earth point by point (#945, #979). A GRIB panel
+  // draws one message, so this is settled when the panel is written.
   const offered = placed && takesArrows;
   return `    <fieldset id="vector-fieldset"${offered ? "" : " disabled"}>
       <legend>Vectors:</legend>
@@ -455,16 +455,17 @@ export const UNPLACED_VECTORS_NOTE = "Arrows need a grid placed on the Earth, an
 export const NO_SUPPORT: GridSupport = { contours: false, vectors: false, longCsv: false, zonalMean: false };
 
 /** Shown beside Contours on a placed field that takes none (#945). Which
- *  grids those are is Rust's answer (`GridSupport`), not a list kept here; today
- *  it is a full-disc satellite view, whose corner pixels look past the Earth. */
-export const NO_CONTOURS_NOTE = "Contours need a position for every grid point, and some of this grid's points have none.";
+ *  grids those are is Rust's answer (`GridSupport`), not a list kept here. Today
+ *  it is every satellite view (a geostationary grid), whatever its extent: the
+ *  library has no map from such a grid to the Earth yet (#979). */
+export const NO_CONTOURS_NOTE = "Contours aren't available for satellite-view grids yet.";
 
 /** {@link NO_CONTOURS_NOTE} for the Vectors row. */
-export const NO_VECTORS_NOTE = "Arrows need a position for every grid point, and some of this grid's points have none.";
+export const NO_VECTORS_NOTE = "Arrows aren't available for satellite-view grids yet.";
 
 /** Said in the CSV layout prompt when a placed field's grid does not take the
  *  long layout (#945). */
-export const NO_LONG_CSV_NOTE = "The long layout needs a position for every grid point, and some of this grid's points have none.";
+export const NO_LONG_CSV_NOTE = "The long layout isn't available for satellite-view grids yet.";
 
 /** {@link NO_LONG_CSV_NOTE} for a field nothing places on the Earth, where no
  *  point has a position, worded like the Overlay row's note. */

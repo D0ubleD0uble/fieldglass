@@ -626,8 +626,11 @@ export interface Georef {
  *
  * **Not derivable from `Placement` or
  * `Georef::reprojectable`.** A full-disc space view is placed and
- * reprojects, and none of its point operations is taken: its corner
- * pixels look past the Earth and have no position. A lat/lon grid
+ * reprojects, and none of its point operations is taken, whatever its
+ * extent: a satellite sector wholly on the Earth is refused as well as a
+ * full disc, because a space view has no forward map yet (the operations
+ * are not available for it), not because any of its points lacks a
+ * position. A lat/lon grid
  * scanned east to west does not reproject and takes all four. A rotated
  * or projected grid takes contours, arrows and the long CSV, and no
  * zonal mean, because its rows are not circles of latitude.

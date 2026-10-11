@@ -2,10 +2,11 @@
 // average only for a grid that takes them (#945).
 //
 // Which grids those are is Rust's answer (`GridSupport`, on `MessageInfo` and
-// on a slice's `SliceGrid`), not a list kept here. A full-disc satellite view is
-// placed on the Earth and takes coastlines, but its corner pixels look past
-// the limb and have no position, so its contours were offered and then refused
-// with a `contourError`.
+// on a slice's `SliceGrid`), not a list kept here. A satellite view, a full disc
+// or a sector wholly on the Earth, is placed and takes coastlines, but the
+// library has no point map for the family yet, so its contours were offered
+// and then refused with a `contourError`. The notes say that, not that some of
+// its points have no position (#979).
 //
 // These run the panel's own script in a real webview, through the driver in
 // `real-panel.ts`, the way #840's tests do.
@@ -65,6 +66,10 @@ suite("Point operations follow the grid (#945)", function () {
       assert.strictEqual(state.overlayDisabled, false, "the Overlay row stays offered");
       assert.strictEqual(state.contoursDisabled, true, "Contours is disabled");
       assert.strictEqual(state.contourNote, NO_CONTOURS_NOTE, "with the reason");
+      // The real reason (#979): this 6 x 6 sector is wholly on the Earth, so
+      // no point of it lacks a position.
+      assert.match(String(state.contourNote), /satellite-view grids yet/, "the family is not supported yet");
+      assert.doesNotMatch(String(state.contourNote), /position|none/, "and no point is said to lack a position");
       assert.strictEqual(state.zonalDisabled, true, "Zonal average is disabled");
       assert.strictEqual(state.zonalNote, NO_ZONAL_NOTE, "with the reason");
 
@@ -290,7 +295,9 @@ suite("Point operations follow the grid (#945)", function () {
       vscode.window.showQuickPick = orig;
     }
     assert.deepStrictEqual(offered, [["matrix"], ["long", "matrix"], ["matrix"], ["long", "matrix"]]);
-    assert.strictEqual(placeholders[0], `CSV layout. ${NO_LONG_CSV_NOTE}`, "a placed space view: some points");
+    assert.strictEqual(placeholders[0], `CSV layout. ${NO_LONG_CSV_NOTE}`, "a placed space view: not supported yet");
+    assert.match(NO_LONG_CSV_NOTE, /satellite-view grids yet/);
+    assert.doesNotMatch(NO_LONG_CSV_NOTE, /position|none/);
     assert.strictEqual(placeholders[1], "CSV layout");
     assert.strictEqual(placeholders[2], `CSV layout. ${UNPLACED_LONG_CSV_NOTE}`, "an unplaced slice: not placed");
     assert.strictEqual(placeholders[3], "CSV layout");

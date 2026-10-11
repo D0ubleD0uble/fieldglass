@@ -618,7 +618,8 @@ export class FieldglassEditorProvider
    *  `longCsv` is the field's `GridSupport.longCsv` (#945). Without it the
    *  long layout is not offered, and the prompt says why, rather than being
    *  offered and then refused. `placed` picks the reason: a field nothing
-   *  places has no position anywhere, not only at some points. */
+   *  places has no position anywhere, where a placed one is only not yet
+   *  supported for its family. */
   private async pickCsvFormat(longCsv: boolean, placed: boolean): Promise<string | undefined> {
     const matrix = { label: "Matrix — a 2-D grid of values", format: "matrix" };
     const pick = await vscode.window.showQuickPick(

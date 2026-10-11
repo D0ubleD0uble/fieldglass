@@ -503,8 +503,11 @@ fn grid_support_agrees_with_the_operations_for_every_field_in_the_suite() {
     }
 }
 
-/// A full-disc space view is placed and reprojects, and takes none of the four:
-/// its pixels past the limb have no position (#945). Every committed space view.
+/// A space view is placed and reprojects, and takes none of the four, because
+/// the library has no forward map for the family yet, whatever the extent
+/// (#945, #979). Every committed space view is a sector wholly on the Earth, so
+/// the reason is the family gate and not missing positions, and the three
+/// refusals below say so.
 #[test]
 fn a_space_view_is_placed_and_takes_no_point_operation() {
     for file in [
@@ -546,5 +549,54 @@ fn a_space_view_is_placed_and_takes_no_point_operation() {
             "{file}"
         );
         assert_support_agrees(&session, &field, file);
+        assert_refusals_name_the_family(&session, &field, file);
+    }
+}
+
+/// What a host's note says for a placed grid that takes no point operation
+/// must be what the operation itself says (#979): the family is not supported
+/// yet, not that some of the grid's points have no position. Every committed
+/// space view is a sector wholly on the Earth, so a "no position" reason would
+/// be false for all of them.
+fn assert_refusals_name_the_family(
+    session: &fieldglass::Session,
+    field: &fieldglass::Field,
+    what: &str,
+) {
+    use fieldglass::render::{RenderOptions, VectorOptions, contour_polylines, vector_polylines};
+
+    let source = field.source();
+    let values = optional_values(field);
+    let options = RenderOptions::default();
+    let contours = contour_polylines(&source, &values, &options, None)
+        .expect_err("a space view takes no contours")
+        .message();
+    let arrows = vector_polylines(
+        &source,
+        &values,
+        &source,
+        &values,
+        &options,
+        &VectorOptions::default(),
+    )
+    .expect_err("a space view takes no arrows")
+    .message();
+    let long = session
+        .field_csv(&source, &values, "long")
+        .expect_err("a space view takes no long CSV")
+        .message();
+    for (op, message) in [
+        ("contours", contours),
+        ("arrows", arrows),
+        ("long CSV", long),
+    ] {
+        assert!(
+            message.contains("\"space_view\"") && message.contains("(only "),
+            "{what}: the {op} refusal should name the family: {message}"
+        );
+        assert!(
+            !message.contains("no position"),
+            "{what}: the {op} refusal should not blame missing positions: {message}"
+        );
     }
 }
