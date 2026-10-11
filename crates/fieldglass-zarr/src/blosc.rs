@@ -341,11 +341,12 @@ fn decode_stream(
             // The zlib wrapper (RFC 1950), not a raw deflate stream. The
             // ceiling is the stream's own declared size, which the container
             // has already bounded.
-            let out = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(payload, expected)
-                .map_err(|e| {
-                    FieldglassError::Parse(format!("blosc zlib stream failed to inflate: {e:?}"))
-                })?;
-            Ok(out)
+            crate::deflate::inflate(
+                payload,
+                crate::deflate::Framing::Zlib,
+                expected,
+                "blosc zlib",
+            )
         }
         Inner::Zstd => crate::zstd::decompress(payload, expected),
         Inner::Snappy => Err(FieldglassError::UnsupportedSection(

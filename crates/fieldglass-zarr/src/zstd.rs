@@ -14,10 +14,12 @@
 //! measures it. But `tools/check_parsing_surface.py` refuses a *gated* core
 //! module to a format crate library by construction, because the parsing
 //! surface's whole claim is that none of it is gated. So the choice is a second
-//! fifteen-line wrapper or a weaker gate, and this is the fifteen lines.
+//! fifteen-line wrapper or a weaker gate, and this is the fifteen lines. What
+//! the two do share is how the output buffer grows, [`capped`], which depends
+//! on nothing (#981).
 
 use fieldglass_core::FieldglassError;
-use std::io::Read;
+use fieldglass_core::capped;
 
 /// Ceiling on the window a frame may ask the decoder to buffer.
 ///
@@ -30,23 +32,17 @@ const MAX_WINDOW: u64 = 64 << 20;
 
 /// Decompress one zstd frame, refusing anything that decodes past `limit`.
 pub fn decompress(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
-    let mut decoder =
-        ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, MAX_WINDOW)
-            .map_err(|e| FieldglassError::Parse(format!("zstd frame header: {e}")))?;
-    let mut out = Vec::new();
-    // One past the ceiling, so a frame that decodes to exactly the limit is
-    // distinguishable from one that merely stops being read there.
-    decoder
-        .by_ref()
-        .take(limit as u64 + 1)
-        .read_to_end(&mut out)
-        .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?;
-    if out.len() > limit {
-        return Err(FieldglassError::Parse(format!(
-            "zstd stream decompresses past the {limit}-byte ceiling"
-        )));
-    }
-    Ok(out)
+    let decoder = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, MAX_WINDOW)
+        .map_err(|e| FieldglassError::Parse(format!("zstd frame header: {e}")))?;
+    // Not `read_to_end`, whose amortised growth can reserve nearly twice the
+    // limit (#981): this buffer never grows past it.
+    capped::read_to_end_within(decoder, data.len().saturating_mul(2), limit)
+        .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "zstd stream decompresses past the {limit}-byte ceiling"
+            ))
+        })
 }
 
 #[cfg(test)]
