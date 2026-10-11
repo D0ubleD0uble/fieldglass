@@ -28,6 +28,7 @@ use crate::blosclz;
 use crate::lz4;
 use crate::shuffle::{unbitshuffle, unshuffle};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::capped;
 
 /// Fixed header size, and the offset the block-offset array starts at.
 const HEADER_LEN: usize = 16;
@@ -85,6 +86,27 @@ impl Inner {
             other => Err(FieldglassError::UnsupportedSection(format!(
                 "blosc names compressor format {other}, which c-blosc does not define"
             ))),
+        }
+    }
+
+    /// The most `compressed` bytes of this compressor's streams can decode
+    /// to. A stream blosc stored verbatim decodes to itself, which is under
+    /// every one of these.
+    ///
+    /// The header's `nbytes` and `blocksize` are the container's numbers,
+    /// and a buffer reserved from them before any stream proves them let a
+    /// 40-byte buffer stating 256 MiB reserve 256 MiB three times over: the
+    /// buffer, the block and the codec's output (#986). Each is now bounded
+    /// by what the bytes behind it could produce, so a valid buffer still
+    /// reserves its length once.
+    fn most_from(self, compressed: usize) -> usize {
+        match self {
+            Self::BloscLz => blosclz::max_output(compressed),
+            Self::Lz4 => lz4::max_output(compressed),
+            Self::Zlib => capped::inflate_bound(compressed),
+            Self::Zstd => capped::unzstd_bound(compressed),
+            // Not decoded: the first stream is refused before anything grows.
+            Self::Snappy => compressed,
         }
     }
 }
@@ -233,7 +255,8 @@ pub fn decompress(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError>
         ))
     })?;
 
-    let mut out = Vec::with_capacity(header.nbytes);
+    // A valid buffer is never past `most_from`, so it reserves `nbytes` once.
+    let mut out = Vec::with_capacity(header.nbytes.min(inner.most_from(data.len())));
     for index in 0..block_count {
         let leftover_block = leftover != 0 && index == block_count - 1;
         let block_bytes = if leftover_block {
@@ -265,7 +288,9 @@ pub fn decompress(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError>
             header.blocksize / splits
         };
 
-        let mut block = Vec::with_capacity(block_bytes);
+        // The block's streams lie between `offset` and the buffer's end.
+        let behind = data.len().saturating_sub(offset);
+        let mut block = Vec::with_capacity(block_bytes.min(inner.most_from(behind)));
         let mut pos = offset;
         for _ in 0..splits {
             let len_bytes: [u8; 4] = data
@@ -342,16 +367,22 @@ fn decode_stream(
             // ceiling is the stream's own declared size, which the container
             // has already bounded.
             // The length is exact, so it is also where the buffer starts: one
-            // allocation for a valid stream, nothing copied (#981).
+            // allocation for a valid stream, nothing copied (#981). But the
+            // header states it, not the stream, so the start is no more than
+            // the stream's bytes could fill (#986).
             crate::deflate::inflate(
                 payload,
                 crate::deflate::Framing::Zlib,
-                expected,
+                expected.min(capped::inflate_bound(payload.len())),
                 expected,
                 "blosc zlib",
             )
         }
-        Inner::Zstd => crate::zstd::decompress_into(payload, expected, expected),
+        Inner::Zstd => crate::zstd::decompress_into(
+            payload,
+            expected.min(capped::unzstd_bound(payload.len())),
+            expected,
+        ),
         Inner::Snappy => Err(FieldglassError::UnsupportedSection(
             "blosc buffer uses the snappy compressor, which is not decoded (blosclz, lz4, \
              lz4hc, zlib and zstd are)"

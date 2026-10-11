@@ -10,6 +10,13 @@
 //! ceiling that is about 512 MiB committed for a chunk that is then refused,
 //! and on wasm linear memory never shrinks.
 //!
+//! The other way round, a stream far shorter than its chunk is not handed
+//! the chunk's length to fill (#986). #981 started an exact-length buffer at
+//! the length, which the chunk's dimensions state and the stream need not
+//! back, so a few bytes stating 256 MiB had 256 MiB zeroed before the length
+//! check refused them. The start is now bounded by what the stream's bytes
+//! can decode to.
+//!
 //! The fixture comes from `tools/build_hdf5_codec_bomb_fixture.py`;
 //! provenance in `tests/fixtures/NOTICE.md`. Its chunks are 3 MiB, which is
 //! not a power of two times where either buffer starts, so doubling
@@ -238,6 +245,69 @@ fn a_zstd_bomb_holds_no_more_than_its_chunk_and_window() {
         );
         assert!(
             r.peak <= CHUNK_BYTES + 3 * window as usize + OVERHEAD,
+            "held {} bytes at once",
+            r.peak
+        );
+    }
+}
+
+/// The length every short stream's chunk states: `(8192, 8192)` `float32`,
+/// the most a chunk may decode to (#970).
+const SHORT_CHUNK_BYTES: usize = 256 << 20;
+
+/// The oracle's account of one short stream: `[shuffle, filter]`, a chunk
+/// stating 256 MiB, and a stream of `stored` bytes that decodes to 64.
+fn check_short_oracle(name: &str, filter: u64, stored: u64) {
+    let o = oracle(name);
+    assert_eq!(o["pipeline"], serde_json::json!([2, filter]), "{o}");
+    assert_eq!(o["chunk_bytes"], SHORT_CHUNK_BYTES as u64);
+    assert_eq!(o["chunk_stored_bytes"], stored);
+    let v: Value = serde_json::from_str(ORACLE).expect("oracle JSON");
+    assert_eq!(v["short_inflated_bytes"], 64);
+    // libhdf5 reads it without error, and what it returns is mostly memory
+    // its filters never wrote.
+    assert!(o["libhdf5_read"].is_string(), "{o}");
+}
+
+/// A 12-byte zlib stream of 64 bytes in a `[shuffle, deflate]` chunk stating
+/// 256 MiB. The chunk's length is exact, and #981 started the buffer there,
+/// so the read zeroed 268,435,456 bytes before the stream ended and the
+/// length check refused it (#986). The start is now bounded by the most 12
+/// bytes of DEFLATE can produce, 1,032 per byte (RFC 1951).
+#[test]
+fn a_short_deflate_stream_in_a_256_mib_chunk_zeroes_no_more_than_it_can_fill() {
+    check_short_oracle("deflate_short_stream", 1, 12);
+    for r in refusals("deflate_short_stream") {
+        assert_eq!(r.message, "chunk decoded to 64 bytes, expected 268435456");
+        // 12 × 1,032 = 12,384 bytes of buffer, beside `miniz_oxide`'s state:
+        // about 24 KB held at once, where master held 268,435,456.
+        assert!(
+            r.largest < OVERHEAD,
+            "largest allocation {} bytes",
+            r.largest
+        );
+        assert!(r.peak < OVERHEAD, "held {} bytes at once", r.peak);
+    }
+}
+
+/// A 17-byte zstd frame of 64 bytes in a `[shuffle, zstd]` chunk stating
+/// 256 MiB: 268,435,456 bytes zeroed before #986, as for deflate. The start
+/// is now bounded by the most 17 bytes of zstd can produce: every block has
+/// a 3-byte header and decodes to at most 128 KiB (RFC 8878 section
+/// 3.1.1.2), so six blocks, 786,432 bytes. That buffer is the largest
+/// allocation the read makes; it holds about 796 KB at once.
+#[test]
+fn a_short_zstd_frame_in_a_256_mib_chunk_zeroes_no_more_than_it_can_fill() {
+    check_short_oracle("zstd_short_stream", 32015, 17);
+    for r in refusals("zstd_short_stream") {
+        assert_eq!(r.message, "chunk decoded to 64 bytes, expected 268435456");
+        assert!(
+            r.largest <= 6 * (128 << 10),
+            "largest allocation {} bytes",
+            r.largest
+        );
+        assert!(
+            r.peak <= 6 * (128 << 10) + OVERHEAD,
             "held {} bytes at once",
             r.peak
         );

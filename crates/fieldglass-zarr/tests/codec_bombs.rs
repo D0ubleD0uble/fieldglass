@@ -33,13 +33,25 @@ struct Tracking;
 thread_local! {
     static ARMED: Cell<bool> = const { Cell::new(false) };
     static LARGEST: Cell<usize> = const { Cell::new(0) };
+    /// Bytes allocated minus bytes freed since arming. Signed: the read may
+    /// free blocks allocated before it.
+    static LIVE: Cell<isize> = const { Cell::new(0) };
+    static PEAK: Cell<isize> = const { Cell::new(0) };
 }
 
-fn note(size: usize) {
+/// Record a block of `size` bytes coming into being while `freed` bytes go
+/// away. A `realloc` that moves holds both at once, so the peak counts the
+/// new block before the old one is subtracted.
+fn note(size: usize, freed: usize) {
     // `try_with`: the allocator also runs while thread-locals are torn down.
     let _ = ARMED.try_with(|armed| {
         if armed.get() {
             let _ = LARGEST.try_with(|largest| largest.set(largest.get().max(size)));
+            let _ = LIVE.try_with(|live| {
+                let held = live.get() + size as isize;
+                let _ = PEAK.try_with(|peak| peak.set(peak.get().max(held)));
+                live.set(held - freed as isize);
+            });
         }
     });
 }
@@ -48,24 +60,25 @@ fn note(size: usize) {
 // const-initialised thread-locals, which never allocate.
 unsafe impl GlobalAlloc for Tracking {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        note(layout.size());
+        note(layout.size(), 0);
         // SAFETY: the caller's contract for `alloc`, passed through.
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        note(layout.size());
+        note(layout.size(), 0);
         // SAFETY: as above.
         unsafe { System.alloc_zeroed(layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        note(new_size);
+        note(new_size, layout.size());
         // SAFETY: as above.
         unsafe { System.realloc(ptr, layout, new_size) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        note(0, layout.size());
         // SAFETY: as above.
         unsafe { System.dealloc(ptr, layout) }
     }
@@ -84,16 +97,39 @@ fn decoder(compressor: &str) -> ChunkDecoder {
     ChunkDecoder::from_v2_metadata(&meta).expect("metadata")
 }
 
+/// A v2 `uint8` array of one chunk of `bytes` under `compressor`.
+fn decoder_of(compressor: &str, bytes: usize) -> ChunkDecoder {
+    let meta = format!(
+        r#"{{"zarr_format": 2, "shape": [{bytes}], "chunks": [{bytes}],
+            "dtype": "|u1", "compressor": {compressor}, "fill_value": 0,
+            "order": "C", "filters": null}}"#
+    );
+    ChunkDecoder::from_v2_metadata(&meta).expect("metadata")
+}
+
 /// The parse error reading `stored` gives, and the largest allocation the
 /// read made. The decoder is built before arming.
 fn refusal(compressor: &str, stored: &[u8]) -> (usize, String) {
-    let decoder = decoder(compressor);
+    let (largest, _, m) = measured_refusal(&decoder(compressor), compressor, stored);
+    (largest, m)
+}
+
+/// The parse error `decoder` gives for `stored`, with the largest allocation
+/// the read made and the most it held at once.
+fn measured_refusal(
+    decoder: &ChunkDecoder,
+    compressor: &str,
+    stored: &[u8],
+) -> (usize, usize, String) {
     LARGEST.with(|l| l.set(0));
+    LIVE.with(|l| l.set(0));
+    PEAK.with(|p| p.set(0));
     ARMED.with(|a| a.set(true));
     let result = decoder.decode(stored);
     ARMED.with(|a| a.set(false));
+    let peak = PEAK.with(Cell::get).max(0) as usize;
     match result {
-        Err(FieldglassError::Parse(m)) => (LARGEST.with(Cell::get), m),
+        Err(FieldglassError::Parse(m)) => (LARGEST.with(Cell::get), peak, m),
         other => panic!("{compressor}: expected a parse error, got {other:?}"),
     }
 }
@@ -126,12 +162,17 @@ fn gzip_bomb() -> Vec<u8> {
 /// so the header passes, around `stream` in compressor format `format` (3 is
 /// zlib, 4 zstd).
 fn blosc(format: u8, stream: &[u8]) -> Vec<u8> {
+    blosc_of(format, stream, CHUNK_BYTES)
+}
+
+/// [`blosc`] for a buffer and a block that state `bytes`.
+fn blosc_of(format: u8, stream: &[u8], bytes: usize) -> Vec<u8> {
     const HEADER: usize = 16;
     const DONT_SPLIT: u8 = 0x10;
     let start = HEADER + 4;
     let total = start + 4 + stream.len();
     let mut out = vec![2, 1, (format << 5) | DONT_SPLIT, 1];
-    for word in [CHUNK_BYTES, CHUNK_BYTES, total, start] {
+    for word in [bytes, bytes, total, start] {
         out.extend_from_slice(&(word as u32).to_le_bytes());
     }
     out.extend_from_slice(&(stream.len() as i32).to_le_bytes());
@@ -199,4 +240,75 @@ fn blosc_bombs_reserve_no_more_than_their_chunk() {
         &blosc(4, &zstd_bomb()),
         "zstd stream decompresses past the 3145728-byte ceiling",
     );
+}
+
+/// What every short blosc buffer's header states: one block of 256 MiB.
+const STATED: usize = 256 << 20;
+
+/// An LZ4 block of 64 zero bytes, hand-built: one literal zero, a match at
+/// offset 1 of 4 + 15 + 40 bytes, then four literal zeros to end the block.
+const LZ4_64: [u8; 10] = [0x1F, 0, 1, 0, 40, 0x40, 0, 0, 0, 0];
+
+/// A BloscLZ stream of 64 zero bytes, hand-built: a one-byte literal run of a
+/// zero, then a match at distance 1 of 7 + 54 + 2 bytes.
+const BLOSCLZ_64: [u8; 5] = [0x00, 0x00, 0xE0, 54, 0x00];
+
+/// A blosc buffer of a few dozen bytes whose header states one 256 MiB block,
+/// around a stream of 64 bytes, for each compressor blosc decodes. blosc
+/// reserved the buffer and the block from its header before any stream
+/// proved them, and the inner codec its output too: three 256 MiB
+/// reservations, 805,306,527 bytes held at once for the 29-byte blosclz
+/// buffer (#986). Each is now bounded by what the bytes behind it could
+/// decode to: 255 per byte of blosclz or LZ4, 1,032 of zlib (RFC 1951), and
+/// 128 KiB per three bytes of zstd (RFC 8878), the loosest. The read holds
+/// 11,124 bytes at once for blosclz, 14,944 for LZ4, 104,461 for zlib and
+/// 3,154,667 for zstd.
+#[test]
+fn a_tiny_blosc_buffer_stating_256_mib_reserves_what_its_bytes_could_fill() {
+    let zlib = miniz_oxide::deflate::compress_to_vec_zlib(&[0; 64], 9);
+    let zstd = ruzstd::encoding::compress_to_vec(
+        &[0u8; 64][..],
+        ruzstd::encoding::CompressionLevel::Fastest,
+    );
+    let cases: [(&str, u8, &[u8], usize); 4] = [
+        ("blosclz", 0, &BLOSCLZ_64, 64 << 10),
+        ("lz4", 1, &LZ4_64, 64 << 10),
+        ("zlib", 3, &zlib, 256 << 10),
+        ("zstd", 4, &zstd, 4 << 20),
+    ];
+    for (cname, format, stream, bound) in cases {
+        let compressor =
+            format!(r#"{{"id": "blosc", "cname": "{cname}", "clevel": 9, "shuffle": 0}}"#);
+        let decoder = decoder_of(&compressor, STATED);
+        let stored = blosc_of(format, stream, STATED);
+        let (_, peak, m) = measured_refusal(&decoder, &compressor, &stored);
+        assert!(
+            m.contains("decoded to 64 bytes, not the 268435456"),
+            "{cname}: {m}"
+        );
+        assert!(peak <= bound, "{cname}: held {peak} bytes at once");
+    }
+}
+
+/// A Zarr v3 chunk of `(16384, 16384)` bytes, 256 MiB, under `transpose`,
+/// stored as 64 bytes. The transpose zeroed a buffer of the chunk's length
+/// before its first copy found the data short (#986); it now refuses a chunk
+/// whose length is not the chunk's before allocating anything for it.
+#[test]
+fn a_short_transposed_chunk_is_refused_before_its_buffer_is_zeroed() {
+    let meta = r#"{"zarr_format": 3, "node_type": "array", "shape": [16384, 16384],
+        "data_type": "uint8",
+        "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [16384, 16384]}},
+        "chunk_key_encoding": {"name": "default"}, "fill_value": 0,
+        "codecs": [{"name": "transpose", "configuration": {"order": [1, 0]}},
+                   {"name": "bytes"}]}"#;
+    let decoder = ChunkDecoder::from_v3_metadata(meta).expect("metadata");
+    let (largest, _, m) = measured_refusal(&decoder, "transpose", &[0u8; 64]);
+    assert!(
+        m.contains("a transposed chunk of 64 bytes cannot hold 268435456 elements"),
+        "{m}"
+    );
+    // The stored bytes' copy and nothing near the chunk: master zeroed
+    // 268,435,456 bytes here.
+    assert!(largest < 4096, "largest allocation {largest} bytes");
 }

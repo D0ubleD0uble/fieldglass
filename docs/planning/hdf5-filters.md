@@ -108,7 +108,16 @@ tracking allocator, because a test of the length a codec returns cannot see
 its capacity. When the chunk's length is known the buffer starts at it, so a
 valid chunk is one zeroed allocation and nothing is copied; growing toward it
 held the old and new buffers at once on each step, which the largest single
-allocation does not show, so the test measures the peak held as well.
+allocation does not show, so the test measures the peak held as well. That
+length comes from the chunk's dimensions, not the stream, so the start is
+bounded by the most the stream's bytes can decode to (#986):
+`capped::inflate_bound`, 1,032 bytes per byte of DEFLATE (a 258-byte match in
+two bits, RFC 1951), and `capped::unzstd_bound`, 128 KiB per three bytes of
+zstd (each block has a three-byte header and decodes to at most 128 KiB,
+RFC 8878). A valid chunk is never past either, so it still starts at its
+length; a 12-byte deflate stream in a chunk stating 256 MiB starts at
+12,384 bytes, where it had 256 MiB zeroed. Blosc's zlib and zstd streams in
+Zarr take the same bound.
 
 `ruzstd` sizes its own ring buffer the same way, to the next power of two
 past what it holds plus one byte: up to about twice the window, which
