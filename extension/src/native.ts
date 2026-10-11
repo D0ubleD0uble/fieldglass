@@ -21,9 +21,9 @@ import * as path from "path";
 
 import * as vscode from "vscode";
 
-import type { AxisValues, MessageInfo, Placement } from "./api.generated";
+import type { AxisValues, GridSupport, MessageInfo, Placement } from "./api.generated";
 
-export type { AxisValues, Georef, Identification, MessageInfo, Placement } from "./api.generated";
+export type { AxisValues, Georef, GridSupport, Identification, MessageInfo, Placement } from "./api.generated";
 
 // ---------------------------------------------------------------------------
 // NetCDF dataset types (returned from the native module)
@@ -512,6 +512,9 @@ export interface SliceGrid {
   label: string;
   placement: Placement;
   reprojectable: boolean;
+  /** Which of contours, arrows, the long CSV and the zonal mean the slice
+   *  takes (#945): the umbrella's answer, so the panel keeps no family list. */
+  supports: GridSupport;
 }
 
 export interface NetcdfHandle {

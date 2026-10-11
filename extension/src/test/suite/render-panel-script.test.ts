@@ -166,6 +166,7 @@ suite("The render panel's own script", function () {
         reprojectable: false,
         note: NOTHING_PLACES,
         placed: false,
+        supports: { contours: false, vectors: false, longCsv: false, zonalMean: false },
       });
 
       // The file is opened again. Picking the variable asks for a render,

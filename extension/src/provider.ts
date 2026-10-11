@@ -19,6 +19,7 @@ import {
   type DatasetMeta,
   type Grib1Handle,
   type Grib2Handle,
+  type GridSupport,
   type Identification,
   type MessageInfo,
   type NetcdfHandle,
@@ -39,6 +40,8 @@ import {
   composeDefaultPngName,
   composeTitleLine,
   composeTruncationNote,
+  NO_LONG_CSV_NOTE,
+  NO_SUPPORT,
   offersOverlays,
   renderImagePanelHtml,
   reprojectionNote,
@@ -578,7 +581,15 @@ export class FieldglassEditorProvider
       return;
     }
 
-    const format = await this.pickCsvFormat();
+    // The long layout only where Rust says this message's grid places every
+    // point (#945); a message it cannot answer for is offered the matrix.
+    let longCsv = false;
+    try {
+      longCsv = handle.message(messageIndex).supports.longCsv;
+    } catch {
+      // The export below reports what is wrong with the message.
+    }
+    const format = await this.pickCsvFormat(longCsv);
     if (!format) return;
 
     let csv: Buffer;
@@ -596,14 +607,18 @@ export class FieldglassEditorProvider
 
   /** Ask for a CSV layout (long / matrix). Returns the chosen format, or
    *  `undefined` if the user cancelled. Shared by the GRIB and NetCDF export
-   *  commands. */
-  private async pickCsvFormat(): Promise<string | undefined> {
+   *  commands.
+   *
+   *  `longCsv` is the field's `GridSupport.longCsv` (#945). Without it the
+   *  long layout is not offered, and the prompt says why, rather than being
+   *  offered and then refused. */
+  private async pickCsvFormat(longCsv: boolean): Promise<string | undefined> {
+    const matrix = { label: "Matrix — a 2-D grid of values", format: "matrix" };
     const pick = await vscode.window.showQuickPick(
-      [
-        { label: "Long — one lat,lon,value row per grid point", format: "long" },
-        { label: "Matrix — a 2-D grid of values", format: "matrix" },
-      ],
-      { placeHolder: "CSV layout" }
+      longCsv
+        ? [{ label: "Long — one lat,lon,value row per grid point", format: "long" }, matrix]
+        : [matrix],
+      { placeHolder: longCsv ? "CSV layout" : `CSV layout. ${NO_LONG_CSV_NOTE}` }
     );
     return pick?.format;
   }
@@ -659,7 +674,15 @@ export class FieldglassEditorProvider
       return;
     }
 
-    const format = await this.pickCsvFormat();
+    // As for a GRIB message: the long layout only where the slice's grid
+    // places every point (#945).
+    let longCsv = false;
+    try {
+      longCsv = handle.sliceGrid(spec.variableIndex, spec.yDim, spec.xDim).supports.longCsv;
+    } catch {
+      // The export below reports what is wrong with the slice.
+    }
+    const format = await this.pickCsvFormat(longCsv);
     if (!format) return;
 
     let csv: Buffer;
@@ -1742,8 +1765,10 @@ export interface GridReadyMessage {
    *  move onto a variable or axis pair with a different answer. `note` is
    *  {@link reprojectionNote} for it, the text shown beside the picker.
    *  `placed` is {@link offersOverlays} for it: whether the overlays,
-   *  contours and arrows apply, which the Overlay row follows (#840). Absent
-   *  for a GRIB panel, which draws one field. */
+   *  contours and arrows apply, which the Overlay row follows (#840).
+   *  `supports` is which point operations it takes (#945), which the
+   *  Contours controls and the Zonal average toggle follow. Absent for a GRIB
+   *  panel, which draws one field. */
   sliceGrid?: SliceAnswer;
 }
 
@@ -1754,16 +1779,19 @@ export interface SliceAnswer {
   reprojectable: boolean;
   note: string;
   placed: boolean;
+  supports: GridSupport;
 }
 
 /** The answers for a slice from its `SliceGrid`, or for one the handle could
- *  not place (`null`): no family, the source view alone, no overlays. */
+ *  not place (`null`): no family, the source view alone, no overlays, and no
+ *  point operation. */
 export function sliceAnswer(grid: SliceGrid | null): SliceAnswer {
   return {
     label: grid?.label ?? null,
     reprojectable: grid?.reprojectable ?? false,
     note: reprojectionNote(grid?.reprojectable ?? false, grid?.placement, grid?.label ?? null),
     placed: offersOverlays(grid?.placement),
+    supports: grid?.supports ?? NO_SUPPORT,
   };
 }
 
@@ -2209,6 +2237,7 @@ export function sliceField(
     // A slice the handle could not answer for at all still draws its source
     // view, and nothing places it.
     placement: grid?.placement ?? "unplaceable",
+    supports: grid?.supports ?? NO_SUPPORT,
     // A slice is never a band-limited spectral field (#637).
     truncation: null,
     grid: grid ? { label: grid.label } : null,
