@@ -113,10 +113,11 @@ the host that opens a directory through it (#659). Recording is
 `fieldglass_core::testing::Recording` now: one wrapper over either seam, behind
 a `testing` feature enabled only from `[dev-dependencies]`. That is also where
 the transport-shaped sources live — short-serving, cut off, starved,
-single-range, copy-only, cache-backed — which every reader on these seams had
-written out for itself. `tests/object_source.rs` asserts through it that a walk
-lists, prefetches **once**, and then reads, which is the property a test that
-only checked the values would miss and the one an implementation loses first.
+single-range, copy-only, cache-backed, declared larger than it holds — which
+every reader on these seams had written out for itself. `tests/object_source.rs`
+asserts through it that a walk lists, prefetches **once**, and then reads, which
+is the property a test that only checked the values would miss and the one an
+implementation loses first.
 
 `KerchunkObjects` is the second implementation, and the one that shows why the
 seam is shaped this way (#705). A kerchunk reference document maps Zarr keys onto

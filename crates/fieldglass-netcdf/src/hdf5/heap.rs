@@ -21,8 +21,9 @@
 
 use super::filter::FilterPipeline;
 use super::object_header::{is_undefined_address, read_uint_le, read_usize_le};
-use super::source::{ClaimedRanges, Fields, FileCursor, read_at};
+use super::source::{ClaimedRanges, Fields, FileCursor, charge_metadata, read_at};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::ArrayError;
 use fieldglass_core::bytes::{ByteSource, checked_usize};
 
 /// What a second claim of a fractal heap or B-tree v2 header means: two
@@ -56,10 +57,42 @@ const MAX_HEAP_INDIRECT_DEPTH: usize = 24;
 /// blow up exponentially. A well-formed heap traverses only a handful of blocks.
 const MAX_HEAP_TABLE_ENTRIES: usize = 1 << 20;
 
-/// Upper bound on the *decompressed* size of one I/O-filtered direct block.
+/// Upper bound on one I/O-filtered direct block, as stored and decompressed.
 /// Real heap direct blocks are KBs (libhdf5's default max is 64 KiB); this cap
-/// keeps a crafted block size from driving a large allocation during inflate.
+/// keeps a crafted block size from driving a large read or a large allocation
+/// during inflate.
+///
+/// A policy cap: libhdf5 lets a heap declare direct blocks of up to 2 GiB
+/// (`H5HF_MAX_DIRECT_SIZE_LIMIT`), so a valid file could pass it, and passing
+/// it is [`ArrayError::ListingTooLarge`], which says the file is fine (#997).
 const MAX_FILTERED_DIRECT_BLOCK_SIZE: u64 = 1 << 26;
+
+/// What [`charge_metadata`] counts for one heap object, managed or huge,
+/// stored and decoded, against `MAX_METADATA_BYTES` (#997).
+///
+/// In a NetCDF-4 file a heap object is one dense attribute or link message.
+/// A huge one is read from the file whole at the length its ID or index
+/// record states, and a managed one at up to its direct block's size, so over
+/// a source read by range each was bounded only by the size the host
+/// declares.
+const HEAP_OBJECT_BYTES: &str = "bytes in one HDF5 heap object";
+
+/// Refuse a heap object of `len` bytes past `MAX_METADATA_BYTES`.
+fn check_heap_object(len: u64) -> Result<(), FieldglassError> {
+    charge_metadata(&mut 0, len, HEAP_OBJECT_BYTES)
+}
+
+/// Refuse a filtered direct block of `len` bytes, stored or decompressed,
+/// past [`MAX_FILTERED_DIRECT_BLOCK_SIZE`].
+fn check_filtered_block(len: u64) -> Result<(), FieldglassError> {
+    if len > MAX_FILTERED_DIRECT_BLOCK_SIZE {
+        return Err(FieldglassError::Array(ArrayError::ListingTooLarge {
+            what: "bytes in one filtered HDF5 heap block",
+            limit: MAX_FILTERED_DIRECT_BLOCK_SIZE,
+        }));
+    }
+    Ok(())
+}
 
 /// Upper bound on B-tree v2 records gathered across all leaves — guards a
 /// malformed record or node count.
@@ -703,18 +736,18 @@ impl FractalHeap {
             }
         };
         reads.huge.claim(address, length, "huge heap object")?;
+        // Both sizes, before either is read or inflated, and before the stored
+        // one is narrowed, so a length past the cap is refused as too large on
+        // every target.
+        check_heap_object(length)?;
+        check_heap_object(memory_size)?;
         let length = checked_usize(length, "huge heap object length")?;
         let stored = read_at(source, address, length)
             .map_err(|_| FieldglassError::Parse("huge heap object runs past end of file".into()))?;
         match &self.filter {
             None => Ok(stored.into_owned()),
             Some(hf) => {
-                if memory_size > MAX_FILTERED_DIRECT_BLOCK_SIZE {
-                    return Err(FieldglassError::Parse(
-                        "implausible filtered huge heap object size".into(),
-                    ));
-                }
-                // In range: checked against the 64 MiB cap above.
+                // In range: checked against the 16 MiB cap above.
                 let expected = memory_size as usize;
                 let image = hf
                     .pipeline
@@ -756,6 +789,10 @@ impl FractalHeap {
                 "heap object runs past end of direct block".into(),
             ));
         }
+        // A direct block may be as large as the heap says (libhdf5 allows
+        // 2 GiB), and an in-file one is bounded only by the size the source
+        // declares, so the object is held to the cap too.
+        check_heap_object(length as u64)?;
         reads
             .managed
             .claim(offset, length as u64, "managed heap object")?;
@@ -924,11 +961,8 @@ fn decode_filtered_direct_block<S: ByteSource + ?Sized>(
     block_offset: u64,
     logical_size: u64,
 ) -> Result<Vec<u8>, FieldglassError> {
-    if logical_size > MAX_FILTERED_DIRECT_BLOCK_SIZE {
-        return Err(FieldglassError::Parse(
-            "implausible filtered direct block size".into(),
-        ));
-    }
+    check_filtered_block(logical_size)?;
+    check_filtered_block(filtered_size as u64)?;
     let stored = read_at(source, block_addr, filtered_size).map_err(|_| {
         FieldglassError::Parse("filtered direct block runs past end of file".into())
     })?;
@@ -1176,6 +1210,7 @@ pub(crate) fn checked_add(a: u64, b: u64) -> Result<u64, FieldglassError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fieldglass_core::testing::{Declared, Recording};
 
     fn put(buf: &mut Vec<u8>, at: usize, data: &[u8]) {
         if buf.len() < at + data.len() {
@@ -2164,5 +2199,117 @@ mod tests {
             FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()),
             Err(FieldglassError::Parse(_))
         ));
+    }
+
+    /// Whether `err` is the refusal of a listing too large, of `what`.
+    fn too_large(err: &FieldglassError, what: &str) -> bool {
+        matches!(
+            err,
+            FieldglassError::Array(ArrayError::ListingTooLarge { what: w, .. }) if *w == what
+        )
+    }
+
+    type DeclaredSource<'a> = Recording<Declared<&'a [u8]>>;
+
+    /// A source holding `buf` that declares a terabyte, as a remote object's
+    /// stated length can (#997).
+    fn declared(buf: &[u8]) -> DeclaredSource<'_> {
+        Recording::new(Declared::new(buf, 1 << 40))
+    }
+
+    /// The longest single read `source` was asked for.
+    fn longest(source: &DeclaredSource<'_>) -> u64 {
+        source.reads().iter().map(|r| r.len).max().unwrap_or(0)
+    }
+
+    /// A managed object in a 64 MiB direct block, over a source that declares
+    /// room for the block, is held to the heap-object cap before it is read
+    /// (#997): the block's size was its only bound, and an in-file block is
+    /// checked only against the size the source declares.
+    #[test]
+    fn a_managed_object_past_the_cap_is_refused_before_the_read() {
+        let block = 1u64 << 26;
+        let mut buf = vec![0u8; 0x400];
+        put(&mut buf, 0, SIG_FRACTAL_HEAP);
+        put(&mut buf, 5, &9u16.to_le_bytes()); // heap_id_len: flags + 4 + 4
+        put(&mut buf, 110, &2u16.to_le_bytes()); // table_width
+        put(&mut buf, 112, &block.to_le_bytes()); // starting_block_size
+        put(&mut buf, 120, &block.to_le_bytes()); // max_direct_block_size
+        put(&mut buf, 128, &32u16.to_le_bytes()); // max_heap_size bits -> offset_bytes = 4
+        put(&mut buf, 132, &BLOCK0_ADDR.to_le_bytes()); // root: one direct block
+        put(&mut buf, 140, &0u16.to_le_bytes()); // cur_rows = 0
+        let b = BLOCK0_ADDR as usize;
+        put(&mut buf, b, SIG_FRACTAL_DIRECT);
+        put(&mut buf, b + 5, &HEAP_ADDR.to_le_bytes());
+        // Block offset (4 bytes) at b + 13 stays 0.
+        let source = declared(&buf);
+        let heap =
+            FractalHeap::parse(&source, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
+        let id = |len: u32| {
+            let mut id = vec![0u8];
+            id.extend_from_slice(&17u32.to_le_bytes()); // past the block prefix
+            id.extend_from_slice(&len.to_le_bytes());
+            id
+        };
+        let mut file = ClaimedRanges::default();
+        let err = heap
+            .object(&source, &id(32 << 20), &mut HeapReads::new(&mut file))
+            .unwrap_err();
+        assert!(too_large(&err, HEAP_OBJECT_BYTES), "{err:?}");
+        assert!(longest(&source) <= 1 << 16, "read {}", longest(&source));
+        // An object of a few bytes in the same block is read.
+        let got = heap
+            .object(&source, &id(4), &mut HeapReads::new(&mut file))
+            .unwrap();
+        assert_eq!(got, [0; 4]);
+    }
+
+    /// A huge object whose ID states its length directly is held to the cap
+    /// before it is read (#997); the index-record form is checked through the
+    /// reader in `declared_tests`.
+    #[test]
+    fn a_direct_huge_object_past_the_cap_is_refused_before_the_read() {
+        let mut buf = frhp_indirect();
+        put(&mut buf, 5, &17u16.to_le_bytes()); // flags + address + length
+        let source = declared(&buf);
+        let heap =
+            FractalHeap::parse(&source, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
+        let mut id = vec![0x10];
+        id.extend_from_slice(&(1u64 << 30).to_le_bytes());
+        id.extend_from_slice(&(1u64 << 31).to_le_bytes());
+        let err = heap
+            .object(
+                &source,
+                &id,
+                &mut HeapReads::new(&mut ClaimedRanges::default()),
+            )
+            .unwrap_err();
+        assert!(too_large(&err, HEAP_OBJECT_BYTES), "{err:?}");
+        assert!(longest(&source) <= 1 << 16, "read {}", longest(&source));
+    }
+
+    /// A filtered direct block whose stored size claims a gigabyte, over a
+    /// source that declares room for it, is refused before it is read; and
+    /// one whose decoded size passes the block cap is refused as too large,
+    /// not as corrupt: libhdf5 allows direct blocks of up to 2 GiB (#997).
+    #[test]
+    fn a_filtered_block_past_its_cap_is_too_large_not_corrupt() {
+        let on_disk = zlib(&fhdb_image(64, HEAP_ADDR, &[0x01]));
+        let what = "bytes in one filtered HDF5 heap block";
+        let buf = frhp_filtered_single(&on_disk, 1 << 30, 0, &deflate_pipeline_body());
+        let source = declared(&buf);
+        let err = FractalHeap::parse(&source, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default())
+            .err()
+            .expect("a gigabyte stored block");
+        assert!(too_large(&err, what), "{err:?}");
+        assert!(longest(&source) <= 1 << 16, "read {}", longest(&source));
+
+        let mut buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &deflate_pipeline_body());
+        put(&mut buf, 112, &(1u64 << 27).to_le_bytes()); // starting_block_size
+        put(&mut buf, 120, &(1u64 << 27).to_le_bytes()); // max_direct_block_size
+        let err = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default())
+            .err()
+            .expect("a 128 MiB block");
+        assert!(too_large(&err, what), "{err:?}");
     }
 }

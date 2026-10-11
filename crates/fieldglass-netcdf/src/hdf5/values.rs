@@ -552,6 +552,19 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     {
         super::filter::check_chunk_size(&chunk_shape, chunk_bytes)?;
     }
+    // A chunk no filter runs on is its stored bytes, so a stored size other
+    // than one chunk's is refused here, before it is planned or read (#997).
+    // The check after the read refuses it too, but by then a size the index
+    // states had been fetched, bounded only by the size the source declares.
+    if let Some(g) = groups.iter().find(|g| {
+        (!filtered || g[0].filter_mask & pipeline_bits == pipeline_bits)
+            && g[0].size as usize != chunk_bytes
+    }) {
+        return Err(FieldglassError::Parse(format!(
+            "chunk decoded to {} bytes, expected {chunk_bytes}",
+            g[0].size
+        )));
+    }
     // A filtered chunk the file's memo still holds decompressed is not read
     // again (#939): a time scrub over chunks that span several planes would
     // otherwise inflate each chunk once per frame. Those are left out of the

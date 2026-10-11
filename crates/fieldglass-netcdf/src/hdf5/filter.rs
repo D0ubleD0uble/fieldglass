@@ -313,7 +313,7 @@ impl FilterPipeline {
 /// below that and the byte cap above.
 ///
 /// An unfiltered chunk needs neither: it is read at its stored size, which
-/// the file itself bounds.
+/// must be the chunk's own and is checked to be before the read (#997).
 pub(super) fn check_chunk_size(
     chunk_dims: &[u64],
     chunk_bytes: usize,

@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
-use super::source::{Fields, FileCursor, read_at};
+use super::source::{Fields, FileCursor, charge_metadata, read_at};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteSource, checked_usize};
 
@@ -25,6 +25,24 @@ const SIG_GLOBAL_HEAP: &[u8; 4] = b"GCOL";
 
 /// Upper bound on objects scanned in one collection — guards a malformed size.
 const MAX_GLOBAL_HEAP_OBJECTS: usize = 1 << 20;
+
+/// What [`charge_metadata`] counts for the one object a lookup reads, against
+/// `MAX_METADATA_BYTES` (#997).
+///
+/// libhdf5 sizes a new collection to the object it is created for
+/// (`H5HG_insert`), so the format puts no ceiling on an object, and the
+/// collection's own size is checked only against the end of the file: over a
+/// source read by range, the size the host declares. An object is read whole,
+/// so it is held to the cap before the read. The objects a lookup scans past
+/// are skipped, not read, and are not charged. The `DIMENSION_LIST` objects
+/// this reads are a few eight-byte references each.
+const OBJECT_BYTES: &str = "bytes in one HDF5 global-heap object";
+
+/// Refuse an object of `size` bytes past `MAX_METADATA_BYTES`.
+fn check_object(size: u64) -> Result<usize, FieldglassError> {
+    charge_metadata(&mut 0, size, OBJECT_BYTES)?;
+    checked_usize(size, "global-heap object size")
+}
 
 /// Width of the fixed fields that open both the collection header
 /// (`signature(4) + version(1) + reserved(3)`) and each object's header
@@ -76,11 +94,13 @@ pub(crate) struct Collections {
 struct Scan {
     /// The objects scanned past: index → where its data starts, and its size.
     /// The first object with an index is the one a lookup finds.
-    found: HashMap<u16, (u64, usize)>,
+    found: HashMap<u16, (u64, u64)>,
     /// The file offset of the next object header.
     next: u64,
-    /// The collection's bytes from `next` on.
-    remaining: usize,
+    /// The collection's bytes from `next` on. A `u64`, as every size here
+    /// is: a collection is bounded by the size the source declares, which on
+    /// a 32-bit target can be past `usize`.
+    remaining: u64,
     /// Object headers read so far, against [`MAX_GLOBAL_HEAP_OBJECTS`].
     objects: usize,
     /// The run ended: the free-space object, or no room for another header.
@@ -103,23 +123,25 @@ impl Collections {
         }
         let l = length_size as usize;
         let header_len = header_len(l);
+        let header_bytes = header_len as u64;
         let scan = match self.by_address.entry(collection_addr) {
             Entry::Occupied(e) => e.into_mut(),
             Entry::Vacant(e) => e.insert(open(source, collection_addr, l)?),
         };
         if let Some(&(at, size)) = scan.found.get(&object_index) {
+            let size = check_object(size)?;
             return Ok(read_at(source, at, size)?.into_owned());
         }
 
         let mut cur = FileCursor::at(source, scan.next)?;
         while !scan.ended && scan.objects < MAX_GLOBAL_HEAP_OBJECTS {
-            if scan.remaining < header_len {
+            if scan.remaining < header_bytes {
                 scan.ended = true;
                 break;
             }
             let index = cur.u16()?;
             cur.skip(2 + 4)?; // reference count + reserved
-            let size = cur.usize(l)?;
+            let size = cur.uint(l)?;
             cur.skip(header_len - HEADER_FIXED - l)?; // alignment padding
             // Index 0 is the free-space object that terminates the run.
             if index == 0 {
@@ -130,21 +152,25 @@ impl Collections {
             // both rejects a corrupt oversized object (a cross-object misread)
             // and keeps the padding below from overflowing. The scan stays at
             // this object, so a later lookup past it is refused the same way.
-            let body_budget = scan.remaining - header_len;
-            if size > body_budget {
-                return Err(FieldglassError::Parse(
-                    "global-heap object size exceeds the collection bounds".into(),
-                ));
-            }
-            let padded = size.next_multiple_of(8);
+            let body_budget = scan.remaining - header_bytes;
+            let padded = size
+                .checked_next_multiple_of(8)
+                .filter(|_| size <= body_budget)
+                .ok_or_else(|| {
+                    FieldglassError::Parse(
+                        "global-heap object size exceeds the collection bounds".into(),
+                    )
+                })?;
             let at = cur.position();
             if index == object_index {
-                let data = cur.take(size)?.to_vec();
-                scan.passed(index, (at, size), padded, header_len);
+                let data = cur.take(check_object(size)?)?.to_vec();
+                scan.passed(index, (at, size), padded, header_bytes);
                 return Ok(data);
             }
-            cur.skip(padded)?;
-            scan.passed(index, (at, size), padded, header_len);
+            // Skipped, not read: an object passed over costs nothing, however
+            // large, so it is not held to the cap.
+            cur.skip(checked_usize(padded, "global-heap object size")?)?;
+            scan.passed(index, (at, size), padded, header_bytes);
         }
 
         Err(FieldglassError::Parse(format!(
@@ -156,10 +182,12 @@ impl Collections {
 impl Scan {
     /// Record the object `index` whose data is `size` bytes at `at`, and move
     /// past it and its padding.
-    fn passed(&mut self, index: u16, (at, size): (u64, usize), padded: usize, header_len: usize) {
+    fn passed(&mut self, index: u16, (at, size): (u64, u64), padded: u64, header_len: u64) {
         self.found.entry(index).or_insert((at, size));
-        self.next = at.saturating_add(padded as u64);
-        self.remaining = self.remaining.saturating_sub(header_len + padded);
+        self.next = at.saturating_add(padded);
+        self.remaining = self
+            .remaining
+            .saturating_sub(header_len.saturating_add(padded));
         self.objects += 1;
     }
 }
@@ -180,11 +208,8 @@ fn open<S: ByteSource + ?Sized>(
     // an address past the end of the file, so this cannot go negative — but a
     // subtraction that is only correct because of a check several lines away is
     // the kind that survives a reordering and underflows.
-    let available = checked_usize(
-        source.size().saturating_sub(collection_addr),
-        "global-heap collection tail",
-    )?;
-    let collection_size = cur.usize(l)?.min(available);
+    let available = source.size().saturating_sub(collection_addr);
+    let collection_size = cur.uint(l)?.min(available);
     // The collection size counts its own header, so the object run is whatever
     // remains after it. An object's header is the same length.
     let header_len = header_len(l);
@@ -192,7 +217,7 @@ fn open<S: ByteSource + ?Sized>(
     Ok(Scan {
         found: HashMap::new(),
         next: cur.position(),
-        remaining: collection_size.saturating_sub(header_len),
+        remaining: collection_size.saturating_sub(header_len as u64),
         objects: 0,
         ended: false,
     })

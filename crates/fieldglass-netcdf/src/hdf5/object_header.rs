@@ -22,7 +22,7 @@
 //! Reference: HDF5 file format specification version 3, "Disk Format: Level 2A
 //! — Data Object Headers" <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>.
 
-use super::source::{ClaimedRanges, read_at, read_up_to};
+use super::source::{ClaimedRanges, charge_metadata, read_at, read_up_to};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteSource, checked_usize};
 use std::collections::VecDeque;
@@ -40,6 +40,12 @@ const OCHK_SIGNATURE: &[u8; 4] = b"OCHK";
 /// anything legitimate while keeping a hostile file from looping forever.
 const MAX_CHUNKS: usize = 4096;
 const MAX_MESSAGES: usize = 65_536;
+
+/// What [`charge_metadata`] counts for one header: every chunk, prefix
+/// included, against `MAX_METADATA_BYTES` (#997). A header is read a chunk at
+/// a time at the length the file states, so the count is checked before each
+/// read, and the cap bounds the header as a whole rather than each chunk.
+const HEADER_BYTES: &str = "bytes in one HDF5 object header";
 
 /// A decoded object header: its on-disk version and the flat sequence of header
 /// messages, with continuation chunks spliced in at the point they're followed.
@@ -152,14 +158,18 @@ fn parse_v1<S: ByteSource + ?Sized>(
         .ok_or_else(|| FieldglassError::Parse("v1 object header offset overflow".into()))?;
 
     let mut messages = Vec::new();
-    let mut queue: VecDeque<(u64, usize)> = VecDeque::new();
-    queue.push_back((messages_start, header_size));
+    let mut queue: VecDeque<(u64, u64)> = VecDeque::new();
+    queue.push_back((messages_start, header_size as u64));
     // The prefix and every message run, so a continuation that names one
     // already followed, or overlaps one, is refused rather than read again.
     let mut claimed = ClaimedRanges::default();
     let header_len = (header_size as u64).saturating_add(16);
     claimed.claim(start, header_len, "object header")?;
     chunks_read.push((start, header_len));
+    // Chunk 0 is charged here with its prefix; each continuation as it is
+    // reached below.
+    let mut header_bytes = 0u64;
+    charge_metadata(&mut header_bytes, header_len, HEADER_BYTES)?;
 
     let mut chunks = 0usize;
     while let Some((run_start, run_len)) = queue.pop_front() {
@@ -171,13 +181,13 @@ fn parse_v1<S: ByteSource + ?Sized>(
         }
         // The first run is chunk 0's messages, claimed with the prefix above.
         if chunks > 1 {
-            claimed.claim(
-                run_start,
-                run_len as u64,
-                "object-header continuation chunk",
-            )?;
-            chunks_read.push((run_start, run_len as u64));
+            claimed.claim(run_start, run_len, "object-header continuation chunk")?;
+            chunks_read.push((run_start, run_len));
+            charge_metadata(&mut header_bytes, run_len, HEADER_BYTES)?;
         }
+        // Narrowed only once charged, so a length past the cap is refused as
+        // too large on every target, not as one a 32-bit `usize` cannot hold.
+        let run_len = checked_usize(run_len, "HDF5 length or offset")?;
         // One read for the whole run, then a purely local parse of it.
         let run = read_at(source, run_start, run_len)?;
         let mut pos = 0usize;
@@ -249,22 +259,25 @@ fn parse_v2<S: ByteSource + ?Sized>(
     }
     // Bits 0-1 select the width of the "size of chunk 0" field: 1, 2, 4, or 8.
     let size_width = 1usize << (flags & 0x03);
-    let chunk0_size = read_usize_le(prefix, pos, size_width)?;
+    let chunk0_size = read_uint_le(prefix, pos, size_width)?;
     pos += size_width;
 
     let track_creation_order = flags & 0x04 != 0;
 
     let mut messages = Vec::new();
-    let mut queue: VecDeque<(u64, usize)> = VecDeque::new();
+    let mut queue: VecDeque<(u64, u64)> = VecDeque::new();
 
     // Chunk 0 is the prefix, the messages, and a 4-byte checksum over
     // everything before it. One read covers all three.
-    let checksum_at = pos
+    let image_len = (pos as u64)
         .checked_add(chunk0_size)
+        .and_then(|n| n.checked_add(4))
         .ok_or_else(|| FieldglassError::Parse("v2 chunk-0 size overflow".into()))?;
-    let image_len = checksum_at
-        .checked_add(4)
-        .ok_or_else(|| FieldglassError::Parse("v2 chunk-0 size overflow".into()))?;
+    // Charged before it is narrowed, as for a continuation below.
+    let mut header_bytes = 0u64;
+    charge_metadata(&mut header_bytes, image_len, HEADER_BYTES)?;
+    let image_len = checked_usize(image_len, "HDF5 length or offset")?;
+    let checksum_at = image_len - 4;
     let image = read_at(source, start, image_len)?;
     verify_checksum(&image, checksum_at)?;
     // Chunk 0 and every continuation, so one named twice, or overlapping
@@ -290,12 +303,10 @@ fn parse_v2<S: ByteSource + ?Sized>(
                 "too many object-header continuation chunks".into(),
             ));
         }
-        claimed.claim(
-            chunk_start,
-            chunk_len as u64,
-            "object-header continuation chunk",
-        )?;
-        chunks_read.push((chunk_start, chunk_len as u64));
+        claimed.claim(chunk_start, chunk_len, "object-header continuation chunk")?;
+        chunks_read.push((chunk_start, chunk_len));
+        charge_metadata(&mut header_bytes, chunk_len, HEADER_BYTES)?;
+        let chunk_len = checked_usize(chunk_len, "HDF5 length or offset")?;
         // OCHK(4) + messages + checksum(4): at least 8 bytes of framing.
         if chunk_len < 8 {
             return Err(FieldglassError::Parse(
@@ -334,7 +345,7 @@ fn parse_v2_run(
     offset_size: u8,
     length_size: u8,
     messages: &mut Vec<HeaderMessage>,
-    queue: &mut VecDeque<(u64, usize)>,
+    queue: &mut VecDeque<(u64, u64)>,
 ) -> Result<(), FieldglassError> {
     let run_len = run.len();
     // Header is type(1) size(2) flags(1), plus a 2-byte creation order when the
@@ -370,7 +381,7 @@ fn enqueue_continuation(
     body: &[u8],
     offset_size: u8,
     length_size: u8,
-    queue: &mut VecDeque<(u64, usize)>,
+    queue: &mut VecDeque<(u64, u64)>,
 ) -> Result<(), FieldglassError> {
     let osize = offset_size as usize;
     let lsize = length_size as usize;
@@ -385,7 +396,7 @@ fn enqueue_continuation(
     if is_undefined_address(address, offset_size) {
         return Err(FieldglassError::Parse("undefined HDF5 address".into()));
     }
-    queue.push_back((address, checked_usize(length, "HDF5 length or offset")?));
+    queue.push_back((address, length));
     Ok(())
 }
 

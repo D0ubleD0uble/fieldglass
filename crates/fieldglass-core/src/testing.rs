@@ -398,6 +398,70 @@ impl<S: ByteSource> ByteSource for OneRange<S> {
     }
 }
 
+/// A source that declares a size far past what it holds, as a remote
+/// object's stated length can (#950, #997).
+///
+/// Over a buffer, a length a file states is bounded by the bytes in hand; over
+/// a transport, only by the length the host declares. This holds a small file
+/// and declares it as large as a test likes, so a reader that trusts a length
+/// field asks for that length. Past the held bytes it serves zeros, as a
+/// cursor's look-ahead window may ask for, but a single read longer than its
+/// ceiling (a megabyte unless set) is refused, so a read of what a hostile
+/// field claims fails the test rather than allocating it. Wrap it in a
+/// [`Recording`] to say how large a read the reader actually asked for.
+#[derive(Debug)]
+pub struct Declared<S> {
+    inner: S,
+    size: u64,
+    ceiling: u64,
+}
+
+impl<S> Declared<S> {
+    /// `inner`, declared to be `size` bytes long.
+    pub fn new(inner: S, size: u64) -> Self {
+        Self {
+            inner,
+            size,
+            ceiling: 1 << 20,
+        }
+    }
+
+    /// Refuse any one read longer than `ceiling` bytes.
+    pub fn with_ceiling(mut self, ceiling: u64) -> Self {
+        self.ceiling = ceiling;
+        self
+    }
+}
+
+impl<S: ByteSource> ByteSource for Declared<S> {
+    fn size(&self) -> u64 {
+        self.size
+    }
+
+    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
+        if range.len > self.ceiling {
+            return Err(FieldglassError::Parse(format!(
+                "read of {} bytes at {}, past the {} one read may ask for",
+                range.len, range.start, self.ceiling
+            )));
+        }
+        if range.end().is_none_or(|end| end > self.size) {
+            return Err(FieldglassError::Parse(format!(
+                "{range:?} runs past the declared {} bytes",
+                self.size
+            )));
+        }
+        let held = self.inner.size();
+        let mut out = vec![0u8; range.len as usize];
+        if range.start < held {
+            let len = range.len.min(held - range.start);
+            let got = self.inner.read(ByteRange::new(range.start, len))?;
+            out[..got.len()].copy_from_slice(&got);
+        }
+        Ok(Cow::Owned(out))
+    }
+}
+
 /// A source that owns nothing the caller can borrow: every read copies.
 ///
 /// This is what a transport that fetched into a `RefCell` is forced to be — a
@@ -548,6 +612,24 @@ mod tests {
         source.clear();
         assert!(source.reads_before_each_batch().is_empty());
         assert!(source.reads_after_batch().is_empty());
+    }
+
+    /// Declared serves what it holds, zeros past it up to the size it
+    /// declares, and refuses a read past its ceiling or its declared end.
+    #[test]
+    fn declared_serves_its_bytes_then_zeros_and_refuses_a_long_read() {
+        let source = Declared::new(&b"abc"[..], 1 << 40).with_ceiling(8);
+        assert_eq!(source.size(), 1 << 40);
+        assert_eq!(&*source.read(ByteRange::new(1, 4)).unwrap(), b"bc\0\0");
+        assert_eq!(&*source.read(ByteRange::new(100, 2)).unwrap(), b"\0\0");
+        assert!(
+            source.read(ByteRange::new(0, 9)).is_err(),
+            "past the ceiling"
+        );
+        assert!(
+            source.read(ByteRange::new((1 << 40) - 1, 2)).is_err(),
+            "past the declared end"
+        );
     }
 
     #[test]
