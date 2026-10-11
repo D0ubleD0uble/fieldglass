@@ -31,6 +31,13 @@ pub fn grow_toward(buf: &mut Vec<u8>, hint: usize, limit: usize) -> bool {
         return false;
     }
     let new_len = len.saturating_mul(2).max(hint).max(1).min(limit);
+    if buf.capacity() == 0 {
+        // `vec!` asks the allocator for zeroed memory, which a large fresh
+        // block already is, so the first step writes nothing. A chunk whose
+        // first guess covers it never pays for zeroing at all.
+        *buf = vec![0; new_len];
+        return true;
+    }
     buf.reserve_exact(new_len - len);
     buf.resize(new_len, 0);
     true
