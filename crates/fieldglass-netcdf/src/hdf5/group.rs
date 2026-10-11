@@ -46,6 +46,10 @@ const SIG_SNOD: &[u8; 4] = b"SNOD";
 /// Link-name B-tree v2 record: `hash(4)` then the fractal-heap ID.
 const LINK_RECORD_HEAP_ID_OFFSET: usize = 4;
 
+/// What a second claim of a local heap means: two groups share one (ADR-0016
+/// decision 2).
+const LOCAL_HEAP: &str = "local heap";
+
 /// Upper bound on the objects one listing holds: the members of one group, or
 /// the datasets of the whole tree.
 ///
@@ -429,8 +433,8 @@ fn local_heap_data_segment<S: ByteSource + ?Sized>(
     let size = cur.uint(lsize as usize)?; // data segment size
     cur.uint(lsize as usize)?; // free-list head offset
     let address = cur.uint(osize as usize)?; // address of data segment
-    file.claim(addr, cur.position() - addr, "local heap")?;
-    file.claim(address, size, "local heap data segment")?;
+    file.claim_store(addr, cur.position() - addr, "local heap", LOCAL_HEAP)?;
+    file.claim_store(address, size, "local heap data segment", LOCAL_HEAP)?;
     Ok(HeapSegment { address, size })
 }
 

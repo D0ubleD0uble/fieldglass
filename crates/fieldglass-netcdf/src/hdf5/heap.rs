@@ -25,6 +25,10 @@ use super::source::{ClaimedRanges, Fields, FileCursor, read_at};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteSource, checked_usize};
 
+/// What a second claim of a fractal heap or B-tree v2 header means: two
+/// objects share one dense attribute or link store (ADR-0016 decision 2).
+const DENSE_STORE: &str = "dense attribute or link store";
+
 const SIG_BTREE_V2_HDR: &[u8; 4] = b"BTHD";
 const SIG_BTREE_V2_INTERNAL: &[u8; 4] = b"BTIN";
 const SIG_BTREE_V2_LEAF: &[u8; 4] = b"BTLF";
@@ -112,7 +116,7 @@ pub(crate) fn btree_v2_records_in<S: ByteSource + ?Sized>(
     // split and merge percents, the root's address and record count (2), the
     // tree's record count, and the checksum.
     let header_len = 22 + u64::from(osize) + u64::from(lsize);
-    claimed.claim(addr, header_len, "B-tree v2 header")?;
+    claimed.claim_store(addr, header_len, "B-tree v2 header", DENSE_STORE)?;
     let mut hdr = FileCursor::at(source, addr)?;
     hdr.tag(SIG_BTREE_V2_HDR)?;
     hdr.skip(1)?; // version
@@ -510,7 +514,12 @@ impl FractalHeap {
             None
         };
         // The header ends with a checksum after the fields read here.
-        file.claim(addr, cur.position() - addr + 4, "fractal-heap header")?;
+        file.claim_store(
+            addr,
+            cur.position() - addr + 4,
+            "fractal-heap header",
+            DENSE_STORE,
+        )?;
 
         let offset_bytes = max_heap_bits.div_ceil(8);
         // A managed heap ID is flags(1) + offset(offset_bytes) + length(>=1).

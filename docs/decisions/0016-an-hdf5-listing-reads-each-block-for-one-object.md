@@ -62,6 +62,19 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    robustness policy, because reading the shared block once per object is what
    makes a small file expensive and no writer produces one. The shared
    continuation chunk is **not** a divergence: libhdf5 refuses it too.
+
+   Because the file is valid, the refusal is **not** a parse error (#987). It
+   is `ArrayError::SharedStorage`, which says the file is fine and reaches a
+   host as `unsupported`, as decision 4 does for a listing past its cap.
+   `ClaimedRanges::claim_store` raises it when a store claim repeats the exact
+   block an earlier store claim holds. The claims are classed so:
+
+   | Claim | Class |
+   | --- | --- |
+   | fractal-heap header, B-tree v2 header (a dense attribute or link store, or a heap's huge-object index) claimed again | `SharedStorage`, "dense attribute or link store" |
+   | local heap header or data segment claimed again | `SharedStorage`, "local heap" |
+   | object-header chunk, B-tree v1 node, `SNOD`, group member name, B-tree v2 node, huge or managed heap object | `Parse`: the specification or libhdf5 treats a second name for these as corrupt (ADR-0014) |
+   | a store claim that overlaps anything but an identical earlier claim of the same kind (a local heap header laid on another heap's data segment is corrupt) | `Parse` |
 3. **Exempt:** an object reached by two hard links is one object. Its header
    chunks are claimed on its first visit, and resolution describes it once and
    lists it under each name. A global-heap collection is legitimately shared
@@ -93,7 +106,8 @@ than corrupt (also through `Session` in
   shared chunk before it is claimed), in under 3 ms and 5 MB at four times the
   objects. The 600-group chain lists in 1.5 ms at 3.8 MB.
 - A file libhdf5 reads can be refused: one whose objects share a dense
-  attribute or link store, or whose groups share a local heap.
+  attribute or link store, or whose groups share a local heap. It is
+  reported as unsupported, not corrupt.
 - Opening a NetCDF-4 file costs a few more allocations for the claim sets and
   the memoised chunk ranges (+9 allocations, about 2 KB and 3% instructions on
   the perf corpus's `open` rows).

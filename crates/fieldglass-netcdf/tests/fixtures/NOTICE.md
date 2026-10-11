@@ -450,7 +450,8 @@ or links, and a group stores its link names in "the group's local heap"
 Info Message", "Local Heaps"). So, unlike two members sharing a name (#901),
 these files are not malformed by any rule the specification states. No writer
 produces one, and reading the shared block once per object is what makes a
-small file expensive, so Fieldglass refuses them as a robustness policy.
+small file expensive, so Fieldglass refuses them as a robustness policy. The
+refusal reaches a host as `unsupported`, saying the file is fine.
 The continuation file is not a divergence: libhdf5 refuses it too.
 ADR-0016 records the decision.
 `tests/hdf5_shared_blocks.rs` checks each refusal, how often the block is

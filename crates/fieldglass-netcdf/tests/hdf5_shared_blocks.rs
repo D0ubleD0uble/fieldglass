@@ -122,9 +122,22 @@ fn reads_of(source: &Recording<&[u8]>, len: u64) -> usize {
     source.reads().iter().filter(|r| r.len >= len).count()
 }
 
-fn refused(result: Result<impl std::fmt::Debug, FieldglassError>, what: &str) {
+/// A block named by two objects is refused as corrupt: libhdf5 refuses it too.
+fn refused_as_corrupt(result: Result<impl std::fmt::Debug, FieldglassError>, what: &str) {
     let err = result.expect_err("a block named by two objects is refused");
+    assert!(matches!(err, FieldglassError::Parse(_)), "{err:?}");
     assert!(err.to_string().contains(what), "{err}");
+}
+
+/// A store two objects share is refused by policy: libhdf5 reads it, so the
+/// file is valid and the class says so (#987).
+fn refused_by_policy(result: Result<impl std::fmt::Debug, FieldglassError>, store: &str) {
+    let err = result.expect_err("a store named by two objects is refused");
+    match &err {
+        FieldglassError::Array(ArrayError::SharedStorage { what }) => assert_eq!(*what, store),
+        other => panic!("expected SharedStorage, got {other:?}"),
+    }
+    assert!(err.to_string().contains("The file itself is fine"), "{err}");
 }
 
 #[test]
@@ -132,7 +145,7 @@ fn headers_continuing_into_one_chunk_are_refused() {
     let p = probe(CONTINUATION);
     let source = Recording::new(CONTINUATION);
     let (peak, listed) = peak_while(|| list_all_children(&source, &p));
-    refused(listed, "object-header chunk");
+    refused_as_corrupt(listed, "object-header chunk");
     // The first header reads the chunk; the second reads it before the
     // listing sees that it is the first one's. It was read 256 times.
     assert!(
@@ -152,7 +165,7 @@ fn datasets_sharing_one_dense_attribute_store_are_refused() {
     assert_eq!(list_all_children(&source, &p).unwrap().len(), 257);
     source.clear();
     let (peak, resolved) = peak_while(|| resolve_hdf5_metadata(&source, &p));
-    refused(resolved, "fractal-heap header");
+    refused_by_policy(resolved, "dense attribute or link store");
     // `owner`'s 64 attributes, each read once. Every dataset read all 64,
     // twice: 32,896 reads.
     assert!(reads_of(&source, 3000) <= 64, "{}", reads_of(&source, 3000));
@@ -165,7 +178,7 @@ fn groups_sharing_one_dense_link_store_are_refused() {
     let p = probe(LINKS);
     let source = Recording::new(LINKS);
     let (peak, listed) = peak_while(|| list_all_children(&source, &p));
-    refused(listed, "fractal-heap header");
+    refused_by_policy(listed, "dense attribute or link store");
     // `owner`'s 64 link names, each read once, and its B-tree leaf. Every
     // group read all 64.
     let names: Vec<_> = source
@@ -186,7 +199,7 @@ fn groups_sharing_one_local_heap_are_refused() {
     let p = probe(LOCAL_HEAP);
     let source = Recording::new(LOCAL_HEAP);
     let (peak, listed) = peak_while(|| list_all_children(&source, &p));
-    refused(listed, "local heap");
+    refused_by_policy(listed, "local heap");
     // The root reads its long name; no group reads it again. Every group did.
     assert!(
         reads_of(&source, 60_000) <= 1,

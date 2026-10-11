@@ -264,7 +264,8 @@ export type ApiError =
    * more than one chunk may; or an HDF5 file that lists more than one
    * listing holds: more objects, more links in one group, or more bytes of
    * path-qualified names; or a classic NetCDF header longer than one header
-   * may be.
+   * may be; or an HDF5 file whose objects share a dense attribute or link
+   * store or a local heap, which libhdf5 reads and this reader refuses.
    */
   | {
     code: "unsupported";

@@ -328,6 +328,23 @@ pub enum ArrayError {
         limit: u64,
     },
 
+    /// A container in which two objects share one block that a valid file may
+    /// share but a reader would have to read once per object: a dense
+    /// attribute or link store, a local heap (#987).
+    ///
+    /// The file is not at fault. The specification does not forbid the
+    /// sharing and libhdf5 reads it; this reader refuses it by policy, because
+    /// reading the block once per object makes a small file expensive. The
+    /// message says so.
+    #[error(
+        "two objects in this file share one {what}, which this reader refuses \
+         rather than read once per object. The file itself is fine"
+    )]
+    SharedStorage {
+        /// What is shared, as the message names it (`"local heap"`).
+        what: &'static str,
+    },
+
     /// A chunk key separator that is not one of the two the conventions use.
     #[error("{found:?} is not a chunk key separator; expected \".\" or \"/\"")]
     BadSeparator {
