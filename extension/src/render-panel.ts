@@ -74,6 +74,10 @@ export interface SlicePanelData {
 export interface CompareFieldOption {
   index: number;
   label: string;
+  /** The message's identity (`messageKey`), so a page written again for a
+   *  file that changed finds its Field B by it rather than by an index the
+   *  new file may give another field (#959). */
+  key?: string;
 }
 
 /** Returns the full HTML for the render-panel webview. The DOM mounts,
@@ -165,6 +169,18 @@ ${options}
       </label>`;
 }
 
+/** One `<option>` per message, its value the index and its `data-key` the
+ *  message's identity (#959). Both come from a decoded file, so both are
+ *  escaped. */
+function messageOptionsHtml(fields: CompareFieldOption[]): string {
+  return fields
+    .map((f) => {
+      const key = f.key ? ` data-key="${escapeHtml(f.key)}"` : "";
+      return `          <option value="${f.index}"${key}>${escapeHtml(f.label)}</option>`;
+    })
+    .join("\n");
+}
+
 /** The GRIB Compare row: the operation selector plus a Field B message picker.
  *  Omitted (empty string) when there is nothing to compare — fewer than two
  *  messages — so a single-message file shows no Compare row. */
@@ -175,9 +191,7 @@ function gribCompareFieldsetHtml(
   if (fields.length < 2) {
     return "";
   }
-  const options = fields
-    .map((f) => `          <option value="${f.index}">${escapeHtml(f.label)}</option>`)
-    .join("\n");
+  const options = messageOptionsHtml(fields);
   return `    <fieldset>
       <legend>Compare:</legend>
 ${compareOpSelectHtml(combineOps)}
@@ -207,9 +221,7 @@ function vectorFieldsetHtml(
   if (fields.length < 2) {
     return "";
   }
-  const options = fields
-    .map((f) => `          <option value="${f.index}">${escapeHtml(f.label)}</option>`)
-    .join("\n");
+  const options = messageOptionsHtml(fields);
   // Arrows are drawn along the grid's own geometry, so a message nothing
   // places takes none (#840), and neither does a placed one some of whose
   // points have no position (#945). A GRIB panel draws one message, so this
@@ -1718,6 +1730,9 @@ export function renderImagePanelHtml(
             if (varSel) varSel.selectedIndex = -1;
             setAwaitingPick(true);
           }
+          // The message a GRIB panel was drawing is not exactly once in the
+          // file that changed under it (#959).
+          if (Array.isArray(msg.pickMessages)) offerMessages(msg.pickMessages);
           // Self-heal the one render error the log toggle can cause: switching
           // to a field with no positive floor while log was on. Drop log and
           // re-render linearly rather than leaving the panel stuck on an error.
@@ -1727,6 +1742,55 @@ export function renderImagePanelHtml(
             logEl.disabled = true;
             requestRender();
           }
+        }
+
+        // Nothing is drawn under the old heading: the image, its overlays and
+        // the heading go, and the new file's messages are offered with none
+        // chosen, so whichever is picked is a change and draws (#959). Until
+        // then nothing is asked for.
+        function offerMessages(list) {
+          const row = document.getElementById('message-pick-row');
+          const sel = document.getElementById('message-pick');
+          if (!row || !sel) return;
+          sel.textContent = '';
+          for (const f of list) {
+            const option = document.createElement('option');
+            option.value = String(f.index);
+            option.textContent = f.label;
+            sel.appendChild(option);
+          }
+          sel.selectedIndex = -1;
+          row.hidden = false;
+          setAwaitingPick(true);
+          lastPayload = null;
+          lastContour = null;
+          lastVectors = null;
+          clearOverlay();
+          const canvas = document.getElementById('canvas');
+          const ctx = canvas && canvas.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+          const colorbar = document.getElementById('colorbar');
+          if (colorbar) colorbar.hidden = true;
+          TITLE_LINE = 'No message drawn';
+          SUB_LINE = '';
+          const h1 = document.getElementById('title-line');
+          if (h1) h1.textContent = TITLE_LINE;
+          const subtitle = document.querySelector('.subtitle');
+          if (subtitle) subtitle.textContent = '';
+          const proj = document.getElementById('projection-summary');
+          if (proj) proj.textContent = '';
+          const probeEl = document.getElementById('probe');
+          if (probeEl) probeEl.textContent = '';
+          hideLine();
+        }
+
+        {
+          const sel = document.getElementById('message-pick');
+          if (sel) sel.addEventListener('change', () => {
+            if (sel.value === '') return;
+            vscode.postMessage({ type: 'pickMessage', messageIndex: Number(sel.value) });
+            setStatus('Rendering…');
+          });
         }
 
         // An overlay projection failed on the provider side. Resolve the
@@ -2328,6 +2392,7 @@ export function renderImagePanelHtml(
         }
 
         function requestZonal() {
+          if (awaitingPick) return;
           vscode.postMessage(Object.assign({ type: 'zonalRequest' }, sliceFields()));
         }
 
@@ -2702,6 +2767,13 @@ export function renderImagePanelHtml(
             scaleLog: chk('scale-log'),
             compareOp: val('compare-op'),
             compareFieldB: val('compare-field-b'),
+            // Field B's identity as well as its index: a GRIB panel written
+            // again for a file that changed finds Field B by it (#959).
+            compareKeyB: (() => {
+              const b = document.getElementById('compare-field-b');
+              const chosen = b && b.selectedOptions[0];
+              return chosen ? chosen.dataset.key : undefined;
+            })(),
             compareIndices: compareIndices.slice(),
             flipY: chk('flip-y'),
             rangeMode: radio('range-mode'),
@@ -2733,6 +2805,28 @@ export function renderImagePanelHtml(
               ? sliceVariable(sliceState.variableIndex).name
               : undefined,
           });
+        }
+
+        // Field B of a GRIB panel. The page can have been written again for a
+        // file that changed under it, where the saved index may name another
+        // field (#959). So the saved message is kept where the option at its
+        // index is still that message, found by its identity where it moved,
+        // and otherwise left unchosen, which compares nothing. A snapshot with
+        // no identity (a NetCDF panel's, or one saved before #959) restores by
+        // index, as before.
+        function restoreFieldB(index, key) {
+          const b = document.getElementById('compare-field-b');
+          if (!b || index === undefined || index === null) return;
+          if (typeof key !== 'string') {
+            if (Array.from(b.options).some((o) => o.value === String(index))) b.value = String(index);
+            return;
+          }
+          const options = Array.from(b.options);
+          const same = options.filter((o) => o.dataset.key === key);
+          const kept = same.find((o) => o.value === String(index));
+          const chosen = kept || (same.length === 1 ? same[0] : null);
+          if (chosen) b.value = chosen.value;
+          else b.selectedIndex = -1;
         }
 
         // Write a saved snapshot back into the DOM (and sliceState). Runs
@@ -2782,7 +2876,7 @@ export function renderImagePanelHtml(
           setChk('reverse-colormap', s.reverseColormap);
           setChk('scale-log', s.scaleLog);
           setVal('compare-op', s.compareOp);
-          setVal('compare-field-b', s.compareFieldB);
+          restoreFieldB(s.compareFieldB, s.compareKeyB);
           // Restore Field B's indices before setupSlice builds its steppers.
           if (Array.isArray(s.compareIndices)) compareIndices = s.compareIndices.slice();
           setChk('flip-y', s.flipY);
@@ -3328,7 +3422,12 @@ ${slice
       <label><input type="checkbox" id="anim-loop" checked> Loop</label>
       <span id="anim-frame" class="slice-len" aria-live="polite"></span>
     </div>`
-    : ""}
+    // A GRIB panel's message can be gone from a file that changed under it, or
+    // be there more than once; the panel then offers the new file's messages
+    // here, with none chosen (#959).
+    : `    <div class="toolbar-row" id="message-pick-row" hidden>
+      <label>Message <select id="message-pick"></select></label>
+    </div>`}
     <div class="toolbar-row">
       <span id="cross-section-note" class="picker-note" hidden></span>
       <label>Projection

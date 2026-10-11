@@ -47,6 +47,7 @@ import {
   renderImagePanelHtml,
   reprojectionNote,
   sanitizePngName,
+  type CompareFieldOption,
   type PanelField,
   type SlicePanelData,
   type SliceSpec,
@@ -782,42 +783,122 @@ export class FieldglassEditorProvider
     document: FieldglassDocument,
     meta: MessageInfo,
   ): void {
+    const key = document.uri.toString();
+    const docHandle = () => this._handlesByDoc.get(key);
+    // The message the panel draws. A file that changes under the panel can
+    // hold it at another index, or not at all (#959), so this moves.
+    let shown = meta;
     // The abbreviation comes from a decoded (untrusted) file. VS Code renders
     // panel titles as plain text, so there's no XSS, but strip control
     // characters and cap the length so a hostile file can't garble the tab.
-    const abbr = sanitizeTitlePart(meta.abbreviation);
-    const title = `Render: msg ${meta.index}` + (abbr ? ` — ${abbr}` : "");
+    const titleOf = (m: MessageInfo): string => {
+      const abbr = sanitizeTitlePart(m.abbreviation);
+      return `Render: msg ${m.index}` + (abbr ? ` — ${abbr}` : "");
+    };
     const panel = vscode.window.createWebviewPanel(
       "fieldglass.render",
-      title,
+      titleOf(meta),
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
       { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [] }
     );
     // Every message in the file is a candidate "field B" for a difference map
-    // (#239); the picker only appears when there are at least two.
-    const fileHandle = this._handlesByDoc.get(document.uri.toString());
-    const compareFields = fileHandle
-      ? listMessages(fileHandle).map((m) => ({ index: m.index, label: gribFieldLabel(m) }))
-      : undefined;
+    // (#239) and a V component (#241); the pickers only appear when there are
+    // at least two. Each carries its identity, so a page written again for a
+    // changed file finds its Field B by it (#959).
+    const fieldsOf = (messages: MessageInfo[]): CompareFieldOption[] =>
+      messages.map((m) => ({ index: m.index, label: gribFieldLabel(m), key: messageKey(m) }));
+    const opened = docHandle();
+    // The messages the page's numbers refer to: the file as it was when the
+    // page was written.
+    let listed: MessageInfo[] = opened ? listMessages(opened) : [];
+    let compareFields: CompareFieldOption[] | undefined = opened ? fieldsOf(listed) : undefined;
 
-    this.trackRenderPanel(panel, () => {
+    const write = () => {
       panel.webview.html = renderImagePanelHtml(
         panel.webview,
-        meta,
-        describeProjection(meta),
+        shown,
+        describeProjection(shown),
         colormapRegistry(),
         combineOpRegistry(),
         undefined,
         compareFields,
       );
-    });
+    };
+    this.trackRenderPanel(panel, write);
+
+    // A changed file is read through the gate slice panels use (#839). The
+    // panel's message is looked for in the new file by its identity, which is
+    // Rust's (`MessageInfo.identity`): the parameter, level, reference time,
+    // step or range, and grid. Exactly one match is drawn under its own
+    // heading. None, or more than one, is refused, and the new file's messages
+    // are offered instead (`picking`); nothing is drawn until one is picked.
+    const gate = new PanelHandleGate<Grib1Handle | Grib2Handle>(opened);
+    let picking: CompareFieldOption[] | null = null;
+    const refuse = () => {
+      if (!picking) return;
+      panel.webview.postMessage({
+        type: "gridError",
+        messageIndex: shown.index,
+        error: MESSAGE_GONE,
+        pickMessages: picking,
+      } satisfies GridErrorMessage);
+    };
+    const adopt = (current: Grib1Handle | Grib2Handle): boolean => {
+      const next = listMessages(current);
+      // The same messages in the same places: the file is the one the page was
+      // written from (an editor closed and opened again, say). The page's
+      // numbers still mean what they did, so the request is served.
+      if (!picking && sameMessages(listed, next)) {
+        listed = next;
+        shown = next[shown.index];
+        gate.keep(current);
+        return true;
+      }
+      listed = next;
+      compareFields = fieldsOf(next);
+      const wanted = messageKey(shown);
+      const found = picking ? [] : next.filter((m) => messageKey(m) === wanted);
+      if (found.length === 1) {
+        shown = found[0];
+        panel.title = titleOf(shown);
+        gate.rewrite(current);
+        write();
+        return false;
+      }
+      picking = compareFields;
+      gate.keep(current);
+      refuse();
+      return false;
+    };
+    // The user picked one of the new file's messages. The index is the one the
+    // refusal listed; the gate has already checked that the file has not
+    // changed again since.
+    const pick = (index: unknown) => {
+      const current = docHandle();
+      if (!picking || !current || !isNonNegativeInt(index) || index >= current.count()) return;
+      const m = current.message(index);
+      if (!messageIsRenderable(m)) {
+        panel.webview.postMessage({
+          type: "gridError",
+          messageIndex: index,
+          error: "message has no grid dimensions (unsupported GDS)",
+          pickMessages: picking,
+        } satisfies GridErrorMessage);
+        return;
+      }
+      shown = m;
+      picking = null;
+      panel.title = titleOf(shown);
+      gate.rewrite(current);
+      write();
+    };
 
     const paint = (options: RenderOptions, compare?: GribCompare) => {
-      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      const docHandle = this._handlesByDoc.get(key);
       if (!docHandle) {
         panel.webview.postMessage({
           type: "gridError",
-          messageIndex: meta.index,
+          messageIndex: shown.index,
           error: "reader handle was disposed",
         });
         return;
@@ -828,19 +909,19 @@ export class FieldglassEditorProvider
         // paint-ready RGBA, so the panel displays them identically.
         const rendered = compare
           ? docHandle.renderGridCombined(
-              meta.index,
+              shown.index,
               compare.messageIndexB,
               compare.op,
               options,
             )
-          : docHandle.renderGrid(meta.index, options);
+          : docHandle.renderGrid(shown.index, options);
         panel.webview.postMessage(
-          buildGridReadyMessage(rendered, meta, options),
+          buildGridReadyMessage(rendered, shown, options),
         );
       } catch (err) {
         panel.webview.postMessage({
           type: "gridError",
-          messageIndex: meta.index,
+          messageIndex: shown.index,
           error: `render failed: ${err}`,
         });
       }
@@ -852,13 +933,13 @@ export class FieldglassEditorProvider
     // values, so toggling the overlay never re-decodes the grid. `seq` is
     // echoed verbatim so the webview can drop a reply for a superseded request.
     const projectOverlay = (req: OverlayRequest) => {
-      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      const docHandle = this._handlesByDoc.get(key);
       if (!docHandle) return;
       const options = resolveRerenderOptions(req.options ?? {});
       const layers: OverlayLayerPayload[] = [];
       const project = (name: string, geom: OverlayGeometry) => {
         const projected = docHandle.projectOverlay(
-          meta.index,
+          shown.index,
           options,
           geom.latlon,
           geom.ringLengths,
@@ -874,7 +955,7 @@ export class FieldglassEditorProvider
         if (req.graticule) project("graticule", buildGraticule(Number(req.graticuleSpacing)));
         panel.webview.postMessage({
           type: "overlayReady",
-          messageIndex: meta.index,
+          messageIndex: shown.index,
           seq: req.seq,
           layers,
         });
@@ -884,7 +965,7 @@ export class FieldglassEditorProvider
         // with an advanced `overlaySeq`/`lastOverlayKey` and a blank overlay.
         panel.webview.postMessage({
           type: "overlayError",
-          messageIndex: meta.index,
+          messageIndex: shown.index,
           seq: req.seq,
           error: `overlay projection failed: ${err}`,
         });
@@ -895,7 +976,7 @@ export class FieldglassEditorProvider
     // Unlike the geographic overlays this decodes values, so it rides the same
     // handle as `paint`; `seq` lets the panel drop a superseded reply.
     const projectContours = (req: ContourRequest) => {
-      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      const docHandle = this._handlesByDoc.get(key);
       if (!docHandle) return;
       const options = resolveRerenderOptions(req.options ?? {});
       const interval = resolveInterval(req.interval);
@@ -904,11 +985,11 @@ export class FieldglassEditorProvider
       try {
         const c = compare
           ? docHandle.projectContoursCombined(
-              meta.index, compare.messageIndexB, compare.op, options, interval)
-          : docHandle.projectContours(meta.index, options, interval);
+              shown.index, compare.messageIndexB, compare.op, options, interval)
+          : docHandle.projectContours(shown.index, options, interval);
         panel.webview.postMessage({
           type: "contourReady",
-          messageIndex: meta.index,
+          messageIndex: shown.index,
           seq: req.seq,
           xy: c.xy,
           segLengths: c.segLengths,
@@ -916,7 +997,7 @@ export class FieldglassEditorProvider
       } catch (err) {
         panel.webview.postMessage({
           type: "contourError",
-          messageIndex: meta.index,
+          messageIndex: shown.index,
           seq: req.seq,
           error: `${err}`.replace(/^Error:\s*/, ""),
         });
@@ -930,14 +1011,14 @@ export class FieldglassEditorProvider
     // combine would be (#793) — so the panel can say why rather than drawing
     // nothing.
     const projectVectors = (req: VectorRequest) => {
-      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      const docHandle = this._handlesByDoc.get(key);
       if (!docHandle) return;
       if (!isNonNegativeInt(req.messageIndexV)) return;
       const options = resolveRerenderOptions(req.options ?? {});
       const spacing = isNonNegativeInt(req.spacing) && req.spacing > 0 ? req.spacing : undefined;
       try {
         const arrows = docHandle.projectVectors(
-          meta.index,
+          shown.index,
           req.messageIndexV,
           options,
           spacing,
@@ -959,28 +1040,28 @@ export class FieldglassEditorProvider
       }
     };
 
-    // Read the field under a clicked pixel and post the readout back (#172).
     // The field's zonal mean (#240). A refusal travels with the reply, because
     // the reason — a rotated or projected grid has no latitude circles to average
     // along — is what the panel should say instead of an empty plot.
     const zonal = () => {
-      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      const docHandle = this._handlesByDoc.get(key);
       if (!docHandle) return;
       try {
-        const result = docHandle.zonalMean(meta.index);
-        panel.webview.postMessage({ type: "zonalResult", messageIndex: meta.index, result, error: null });
+        const result = docHandle.zonalMean(shown.index);
+        panel.webview.postMessage({ type: "zonalResult", messageIndex: shown.index, result, error: null });
       } catch (err) {
         panel.webview.postMessage({
           type: "zonalResult",
-          messageIndex: meta.index,
+          messageIndex: shown.index,
           result: null,
           error: `${err}`.replace(/^Error:\s*/, ""),
         });
       }
     };
 
+    // Read the field under a clicked pixel and post the readout back (#172).
     const probe = (req: ProbeRequest) => {
-      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      const docHandle = this._handlesByDoc.get(key);
       if (!docHandle) return;
       const options = resolveRerenderOptions(req.options ?? {});
       const px = Math.max(0, Math.floor(req.px));
@@ -990,12 +1071,12 @@ export class FieldglassEditorProvider
       try {
         const result = compare
           ? docHandle.probeCombined(
-              meta.index, compare.messageIndexB, compare.op, options, px, py)
-          : docHandle.probe(meta.index, options, px, py);
-        panel.webview.postMessage({ type: "probeResult", messageIndex: meta.index, result });
+              shown.index, compare.messageIndexB, compare.op, options, px, py)
+          : docHandle.probe(shown.index, options, px, py);
+        panel.webview.postMessage({ type: "probeResult", messageIndex: shown.index, result });
       } catch {
         // A probe never blocks the user; swallow and report nothing.
-        panel.webview.postMessage({ type: "probeResult", messageIndex: meta.index, result: null });
+        panel.webview.postMessage({ type: "probeResult", messageIndex: shown.index, result: null });
       }
     };
 
@@ -1014,6 +1095,16 @@ export class FieldglassEditorProvider
           | { type?: string; dataUrl?: unknown; defaultName?: unknown },
       ) => {
         if (!m || typeof m.type !== "string") return;
+        if (!gate.admit(m.type, docHandle(), adopt)) return;
+        // No message is chosen: a render is answered with the refusal again (a
+        // page shown again after it was hidden asks for one), the pick is
+        // served, and every other request, which would read a message nobody
+        // chose, is dropped.
+        if (picking && m.type !== "exportPng") {
+          if (m.type === "pickMessage") pick((m as { messageIndex?: unknown }).messageIndex);
+          else if (m.type === "ready" || m.type === "rerenderRequest") refuse();
+          return;
+        }
         if (m.type === "ready") {
           paint(resolveRerenderOptions(m as Partial<RenderOptions>), resolveGribCompare(m));
           return;
@@ -1367,21 +1458,14 @@ export class FieldglassEditorProvider
     };
     this.trackRenderPanel(panel, write);
 
-    // The handle the page's variable list was read from. A document closed and
-    // opened again brings a new handle, on a file that may have changed: its
-    // variables can be others, or the same ones numbered differently, and every
-    // request the page makes names a variable by its number in the old list.
-    // So the first request after the handle changes is not served. The panel is
-    // written again from the new file, and the page restores its selection by
-    // the variable's name (#839).
-    let pageHandle = handle;
+    // The handle the page's variable list was read from. A changed file's
+    // variables can be others, or the same ones numbered differently, so the
+    // panel is written again from the new file, and the page restores its
+    // selection by the variable's name (#839).
+    const gate = new PanelHandleGate<SlicePanelHandle>(handle);
     // Said in place of the first render after that, when the variable the page
     // was showing is no longer in the file.
     let refusal: string | null = null;
-    // Set from the rewrite until the new page says it is ready. Anything the old
-    // page sent before it was replaced is still on its way, and names variables
-    // by the old numbers, so it is dropped rather than read from the new file.
-    let awaitingReady = false;
     const adopt = (current: SlicePanelHandle, asked: SliceSpec | undefined): void => {
       const name = (variables.find((v) => v.variableIndex === asked?.variableIndex) ?? initialVar).name;
       const next = current.variables();
@@ -1396,7 +1480,6 @@ export class FieldglassEditorProvider
         } satisfies GridErrorMessage);
         return;
       }
-      pageHandle = current;
       variables = next;
       initialVar = opened;
       initial = defaultSliceSpec(opened);
@@ -1404,7 +1487,7 @@ export class FieldglassEditorProvider
       refusal = same ? null : `${name} is no longer in the ${subject.noun}, so nothing was drawn. Pick a variable to draw.`;
       const grid = gridOf(current, initial);
       shown = { meta: sliceField(opened, grid), grid };
-      awaitingReady = true;
+      gate.rewrite(current);
       write();
     };
 
@@ -1645,19 +1728,11 @@ export class FieldglassEditorProvider
       ) => {
         if (!m || typeof m.type !== "string") return;
         const current = subject.handle();
-        if (m.type !== "exportPng") {
-          if (awaitingReady) {
-            if (m.type !== "ready") return;
-            awaitingReady = false;
-          }
-          // Checked for the new page's ready as well: the handle can have
-          // changed again while that page loaded, and its numbers are then the
-          // previous file's.
-          if (current && current !== pageHandle) {
-            adopt(current, (m as { slice?: SliceSpec }).slice);
-            return;
-          }
-        }
+        const served = gate.admit(m.type, current, (h) => {
+          adopt(h, (m as { slice?: SliceSpec }).slice);
+          return false;
+        });
+        if (!served) return;
         if (m.type === "ready" && refusal !== null) {
           const spec = (m as { slice?: SliceSpec }).slice ?? initial;
           panel.webview.postMessage({
@@ -1731,6 +1806,81 @@ export class FieldglassEditorProvider
     panel.onDidDispose(() => sub.dispose());
   }
 }
+
+/** Which reader handle a render panel's page was written from, and whether a
+ *  request from that page may be served (#839, #959).
+ *
+ *  A render panel outlives the editor it was opened from. A document closed
+ *  and opened again brings a new handle, on a file that may have changed, and
+ *  every request the page makes names its field by a number in the file the
+ *  page was written from. So the first request after the handle changes is not
+ *  served; the panel decides what the new file holds for it (`adopt`). When it
+ *  writes the page again (`rewrite`), anything the old page sent before it was
+ *  replaced is still on its way with the old numbers, and is dropped until the
+ *  new page says it is ready. Slice panels and GRIB panels both go through
+ *  this, so the two cannot drift apart. */
+export class PanelHandleGate<H> {
+  private awaitingReady = false;
+
+  constructor(private pageHandle: H | undefined) {}
+
+  /** Whether to serve a request of `type`, with `current` the document's
+   *  handle now. When the handle has changed, `adopt` runs instead and says
+   *  whether the request is served after all. */
+  admit(type: string, current: H | undefined, adopt: (current: H) => boolean): boolean {
+    // A PNG export reads the page's own pixels, not the handle.
+    if (type === "exportPng") return true;
+    if (this.awaitingReady) {
+      if (type !== "ready") return false;
+      this.awaitingReady = false;
+    }
+    // Checked for the new page's ready as well: the handle can have changed
+    // again while that page loaded, and its numbers are then the previous
+    // file's.
+    if (current && current !== this.pageHandle) return adopt(current);
+    return true;
+  }
+
+  /** The page is being written again from `handle`'s file. */
+  rewrite(handle: H): void {
+    this.pageHandle = handle;
+    this.awaitingReady = true;
+  }
+
+  /** The page stays as it is, and its numbers are read from `handle`'s file
+   *  from now on. */
+  keep(handle: H): void {
+    this.pageHandle = handle;
+  }
+}
+
+/** A GRIB message's identity as one string, for comparing two (#959). The
+ *  identity is Rust's (`MessageInfo.identity`), so no code table is rebuilt
+ *  here; both sides of a comparison come from the same addon, which writes the
+ *  keys in one order. */
+export function messageKey(m: Pick<MessageInfo, "identity">): string {
+  return JSON.stringify(m.identity);
+}
+
+/** Whether two listings of a GRIB file hold the same messages in the same
+ *  places, so an index into one means the same message in the other. */
+function sameMessages(
+  a: ReadonlyArray<Pick<MessageInfo, "identity" | "offsetBytes" | "totalLengthBytes">>,
+  b: ReadonlyArray<Pick<MessageInfo, "identity" | "offsetBytes" | "totalLengthBytes">>,
+): boolean {
+  const others = b.values();
+  return a.length === b.length && a.every((m) => {
+    const n = others.next().value;
+    return n !== undefined &&
+      m.offsetBytes === n.offsetBytes &&
+      m.totalLengthBytes === n.totalLengthBytes &&
+      messageKey(m) === messageKey(n);
+  });
+}
+
+/** Said in place of drawing when a GRIB panel's message is not exactly once in
+ *  its changed file (#959). */
+export const MESSAGE_GONE = "This message is no longer in the file (or is ambiguous); pick one.";
 
 // ---------------------------------------------------------------------------
 // Render-panel wire payload
@@ -1825,6 +1975,10 @@ export interface GridErrorMessage {
   /** The variable the panel was showing is gone from a file that changed, and
    *  nothing was drawn: the panel asks for a variable to be picked (#839). */
   pickVariable?: boolean;
+  /** A GRIB panel's message is not exactly once in its changed file, and
+   *  nothing was drawn: these are the new file's messages, to pick one from
+   *  (#959). */
+  pickMessages?: CompareFieldOption[];
 }
 
 /** `overlayRequest` posted by the render panel when an overlay layer is

@@ -65,6 +65,13 @@ export interface PageState {
   status: string;
   /** Whether the Animate row's Play button is disabled. */
   playDisabled: boolean;
+  /** A GRIB panel's message picker, offered when its message is gone from a
+   *  file that changed (#959): every message offered, `null` while hidden,
+   *  and the one chosen (`""` for none). */
+  messageOffers: string[] | null;
+  messagePicked: string;
+  /** The Compare row's Field B, `null` when the panel has no such row. */
+  compareFieldB: string | null;
   canvasVisibility: string;
 }
 
@@ -90,7 +97,16 @@ const DRIVER = `
       const picker = byId('picker-projection');
       const variable = byId('slice-variable');
       const chosen = variable && variable.selectedOptions[0];
+      const messages = byId('message-pick');
+      const messageRow = byId('message-pick-row');
+      const picked = messages && messages.selectedOptions[0];
+      const fieldB = byId('compare-field-b');
       return {
+        messageOffers: messages && messageRow && !messageRow.hidden
+          ? Array.from(messages.options).map((o) => o.textContent)
+          : null,
+        messagePicked: picked ? picked.textContent : '',
+        compareFieldB: fieldB ? fieldB.value : null,
         overlayDisabled: !!(overlays && overlays.disabled),
         overlayHidden: !!(overlays && overlays.hasAttribute('hidden')),
         overlayNote: shownText(byId('overlay-note')),
