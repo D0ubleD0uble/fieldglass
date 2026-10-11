@@ -65,6 +65,20 @@ is only the outer ceiling now: a 12-byte chunk had been able to inflate to
 all of it before the caller's length check refused the result, and on wasm
 that is a real allocation.
 
+The chunk's own length is the file's to state, though, and an extendable
+dataset may legally have a chunk far larger than itself. So #813's bound held
+only while that length was under 256 MiB; past it the codecs fell back to the
+ceiling, and a 55 KB file could still have 256 MiB inflated before being
+called corrupt, while a valid file with a big chunk was called corrupt too.
+Since #970 the chunk reader refuses a filtered chunk past 256 MiB, or past
+the 64 Mi values one field holds (the check a Zarr chunk meets), before it
+reads it, as `ArrayError::ChunkTooLarge` or `FieldTooLarge`: a valid file
+asked for too much, which a host reports as `unsupported`. `reverse` refuses
+the same length as a backstop, so no codec is ever handed an exact length
+past the ceiling, and the ceiling now bounds only lengths nothing records,
+behind a length-changing filter. A chunk every filter skipped, or one the
+index does not store, is not refused: neither is inflated.
+
 zstd needs a **second, separate** ceiling, and this is the part worth carrying
 to the next codec. A zstd frame header declares its own window size, and the
 decoder sizes that buffer during frame init — before any output exists, so an

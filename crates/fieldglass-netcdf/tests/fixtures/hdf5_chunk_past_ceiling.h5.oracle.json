@@ -1,0 +1,139 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), hdf5plugin 7.0.0, chunks written with write_direct_chunk",
+  "note": "chunks decoding past 256 MiB or 64 Mi values; fieldglass refuses each stored one before reading it (#970)",
+  "datasets": {
+    "deflate_f8_bomb": {
+      "dtype": "float64",
+      "shape": [
+        4,
+        4
+      ],
+      "chunks": [
+        5120,
+        8192
+      ],
+      "chunk_bytes": 335544320,
+      "chunk_byte_offset": 52916,
+      "chunk_stored_bytes": 17,
+      "libhdf5": "not read: libhdf5 2.0.0 inflates the 1 KiB stream and reads the chunk's 335544320 bytes past it, returning whatever memory follows or crashing (SIGSEGV), varying run to run"
+    },
+    "deflate_f8_unwritten": {
+      "dtype": "float64",
+      "shape": [
+        4,
+        4
+      ],
+      "chunks": [
+        5120,
+        8192
+      ],
+      "chunk_bytes": 335544320,
+      "libhdf5_values": [
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      ]
+    },
+    "zstd_f4_past_field_cap": {
+      "dtype": "float32",
+      "shape": [
+        4,
+        4
+      ],
+      "chunks": [
+        16384,
+        16384
+      ],
+      "chunk_bytes": 1073741824,
+      "chunk_byte_offset": 4056,
+      "chunk_stored_bytes": 32782,
+      "libhdf5_values": [
+        [
+          12.078431129455566,
+          12.078431129455566,
+          12.078431129455566,
+          12.078431129455566
+        ],
+        [
+          12.078431129455566,
+          12.078431129455566,
+          12.078431129455566,
+          12.078431129455566
+        ],
+        [
+          12.078431129455566,
+          12.078431129455566,
+          12.078431129455566,
+          12.078431129455566
+        ],
+        [
+          12.078431129455566,
+          12.078431129455566,
+          12.078431129455566,
+          12.078431129455566
+        ]
+      ]
+    },
+    "zstd_f8_past_ceiling": {
+      "dtype": "float64",
+      "shape": [
+        4,
+        4
+      ],
+      "chunks": [
+        5120,
+        8192
+      ],
+      "chunk_bytes": 335544320,
+      "chunk_byte_offset": 39774,
+      "chunk_stored_bytes": 10254,
+      "libhdf5_values": [
+        [
+          2261634.5098039214,
+          2261634.5098039214,
+          2261634.5098039214,
+          2261634.5098039214
+        ],
+        [
+          2261634.5098039214,
+          2261634.5098039214,
+          2261634.5098039214,
+          2261634.5098039214
+        ],
+        [
+          2261634.5098039214,
+          2261634.5098039214,
+          2261634.5098039214,
+          2261634.5098039214
+        ],
+        [
+          2261634.5098039214,
+          2261634.5098039214,
+          2261634.5098039214,
+          2261634.5098039214
+        ]
+      ]
+    }
+  }
+}

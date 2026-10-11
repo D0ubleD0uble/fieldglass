@@ -26,6 +26,7 @@ use super::object_header::{read_uint_le, read_usize_le};
 use fieldglass_aec::AecError;
 use fieldglass_aec::sz::{self, SzParams};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::ArrayError;
 // The shuffle filter's inverse is the byte transpose blosc and Zarr use too, so
 // it lives once in core, which proves it (#203). A chunk that is not a whole
 // number of elements keeps its trailing bytes in place, as libhdf5 does.
@@ -59,8 +60,12 @@ const MAX_FILTERS: usize = 32;
 /// kilobytes on disk can ask for an arbitrarily large allocation. Real HDF5
 /// chunks are small — libhdf5's own chunk cache defaults to 1 MiB — so 256 MiB
 /// is far past anything a genuine file contains while still refusing a bomb.
-/// The caller checks the decompressed length against the chunk's expected size
-/// afterwards, but that is after the allocation has already happened.
+///
+/// A chunk whose own decoded length is past this is refused before it is read
+/// ([`check_chunk_size`], #970): the length comes from the chunk's dimensions,
+/// which the file states and which may legally dwarf the dataset. So the
+/// ceiling bounds a codec only where nothing records the length it is
+/// handed, behind a filter that changes it ([`FilterPipeline::limit_behind`]).
 const MAX_DECOMPRESSED_CHUNK: usize = 256 << 20;
 
 /// Ceiling on the window a zstd frame may ask the decoder to buffer.
@@ -173,6 +178,13 @@ impl FilterPipeline {
     /// length grown by the worst case of each filter before them: an eighth
     /// plus 4 KiB for fletcher32, deflate and zstd, 33 times for szip. The
     /// caller must still check that the result is exactly `expected_len`.
+    ///
+    /// An `expected_len` past 256 MiB (`MAX_DECOMPRESSED_CHUNK`) is refused as
+    /// [`ArrayError::ChunkTooLarge`] before any filter runs, unless the mask
+    /// skips every filter and the chunk passes through as stored. A chunk
+    /// reader refuses it before reading the chunk (`check_chunk_size`);
+    /// this is the backstop for any other caller, and is what keeps every
+    /// codec's exact length within the ceiling.
     pub fn reverse(
         &self,
         mut data: Vec<u8>,
@@ -180,6 +192,10 @@ impl FilterPipeline {
         element_size: usize,
         expected_len: usize,
     ) -> Result<Vec<u8>, FieldglassError> {
+        let runs = |index: usize| filter_mask & (1u32 << index) == 0;
+        if expected_len > MAX_DECOMPRESSED_CHUNK && (0..self.filters.len()).any(runs) {
+            return Err(chunk_too_large(expected_len as u64));
+        }
         for (index, filter) in self.filters.iter().enumerate().rev() {
             if filter_mask & (1u32 << index) != 0 {
                 continue; // filter was not applied to this chunk
@@ -269,11 +285,47 @@ impl FilterPipeline {
     }
 }
 
+/// Refuse, before it is read, a chunk of `chunk_dims` whose `chunk_bytes`
+/// decoded no reader here holds at once (#970).
+///
+/// A filtered chunk is decoded whole however little of it a read wants, and
+/// its dimensions are the file's own numbers, which may legally dwarf the
+/// dataset. Two bounds, each a valid file asked for too much, so a host
+/// reports `unsupported` rather than a corrupt file: more values than one
+/// field holds is [`ArrayError::FieldTooLarge`], the check a Zarr chunk meets
+/// too, and more than [`MAX_DECOMPRESSED_CHUNK`] bytes is
+/// [`ArrayError::ChunkTooLarge`]. Which one binds depends on the element
+/// width: they agree for four-byte elements, the element cap is the tighter
+/// below that and the byte cap above.
+///
+/// An unfiltered chunk needs neither: it is read at its stored size, which
+/// the file itself bounds.
+pub(super) fn check_chunk_size(
+    chunk_dims: &[u64],
+    chunk_bytes: usize,
+) -> Result<(), FieldglassError> {
+    fieldglass_core::array::field_element_count(chunk_dims)?;
+    if chunk_bytes > MAX_DECOMPRESSED_CHUNK {
+        return Err(chunk_too_large(chunk_bytes as u64));
+    }
+    Ok(())
+}
+
+/// [`ArrayError::ChunkTooLarge`] for a chunk of `bytes` decoded.
+pub(super) fn chunk_too_large(bytes: u64) -> FieldglassError {
+    ArrayError::ChunkTooLarge {
+        bytes,
+        limit: MAX_DECOMPRESSED_CHUNK as u64,
+    }
+    .into()
+}
+
 /// The most an szip size prefix may declare before it is allocated.
 ///
-/// When the exact length is known the prefix must equal it, so the ceiling
-/// alone is the backstop. When it is not, it is `behind`, from
-/// [`FilterPipeline::limit_behind`].
+/// When the exact length is known the prefix must equal it, which `unszip`
+/// checks next, so the ceiling is only a backstop: [`FilterPipeline::reverse`]
+/// has already refused an exact length past it (#970). When it is not, it is
+/// `behind`, from [`FilterPipeline::limit_behind`].
 fn szip_limit(exact: Option<usize>, behind: usize) -> usize {
     match exact {
         Some(_) => MAX_DECOMPRESSED_CHUNK,
@@ -287,11 +339,12 @@ fn szip_limit(exact: Option<usize>, behind: usize) -> usize {
 ///
 /// [`MAX_DECOMPRESSED_CHUNK`] alone let a 12-byte chunk inflate to 256 MiB
 /// before the caller's length check refused it, and on wasm that is a real
-/// allocation, not a lazily mapped one.
+/// allocation, not a lazily mapped one. The chunk's own length is never past
+/// it: [`FilterPipeline::reverse`] refuses that chunk before any codec runs
+/// (#970), where it used to inflate 256 MiB and fail as a corrupt chunk.
 fn codec_limit(exact: Option<usize>, behind: usize) -> Limit {
     match exact {
-        Some(len) if len <= MAX_DECOMPRESSED_CHUNK => Limit::Length(len),
-        Some(_) => Limit::Ceiling(MAX_DECOMPRESSED_CHUNK),
+        Some(len) => Limit::Length(len),
         None => Limit::Ceiling(behind.min(MAX_DECOMPRESSED_CHUNK)),
     }
 }
@@ -1248,6 +1301,102 @@ mod tests {
                 assert_eq!(out.len(), BOMB_LEN, "{name} behind {before:?}");
             }
         }
+    }
+
+    /// A chunk whose own length is past the ceiling is refused as too large
+    /// before any codec runs, whichever codec and whatever comes before it
+    /// (#970). deflate and zstd used to inflate to the ceiling and fail as a
+    /// corrupt chunk; szip refused its prefix as past the ceiling. At the
+    /// ceiling itself the filters run.
+    #[test]
+    fn a_chunk_past_the_ceiling_is_refused_before_any_codec_runs() {
+        let over = MAX_DECOMPRESSED_CHUNK + 1;
+        let over_prefix = u32::try_from(over).unwrap();
+        for (name, ids, stream) in [
+            ("deflate", vec![FILTER_DEFLATE], zlib_bomb()),
+            ("zstd", vec![FILTER_ZSTD], zstd_bomb()),
+            (
+                "shuffle + deflate",
+                vec![FILTER_SHUFFLE, FILTER_DEFLATE],
+                zlib_bomb(),
+            ),
+            (
+                "deflate + fletcher32",
+                vec![FILTER_DEFLATE, FILTER_FLETCHER32],
+                zlib_bomb(),
+            ),
+        ] {
+            let err = pipeline_of(&ids)
+                .reverse(stream.clone(), 0, 1, over)
+                .unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    FieldglassError::Array(ArrayError::ChunkTooLarge { bytes, limit })
+                        if bytes == over as u64 && limit == MAX_DECOMPRESSED_CHUNK as u64
+                ),
+                "{name}: {err:?}"
+            );
+            // At the ceiling the filters run, and what they make of the
+            // stream is the caller's to check.
+            let at = pipeline_of(&ids).reverse(stream, 0, 1, MAX_DECOMPRESSED_CHUNK);
+            assert!(
+                !matches!(at, Err(FieldglassError::Array(_))),
+                "{name}: {:?}",
+                at.map(|v| v.len())
+            );
+        }
+        // A chunk every filter skipped passes through as stored: nothing is
+        // inflated, so its size is the file's, not the reader's, to bound.
+        let raw = vec![7u8; 16];
+        let skipped =
+            pipeline_of(&[FILTER_SHUFFLE, FILTER_DEFLATE]).reverse(raw.clone(), 0b11, 1, over);
+        assert_eq!(skipped.unwrap(), raw);
+        // szip with its prefix set to the chunk's length, so only the size
+        // could refuse it, behind nothing and behind shuffle.
+        for before in [&[][..], &[FILTER_SHUFFLE][..]] {
+            let err = szip_pipeline(before, &SZ_CD)
+                .reverse(szip_chunk(over_prefix), 0, 1, over)
+                .unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    FieldglassError::Array(ArrayError::ChunkTooLarge { .. })
+                ),
+                "szip behind {before:?}: {err:?}"
+            );
+        }
+    }
+
+    /// The up-front check's two bounds are each inclusive: a chunk of exactly
+    /// `MAX_FIELD_POINTS` values, or exactly the ceiling in bytes, passes, and
+    /// one more of either is refused, each with its own error (#970).
+    #[test]
+    fn the_chunk_size_check_is_exact_on_both_bounds() {
+        let most = fieldglass_core::MAX_FIELD_POINTS as u64;
+        assert!(check_chunk_size(&[most], MAX_DECOMPRESSED_CHUNK).is_ok());
+        assert!(check_chunk_size(&[1 << 13, 1 << 13], 1 << 28).is_ok());
+        assert!(matches!(
+            check_chunk_size(&[most + 1], 0),
+            Err(FieldglassError::Array(ArrayError::FieldTooLarge { elements, .. }))
+                if elements == most + 1
+        ));
+        // Saturating, so a product past `u64` is refused rather than wrapped.
+        assert!(matches!(
+            check_chunk_size(&[u64::MAX, 2], 0),
+            Err(FieldglassError::Array(ArrayError::FieldTooLarge { .. }))
+        ));
+        assert!(matches!(
+            check_chunk_size(&[1], MAX_DECOMPRESSED_CHUNK + 1),
+            Err(FieldglassError::Array(ArrayError::ChunkTooLarge { bytes, .. }))
+                if bytes == MAX_DECOMPRESSED_CHUNK as u64 + 1
+        ));
+        // Eight-byte elements meet the byte bound first: 40 Mi values is
+        // inside the field cap and 320 MiB.
+        assert!(matches!(
+            check_chunk_size(&[5120, 8192], 5120 * 8192 * 8),
+            Err(FieldglassError::Array(ArrayError::ChunkTooLarge { .. }))
+        ));
     }
 
     /// Behind a filter that changes the length, the codec's output is bounded

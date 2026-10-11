@@ -80,6 +80,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/hdf5_child_indirect.h5"),
     ),
     (
+        "hdf5_chunk_past_ceiling.h5",
+        include_bytes!("fixtures/hdf5_chunk_past_ceiling.h5"),
+    ),
+    (
         "hdf5_conflicting_chunk_records.h5",
         include_bytes!("fixtures/hdf5_conflicting_chunk_records.h5"),
     ),
