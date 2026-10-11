@@ -9,7 +9,7 @@ use crate::geometry::{DatasetView, VarView};
 use crate::hdf5::{self, Hdf5Probe};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::CfUnpacking;
-use fieldglass_core::bytes::ByteSource;
+use fieldglass_core::bytes::{ByteSource, read_up_to};
 
 /// Which on-disk layout backs a NetCDF file.
 #[derive(Debug, Clone)]
@@ -36,37 +36,81 @@ impl NetcdfBacking {
     }
 }
 
-/// Top-level reader. Always carries the raw bytes so per-variable decode can
-/// pull data on demand without re-reading the file.
-// No `Clone` and no `PartialEq`, deliberately (#556). This owns the whole
-// file buffer, so a derived `Clone` would duplicate it silently at a call
-// site that reads like a cheap copy, and two readers over identical bytes
+/// Top-level reader. Holds the file's [`ByteSource`] and reads the bytes each
+/// call needs through it, so per-variable decode pulls data on demand.
+///
+/// Opening reads the header and no more: a classic file's header, or an HDF5
+/// file's superblock (#950). Everything after that is read when a call asks
+/// for it — the HDF5 metadata walk when a view is built, a variable's runs or
+/// chunks when it is decoded. Over a buffer each read is a slice; over a
+/// source a host fills from a transport, it is what that host has to fetch.
+// No `Clone` and no `PartialEq`, deliberately (#556). Over a `Vec` this owns
+// the whole file buffer, so a derived `Clone` would duplicate it silently at a
+// call site that reads like a cheap copy, and two readers over identical bytes
 // are not a comparison anyone needs to make. It is a handle, not a value.
-#[derive(Debug)]
-pub struct NetcdfReader {
+pub struct NetcdfReader<S = Vec<u8>> {
     /// Which on-disk layout the file turned out to be, with whatever the probe
     /// resolved eagerly for it.
     pub backing: NetcdfBacking,
-    data: Vec<u8>,
+    source: S,
+}
+
+/// Written rather than derived, so a reader over a `dyn ByteSource` a host
+/// brought is `Debug` too: the backing is what a reader of this wants, and the
+/// file's bytes are not something to print.
+impl<S> std::fmt::Debug for NetcdfReader<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NetcdfReader")
+            .field("backing", &self.backing)
+            .finish_non_exhaustive()
+    }
 }
 
 impl NetcdfReader {
-    /// Parse a NetCDF file from raw bytes. Errors only for files that are
-    /// neither classic CDF nor HDF5; an HDF5 file succeeds carrying only its
-    /// superblock probe, and resolves the rest of its metadata on demand
-    /// through [`Self::hdf5_metadata`] or [`Self::view`].
+    /// Parse a NetCDF file from raw bytes. See [`Self::from_source`], which
+    /// this is over a buffer.
     pub fn from_bytes(data: Vec<u8>) -> Result<Self, FieldglassError> {
-        let backing = if data.len() >= 4 && &data[0..3] == b"CDF" {
-            let header = classic::parse_header(&data)?;
+        Self::from_source(data)
+    }
+}
+
+impl<S: ByteSource> NetcdfReader<S> {
+    /// Open a NetCDF file through a [`ByteSource`], reading only its header.
+    ///
+    /// Errors only for files that are neither classic CDF nor HDF5, and for a
+    /// classic header that does not parse. An HDF5 file succeeds carrying only
+    /// its superblock probe, and resolves the rest of its metadata on demand
+    /// through [`Self::hdf5_metadata`] or [`Self::view`].
+    ///
+    /// What it reads (#950): the four-byte magic and then the classic header,
+    /// in windows that grow as the header turns out to be long, or the few
+    /// fixed offsets an HDF5 signature may sit at and the superblock's first
+    /// sixteen bytes. No variable's data is read.
+    pub fn from_source(source: S) -> Result<Self, FieldglassError> {
+        // Four bytes or none, so a three-byte "CDF" is no container rather
+        // than a truncated header, as it was over a buffer.
+        let classic = {
+            let head = read_up_to(&source, 0, 4)?;
+            head.len() == 4 && head.starts_with(b"CDF")
+        };
+        let backing = if classic {
+            let header = classic::parse_header_from(&source)?;
             NetcdfBacking::Classic(header)
-        } else if hdf5::find_signature(&data).is_some() {
+        } else if hdf5::find_signature(&source).is_some() {
             // At byte 0, or after a userblock (#936).
-            let probe = hdf5::probe(&data)?;
+            let probe = hdf5::probe(&source)?;
             NetcdfBacking::Hdf5(probe)
         } else {
-            return Err(FieldglassError::invalid_magic("CDF or \\x89HDF", &data));
+            // The error shows the first bytes, as many as it keeps.
+            let found = read_up_to(&source, 0, 8)?;
+            return Err(FieldglassError::invalid_magic("CDF or \\x89HDF", &found));
         };
-        Ok(Self { backing, data })
+        Ok(Self { backing, source })
+    }
+
+    /// The source the reader reads through.
+    pub fn source(&self) -> &S {
+        &self.source
     }
 
     /// Decode one variable's values into row-major (C / on-disk order)
@@ -92,10 +136,10 @@ impl NetcdfReader {
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
         match &self.backing {
             NetcdfBacking::Classic(header) => {
-                classic::decode_variable_raw(header, &self.data, var_index)
+                classic::decode_variable_raw_from(header, &self.source, var_index)
             }
             NetcdfBacking::Hdf5(probe) => {
-                let file = probe.addressed(&self.data);
+                let file = probe.addressed(&self.source);
                 let addr = hdf5_dataset_address(&file, probe, var_index)?;
                 hdf5::values::read_dataset_values(&file, addr, probe)
             }
@@ -126,10 +170,10 @@ impl NetcdfReader {
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
         match &self.backing {
             NetcdfBacking::Classic(header) => {
-                classic::decode_region_raw_from(header, &self.data, var_index, region)
+                classic::decode_region_raw_from(header, &self.source, var_index, region)
             }
             NetcdfBacking::Hdf5(probe) => {
-                let file = probe.addressed(&self.data);
+                let file = probe.addressed(&self.source);
                 let addr = hdf5_dataset_address(&file, probe, var_index)?;
                 hdf5::values::read_dataset_region(&file, addr, probe, region)
             }
@@ -151,7 +195,7 @@ impl NetcdfReader {
     pub fn hdf5_metadata(&self) -> Result<hdf5::dimensions::Hdf5Metadata, FieldglassError> {
         match &self.backing {
             NetcdfBacking::Hdf5(probe) => {
-                hdf5::dimensions::resolve(&probe.addressed(&self.data), probe)
+                hdf5::dimensions::resolve(&probe.addressed(&self.source), probe)
             }
             NetcdfBacking::Classic(_) => Err(FieldglassError::WrongLayout(
                 "hdf5_metadata is only for the NetCDF-4 / HDF5 backing".into(),
@@ -166,7 +210,7 @@ impl NetcdfReader {
         match &self.backing {
             NetcdfBacking::Classic(header) => classic::variable_shape(header, var_index),
             NetcdfBacking::Hdf5(probe) => {
-                let file = probe.addressed(&self.data);
+                let file = probe.addressed(&self.source);
                 let addr = hdf5_dataset_address(&file, probe, var_index)?;
                 let shape = hdf5::dataset::describe(&file, addr, probe)?;
                 Ok(shape.dataspace.dims)

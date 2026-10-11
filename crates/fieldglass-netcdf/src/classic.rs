@@ -19,7 +19,7 @@
 
 use std::ops::Range;
 
-use fieldglass_core::bytes::{checked_usize, read_exact};
+use fieldglass_core::bytes::{FileCursor, checked_usize, read_exact, read_up_to};
 use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
 
 // The length and offset arithmetic of the data section, proved with Verus
@@ -350,7 +350,20 @@ pub const MAX_NAME_LEN: u64 = 1 << 20; // 1 MiB
 /// Parse a NetCDF classic header from the start of `bytes`. Stops walking
 /// after `var_list`; the rest of the file is variable data, which we ignore.
 pub fn parse_header(bytes: &[u8]) -> Result<ClassicHeader, FieldglassError> {
-    let mut p = Parser::new(bytes)?;
+    parse_header_from(bytes)
+}
+
+/// [`parse_header`] through a [`ByteSource`]: reads the header and nothing
+/// after it (#950).
+///
+/// The header's length is in no field ahead of it, so it is read in growing
+/// windows (see [`FileCursor`]) and costs a few reads of under twice its own
+/// length. The variables' data, which is most of a file, is read only when a
+/// variable or a region of one is decoded.
+pub fn parse_header_from<S: ByteSource + ?Sized>(
+    source: &S,
+) -> Result<ClassicHeader, FieldglassError> {
+    let mut p = Parser::new(source)?;
 
     // numrecs follows the 4-byte magic.
     let numrecs = p.read_numrecs()?;
@@ -908,70 +921,80 @@ fn decode_element_f64(bytes: &[u8], nc_type: NcType) -> Option<f64> {
 // Parser
 // ---------------------------------------------------------------------------
 
-struct Parser<'a> {
-    bytes: &'a [u8],
-    pos: usize,
+/// The header walk, over the file's bytes through a [`ByteSource`] (#950).
+///
+/// The header's length is not stated anywhere before it is walked, so the
+/// bytes come through a [`FileCursor`], whose windows start small and grow:
+/// a header of `H` bytes costs `log2(H)` reads of under `2H` bytes in all,
+/// and the data section after it is not read.
+struct Parser<'a, S: ByteSource + ?Sized> {
+    cursor: FileCursor<'a, S>,
+    /// The file's size, which every count and length below is checked
+    /// against: nothing the header names can be larger than the file.
+    size: u64,
     version: ClassicVersion,
 }
 
-impl<'a> Parser<'a> {
-    fn new(bytes: &'a [u8]) -> Result<Self, FieldglassError> {
-        if bytes.len() < 4 {
+impl<'a, S: ByteSource + ?Sized> Parser<'a, S> {
+    fn new(source: &'a S) -> Result<Self, FieldglassError> {
+        let size = source.size();
+        if size < 4 {
             return Err(FieldglassError::Parse(
                 "NetCDF classic header requires at least the 4-byte magic".to_string(),
             ));
         }
-        if &bytes[0..3] != b"CDF" {
-            return Err(FieldglassError::invalid_magic("CDF", bytes));
+        let mut cursor = FileCursor::at(source, 0)?;
+        let magic: [u8; 4] = cursor
+            .take(4)?
+            .try_into()
+            .map_err(|_| FieldglassError::Parse("NetCDF classic magic read short".to_string()))?;
+        if &magic[0..3] != b"CDF" {
+            // The error shows the first few bytes, as a buffer parse did.
+            let found = read_up_to(source, 0, 8)?;
+            return Err(FieldglassError::invalid_magic("CDF", &found));
         }
-        let version = ClassicVersion::from_byte(bytes[3]).ok_or_else(|| {
+        let version = ClassicVersion::from_byte(magic[3]).ok_or_else(|| {
             FieldglassError::Parse(format!(
                 "unsupported NetCDF classic version byte 0x{:02x}",
-                bytes[3]
+                magic[3]
             ))
         })?;
         Ok(Self {
-            bytes,
-            pos: 4,
+            cursor,
+            size,
             version,
         })
     }
 
-    fn need(&self, n: usize) -> Result<(), FieldglassError> {
-        // checked_add: an n near usize::MAX would wrap past the bounds check.
-        let end = self.pos.checked_add(n).ok_or_else(|| {
-            FieldglassError::Parse(format!(
-                "NetCDF read length {n} at offset {} overflows usize",
-                self.pos
-            ))
-        })?;
-        if end > self.bytes.len() {
+    /// The cursor's offset in the file.
+    fn pos(&self) -> u64 {
+        self.cursor.position()
+    }
+
+    /// Take the next `n` bytes, refusing with the header's own message when
+    /// the file ends first.
+    fn take(&mut self, n: usize) -> Result<&[u8], FieldglassError> {
+        // `n as u64` cannot wrap: `usize` is at most 64 bits wide.
+        if n as u64 > self.cursor.remaining() {
             return Err(FieldglassError::Parse(format!(
                 "truncated NetCDF header: needed {} bytes at offset {}, only {} remain",
                 n,
-                self.pos,
-                self.bytes.len().saturating_sub(self.pos)
+                self.pos(),
+                self.cursor.remaining()
             )));
         }
-        Ok(())
+        self.cursor.take(n)
     }
 
     /// Take the next `N` bytes at the cursor as a fixed-size array, advancing
-    /// past them. The bounds check and the read are one operation, so there is
-    /// no window in which a stale `need` could authorise the wrong width.
+    /// past them.
     fn take_array<const N: usize>(&mut self) -> Result<[u8; N], FieldglassError> {
-        self.need(N)?;
-        let (head, _) = self.bytes[self.pos..]
-            .split_first_chunk::<N>()
-            .ok_or_else(|| {
-                FieldglassError::Parse(format!(
-                    "truncated NetCDF header: needed {N} bytes at offset {}, only {} remain",
-                    self.pos,
-                    self.bytes.len().saturating_sub(self.pos)
-                ))
-            })?;
-        self.pos += N;
-        Ok(*head)
+        let at = self.pos();
+        self.take(N)?.try_into().map_err(|_| {
+            FieldglassError::Parse(format!(
+                "truncated NetCDF header: needed {N} bytes at offset {at}"
+            ))
+        })
     }
 
     fn read_u32_be(&mut self) -> Result<u32, FieldglassError> {
@@ -1001,17 +1024,19 @@ impl<'a> Parser<'a> {
         self.read_field(self.version.offset_width())
     }
 
-    /// Read `n` bytes verbatim, then advance past zero padding so `pos`
+    /// Read `n` bytes verbatim, then advance past zero padding so the cursor
     /// returns to a 4-byte boundary.
-    fn read_bytes_padded(&mut self, n: usize) -> Result<&'a [u8], FieldglassError> {
-        self.need(n)?;
-        let start = self.pos;
-        self.pos += n;
-        // Pad to next 4-byte boundary.
+    fn read_bytes_padded(&mut self, n: usize) -> Result<&[u8], FieldglassError> {
+        // Pad to the next 4-byte boundary. The value and its padding are one
+        // take, so the bytes handed back are still the cursor's when used.
         let pad = (4 - (n % 4)) % 4;
-        self.need(pad)?;
-        self.pos += pad;
-        Ok(&self.bytes[start..start + n])
+        let padded = n.checked_add(pad).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "NetCDF read length {n} at offset {} overflows usize",
+                self.pos()
+            ))
+        })?;
+        Ok(&self.take(padded)?[..n])
     }
 
     /// Read a `name` field: NON_NEG length, then UTF-8 bytes, then padding.
@@ -1020,7 +1045,7 @@ impl<'a> Parser<'a> {
         // Hard cap to keep a corrupt header from triggering huge allocations.
         // Bound by a constant *and* the file size: a name can't be longer than
         // the bytes that hold it, and legitimate names are far below 1 MiB.
-        if n > MAX_NAME_LEN || n > self.bytes.len() as u64 {
+        if n > MAX_NAME_LEN || n > self.size {
             return Err(FieldglassError::Parse(format!(
                 "name length {n} exceeds the {MAX_NAME_LEN}-byte cap or the file size"
             )));
@@ -1058,7 +1083,7 @@ impl<'a> Parser<'a> {
         if tag != expected_tag {
             return Err(FieldglassError::Parse(format!(
                 "expected list tag 0x{expected_tag:02x} (or ABSENT), got 0x{tag:08x} at offset {}",
-                self.pos - 4
+                self.pos() - 4
             )));
         }
         let n = self.read_nonneg()?;
@@ -1071,7 +1096,7 @@ impl<'a> Parser<'a> {
             None => return Ok(Vec::new()),
         };
         // Sanity-cap: dim count can't exceed remaining bytes.
-        if count > self.bytes.len() as u64 {
+        if count > self.size {
             return Err(FieldglassError::Parse(format!(
                 "dim_list count {count} exceeds file size"
             )));
@@ -1096,7 +1121,7 @@ impl<'a> Parser<'a> {
             Some(n) => n,
             None => return Ok(Vec::new()),
         };
-        if count > self.bytes.len() as u64 {
+        if count > self.size {
             return Err(FieldglassError::Parse(format!(
                 "att_list count {count} exceeds file size"
             )));
@@ -1123,7 +1148,7 @@ impl<'a> Parser<'a> {
                     "attribute {name:?} declares element count {nelems} that overflows usize"
                 ))
             })?;
-        if total_bytes > self.bytes.len() {
+        if total_bytes as u64 > self.size {
             return Err(FieldglassError::Parse(format!(
                 "attribute {name:?} value ({total_bytes} bytes) exceeds file size"
             )));
@@ -1162,7 +1187,7 @@ impl<'a> Parser<'a> {
             Some(n) => n,
             None => return Ok(Vec::new()),
         };
-        if count > self.bytes.len() as u64 {
+        if count > self.size {
             return Err(FieldglassError::Parse(format!(
                 "var_list count {count} exceeds file size"
             )));

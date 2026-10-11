@@ -11,9 +11,13 @@
 //! the source path succeeded would pass against a reader that silently decoded
 //! something else.
 
+use std::borrow::Cow;
+use std::rc::Rc;
+
 use fieldglass::Session;
-use fieldglass_core::bytes::ByteRange;
-use fieldglass_core::testing::OneRange;
+use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::{ByteRange, ByteSource, SourceIdentity};
+use fieldglass_core::testing::{OneRange, Recording};
 
 /// Committed single-message GRIB2 fixtures laid end to end, which is the shape a
 /// NODD object has — and the shape a sidecar index points into.
@@ -150,22 +154,110 @@ fn the_edition_is_detected_at_the_offset_not_at_the_start() {
     assert!(one.decode(0, &Default::default()).is_ok(), "and it decodes");
 }
 
-/// A container that is not a message stream is refused by name, and the refusal
-/// says which call to make instead.
+/// A NetCDF file opens from a source and reads by range (#950): the same
+/// variables and the same values, to the bit, as from its bytes, without the
+/// file having been read whole. Classic, NetCDF-4, and one whose HDF5
+/// signature sits after a userblock, past the detection prefix (#936).
 #[test]
-fn a_non_message_container_is_refused_with_the_call_to_make() {
+fn a_netcdf_file_opens_from_a_source_and_reads_by_range() {
+    for (path, y, x) in [
+        ("ersst_v5_187001_cdf1.nc", 2u32, 3u32),
+        ("oisst_avhrr_v2.nc", 2, 3),
+        ("hdf5_userblock_earliest.h5", 0, 1),
+    ] {
+        let bytes = std::fs::read(format!("../fieldglass-netcdf/tests/fixtures/{path}"))
+            .expect("the fixture");
+        let recording = Rc::new(Recording::new(bytes.clone()));
+        let ranged = Session::open_source(Shared(Rc::clone(&recording)))
+            .unwrap_or_else(|e| panic!("{path} opens from a source: {e}"));
+        let whole = Session::open(bytes.clone()).expect("and from its bytes");
+        assert_eq!(ranged.format(), whole.format(), "{path}");
+        assert_eq!(
+            format!("{:?}", ranged.variables()),
+            format!("{:?}", whole.variables()),
+            "{path}"
+        );
+
+        let mut decoded = 0;
+        for v in ranged
+            .variables()
+            .iter()
+            .filter(|v| v.dims.len() > x as usize)
+        {
+            let fixed = vec![0u32; v.dims.len()];
+            let field = |s: &Session| s.decode_slice(v.index, y, x, &fixed, &Default::default());
+            let (Ok(a), Ok(b)) = (field(&ranged), field(&whole)) else {
+                continue; // a variable this axis pair does not fit
+            };
+            assert_eq!(bits(&a.values), bits(&b.values), "{path} {}", v.name);
+            assert_eq!(a.mask, b.mask, "{path} {}", v.name);
+            decoded += 1;
+        }
+        assert!(decoded > 0, "{path}: no slice compared");
+
+        let read: u64 = {
+            let mut spans: Vec<(u64, u64)> = recording
+                .reads()
+                .iter()
+                .chain(recording.prefetches().iter().flatten())
+                .map(|r| (r.start, r.start + r.len))
+                .collect();
+            spans.sort_unstable();
+            let mut total = 0;
+            let mut end = 0;
+            for (s, e) in spans {
+                total += e.saturating_sub(s.max(end));
+                end = end.max(e);
+            }
+            total
+        };
+        assert!(
+            read < bytes.len() as u64,
+            "{path}: read {read} of {} bytes, the whole file",
+            bytes.len()
+        );
+    }
+}
+
+/// `open_message_at` opens one message, and NetCDF has none: the refusal says
+/// so and names the call that opens it.
+#[test]
+fn a_netcdf_file_has_no_message_at_an_offset() {
     let netcdf = std::fs::read("../fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc")
         .expect("the fixture");
-    let err = Session::open_source(netcdf).expect_err("NetCDF is not a message stream");
+    let err = Session::open_message_at(netcdf, 0).expect_err("NetCDF holds no messages");
     let message = err.message();
     assert!(
-        message.contains("Session::open"),
+        message.contains("Session::open_source"),
         "the refusal must name the call to make: {message}"
     );
 
     let err = Session::open_source(b"not a container at all".to_vec())
-        .expect_err("and neither is nonsense");
+        .expect_err("and nonsense opens nothing");
     assert_eq!(err.code(), "unsupported_format", "{}", err.message());
+}
+
+/// A source the recording is shared out of: `Session::open_source` takes its
+/// source by value, and the test reads the recording afterwards. Every read is
+/// a copy, as a transport's would be.
+struct Shared(Rc<Recording<Vec<u8>>>);
+
+impl ByteSource for Shared {
+    fn size(&self) -> u64 {
+        self.0.size()
+    }
+
+    fn identity(&self) -> Option<SourceIdentity> {
+        self.0.identity()
+    }
+
+    fn prefetch(&self, ranges: &[ByteRange]) -> Result<(), FieldglassError> {
+        self.0.prefetch(ranges)
+    }
+
+    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
+        self.0.read(range).map(|b| Cow::Owned(b.into_owned()))
+    }
 }
 
 /// A source shorter than the detection prefix says "no container", not "short
