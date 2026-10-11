@@ -464,7 +464,8 @@ the verification crate includes it without depending on `fieldglass-netcdf`.
 - `slabs_within(..., size)` holds exactly when every one of those slabs ends
   within a file of `size` bytes. It checks only the last slab, and the proof
   is that the last one ends last. The decode calls it against the source's
-  size before it fetches anything.
+  size before it builds the ranges or fetches anything, so a header stating
+  more records than the file holds costs no range per record (#1000).
 - None has a precondition: no header makes any of them overflow or panic.
 
 Writing this kernel against the specification found a defect in the code it

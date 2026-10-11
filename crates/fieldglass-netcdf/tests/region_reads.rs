@@ -320,6 +320,22 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/netcdf_classic_dummy.nc"),
     ),
     (
+        "numrecs_huge_cdf1.nc",
+        include_bytes!("fixtures/numrecs_huge_cdf1.nc"),
+    ),
+    (
+        "numrecs_huge_cdf5.nc",
+        include_bytes!("fixtures/numrecs_huge_cdf5.nc"),
+    ),
+    (
+        "numrecs_streaming_cdf1.nc",
+        include_bytes!("fixtures/numrecs_streaming_cdf1.nc"),
+    ),
+    (
+        "numrecs_streaming_cdf5.nc",
+        include_bytes!("fixtures/numrecs_streaming_cdf5.nc"),
+    ),
+    (
         "oisst_avhrr_v2.nc",
         include_bytes!("fixtures/oisst_avhrr_v2.nc"),
     ),
