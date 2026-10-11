@@ -848,9 +848,10 @@ export class FieldglassEditorProvider
       // The same messages in the same places: the file is the one the page was
       // written from (an editor closed and opened again, say). The page's
       // numbers still mean what they did, so the request is served.
-      if (!picking && sameMessages(listed, next)) {
+      const again = picking ? undefined : next.find((m) => m.index === shown.index);
+      if (again && sameMessages(listed, next)) {
         listed = next;
-        shown = next[shown.index];
+        shown = again;
         gate.keep(current);
         return true;
       }
@@ -866,6 +867,8 @@ export class FieldglassEditorProvider
         return false;
       }
       picking = compareFields;
+      // The tab no longer names the message either.
+      panel.title = "Render: pick a message";
       gate.keep(current);
       refuse();
       return false;
