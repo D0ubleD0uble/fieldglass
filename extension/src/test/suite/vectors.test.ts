@@ -17,7 +17,9 @@ import { loadNative } from "../../native";
 import {
   composeRangeText,
   composeVectorScale,
+  NO_VECTORS_NOTE,
   renderImagePanelHtml,
+  UNPLACED_VECTORS_NOTE,
   type CompareFieldOption,
   type PanelField,
 } from "../../render-panel";
@@ -225,6 +227,22 @@ suite("Vector arrows", () => {
     assert.ok(plain.includes('id="vector-fieldset"'));
     assert.ok(/const UV_GRID_RELATIVE = false;/.test(plain));
     assert.doesNotMatch(plain, /rotated to true north/);
+
+    // A placed grid that takes no arrows (a full-disc space view, #945): the
+    // row is written, disabled, with the reason, and not the frame note.
+    const noArrows = html(
+      {
+        ...meta(true),
+        supports: { contours: false, vectors: false, longCsv: false, zonalMean: false },
+      } as PanelField,
+      fields,
+    );
+    assert.match(noArrows, /<fieldset id="vector-fieldset" disabled>/, "the Vectors row is disabled");
+    assert.ok(noArrows.includes(NO_VECTORS_NOTE), "with the reason");
+    assert.ok(!noArrows.includes(UNPLACED_VECTORS_NOTE), "not the not-placed one: this grid is placed");
+    assert.doesNotMatch(noArrows, /rotated to true north/);
+    // And one that takes them is not disabled.
+    assert.match(paired, /<fieldset id="vector-fieldset">/);
 
     // One message is no pair, so there is nothing to offer.
     assert.ok(!html(meta(false), [fields[0]]).includes('id="vector-fieldset"'));

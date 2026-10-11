@@ -42,6 +42,7 @@ import {
   composeTruncationNote,
   NO_LONG_CSV_NOTE,
   NO_SUPPORT,
+  UNPLACED_LONG_CSV_NOTE,
   offersOverlays,
   renderImagePanelHtml,
   reprojectionNote,
@@ -581,15 +582,19 @@ export class FieldglassEditorProvider
       return;
     }
 
-    // The long layout only where Rust says this message's grid places every
-    // point (#945); a message it cannot answer for is offered the matrix.
+    // The long layout only where Rust says this message's grid takes it: its
+    // family places its points (#945). A message it cannot answer for is
+    // offered the matrix.
     let longCsv = false;
+    let placed = false;
     try {
-      longCsv = handle.message(messageIndex).supports.longCsv;
+      const meta = handle.message(messageIndex);
+      longCsv = meta.supports.longCsv;
+      placed = offersOverlays(meta.placement);
     } catch {
       // The export below reports what is wrong with the message.
     }
-    const format = await this.pickCsvFormat(longCsv);
+    const format = await this.pickCsvFormat(longCsv, placed);
     if (!format) return;
 
     let csv: Buffer;
@@ -611,14 +616,19 @@ export class FieldglassEditorProvider
    *
    *  `longCsv` is the field's `GridSupport.longCsv` (#945). Without it the
    *  long layout is not offered, and the prompt says why, rather than being
-   *  offered and then refused. */
-  private async pickCsvFormat(longCsv: boolean): Promise<string | undefined> {
+   *  offered and then refused. `placed` picks the reason: a field nothing
+   *  places has no position anywhere, not only at some points. */
+  private async pickCsvFormat(longCsv: boolean, placed: boolean): Promise<string | undefined> {
     const matrix = { label: "Matrix — a 2-D grid of values", format: "matrix" };
     const pick = await vscode.window.showQuickPick(
       longCsv
         ? [{ label: "Long — one lat,lon,value row per grid point", format: "long" }, matrix]
         : [matrix],
-      { placeHolder: longCsv ? "CSV layout" : `CSV layout. ${NO_LONG_CSV_NOTE}` }
+      {
+        placeHolder: longCsv
+          ? "CSV layout"
+          : `CSV layout. ${placed ? NO_LONG_CSV_NOTE : UNPLACED_LONG_CSV_NOTE}`,
+      }
     );
     return pick?.format;
   }
@@ -675,14 +685,17 @@ export class FieldglassEditorProvider
     }
 
     // As for a GRIB message: the long layout only where the slice's grid
-    // places every point (#945).
+    // takes it (#945).
     let longCsv = false;
+    let placed = false;
     try {
-      longCsv = handle.sliceGrid(spec.variableIndex, spec.yDim, spec.xDim).supports.longCsv;
+      const grid = handle.sliceGrid(spec.variableIndex, spec.yDim, spec.xDim);
+      longCsv = grid.supports.longCsv;
+      placed = offersOverlays(grid.placement);
     } catch {
       // The export below reports what is wrong with the slice.
     }
-    const format = await this.pickCsvFormat(longCsv);
+    const format = await this.pickCsvFormat(longCsv, placed);
     if (!format) return;
 
     let csv: Buffer;

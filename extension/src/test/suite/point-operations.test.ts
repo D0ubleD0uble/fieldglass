@@ -16,8 +16,16 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative, type GridSupport, type SlicePanelHandle } from "../../native";
-import { NO_CONTOURS_NOTE, NO_LONG_CSV_NOTE, NO_ZONAL_NOTE } from "../../render-panel";
-import { extensionPath, isType, type Msg, openEditor, openReal, provider } from "./real-panel";
+import {
+  NO_CONTOURS_NOTE,
+  NO_LONG_CSV_NOTE,
+  NO_ZONAL_NOTE,
+  UNPLACED_LONG_CSV_NOTE,
+  UNPLACED_OVERLAY_NOTE,
+  UNPLACED_ZONAL_NOTE,
+  zonalNote,
+} from "../../render-panel";
+import { extensionPath, isType, type Msg, openEditor, openReal, provider, waitUntil } from "./real-panel";
 
 const NONE: GridSupport = { contours: false, vectors: false, longCsv: false, zonalMean: false };
 
@@ -190,7 +198,50 @@ suite("Point operations follow the grid (#945)", function () {
     });
   }
 
-  test("the CSV layout prompt offers Long only where the grid places every point", async () => {
+  test("the zonal note gives the reason that applies: rows that are not latitudes, or no placement", () => {
+    assert.strictEqual(zonalNote(true), NO_ZONAL_NOTE);
+    assert.strictEqual(zonalNote(false), UNPLACED_ZONAL_NOTE);
+  });
+
+  test("an unplaced slice says it is not placed, not that its rows or points are wrong", async () => {
+    const p = await provider();
+    const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
+    const temperature = variableIndex(file, "temperature");
+    const latBnds = variableIndex(file, "lat_bnds");
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let state = await panel.drive([]);
+      assert.strictEqual(state.zonalDisabled, false, "a lat/lon slice takes a zonal average");
+      assert.strictEqual(state.zonalNote, null);
+
+      // Onto lat_bnds, which nothing places: the toggle is disabled and the
+      // reason is the placement, as the Overlay row says.
+      const from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: latBnds }]);
+      await panel.waitSent((m: Msg) => m.type === "gridReady" && m.messageIndex === latBnds, from, "lat_bnds drawn");
+      state = await panel.drive([]);
+      assert.strictEqual(state.overlayNote, UNPLACED_OVERLAY_NOTE);
+      assert.strictEqual(state.zonalDisabled, true);
+      assert.strictEqual(state.zonalNote, UNPLACED_ZONAL_NOTE);
+      assert.strictEqual(state.contourNote, null, "the Overlay note covers contours");
+    } finally {
+      panel.dispose();
+    }
+
+    // The same panel written directly for lat_bnds says the same.
+    const direct = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: latBnds }));
+    try {
+      await direct.waitSent(isType("gridReady"), 0, "lat_bnds drawn");
+      const state = await direct.drive([]);
+      assert.strictEqual(state.zonalNote, UNPLACED_ZONAL_NOTE);
+    } finally {
+      direct.dispose();
+    }
+  });
+
+  test("the CSV layout prompt offers Long only where the grid's family places its points", async () => {
     const p = await provider();
     const native = loadNative();
     assert.ok(native, "native binding required");
@@ -227,17 +278,21 @@ suite("Point operations follow the grid (#945)", function () {
       };
       await slice(crateFixture("fieldglass-netcdf", "goes_geostationary.nc"), "Rad");
       await slice(crateFixture("fieldglass-netcdf", "netcdf4_dimscale.nc"), "temperature");
+      await slice(crateFixture("fieldglass-netcdf", "netcdf4_dimscale.nc"), "lat_bnds");
 
-      // A GRIB message, through the editor's own export message.
+      // A GRIB message, through the editor's own export message, which does
+      // not wait for the prompt: poll for it.
       const editor = await openEditor(p, crateFixture("fieldglass-grib2", "regular_latlon_surface.grib2"));
       editor.send({ type: "exportCsv", messageIndex: 0 });
-      await new Promise((r) => setTimeout(r, 200));
+      await waitUntil(() => (offered.length === 4 ? true : undefined), "the GRIB export's layout prompt");
       editor.close();
     } finally {
       vscode.window.showQuickPick = orig;
     }
-    assert.deepStrictEqual(offered, [["matrix"], ["long", "matrix"], ["long", "matrix"]]);
-    assert.strictEqual(placeholders[0], `CSV layout. ${NO_LONG_CSV_NOTE}`, "the prompt says why");
+    assert.deepStrictEqual(offered, [["matrix"], ["long", "matrix"], ["matrix"], ["long", "matrix"]]);
+    assert.strictEqual(placeholders[0], `CSV layout. ${NO_LONG_CSV_NOTE}`, "a placed space view: some points");
     assert.strictEqual(placeholders[1], "CSV layout");
+    assert.strictEqual(placeholders[2], `CSV layout. ${UNPLACED_LONG_CSV_NOTE}`, "an unplaced slice: not placed");
+    assert.strictEqual(placeholders[3], "CSV layout");
   });
 });

@@ -446,11 +446,30 @@ export const NO_CONTOURS_NOTE = "Contours need a position for every grid point, 
 /** {@link NO_CONTOURS_NOTE} for the Vectors row. */
 export const NO_VECTORS_NOTE = "Arrows need a position for every grid point, and some of this grid's points have none.";
 
-/** Said in the CSV layout prompt when the long layout is not offered (#945). */
+/** Said in the CSV layout prompt when a placed field's grid does not take the
+ *  long layout (#945). */
 export const NO_LONG_CSV_NOTE = "The long layout needs a position for every grid point, and some of this grid's points have none.";
 
-/** Shown beside the Zonal average toggle on a field that takes none (#945). */
+/** {@link NO_LONG_CSV_NOTE} for a field nothing places on the Earth, where no
+ *  point has a position, worded like the Overlay row's note. */
+export const UNPLACED_LONG_CSV_NOTE = "The long layout needs a grid placed on the Earth, and this one isn't.";
+
+/** Shown beside the Zonal average toggle on a placed field that takes none
+ *  (#945): a rotated or projected grid. */
 export const NO_ZONAL_NOTE = "A zonal average needs rows that are circles of latitude, and this grid's rows aren't.";
+
+/** {@link NO_ZONAL_NOTE} for a field nothing places on the Earth, which has no
+ *  latitude at all, worded like the Overlay row's note. */
+export const UNPLACED_ZONAL_NOTE = "A zonal average needs a grid placed on the Earth, and this one isn't.";
+
+/** The reason beside a disabled Zonal average toggle: whether the field is
+ *  placed decides which (#945). Serialized into the panel script, so it must
+ *  not reference anything outside itself. */
+export function zonalNote(placed: boolean): string {
+  return placed
+    ? "A zonal average needs rows that are circles of latitude, and this grid's rows aren't."
+    : "A zonal average needs a grid placed on the Earth, and this one isn't.";
+}
 
 /** Up to `count` evenly spaced indices along an axis of `length` points, always
  *  including the first and last. Where a cross-section puts its tick labels.
@@ -845,6 +864,7 @@ export function renderImagePanelHtml(
         ${composeProbeValue.toString()}
         ${composeRangeText.toString()}
         ${composeVectorScale.toString()}
+        ${zonalNote.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -1127,8 +1147,11 @@ export function renderImagePanelHtml(
           if (contourNote) contourNote.toggleAttribute('hidden', !noContours);
           const zonal = document.getElementById('zonal-toggle');
           if (zonal) zonal.disabled = fieldSupports.zonalMean !== true;
-          const zonalNote = document.getElementById('zonal-note');
-          if (zonalNote) zonalNote.toggleAttribute('hidden', fieldSupports.zonalMean === true);
+          const zonalReason = document.getElementById('zonal-note');
+          if (zonalReason) {
+            zonalReason.toggleAttribute('hidden', fieldSupports.zonalMean === true);
+            zonalReason.textContent = zonalNote(mapPlaced);
+          }
           applyContoursOnly();
         }
 
@@ -3415,7 +3438,7 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
   <div id="contour-status" class="contour-status" aria-live="polite"></div>
   <div id="probe" class="probe-readout" aria-live="polite"></div>
   <label class="zonal-toggle"><input type="checkbox" id="zonal-toggle"${supports.zonalMean ? "" : " disabled"}> Zonal average</label>
-  <span class="picker-note" id="zonal-note"${supports.zonalMean ? " hidden" : ""}>${NO_ZONAL_NOTE}</span>
+  <span class="picker-note" id="zonal-note"${supports.zonalMean ? " hidden" : ""}>${zonalNote(placed)}</span>
   <div id="line-panel" class="line-panel" hidden>
     <label class="line-axis" id="line-axis-label">Plot along <select id="line-axis"></select></label>
     <svg id="line-plot" class="line-plot" role="img" aria-label="The variable through the probed cell"></svg>
