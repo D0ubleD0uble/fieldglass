@@ -395,11 +395,21 @@ grib2/complex_spd2_regular_latlon.grib2#00	combine/a_minus_b/render/source/neare
 grib2/complex_spd2_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true supports=contours,vectors,long_csv,zonal_mean	087c3e167f4b4172
 grib2/complex_spd2_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
 grib2/complex_spd2_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/derived_max_4_12.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
+grib2/derived_max_4_12.grib2#00	combine/a_minus_b/render/source/nearest	ok w=16 h=31 opaque=496	2c0028f7bc050a3a
+grib2/derived_max_4_12.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true supports=contours,vectors,long_csv,zonal_mean	087c3e167f4b4172
+grib2/derived_max_4_12.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/derived_max_4_12.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
 grib2/ecmwf_ccsds_latlon.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/ecmwf_ccsds_latlon.grib2#00	combine/a_minus_b/render/source/nearest	ok w=1440 h=721 opaque=1038240	e43f1da252bd7484
 grib2/ecmwf_ccsds_latlon.grib2#00	meta	family=latlon ni=1440 nj=721 reprojectable=true supports=contours,vectors,long_csv,zonal_mean	8ff766031032fdb5
 grib2/ecmwf_ccsds_latlon.grib2#00	render/equirectangular/nearest	ok w=1440 h=721 opaque=1038240	3192496ead9ed9e5
 grib2/ecmwf_ccsds_latlon.grib2#00	render/source/nearest	ok w=1440 h=721 opaque=1038240	44febd1c998fcb7d
+grib2/ensemble_member_4_1.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
+grib2/ensemble_member_4_1.grib2#00	combine/a_minus_b/render/source/nearest	ok w=16 h=31 opaque=496	2c0028f7bc050a3a
+grib2/ensemble_member_4_1.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true supports=contours,vectors,long_csv,zonal_mean	087c3e167f4b4172
+grib2/ensemble_member_4_1.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/ensemble_member_4_1.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
 grib2/eta_lambert_msg0.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/eta_lambert_msg0.grib2#00	combine/a_minus_b/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
 grib2/eta_lambert_msg0.grib2#00	combine/a_minus_b/probe/equirectangular/359,180	hit cell=46,36 geo=yes value=yes	36c04ddde49dc601
