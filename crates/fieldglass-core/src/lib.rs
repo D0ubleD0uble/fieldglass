@@ -29,8 +29,10 @@
 //! structure: which arrays render, and where a slice of one is placed (#704).
 //! `fieldglass-netcdf` also takes [`shuffle`], the byte transpose HDF5's
 //! shuffle filter applies, which Zarr's reader shares and which carries a
-//! Verus proof, and [`detect`](mod@detect), whose HDF5 signature search it
-//! shares so detection and the reader find the same files (#936).
+//! Verus proof, [`capped`], the buffer growth its deflate and zstd filters
+//! share with Zarr's codecs so no output reserves past its limit (#981), and
+//! [`detect`](mod@detect), whose HDF5 signature search it shares so detection
+//! and the reader find the same files (#936).
 //! <!-- /parsing-surface -->
 //!
 //! What those modules have in common is that none of them is behind a feature,
@@ -85,6 +87,9 @@ pub mod array;
 pub mod bitmap;
 pub mod bits;
 pub mod bytes;
+// Buffer growth that stops at a decompressor's limit instead of reserving up
+// to twice it (#981). Dependency free; the codecs stay in the format crates.
+pub mod capped;
 pub mod cct_tables;
 pub mod cf;
 /// Generated X11 colour names for the CPT parser (`tools/gen_color_names.py`).

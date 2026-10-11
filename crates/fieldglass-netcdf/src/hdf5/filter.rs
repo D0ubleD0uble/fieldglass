@@ -27,6 +27,7 @@ use fieldglass_aec::AecError;
 use fieldglass_aec::sz::{self, SzParams};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::ArrayError;
+use fieldglass_core::capped;
 // The shuffle filter's inverse is the byte transpose blosc and Zarr use too, so
 // it lives once in core, which proves it (#203). A chunk that is not a whole
 // number of elements keeps its trailing bytes in place, as libhdf5 does.
@@ -636,46 +637,71 @@ fn fletcher32(data: &[u8]) -> u32 {
 
 /// Inflate a zlib stream (the HDF5 deflate filter's on-disk form) to at most
 /// `limit` bytes, which [`codec_limit`] sets per chunk.
+///
+/// The unbounded `decompress_to_vec_zlib` would let a crafted chunk name its
+/// own allocation size. `miniz_oxide`'s bounded `_with_limit` form caps what
+/// it writes but grows its buffer with `Vec::resize`, whose amortised growth
+/// can reserve nearly twice the limit on the last step (#981). So the loop is
+/// ours, around the same decoder with the same flags, and grows the buffer
+/// with [`capped::grow_toward`]: nothing it allocates is larger than `limit`.
 fn inflate_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError> {
     use miniz_oxide::inflate::TINFLStatus;
+    use miniz_oxide::inflate::core::{DecompressorOxide, decompress, inflate_flags};
 
-    // The unbounded `decompress_to_vec_zlib` would let a crafted chunk name its
-    // own allocation size.
-    miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(data, limit.bytes()).map_err(|e| {
-        if e.status == TINFLStatus::HasMoreOutput {
-            limit.exceeded("deflate")
-        } else {
-            FieldglassError::Parse(format!("deflate (zlib) inflate failed: {e:?}"))
+    // The output is one slice that never wraps, so a back-reference can reach
+    // anything already written.
+    let flags = inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER
+        | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+    // `miniz_oxide`'s own first guess, twice the input.
+    let hint = data.len().saturating_mul(2);
+    let mut out = Vec::new();
+    // A zero limit leaves the buffer empty, which only an empty stream fits.
+    capped::grow_toward(&mut out, hint, limit.bytes());
+    let mut state = Box::<DecompressorOxide>::default();
+    let mut input = data;
+    let mut written = 0;
+    loop {
+        let (status, consumed, produced) = decompress(&mut state, input, &mut out, written, flags);
+        written += produced;
+        input = input.get(consumed..).unwrap_or_default();
+        match status {
+            TINFLStatus::Done => {
+                out.truncate(written);
+                return Ok(out);
+            }
+            TINFLStatus::HasMoreOutput => {
+                if !capped::grow_toward(&mut out, hint, limit.bytes()) {
+                    return Err(limit.exceeded("deflate"));
+                }
+            }
+            // Only the status: the partial output that `DecompressError`'s
+            // `Debug` used to print could put megabytes into the message.
+            failed => {
+                return Err(FieldglassError::Parse(format!(
+                    "deflate (zlib) inflate failed: {failed:?}"
+                )));
+            }
         }
-    })
+    }
 }
 
 /// Decompress a zstd frame (the HDF5 zstd filter's on-disk form) to at most
 /// `limit` bytes, which [`codec_limit`] sets per chunk.
 ///
-/// Streamed rather than decoded in one shot so the output can be capped:
-/// `take` stops one byte past the limit, which distinguishes "too large" from
-/// a stream that merely ends there.
+/// Streamed rather than decoded in one shot so the output can be capped, into
+/// a buffer [`capped::read_to_end_within`] grows: `read_to_end`'s amortised
+/// growth could reserve nearly twice the limit (#981).
 fn unzstd_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError> {
-    use std::io::Read;
-
     // Two ceilings, because a crafted frame has two ways to ask for memory.
     // [`MAX_ZSTD_WINDOW`] bounds the buffer sized from the frame header, which
-    // is allocated before any output exists and so is invisible to the `take`
-    // below; `limit` bounds the output itself.
-    let mut decoder =
+    // is allocated before any output exists and so is invisible to the output
+    // bound; `limit` bounds the output itself.
+    let decoder =
         ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, MAX_ZSTD_WINDOW)
             .map_err(|e| FieldglassError::Parse(format!("zstd frame header: {e}")))?;
-    let mut out = Vec::new();
-    decoder
-        .by_ref()
-        .take(limit.bytes() as u64 + 1)
-        .read_to_end(&mut out)
-        .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?;
-    if out.len() > limit.bytes() {
-        return Err(limit.exceeded("zstd"));
-    }
-    Ok(out)
+    capped::read_to_end_within(decoder, data.len().saturating_mul(2), limit.bytes())
+        .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?
+        .ok_or_else(|| limit.exceeded("zstd"))
 }
 
 #[cfg(test)]
@@ -997,6 +1023,63 @@ mod tests {
             big
         );
         assert!(inflate_bounded(&stream, Limit::Ceiling(64)).is_err());
+    }
+
+    /// The loop around `miniz_oxide`'s core decoder gives what its own
+    /// `decompress_to_vec_zlib` gives, at every limit from the exact length
+    /// up, and the buffer never holds more than the limit (#981). The
+    /// payloads cover a stored block, a run that expands a thousandfold, and
+    /// data that barely compresses, at lengths either side of each doubling.
+    #[test]
+    fn inflate_matches_miniz_and_reserves_within_the_limit() {
+        let mut noise = 0x2545_F491_u32;
+        let mut payloads: Vec<Vec<u8>> = vec![Vec::new(), vec![7], vec![0; 1 << 20]];
+        for len in [1_000, 4_095, 4_097, 65_537, 300_001] {
+            payloads.push(
+                (0..len)
+                    .map(|_| {
+                        noise ^= noise << 13;
+                        noise ^= noise >> 17;
+                        noise ^= noise << 5;
+                        (noise % 7) as u8
+                    })
+                    .collect(),
+            );
+        }
+        for payload in &payloads {
+            for level in [0, 6, 10] {
+                let stream = miniz_oxide::deflate::compress_to_vec_zlib(payload, level);
+                let reference = miniz_oxide::inflate::decompress_to_vec_zlib(&stream).unwrap();
+                assert_eq!(&reference, payload);
+                for limit in [payload.len(), payload.len() + 1, payload.len() * 3 + 5] {
+                    let got = inflate_bounded(&stream, Limit::Length(limit)).unwrap();
+                    assert_eq!(got, reference, "{} bytes at level {level}", payload.len());
+                    assert!(got.capacity() <= limit, "capacity {}", got.capacity());
+                }
+                if let Some(short) = payload.len().checked_sub(1) {
+                    let err = inflate_bounded(&stream, Limit::Length(short)).unwrap_err();
+                    assert!(
+                        matches!(&err, FieldglassError::Parse(m) if m.contains("past the chunk's")),
+                        "{err:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A corrupt stream names the decoder's status and nothing more. Before
+    /// #981 the message was `DecompressError`'s `Debug`, which printed every
+    /// byte inflated before the failure.
+    #[test]
+    fn a_corrupt_deflate_stream_reports_its_status_not_its_output() {
+        let mut stream = miniz_oxide::deflate::compress_to_vec_zlib(&[0u8; 100_000], 6);
+        let at = stream.len() - 2;
+        stream[at] ^= 0xFF; // inside the Adler-32 trailer
+        let err = inflate_bounded(&stream, Limit::Length(100_000)).unwrap_err();
+        let FieldglassError::Parse(m) = err else {
+            panic!("{err:?}")
+        };
+        assert_eq!(m, "deflate (zlib) inflate failed: Adler32Mismatch");
     }
 
     /// A frame header declaring an enormous window is refused before anything

@@ -179,13 +179,10 @@ fn a_bomb_behind_szip_stops_at_what_szip_could_hold() {
             m.contains("deflate chunk decompresses past the 4722688-byte ceiling"),
             "{m}"
         );
-        // Within the bound's buffer, whose capacity miniz_oxide's last
-        // resize can double (8,351,488 bytes measured), and far from the
-        // bomb: master allocated 66,811,904.
-        assert!(
-            largest < 2 * 4_722_688,
-            "largest allocation {largest} bytes"
-        );
+        // Within the bound itself, and far from the bomb: before #975 the
+        // reader allocated 66,811,904, and before #981 miniz_oxide's last
+        // resize reserved 8,351,488 for a buffer bounded at 4,722,688.
+        assert!(largest <= 4_722_688, "largest allocation {largest} bytes");
         assert!(
             (largest as u64) < inflated / 4,
             "largest allocation {largest} bytes"
