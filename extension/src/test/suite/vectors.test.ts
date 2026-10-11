@@ -228,7 +228,7 @@ suite("Vector arrows", () => {
     assert.ok(/const UV_GRID_RELATIVE = false;/.test(plain));
     assert.doesNotMatch(plain, /rotated to true north/);
 
-    // A placed grid that takes no arrows (a full-disc space view, #945): the
+    // A placed grid that takes no arrows (a space view, #945): the
     // row is written, disabled, with the reason, and not the frame note.
     const noArrows = html(
       {
@@ -239,6 +239,8 @@ suite("Vector arrows", () => {
     );
     assert.match(noArrows, /<fieldset id="vector-fieldset" disabled>/, "the Vectors row is disabled");
     assert.ok(noArrows.includes(NO_VECTORS_NOTE), "with the reason");
+    assert.match(NO_VECTORS_NOTE, /satellite-view grids yet/, "not supported yet (#979)");
+    assert.doesNotMatch(NO_VECTORS_NOTE, /position|none/);
     assert.ok(!noArrows.includes(UNPLACED_VECTORS_NOTE), "not the not-placed one: this grid is placed");
     assert.doesNotMatch(noArrows, /rotated to true north/);
     // And one that takes them is not disabled.

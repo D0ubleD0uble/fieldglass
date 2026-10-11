@@ -1744,9 +1744,9 @@ impl crate::api::GridSupport {
     /// point, and refuse a grid through one gate (`require_forward_geolocation`):
     /// a family with a forward map, whose own numbers place its points. The
     /// answer here is that gate's two halves asked directly, so the two cannot
-    /// disagree. A space view has no forward map, because the pixels past the
-    /// Earth's limb have no position; a planar grid on degenerate constants has
-    /// one that places nothing. The zonal mean asks the check `zonal_mean`
+    /// disagree. A space view has no forward map yet, whatever its extent, so
+    /// even a sector wholly on the Earth is refused (#979); a planar grid on
+    /// degenerate constants has one that places nothing. The zonal mean asks the check `zonal_mean`
     /// makes, whether the rows are circles of latitude. (Named, not linked:
     /// the operations are behind `render` and `analysis`, and this is not.)
     ///
