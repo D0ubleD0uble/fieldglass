@@ -394,6 +394,22 @@ mod tests {
                 production_status: String::new(),
                 data_type: String::new(),
             },
+            // Not what `verify_message` reads either (#959).
+            identity: crate::api::MessageIdentity::Grib2 {
+                discipline: 0,
+                parameter_category: Some(0),
+                parameter_number: Some(0),
+                first_surface: None,
+                second_surface: None,
+                reference_time: "2026-09-04T00:00:00Z".into(),
+                forecast_time_unit: None,
+                forecast_time: None,
+                range_end: None,
+                statistics: Vec::new(),
+                grid_template: 0,
+                dimensions: None,
+                data_points: 0,
+            },
             total_length_bytes: 0,
             // A plan is built from an index, which does not carry the
             // resolution flags a vector plot would read (#241).

@@ -801,6 +801,10 @@ api_type! {
         /// (#773). A field one edition does not have is not on the other's
         /// variant, so a host never reads "not applicable" as "absent".
         pub identification: Identification,
+        /// What makes this message the same message in another copy of its
+        /// file (#959). A host that holds a message from a file that has since
+        /// changed finds it again by comparing this: see [`MessageIdentity`].
+        pub identity: MessageIdentity,
         /// The length the message declares for itself, in bytes.
         ///
         /// Distinct from [`offset_bytes`](Self::offset_bytes), which says where
@@ -848,6 +852,129 @@ api_type! {
             /// table does not name.
             data_type: String,
         },
+    }
+
+    /// The facts that make a GRIB message the same message in another copy of
+    /// its file (#959): the parameter, the level, the reference time, the
+    /// forecast step or time range, and the grid. This is how wgrib2 and
+    /// eccodes tell one field from another.
+    ///
+    /// Two messages are the same message when their identities are equal. A
+    /// host holding message `i` of a file that changed on disk looks for its
+    /// identity among the new file's messages: exactly one match is that
+    /// message, wherever it now sits; none means it is gone, and more than one
+    /// that the new file does not say which. Neither of the last two is
+    /// resolved by position, since a position the new file reuses can hold a
+    /// different field.
+    ///
+    /// The codes are as the message writes them, not the names a table gives
+    /// them, so two codes a table names alike stay apart. A file that states the
+    /// same level or step in other units or another scale factor does not
+    /// match; refusing there is safe, and matching a different field is not.
+    #[derive(Eq)]
+    #[serde(tag = "edition", rename_all = "snake_case", rename_all_fields = "camelCase")]
+    pub enum MessageIdentity {
+        /// WMO FM 92 GRIB edition 1.
+        Grib1 {
+            /// The parameter table version (PDS octet 4).
+            table_version: u8,
+            /// The parameter (PDS octet 9, Code Table 2 of `table_version`).
+            parameter: u8,
+            /// The originating centre (PDS octet 5), when it defines the
+            /// parameter: a table version from 128, or a parameter from 128 in
+            /// any table, both of which FM 92 leaves to the centre. `None` for a
+            /// parameter of a WMO table, which means the same from any centre.
+            local_centre: Option<u8>,
+            /// The level type (PDS octet 10, Code Table 3).
+            level_type: u8,
+            /// PDS octets 11 and 12 as written: one value or a layer's two,
+            /// depending on `level_type`.
+            level_octets: [u8; 2],
+            /// The reference time as RFC 3339, as `MessageInfo::reference_time`.
+            reference_time: String,
+            /// The unit of `p1` and `p2` (PDS octet 18, Code Table 4).
+            time_unit: u8,
+            /// P1 (PDS octet 19).
+            p1: u8,
+            /// P2 (PDS octet 20).
+            p2: u8,
+            /// The time range indicator (PDS octet 21, Code Table 5), which
+            /// says how `p1` and `p2` make a step or a range.
+            time_range: u8,
+            /// The data representation type (GDS octet 6, Code Table 6), or
+            /// `None` when the message has no GDS.
+            grid_type: Option<u8>,
+            /// The predefined grid number (PDS octet 7) when the message has no
+            /// GDS, which makes it the message's only grid. `None` otherwise.
+            grid_number: Option<u8>,
+            /// Columns and rows: `Ni`/`Nj` (the widest row for a reduced grid),
+            /// or the pentagonal resolution `J`/`K` for spherical harmonics.
+            /// `None` without a GDS, or for a grid type this build does not read.
+            dimensions: Option<[u32; 2]>,
+        },
+        /// WMO FM 92 GRIB edition 2.
+        Grib2 {
+            /// The discipline (§0 octet 7, Code Table 0.0).
+            discipline: u8,
+            /// The parameter category (Code Table 4.1), `None` for a product
+            /// template that carries none.
+            parameter_category: Option<u8>,
+            /// The parameter number (Code Table 4.2), `None` likewise.
+            parameter_number: Option<u8>,
+            /// The level, or a layer's top. `None` for a product template that
+            /// carries no surface.
+            first_surface: Option<SurfaceCodes>,
+            /// A layer's bottom: type 255 for a single level. `None` likewise.
+            second_surface: Option<SurfaceCodes>,
+            /// The reference time as RFC 3339, as `MessageInfo::reference_time`.
+            reference_time: String,
+            /// The unit of `forecast_time` (Code Table 4.4). `None` for a
+            /// product template that carries no forecast time.
+            forecast_time_unit: Option<u8>,
+            /// The forecast step, or the start of a statistical range.
+            forecast_time: Option<i64>,
+            /// The end of a statistical range as RFC 3339 (templates 4.8 and
+            /// 4.11). `None` for a field at an instant.
+            range_end: Option<String>,
+            /// What was done over the range, outermost first; empty for a field
+            /// at an instant.
+            statistics: Vec<StatisticalStep>,
+            /// The grid definition template (§3 octets 13-14, Code Table 3.1).
+            grid_template: u16,
+            /// Columns and rows, the widest row for a reduced grid. `None` for a
+            /// template that has none.
+            dimensions: Option<[u32; 2]>,
+            /// The number of data points §3 states (octets 7-10), which tells
+            /// apart two grids `dimensions` cannot.
+            data_points: u32,
+        },
+    }
+
+    /// A GRIB2 fixed surface (Code Table 4.5) as §4 writes it.
+    #[derive(Copy, Eq)]
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct SurfaceCodes {
+        /// The surface type; 255 is missing.
+        pub surface_type: u8,
+        /// The decimal scale factor, `None` when coded missing.
+        pub scale_factor: Option<i8>,
+        /// The scaled value, `None` when coded missing.
+        pub scaled_value: Option<i64>,
+    }
+
+    /// One step of a GRIB2 statistical process (one time-range specification of
+    /// templates 4.8 and 4.11), as §4 writes it.
+    #[derive(Copy, Eq)]
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct StatisticalStep {
+        /// The process: average, accumulation, maximum… (Code Table 4.10).
+        pub process: u8,
+        /// The unit of `length` (Code Table 4.4).
+        pub length_unit: u8,
+        /// How long the process runs over.
+        pub length: u32,
     }
 
     /// A resampled raster: [`crate::Session::warp`] without the paint step.
