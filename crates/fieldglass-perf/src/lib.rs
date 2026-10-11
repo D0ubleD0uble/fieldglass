@@ -197,10 +197,7 @@ pub struct Prepared {
 
 enum State {
     /// Bytes not yet opened: the open scenarios.
-    Bytes {
-        format: String,
-        bytes: Vec<u8>,
-    },
+    Bytes(Vec<u8>),
     /// A store not yet opened.
     Objects(MemoryObjects),
     Session {
@@ -236,10 +233,7 @@ impl Prepared {
                 if format == "zarr" {
                     State::Objects(corpus.objects(name))
                 } else {
-                    State::Bytes {
-                        format,
-                        bytes: corpus.bytes(name),
-                    }
+                    State::Bytes(corpus.bytes(name))
                 }
             }
             op => {
@@ -320,14 +314,9 @@ impl Prepared {
         let options = DecodeOptions::default();
         let state = std::mem::replace(&mut self.state, State::Taken);
         let (cells, output, probed) = match (self.op, state) {
-            (Op::Open, State::Bytes { format, bytes }) => {
+            (Op::Open, State::Bytes(bytes)) => {
                 let pending = matches!(self.recorder, Recorder::Pending);
-                let session = if format == "netcdf" {
-                    if pending {
-                        self.recorder = Recorder::Whole(bytes.len() as u64);
-                    }
-                    Session::open(bytes)
-                } else if pending {
+                let session = if pending {
                     let recording = Rc::new(Recording::new(bytes));
                     self.recorder = Recorder::Ranges(Rc::clone(&recording) as Rc<dyn io::RangeLog>);
                     Session::open_source(SharedBytes(recording))
@@ -465,16 +454,6 @@ fn open(corpus: &Corpus, name: &str, via: Via, recorder: &mut Recorder) -> Sessi
             let recording = Rc::new(Recording::new(corpus.objects(name)));
             *recorder = Recorder::Objects(Rc::clone(&recording));
             Session::open_store(SharedObjects(recording))
-        }
-        ("netcdf", via) => {
-            // NetCDF has no source seam: the reader takes the whole file as a
-            // `Vec`. Every byte of it is therefore something a host had to
-            // fetch before any operation could run, and the I/O tier says so.
-            let bytes = corpus.bytes(name);
-            if via == Via::Recorded {
-                *recorder = Recorder::Whole(bytes.len() as u64);
-            }
-            Session::open(bytes)
         }
         (_, Via::Memory) => Session::open_source(corpus.bytes(name)),
         (_, Via::Recorded) => {

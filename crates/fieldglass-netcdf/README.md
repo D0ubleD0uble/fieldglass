@@ -67,6 +67,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 `cargo run -p fieldglass-netcdf --example decode` runs that against the fixtures
 committed with the crate.
 
+`NetcdfReader::from_bytes` reads a buffer you already hold. To read a file by
+range instead, open it with `NetcdfReader::from_source` over your own
+`ByteSource`: opening reads the header, listing the variables reads the
+metadata, and a plane reads its own bytes or the chunks it overlaps.
+
 ## License
 
 Licensed under either of MIT or Apache-2.0 at your option.

@@ -106,8 +106,6 @@ pub(crate) enum Recorder {
     Ranges(Rc<dyn RangeLog>),
     /// A keyed store, recorded by key.
     Objects(Rc<Recording<MemoryObjects>>),
-    /// A reader with no source seam, handed the whole file of this many bytes.
-    Whole(u64),
 }
 
 impl Recorder {
@@ -123,10 +121,6 @@ impl Recorder {
     pub(crate) fn tally(&self) -> Io {
         match self {
             Recorder::None | Recorder::Pending => Io::default(),
-            Recorder::Whole(bytes) => Io {
-                bytes: *bytes,
-                requests: 1,
-            },
             Recorder::Ranges(r) => {
                 tally_ranges(&r.prefetches(), &r.reads_before_each_batch(), &r.reads())
             }

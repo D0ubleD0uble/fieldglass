@@ -245,6 +245,58 @@ fn assert_message_matches(
                 Some(c) => check_i64(key, expected, c.first_surface.scaled_value.unwrap_or(0)),
                 None => true,
             },
+            // The layer's bottom. eccodes writes `null` for a factor or value
+            // coded missing, which the loop skips, so these compare only what
+            // it states.
+            "typeOfSecondFixedSurface" => match msg.pds.common() {
+                Some(c) => check_u64(key, expected, c.second_surface.surface_type as u64),
+                None => true,
+            },
+            "scaleFactorOfSecondFixedSurface" => match msg.pds.common() {
+                Some(c) => check_i64(
+                    key,
+                    expected,
+                    c.second_surface.scale_factor.unwrap_or(0) as i64,
+                ),
+                None => true,
+            },
+            "scaledValueOfSecondFixedSurface" => match msg.pds.common() {
+                Some(c) => check_i64(key, expected, c.second_surface.scaled_value.unwrap_or(0)),
+                None => true,
+            },
+
+            // The statistical interval, which 4.9, 4.10 and 4.12 carry after
+            // a block of their own (#959). eccodes states these only for a
+            // template that has the interval, so a parser that did not find
+            // it is a mismatch rather than a skip.
+            "typeOfStatisticalProcessing" => match first_time_range(msg) {
+                Some(s) => check_u64(key, expected, s.stat_process as u64),
+                None => missing_interval(fixture, key),
+            },
+            "indicatorOfUnitForTimeRange" => match first_time_range(msg) {
+                Some(s) => check_u64(key, expected, s.stat_length_unit as u64),
+                None => missing_interval(fixture, key),
+            },
+            "lengthOfTimeRange" => match first_time_range(msg) {
+                Some(s) => check_u64(key, expected, s.stat_length as u64),
+                None => missing_interval(fixture, key),
+            },
+            "yearOfEndOfOverallTimeInterval" => match msg.pds.stats() {
+                Some(s) => check_u64(key, expected, s.end_year as u64),
+                None => missing_interval(fixture, key),
+            },
+            "monthOfEndOfOverallTimeInterval" => match msg.pds.stats() {
+                Some(s) => check_u64(key, expected, s.end_month as u64),
+                None => missing_interval(fixture, key),
+            },
+            "dayOfEndOfOverallTimeInterval" => match msg.pds.stats() {
+                Some(s) => check_u64(key, expected, s.end_day as u64),
+                None => missing_interval(fixture, key),
+            },
+            "hourOfEndOfOverallTimeInterval" => match msg.pds.stats() {
+                Some(s) => check_u64(key, expected, s.end_hour as u64),
+                None => missing_interval(fixture, key),
+            },
 
             // §5 Data Representation. These four route through
             // [`packing_params`] rather than `drs.simple()`: R / E / D / bits
@@ -305,6 +357,21 @@ fn assert_message_matches(
         };
         assert!(pinned, "{fixture}: key {key:?} mismatch");
     }
+}
+
+/// The first time-range specification of a statistically processed message,
+/// which is the one eccodes' scalar interval keys describe.
+fn first_time_range(
+    msg: &fieldglass_grib2::Grib2Message,
+) -> Option<&fieldglass_grib2::TimeRangeSpec> {
+    msg.pds.stats().and_then(|s| s.specs.first())
+}
+
+/// eccodes states an interval the parser did not read.
+fn missing_interval(fixture: &str, key: &str) -> bool {
+    record(key);
+    eprintln!("{fixture}: eccodes states {key}, and the parser read no statistical interval");
+    false
 }
 
 /// A signed scale factor back in the single sign-magnitude octet it was read

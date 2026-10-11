@@ -205,8 +205,12 @@ fn netcdf(cache: &Cache<'_>) -> Result<RealRow, String> {
     let frames = frames(section)?;
     let bytes = cache.object(section["object"].as_str().unwrap_or_default())?;
     let size = bytes.len() as u64;
+    // Read by range, as a host reaching the file over a transport would (#950).
+    let recording = Rc::new(Recording::new(bytes));
+    let recorder = Recorder::Ranges(Rc::clone(&recording) as Rc<dyn RangeLog>);
     let start = Instant::now();
-    let session = Session::open(bytes).map_err(|e| e.to_string())?;
+    let session =
+        Session::open_source(SharedBytes(Rc::clone(&recording))).map_err(|e| e.to_string())?;
     let open_ms = millis(start);
     let var = variable(&session, section["variable"].as_str().unwrap_or_default())?;
     let (cells, frame_ms) = scrub(frames, |k| {
@@ -229,12 +233,13 @@ fn netcdf(cache: &Cache<'_>) -> Result<RealRow, String> {
     let header = size.checked_sub(planes * plane_bytes).ok_or_else(|| {
         format!("{planes} planes of {plane_bytes} bytes do not fit a {size}-byte file")
     })?;
+    let io = recorder.tally();
     Ok(RealRow {
         name: "era5-netcdf",
         frames,
         cells,
-        bytes: size,
-        requests: 1,
+        bytes: io.bytes,
+        requests: io.requests,
         bound_bytes: header + u64::from(frames) * plane_bytes,
         open_ms,
         frame_ms,

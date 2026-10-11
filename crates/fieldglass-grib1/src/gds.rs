@@ -483,6 +483,20 @@ impl GridDescription {
         })
     }
 
+    /// The data representation type the GDS states (octet 6, ON388 Table 6):
+    /// the code [`parse_grid_description`] read the variant from.
+    pub fn grid_type(&self) -> u8 {
+        match self {
+            Self::LatLon(_) | Self::ReducedLatLon(_) => 0,
+            Self::LambertConformal(_) => 3,
+            Self::Gaussian(_) | Self::ReducedGaussian(_) => 4,
+            Self::PolarStereographic(_) => 5,
+            Self::RotatedLatLon(_) => 10,
+            Self::SphericalHarmonic(_) => 50,
+            Self::Unsupported { grid_type } => *grid_type,
+        }
+    }
+
     /// The scanning-mode flags (GDS octet 28), for the grids that have them.
     ///
     /// `None` for the two variants that describe no raster: spherical-harmonic

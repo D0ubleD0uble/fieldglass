@@ -127,8 +127,8 @@ pub use is::{
 pub use lus::{LUS_SECTION_NUMBER, LocalUseSection, parse_local_use};
 pub use pds::{
     FixedSurface, HorizontalProductCommon, PDS_SECTION_NUMBER, ProductDefinitionSection,
-    ProductTemplate, StatisticalProcessing, Template40, Template48, Template411, TimeRangeSpec,
-    parse_product_definition,
+    ProductTemplate, SharedLayoutTemplate, StatisticalProcessing, Template40, Template48,
+    Template411, TimeRangeSpec, parse_product_definition,
 };
 pub use reader::{Grib2Message, Grib2Reader, MatrixField};
 pub use reduced::{DecodeOptions, DisplayRaster};
