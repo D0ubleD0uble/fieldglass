@@ -19420,6 +19420,7 @@
             5
           ],
           "edition": "grib1",
+          "extensionOctets": "000000000000000000000000010102040130303031000000",
           "gridNumber": null,
           "gridType": 0,
           "levelOctets": [
@@ -21520,6 +21521,7 @@
             95
           ],
           "edition": "grib1",
+          "extensionOctets": "000000000000000000000000",
           "gridNumber": null,
           "gridType": 5,
           "levelOctets": [

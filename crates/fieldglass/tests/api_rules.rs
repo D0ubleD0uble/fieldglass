@@ -903,7 +903,7 @@ const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"
 const DISPLAY_FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"reduction":1,"truncation":null,"parameter":"Temperature","units":"K"}"#;
 
 /// A GRIB1 `MessageIdentity` with every optional field present.
-const MESSAGE_IDENTITY_GRIB1_JSON: &str = r#"{"edition":"grib1","tableVersion":128,"parameter":167,"localCentre":98,"levelType":1,"levelOctets":[0,0],"referenceTime":"2026-01-01T00:00:00Z","timeUnit":1,"p1":6,"p2":0,"timeRange":0,"gridType":0,"gridNumber":255,"dimensions":[360,181]}"#;
+const MESSAGE_IDENTITY_GRIB1_JSON: &str = r#"{"edition":"grib1","tableVersion":128,"parameter":167,"localCentre":98,"levelType":1,"levelOctets":[0,0],"referenceTime":"2026-01-01T00:00:00Z","timeUnit":1,"p1":6,"p2":0,"timeRange":0,"extensionOctets":"0000000000000000000000000101020401303030310300","gridType":0,"gridNumber":255,"dimensions":[360,181]}"#;
 
 /// A GRIB2 `MessageIdentity` with every optional field present, a statistical
 /// range among them.

@@ -3619,16 +3619,21 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
             // number.
             p1_octet: (msg.pds.time_range != 10).then_some(i32::from(msg.pds.p1)),
         },
-        identity: grib1_identity(msg),
+        identity: grib1_identity(reader, index),
         total_length_bytes: u64::from(msg.is.total_length),
     }
 }
 
 /// The GRIB1 half of [`MessageIdentity`] (#959): the PDS and GDS codes as
-/// written.
+/// written, and the centre's PDS extension as octets (#994).
 #[cfg(feature = "grib1")]
-fn grib1_identity(msg: &fieldglass_grib1::Grib1Message) -> MessageIdentity {
+fn grib1_identity(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -> MessageIdentity {
+    let msg = &reader.messages[index];
     let pds = &msg.pds;
+    // The scan that found the message has read these bytes already, so a
+    // source fails here only if it cannot serve them twice. The extension is
+    // then left out, as the packing label is, rather than failing the listing.
+    let extension = reader.pds_extension(index).ok();
     // FM 92 Code Table 2: table versions from 128, and parameters from 128 in
     // any version, are the originating centre's own, so the same code means
     // another parameter at another centre.
@@ -3650,6 +3655,9 @@ fn grib1_identity(msg: &fieldglass_grib1::Grib1Message) -> MessageIdentity {
         p1: pds.p1,
         p2: pds.p2,
         time_range: pds.time_range,
+        extension_octets: extension
+            .filter(|octets| !octets.is_empty())
+            .map(|octets| octets.iter().map(|b| format!("{b:02x}")).collect()),
         grid_type: msg
             .gds
             .as_ref()

@@ -1165,10 +1165,10 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       blank to pick, and the summary under the map names no operation (it
       reads `16×31 · range …`, not `A − B · …`).
 
-Derived forecasts (a mean against a spread) and GRIB2 local parameters are told
-apart the same way; `crates/fieldglass/tests/message_identity.rs` and
-`extension/src/test/suite/grib-reload.test.ts` cover them. GRIB1 ensemble
-members are not told apart yet, by design.
+Derived forecasts (a mean against a spread), GRIB2 local parameters and GRIB1
+ensemble members and products (the octets a centre adds past PDS octet 28,
+#994) are told apart the same way; `crates/fieldglass/tests/message_identity.rs`
+and `extension/src/test/suite/grib-reload.test.ts` cover them.
 
 ## 24. A render with no values says "no values" (#871)
 
