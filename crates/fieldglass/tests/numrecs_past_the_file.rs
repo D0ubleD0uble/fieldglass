@@ -12,6 +12,9 @@
 //! labels left without coordinates, holding almost nothing. The two records
 //! that are there still draw.
 //!
+//! `numrecs_streaming_*.nc` state STREAMING, an indeterminate count, and are
+//! read as the whole records their size holds (#1008).
+//!
 //! A tracking global allocator records the peak of live bytes on this thread
 //! while it is armed, so tests on other threads cannot add to it.
 
@@ -40,6 +43,18 @@ const STREAMING: [(&str, &[u8]); 2] = [
     (
         "numrecs_streaming_cdf5.nc",
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/numrecs_streaming_cdf5.nc"),
+    ),
+];
+
+/// The streaming files cut short part way through their last record.
+const PARTIAL: [(&str, &[u8]); 2] = [
+    (
+        "numrecs_streaming_partial_cdf1.nc",
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/numrecs_streaming_partial_cdf1.nc"),
+    ),
+    (
+        "numrecs_streaming_partial_cdf5.nc",
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/numrecs_streaming_partial_cdf5.nc"),
     ),
 ];
 
@@ -184,14 +199,43 @@ fn the_records_the_file_holds_still_draw() {
     }
 }
 
+/// `v`'s records through `Session`, for a streaming file holding `records`
+/// whole records of the base file's 2 (#1008).
+fn assert_draws_records(name: &str, bytes: &[u8], records: u64) {
+    let session = Session::open(bytes.to_vec())
+        .unwrap_or_else(|e| panic!("{name}: a streaming file opens: {e}"));
+    let (index, lengths) = v(&session);
+    assert_eq!(lengths, [records, 1], "{name}: counted from the size");
+    for (record, want) in [(0, 7.0), (1, -8.0)].into_iter().take(records as usize) {
+        let line = session
+            .decode_line(index, 1, &[record, 0], &opts())
+            .unwrap_or_else(|e| panic!("{name} record {record}: {e}"));
+        assert_eq!(line.mask, [1], "{name} record {record}");
+        assert_eq!(line.stats.min, Some(want), "{name} record {record}");
+    }
+    let line = session
+        .decode_line(index, 0, &[0, 0], &opts())
+        .unwrap_or_else(|e| panic!("{name}: a line along time: {e}"));
+    assert_eq!(line.mask.len() as u64, records, "{name}");
+    let axis = session.axis_values(index, 0).expect("the axis exists");
+    assert_eq!(axis.length, records, "{name}");
+    assert_eq!(
+        axis.coordinates,
+        Some([0.0, 6.0][..records as usize].to_vec()),
+        "{name}: the time coordinate labels every counted record"
+    );
+}
+
 #[test]
-fn a_streaming_file_opens_with_no_records() {
+fn a_streaming_file_draws_the_records_it_holds() {
     for (name, bytes) in STREAMING {
-        let session = Session::open(bytes.to_vec())
-            .unwrap_or_else(|e| panic!("{name}: a streaming file opens: {e}"));
-        let (index, lengths) = v(&session);
-        assert_eq!(lengths, [0, 1], "{name}: STREAMING is not a count");
-        let axis = session.axis_values(index, 0).expect("the axis exists");
-        assert_eq!(axis.length, 0, "{name}");
+        assert_draws_records(name, bytes, 2);
+    }
+}
+
+#[test]
+fn a_streaming_file_cut_short_draws_its_whole_records_only() {
+    for (name, bytes) in PARTIAL {
+        assert_draws_records(name, bytes, 1);
     }
 }

@@ -205,9 +205,9 @@ impl NcType {
 pub struct Dimension {
     /// The dimension's name as the header declares it.
     pub name: String,
-    /// The dimension's length. For the record dimension this is the file's
-    /// record count, resolved from the header's `numrecs` rather than the
-    /// on-disk zero.
+    /// The dimension's length as the header declares it. For the record
+    /// dimension this is the on-disk zero; its length at run time is
+    /// [`ClassicHeader::numrecs`], which [`variable_shape`] reads.
     pub length: u64,
     /// Whether this is the unlimited (record) dimension.
     pub is_record: bool,
@@ -305,8 +305,10 @@ impl Variable {
 pub struct ClassicHeader {
     /// Which of the three classic layouts the magic declared.
     pub version: ClassicVersion,
-    /// Number of records in the unlimited dimension. `None` for streaming
-    /// files (`numrecs == 0xFFFFFFFF`).
+    /// Number of records in the unlimited dimension. For a STREAMING header
+    /// (`numrecs` with every bit set, an indeterminate count) the parser
+    /// stores the whole records the file's size holds instead (#1008), so a
+    /// parsed header always has `Some`. `None` is read as 0 records.
     pub numrecs: Option<u64>,
     /// Every dimension, in header order — the order `dim_ids` indexes into.
     pub dimensions: Vec<Dimension>,
@@ -390,13 +392,48 @@ pub fn parse_header_from<S: ByteSource + ?Sized>(
     let global_attributes = p.read_att_list()?;
     let variables = p.read_var_list(dimensions.len())?;
 
-    Ok(ClassicHeader {
+    let mut header = ClassicHeader {
         version: p.version,
         numrecs,
         dimensions,
         global_attributes,
         variables,
-    })
+    };
+    if header.numrecs.is_none() {
+        header.numrecs = Some(streaming_record_count(&header, source.size()));
+    }
+    Ok(header)
+}
+
+/// The record count of a STREAMING file: the whole records its size holds
+/// (#1008).
+///
+/// STREAMING (`numrecs` with every bit set) is the format's indeterminate
+/// record count, written by a file still being appended to. The specification
+/// leaves the count to "other means, such as ... computing the current number
+/// of records from the file length and other information in the header". The
+/// record data starts at the lowest `begin` of the record variables and is
+/// `recsize` per record, so the count is the bytes from there to the end of
+/// the file over `recsize`, rounded down. A last record cut short by an
+/// interrupted write is not counted, and nothing of it is read. netCDF-Java
+/// infers the count the same way (`N3header`).
+///
+/// No record variables, a `recsize` of 0, or one that overflows (which every
+/// read of a record variable refuses anyway) is 0 records, so the fixed
+/// variables still read. The count is never more than the file holds, so the
+/// record reads' checks against the source's size (#1000) hold by
+/// construction for a well-formed header.
+fn streaming_record_count(header: &ClassicHeader, file_size: u64) -> u64 {
+    let start = header
+        .variables
+        .iter()
+        .filter(|v| is_record_variable(header, v))
+        .map(|v| v.begin)
+        .min();
+    match (start, record_size(header)) {
+        (Some(start), Ok(recsize)) if recsize > 0 => file_size.saturating_sub(start) / recsize,
+        _ => 0,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +442,7 @@ pub fn parse_header_from<S: ByteSource + ?Sized>(
 
 /// Resolve a variable's runtime shape: every fixed dimension contributes its
 /// declared length, and the unlimited / record dimension contributes the
-/// header's `numrecs` (0 for an empty or streaming file). Returned in declared
+/// header's `numrecs` (0 for an empty file). Returned in declared
 /// (C / row-major) order.
 pub fn variable_shape(
     header: &ClassicHeader,
@@ -1085,7 +1122,7 @@ impl<'a, S: ByteSource + ?Sized> Parser<'a, S> {
 
     /// `numrecs`: width matches NON_NEG. The value `0xFFFFFFFF` (CDF-1/2) or
     /// `0xFFFFFFFFFFFFFFFF` (CDF-5) means "streaming, count not known yet",
-    /// which we surface as `None`.
+    /// which we surface as `None` for `parse_header_from` to count.
     fn read_numrecs(&mut self) -> Result<Option<u64>, FieldglassError> {
         let v = self.read_nonneg()?;
         let streaming = match self.version {
@@ -1569,7 +1606,7 @@ mod tests {
     }
 
     #[test]
-    fn streaming_numrecs_is_none() {
+    fn streaming_numrecs_without_record_variables_is_zero() {
         let mut v = Vec::new();
         v.extend_from_slice(b"CDF\x01");
         v.extend_from_slice(&0xFFFF_FFFFu32.to_be_bytes());
@@ -1580,7 +1617,52 @@ mod tests {
         v.extend_from_slice(&0u32.to_be_bytes()); // ABSENT var
         v.extend_from_slice(&0u32.to_be_bytes());
         let h = parse_header(&v).unwrap();
-        assert_eq!(h.numrecs, None);
+        assert_eq!(h.numrecs, Some(0));
+    }
+
+    /// The streaming count is whole records from the lowest record `begin`,
+    /// and 0 wherever there is no record to count (#1008).
+    #[test]
+    fn a_streaming_count_is_the_whole_records_from_the_first_record_variable() {
+        // Two record variables, 8 + 4 = 12 bytes a record, the first record
+        // starting at 100 whichever variable is declared first.
+        let two = vec![
+            var("b", vec![0, 1], NcType::Int, 4, 108),
+            var("a", vec![0], NcType::Double, 8, 100),
+            var("fixed", vec![1], NcType::Int, 4, 96),
+        ];
+        let header = record_header(0, 1, two);
+        for (size, want) in [
+            (0, 0),
+            (99, 0),
+            (100, 0),
+            (111, 0),
+            (112, 1),
+            (123, 1),
+            (124, 2),
+            (100 + 12 * 1000 + 11, 1000),
+            (u64::MAX, (u64::MAX - 100) / 12),
+        ] {
+            assert_eq!(streaming_record_count(&header, size), want, "size {size}");
+        }
+        // No record variable: nothing to count.
+        let fixed = record_header(0, 1, vec![var("f", vec![1], NcType::Int, 4, 96)]);
+        assert_eq!(streaming_record_count(&fixed, 1 << 40), 0);
+        // A record slab that overflows `u64` has no `recsize`, and every read
+        // of a record variable refuses it; the count is 0, not an error.
+        let huge = ClassicHeader {
+            dimensions: vec![
+                record_dims(1).remove(0),
+                Dimension {
+                    name: "y".to_string(),
+                    length: u64::MAX,
+                    is_record: false,
+                },
+            ],
+            ..record_header(0, 1, vec![var("h", vec![0, 1], NcType::Double, 0, 0)])
+        };
+        assert!(record_size(&huge).is_err());
+        assert_eq!(streaming_record_count(&huge, u64::MAX), 0);
     }
 
     // -- value decode -------------------------------------------------------
