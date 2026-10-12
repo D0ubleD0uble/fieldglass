@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Headless pre-flight for the manual sample corpus (see samples/README.md).
 // Loads the same native module the extension uses and runs the full render
-// path (decode -> reproject -> colormap range) on every file in samples/, so a
-// decode/render failure surfaces before you open anything in the UI.
+// path (decode -> reproject -> colormap range) on every file in samples/ (or
+// the directory given), so a decode/render failure surfaces before you open
+// anything in the UI.
 //
-//   node tools/preflight_samples.js
+//   node tools/preflight_samples.js [dir]
 //
 // Requires the native module built into extension/bin (see samples/README.md).
 const fs = require('fs');
@@ -59,10 +60,10 @@ function netcdf(buf, label) {
   }
 }
 
-const dir = path.join(REPO, process.argv[2] || 'samples');
+const dir = path.resolve(REPO, process.argv[2] || 'samples');
 const files = fs.readdirSync(dir).filter((f) => /\.(grib2|grib1|grib|grb2|nc|nc4)$/.test(f)).sort();
 if (!files.length) {
-  console.log('No sample files in samples/ — run tools/fetch_samples.sh first.');
+  console.log(`No sample files in ${path.relative(REPO, dir)}/ — run tools/fetch_samples.sh first.`);
   process.exit(0);
 }
 for (const f of files) {

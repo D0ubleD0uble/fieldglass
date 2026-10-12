@@ -208,7 +208,7 @@ Each file is opened once; this is where its checks are.
 | `S: samples/mirs_swath.nc` | 1 |
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 2, 3, 4, 5, 7, 8 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 3, 4, 5 |
-| `B: samples/0.6.0/air_v2.zarr`, `air_v3.zarr` | 2 |
+| `B: samples/0.6.0/air_v2.zarr`, `air_v3.zarr` | 2, 5 |
 | `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21 |
 | `B: samples/0.6.0/cmc_pair.grib` | 6, 24 |
 | `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6 |
@@ -372,8 +372,9 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       readout, above the map: a time series over 2024, cold in January (about
       250 K) and warm in July (about 293 K). The caption reads `air along time
       (hours since 1800-01-01 00:00:0.0) · 238.35–300.83 degK · 366 of 366
-      points`; the label under the plot gives raw time values (`1963536 …
-      1972296`), not dates.
+      points`. The label under the plot reads as 2024 dates (`2024-01-01 …
+      2024-12-31`). *Known to fail at the prep merge: it shows raw hours
+      (`1963536 … 1972296`); #1028.*
 - [ ] A dashed rule marks the day on screen. Step to another day: the plot
       clears with the new render. Click the same cell again and the rule is at
       the new day.
@@ -394,7 +395,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 
 - [ ] Set the axes to `time` (X) and `lat` (Y). The panel says
       `Cross-section: these axes are not a map, so it is drawn in index
-      space.`, sets the projection picker to Source and greys it out, hides
+      space.`, sets the projection picker to Source projection and greys it out, hides
       the map overlays, and draws a time–latitude plot: the seasonal swing is
       strongest at high latitudes. Latitude ticks read 90 … −90, and the time
       ticks read as dates. *Known to fail at the prep merge: this file's time
@@ -860,7 +861,7 @@ package's half is in §44.
       lists its variables. `hdf5_huge_link_name.h5` holds only groups, so it
       lists none. In `netcdf4_huge_attributes.nc`, hovering the global
       `history` value shows all 5,600 characters (the cell shows the first
-      120). `t`'s 5,000-byte `comment` is past the three attributes the table
+      120). `t`'s `comment`, about 5,000 bytes, is past the three attributes the table
       previews; its value is checked in CI (`tests/hdf5_huge_objects.rs`).
       Values are checked against h5py in CI.
 
@@ -868,7 +869,7 @@ The two `btree_k` files open, but their larger-than-default chunk B-tree is read
 only when `v` is decoded, and `v` is 1-D, which the panel does not draw.
 `tests/hdf5_btree_k.rs` covers #920.
 
-## 32. Damaged or hostile files fail fast (#837, #847, #888, #895, #901, #908, #920, #921, #970, #975, #981, #986, #987, #989, #1000, #1008)
+## 32. Damaged or hostile files fail fast (#837, #847, #888, #895, #901, #908, #920, #921, #970, #975, #981, #986, #987, #989, #1000)
 
 Open each file in **`F: crates/fieldglass-netcdf/tests/fixtures/`** below and
 click through its variables. For every one: a message within a second or two,
@@ -1196,6 +1197,10 @@ python3 -m http.server 8001
   #804 `fieldglass-grib1`'s `tests/decode_bitmap.rs::a_bitmap_shorter_than_the_grid_is_an_error`
   and `fieldglass-grib2`'s `ds.rs::rejects_bitmap_length_mismatch`; #203
   `fieldglass-core`'s `shuffle.rs::a_ragged_tail_is_carried_across_and_the_rest_transposed`.
+- **Spectral fields in the browser package (#580).** `Session` synthesises
+  them as the extension does; `crates/fieldglass/tests/spectral_truncation.rs`
+  and the wasm conformance suite (`crates/fieldglass-wasm/tests/node/conformance.mjs`)
+  cover it, and §16 sees the same code in the extension.
 - **Two NetCDF-4 files of the same size read as one (#681).** The committed
   equal-size pairs have the same structure, so the bug would not show by eye.
   `crates/fieldglass-netcdf/tests/hdf5_traversal_cache.rs` builds a pair that
