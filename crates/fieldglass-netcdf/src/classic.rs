@@ -20,7 +20,7 @@
 use std::ops::Range;
 
 use fieldglass_core::array::ArrayError;
-use fieldglass_core::bytes::{FileCursor, checked_usize, read_exact, read_up_to};
+use fieldglass_core::bytes::{FileCursor, checked_usize, read_exact, read_head};
 use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
 
 // The length and offset arithmetic of the data section, proved with Verus
@@ -1029,7 +1029,7 @@ impl<'a, S: ByteSource + ?Sized> Parser<'a, S> {
     fn start(source: &'a S) -> Result<Result<Self, Vec<u8>>, FieldglassError> {
         let size = source.size();
         if size < 4 {
-            return Ok(Err(read_up_to(source, 0, 8)?.to_vec()));
+            return Ok(Err(read_head(source, 0, 8)?.to_vec()));
         }
         let mut cursor = FileCursor::at(source, 0)?;
         let head = cursor.peek_up_to(8)?;

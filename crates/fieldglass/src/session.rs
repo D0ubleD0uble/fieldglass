@@ -15,7 +15,7 @@ use fieldglass_core::bytes::ByteSource;
 #[cfg(feature = "zarr")]
 use fieldglass_core::bytes::ObjectSource;
 #[cfg(any(feature = "grib1", feature = "grib2", feature = "netcdf"))]
-use fieldglass_core::bytes::read_up_to;
+use fieldglass_core::bytes::read_head;
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use fieldglass_core::units::normalize_table_units;
 #[cfg(feature = "render")]
@@ -1018,10 +1018,10 @@ impl Session {
     pub fn open_source<S: ByteSource + 'static>(source: S) -> Result<Self, Error> {
         let source: Bytes = Box::new(source);
         // Eight bytes is everything `detect_from_bytes` needs for a GRIB
-        // edition or a classic NetCDF version. `read_up_to` rather than a
+        // edition or a classic NetCDF version. `read_head` rather than a
         // fixed read, so a source shorter than that says "no container"
         // instead of "short read".
-        let head = read_up_to(&source, 0, DETECT_PREFIX)?;
+        let head = read_head(&source, 0, DETECT_PREFIX)?;
         let mut format = detect_from_bytes(&head);
         drop(head);
         // An HDF5 signature after a userblock (#936) is past the prefix. Its
@@ -1056,7 +1056,7 @@ impl Session {
         // Detected *at the offset*, not at the start of the file: a sidecar
         // index points into an archive whose first bytes may be another
         // message, another edition, or not a message at all.
-        let head = read_up_to(&source, offset, DETECT_PREFIX)?;
+        let head = read_head(&source, offset, DETECT_PREFIX)?;
         let format = detect_from_bytes(&head);
         drop(head);
         let reader = match format {

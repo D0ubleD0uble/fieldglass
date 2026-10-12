@@ -29,6 +29,7 @@
 
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::ByteSource;
+use fieldglass_core::bytes::read_head;
 use source::read_up_to;
 
 pub use fieldglass_core::HDF5_SIGNATURE;
@@ -302,7 +303,7 @@ pub fn probe_at<S: ByteSource + ?Sized>(
     // The one bounded, plan-ahead read in the whole HDF5 path: the fields below
     // are all within 16 bytes of the signature, whatever the version.
     let need = off + 16;
-    let block = read_up_to(source, off, 16)?;
+    let block = read_head(source, off, 16)?;
     if block.len() < 16 {
         return Err(FieldglassError::Parse(format!(
             "HDF5 superblock truncated: need at least {need} bytes, have {}",
