@@ -83,7 +83,7 @@ function heading(bytes: Buffer, index: number): string {
   return `Message ${index} — ${m.parameter}` + (m.units ? ` (${m.units})` : "");
 }
 
-/** A GRIB2 file in a temporary folder, opened in the editor with a render
+/** A GRIB file in a temporary folder, opened in the editor with a render
  *  panel on message `index`, which can then change on disk under the panel. */
 async function changingFile(first: Buffer, index: number, name = "changing.grib2"): Promise<{
   panel: RealPanel;
@@ -287,6 +287,26 @@ suite("A GRIB render panel whose file changed", function () {
       assert.strictEqual(reply.error, MESSAGE_GONE);
       const state = await panel.drive([]);
       assert.deepStrictEqual(state.messageOffers, labels(after));
+    } finally {
+      done();
+    }
+  });
+
+  // The control for the refusal above: a GRIB1 member that moved is found by
+  // the same identity, and drawn where it now sits.
+  test("draws a GRIB1 ensemble member where the changed file now holds it", async () => {
+    const after = Buffer.concat([member(5), member(3)]);
+    const { panel, change, done } = await changingFile(member(3), 0, "changing.grib1");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await change(after);
+      const from = panel.sent.length;
+      panel.rebuild();
+      const reply = await panel.waitSent(drawnOrRefused, from, "the render after the change");
+      assert.strictEqual(reply.type, "gridReady", `${reply.error ?? ""}`);
+      assert.strictEqual(reply.messageIndex, 1, "member 3, now message 1");
+      const state = await panel.drive([]);
+      assert.strictEqual(state.messageOffers, null, "nothing to pick");
     } finally {
       done();
     }

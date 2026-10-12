@@ -3628,11 +3628,14 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
 /// written, and the centre's PDS extension as octets (#994).
 #[cfg(feature = "grib1")]
 fn grib1_identity(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -> MessageIdentity {
+    use std::fmt::Write as _;
     let msg = &reader.messages[index];
     let pds = &msg.pds;
     // The scan that found the message has read these bytes already, so a
     // source fails here only if it cannot serve them twice. The extension is
     // then left out, as the packing label is, rather than failing the listing.
+    // That reads as a 28-octet PDS, so two such messages could match; no
+    // source that served the scan is expected to refuse a range inside it.
     let extension = reader.pds_extension(index).ok();
     // FM 92 Code Table 2: table versions from 128, and parameters from 128 in
     // any version, are the originating centre's own, so the same code means
@@ -3655,9 +3658,15 @@ fn grib1_identity(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -
         p1: pds.p1,
         p2: pds.p2,
         time_range: pds.time_range,
-        extension_octets: extension
-            .filter(|octets| !octets.is_empty())
-            .map(|octets| octets.iter().map(|b| format!("{b:02x}")).collect()),
+        extension_octets: extension.filter(|octets| !octets.is_empty()).map(|octets| {
+            octets
+                .iter()
+                .fold(String::with_capacity(2 * octets.len()), |mut hex, b| {
+                    // Writing to a `String` cannot fail.
+                    let _ = write!(hex, "{b:02x}");
+                    hex
+                })
+        }),
         grid_type: msg
             .gds
             .as_ref()

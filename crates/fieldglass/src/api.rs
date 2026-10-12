@@ -1089,9 +1089,12 @@ api_type! {
             /// extends the PDS with its own definitions: the ensemble member,
             /// or a mean, spread or probability of the ensemble (ECMWF's local
             /// definitions and NCEP's ensemble extension, both from octet 41).
-            /// The reader does not parse them, so they are compared as
-            /// written, as GRIB2's `product_octets` are for a template it does
-            /// not parse.
+            /// The reader does not parse them, so they are compared whole and
+            /// as written, as GRIB2's `product_octets` are for a template it
+            /// does not parse. That includes what GRIB2's identity leaves out,
+            /// such as the ensemble size, and reserved or padding octets: a
+            /// rewrite that changes only those no longer matches, which is the
+            /// safe direction.
             extension_octets: Option<String>,
             /// The data representation type (GDS octet 6, Code Table 6), or
             /// `None` when the message has no GDS.

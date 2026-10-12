@@ -235,8 +235,7 @@ impl<S: ByteSource> Grib1Reader<S> {
     /// extension from octet 41. [`ProductDefinition`] does not parse them, so
     /// a caller that must tell two such messages apart compares these octets.
     ///
-    /// Metadata only: it reads the extension and nothing else, bytes the scan
-    /// that found the message has already read once.
+    /// Metadata only: it prefetches and reads the extension and nothing else.
     ///
     /// # Errors
     ///
@@ -252,7 +251,7 @@ impl<S: ByteSource> Grib1Reader<S> {
             return Ok(Cow::Borrowed(&[]));
         }
         let start = msg.byte_offset + (INDICATOR_LEN as u64) + u64::from(PDS_CORE_LEN);
-        read_exact(&self.source, ByteRange::new(start, extension))
+        self.prefetch_then_read(&[ByteRange::new(start, extension)])
     }
 
     /// One message's BDS header, from a bounded prefix of the section.
