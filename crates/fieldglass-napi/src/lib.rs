@@ -197,8 +197,9 @@ pub fn detect_bytes(bytes: napi::bindgen_prelude::Buffer) -> String {
 pub struct DimensionMeta {
     /// The dimension's name as the file declares it.
     pub name: String,
-    /// Length of the dimension. `0` is a valid display value for the
-    /// unlimited / record dimension (with `is_record == true`).
+    /// Length of the dimension. For the unlimited / record dimension
+    /// (`is_record == true`) this is the file's current record count, not the
+    /// on-disk zero a classic header stores for it.
     pub length: f64,
     /// Whether this is the unlimited (record) dimension. Exactly one classic
     /// file dimension may be, and its `length` is the file's record count.
@@ -347,12 +348,16 @@ fn dataset_meta_from(reader: &NetcdfReader) -> DatasetMeta {
     match &reader.backing {
         NetcdfBacking::Classic(h) => {
             let dim_names: Vec<String> = h.dimensions.iter().map(|d| d.name.clone()).collect();
+            // The view resolves the record dimension to the file's record count
+            // (numrecs, inferred for a STREAMING file) in place of the on-disk
+            // zero, so a host reads the real length beside `is_record` (#1014).
             let dimensions = h
                 .dimensions
                 .iter()
-                .map(|d| DimensionMeta {
+                .zip(DatasetView::from_classic(h).dims)
+                .map(|(d, resolved)| DimensionMeta {
                     name: d.name.clone(),
-                    length: d.length as f64,
+                    length: resolved.length as f64,
                     is_record: d.is_record,
                 })
                 .collect();
@@ -9313,5 +9318,56 @@ mod nothing_computed_tests {
             .expect("projects");
         assert!(!some.seg_lengths.is_empty());
         assert!(some.reference_speed.is_some_and(|s| s > 0.0));
+    }
+}
+
+#[cfg(test)]
+mod record_dimension_length_tests {
+    use super::*;
+
+    fn dims(bytes: &[u8]) -> Vec<(String, f64, bool)> {
+        let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("fixture opens");
+        dataset_meta_from(&reader)
+            .dimensions
+            .into_iter()
+            .map(|d| (d.name, d.length, d.is_record))
+            .collect()
+    }
+
+    /// A classic record dimension reports the records the file holds, not the
+    /// zero its header stores, and stays flagged as the record dimension.
+    #[test]
+    fn a_streaming_file_reports_its_inferred_record_count() {
+        let bytes =
+            include_bytes!("../../fieldglass-netcdf/tests/fixtures/numrecs_streaming_cdf1.nc");
+        let record: Vec<_> = dims(bytes).into_iter().filter(|d| d.2).collect();
+        assert_eq!(record.len(), 1, "one record dimension");
+        assert_eq!(record[0].1, 2.0, "two whole records in the file");
+    }
+
+    /// Only the record dimension is resolved; the fixed ones keep the length the
+    /// header declares.
+    #[test]
+    fn fixed_dimensions_keep_their_declared_length() {
+        let bytes =
+            include_bytes!("../../fieldglass-netcdf/tests/fixtures/numrecs_streaming_cdf1.nc");
+        let fixed: Vec<_> = dims(bytes).into_iter().filter(|d| !d.2).collect();
+        assert!(fixed.iter().all(|d| d.1 >= 1.0), "{fixed:?}");
+    }
+
+    /// A header that states its count (not STREAMING), built in code: CDF-1,
+    /// `numrecs = 3`, one record dimension `time` (on-disk length 0), no
+    /// attributes, no variables.
+    #[test]
+    fn a_stated_numrecs_is_the_record_length() {
+        let mut b = b"CDF\x01".to_vec();
+        b.extend(3u32.to_be_bytes()); // numrecs
+        b.extend(0x0Au32.to_be_bytes()); // NC_DIMENSION
+        b.extend(1u32.to_be_bytes());
+        b.extend(4u32.to_be_bytes());
+        b.extend(b"time");
+        b.extend(0u32.to_be_bytes()); // record dimension
+        b.extend([0u8; 16]); // absent attribute list, absent variable list
+        assert_eq!(dims(&b), vec![("time".to_string(), 3.0, true)]);
     }
 }
