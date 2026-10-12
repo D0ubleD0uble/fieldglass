@@ -226,6 +226,35 @@ impl<S: ByteSource> Grib1Reader<S> {
         Some(header.1.packing_type_label())
     }
 
+    /// One message's PDS octets past the 28 that FM 92 defines (octet 29 to the
+    /// section's declared end), as written; empty for a 28-octet PDS.
+    ///
+    /// That is where a centre extends the PDS with its own definitions: ECMWF's
+    /// local definitions from octet 41 (local definition 1 carries the MARS
+    /// class, type, stream, experiment and ensemble member), NCEP's ensemble
+    /// extension from octet 41. [`ProductDefinition`] does not parse them, so
+    /// a caller that must tell two such messages apart compares these octets.
+    ///
+    /// Metadata only: it reads the extension and nothing else, bytes the scan
+    /// that found the message has already read once.
+    ///
+    /// # Errors
+    ///
+    /// An index out of range, or a failure of the source.
+    pub fn pds_extension(&self, message_index: usize) -> Result<Cow<'_, [u8]>, FieldglassError> {
+        let msg = self.messages.get(message_index).ok_or_else(|| {
+            FieldglassError::Parse(format!("no message at index {message_index}"))
+        })?;
+        // The scan held `section_len` to at least 28 and to the message, so
+        // neither the subtraction nor the range can leave it.
+        let extension = u64::from(msg.pds.section_len.saturating_sub(PDS_CORE_LEN));
+        if extension == 0 {
+            return Ok(Cow::Borrowed(&[]));
+        }
+        let start = msg.byte_offset + (INDICATOR_LEN as u64) + u64::from(PDS_CORE_LEN);
+        read_exact(&self.source, ByteRange::new(start, extension))
+    }
+
     /// One message's BDS header, from a bounded prefix of the section.
     ///
     /// Returns the prefix alongside the header because the matrix check needs
@@ -857,6 +886,10 @@ fn j_consecutive(gds: &GridDescription) -> bool {
 /// for the scan to recognise a message starting in it.
 const INDICATOR_LEN: usize = 8;
 
+/// The PDS octets FM 92 defines for every centre; a longer PDS is the centre's
+/// own extension.
+const PDS_CORE_LEN: u32 = 28;
+
 /// Whether an 8-byte window is the Indicator Section of an edition-1 message.
 ///
 /// The edition is part of the match, not a check after it: a GRIB2 message
@@ -966,7 +999,7 @@ fn read_message_at<S: ByteSource + ?Sized>(
     // headers from here, bounded to this message, and skips the sections it
     // only records — so the BMS and BDS cost nothing to find.
     let mut cursor = FileCursor::within(source, offset + INDICATOR_LEN as u64, msg_end)?;
-    let pds = parse_product_definition(section_prefix(&mut cursor, 28)?)?;
+    let pds = parse_product_definition(section_prefix(&mut cursor, PDS_CORE_LEN as usize)?)?;
     cursor.skip(pds.section_len as usize)?;
 
     // GDS immediately follows the PDS when the has_gds flag is set.
