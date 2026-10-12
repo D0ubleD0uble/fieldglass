@@ -293,7 +293,14 @@ fn assemble_raw<S: ByteSource + ?Sized>(
             // otherwise allocate hundreds of megabytes before its first read
             // found the data missing.
             if let Some(addr) = address {
-                let end = contiguous_end(*addr, shape, region, elem as u64)?;
+                // An empty region ends at element 0, so at `addr`, and reads
+                // nothing.
+                let end = crate::region::end(shape, region)
+                    .and_then(|n| n.checked_mul(elem as u64))
+                    .and_then(|n| addr.checked_add(n))
+                    .ok_or_else(|| {
+                        FieldglassError::Parse("contiguous data offset overflows u64".into())
+                    })?;
                 if end > source.size() {
                     return Err(FieldglassError::Parse(format!(
                         "contiguous data ends at {end}, past the file size {}",
@@ -354,32 +361,6 @@ fn assemble_raw<S: ByteSource + ?Sized>(
             probe,
         ),
     }
-}
-
-/// The file offset one past the last byte of `region` in a contiguous dataset
-/// of `shape` at `addr`: the C-order index of the region's last element, plus
-/// one, in bytes. An empty region reads nothing, so it ends where it starts.
-fn contiguous_end(
-    addr: u64,
-    shape: &[u64],
-    region: &[Range<u64>],
-    elem: u64,
-) -> Result<u64, FieldglassError> {
-    let overflow = || FieldglassError::Parse("contiguous data offset overflows u64".into());
-    if region.iter().any(|r| r.is_empty()) {
-        return Ok(addr);
-    }
-    let last = shape
-        .iter()
-        .zip(region)
-        .try_fold(0u64, |acc, (&d, r)| {
-            acc.checked_mul(d)?.checked_add(r.end - 1)
-        })
-        .ok_or_else(overflow)?;
-    last.checked_add(1)
-        .and_then(|n| n.checked_mul(elem))
-        .and_then(|n| addr.checked_add(n))
-        .ok_or_else(overflow)
 }
 
 /// Total byte size of a dataset (`product(shape) * elem`), overflow-checked.
