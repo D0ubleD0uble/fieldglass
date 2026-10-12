@@ -57,7 +57,7 @@ Since #813 each codec stops at the chunk's own length when every filter before
 it keeps the length (only shuffle does). Behind filters that change it, the
 bound is the chunk's length grown by each one's worst case in turn: an eighth
 plus 4 KiB for fletcher32, deflate and zstd (the margin szip's prefix already
-had), and 33 times for szip, whose uncompressed blocks and scanline padding
+had; since #1016 each filter's own bound instead), and 33 times for szip, whose uncompressed blocks and scanline padding
 can make one-pixel scanlines about 32 times their input. szip's factor is
 large, but bounding it by the 256 MiB ceiling instead, as the first draft of
 #813 did, let a file sidestep the bound by putting an szip in front. 256 MiB
@@ -206,8 +206,9 @@ forward:
   writes `[deflate, szip]` and reads it back, so refusing it would reject valid
   files. The prefix is then deflate's output length, which nothing outside the
   stream records, so it is bounded, not matched: at most the chunk's length
-  plus an eighth plus 4 KiB, which covers deflate's, zstd's and fletcher32's
-  growth and stops a tiny chunk from committing a 256 MiB buffer, and behind
+  grown by that filter's worst case (an eighth plus 4 KiB until #1016, now
+  zlib's `deflateBound`, `ZSTD_COMPRESSBOUND` or fletcher32's 4 bytes), which
+  stops a tiny chunk from committing a 256 MiB buffer, and behind
   an szip the longest stream its parameters allow for the chunk, at most 33
   times it, plus 4 KiB (#813, #975). With libhdf5's parameters that is about
   1.01 times the chunk when a scanline is a whole number of blocks, and under

@@ -256,9 +256,9 @@ fn a_chunk_whose_size_prefix_is_wrong_is_refused() {
 }
 
 /// Behind deflate the prefix is deflate's output length, which the reader
-/// cannot know exactly, so it is bounded by the chunk's length plus an eighth
-/// plus 4 KiB (4,168 bytes for this 64-byte chunk) rather than required to
-/// equal anything. A wrong prefix inside that is then caught, if at all, by
+/// cannot know exactly, so it is bounded by deflate's worst case on the
+/// chunk, zlib's `deflateBound` for any parameters (82 bytes for this 64-byte
+/// chunk), rather than required to equal anything. A wrong prefix inside that is then caught, if at all, by
 /// the filters after it and by the chunk-length check.
 #[test]
 fn behind_deflate_the_prefix_is_bounded_by_the_chunk() {
@@ -285,12 +285,13 @@ fn behind_deflate_the_prefix_is_bounded_by_the_chunk() {
         decode_all(HAND)["deflate_szip"].as_ref().unwrap()
     );
     // Past the bound, and far past it, is refused before allocating.
-    for over in [64 + 8 + 4096 + 1, MAX_DECOMPRESSED_CHUNK + 1] {
+    assert!(prefix <= 82, "deflate wrote {prefix} bytes");
+    for over in [82 + 1, MAX_DECOMPRESSED_CHUNK + 1] {
         let m = parse_error(
             &with_prefix(HAND, HAND_ORACLE, "deflate_szip", over),
             "deflate_szip",
         );
-        assert!(m.contains("past the 4168-byte ceiling"), "{m}");
+        assert!(m.contains("past the 82-byte ceiling"), "{m}");
     }
 }
 
