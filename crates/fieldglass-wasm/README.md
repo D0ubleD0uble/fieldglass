@@ -425,9 +425,8 @@ is worse than no parity check.
 ## Not here yet
 
 Threads (the façade is single-threaded by design — ADR-0005 — and shared memory
-needs COOP/COEP), npm publishing
-([#466](https://github.com/D0ubleD0uble/fieldglass/issues/466)), NetCDF, Zarr,
-and reduced-resolution decode
+needs COOP/COEP), Zarr stores, which `fieldglass` reads but this build does not
+bind, and the reduced-resolution JPEG 2000 decode `fieldglass-grib2` offers
 ([#463](https://github.com/D0ubleD0uble/fieldglass/issues/463)).
 
 `+simd128` is measured above and not enabled: it buys nothing here.
