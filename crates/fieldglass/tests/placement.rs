@@ -94,20 +94,19 @@ fn a_bifourier_message_has_no_raster_to_place() {
 }
 
 /// A §3.20 polar stereographic grid stating a zero grid step: a raster the
-/// projection cannot place. The file states its corners, so the declared grid
-/// still carries them — which is exactly why `corners` alone could not say
-/// this. The decoded field's own corners are computed from the geometry and
-/// are absent.
+/// projection cannot place.
+///
+/// §3.20 states only its first point, so the far corner is derived, and it is
+/// derived through the same geometry that calls the grid unplaceable: none, on
+/// the declared grid as on the decoded field (#1011). It used to come back as
+/// the first point a second time, beside "not placed".
 #[test]
 fn a_zero_step_polar_grid_is_unplaceable() {
     let session = open(&format!("{G2}polar_stereographic_surface.grib2"));
     let info = session.message(0).expect("message 0");
     let grid = info.grid.as_ref().expect("a GRIB2 message declares a grid");
     assert_eq!(grid.placement, Placement::Unplaceable);
-    assert!(
-        grid.corners.is_some(),
-        "the corners the file states are reported as stated"
-    );
+    assert_eq!(grid.corners, None, "no derived corner on an unplaced grid");
     assert_eq!(grid.bounds_lonlat, None);
     assert!(!grid.reprojectable);
     assert_eq!(info.placement, Placement::Unplaceable);
@@ -336,5 +335,87 @@ fn a_polar_grid_on_an_earth_smaller_than_one_cell_is_unplaceable() {
     assert!(
         control.probe(&field, 60.0, 0.0).is_some(),
         "the first point"
+    );
+}
+
+/// The committed CMC GRIB1 polar stereographic message with its `Dx` and `Dy`
+/// (GDS octets 21–26, three octets of unsigned metres each) set to `step_m`.
+/// Everything else — 135 × 95 points, the 6 367 470 m Earth octet 17 picks,
+/// the fixed 60° latitude of true scale — is the file's.
+fn grib1_polar_with_step(step_m: u32) -> Vec<u8> {
+    let mut bytes =
+        std::fs::read(format!("{G1}cmc_wind_300_2010052400_p012.grib")).expect("fixture");
+    let pds_len = u32::from_be_bytes([0, bytes[8], bytes[9], bytes[10]]) as usize;
+    let gds = 8 + pds_len;
+    assert_eq!(bytes[gds + 5], 5, "a polar stereographic GDS");
+    let step = &step_m.to_be_bytes()[1..];
+    bytes[gds + 20..gds + 23].copy_from_slice(step); // octets 21–23: Dx
+    bytes[gds + 23..gds + 26].copy_from_slice(step); // octets 24–26: Dy
+    bytes
+}
+
+/// Every corner pair `Session` hands a host for message 0: the declared grid
+/// on `MessageInfo`, `place_message`, and the decoded field's georef.
+fn every_corner_pair(session: &Session) -> [Option<[f64; 4]>; 3] {
+    let info = session.message(0).expect("message 0");
+    let declared = info.grid.as_ref().expect("a declared grid").corners;
+    let placed = session.place_message(0).expect("places").corners;
+    let field = session
+        .decode(0, &DecodeOptions::default())
+        .expect("an unplaceable grid still decodes");
+    [declared, placed, field.georef.corners]
+}
+
+/// A GRIB1 polar stereographic grid whose cell is wider than either GRIB1
+/// Earth but narrower than its own plane reports no corner anywhere (#1011).
+///
+/// GRIB1 cannot state a radius, but it can state a 16 777 km cell. At
+/// `Dx = 7 000 km` the step is past the 6 367 km Earth, so core calls the grid
+/// unplaceable, and inside the `2·R·k₀ ≈ 11 882 km` plane, so the projector
+/// alone still placed a far corner. The reader derived that corner, and the
+/// message table and the panel caption showed it beside "not placed". The
+/// real 60 km step, the control, keeps its corners and its placement.
+#[test]
+fn a_grib1_polar_grid_wider_than_its_earth_reports_no_corner() {
+    let session = Session::open(grib1_polar_with_step(7_000_000)).expect("opens");
+    let info = session.message(0).expect("message 0");
+    let grid = info.grid.as_ref().expect("a GRIB1 message with a GDS");
+    assert_eq!(grid.label, "polar_stereo");
+    assert_eq!(grid.placement, Placement::Unplaceable);
+    assert_eq!(info.placement, Placement::Unplaceable);
+    assert_eq!(
+        session.place_message(0).expect("places").placement,
+        Placement::Unplaceable
+    );
+    assert_eq!(every_corner_pair(&session), [None, None, None]);
+
+    let control = Session::open(grib1_polar_with_step(60_000)).expect("opens");
+    assert_eq!(
+        control.message(0).expect("message 0").placement,
+        Placement::Placed
+    );
+    let corners = every_corner_pair(&control);
+    assert!(
+        corners.iter().all(Option::is_some),
+        "the real grid keeps its corners: {corners:?}"
+    );
+}
+
+/// The GRIB2 half of #1011: the #1002 grid on an 80 km Earth under 100 km
+/// cells reports no derived far corner either, where the 120 km control does.
+#[test]
+fn a_grib2_polar_grid_on_an_earth_smaller_than_one_cell_reports_no_corner() {
+    let session = Session::open(polar_stereo_on_an_earth_of(80_000)).expect("opens");
+    assert_eq!(
+        session.place_message(0).expect("places").placement,
+        Placement::Unplaceable
+    );
+    assert_eq!(every_corner_pair(&session), [None, None, None]);
+
+    let control = Session::open(polar_stereo_on_an_earth_of(120_000)).expect("opens");
+    let corners = every_corner_pair(&control);
+    assert!(
+        corners.iter().all(Option::is_some),
+        "the placed grid keeps its corners: {corners:?}"
     );
 }

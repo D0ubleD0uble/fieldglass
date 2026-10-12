@@ -159,9 +159,10 @@ fn a_short_stream_stating_256_mib_is_refused_before_it_is_allocated() {
 /// A 32 KB zlib stream of 32 MiB under `[szip, deflate]` with a 4 MiB chunk.
 /// deflate's output is szip's stream, bounded by the longest stream szip's
 /// parameters (8-bit pixels, blocks of 32, scanlines of 2048) allow for 4 MiB:
-/// 131,072 blocks of 3 + 256 bits, 4,243,456 bytes, under the chunk plus an
-/// eighth plus 4 KiB (4,722,688), which is the floor any codec gets. Before
-/// #975 the bound was 33 times the chunk, 138 MB, so all 32 MiB inflated.
+/// 131,072 blocks of 3 + 256 bits, 4,243,456 bytes, plus 4 KiB for the size
+/// prefix and padding: 4,247,552. Before #975 the bound was 33 times the
+/// chunk, 138 MB, so all 32 MiB inflated; until #1016 no codec got less than
+/// the chunk plus an eighth plus 4 KiB (4,722,688).
 #[test]
 fn a_bomb_behind_szip_stops_at_what_szip_could_hold() {
     let o = oracle("szip_deflate_bomb");
@@ -176,13 +177,13 @@ fn a_bomb_behind_szip_stops_at_what_szip_could_hold() {
 
     for (largest, m) in refusals("szip_deflate_bomb") {
         assert!(
-            m.contains("deflate chunk decompresses past the 4722688-byte ceiling"),
+            m.contains("deflate chunk decompresses past the 4247552-byte ceiling"),
             "{m}"
         );
         // Within the bound itself, and far from the bomb: before #975 the
         // reader allocated 66,811,904, and before #981 miniz_oxide's last
         // resize reserved 8,351,488 for a buffer bounded at 4,722,688.
-        assert!(largest <= 4_722_688, "largest allocation {largest} bytes");
+        assert!(largest <= 4_247_552, "largest allocation {largest} bytes");
         assert!(
             (largest as u64) < inflated / 4,
             "largest allocation {largest} bytes"

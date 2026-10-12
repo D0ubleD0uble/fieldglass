@@ -22,7 +22,7 @@
 //! Reference: HDF5 file format specification version 3, "Disk Format: Level 2A
 //! — Data Object Headers" <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>.
 
-use super::source::{ClaimedRanges, charge_metadata, read_at};
+use super::source::{ClaimedRanges, charge_metadata, read_at, within_file};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteSource, checked_usize, read_head};
 use std::collections::VecDeque;
@@ -45,6 +45,8 @@ const MAX_MESSAGES: usize = 65_536;
 /// included, against `MAX_METADATA_BYTES` (#997). A header is read a chunk at
 /// a time at the length the file states, so the count is checked before each
 /// read, and the cap bounds the header as a whole rather than each chunk.
+/// Each chunk is checked to lie in the file first ([`within_file`]), so a
+/// length past the end of a buffer is corrupt rather than too large (#1017).
 const HEADER_BYTES: &str = "bytes in one HDF5 object header";
 
 /// A decoded object header: its on-disk version and the flat sequence of header
@@ -164,6 +166,7 @@ fn parse_v1<S: ByteSource + ?Sized>(
     // already followed, or overlaps one, is refused rather than read again.
     let mut claimed = ClaimedRanges::default();
     let header_len = (header_size as u64).saturating_add(16);
+    within_file(source, start, header_len, "object header")?;
     claimed.claim(start, header_len, "object header")?;
     chunks_read.push((start, header_len));
     // Chunk 0 is charged here with its prefix; each continuation as it is
@@ -181,6 +184,12 @@ fn parse_v1<S: ByteSource + ?Sized>(
         }
         // The first run is chunk 0's messages, claimed with the prefix above.
         if chunks > 1 {
+            within_file(
+                source,
+                run_start,
+                run_len,
+                "object-header continuation chunk",
+            )?;
             claimed.claim(run_start, run_len, "object-header continuation chunk")?;
             chunks_read.push((run_start, run_len));
             charge_metadata(&mut header_bytes, run_len, HEADER_BYTES)?;
@@ -273,7 +282,9 @@ fn parse_v2<S: ByteSource + ?Sized>(
         .checked_add(chunk0_size)
         .and_then(|n| n.checked_add(4))
         .ok_or_else(|| FieldglassError::Parse("v2 chunk-0 size overflow".into()))?;
-    // Charged before it is narrowed, as for a continuation below.
+    // In the file, then charged before it is narrowed, as for a continuation
+    // below.
+    within_file(source, start, image_len, "object header")?;
     let mut header_bytes = 0u64;
     charge_metadata(&mut header_bytes, image_len, HEADER_BYTES)?;
     let image_len = checked_usize(image_len, "HDF5 length or offset")?;
@@ -303,6 +314,12 @@ fn parse_v2<S: ByteSource + ?Sized>(
                 "too many object-header continuation chunks".into(),
             ));
         }
+        within_file(
+            source,
+            chunk_start,
+            chunk_len,
+            "object-header continuation chunk",
+        )?;
         claimed.claim(chunk_start, chunk_len, "object-header continuation chunk")?;
         chunks_read.push((chunk_start, chunk_len));
         charge_metadata(&mut header_bytes, chunk_len, HEADER_BYTES)?;

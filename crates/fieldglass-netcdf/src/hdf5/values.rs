@@ -26,7 +26,7 @@ use super::cache::{ExpandedKey, MIN_KEPT_CHUNK_BYTES};
 use super::datatype::DatatypeClass;
 use super::layout::{ChunkIndex, ChunkedLayout, DataLayout};
 use super::object_header::{self, read_usize_le};
-use super::source::{Cursor, Fields, FileCursor, read_at};
+use super::source::{Cursor, Fields, FileCursor, read_at, within_file};
 use super::{Hdf5Probe, attribute, dataspace, filter::FilterPipeline, layout};
 use crate::classic::NcType;
 use std::ops::Range;
@@ -455,8 +455,16 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
             // Checked before it is narrowed, so a filtered size past 4 GiB is
             // too large, as a smaller one past the cap is below, rather than
             // a size that does not fit the record.
+            // In the file first, so a size past the end of a buffer is
+            // corrupt rather than too large (#1017).
             if let Some(stored) = single.filtered_size {
-                super::filter::check_stored_chunk_size(stored)?;
+                within_file(source, single.address, stored, "filtered chunk")?;
+                super::filter::check_stored_chunk_size(
+                    pipeline,
+                    single.filter_mask,
+                    chunk_bytes,
+                    stored,
+                )?;
             }
             let size = single
                 .filtered_size
@@ -582,12 +590,17 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     // A chunk no filter runs on is its stored bytes, so a stored size other
     // than one chunk's is refused here, before it is planned or read (#997).
     // A chunk a filter runs on is read whole at its stored size, so one stored
-    // past the decoded ceiling is refused here too. Without either check a
-    // size the index states would be fetched, bounded only by the size the
-    // source declares.
+    // past what its pipeline could make of the decoded ceiling is refused here
+    // too, once it is known to lie in the file: past the end of a buffer it
+    // is corrupt, not too large (#1016, #1017). Without either check a size
+    // the index states would be fetched, bounded only by the size the source
+    // declares.
     for g in &groups {
-        if filtered && g[0].filter_mask & pipeline_bits != pipeline_bits {
-            super::filter::check_stored_chunk_size(u64::from(g[0].size))?;
+        let mask = g[0].filter_mask & pipeline_bits;
+        if filtered && mask != pipeline_bits {
+            let stored = u64::from(g[0].size);
+            within_file(source, g[0].address, stored, "filtered chunk")?;
+            super::filter::check_stored_chunk_size(pipeline, mask, chunk_bytes, stored)?;
         } else if u64::from(g[0].size) != chunk_bytes as u64 {
             return Err(FieldglassError::Parse(format!(
                 "chunk stored as {} bytes, expected {chunk_bytes}",

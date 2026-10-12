@@ -2445,7 +2445,10 @@ function messageSize(m: MessageInfo, fallback: string): string {
     ?? (g?.ni != null && g.nj != null && g.ni > 0 && g.nj > 0 ? `${g.ni}×${g.nj}` : fallback);
 }
 
-function describeProjection(meta: MessageInfo): string {
+/** The render panel's projection caption: the grid label and size, and the
+ *  corner pair where the message has one. Exported for the tests, which hold
+ *  it to Rust's answer for a grid nothing places (#1011). */
+export function describeProjection(meta: MessageInfo): string {
   const dims = messageSize(meta, "?");
   const type = meta.grid?.label ?? "unknown grid";
   const corners = meta.grid?.corners;

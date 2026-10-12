@@ -706,6 +706,23 @@ mod declared_tests {
         );
     }
 
+    /// The parse error a length naming `what` gets when it runs past the end
+    /// of the file.
+    fn past_the_end(err: &FieldglassError, what: &str) -> bool {
+        matches!(err, FieldglassError::Parse(m) if *m == format!("{what} runs past end of file"))
+    }
+
+    /// The same rewritten `file`, opened from a buffer, is corrupt rather than
+    /// too large: its claim runs past the end of the bytes in hand, so the
+    /// structure naming `what` is checked against the end of the file before
+    /// its size meets the cap (#1017).
+    fn assert_corrupt_over_a_buffer(file: &[u8], what: &str) {
+        let err = NetcdfReader::from_bytes(file.to_vec())
+            .and_then(|r| r.hdf5_metadata().map(drop))
+            .expect_err("a claim past the end of a buffer");
+        assert!(past_the_end(&err, what), "{err:?}");
+    }
+
     fn u32_at(file: &[u8], at: usize) -> u32 {
         u32::from_le_bytes(file[at..at + 4].try_into().unwrap())
     }
@@ -740,6 +757,7 @@ mod declared_tests {
         assert_eq!(u32_at(&file, 808), 256);
         put(&mut file, 808, &(u32::MAX - 15).to_le_bytes());
         assert_refused_before_the_read(EARLIEST, &file, HEADER);
+        assert_corrupt_over_a_buffer(&file, "object header");
     }
 
     /// A version-1 continuation message claiming a gigabyte-long chunk.
@@ -756,6 +774,7 @@ mod declared_tests {
         assert!(u64_at(&file, 872) < file.len() as u64, "its address");
         put(&mut file, 880, &CLAIM.to_le_bytes());
         assert_refused_before_the_read(EARLIEST, &file, HEADER);
+        assert_corrupt_over_a_buffer(&file, "object-header continuation chunk");
     }
 
     /// Where a version-2 header's chunk-0 size field sits, how wide it is, and
@@ -787,6 +806,7 @@ mod declared_tests {
         file[at + 5] = (file[at + 5] & !0x03) | 0x02;
         put(&mut file, size_at, &(u32::MAX - 15).to_le_bytes());
         assert_refused_before_the_read(LATEST, &file, HEADER);
+        assert_corrupt_over_a_buffer(&file, "object header");
     }
 
     /// A version-2 continuation message claiming a gigabyte-long `OCHK` chunk,
@@ -830,6 +850,7 @@ mod declared_tests {
         }
         assert!(patched, "the fixture has a version-2 continuation");
         assert_refused_before_the_read(LATEST, &file, HEADER);
+        assert_corrupt_over_a_buffer(&file, "object-header continuation chunk");
     }
 
     /// `netcdf4_huge_attributes.nc` with each huge heap object, the global
@@ -1189,7 +1210,7 @@ mod declared_tests {
             matches!(
                 refused[0],
                 FieldglassError::Array(ArrayError::StoredChunkTooLarge { bytes, limit })
-                    if *bytes == 1 << 31 && *limit == 256 << 20
+                    if *bytes == 1 << 31 && *limit == CHUNK_CEILING
             ),
             "{:?}",
             refused[0]
@@ -1198,5 +1219,230 @@ mod declared_tests {
             longest <= MAX_WINDOW_BYTES as u64,
             "read {longest} bytes at once"
         );
+
+        // From a buffer the same keys run past the end of the file, so the
+        // chunk is corrupt, not too large (#1017).
+        let reader = NetcdfReader::from_bytes(file).expect("the file opens");
+        let refused: Vec<_> = (0..)
+            .take_while(|&i| reader.variable_shape(i).is_ok())
+            .filter_map(|i| reader.decode_variable_raw(i).err())
+            .filter(|e| !matches!(e, FieldglassError::UnsupportedSection(_)))
+            .collect();
+        assert_eq!(refused.len(), 1, "{refused:?}");
+        assert!(past_the_end(&refused[0], "filtered chunk"), "{refused:?}");
+    }
+
+    /// What one chunk may decode to: `MAX_DECOMPRESSED_CHUNK` in
+    /// `hdf5/filter.rs`.
+    const CHUNK_CEILING: u64 = 256 << 20;
+
+    const FLETCHER32: &[u8] = include_bytes!("../tests/fixtures/hdf5_fletcher32.h5");
+
+    /// `f32_odd`, the single-chunk dataset of `hdf5_fletcher32.h5`, with the
+    /// filtered size in its layout message set to `stored`, in a header
+    /// re-checksummed so it verifies.
+    fn single_chunk_stored_as(stored: u64) -> Vec<u8> {
+        let mut file = FLETCHER32.to_vec();
+        // The layout message (type 8) of a version-2 header: version 5, class
+        // 2, flags 2 (filtered single chunk), rank + 1 = 2, 1-byte dimensions
+        // 7 and 1, index type 1, then the filtered size (8), mask (4) and
+        // address (8).
+        let body = [5u8, 2, 2, 2, 1, 7, 1, 1, 11, 0, 0, 0, 0, 0, 0, 0];
+        let at = find_all(&file, &body);
+        assert_eq!(at.len(), 1, "one single-chunk layout");
+        let size_at = at[0] + 8;
+        let header = find_all(&file, b"OHDR")
+            .into_iter()
+            .rfind(|&h| h < size_at)
+            .expect("the header holding it");
+        let (field, width, messages_at) = v2_chunk0(&file, header);
+        let mut size = 0usize;
+        for (i, &b) in file[field..field + width].iter().enumerate() {
+            size |= usize::from(b) << (8 * i);
+        }
+        let checksum_at = messages_at + size;
+        assert!(size_at < checksum_at, "the layout is in chunk 0");
+        assert_eq!(
+            checksum_lookup3(&file[header..checksum_at]),
+            u32_at(&file, checksum_at)
+        );
+        put(&mut file, size_at, &stored.to_le_bytes());
+        let sum = checksum_lookup3(&file[header..checksum_at]);
+        put(&mut file, checksum_at, &sum.to_le_bytes());
+        file
+    }
+
+    /// Decode the variable `name` of the file `source` holds.
+    fn decode_named<S: fieldglass_core::bytes::ByteSource>(
+        source: S,
+        name: &str,
+    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+        let reader = NetcdfReader::from_source(source)?;
+        let meta = reader.hdf5_metadata()?;
+        let v = meta
+            .variables
+            .iter()
+            .find(|v| v.name == name)
+            .unwrap_or_else(|| panic!("no variable {name}"));
+        reader.decode_variable_raw(v.decode_index)
+    }
+
+    /// A single-chunk layout whose filtered size runs past the end of a
+    /// buffer is corrupt; the same size inside a declared file is too large,
+    /// refused before the read (#1017).
+    #[test]
+    fn a_single_chunk_past_the_end_of_the_file_is_corrupt_not_too_large() {
+        let values = decode_named(FLETCHER32, "f32_odd").expect("the fixture decodes");
+        assert_eq!(values.len(), 7);
+
+        let file = single_chunk_stored_as(CLAIM);
+        let err = decode_named(&file[..], "f32_odd").expect_err("past the end of a buffer");
+        assert!(past_the_end(&err, "filtered chunk"), "{err:?}");
+
+        let source = Recording::new(Declared::new(&file[..], DECLARED));
+        let err = decode_named(&source, "f32_odd").expect_err("past the ceiling");
+        assert!(
+            matches!(
+                &err,
+                FieldglassError::Array(ArrayError::StoredChunkTooLarge { bytes, .. })
+                    if *bytes == CLAIM
+            ),
+            "{err:?}"
+        );
+        let longest = source.reads().iter().map(|r| r.len).max().unwrap_or(0);
+        assert!(longest <= MAX_WINDOW_BYTES as u64, "read {longest}");
+    }
+
+    const CHUNK_CEILING_FILE: &[u8] =
+        include_bytes!("../tests/fixtures/hdf5_chunk_past_ceiling.h5");
+
+    /// `hdf5_chunk_past_ceiling.h5` with the `(5120, 8192)` `float64` chunk of
+    /// the dataset whose one chunk is stored as `stored_now` bytes cut to
+    /// `(4096, 8192)`, exactly 256 MiB decoded, and its B-tree key stating
+    /// `stored` bytes.
+    fn chunk_at_the_ceiling(stored_now: u32, stored: u32) -> Vec<u8> {
+        let mut file = CHUNK_CEILING_FILE.to_vec();
+        // A raw-data leaf (type 1, level 0) of one entry: its rank-2 key is
+        // size(4) mask(4) offsets(3 × 8), after the signature, type, level,
+        // entry count and two sibling addresses.
+        let leaves: Vec<usize> = find_all(&file, b"TREE")
+            .into_iter()
+            .filter(|&at| file[at + 4] == 1 && u32_at(&file, at + 24) == stored_now)
+            .collect();
+        assert_eq!(leaves.len(), 1, "one leaf stores {stored_now} bytes");
+        let leaf = leaves[0];
+        put(&mut file, leaf + 24, &stored.to_le_bytes());
+        // Its layout message (version 3): the B-tree address, then the chunk
+        // dimensions and element size as 4-byte values.
+        let mut dims = (leaf as u64).to_le_bytes().to_vec();
+        for d in [5120u32, 8192, 8] {
+            dims.extend_from_slice(&d.to_le_bytes());
+        }
+        let at = find_all(&file, &dims);
+        assert_eq!(at.len(), 1, "one layout names the leaf");
+        put(&mut file, at[0] + 8, &4096u32.to_le_bytes());
+        file
+    }
+
+    /// `zstd_f8_past_ceiling`'s chunk at the ceiling, with its pipeline's one
+    /// filter, zstd, made fletcher32: the version-1 filter pipeline message
+    /// keeps a name and client data for every filter, which fletcher32
+    /// ignores, so only the id changes.
+    fn fletcher32_chunk_at_the_ceiling(stored: u32) -> Vec<u8> {
+        let mut file = chunk_at_the_ceiling(10_254, stored);
+        // Version 1, one filter, 6 reserved bytes, then the id (32015).
+        let pipelines = find_all(&file, &[1, 1, 0, 0, 0, 0, 0, 0, 0x0f, 0x7d]);
+        assert_eq!(pipelines.len(), 2, "the two zstd datasets");
+        // The second is `zstd_f8_past_ceiling`'s, which follows the other's.
+        put(&mut file, pipelines[1] + 8, &3u16.to_le_bytes());
+        file
+    }
+
+    /// Decode `name` from `file` over a declared source, returning the outcome
+    /// and every read asked for.
+    fn decode_declared(file: &[u8], name: &str) -> (Result<(), FieldglassError>, Vec<u64>) {
+        let source = Recording::new(Declared::new(file, DECLARED));
+        let outcome = decode_named(&source, name).map(drop);
+        let reads = source.reads().iter().map(|r| r.len).collect();
+        (outcome, reads)
+    }
+
+    /// A chunk that decodes to exactly the 256 MiB ceiling is stored a little
+    /// past it when a filter grows it, and is read (#1016). With fletcher32 it
+    /// is stored as 256 MiB and 4 bytes: the reader asks for the whole stored
+    /// chunk, which the declared source, holding none of it, refuses as a
+    /// read past its one-read ceiling. One byte more than fletcher32 can add
+    /// is too large, refused with no long read.
+    ///
+    /// The chunk is never held: a real one is 256 MiB on disk, too large to
+    /// commit or to decode in a test, so this shows the stored size passing
+    /// the check and reaching the read, which is where #997 refused it.
+    #[test]
+    fn a_fletcher32_chunk_at_the_ceiling_is_read() {
+        let stored = CHUNK_CEILING as u32 + 4;
+        let (outcome, reads) = decode_declared(
+            &fletcher32_chunk_at_the_ceiling(stored),
+            "zstd_f8_past_ceiling",
+        );
+        let err = outcome.expect_err("the declared source holds no chunk");
+        assert!(
+            matches!(&err, FieldglassError::Parse(m)
+                if m.contains(&format!("read of {stored} bytes"))),
+            "{err:?}"
+        );
+        assert_eq!(reads.iter().max(), Some(&u64::from(stored)), "{reads:?}");
+
+        let (outcome, reads) = decode_declared(
+            &fletcher32_chunk_at_the_ceiling(stored + 1),
+            "zstd_f8_past_ceiling",
+        );
+        let err = outcome.expect_err("past what fletcher32 adds");
+        assert!(
+            matches!(
+                &err,
+                FieldglassError::Array(ArrayError::StoredChunkTooLarge { bytes, limit })
+                    if *bytes == u64::from(stored) + 1 && *limit == CHUNK_CEILING
+            ),
+            "{err:?}"
+        );
+        assert!(reads.iter().all(|&r| r <= MAX_WINDOW_BYTES as u64));
+    }
+
+    /// The same for deflate on data that does not compress: zlib then writes
+    /// stored blocks of 65,535 bytes, 5 bytes of framing each (RFC 1951
+    /// §3.2.4), inside 6 bytes of zlib wrapper, so a 256 MiB chunk is stored
+    /// as 20,491 bytes more (#1016). Past zlib's `deflateBound` for any
+    /// parameters it is too large.
+    #[test]
+    fn an_incompressible_deflate_chunk_at_the_ceiling_is_read() {
+        let blocks = CHUNK_CEILING.div_ceil(65_535);
+        let stored = (CHUNK_CEILING + 5 * blocks + 6) as u32;
+        assert_eq!(stored - CHUNK_CEILING as u32, 20_491);
+        let (outcome, reads) =
+            decode_declared(&chunk_at_the_ceiling(17, stored), "deflate_f8_bomb");
+        let err = outcome.expect_err("the declared source holds no chunk");
+        assert!(
+            matches!(&err, FieldglassError::Parse(m)
+                if m.contains(&format!("read of {stored} bytes"))),
+            "{err:?}"
+        );
+        assert_eq!(reads.iter().max(), Some(&u64::from(stored)), "{reads:?}");
+
+        // zlib 1.3.1's fixed-block bound, the larger of its two, and the
+        // wrapper.
+        let n = CHUNK_CEILING;
+        let bound = (n + (n >> 3) + (n >> 8) + (n >> 9) + 4 + 6) as u32;
+        let (outcome, reads) =
+            decode_declared(&chunk_at_the_ceiling(17, bound + 1), "deflate_f8_bomb");
+        let err = outcome.expect_err("past deflate's bound");
+        assert!(
+            matches!(
+                &err,
+                FieldglassError::Array(ArrayError::StoredChunkTooLarge { bytes, .. })
+                    if *bytes == u64::from(bound) + 1
+            ),
+            "{err:?}"
+        );
+        assert!(reads.iter().all(|&r| r <= MAX_WINDOW_BYTES as u64));
     }
 }

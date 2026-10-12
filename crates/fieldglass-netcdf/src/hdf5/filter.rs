@@ -67,7 +67,8 @@ const MAX_FILTERS: usize = 32;
 /// ([`check_chunk_size`], #970): the length comes from the chunk's dimensions,
 /// which the file states and which may legally dwarf the dataset. So the
 /// ceiling bounds a codec only where nothing records the length it is
-/// handed, behind a filter that changes it ([`FilterPipeline::limit_behind`]).
+/// handed, behind a filter that changes it ([`FilterPipeline::limit_behind`]),
+/// and there grown by what those filters add, up to twice it (#1016).
 const MAX_DECOMPRESSED_CHUNK: usize = 256 << 20;
 
 /// Ceiling on the window a zstd frame may ask the decoder to buffer.
@@ -183,10 +184,12 @@ impl FilterPipeline {
     /// length for must produce exactly that: szip checks its size prefix
     /// against it, and deflate and zstd stop there (#813). Behind a filter
     /// that changes the length, all three are bounded instead by the chunk's
-    /// length grown by the worst case of each filter before them: an eighth
-    /// plus 4 KiB for fletcher32, deflate and zstd, and for szip the longest
-    /// stream its parameters allow, at most 33 times. The caller must still
-    /// check that the result is exactly `expected_len`.
+    /// length grown by the worst case of each filter before them
+    /// (`filter_growth`): 4 bytes for fletcher32, zlib's `deflateBound` for
+    /// deflate, `ZSTD_COMPRESSBOUND` for zstd, and for szip the longest
+    /// stream its parameters allow, at most 33 times; never more than twice
+    /// the ceiling. The caller must still check that the result is exactly
+    /// `expected_len`.
     ///
     /// An `expected_len` past 256 MiB (`MAX_DECOMPRESSED_CHUNK`) is refused as
     /// [`ArrayError::ChunkTooLarge`] before any filter runs, unless the mask
@@ -272,30 +275,107 @@ impl FilterPipeline {
             .then_some(expected_len)
     }
 
-    /// The most filter `index` may be handed back when
-    /// [`Self::length_before`] cannot say exactly: the chunk's length grown by
-    /// the worst case of every filter before it that ran, and never less than
-    /// [`growth_limit`].
-    ///
-    /// Each filter's growth is bounded: shuffle keeps the length, fletcher32,
-    /// deflate and zstd grow it by [`growth_limit`]'s margin, and szip by
-    /// [`szip_growth`]. szip's is the one that matters: it is too large to
-    /// bound by the chunk plus an eighth, which could refuse a file libhdf5
-    /// reads, but the pipeline is the file's to choose, so lifting the bound
-    /// to the 256 MiB ceiling behind one would let any file sidestep it.
-    fn limit_behind(&self, index: usize, filter_mask: u32, expected_len: usize) -> usize {
-        let grown = self.filters[..index]
+    /// `len` grown by the worst case ([`filter_growth`]) of each filter in
+    /// `filters[..upto]` that `filter_mask` leaves running, in write order.
+    fn grown(&self, upto: usize, filter_mask: u32, len: u64) -> u64 {
+        self.filters[..upto]
             .iter()
             .enumerate()
             .filter(|&(i, _)| filter_mask & (1u32 << i) == 0)
-            .fold(expected_len, |len, (_, f)| match f.id {
-                FILTER_SHUFFLE => len,
-                FILTER_SZIP => szip_growth(&f.client_data, len),
-                _ => growth_limit(len),
-            });
-        grown
-            .max(growth_limit(expected_len))
-            .min(MAX_DECOMPRESSED_CHUNK)
+            .fold(len, |len, (_, f)| filter_growth(f, len))
+    }
+
+    /// The most filter `index` may be handed back when
+    /// [`Self::length_before`] cannot say exactly: the chunk's length grown by
+    /// the worst case of every filter before it that ran ([`Self::grown`]),
+    /// and never more than twice `MAX_DECOMPRESSED_CHUNK`.
+    ///
+    /// A chunk at the ceiling may pass it here, as it may stored
+    /// ([`Self::stored_limit`]): netCDF-C always puts fletcher32 first
+    /// (`NC4_hdf5_addfilter` in `libhdf5/hdf5filter.c`), so a 256 MiB chunk
+    /// under fletcher32 and deflate inflates to 256 MiB and 4 bytes (#1016).
+    /// The cap of twice the ceiling is `stored_limit`'s: the pipeline is the
+    /// file's to choose, so an szip ahead of a codec, whose parameters may
+    /// allow 33 times the chunk, cannot lift the bound past it.
+    fn limit_behind(&self, index: usize, filter_mask: u32, expected_len: usize) -> usize {
+        let most = 2 * MAX_DECOMPRESSED_CHUNK;
+        // In range: at most `most`, which fits a 32-bit `usize`.
+        self.grown(index, filter_mask, expected_len as u64)
+            .min(most as u64) as usize
+    }
+
+    /// The most a chunk or heap block of `decoded` bytes may be stored as,
+    /// when the filters `filter_mask` leaves running wrote it and `ceiling` is
+    /// what it may decode to (#1016).
+    ///
+    /// Each filter that ran grows the length by at most [`filter_growth`], in
+    /// write order ([`Self::grown`]). Never less than `ceiling`, the
+    /// stored-size cap #997 set, so nothing it read is refused now. Never more
+    /// than twice `ceiling`, so a hostile size still cannot ask for an
+    /// unbounded read. Twice holds every stack of fletcher32, deflate and zstd
+    /// on a chunk at the ceiling, and every szip libhdf5 writes: it never
+    /// picks a scanline shorter than a block, which keeps a stream under twice
+    /// its input, and its szip filter is optional, so a chunk szip would grow
+    /// is stored unfiltered with its mask bit set. Only a writer outside
+    /// libhdf5's limits, whose szip may reach 33 times (ADR-0012 decision 6),
+    /// is refused as too large.
+    pub(super) fn stored_limit(&self, filter_mask: u32, decoded: u64, ceiling: u64) -> u64 {
+        self.grown(self.filters.len(), filter_mask, decoded)
+            .clamp(ceiling, ceiling.saturating_mul(2))
+    }
+}
+
+/// The most filter `f` may write when handed `len` bytes: its worst case as
+/// an encoder within the format writes it. The one table of filter growth,
+/// for a stored size ([`FilterPipeline::stored_limit`]) and for a codec's
+/// output behind other filters ([`FilterPipeline::limit_behind`]).
+///
+/// - shuffle reorders bytes and keeps the length.
+/// - fletcher32 appends its 4-byte checksum (`FLETCHER_LEN` in libhdf5).
+/// - deflate: zlib's `deflateBound` for any parameters, the larger of its
+///   fixed-block bound (9-bit literals, RFC 1951 §3.2.6),
+///   `len + len/8 + len/256 + len/512 + 4`, and its bound for stored blocks
+///   of 127 bytes, plus 6 bytes of zlib wrapper (RFC 1950 §2.2: a 2-byte
+///   header and the Adler-32). An encoder that falls back to stored blocks on
+///   data that does not compress, as zlib does at its defaults, adds 5 bytes
+///   per block of up to 65,535 (RFC 1951 §3.2.4), about 20 KiB at 256 MiB,
+///   well inside it. libhdf5 keeps such output rather than skipping the
+///   filter.
+/// - zstd: `ZSTD_COMPRESSBOUND`, `len + len/256` plus a margin of at most 64
+///   bytes under 128 KiB.
+/// - szip: [`szip_growth`], from its parameters.
+/// - Any other filter is refused once the chunk is read
+///   ([`FilterPipeline::reverse`]), and is given deflate's room until then.
+fn filter_growth(f: &Filter, len: u64) -> u64 {
+    // zlib 1.3.1 `deflate.c`: `fixedlen` and `storelen`, and the wrapper
+    // `deflateBound` adds when it cannot see the stream's parameters.
+    let deflate = |len: u64| {
+        let fixed = len
+            .saturating_add(len >> 3)
+            .saturating_add(len >> 8)
+            .saturating_add(len >> 9)
+            .saturating_add(4);
+        let stored = len
+            .saturating_add(len >> 5)
+            .saturating_add(len >> 7)
+            .saturating_add(len >> 11)
+            .saturating_add(7);
+        fixed.max(stored).saturating_add(6)
+    };
+    match f.id {
+        FILTER_SHUFFLE => len,
+        FILTER_FLETCHER32 => len.saturating_add(FLETCHER32_LEN as u64),
+        FILTER_ZSTD => {
+            const SMALL: u64 = 128 << 10;
+            len.saturating_add(len / 256)
+                .saturating_add(SMALL.saturating_sub(len) >> 11)
+        }
+        // Past `usize` only on a 32-bit target, where the cap of twice the
+        // ceiling bounds it anyway.
+        FILTER_SZIP => {
+            usize::try_from(len).map_or(u64::MAX, |len| szip_growth(&f.client_data, len) as u64)
+        }
+        _ => deflate(len),
     }
 }
 
@@ -325,20 +405,35 @@ pub(super) fn check_chunk_size(
     Ok(())
 }
 
-/// Refuse a filtered chunk stored as more than `MAX_DECOMPRESSED_CHUNK`
-/// bytes, before it is planned or read (#997).
+/// Refuse a filtered chunk stored as more than its pipeline could make of
+/// `chunk_bytes`, before it is planned or read (#997, #1016).
 ///
 /// A filtered chunk is read whole at the size its index states, up to 4 GiB
 /// in a B-tree key and more in a single-chunk layout, and nothing else bounds
-/// that read but the size a ranged source declares. A filter may legally
-/// grow a chunk, but only slightly (fletcher32 adds 4 bytes, deflate a few
-/// per block), so a chunk whose decoded length passes [`check_chunk_size`]
-/// is not stored at this size. It is too large rather than corrupt, as the
-/// decoded refusal is, and the error says it is stored that size
+/// that read but the size a ranged source declares. The chunk has passed
+/// [`check_chunk_size`], so it decodes to at most `MAX_DECOMPRESSED_CHUNK`,
+/// and its stored size is held to what the filters that ran on it could grow
+/// that to ([`FilterPipeline::stored_limit`]). At the ceiling a few bytes
+/// matter: a 256 MiB chunk with fletcher32 is stored as 256 MiB and 4 bytes,
+/// and libhdf5 reads it. Past the limit it is too large rather than corrupt,
+/// as the decoded refusal is, and the error says it is stored that size
 /// ([`ArrayError::StoredChunkTooLarge`]). The size stays a `u64` to the
 /// check, so a 32-bit target refuses it the same way.
-pub(super) fn check_stored_chunk_size(stored: u64) -> Result<(), FieldglassError> {
-    if stored > MAX_DECOMPRESSED_CHUNK as u64 {
+///
+/// The caller checks first that the chunk lies inside the file: one that runs
+/// past the end of a buffer is corrupt, whatever its size (#1017).
+pub(super) fn check_stored_chunk_size(
+    pipeline: &FilterPipeline,
+    filter_mask: u32,
+    chunk_bytes: usize,
+    stored: u64,
+) -> Result<(), FieldglassError> {
+    let limit = pipeline.stored_limit(
+        filter_mask,
+        chunk_bytes as u64,
+        MAX_DECOMPRESSED_CHUNK as u64,
+    );
+    if stored > limit {
         return Err(ArrayError::StoredChunkTooLarge {
             bytes: stored,
             limit: MAX_DECOMPRESSED_CHUNK as u64,
@@ -379,10 +474,12 @@ fn szip_limit(exact: Option<usize>, behind: usize) -> usize {
 /// allocation, not a lazily mapped one. The chunk's own length is never past
 /// it: [`FilterPipeline::reverse`] refuses that chunk before any codec runs
 /// (#970), where it used to inflate 256 MiB and fail as a corrupt chunk.
+/// `behind` may pass it by the growth of the filters ahead of the codec, up to
+/// twice it, so a chunk at the ceiling behind fletcher32 still decodes (#1016).
 fn codec_limit(exact: Option<usize>, behind: usize) -> Limit {
     match exact {
         Some(len) => Limit::Length(len),
-        None => Limit::Ceiling(behind.min(MAX_DECOMPRESSED_CHUNK)),
+        None => Limit::Ceiling(behind),
     }
 }
 
@@ -436,24 +533,8 @@ impl Limit {
     }
 }
 
-/// The most a codec's output may be when fletcher32, deflate or zstd ran
-/// before it, so its output is that filter's, whose length nothing outside
-/// the stream records.
-///
-/// deflate's or zstd's worst case grows the data by well under an eighth
-/// (zlib's bound is a few bytes per 16 KiB, zstd's about 1/256), and
-/// fletcher32 adds four bytes. So the chunk's length plus an eighth plus
-/// 4 KiB covers any real file, and keeps a 12-byte chunk from committing a
-/// 256 MiB zeroed buffer.
-fn growth_limit(expected_len: usize) -> usize {
-    expected_len
-        .saturating_add(expected_len / 8)
-        .saturating_add(SZIP_SLACK)
-        .min(MAX_DECOMPRESSED_CHUNK)
-}
-
-/// Fixed headroom in [`growth_limit`] for small chunks, whose compressed form
-/// can carry a header larger than an eighth of the data.
+/// Fixed headroom in [`szip_growth`] for the 4-byte size prefix and the last
+/// byte's padding.
 const SZIP_SLACK: usize = 4096;
 
 /// The most an szip filter's output may be when it codes `len` bytes: the
@@ -1492,19 +1573,17 @@ mod tests {
     }
 
     /// Behind a length-changing filter the prefix is bounded by the chunk's
-    /// length plus an eighth plus 4 KiB, not by the 256 MiB ceiling: a prefix
-    /// between the two is refused before it is allocated. At the bound itself
-    /// the prefix passes that check, and the stream's own length refuses it
-    /// next: 8 bytes of stream code at most 455 pixels here (#975).
+    /// length grown by that filter, here fletcher32's 4 bytes, not by the
+    /// 256 MiB ceiling: a prefix between the two is refused before it is
+    /// allocated. At the bound itself the prefix passes that check, and the
+    /// stream's own length refuses it next: 8 bytes of stream code at most
+    /// 455 pixels here (#975).
     #[test]
     fn szip_behind_a_length_changing_filter_is_bounded_by_the_chunk() {
-        let expected = 64;
-        let bound = expected + expected / 8 + SZIP_SLACK;
-        assert_eq!(growth_limit(expected), bound);
+        let expected = 1024;
+        let bound = expected + 4;
         assert_eq!(szip_limit(None, bound), bound);
         assert_eq!(szip_limit(Some(expected), bound), MAX_DECOMPRESSED_CHUNK);
-        assert_eq!(growth_limit(usize::MAX), MAX_DECOMPRESSED_CHUNK);
-        assert!(bound < MAX_DECOMPRESSED_CHUNK);
 
         let pipeline = szip_pipeline(&[FILTER_FLETCHER32], &SZ_CD);
         let over = u32::try_from(bound + 1).unwrap();
@@ -1567,6 +1646,68 @@ mod tests {
         FilterPipeline {
             filters: ids.iter().map(|&id| filter_of(id)).collect(),
         }
+    }
+
+    /// A filtered chunk's stored size may pass the decoded ceiling by what
+    /// the filters that ran on it add, and no further (#1016).
+    #[test]
+    fn a_stored_chunk_may_pass_the_ceiling_by_its_pipelines_growth() {
+        let max = MAX_DECOMPRESSED_CHUNK as u64;
+        let limit = |ids: &[u16], mask: u32, decoded: u64| {
+            pipeline_of(ids).stored_limit(mask, decoded, max)
+        };
+        // fletcher32 adds exactly its checksum.
+        assert_eq!(limit(&[FILTER_FLETCHER32], 0, max), max + 4);
+        // shuffle adds nothing, so the limit is the ceiling #997 set.
+        assert_eq!(limit(&[FILTER_SHUFFLE], 0, max), max);
+        // deflate: zlib's fixed-block `deflateBound` and its wrapper, which
+        // holds the 20,491 bytes zlib's stored blocks add at the ceiling.
+        let deflate = max + max / 8 + max / 256 + max / 512 + 10;
+        assert_eq!(limit(&[FILTER_DEFLATE], 0, max), deflate);
+        assert!(deflate > max + 20_491);
+        // zstd: `ZSTD_COMPRESSBOUND`.
+        assert_eq!(limit(&[FILTER_ZSTD], 0, max), max + max / 256);
+        // Growth folds in write order: fletcher32 after deflate grows
+        // deflate's bound by its 4 bytes.
+        assert_eq!(
+            limit(&[FILTER_SHUFFLE, FILTER_DEFLATE, FILTER_FLETCHER32], 0, max),
+            deflate + 4
+        );
+        // A filter its mask skipped adds nothing.
+        assert_eq!(
+            limit(&[FILTER_DEFLATE, FILTER_FLETCHER32], 0b01, max),
+            max + 4
+        );
+        // A small chunk keeps the ceiling, as before: nothing #997 read is
+        // refused now.
+        assert_eq!(limit(&[FILTER_FLETCHER32], 0, 64), max);
+        // Never past twice the ceiling, however a pipeline could grow: an
+        // szip of 8-bit pixels one to a scanline in blocks of 32 is about 32
+        // times its input.
+        let mut wide = pipeline_of(&[FILTER_SZIP]);
+        wide.filters[0].client_data = vec![0, 32, 8, 1];
+        assert_eq!(wide.stored_limit(0, max, max), 2 * max);
+        // libhdf5's own szip at a whole number of blocks a scanline fits.
+        let szip = limit(&[FILTER_SZIP], 0, max);
+        assert!(szip > max && szip < max + max / 50, "{szip}");
+    }
+
+    /// The stored-size check reads its limit from the pipeline, and reports
+    /// the decoded ceiling as the bound the file asked too much of.
+    #[test]
+    fn check_stored_chunk_size_allows_fletcher32_at_the_ceiling() {
+        let pipeline = pipeline_of(&[FILTER_FLETCHER32]);
+        let max = MAX_DECOMPRESSED_CHUNK;
+        check_stored_chunk_size(&pipeline, 0, max, max as u64 + 4).unwrap();
+        let err = check_stored_chunk_size(&pipeline, 0, max, max as u64 + 5).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                FieldglassError::Array(ArrayError::StoredChunkTooLarge { bytes, limit })
+                    if bytes == max as u64 + 5 && limit == max as u64
+            ),
+            "{err:?}"
+        );
     }
 
     /// 1 MiB of zeros: a stream of a few hundred bytes whose output is far past
@@ -1709,16 +1850,21 @@ mod tests {
     }
 
     /// Behind a filter that changes the length, the codec's output is bounded
-    /// the way szip's prefix is: the chunk's length plus an eighth plus 4 KiB.
+    /// the way szip's prefix is: the chunk's length grown by that filter's
+    /// worst case, 4 bytes for fletcher32, 82 for deflate and 127 for zstd on
+    /// a 64-byte chunk.
     #[test]
     fn deflate_and_zstd_behind_a_length_changing_filter_are_bounded_by_the_chunk() {
         let expected = 64;
-        let bound = expected + expected / 8 + SZIP_SLACK;
         for (name, id, stream) in [
             ("deflate", FILTER_DEFLATE, zlib_bomb()),
             ("zstd", FILTER_ZSTD, zstd_bomb()),
         ] {
-            for before in [FILTER_FLETCHER32, FILTER_DEFLATE, FILTER_ZSTD] {
+            for (before, bound) in [
+                (FILTER_FLETCHER32, 68),
+                (FILTER_DEFLATE, 82),
+                (FILTER_ZSTD, 127),
+            ] {
                 let pipeline = pipeline_of(&[before, id]);
                 let m = parse_message(pipeline.reverse(stream.clone(), 0, 1, expected));
                 assert!(
@@ -1747,7 +1893,7 @@ mod tests {
     /// both of these taking the full ceiling.
     #[test]
     fn an_szip_ahead_does_not_reopen_the_ceiling() {
-        let bound = growth_limit(64).max(szip_growth(&HDF5_SZ_CD, 64));
+        let bound = szip_growth(&HDF5_SZ_CD, 64);
         // A deflate bomb behind szip stops at szip's worst-case growth, not
         // after inflating 1 MiB.
         let m = parse_message(pipeline_of(&[FILTER_SZIP, FILTER_DEFLATE]).reverse(
@@ -1769,12 +1915,13 @@ mod tests {
     }
 
     /// The bound behind length-changing filters is their worst-case growth
-    /// chained in write order, never less than [`growth_limit`]; a filter
-    /// skipped for this chunk does not count.
+    /// ([`filter_growth`]) chained in write order; a filter skipped for this
+    /// chunk does not count.
     #[test]
     fn the_bound_behind_filters_chains_their_worst_growth() {
-        let grown = growth_limit(64);
         let szip = |len: usize| szip_growth(&HDF5_SZ_CD, len);
+        // deflate's bound on 64 bytes, then zstd's on that.
+        let (deflate, zstd) = (82, 82 + (128 * 1024 - 82) / 2048);
         for (ids, mask, want) in [
             (&[FILTER_SZIP, FILTER_DEFLATE][..], 0, szip(64)),
             (&[FILTER_SZIP, FILTER_ZSTD][..], 0, szip(64)),
@@ -1782,20 +1929,17 @@ mod tests {
             (
                 &[FILTER_FLETCHER32, FILTER_SZIP, FILTER_DEFLATE][..],
                 0,
-                szip(grown),
+                szip(68),
             ),
             (
                 &[FILTER_SHUFFLE, FILTER_SZIP, FILTER_DEFLATE][..],
                 0,
                 szip(64),
             ),
-            (&[FILTER_SZIP, FILTER_DEFLATE][..], 0b1, grown),
-            (&[FILTER_FLETCHER32, FILTER_DEFLATE][..], 0, grown),
-            (
-                &[FILTER_DEFLATE, FILTER_ZSTD, FILTER_SZIP][..],
-                0,
-                growth_limit(grown),
-            ),
+            (&[FILTER_SZIP, FILTER_DEFLATE][..], 0b1, 64),
+            (&[FILTER_FLETCHER32, FILTER_DEFLATE][..], 0, 68),
+            (&[FILTER_DEFLATE, FILTER_ZSTD, FILTER_SZIP][..], 0, zstd),
+            (&[FILTER_DEFLATE, FILTER_SZIP][..], 0, deflate),
         ] {
             let pipeline = pipeline_of(ids);
             let last = ids.len() - 1;
@@ -1805,12 +1949,31 @@ mod tests {
                 "{ids:?} mask {mask:#b}"
             );
         }
-        // Saturates at the outer ceiling rather than overflowing.
+        // Saturates at twice the ceiling rather than overflowing.
         let deep = pipeline_of(&[FILTER_SZIP; 8]);
         assert_eq!(
             deep.limit_behind(7, 0, usize::MAX / 2),
-            MAX_DECOMPRESSED_CHUNK
+            2 * MAX_DECOMPRESSED_CHUNK
         );
+    }
+
+    /// A chunk of exactly the ceiling under fletcher32, shuffle and deflate,
+    /// the order netCDF-C writes (fletcher32 first, `NC4_hdf5_addfilter`),
+    /// inflates to the ceiling and 4 bytes, so deflate's bound is that, not
+    /// the bare ceiling, which refused it (#1016).
+    #[test]
+    fn deflate_behind_fletcher32_at_the_ceiling_may_pass_it_by_four_bytes() {
+        let max = MAX_DECOMPRESSED_CHUNK;
+        let pipeline = pipeline_of(&[FILTER_FLETCHER32, FILTER_SHUFFLE, FILTER_DEFLATE]);
+        let behind = pipeline.limit_behind(2, 0, max);
+        assert_eq!(behind, max + 4);
+        assert!(matches!(
+            codec_limit(pipeline.length_before(2, 0, max), behind),
+            Limit::Ceiling(n) if n == max + 4
+        ));
+        // Past it, by what the stream holds, is still refused.
+        let m = parse_message(inflate_bounded(&zlib_bomb(), Limit::Ceiling(68)));
+        assert!(m.contains("past the 68-byte ceiling"), "{m}");
     }
 
     /// The bound refuses only what is too long. A real fletcher32-then-deflate
@@ -1839,8 +2002,8 @@ mod tests {
     /// szip's growth comes from its parameters (#975). With libhdf5's, whose
     /// scanlines are whole blocks, a block of 32 bytes is at most 3 + 256
     /// bits, so the stream is at most 259/256 of the chunk, and a codec
-    /// before szip gets the chunk plus an eighth, not 33 times it. An 8 MiB
-    /// chunk used to let it inflate to the 256 MiB ceiling.
+    /// before szip gets that, not 33 times it. An 8 MiB chunk used to let it
+    /// inflate to the 256 MiB ceiling.
     #[test]
     fn szip_growth_follows_its_parameters() {
         let chunk = 8 << 20;
@@ -1849,8 +2012,11 @@ mod tests {
             chunk / 256 * 259 + SZIP_SLACK
         );
         let pipeline = pipeline_of(&[FILTER_SZIP, FILTER_DEFLATE]);
-        assert_eq!(pipeline.limit_behind(1, 0, chunk), growth_limit(chunk));
-        assert!(growth_limit(chunk) < 10 << 20);
+        assert_eq!(
+            pipeline.limit_behind(1, 0, chunk),
+            szip_growth(&HDF5_SZ_CD, chunk)
+        );
+        assert!(pipeline.limit_behind(1, 0, chunk) < 9 << 20);
         // 1-bit pixels in blocks of 2 with preprocessing: libaec writes a
         // one-block zero run as 3 + 1 + 1 + 1 bits, more than the 3 + 2 of
         // an uncompressed block, so 64 pixels may take 24 bytes, not 20.

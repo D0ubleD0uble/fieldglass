@@ -311,13 +311,14 @@ pub enum ArrayError {
         limit: u64,
     },
 
-    /// A compressed chunk stored as more bytes than one chunk may decode to,
-    /// refused before it is read.
+    /// A compressed chunk stored as more bytes than its filters could make of
+    /// the most one chunk may decode to, refused before it is read.
     ///
     /// A chunk is read whole at the size its index states. A filter grows a
-    /// chunk by a few bytes at most, so one stored this large could not have
-    /// passed [`Self::ChunkTooLarge`] decoded. As there, the file is not at
-    /// fault: only more than this reader reads at once (#997).
+    /// chunk only by a bounded amount, so one stored past what its filters
+    /// could make of a chunk at `limit` could not have passed
+    /// [`Self::ChunkTooLarge`] decoded. As there, the file is not at fault:
+    /// only more than this reader reads at once (#997, #1016).
     #[error(
         "this variable is stored in chunks of {} each, and a chunk is read \
          whole: more than the {} one chunk may decode to. The file itself is fine",

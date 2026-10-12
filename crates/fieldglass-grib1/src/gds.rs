@@ -1,6 +1,6 @@
 use fieldglass_core::{
-    CornerPair, FieldglassError, LambertParams, LambertProjector, PlanarGridProjector,
-    PolarStereoParams, PolarStereoProjector, bits::ibm_float_to_f64, signed_grid_increments,
+    CornerPair, FieldglassError, GridGeometry, LambertParams, PolarStereoParams,
+    bits::ibm_float_to_f64, signed_grid_increments,
 };
 
 // ---------------------------------------------------------------------------
@@ -290,20 +290,18 @@ impl PolarStereoGrid {
         )
     }
 
-    /// Geographic `(lat, lon)` of the last scanned grid point — the corner
-    /// diagonally opposite the origin.
-    ///
-    /// GRIB1 polar-stereographic GDS encodes only the first point (La1/Lo1);
-    /// unlike a lat/lon grid there is no La2/Lo2 to read. The opposite corner
-    /// is recovered by forward-projecting the origin to plane metres, stepping
-    /// `(Nx-1)·Dx` / `(Ny-1)·Dy`, and inverse-projecting back to lat/lon.
-    fn last_point(&self) -> Option<(f64, f64)> {
+    /// The grid as `core`'s projection parameters: the Earth octet 17 picks,
+    /// the fixed [`Self::lad`], and the scan-signed increments. Read by the
+    /// `GridGeometry` conversion, which is also what
+    /// [`GridDescription::bounds`] derives the far corner through, so the
+    /// corner the GDS reports and the grid core places are the same grid.
+    pub(crate) fn projection_params(&self) -> PolarStereoParams {
         // Dx/Dy are unsigned magnitudes; the scanning mode says which way the
         // grid runs from its first point, so the walk has to carry that sign or
         // a north→south grid reports a corner on the wrong side of its origin
         // (#472). The warp has always applied it — this is the same rule.
         let (dx, dy) = self.signed_increments();
-        let projector = PolarStereoProjector::new(PolarStereoParams {
+        PolarStereoParams {
             earth_radius_m: self.resolution_flags.earth_radius_m(),
             ni: self.nx,
             nj: self.ny,
@@ -314,14 +312,7 @@ impl PolarStereoGrid {
             dx_metres: dx,
             dy_metres: dy,
             south_pole: self.south_pole,
-        });
-        // The inverse is `lov + atan2(..)` and can land outside [-180, 180]
-        // (e.g. lov=247 yields ~328°); normalise so the reported corner is
-        // consistent with the first point's longitude convention.
-        finite_lonlat(
-            projector.is_well_defined(),
-            projector.last_grid_point_lonlat(),
-        )
+        }
     }
 }
 
@@ -370,17 +361,14 @@ impl LambertGrid {
         )
     }
 
-    /// Geographic `(lat, lon)` of the last scanned grid point — the corner
-    /// diagonally opposite the origin.
-    ///
-    /// Like polar stereographic, a GRIB1 Lambert GDS encodes only the first
-    /// point; the opposite corner is recovered from the projection. `LaD`
-    /// (latitude of true scale) is taken as the first standard parallel,
-    /// matching how the warp path builds [`LambertParams`].
-    fn last_point(&self) -> Option<(f64, f64)> {
-        // Scan-signed, for the reason in [`PolarStereoGrid::last_point`].
+    /// The grid as `core`'s projection parameters, for the `GridGeometry`
+    /// conversion [`GridDescription::bounds`] also reads. ON388 states no
+    /// separate `LaD`, so the first standard parallel is the latitude of true
+    /// scale.
+    pub(crate) fn projection_params(&self) -> LambertParams {
+        // Scan-signed, for the reason in [`PolarStereoGrid::projection_params`].
         let (dx, dy) = self.signed_increments();
-        let projector = LambertProjector::new(LambertParams {
+        LambertParams {
             earth_radius_m: self.resolution_flags.earth_radius_m(),
             ni: self.nx,
             nj: self.ny,
@@ -392,14 +380,7 @@ impl LambertGrid {
             dy_metres: dy,
             latin1: self.latin1,
             latin2: self.latin2,
-        });
-        // A collapsed cone (both standard parallels on the equator, say)
-        // inverts to `NaN`, which used to reach the message table as the text
-        // "NaN"; report no corner instead.
-        finite_lonlat(
-            projector.is_well_defined(),
-            projector.last_grid_point_lonlat(),
-        )
+        }
     }
 }
 
@@ -727,17 +708,27 @@ impl GridDescription {
             // projection; a grid whose projection cannot place one reports no
             // pair at all rather than a `NaN` (its declared first point is
             // still available from [`Self::first_point`]).
-            Self::PolarStereographic(g) => g
-                .last_point()
-                .map(|(la2, lo2)| CornerPair::new(g.lat_first, g.lon_first, la2, lo2)),
-            Self::LambertConformal(g) => g
-                .last_point()
-                .map(|(la2, lo2)| CornerPair::new(g.lat_first, g.lon_first, la2, lo2)),
+            Self::PolarStereographic(_) | Self::LambertConformal(_) => self.derived_corners(),
             // Spectral coefficients have no corner coordinates: the field is
             // global by construction and lives in wavenumber space.
             Self::SphericalHarmonic(_) => None,
             Self::Unsupported { .. } => None,
         }
+    }
+
+    /// The declared first point and the derived last one, placed by the same
+    /// `GridGeometry` conversion every host places the grid with, or `None`
+    /// where it places no last point.
+    ///
+    /// GRIB1 polar stereographic and Lambert GDSs encode only the first point
+    /// (La1/Lo1); there is no La2/Lo2 to read. The opposite corner is recovered
+    /// by projecting the origin to plane metres, stepping `(Nx-1)·Dx` /
+    /// `(Ny-1)·Dy` with the scan sign, and inverting. See [`derived_last_point`]
+    /// for what that declines and why the bare projector was not enough (#1011).
+    fn derived_corners(&self) -> Option<CornerPair> {
+        let (lat_last, lon_last) = derived_last_point(&GridGeometry::from(self))?;
+        let (lat_first, lon_first) = self.first_point()?;
+        Some(CornerPair::new(lat_first, lon_first, lat_last, lon_last))
     }
 
     /// The corners of the raster [`Self::dimensions`] describes.
@@ -1034,37 +1025,40 @@ fn read_signed_magnitude_24(b: &[u8]) -> i32 {
     }
 }
 
-/// A derived corner, or `None` when the projection could not place one, with the
-/// longitude wrapped into the half-open range (-180, 180].
+/// The last scanned point of a planar grid, as `core` places it, with the
+/// longitude wrapped into the half-open range (-180, 180]; `None` wherever
+/// [`GridGeometry::forward`] declines the point.
 ///
-/// Takes the projector's `is_well_defined` as well as the coordinates, the same
-/// shape `fieldglass_grib2`'s helper of the same name has, and for the same
-/// reason: a projection can be too degenerate to place a point while every
-/// number it produces stays finite, so finiteness alone is not the test.
+/// Asked of the geometry rather than of the bare projector, so the corner the
+/// GDS reports and the placement every host reads are one answer (#1011). The
+/// projector's own `is_well_defined` is not that answer: it measures the
+/// projection's plane, and `GridGeometry` also measures the step against the
+/// Earth the message declares, and asks that the origin be a position one step
+/// can move. A grid failing either is unplaceable, and a corner beside that
+/// word is a position for a grid nothing positions.
 ///
-/// GRIB1 states less of its projection than §3 does, and the two collapses a §3
-/// message reaches through its declared Earth are indeed out of reach here:
-/// [`ResolutionFlags::earth_radius_m`] answers one of two constants from a
-/// single flag bit, so there is no declared zero (#603), and the polar
-/// stereographic `LaD` is fixed at 60°, so the pole scale factor cannot be
-/// driven to zero either. Three collapses remain, and GRIB1 states all three —
-/// but only one of them needs this argument.
+/// GRIB1 states less of its projection than §3 does: [`ResolutionFlags::earth_radius_m`]
+/// answers one of two constants from a single flag bit, and the polar
+/// stereographic `LaD` is fixed at 60°. It still reaches every collapse that
+/// matters here:
 ///
-/// Two go non-finite on their own, and finiteness has always caught them: the
-/// standard parallels are stated, so a Lambert cone still collapses on
-/// `Latin1 == Latin2 == 0` (a cone constant of zero); and `La1` is three octets
-/// of sign-magnitude millidegrees, so a northern cone can be handed a first
-/// point at the south pole, where `tan(π/4 + φ/2)` is exactly zero and the
-/// projected origin runs to infinity.
-///
-/// The third is the quiet one, and it is why the flag is here. Dx/Dy are three
-/// octets of unsigned metres, so a grid can declare a 16 777 km cell: wider than
-/// either GRIB1 Earth, and wider than the 11 882 km plane a ±60° latitude of
-/// true scale leaves the polar stereographic family. The whole projection
-/// collapses inside one cell (#610) with every number staying finite — a corner
-/// comes back, and it is not a position.
-fn finite_lonlat(well_defined: bool, (lat, lon): (f64, f64)) -> Option<(f64, f64)> {
-    (well_defined && lat.is_finite() && lon.is_finite()).then(|| (lat, normalise_longitude(lon)))
+/// - The standard parallels are stated, so a Lambert cone collapses on
+///   `Latin1 == Latin2 == 0` (a cone constant of zero); and `La1` is three
+///   octets of sign-magnitude millidegrees, so a northern cone can be handed a
+///   first point at the south pole, where the projected origin runs to
+///   infinity. Both go non-finite.
+/// - Dx/Dy are three octets of unsigned metres, so a grid can declare a cell
+///   up to 16 777 km wide. Past the 11 882 km plane a 60° latitude of true
+///   scale leaves polar stereographic, the projection collapses inside one cell
+///   (#610) with every number staying finite. Between the 6 367 km Earth and
+///   that plane, the projector still answers, and only the declared-Earth floor
+///   refuses it (#1002). A reader that asked the projector alone reported a
+///   corner there.
+/// - A zero Dx or Dy walks nowhere, and its "far corner" is the first point.
+fn derived_last_point(geom: &GridGeometry) -> Option<(f64, f64)> {
+    let (ni, nj) = geom.dims()?;
+    geom.forward(ni.checked_sub(1)?, nj.checked_sub(1)?)
+        .map(|(lat, lon)| (lat, normalise_longitude(lon)))
 }
 
 fn normalise_longitude(lon: f64) -> f64 {
@@ -1116,6 +1110,7 @@ mod grid_variant_tests {
     //! without any real fixture being in hand.
 
     use super::*;
+    use fieldglass_core::{LambertProjector, PlanarGridProjector, PolarStereoProjector};
 
     /// Encode an i32 as a 3-byte sign-and-magnitude (the GRIB1 lat/lon
     /// convention; high bit = sign, low 23 bits = absolute value).
@@ -1430,6 +1425,39 @@ mod grid_variant_tests {
 
         assert!(parsed.has_raster(), "the raster shape is still declared");
         assert_eq!(parsed.bounds(), None, "a collapsed plane places no corner");
+    }
+
+    /// The band below that one (#1011): a 7 000 km cell is inside the
+    /// 11 882 km plane, so the projector alone still answers, but past the
+    /// 6 367 km Earth the flag picks, so `core` places nothing on the grid
+    /// (#1002). The corner follows `core`, not the projector.
+    #[test]
+    fn polar_stereo_cell_wider_than_the_earth_reports_no_corner() {
+        let mut body = Vec::new();
+        body.extend(u16be(2)); // nx
+        body.extend(u16be(2)); // ny
+        body.extend(sm24(-20_826)); // lat_first
+        body.extend(sm24(-145_000)); // lon_first
+        body.push(0x88);
+        body.extend(sm24(-80_000)); // lov
+        body.extend(u24(7_000_000)); // dx_m
+        body.extend(u24(7_000_000)); // dy_m
+        body.push(0x80); // south pole on plane
+        body.push(0x40);
+
+        let parsed = parse_grid_description(&build_gds(5, &body)).expect("parses");
+        let GridDescription::PolarStereographic(g) = &parsed else {
+            panic!("expected PolarStereographic");
+        };
+        let projector = PolarStereoProjector::new(g.projection_params());
+        assert!(projector.is_well_defined(), "the plane holds the cell");
+        let (lat, lon) = projector.last_grid_point_lonlat();
+        assert!(lat.is_finite() && lon.is_finite(), "({lat}, {lon})");
+        let geometry = fieldglass_core::GridGeometry::from(&parsed);
+        assert_eq!(geometry.lonlat_bbox(), None, "core places no part of it");
+
+        assert_eq!(parsed.bounds(), None, "so the GDS reports no corner");
+        assert_eq!(parsed.raster_bounds(), None);
     }
 
     #[test]
