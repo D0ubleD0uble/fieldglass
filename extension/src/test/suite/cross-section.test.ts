@@ -114,6 +114,16 @@ suite("Cross-sections", () => {
     assert.strictEqual(formatAxisValue(3, "days since 2020-01-01 noon"), "3");
     // Past the range a Date can hold: the number, not a thrown error.
     assert.strictEqual(formatAxisValue(1e300, "days since 2020-01-01"), "1e+300");
+    // A field out of range is not rolled into the next month or day.
+    assert.strictEqual(formatAxisValue(3, "days since 2020-13-45"), "3");
+    assert.strictEqual(formatAxisValue(3, "days since 2020-01-01 10:60"), "3");
+    // An offset is `+h`, `+hh`, `+hhmm` or `+hh:mm`; `+123` could be either.
+    assert.strictEqual(formatAxisValue(0, "hours since 2020-01-01 00:00 +0530"), "2019-12-31 18:30");
+    assert.strictEqual(formatAxisValue(3, "hours since 2020-01-01 00:00 +123"), "3");
+    // A date past year 9999 has no YYYY-MM-DD form.
+    assert.strictEqual(formatAxisValue(1e7, "days since 2000-01-01"), "10000000");
+    // A long run of trailing spaces is read at once (no backtracking).
+    assert.strictEqual(formatAxisValue(0, "days since 2000-01-01" + " ".repeat(100_000)), "2000-01-01");
   });
 
   test("the line plot's axis label reads its ends the way the ticks do (#1028)", () => {

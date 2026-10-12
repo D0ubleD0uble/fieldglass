@@ -146,10 +146,12 @@ const DRIVER = `
     }
     // Move every enabled control off its value, as a user would, firing the
     // events a user's edit fires. \`values\` gives a control a value of the
-    // test's choosing; \`skip\` leaves one alone. Reports what moved, and what
-    // the driver did not know how to move.
+    // test's choosing; \`skip\` leaves one alone. Reports what moved, what
+    // could not move (a select with one option), and what the driver did not
+    // know how to move.
     function perturb(skip, values) {
       const moved = [];
+      const stuck = [];
       const unknown = [];
       const fire = (el) => {
         el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -162,7 +164,7 @@ const DRIVER = `
         else if (el.type === 'checkbox') el.checked = !el.checked;
         else if (el.tagName === 'SELECT') {
           const other = Array.from(el.options).filter((o) => o.value !== el.value).pop();
-          if (!other) return;
+          if (!other) { stuck.push(el.id); return; }
           el.value = other.value;
         } else if (el.type === 'number') {
           const step = Number(el.step) || 1;
@@ -190,7 +192,7 @@ const DRIVER = `
         moved.push('radio:' + name);
         fire(other);
       });
-      return { moved: moved, unknown: unknown };
+      return { moved: moved, stuck: stuck, unknown: unknown };
     }
     window.addEventListener('message', (ev) => {
       const m = ev.data;
@@ -200,7 +202,7 @@ const DRIVER = `
       }
       if (m && m.type === 'test:perturb') {
         const done = perturb(m.skip, m.values);
-        api.postMessage({ type: 'test:perturbed', tag: m.tag, moved: done.moved, unknown: done.unknown });
+        api.postMessage({ type: 'test:perturbed', tag: m.tag, moved: done.moved, stuck: done.stuck, unknown: done.unknown });
         return;
       }
       if (!m || (m.type !== 'test:drive' && m.type !== 'test:probe')) return;
@@ -246,7 +248,10 @@ export interface RealPanel {
   controls(): Promise<Record<string, string | boolean>>;
   /** Move every enabled control off its value, as a user would. `values`
    *  chooses a control's value; `skip` leaves controls alone. */
-  perturb(skip: string[], values: Record<string, string | number>): Promise<{ moved: string[]; unknown: string[] }>;
+  perturb(
+    skip: string[],
+    values: Record<string, string | number>,
+  ): Promise<{ moved: string[]; stuck: string[]; unknown: string[] }>;
   /** Wait for the provider to post a message matching `pred`, after `from`. */
   waitSent(pred: (m: Msg) => boolean, from: number, what: string): Promise<Msg>;
   /** Write the panel again the way an imported colormap does, which reloads
@@ -360,7 +365,7 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
         () => received.find((m) => m.type === "test:perturbed" && m.tag === mine),
         `the page's perturbation ${mine}`,
       );
-      return { moved: reply.moved, unknown: reply.unknown };
+      return { moved: reply.moved, stuck: reply.stuck, unknown: reply.unknown };
     },
     waitSent: (pred, from, what) =>
       waitUntil(() => sent.slice(from).find(pred), what).catch((err: Error) => {

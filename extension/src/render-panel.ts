@@ -513,7 +513,9 @@ export function axisTickIndices(length: number, count: number): number[] {
  *  itself. */
 export function formatAxisValue(value: number, units: string | null): string {
   if (!Number.isFinite(value)) return "";
-  const since = /^\s*(\w+)\s+since\s+(.+?)\s*$/i.exec(units || "");
+  // `(.+)` and a trim after, not `(.+?)\s*$`: the lazy form backtracks over
+  // trailing whitespace, quadratic in a units attribute a file controls.
+  const since = /^\s*(\w+)\s+since\s+(.+)$/i.exec(units || "");
   const perUnit: Record<string, number> = {
     second: 1000, seconds: 1000, sec: 1000, secs: 1000, s: 1000,
     minute: 60000, minutes: 60000, min: 60000, mins: 60000,
@@ -528,7 +530,12 @@ export function formatAxisValue(value: number, units: string | null): string {
     // (`1900-1-1`), fractional or one-digit seconds (`00:00:0.0`, which every
     // NCEP/NCAR reanalysis file writes), a space or `T` before the time, no
     // time at all, and a zone as `Z`, `UTC`, `GMT` or an offset (`+05:30`,
-    // `-6`). A reference it cannot read falls through to the number.
+    // `-6`). A reference it cannot read falls through to the number, and so
+    // does a field out of range (month 13, minute 60) rather than rolling over.
+    //
+    // The calendar is not consulted: no calendar attribute reaches the panel,
+    // so a `noleap` or `360_day` axis is counted on the Gregorian calendar and
+    // its dates drift from the model's (#1033).
     let rest = since[2].trim();
     const take = (re: RegExp) => {
       const m = re.exec(rest);
@@ -539,9 +546,16 @@ export function formatAxisValue(value: number, units: string | null): string {
     const clock = day ? take(/^[T ]+(\d{1,2}):(\d{1,2})/) : null;
     const seconds = clock ? take(/^:(\d{1,2}\.?\d*)/) : null;
     rest = rest.trim();
-    const offset = /^([+-])(\d{1,2})(:?)(\d\d)?$/.exec(rest);
+    // `+5`, `+05`, `+0530` or `+05:30`, and nothing looser: `+123` is refused,
+    // not read as one hour and 23 minutes.
+    const offset = /^([+-])(\d\d?)$/.exec(rest) || /^([+-])(\d\d):?(\d\d)$/.exec(rest);
+    const inRange = !!day && Number(day[2]) >= 1 && Number(day[2]) <= 12 &&
+      Number(day[3]) >= 1 && Number(day[3]) <= 31 &&
+      (!clock || (Number(clock[1]) <= 24 && Number(clock[2]) <= 59)) &&
+      (!seconds || Number(seconds[1]) < 61) &&
+      (!offset || (Number(offset[2]) <= 14 && Number(offset[3] || 0) <= 59));
     let epoch = NaN;
-    if (day && (rest === "" || /^(Z|UTC|GMT)$/i.test(rest) || offset)) {
+    if (day && inRange && (rest === "" || /^(Z|UTC|GMT)$/i.test(rest) || offset)) {
       const at = new Date(0);
       // setUTCFullYear, since Date.UTC reads a year below 100 as 19xx.
       at.setUTCFullYear(Number(day[1]), Number(day[2]) - 1, Number(day[3]));
@@ -549,13 +563,15 @@ export function formatAxisValue(value: number, units: string | null): string {
       epoch = at.getTime() + (seconds ? Number(seconds[1]) : 0) * 1000;
       if (offset) {
         // `+05:30` is 5 h 30 min ahead of UTC, so its midnight is earlier.
-        const minutes = Number(offset[2]) * 60 + Number(offset[4] || 0);
+        const minutes = Number(offset[2]) * 60 + Number(offset[3] || 0);
         epoch -= (offset[1] === "-" ? -1 : 1) * minutes * 60000;
       }
     }
     const at = new Date(epoch + value * step);
-    // An instant past the Date range is invalid, and toISOString would throw.
-    if (Number.isFinite(at.getTime())) {
+    // An instant past the Date range is invalid, and toISOString would throw;
+    // one outside years 0 to 9999 has no YYYY-MM-DD form to show.
+    const year = at.getUTCFullYear();
+    if (Number.isFinite(at.getTime()) && year >= 0 && year <= 9999) {
       const date = at.toISOString().slice(0, 10);
       const time = at.toISOString().slice(11, 16);
       return time === "00:00" ? date : date + " " + time;
@@ -2418,9 +2434,13 @@ export function renderImagePanelHtml(
           if (!SLICE || r.gridI == null || r.gridJ == null) { hideLine(); return; }
           if (!fillLineAxes()) { hideLine(); return; }
           lineCell = { gridI: r.gridI, gridJ: r.gridJ };
-          // A click asks for this cell's line, which replaces a zonal mean.
+          // A click asks for this cell's line, which replaces a zonal mean. The
+          // click is outside the toolbar, so the untick saves itself (#1027).
           const toggle = document.getElementById('zonal-toggle');
-          if (toggle) toggle.checked = false;
+          if (toggle && toggle.checked) {
+            toggle.checked = false;
+            snapshotState();
+          }
           setAxisPickerHidden(false);
           requestLine();
         }
@@ -2900,10 +2920,11 @@ export function renderImagePanelHtml(
             vectorColor: val('color-vectors'),
             vectorWidth: val('width-vectors'),
             zonal: chk('zonal-toggle'),
-            animateDim: preferredAnimateDim !== null ? preferredAnimateDim : val('animate-dim'),
+            // What is on screen, or the saved choice while its picker is empty.
+            animateDim: val('animate-dim') || preferredAnimateDim || undefined,
             animSpeed: val('anim-speed'),
             animLoop: chk('anim-loop'),
-            lineAxis: preferredLineAxis !== null ? preferredLineAxis : val('line-axis'),
+            lineAxis: val('line-axis') || preferredLineAxis || undefined,
             slice: sliceState,
             // The variable by name as well as by index: a panel rewritten for
             // a file that changed under it restores by name (#839).
@@ -3041,6 +3062,8 @@ export function renderImagePanelHtml(
           setVal('anim-speed', s.animSpeed);
           // Loop starts on; a snapshot from before #1027 has no say.
           if (typeof s.animLoop === 'boolean') setChk('anim-loop', s.animLoop);
+          // The animated axis comes back, but not playback: a panel shown again
+          // is paused on the step it was showing.
           if (typeof s.animateDim === 'string' && s.animateDim !== '') preferredAnimateDim = s.animateDim;
           if (typeof s.lineAxis === 'string' && s.lineAxis !== '') preferredLineAxis = s.lineAxis;
           // Dependent visibility the change handlers would normally toggle.
