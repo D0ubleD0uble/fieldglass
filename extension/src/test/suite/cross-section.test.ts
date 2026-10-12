@@ -19,6 +19,7 @@ import {
   renderImagePanelHtml,
   type PanelField,
   type SlicePanelData,
+  composeLineAxisLabel,
 } from "../../render-panel";
 
 function extensionPath(): string {
@@ -89,6 +90,48 @@ suite("Cross-sections", () => {
     assert.strictEqual(formatAxisValue(1013.25, "hPa"), "1013.25");
     assert.strictEqual(formatAxisValue(-88.5, "degrees_north"), "-88.5");
     assert.strictEqual(formatAxisValue(Number.NaN, "hPa"), "");
+  });
+
+  test("a CF reference date is read the way UDUNITS writes it (#1028)", () => {
+    // Every NCEP/NCAR reanalysis file writes fractional seconds, which
+    // Date.parse refuses, so these ticks used to read as hours.
+    assert.strictEqual(formatAxisValue(1963536, "hours since 1800-01-01 00:00:0.0"), "2024-01-01");
+    assert.strictEqual(formatAxisValue(1972296, "hours since 1800-01-01 00:00:0.0"), "2024-12-31");
+    // One-digit fields and no time at all.
+    assert.strictEqual(formatAxisValue(45000, "days since 1900-1-1"), "2023-03-17");
+    // ISO, with `T` and a `Z`.
+    assert.strictEqual(formatAxisValue(1700000000, "seconds since 1970-01-01T00:00:00Z"), "2023-11-14 22:13");
+    // Seconds on the reference carry into the minute.
+    assert.strictEqual(formatAxisValue(30, "seconds since 2000-01-01 12:00:30"), "2000-01-01 12:01");
+    // A zone: midnight five and a half hours ahead of UTC is 18:30 the day
+    // before, and six hours behind is 06:00.
+    assert.strictEqual(formatAxisValue(0, "hours since 2020-01-01 00:00:00 +05:30"), "2019-12-31 18:30");
+    assert.strictEqual(formatAxisValue(0, "hours since 2020-01-01 00:00 -6"), "2020-01-01 06:00");
+    assert.strictEqual(formatAxisValue(0, "hours since 2020-01-01 00:00 UTC"), "2020-01-01");
+    // A year below 100 is that year, not 19xx.
+    assert.strictEqual(formatAxisValue(366, "days since 0001-01-01"), "0002-01-02");
+    // A reference with something after it no rule covers is not guessed at.
+    assert.strictEqual(formatAxisValue(3, "days since 2020-01-01 noon"), "3");
+    // Past the range a Date can hold: the number, not a thrown error.
+    assert.strictEqual(formatAxisValue(1e300, "days since 2020-01-01"), "1e+300");
+    // A field out of range is not rolled into the next month or day.
+    assert.strictEqual(formatAxisValue(3, "days since 2020-13-45"), "3");
+    assert.strictEqual(formatAxisValue(3, "days since 2020-01-01 10:60"), "3");
+    // An offset is `+h`, `+hh`, `+hhmm` or `+hh:mm`; `+123` could be either.
+    assert.strictEqual(formatAxisValue(0, "hours since 2020-01-01 00:00 +0530"), "2019-12-31 18:30");
+    assert.strictEqual(formatAxisValue(3, "hours since 2020-01-01 00:00 +123"), "3");
+    // A date past year 9999 has no YYYY-MM-DD form.
+    assert.strictEqual(formatAxisValue(1e7, "days since 2000-01-01"), "10000000");
+    // A long run of trailing spaces is read at once (no backtracking).
+    assert.strictEqual(formatAxisValue(0, "days since 2000-01-01" + " ".repeat(100_000)), "2000-01-01");
+  });
+
+  test("the line plot's axis label reads its ends the way the ticks do (#1028)", () => {
+    const units = "hours since 1800-01-01 00:00:0.0";
+    assert.strictEqual(composeLineAxisLabel(1963536, 1972296, units, true), "2024-01-01 … 2024-12-31");
+    assert.strictEqual(composeLineAxisLabel(1000, 10, "millibar", true), "1000 … 10");
+    // An axis without coordinates is placed by index, and says so.
+    assert.strictEqual(composeLineAxisLabel(0, 365, units, false), "0 … 365");
   });
 
   test("the addon reports an axis's coordinates and units", () => {

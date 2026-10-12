@@ -131,8 +131,80 @@ const DRIVER = `
         canvasVisibility: byId('canvas').style.visibility,
       };
     }
+    // Every control on the page with an id, by id, and each radio group's
+    // choice, by name: what a snapshot has to carry across a rebuild (#1027).
+    const settable = (el) => el.type !== 'button' && el.type !== 'file' && el.type !== 'radio';
+    function controls() {
+      const out = {};
+      document.querySelectorAll('input[id], select[id]').forEach((el) => {
+        if (settable(el)) out[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+      });
+      document.querySelectorAll('input[type="radio"][name]:checked').forEach((el) => {
+        out['radio:' + el.name] = el.value;
+      });
+      return out;
+    }
+    // Move every enabled control off its value, as a user would, firing the
+    // events a user's edit fires. \`values\` gives a control a value of the
+    // test's choosing; \`skip\` leaves one alone. Reports what moved, what
+    // could not move (a select with one option), and what the driver did not
+    // know how to move.
+    function perturb(skip, values) {
+      const moved = [];
+      const stuck = [];
+      const unknown = [];
+      const fire = (el) => {
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      document.querySelectorAll('input[id], select[id]').forEach((el) => {
+        if (!settable(el) || skip.includes(el.id) || el.matches(':disabled')) return;
+        const before = el.type === 'checkbox' ? el.checked : el.value;
+        if (el.id in values) el.value = String(values[el.id]);
+        else if (el.type === 'checkbox') el.checked = !el.checked;
+        else if (el.tagName === 'SELECT') {
+          const other = Array.from(el.options).filter((o) => o.value !== el.value).pop();
+          if (!other) { stuck.push(el.id); return; }
+          el.value = other.value;
+        } else if (el.type === 'number') {
+          const step = Number(el.step) || 1;
+          const now = el.value === '' ? NaN : Number(el.value);
+          let next = Number.isFinite(now) ? now + step : (el.min !== '' ? Number(el.min) : 0) + step;
+          if (el.max !== '' && next > Number(el.max)) next = (Number.isFinite(now) ? now : Number(el.max)) - step;
+          el.value = String(next);
+        } else if (el.type === 'color') {
+          el.value = el.value.toLowerCase() === '#123456' ? '#654321' : '#123456';
+        } else {
+          unknown.push(el.id);
+          return;
+        }
+        if ((el.type === 'checkbox' ? el.checked : el.value) !== before) moved.push(el.id);
+        fire(el);
+      });
+      const groups = new Set();
+      document.querySelectorAll('input[type="radio"][name]').forEach((el) => groups.add(el.name));
+      groups.forEach((name) => {
+        if (skip.includes('radio:' + name)) return;
+        const other = Array.from(document.querySelectorAll('input[type="radio"][name="' + name + '"]'))
+          .find((el) => !el.checked && !el.matches(':disabled'));
+        if (!other) return;
+        other.checked = true;
+        moved.push('radio:' + name);
+        fire(other);
+      });
+      return { moved: moved, stuck: stuck, unknown: unknown };
+    }
     window.addEventListener('message', (ev) => {
       const m = ev.data;
+      if (m && m.type === 'test:controls') {
+        api.postMessage({ type: 'test:controls', tag: m.tag, controls: controls() });
+        return;
+      }
+      if (m && m.type === 'test:perturb') {
+        const done = perturb(m.skip, m.values);
+        api.postMessage({ type: 'test:perturbed', tag: m.tag, moved: done.moved, stuck: done.stuck, unknown: done.unknown });
+        return;
+      }
       if (!m || (m.type !== 'test:drive' && m.type !== 'test:probe')) return;
       if (m.type === 'test:probe') {
         const r = byId('canvas').getBoundingClientRect();
@@ -172,6 +244,14 @@ export interface RealPanel {
   /** Click the middle of the image, as a user reads the value there. Resolves
    *  once the page has sent the click; the reply comes after. */
   probe(): Promise<void>;
+  /** Every control on the page, by id (radio groups as `radio:<name>`). */
+  controls(): Promise<Record<string, string | boolean>>;
+  /** Move every enabled control off its value, as a user would. `values`
+   *  chooses a control's value; `skip` leaves controls alone. */
+  perturb(
+    skip: string[],
+    values: Record<string, string | number>,
+  ): Promise<{ moved: string[]; stuck: string[]; unknown: string[] }>;
   /** Wait for the provider to post a message matching `pred`, after `from`. */
   waitSent(pred: (m: Msg) => boolean, from: number, what: string): Promise<Msg>;
   /** Write the panel again the way an imported colormap does, which reloads
@@ -268,6 +348,24 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
         `the page's click ${mine}`,
       );
       assert.ok(reply.width > 0 && reply.height > 0, "the image is laid out, so a click lands on it");
+    },
+    controls: async () => {
+      const mine = ++tag;
+      await panel.webview.postMessage({ type: "test:controls", tag: mine });
+      const reply = await waitUntil(
+        () => received.find((m) => m.type === "test:controls" && m.tag === mine),
+        `the page's controls ${mine}`,
+      );
+      return reply.controls;
+    },
+    perturb: async (skip, values) => {
+      const mine = ++tag;
+      await panel.webview.postMessage({ type: "test:perturb", tag: mine, skip, values });
+      const reply = await waitUntil(
+        () => received.find((m) => m.type === "test:perturbed" && m.tag === mine),
+        `the page's perturbation ${mine}`,
+      );
+      return { moved: reply.moved, stuck: reply.stuck, unknown: reply.unknown };
     },
     waitSent: (pred, from, what) =>
       waitUntil(() => sent.slice(from).find(pred), what).catch((err: Error) => {
