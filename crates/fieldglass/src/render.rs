@@ -1183,6 +1183,13 @@ fn raise_to_min_raster(dims: (u32, u32)) -> (u32, u32) {
 /// [`GridGeometry::forward`], [`GridGeometry::lonlat_bbox`] and
 /// [`GridGeometry::reprojectable`] gate on, so a grid this accepts is one all
 /// four answer for.
+///
+/// The radius floor is asked twice, here by `require_declared_radius` so the
+/// refusal can name the number, and inside those four answers so a grid it
+/// refuses is not placed either (#1002). Placement comes from
+/// [`GridGeometry::lonlat_bbox`]; had it measured only the projector's own
+/// plane, a polar stereographic grid on an Earth smaller than one cell but not
+/// than `2·R·k₀` would be placed and then refused every point operation.
 pub(crate) fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Error> {
     let placeable = |ok: bool, proj: &dyn PlanarGridProjector| {
         // Lazily: the refusal is a formatted string, and a grid that passes
@@ -1702,8 +1709,9 @@ fn forward_geolocation(geometry: &GridGeometry) -> Option<ForwardAt<'_>> {
 /// Whether a geometry's family has the forward map [`forward_geolocation`]
 /// builds, asked without building it (a boxed closure).
 ///
-/// Space view has grid points off the disc entirely, and an unmodelled family
-/// has no map at all; those are the two `false`s. The wildcard is forced:
+/// A space view has no forward map yet, whatever its extent, so even a sector
+/// wholly on the Earth answers `false` (#979); an unmodelled family has no map
+/// at all. Those are the two `false`s. The wildcard is forced:
 /// `GridGeometry` is `#[non_exhaustive]`, so a `match` in this crate cannot be
 /// exhaustive over it, and a family added there without an arm here reads as
 /// "no forward map" rather than failing to compile. That is why

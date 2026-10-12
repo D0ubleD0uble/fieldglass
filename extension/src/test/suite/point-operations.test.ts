@@ -13,6 +13,7 @@
 
 import * as assert from "assert";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
@@ -23,6 +24,7 @@ import {
   NO_ZONAL_NOTE,
   UNPLACED_LONG_CSV_NOTE,
   UNPLACED_OVERLAY_NOTE,
+  UNPLACED_VECTORS_NOTE,
   UNPLACED_ZONAL_NOTE,
   zonalNote,
 } from "../../render-panel";
@@ -43,6 +45,29 @@ function variableIndex(file: string, name: string): number {
     .find((x) => x.name === name);
   assert.ok(v, `${path.basename(file)} has ${name}`);
   return v.variableIndex;
+}
+
+/** The committed §3.20 polar stereographic fixture, edited to state an Earth
+ *  of `radiusM` metres (shape of the Earth 1, radius given by the producer) and
+ *  a 100 km Dx and Dy. The same edit `crates/fieldglass/tests/placement.rs`
+ *  makes (#1002). */
+function polarStereoOnAnEarthOf(radiusM: number): Buffer {
+  const bytes = Buffer.from(fs.readFileSync(crateFixture("fieldglass-grib2", "polar_stereographic_surface.grib2")));
+  let at = 16; // past §0
+  while (at + 5 <= bytes.length && bytes.toString("latin1", at, at + 4) !== "7777") {
+    const len = bytes.readUInt32BE(at);
+    if (bytes[at + 4] === 3) {
+      assert.strictEqual(bytes.readUInt16BE(at + 12), 20, "a §3.20 grid");
+      bytes[at + 14] = 1; // octet 15: shape of the Earth
+      bytes[at + 15] = 0; // octet 16: scale factor of the radius
+      bytes.writeUInt32BE(radiusM, at + 16); // octets 17-20
+      bytes.writeUInt32BE(100_000_000, at + 55); // octets 56-59: Dx, 10^-3 m
+      bytes.writeUInt32BE(100_000_000, at + 59); // octets 60-63: Dy
+      return bytes;
+    }
+    at += len;
+  }
+  throw new Error("no §3 in the fixture");
 }
 
 suite("Point operations follow the grid (#945)", function () {
@@ -111,6 +136,53 @@ suite("Point operations follow the grid (#945)", function () {
       );
     } finally {
       panel.dispose();
+    }
+  });
+
+  // #1002. A polar stereographic grid whose declared Earth (80 km) is smaller
+  // than one of its cells (100 km) but whose own plane, 2·R·k₀ ≈ 149 km, is
+  // not. It used to be placed, then refused every point operation, and the
+  // panel said contours aren't available "for satellite-view grids yet". It is
+  // not placed, and the panel says that instead.
+  test("a polar grid on an Earth smaller than one cell is not placed, and the panel says so", async () => {
+    const p = await provider();
+    const message = polarStereoOnAnEarthOf(80_000);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1002-"));
+    // Twice, so the Vectors row is written: the message is its own u/v pair.
+    const file = path.join(dir, "tiny_earth_pair.grib2");
+    fs.writeFileSync(file, Buffer.concat([message, message]));
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const meta = native.Grib2Handle.fromBytes(fs.readFileSync(file)).message(0);
+    assert.strictEqual(meta.placement, "unplaceable", "the grid is not placed");
+    assert.deepStrictEqual(meta.supports, NONE, "and takes no point operation");
+
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const state = await panel.drive([
+        { id: "overlay-coastlines", checked: true },
+        { id: "overlay-contours", checked: true },
+        { id: "overlay-vectors", checked: true },
+      ]);
+      assert.strictEqual(state.overlayDisabled, true, "the Overlay row is disabled");
+      assert.strictEqual(state.overlayNote, UNPLACED_OVERLAY_NOTE, "because the grid is not placed");
+      assert.strictEqual(state.contourNote, null, "the Overlay note covers contours");
+      assert.strictEqual(state.vectorDisabled, true);
+      assert.strictEqual(state.vectorNote, UNPLACED_VECTORS_NOTE);
+      assert.strictEqual(state.zonalNote, UNPLACED_ZONAL_NOTE);
+      for (const note of [state.overlayNote, state.contourNote, state.vectorNote, state.zonalNote]) {
+        assert.doesNotMatch(String(note), /satellite-view/, "nothing blames a satellite view");
+      }
+      assert.deepStrictEqual(
+        panel.sent.filter((m: Msg) => m && /Error$|vectorResult|contourReady/.test(m.type)).map((m: Msg) => m.type),
+        [],
+        "and nothing is asked for and refused",
+      );
+    } finally {
+      panel.dispose();
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 

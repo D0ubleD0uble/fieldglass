@@ -253,3 +253,88 @@ fn an_unmodelled_grib1_grid_type_is_unsupported() {
     );
     assert_eq!(info.placement, Placement::Unsupported);
 }
+
+/// The committed §3.20 polar stereographic fixture, edited to state a grid
+/// step and an Earth of its own: shape of the Earth 1 ("spherical, radius
+/// specified by the data producer") with a radius of `radius_m`, and a
+/// 100 km Dx and Dy. Everything else — 16 × 31 points from 60°N 0°E, a 60°
+/// latitude of true scale — is the file's.
+fn polar_stereo_on_an_earth_of(radius_m: u32) -> Vec<u8> {
+    let mut out = std::fs::read(format!("{G2}polar_stereographic_surface.grib2")).expect("fixture");
+    let mut at = 16; // past §0
+    while at + 5 <= out.len() && &out[at..at + 4] != b"7777" {
+        let len = u32::from_be_bytes([out[at], out[at + 1], out[at + 2], out[at + 3]]) as usize;
+        if out[at + 4] == 3 {
+            let s = &mut out[at..at + len];
+            assert_eq!(u16::from_be_bytes([s[12], s[13]]), 20, "a §3.20 grid");
+            s[14] = 1; // octet 15: shape of the Earth
+            s[15] = 0; // octet 16: scale factor of the radius
+            s[16..20].copy_from_slice(&radius_m.to_be_bytes()); // octets 17–20
+            let step_mm = 100_000_000u32.to_be_bytes(); // 100 km, in 10⁻³ m
+            s[55..59].copy_from_slice(&step_mm); // octets 56–59: Dx
+            s[59..63].copy_from_slice(&step_mm); // octets 60–63: Dy
+            return out;
+        }
+        at += len;
+    }
+    panic!("no §3 in the message");
+}
+
+/// A polar stereographic grid on an Earth smaller than one of its own cells is
+/// not placed (#1002).
+///
+/// Its own plane is `2·R·k₀`, with `k₀ = (1 + sin 60°)/2 ≈ 0.933`, so an 80 km
+/// Earth under 100 km cells is a 149 km plane: wide enough for the projector,
+/// which used to decide placement alone. The render measures the declared
+/// Earth and refuses every point operation on it, so the grid was placed, took
+/// no contours, arrows or long CSV, and the panel blamed a satellite view. Now
+/// both measure the same Earth, and the panel says the grid is not placed.
+///
+/// The control, a 120 km Earth under the same cells, shows the edit itself
+/// leaves a grid that places and takes every point operation: the line is at
+/// one cell of the declared Earth, not somewhere the edit moved it.
+#[test]
+fn a_polar_grid_on_an_earth_smaller_than_one_cell_is_unplaceable() {
+    let none = fieldglass::GridSupport::default();
+    let session = Session::open(polar_stereo_on_an_earth_of(80_000)).expect("opens");
+    let info = session.message(0).expect("message 0");
+    let grid = info.grid.as_ref().expect("a GRIB2 message declares a grid");
+    assert_eq!(grid.label, "polar_stereo");
+    assert_eq!(grid.placement, Placement::Unplaceable);
+    assert_eq!(grid.bounds_lonlat, None);
+    assert!(!grid.reprojectable);
+    assert_eq!(grid.supports, none, "no operation that needs a position");
+    assert_eq!(info.placement, Placement::Unplaceable);
+    assert!(!info.reprojectable);
+    assert_eq!(info.supports, none);
+
+    let field = session
+        .decode(0, &DecodeOptions::default())
+        .expect("an unplaceable grid still decodes");
+    assert_eq!(field.georef.placement, Placement::Unplaceable);
+    assert_eq!(field.georef.corners, None);
+    assert_eq!(field.georef.affine, None);
+    assert_eq!(field.georef.supports, none);
+    assert_eq!(
+        session.probe(&field, 60.0, 0.0),
+        None,
+        "a probe answers nothing on a grid nothing places"
+    );
+
+    let control = Session::open(polar_stereo_on_an_earth_of(120_000)).expect("opens");
+    let info = control.message(0).expect("message 0");
+    assert_eq!(info.placement, Placement::Placed);
+    assert!(info.reprojectable);
+    let s = info.supports;
+    assert!(
+        s.contours && s.vectors && s.long_csv && !s.zonal_mean,
+        "every point operation but the zonal mean: {s:?}"
+    );
+    let field = control
+        .decode(0, &DecodeOptions::default())
+        .expect("decodes");
+    assert!(
+        control.probe(&field, 60.0, 0.0).is_some(),
+        "the first point"
+    );
+}

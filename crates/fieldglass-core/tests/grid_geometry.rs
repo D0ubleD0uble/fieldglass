@@ -829,6 +829,33 @@ fn a_projection_that_resolves_nowhere_is_declined_by_every_answer() {
             }),
             (54.0, -2.0),
         ),
+        // #1002. The other way round: the family's own plane carries a cell and
+        // the declared Earth does not. The render measures the declared Earth
+        // (`require_declared_radius`), so a grid in the band between the two
+        // used to be placed here and then refused every point operation.
+        // Polar stereographic's plane is `2·R·k₀`, 1.87·R at a 60° latitude of
+        // true scale: a 45 km Earth under 60 km cells is 84 km of plane.
+        (
+            "a polar stereographic Earth smaller than one cell but not its plane",
+            GridGeometry::PolarStereo(PolarStereoParams {
+                earth_radius_m: 45_000.0,
+                ..cmc_polar()
+            }),
+            (60.0, -90.0),
+        ),
+        // Transverse Mercator's plane is `k·rectifying_radius`, and `k` is an
+        // unguarded `f32` that can exceed one: a 40 km sphere at `k = 2` is
+        // 80 km of plane under 48 km cells.
+        (
+            "a transverse Mercator Earth smaller than one cell but not its plane",
+            GridGeometry::TransverseMercator(TransverseMercatorParams {
+                semi_major_m: 40_000.0,
+                semi_minor_m: 40_000.0,
+                scale_factor: 2.0,
+                ..ukv_transverse_mercator()
+            }),
+            (54.0, -2.0),
+        ),
     ];
     for (what, geom, (lat, lon)) in broken {
         assert!(geom.inverse(lat, lon).is_none(), "{what}: inverse");
@@ -851,6 +878,139 @@ fn a_projection_that_resolves_nowhere_is_declined_by_every_answer() {
         ]
         .contains(&what);
         assert_eq!(geom.proj4().is_none(), names_no_crs, "{what}: proj4");
+    }
+}
+
+/// Every answer a planar grid gives measures its Earth the same way, on both
+/// sides of one cell (#1002).
+///
+/// The declared radius is swept across `|dx|` for each family, and for the two
+/// whose plane is a second factor times that radius, the factor is pushed past
+/// one so the family's own plane is wider than the declared Earth. Each grid is
+/// three cells starting at the projection's centre, so no answer is lost to a
+/// point off the projection's reach: whatever declines here declines because of
+/// the radius.
+#[test]
+fn every_answer_measures_a_planar_grid_against_the_same_earth() {
+    let ps = PolarStereoParams {
+        ni: 3,
+        nj: 3,
+        lat_first: 89.0,
+        lon_first: 0.0,
+        lov: 0.0,
+        lad: 60.0,
+        ..cmc_polar()
+    };
+    let lambert = LambertParams {
+        ni: 3,
+        nj: 3,
+        lat_first: 25.0,
+        lon_first: -95.0,
+        ..eta_lambert()
+    };
+    let tm = TransverseMercatorParams {
+        ni: 3,
+        nj: 3,
+        lat_ref: 0.0,
+        lon_ref: 0.0,
+        scale_factor: 1.5,
+        false_easting_m: 0.0,
+        false_northing_m: 0.0,
+        x1_metres: 0.0,
+        y1_metres: 0.0,
+        ..ukv_transverse_mercator()
+    };
+    let laea = LambertAzimuthalParams {
+        ni: 3,
+        nj: 3,
+        lat_first: 52.0,
+        lon_first: 10.0,
+        ..efas_lambert_azimuthal()
+    };
+    let mut declined = 0;
+    let mut placed = 0;
+    for ratio in [0.3, 0.6, 0.9, 0.99, 1.01, 1.2, 1.9, 2.5, 10.0] {
+        let grids = [
+            GridGeometry::PolarStereo(PolarStereoParams {
+                earth_radius_m: ratio * ps.dx_metres,
+                ..ps
+            }),
+            GridGeometry::Lambert(LambertParams {
+                earth_radius_m: ratio * lambert.dx_metres,
+                ..lambert
+            }),
+            GridGeometry::TransverseMercator(TransverseMercatorParams {
+                semi_major_m: ratio * tm.dx_metres,
+                semi_minor_m: ratio * tm.dx_metres,
+                ..tm
+            }),
+            GridGeometry::LambertAzimuthal(LambertAzimuthalParams {
+                semi_major_m: ratio * laea.dx_metres,
+                semi_minor_m: ratio * laea.dx_metres,
+                ..laea
+            }),
+        ];
+        for geom in grids {
+            let what = format!("{:?} at R = {ratio}·|dx|", geom.kind());
+            let offered = geom.reprojectable(Scan::north_down());
+            assert_eq!(offered, ratio > 1.0, "{what}: reprojectable");
+            assert_eq!(geom.lonlat_bbox().is_some(), offered, "{what}: bbox");
+            assert_eq!(geom.plane_affine().is_some(), offered, "{what}: affine");
+            assert_eq!(geom.forward(0, 0).is_some(), offered, "{what}: forward");
+            assert_eq!(
+                (geom.forward_at())(0, 0).is_some(),
+                offered,
+                "{what}: forward_at"
+            );
+            // The grid's own first point, read back.
+            let first = geom.first_point().filter(|_| offered);
+            let found = first.and_then(|(lat, lon)| geom.inverse(lat, lon));
+            assert_eq!(found.is_some(), offered, "{what}: inverse");
+            if offered {
+                placed += 1;
+            } else {
+                declined += 1;
+            }
+        }
+    }
+    assert!(
+        placed > 0 && declined > 0,
+        "both sides of the floor are swept"
+    );
+}
+
+/// A grid in the band #1002 names declines `inverse` as well, for every point:
+/// a probe on a grid that is not placed answers nothing, as `forward` does.
+#[test]
+fn a_grid_smaller_than_its_declared_earth_inverts_no_point() {
+    let healthy = cmc_polar();
+    let shrunk = GridGeometry::PolarStereo(PolarStereoParams {
+        earth_radius_m: 45_000.0,
+        ..healthy
+    });
+    assert!(
+        PolarStereoProjector::new(PolarStereoParams {
+            earth_radius_m: 45_000.0,
+            ..healthy
+        })
+        .is_well_defined(),
+        "the projector's own plane, 2·R·k₀ = 84 km, carries a 60 km cell"
+    );
+    // Every grid point of the shrunk grid, as the projector places them: the
+    // closure answers none of them.
+    let proj = PolarStereoProjector::new(PolarStereoParams {
+        earth_radius_m: 45_000.0,
+        ..healthy
+    });
+    let inverse = shrunk.inverse_at();
+    for (i, j) in [(0, 0), (67, 47), (134, 94)] {
+        let (lat, lon) = proj.grid_point_lonlat(i, j);
+        assert!(lat.is_finite() && lon.is_finite());
+        assert!(
+            proj.inverse(lat, lon).is_some(),
+            "the bare projector finds ({i}, {j})"
+        );
+        assert_eq!(inverse(lat, lon), None, "the geometry does not ({i}, {j})");
     }
 }
 
