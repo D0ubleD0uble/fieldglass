@@ -121,6 +121,24 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    or global-heap length is charged before it is narrowed to `usize`, so the
    refusal is the same on a 32-bit target.
 
+   Every length is checked to end inside the file before it meets a cap
+   (#1017): a header chunk, a heap object or block, a filtered chunk. Over a
+   buffer the end of the file is the buffer's, so a length past it is a
+   parse error, a corrupt file, and only a well-formed structure in the file
+   can be refused as too large. Over a source read by range the end of the
+   file is the size the host declares, and a well-formed oversized length
+   still meets the cap.
+
+   Where a filter pipeline stands between the stored bytes and a capped
+   decoded size, the stored size may pass the cap by what the filters that
+   ran can add to an object of the decoded size, and never by more than the
+   cap again (#1016, `FilterPipeline::stored_limit`): fletcher32 adds its
+   4-byte checksum, deflate at most zlib's `deflateBound` for any parameters
+   (about an eighth, RFC 1951 §3.2.6; zlib's stored blocks on data that does
+   not compress add 5 bytes per 65,535, §3.2.4), zstd `ZSTD_COMPRESSBOUND`
+   (about 1/256), and szip what its parameters allow. This holds for a
+   filtered chunk, a filtered heap block and a filtered huge heap object.
+
    libhdf5 lets a heap declare direct blocks of up to 2 GiB
    (`H5HF_MAX_DIRECT_SIZE_LIMIT`), and nothing in the format bounds a header
    chunk or a global-heap object, so a valid file can pass each cap. What
@@ -148,9 +166,10 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    checked before the chunk is planned or read. An unfiltered chunk is held to
    its own chunk's size (a parse error, refused after the read before). A
    filtered chunk's stored size, up to 4 GiB in a B-tree key, is held to the
-   256 MiB decoded-chunk ceiling of #970, as `ArrayError::StoredChunkTooLarge`: a
-   filter grows a chunk by a few bytes at most, so a chunk stored past the
-   ceiling could not have passed it decoded. A contiguous dataset's region
+   256 MiB decoded-chunk ceiling of #970 grown by its pipeline as above, as
+   `ArrayError::StoredChunkTooLarge`. A chunk at the ceiling is stored past
+   it when a filter grows it, as fletcher32 always does, so the ceiling alone
+   refused valid files libhdf5 reads (#1016). A contiguous dataset's region
    is checked to end inside the file before its run list and output buffer
    are built: both are bounded only by the field cap, so a 2.7 KB file
    declaring 8,192 × 8,191 float32 values held 268 MB before its first read
@@ -180,7 +199,12 @@ decodes; with `t`'s `DIMENSION_LIST` record pointed at one of them and the
 change each file was refused. With the `comment` record left in, two records
 name one object and the listing is a parse error; an oversized object past
 the end of a buffer is a parse error too, not skipped. The managed-object
-and filtered-block caps are checked in `heap.rs`.
+and filtered-block caps are checked in `heap.rs`. Opened from a buffer, each
+rewritten header and chunk length runs past the end of the file and is a
+parse error (#1017). A `float64` chunk cut to exactly 256 MiB and stored 4
+bytes past it under fletcher32, or 20,491 bytes past it under deflate on data
+that does not compress, reaches the read; a byte past what its filter can add
+is too large (#1016).
 
 ## Consequences
 

@@ -21,7 +21,9 @@
 
 use super::filter::FilterPipeline;
 use super::object_header::{is_undefined_address, read_uint_le, read_usize_le};
-use super::source::{ClaimedRanges, Fields, FileCursor, charge_metadata, read_at};
+use super::source::{
+    ClaimedRanges, Fields, FileCursor, MAX_METADATA_BYTES, charge_metadata, read_at, within_file,
+};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::ArrayError;
 use fieldglass_core::bytes::{ByteSource, checked_usize};
@@ -115,10 +117,11 @@ fn check_heap_object(len: u64) -> Result<(), FieldglassError> {
     charge_metadata(&mut 0, len, HEAP_OBJECT_BYTES)
 }
 
-/// Refuse a filtered direct block of `len` bytes, stored or decompressed,
-/// past [`MAX_FILTERED_DIRECT_BLOCK_SIZE`].
-fn check_filtered_block(len: u64) -> Result<(), FieldglassError> {
-    if len > MAX_FILTERED_DIRECT_BLOCK_SIZE {
+/// Refuse a filtered direct block of `len` bytes past `limit`: decompressed,
+/// [`MAX_FILTERED_DIRECT_BLOCK_SIZE`]; stored, what the heap's pipeline could
+/// grow a block of that size to ([`FilterPipeline::stored_limit`], #1016).
+fn check_filtered_block(len: u64, limit: u64) -> Result<(), FieldglassError> {
+    if len > limit {
         return Err(FieldglassError::Array(ArrayError::ListingTooLarge {
             what: "bytes in one filtered HDF5 heap block",
             limit: MAX_FILTERED_DIRECT_BLOCK_SIZE,
@@ -815,20 +818,27 @@ impl FractalHeap {
         // no range another record has. A corrupt one is a parse error whatever
         // its size, so only a well-formed object can reach the cap and be
         // skipped by a listing (#997).
-        if address
-            .checked_add(length)
-            .is_none_or(|end| end > source.size())
-        {
-            return Err(FieldglassError::Parse(
-                "huge heap object runs past end of file".into(),
-            ));
-        }
+        within_file(source, address, length, "huge heap object")?;
         reads.huge.claim(address, length, "huge heap object")?;
         // Then both sizes, before either is read or inflated, and before the
         // stored one is narrowed, so a length past the cap is too large on
-        // every target.
-        check_heap_object(length)?;
+        // every target. In a filtered heap the stored length may pass the cap
+        // by what the pipeline adds to an object at it (#1016).
         check_heap_object(memory_size)?;
+        match &self.filter {
+            Some(hf) => {
+                let limit = hf
+                    .pipeline
+                    .stored_limit(filter_mask, memory_size, MAX_METADATA_BYTES);
+                if length > limit {
+                    return Err(FieldglassError::Array(ArrayError::ListingTooLarge {
+                        what: HEAP_OBJECT_BYTES,
+                        limit: MAX_METADATA_BYTES,
+                    }));
+                }
+            }
+            None => check_heap_object(length)?,
+        }
         let length = checked_usize(length, "huge heap object length")?;
         let stored = read_at(source, address, length)
             .map_err(|_| FieldglassError::Parse("huge heap object runs past end of file".into()))?;
@@ -919,12 +929,7 @@ fn block_fits_file<S: ByteSource + ?Sized>(
     addr: u64,
     size: u64,
 ) -> Result<(), FieldglassError> {
-    if addr.checked_add(size).is_none_or(|end| end > source.size()) {
-        return Err(FieldglassError::Parse(
-            "fractal-heap direct block runs past end of file".into(),
-        ));
-    }
-    Ok(())
+    within_file(source, addr, size, "fractal-heap direct block")
 }
 
 /// A tiny object: its bytes are in the heap ID itself ("Fractal Heap ID for
@@ -1057,11 +1062,20 @@ fn decode_filtered_direct_block<S: ByteSource + ?Sized>(
     block_offset: u64,
     logical_size: u64,
 ) -> Result<Vec<u8>, FieldglassError> {
-    check_filtered_block(logical_size)?;
-    // Both sizes stay `u64` to the cap, so a 32-bit target refuses a size
-    // past it as too large, as a 64-bit one does, not as one that does not
-    // fit `usize` (#997). In range from here on.
-    check_filtered_block(filtered_size)?;
+    check_filtered_block(logical_size, MAX_FILTERED_DIRECT_BLOCK_SIZE)?;
+    // The stored block lies in the file before its size meets the cap, so
+    // one past the end of a buffer is corrupt, not too large (#1017), as an
+    // unfiltered block is checked by `block_fits_file`.
+    within_file(source, block_addr, filtered_size, "filtered direct block")?;
+    // The stored size may pass the decoded cap by what the pipeline adds to
+    // a block of the logical size: fletcher32's checksum, deflate's framing
+    // (#1016). Both sizes stay `u64` to the cap, so a 32-bit target refuses a
+    // size past it as too large, as a 64-bit one does, not as one that does
+    // not fit `usize` (#997). In range from here on.
+    check_filtered_block(
+        filtered_size,
+        pipeline.stored_limit(filter_mask, logical_size, MAX_FILTERED_DIRECT_BLOCK_SIZE),
+    )?;
     let filtered_size = usize::try_from(filtered_size)
         .map_err(|_| FieldglassError::Parse("implausible filtered direct block size".into()))?;
     let stored = read_at(source, block_addr, filtered_size).map_err(|_| {
@@ -2459,5 +2473,103 @@ mod tests {
             .err()
             .expect("a 128 MiB block");
         assert!(too_large(&err, what), "{err:?}");
+    }
+
+    /// The same gigabyte stored size in a buffer runs past the end of the
+    /// file, so the block is corrupt, not too large (#1017), as an unfiltered
+    /// block past the end of the file is.
+    #[test]
+    fn a_filtered_block_past_the_end_of_a_buffer_is_corrupt() {
+        let on_disk = zlib(&fhdb_image(64, HEAP_ADDR, &[0x01]));
+        let buf = frhp_filtered_single(&on_disk, 1 << 30, 0, &deflate_pipeline_body());
+        match FractalHeap::parse(&buf, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()) {
+            Err(FieldglassError::Parse(m)) => {
+                assert_eq!(m, "filtered direct block runs past end of file")
+            }
+            Err(e) => panic!("expected a Parse error, got {e:?}"),
+            Ok(_) => panic!("a gigabyte block in a 1 KiB buffer was accepted"),
+        }
+    }
+
+    /// A fletcher32-only pipeline body (version 2): one filter, id 3.
+    fn fletcher32_pipeline_body() -> Vec<u8> {
+        vec![
+            2, 1, /*id*/ 3, 0, /*flags*/ 0, 0, /*nvalues*/ 0, 0,
+        ]
+    }
+
+    /// A filtered direct block of exactly the 64 MiB cap is stored 4 bytes
+    /// past it under fletcher32, and is read; one byte more is too large
+    /// (#1016). Over a declared source holding none of it, the read the
+    /// reader asks for is the whole stored block.
+    #[test]
+    fn a_fletcher32_block_at_its_cap_is_read() {
+        let cap = MAX_FILTERED_DIRECT_BLOCK_SIZE;
+        let at_the_cap = |stored: u64| {
+            let mut buf =
+                frhp_filtered_single(&[], stored as usize, 0, &fletcher32_pipeline_body());
+            put(&mut buf, 112, &cap.to_le_bytes()); // starting_block_size
+            put(&mut buf, 120, &cap.to_le_bytes()); // max_direct_block_size
+            buf
+        };
+        let buf = at_the_cap(cap + 4);
+        let source = declared(&buf);
+        let err = FractalHeap::parse(&source, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default())
+            .err()
+            .expect("the declared source holds no block");
+        assert!(
+            !too_large(&err, "bytes in one filtered HDF5 heap block"),
+            "{err:?}"
+        );
+        assert_eq!(longest(&source), cap + 4);
+
+        let buf = at_the_cap(cap + 5);
+        let source = declared(&buf);
+        let err = FractalHeap::parse(&source, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default())
+            .err()
+            .expect("past what fletcher32 adds");
+        assert!(
+            too_large(&err, "bytes in one filtered HDF5 heap block"),
+            "{err:?}"
+        );
+        assert!(longest(&source) <= 1 << 16, "read {}", longest(&source));
+    }
+
+    /// A huge object in a filtered heap that decodes to exactly the 16 MiB
+    /// heap-object cap is stored 4 bytes past it under fletcher32, and is
+    /// read; one byte more is too large, and skipped by a listing (#1016).
+    #[test]
+    fn a_fletcher32_huge_object_at_the_cap_is_read() {
+        let cap = super::super::source::MAX_METADATA_BYTES;
+        // The root block skips the filter (mask bit 0), so it is stored as is.
+        let image = fhdb_image(64, HEAP_ADDR, &[]);
+        let mut buf = frhp_filtered_single(&image, image.len(), 1, &fletcher32_pipeline_body());
+        // flags(1) + address(8) + length(8) + mask(4) + decoded size(8): room
+        // for a huge object's direct ID.
+        put(&mut buf, 5, &29u16.to_le_bytes());
+        let source = declared(&buf);
+        let heap =
+            FractalHeap::parse(&source, HEAP_ADDR, 8, 8, &mut ClaimedRanges::default()).unwrap();
+        let id = |stored: u64| {
+            let mut id = vec![0x10];
+            id.extend_from_slice(&(1u64 << 30).to_le_bytes());
+            id.extend_from_slice(&stored.to_le_bytes());
+            id.extend_from_slice(&0u32.to_le_bytes());
+            id.extend_from_slice(&cap.to_le_bytes());
+            id
+        };
+        let read = |stored: u64| {
+            heap.object(
+                &source,
+                &id(stored),
+                &mut HeapReads::new(&mut ClaimedRanges::default()),
+            )
+        };
+        let err = read(cap + 4).expect_err("the declared source holds no object");
+        assert!(!too_large(&err, HEAP_OBJECT_BYTES), "{err:?}");
+        assert_eq!(longest(&source), cap + 4);
+
+        let err = read(cap + 5).expect_err("past what fletcher32 adds");
+        assert!(too_large(&err, HEAP_OBJECT_BYTES), "{err:?}");
     }
 }

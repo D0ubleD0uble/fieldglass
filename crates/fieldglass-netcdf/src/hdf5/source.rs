@@ -264,6 +264,28 @@ pub(crate) fn charge_metadata(
     Ok(())
 }
 
+/// Refuse `len` bytes at `start` that run past the end of the file, as a
+/// parse error naming `what` (`"<what> runs past end of file"`).
+///
+/// Run before a length is held to a size cap, so only a structure that lies
+/// in the file can reach the cap (#1017). Over a buffer the end of the file is
+/// the buffer's, and a length past it is corrupt, not too large; over a source
+/// read by range it is the size the host declares, and a well-formed oversize
+/// length still meets the cap.
+pub(crate) fn within_file<S: ByteSource + ?Sized>(
+    source: &S,
+    start: u64,
+    len: u64,
+    what: &str,
+) -> Result<(), FieldglassError> {
+    if start.checked_add(len).is_none_or(|end| end > source.size()) {
+        return Err(FieldglassError::Parse(format!(
+            "{what} runs past end of file"
+        )));
+    }
+    Ok(())
+}
+
 /// File ranges one traversal has already read, held so no two overlap (#895).
 ///
 /// An object header's continuation chunks and a B-tree v2's nodes each belong
