@@ -11,9 +11,8 @@
 
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{
-    CornerPair, FieldglassError, GeostationaryParams, GridFingerprint, LambertAzimuthalParams,
-    LambertAzimuthalProjector, LambertParams, LambertProjector, PlanarGridProjector,
-    PolarStereoParams, PolarStereoProjector, StoredRuns, TransverseMercatorParams,
+    CornerPair, FieldglassError, GeostationaryParams, GridFingerprint, GridGeometry,
+    LambertAzimuthalParams, LambertParams, PolarStereoParams, StoredRuns, TransverseMercatorParams,
     bits::sign_magnitude_to_i64, is_oblate_spheroid, normalise_lon, signed_grid_increments,
 };
 
@@ -692,22 +691,18 @@ pub struct GridDefinitionSection {
 }
 
 impl LambertTemplate {
-    /// Geographic `(lat, lon)` of the last scanned grid point — the corner
-    /// diagonally opposite the declared first point.
-    ///
-    /// §3.30 states no second corner (unlike §3.0, which carries La2/Lo2), so
-    /// it is recovered the way `fieldglass-grib1` recovers its Lambert corner:
-    /// forward-project the first point to plane metres, step `(Nx-1)·Dx` and
-    /// `(Ny-1)·Dy` along the grid's own scan, and invert. `None` for a
-    /// degenerate cone, which would otherwise report `NaN`.
-    pub fn last_point(&self) -> Option<(f64, f64)> {
+    /// The template as `core`'s projection parameters, with the scan sign
+    /// applied to `Dx`/`Dy` the way every planar template needs. The one
+    /// statement of them, read by [`Self::last_point`] and by the
+    /// `GridGeometry` conversion.
+    pub(crate) fn projection_params(&self) -> LambertParams {
         let (dx, dy) = signed_grid_increments(
             self.dx_metres,
             self.dy_metres,
             self.scanning_mode & 0x80 != 0,
             self.scanning_mode & 0x40 != 0,
         );
-        let projector = LambertProjector::new(LambertParams {
+        LambertParams {
             earth_radius_m: self.earth_radius_m,
             ni: self.nx,
             nj: self.ny,
@@ -719,11 +714,19 @@ impl LambertTemplate {
             dy_metres: dy,
             latin1: self.latin1,
             latin2: self.latin2,
-        });
-        finite_lonlat(
-            projector.is_well_defined(),
-            projector.last_grid_point_lonlat(),
-        )
+        }
+    }
+
+    /// Geographic `(lat, lon)` of the last scanned grid point — the corner
+    /// diagonally opposite the declared first point.
+    ///
+    /// §3.30 states no second corner (unlike §3.0, which carries La2/Lo2), so
+    /// it is recovered the way `fieldglass-grib1` recovers its Lambert corner:
+    /// forward-project the first point to plane metres, step `(Nx-1)·Dx` and
+    /// `(Ny-1)·Dy` along the grid's own scan, and invert. `None` wherever
+    /// `core` places no such point; see [`derived_last_point`].
+    pub fn last_point(&self) -> Option<(f64, f64)> {
+        derived_last_point(&GridGeometry::Lambert(self.projection_params()))
     }
 }
 
@@ -758,11 +761,7 @@ impl LambertAzimuthalTemplate {
     /// real first point but no second one, so the corner is derived the same
     /// way §3.20 and §3.30 derive theirs.
     pub fn last_point(&self) -> Option<(f64, f64)> {
-        let projector = LambertAzimuthalProjector::new(self.projection_params());
-        finite_lonlat(
-            projector.is_well_defined(),
-            projector.last_grid_point_lonlat(),
-        )
+        derived_last_point(&GridGeometry::LambertAzimuthal(self.projection_params()))
     }
 }
 
@@ -861,17 +860,17 @@ impl SpaceViewTemplate {
 }
 
 impl PolarStereographicTemplate {
-    /// Geographic `(lat, lon)` of the last scanned grid point. Same derivation
-    /// as [`LambertTemplate::last_point`] — §3.20 likewise states only the
-    /// first point.
-    pub fn last_point(&self) -> Option<(f64, f64)> {
+    /// The template as `core`'s projection parameters, scan-signed like
+    /// [`LambertTemplate::projection_params`]. §3.20 states `LaD`, unlike
+    /// GRIB1's fixed ±60°.
+    pub(crate) fn projection_params(&self) -> PolarStereoParams {
         let (dx, dy) = signed_grid_increments(
             self.dx_metres,
             self.dy_metres,
             self.scanning_mode & 0x80 != 0,
             self.scanning_mode & 0x40 != 0,
         );
-        let projector = PolarStereoProjector::new(PolarStereoParams {
+        PolarStereoParams {
             earth_radius_m: self.earth_radius_m,
             ni: self.nx,
             nj: self.ny,
@@ -882,20 +881,35 @@ impl PolarStereographicTemplate {
             dx_metres: dx,
             dy_metres: dy,
             south_pole: self.south_pole,
-        });
-        finite_lonlat(
-            projector.is_well_defined(),
-            projector.last_grid_point_lonlat(),
-        )
+        }
+    }
+
+    /// Geographic `(lat, lon)` of the last scanned grid point. Same derivation
+    /// as [`LambertTemplate::last_point`] — §3.20 likewise states only the
+    /// first point.
+    pub fn last_point(&self) -> Option<(f64, f64)> {
+        derived_last_point(&GridGeometry::PolarStereo(self.projection_params()))
     }
 }
 
-/// A derived corner, or `None` when the projection cannot place one. The
-/// inverse is `lov + atan2(…)` and can land outside [-180, 180] (a grid with
-/// `LoV` = 247° yields ~328°), so the longitude is normalised to the same
-/// convention the declared first point uses.
-fn finite_lonlat(well_defined: bool, (lat, lon): (f64, f64)) -> Option<(f64, f64)> {
-    (well_defined && lat.is_finite() && lon.is_finite()).then(|| (lat, normalise_lon(lon)))
+/// The last scanned point of a planar grid, as `core` places it, with the
+/// longitude normalised to the convention the declared first point uses (the
+/// inverse is `lov + atan2(…)`, so a grid with `LoV` = 247° yields ~328°).
+/// `None` wherever [`GridGeometry::forward`] declines the point.
+///
+/// Asked of the geometry rather than of the bare projector, so the corner the
+/// section reports and the placement every host reads are one answer (#1011).
+/// The projector's own `is_well_defined` measures the projection's plane, which
+/// for polar stereographic is `2·R·k₀` and can be wider than the Earth the
+/// message declares; `GridGeometry` also measures the step against that Earth
+/// (#1002), and asks that the origin be a position one step can move. A grid
+/// failing any of these is unplaceable, so it has no far corner either: the
+/// derived corner of a 100 km grid on an 80 km Earth, or of a grid with a zero
+/// step, is a position for a grid nothing positions.
+fn derived_last_point(geom: &GridGeometry) -> Option<(f64, f64)> {
+    let (ni, nj) = geom.dims()?;
+    geom.forward(ni.checked_sub(1)?, nj.checked_sub(1)?)
+        .map(|(lat, lon)| (lat, normalise_lon(lon)))
 }
 
 impl GridDefinitionSection {

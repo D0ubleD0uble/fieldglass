@@ -527,6 +527,10 @@ export interface Georef {
    * (see `Georef::from_declared_corners`), so a grid can carry a
    * corner pair and still be `Placement::Unplaceable`: the file wrote
    * the numbers down, and the projection it describes cannot use them.
+   * A far corner the container only derives (Lambert, polar
+   * stereographic and Lambert azimuthal state their first point alone)
+   * is placed by the same geometry as everything else here, so it is
+   * never reported for a grid that is not placed (#1011).
    */
   corners: [number, number, number, number] | null;
   /**

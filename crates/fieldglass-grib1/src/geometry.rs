@@ -31,8 +31,7 @@
 //! of true scale at ±60°, which [`crate::gds::PolarStereoGrid::lad`] supplies.
 
 use fieldglass_core::{
-    GaussianParams, GridGeometry, LambertParams, LatLonParams, PolarStereoParams,
-    RotatedLatLonParams, reduced_raster_width,
+    GaussianParams, GridGeometry, LatLonParams, RotatedLatLonParams, reduced_raster_width,
 };
 
 use crate::gds::GridDescription;
@@ -90,25 +89,10 @@ impl From<&GridDescription> for GridGeometry {
                     n_parallels: u32::from(g.n_gaussians),
                 })
             }
-            GridDescription::LambertConformal(g) => {
-                let (dx, dy) = g.signed_increments();
-                Self::Lambert(LambertParams {
-                    earth_radius_m: g.resolution_flags.earth_radius_m(),
-                    ni: g.nx,
-                    nj: g.ny,
-                    lat_first: g.lat_first,
-                    lon_first: g.lon_first,
-                    // ON388 states no separate LaD; the first standard
-                    // parallel is the latitude of true scale, matching how the
-                    // GDS itself recovers the opposite corner.
-                    lad: g.latin1,
-                    lov: g.lov,
-                    dx_metres: dx,
-                    dy_metres: dy,
-                    latin1: g.latin1,
-                    latin2: g.latin2,
-                })
-            }
+            // ON388 states no separate LaD; the first standard parallel is
+            // the latitude of true scale, the same parameters the GDS
+            // recovers its opposite corner from.
+            GridDescription::LambertConformal(g) => Self::Lambert(g.projection_params()),
             // Grid type 10. Its corners are **rotated-frame** degrees, so
             // they are handed over as stated — unrotating them here would
             // place the grid twice. Same shape as the GRIB2 §3.1 conversion,
@@ -124,21 +108,7 @@ impl From<&GridDescription> for GridGeometry {
                 south_pole_lon: g.south_pole_lon,
                 angle_of_rotation: g.angle_of_rotation,
             }),
-            GridDescription::PolarStereographic(g) => {
-                let (dx, dy) = g.signed_increments();
-                Self::PolarStereo(PolarStereoParams {
-                    earth_radius_m: g.resolution_flags.earth_radius_m(),
-                    ni: g.nx,
-                    nj: g.ny,
-                    lat_first: g.lat_first,
-                    lon_first: g.lon_first,
-                    lov: g.lov,
-                    lad: g.lad(),
-                    dx_metres: dx,
-                    dy_metres: dy,
-                    south_pole: g.south_pole,
-                })
-            }
+            GridDescription::PolarStereographic(g) => Self::PolarStereo(g.projection_params()),
             // Not a raster at all: spherical harmonics live in wavenumber
             // space, and `synthesize_spectral_message` is what turns one into a
             // lat/lon grid with its own geometry. It names itself rather than
