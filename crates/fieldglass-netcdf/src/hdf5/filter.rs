@@ -312,8 +312,8 @@ impl FilterPipeline {
     /// write order ([`Self::grown`]). Never less than `ceiling`, the
     /// stored-size cap #997 set, so nothing it read is refused now. Never more
     /// than twice `ceiling`, so a hostile size still cannot ask for an
-    /// unbounded read. Twice holds every stack of fletcher32, deflate and zstd
-    /// on a chunk at the ceiling, and every szip libhdf5 writes: it never
+    /// unbounded read. Twice holds fletcher32, deflate or zstd alone on a
+    /// chunk at the ceiling, and every szip libhdf5 writes: it never
     /// picks a scanline shorter than a block, which keeps a stream under twice
     /// its input, and its szip filter is optional, so a chunk szip would grow
     /// is stored unfiltered with its mask bit set. Only a writer outside

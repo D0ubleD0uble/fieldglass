@@ -58,21 +58,21 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-aec"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "fieldglass-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "fieldglass-grib2"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fieldglass-aec",
  "fieldglass-core",

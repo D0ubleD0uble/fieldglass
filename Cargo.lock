@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fieldglass",
  "fieldglass-core",
@@ -143,7 +143,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-aec"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde_json",
  "sha2",
@@ -152,7 +152,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fieldglass-core",
  "serde",
@@ -163,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-crate-independence"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fieldglass-grib1",
  "fieldglass-grib2",
@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-fetchplan"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fieldglass-core",
  "fieldglass-zarr",
@@ -184,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-grib1"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fieldglass-core",
  "serde_json",
@@ -192,7 +192,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-grib2"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fieldglass-aec",
  "fieldglass-core",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-napi"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fieldglass",
  "napi",
@@ -215,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-netcdf"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fieldglass-aec",
  "fieldglass-core",
@@ -226,7 +226,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-wasm"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fieldglass",
  "js-sys",
@@ -237,7 +237,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-zarr"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fieldglass-core",
  "miniz_oxide 0.9.1",

@@ -29,7 +29,7 @@ thiserror = { workspace = true }
 # takes — so `PlanRange::close` returns one rather than this crate declaring a
 # second spelling of the same concept. `default-features = false` for the reason
 # the umbrella does it: `fs` has no meaning in a browser.
-fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.6.0", default-features = false }
 
 # The one reader of an array's metadata document (#686). `default-features =
 # false` declines the `codecs` feature, so this crate takes the parser and links
@@ -47,7 +47,7 @@ fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-fea
 # `ParameterResolver`, which `fieldglass` implements over the GRIB2 tables
 # (#426), and the §0 envelope check is sixteen bytes of arithmetic that needs no
 # table at all.
-fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.5.0", default-features = false }
+fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.6.0", default-features = false }
 
 
 [dev-dependencies]
@@ -58,12 +58,12 @@ fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.5.0", default-fea
 # `cargo tree` above stays free of one. Cargo unifies features per build, so
 # this is why that check is `cargo tree -p fieldglass-fetchplan` and not a
 # `--all-targets` build.
-fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.5.0" }
+fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.6.0" }
 # The transport-shaped sources (#708): `Recording` to say which ranges a read
 # through a reference document asked for, and `OneRange` for the host that
 # fetched exactly one of them. A dev-dependency feature, so the library's tree
 # stays what the `cargo tree` note above claims.
-fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["testing"] }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.6.0", default-features = false, features = ["testing"] }
 
 [lints]
 workspace = true

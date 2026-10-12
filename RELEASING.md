@@ -25,7 +25,9 @@ All examples below use `0.1.2` — substitute the version you're cutting.
   CONTRIBUTING.md), and the `vX.Y.Z` tag is placed on a commit here.
 - **Prep branch** — `release-prep/X.Y.Z`. A short-lived branch off `master`
   that bumps versions and promotes the CHANGELOG. Its merge commit on `master`
-  is the commit that gets tagged.
+  is the commit that gets tagged. A cloud or agent session can push only
+  `claude/` branches, so one opening the prep PR uses
+  `claude/release-prep-X.Y.Z` instead.
 
 ## 1 — Prep PR
 
@@ -41,11 +43,12 @@ Bump versions in lockstep:
 | File | What |
 |---|---|
 | `Cargo.toml` (workspace) | `[workspace.package].version` → new version |
-| `crates/fieldglass{,-grib1,-grib2,-netcdf,-zarr,-fetchplan,-napi,-wasm}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match (`-grib2` and `-netcdf` pin `fieldglass-aec` as well as `fieldglass-core`; `fieldglass` pins every crate it can take; `-napi` and `-wasm` pin `fieldglass`). `grep -rn '"=<old>"' --include=Cargo.toml crates` finds them all |
+| `crates/fieldglass{,-grib1,-grib2,-netcdf,-zarr,-fetchplan,-napi,-wasm}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match (`-grib1`, `-grib2`, `-netcdf`, `-zarr` and `-fetchplan` pin `fieldglass-core`; `-grib2` and `-netcdf` also pin `fieldglass-aec`; `-grib2`'s tests pin `-grib1` and `-fetchplan` pins `-zarr`; `fieldglass` pins every crate it can take; `-napi` and `-wasm` pin `fieldglass`). `grep -rn '"=<old>"' --include=Cargo.toml crates` finds them all |
 | `extension/package.json` | `version` field |
 | `Cargo.lock` | `cargo check --workspace` to refresh |
 | `crates/fieldglass-{aec,grib1,grib2,netcdf,zarr,fetchplan}/fuzz/Cargo.lock` | refresh each of the six — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet each lock still records the resolved `fieldglass-*` version. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. Forgetting is caught by the `nested-lockfiles` pre-commit hook, which refuses the bump commit itself; if hooks are bypassed it fails the **Nested lockfiles in sync** job and blocks the fuzz jobs until fixed. |
-| `crates/fieldglass-verify/Cargo.lock` | the same shape and the same hook, but nothing to do at release time: `fieldglass-verify` is its own workspace and depends on `vstd` alone, so no `fieldglass-*` version reaches its lock. Listed because the hook covers it and this table is where a maintainer looks. |
+| `crates/fieldglass-perf/Cargo.lock` | the same shape and the same hook. The performance harness is its own workspace and takes `fieldglass`, `-aec`, `-core` and `-zarr` by path, so its lock records every `fieldglass-*` version they pull in. Run `cargo update -w` in `crates/fieldglass-perf`. |
+| `crates/fieldglass-verify/Cargo.lock` | the same again. `fieldglass-verify` is its own workspace and takes `fieldglass-core` by path, so its lock records core's version. Run `cargo update -w` in `crates/fieldglass-verify`. |
 | `extension/package-lock.json` | `cd extension && npm install --package-lock-only` to refresh |
 
 Two versions in the tree deliberately **do not** move with the release, and
@@ -101,12 +104,15 @@ cycle added. Use CI's figures, not a local build's: CI builds on the toolchain
 the release ships with. Push that as a commit on the prep PR; its next run
 then reports 0.0%.
 
-Run the local gates before pushing:
+Run the local gates before pushing: both pre-commit stages.
 
 ```sh
-cargo test --workspace
-cd extension && npm test     # needs xvfb-run -a on headless boxes
+pre-commit run --all-files
+pre-commit run --hook-stage pre-push --all-files
 ```
+
+The extension's Electron suite (`npm test` in `extension/`) is not part of the
+local gate. It needs a display, and CI runs it on the PR.
 
 Open the prep PR against `master`:
 
@@ -128,7 +134,7 @@ RELEASE_SHA=$(git rev-parse origin/master)   # the prep merge commit
 Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
 `master` since:
 
-- [ ] **CI green on the prep merge** — `gh run list --branch master --limit 5` and confirm the run for `$RELEASE_SHA`. All of `ci.yml`, `coverage.yml`, `semgrep.yml`, `codeql.yml` should pass.
+- [ ] **CI green on the prep merge** — `gh run list --branch master --limit 5` and confirm the run for `$RELEASE_SHA`. All of `ci.yml`, `coverage.yml`, `semgrep.yml`, `codeql.yml` and `perf.yml` should pass, and so should `fuzz.yml`, `aec-oracle.yml` and `verify.yml`. Those three run only when certain paths change, and the version bump touches the fuzz crates, `fieldglass-aec` and the verify lock, so the prep merge runs them too.
 - [ ] **Release-workflow dry-run** — manually trigger `release.yml` against the prep merge commit. This builds the full six-target `.vsix` matrix without publishing (the publish job is gated on `refs/tags/v*`). A manual run takes a branch or tag name, not a SHA, so point a throwaway branch at the commit first; running it on `master` would build whatever has landed since prep:
 
   ```sh
@@ -139,7 +145,7 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
 
   The run's `headSha` must be `$RELEASE_SHA`. Delete the branch after the tag (`git push origin --delete dry-run/vX.Y.Z`).
 
-  Wait for completion (typically ~5 min). The six native builds + six `.vsix` packages should all be green, and so should "Check release notes": with no tag it checks the workspace version's CHANGELOG section, which must exist, and, if it has content, `## [Unreleased]`, against GitHub's 125,000-character limit. Every publishing job waits for it, so on a tag a bad section stops the release before anything goes out. The "Publish to Marketplace + GitHub Release" job should appear with a dash (skipped) — that's the gate working as designed.
+  Wait for completion (typically ~5 min). The six native builds + six `.vsix` packages should all be green, and so should "Check release notes": with no tag it checks the workspace version's CHANGELOG section, which must exist, and, if it has content, `## [Unreleased]`, against GitHub's 125,000-character limit. Every publishing job waits for it, so on a tag a bad section stops the release before anything goes out. The "Publish to Marketplace + GitHub Release" and "Publish library crates to crates.io" jobs should appear with a dash (skipped) — that's the gate working as designed. "Publish @fieldglass/wasm to npm" does run: it builds and checks the tarball and uploads it as an artefact, and only its tag check and publish steps are skipped.
 
 - [ ] **Manual pass over what changed** — [RELEASE-TEST-PLAN.md](RELEASE-TEST-PLAN.md)
   is the per-cycle plan: it is rewritten each release to cover everything that
@@ -161,7 +167,7 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
   tag (§3 *npm*). At the bootstrap release itself, publish the package by hand
   from this dry run's artefact instead.
 
-- [ ] **Marketplace screenshot fresh** — if the render UI changed materially, refresh `extension/media/screenshot.png` so the Marketplace listing reflects the shipping version.
+- [ ] **Marketplace screenshot fresh** — if the render UI changed materially, refresh `extension/media/screenshot.png`. The Marketplace page loads the README's image from `raw/HEAD/extension/media/screenshot.png` on `master` each time it is viewed, not the copy inside the `.vsix`, so the refresh is a normal PR to `master` and changes the listing as soon as it merges, even the current version's. Land it close to the tag, and before the post-release listing check (#860).
 
 ## 3 — Tag and publish
 
@@ -437,7 +443,7 @@ gh run watch
 - **Tag pushed but the Marketplace publish or the GitHub Release fails** — re-run the failed job from the Actions UI. `vsce publish --skip-duplicate` skips each `.vsix` whose version and platform are already on the Marketplace, so a re-run publishes only what is missing and then creates the Release. Creating the Release again updates it and replaces its assets rather than failing.
 - **crates.io publish fails partway** — say core went out and `-grib1` failed. Re-run the job: it checks the index and skips what is already published, so it picks up where it stopped. A version that went out *wrongly* cannot be replaced, only yanked (`cargo yank -p <crate> --version X.Y.Z`), and yanking does not free the version number — the fix ships as the next patch.
 - **npm publish fails with an authentication error** — the trusted publisher for `@fieldglass/wasm` is missing, expired (it must publish within 2 days of being created), or configured for a different workflow file. The tarball is still attached to the run as an artefact, so a maintainer can publish it by hand if the release cannot wait; create a fresh configuration before the next tag.
-- **npm publish succeeds but `npm i @fieldglass/wasm` cannot find the version** — the trusted publisher was created without *allow `npm publish`*, so the version landed staged. Approve it from the package's Versions tab on npmjs.com, then recreate the configuration with direct publishing allowed.
+- **npm publish succeeds but `npm i @fieldglass/wasm` cannot find the version** — the trusted publisher was created without *allow `npm publish`*, so the version landed staged. Approve it from the package's Versions tab on npmjs.com, then recreate the configuration with direct publishing allowed. Don't re-run the job before approving: `npm view` cannot see an unapproved version, so the re-run tries to publish it again and fails.
 - **crates.io publish fails on the very first stable release** — most likely the Trusted Publishing bootstrap above hasn't been done. The rest of the release (Marketplace, GitHub Release) is unaffected; do the manual bootstrap and re-run the job.
 - **A regression slips past CI** — if it's caught after publish but before users adopt, the cleanest fix is a hotfix release (`vX.Y.Z+1`): land the fix on `master` like any other PR, run a fresh prep PR, and tag the new merge commit. Don't retag.
 - **Wanting a soak build before a stable one** — there is no pre-release channel any more, so this is a manual step: publish one version with `vsce publish --pre-release` (the flag is per-publish, not a property of the version), let it soak, then publish the *next* version without it. A version number can only be published once, so the promoted build needs its own number. For a one-off, handing out the `.vsix` from the release workflow's artifacts is usually simpler.

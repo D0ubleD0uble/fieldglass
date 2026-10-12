@@ -6,8 +6,10 @@ added. Revised 2026-09-06: the umbrella crate, the browser façade and its CI
 gates have landed, so those rows leave **Now** and **Next** (#467). Revised
 2026-09-07: the workspace is described as layers under
 [ADR-0010](docs/decisions/0010-a-common-array-model-and-containers-as-drivers.md),
-and the milestone 12 sweep that builds them (#677–#687) is in **Now**. Reviewed
-after each release and at the twice-yearly WMO fast-track checkpoints (June and
+and the milestone 12 sweep that builds them (#677–#687) is in **Now**. Revised
+2026-10-12 during 0.6.0 prep: Zarr stores, szip, the browser package and the
+interaction backlog shipped, so **Now** and **Next** are refreshed against the
+open milestones. Reviewed after each release and at the twice-yearly WMO fast-track checkpoints (June and
 November).*
 
 
@@ -81,6 +83,12 @@ five: the format crates are pure byte-in, values-out engines already, so every
 runtime added reaches the same decoders. It earns a track of its own because it
 trades against them for attention rather than composing with them.
 
+After 0.6.0, **Containers** is mostly built: Zarr v2 and v3 stores open,
+szip decodes, and a NetCDF slice reads only its own bytes. What is left is the
+remote transports and streaming reads in the extension, both host work over
+seams that exist. **Hosts** gained the browser package, and the interaction
+backlog is cleared except for metadata editing.
+
 ### Where verification fits
 
 The formal-verification work (#197–#205) covers the decode kernel: the few
@@ -119,58 +127,34 @@ packing decodes" became true in 0.4.0; under commitment 3 it becomes
 ## Now
 
 Small, independently shippable, in progress or next to start. No ordering
-between them.
-
-Tracked together in the
-[fieldglass-wasm: browser host surface](https://github.com/D0ubleD0uble/fieldglass/milestone/11)
-milestone. Milestone 10 closed on 2026-08-26 with the grid-geometry, local-table
-and byte-access work done; this is the promotion of "New host surfaces" out of
-**Later**, now that the seam it was gated on ([ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md),
-`ByteSource`, #438) has landed.
-
-The root of the milestone has landed and is on `master`, unreleased: the
-`fieldglass` umbrella crate every host binds (#464), `fieldglass-wasm` over it
-(#460), and a CI job that compiles the format crates for
-`wasm32-unknown-unknown`, gates the bundle size and benchmarks decode against
-native (#462). Reduced-resolution decode for JPEG 2000 fields (#463) has landed
-too, in `fieldglass-grib2`: a zoomed-out view can have a half-size raster for a
-quarter of the time. No host asks for one yet, because putting a display-only
-field on the `Session` surface is a decision about that surface rather than a
-piece of plumbing — the choice, and what it costs either way, is under *Decode
-options* in
-[`docs/architecture/planned/02-trait-seams.md`](docs/architecture/planned/02-trait-seams.md).
-
-What is left and startable is below; the rest is in **Next**.
+between them. Most close out an open milestone.
 
 | Item | Track | Why now |
 |---|---|---|
-| A common array model in `core` (#677, #678) | Containers | The layer every container that holds named arrays reads into ([ADR-0010](docs/decisions/0010-a-common-array-model-and-containers-as-drivers.md)). #677 unblocks the Zarr store walker; nothing else in the sweep waits on anything outside it. |
-| `ObjectSource`, a keyed source beside `ByteSource` (#680, #681) | Containers | A Zarr store, a directory and a kerchunk document are keys to objects; this is the seam the walker reads through and the host fills. |
-| The Zarr store walker (#658) and its host command (#659) | Containers | The half of Zarr that turns the codec crate into a format you can open. Sits on #677 and #680. |
-| `fetchplan` reshaped to manifests in, chunk plan out (#685, #687) | Containers | A plan item says which chunk or message it is, and kerchunk implements the same trait the GRIB sidecars do. |
-| The NetCDF view and HDF5 reader on the shared seams (#684, #682, #686, #679) | Containers | Three copies of the dimension and variable types become one; HDF5 reads through `ByteSource` like classic; one Zarr metadata parser; the Variables addressing mode under conformance. |
+| The combined full-detail probe and the CSV's band-limit line in `fieldglass` (#815) | Hosts | Only the Node binding builds them today, so the browser package has no full-detail value for a difference map of spectral fields. Part of the [fieldglass-wasm](https://github.com/D0ubleD0uble/fieldglass/milestone/11) milestone. |
+| A reduced-grid listing without every row's point count (#811) | Hosts | Listing a reduced-grid file sends every message's row lengths, about 2,560 numbers per message at O1280. Measure first, then trim the listing on both hosts if it matters. |
+| The last szip work (#764, #803, #820) | Trust | szip rows in the performance corpus, the oracle script honouring `CARGO_TARGET_DIR`, and a check against szip written by the HDF Group's own library. Closes the [AEC milestone](https://github.com/D0ubleD0uble/fieldglass/milestone/13). |
+| Two cleanups (#904, #934) | Trust | An ADR statement that does not hold for one fixture, and one helper for HDF5's all-ones values. Closes [milestone 12](https://github.com/D0ubleD0uble/fieldglass/milestone/12). |
+| The GRIB1 Section 3 padding divergence recorded (#810) | Trust | The last open item beside the verification epic (#205). |
 
 ## Next
 
 Problems we are confident we can solve; shape known, timing not.
 
-The rest of the fieldglass-wasm milestone, plus the remote transports it makes
-reachable. Nothing below waits on #460 or #461 any more, both having landed;
-the transports wait on `ObjectSource` (#680) in **Now** and on nothing else,
-since ADR-0005's gate — the `ByteSource` trait (#438) and one migrated reader
-— is met.
+The readers now read by range through `ByteSource` and stores through
+`ObjectSource`, so a remote file or store is the host filling one of those
+seams, not new reader work ([ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md)). Local Zarr stores shipped in 0.6.0 under the Zarr epic (#246); a remote store is the S3 row below.
 
 | Item | Track | What it unlocks |
 |---|---|---|
-| Publish `@fieldglass/wasm` to npm on tag (#466) | Hosts | Makes the host installable rather than buildable. Rides the existing tag-triggered release path. |
 | Remote data over HTTP range requests (#247) | Containers | The first transport, and the one every other depends on. Opens a file that lives on a public bucket without downloading it. |
-| S3 dataset access (#252) | Containers | NOAA's Open Data buckets are where the archives actually are — the same objects the fixture builders already fetch anonymously. |
-| Zarr stores, v2 and v3 (#246) | Containers | The storage convention the climate archives are moving to. The codecs (#657) and chunk addressing (#660) shipped; what is left is the walker and the command in **Now** (#658, #659), and then the remote store, which is the host filling an `ObjectSource` from a bucket. |
-| Streaming / lazy reads for multi-GB archives (#114) | Containers | The extension reads whole files into memory to keep remote and virtual workspaces working, which rules out multi-GB GRIB archives. The same prefetch-then-decode seam is what makes a partial read possible at all. |
+| S3 dataset access (#252) | Containers | NOAA's Open Data buckets are where the archives actually are — the same objects the fixture builders already fetch anonymously. A remote Zarr store is the host filling an `ObjectSource` from such a bucket. |
+| Streaming reads in the extension (#114) | Containers | The readers read by range, but the extension still reads a whole GRIB or NetCDF file into memory to keep remote and virtual workspaces working, which rules out multi-GB archives. |
+| One colour-range rule for both hosts (#880) | Hosts | The Node and browser hosts choose a colour range by different rules, for an empty field and for a range with one end set. Waits on a decision. |
 
-**Verification (#199-#203) is deliberately not listed here.** It is a parallel
-track by design — see *Where verification fits* above — running on shipped code
-in a crate outside the workspace, and it is tracked in its own milestone rather
+**Verification is deliberately not listed here.** It is a parallel track by
+design — see *Where verification fits* above — running on shipped code in a
+crate outside the workspace, and it is tracked in its own milestone rather
 than queued behind anything in this section.
 
 ## Later
@@ -184,16 +168,8 @@ first.
   very large daily volume, and GDAL cannot open it. The largest "opens what
   nothing else opens" item left. Needs an ADR on out-of-band mesh resolution
   before code; stays a substantial effort after the seam lands.
-- **szip filter (#421). Landed, unreleased.** Opens HDF5 files that use
-  szip. HDF4 files, which many NASA EOS products are, need HDF4 reading
-  (#248). It shares its entropy coder with GRIB2 5.42, and the project
-  now owns that coder in `fieldglass-aec`
-  ([ADR-0012](docs/decisions/0012-own-the-aec-decoder.md)); the NetCDF reader
-  adds HDF5's framing. Moves to **Done** at the next release. What it turned
-  out to be is in
-  [`docs/planning/hdf5-filters.md`](docs/planning/hdf5-filters.md).
-- **Verify NetCDF classic length arithmetic (#204)**, closing the
-  verification milestone (#205).
+- **HDF4 and HDF-EOS2 (#248).** Many NASA EOS products. szip, which they
+  often use, already decodes.
 - **Further host surfaces.** PyO3 bindings and a CLI (#254), after the wasm
   build that has now landed. The format crates are already pure byte-in, values-out
   engines, and each host is a binding over one `fieldglass` umbrella crate
@@ -208,22 +184,22 @@ first.
 - **NetCDF / HDF5 gaps.** String and char data display, paged array index
   blocks, HDF5 2.0 complex-type detection.
 - **BUFR.** A tree and table inspector would be unique among viewers, but it
-  shares nothing with the render pipeline. After Zarr.
+  shares nothing with the render pipeline.
 
 ## Interaction backlog
 
 Picked up as capacity allows; none of these block or are blocked by the
 tracks above.
 
-Zoom and pan (#245) · animate over time (#170) · cross-sections (#171) ·
-zonal average plots (#240) · vector plots from u/v pairs (#241) · line plots
-through the probe point (#172) · GMT CPT colour tables (#236) · CSV export for
-the remaining grid families (#244) · GRIB1 metadata editing (#46).
+GRIB1 metadata editing (#46). Everything else that was here shipped in 0.6.0:
+zoom and pan, animation, cross-sections, the zonal average, wind arrows, line
+plots, GMT colour tables and CSV export for every grid family.
 
 ## Done
 
 | Release | What shipped |
 |---|---|
+| 0.6.0 (2026-10-12) | Zarr v2 and v3 stores open in the viewer. szip-compressed HDF5 opens, through the project's own CCSDS decoder (`fieldglass-aec`), which also decodes GRIB2 5.42 in place of `rust-aec`. Animation, line plots, cross-sections, wind arrows, a zonal average, zoom and pan, and imported GMT colour tables. Every ECMWF GRIB1 table. A NetCDF slice reads only its own bytes. `@fieldglass/wasm` on npm, and `fieldglass`, `-zarr`, `-fetchplan` and `-aec` on crates.io. Verus proofs over the decode kernel, including classic NetCDF's offsets. |
 | 0.5.0 (2026-09-04) | Grid geometry: HEALPix (3.150), reduced Gaussian in GRIB2 (3.40), transverse Mercator (3.12), Lambert azimuthal equal-area (3.140), and curvilinear NetCDF all decode and render. The complete WMO parameter table (1,387) and Common Code Table centres (309 / 239), plus ECMWF, DWD and NCEP local tables. Contours and `lat,lon,value` CSV on the projected and reduced families. Formal verification of the decode kernel wired up with Verus. |
 | 0.4.0 (2026-08-23) | Every registered GRIB2 §5 packing template decodes, pure Rust, zero build flags; local templates 5.40000, 5.40010, 5.50001, 5.50002. Spherical-harmonic spectral fields render, for GRIB1 and GRIB2, a viewer first. |
 | 0.3.0 (2026-07-18) | First crates.io release of the four library crates. |
