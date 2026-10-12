@@ -1026,7 +1026,7 @@ impl Session {
         drop(head);
         // An HDF5 signature after a userblock (#936) is past the prefix. Its
         // offsets are a fixed handful, so this is a few small reads, not a scan.
-        if format == CoreFormat::Unknown && fieldglass_core::find_hdf5_signature(&source).is_some()
+        if format == CoreFormat::Unknown && fieldglass_core::find_hdf5_signature(&source)?.is_some()
         {
             format = CoreFormat::NetCdf;
         }

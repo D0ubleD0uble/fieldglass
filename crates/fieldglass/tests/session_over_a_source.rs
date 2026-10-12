@@ -267,3 +267,63 @@ fn a_source_too_short_to_identify_is_an_unsupported_format() {
     let err = Session::open_source(b"GR".to_vec()).expect_err("two bytes identify nothing");
     assert_eq!(err.code(), "unsupported_format", "{}", err.message());
 }
+
+/// 4 KiB of zeros: every HDF5 signature offset through 2048 is inside it, and
+/// it is no container.
+fn junk() -> Vec<u8> {
+    vec![0u8; 4096]
+}
+
+/// A read that comes back short while looking for an HDF5 userblock is not an
+/// answer about the bytes (#998): it is reported as what it is, so a host can
+/// retry it, rather than as an unsupported format.
+#[test]
+fn a_truncated_read_while_detecting_is_a_short_read_not_an_unsupported_format() {
+    use fieldglass_core::testing::Short;
+
+    // Reads at or after byte 512 come back one byte short; the leading eight
+    // bytes are served whole and match nothing.
+    let err = Session::open_source(Short::new(junk(), 512, 1))
+        .expect_err("a truncated signature read is not a verdict");
+    assert_eq!(err.code(), "short_read", "{}", err.message());
+
+    // The same bytes served whole are what they always were.
+    let err = Session::open_source(junk()).expect_err("zeros are no container");
+    assert_eq!(err.code(), "unsupported_format", "{}", err.message());
+}
+
+/// Every read half served from the first: the signature probe at byte 0 comes
+/// back short.
+#[test]
+fn a_starved_source_reports_the_starvation() {
+    use fieldglass_core::testing::Starved;
+
+    let starved = Starved::new(junk());
+    starved.arm();
+    let err = Session::open_source(starved).expect_err("half of every read is no verdict");
+    assert_eq!(err.code(), "short_read", "{}", err.message());
+}
+
+/// A source whose own read fails reports that failure.
+#[test]
+fn a_failing_read_while_detecting_is_the_sources_error() {
+    struct Fails(Vec<u8>);
+    impl ByteSource for Fails {
+        fn size(&self) -> u64 {
+            self.0.len() as u64
+        }
+        fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
+            if range.start >= 512 {
+                return Err(FieldglassError::Parse("transport down".into()));
+            }
+            self.0.read(range)
+        }
+    }
+    let err = Session::open_source(Fails(junk())).expect_err("the transport failed");
+    assert!(
+        err.message().contains("transport down"),
+        "{}",
+        err.message()
+    );
+    assert_ne!(err.code(), "unsupported_format");
+}
