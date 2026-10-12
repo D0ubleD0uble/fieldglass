@@ -19,8 +19,8 @@
 //! (#645).
 
 use fieldglass_core::{
-    GaussianParams, GridGeometry, LambertParams, LatLonParams, MercatorParams, PolarStereoParams,
-    RotatedLatLonParams, is_oblate_spheroid, reduced_raster_width, signed_grid_increments,
+    GaussianParams, GridGeometry, LatLonParams, MercatorParams, RotatedLatLonParams,
+    is_oblate_spheroid, reduced_raster_width,
 };
 
 use crate::gds::{GridDefinitionSection, GridTemplate};
@@ -107,48 +107,10 @@ impl From<&GridDefinitionSection> for GridGeometry {
                     n_parallels: t.n_parallels,
                 })
             }
-            GridTemplate::Lambert(t) => {
-                let (dx, dy) = signed_grid_increments(
-                    t.dx_metres,
-                    t.dy_metres,
-                    t.scanning_mode & 0x80 != 0,
-                    t.scanning_mode & 0x40 != 0,
-                );
-                Self::Lambert(LambertParams {
-                    earth_radius_m: t.earth_radius_m,
-                    ni: t.nx,
-                    nj: t.ny,
-                    lat_first: t.la1,
-                    lon_first: t.lo1,
-                    lad: t.lad,
-                    lov: t.lov,
-                    dx_metres: dx,
-                    dy_metres: dy,
-                    latin1: t.latin1,
-                    latin2: t.latin2,
-                })
-            }
-            GridTemplate::PolarStereographic(t) => {
-                let (dx, dy) = signed_grid_increments(
-                    t.dx_metres,
-                    t.dy_metres,
-                    t.scanning_mode & 0x80 != 0,
-                    t.scanning_mode & 0x40 != 0,
-                );
-                Self::PolarStereo(PolarStereoParams {
-                    earth_radius_m: t.earth_radius_m,
-                    ni: t.nx,
-                    nj: t.ny,
-                    lat_first: t.la1,
-                    lon_first: t.lo1,
-                    lov: t.lov,
-                    // §3.20 states LaD, unlike GRIB1's fixed ±60°.
-                    lad: t.lad,
-                    dx_metres: dx,
-                    dy_metres: dy,
-                    south_pole: t.south_pole,
-                })
-            }
+            // Read off the template, as the three below are, so the corner
+            // the section derives and the grid core places are one grid.
+            GridTemplate::Lambert(t) => Self::Lambert(t.projection_params()),
+            GridTemplate::PolarStereographic(t) => Self::PolarStereo(t.projection_params()),
             // §3.10's corners are geographic, like §3.0's — the rows are
             // simply spaced in the Mercator ordinate rather than in latitude,
             // which the params pin from the corners alone. `Di`/`Dj` and `LaD`

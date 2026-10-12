@@ -741,6 +741,49 @@ fn an_earth_smaller_than_a_grid_cell_places_no_point_in_any_planar_template() {
         None,
         "§3.20 placed a corner on a 1e-6 m Earth"
     );
+    // Between the two (#1011): 100 km cells on an 80 km Earth. The 60° plane
+    // is `2·R·k₀` ≈ 149 km, so the projector alone still answers, but `core`
+    // measures the cell against the declared Earth and places nothing, so the
+    // section derives no corner either.
+    let banded = fieldglass_grib2::gds::PolarStereographicTemplate {
+        earth_radius_m: 80_000.0,
+        dx_metres: 100_000.0,
+        dy_metres: 100_000.0,
+        ..t
+    };
+    let banded_projector =
+        fieldglass_core::PolarStereoProjector::new(fieldglass_core::PolarStereoParams {
+            earth_radius_m: banded.earth_radius_m,
+            ni: banded.nx,
+            nj: banded.ny,
+            lat_first: banded.la1,
+            lon_first: banded.lo1,
+            lov: banded.lov,
+            lad: banded.lad,
+            dx_metres: banded.dx_metres,
+            dy_metres: banded.dy_metres,
+            south_pole: banded.south_pole,
+        });
+    assert!(
+        banded_projector.is_well_defined(),
+        "the projector's own plane holds the cell"
+    );
+    assert_eq!(
+        banded.last_point(),
+        None,
+        "§3.20 derived a corner for a grid core does not place"
+    );
+    let control = fieldglass_grib2::gds::PolarStereographicTemplate {
+        earth_radius_m: 120_000.0,
+        ..banded
+    };
+    assert!(
+        control.last_point().is_some(),
+        "a 120 km Earth under the same cells places its corner"
+    );
+    // A zero step walks nowhere: the committed fixture, as it stands, is
+    // unplaceable and so derives no corner.
+    assert_eq!(t.last_point(), None, "§3.20 with Dx = Dy = 0");
 
     let ukv = Grib2Reader::from_bytes(TRANSVERSE_MERCATOR.to_vec()).expect("parse");
     let GridTemplate::TransverseMercator(t) = ukv.messages[0].gds.template else {
