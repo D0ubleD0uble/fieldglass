@@ -712,14 +712,7 @@ fn decode_png_packing(
     // scanline of some pass. So the stream inflates to at least the buffer,
     // and an image whose buffer is past what the whole of §7 can inflate to
     // (`capped::inflate_bound`) is refused before the buffer is allocated.
-    let most = capped::inflate_bound(ds_payload.len());
-    if buf_size > most {
-        return Err(FieldglassError::Parse(format!(
-            "PNG packing: the image needs {buf_size} decoded bytes but §7 holds {} bytes, \
-             which inflate to at most {most}",
-            ds_payload.len()
-        )));
-    }
+    check_png_buffer(buf_size, ds_payload.len())?;
     let mut buf = vec![0u8; buf_size];
     let out = reader
         .next_frame(&mut buf)
@@ -749,6 +742,27 @@ fn decode_png_packing(
     }
 
     interleave_with_bitmap(decoded, bitmap, expected_count)
+}
+
+/// Refuse a PNG output buffer of `buf_size` bytes that a §7 of `ds_len`
+/// bytes cannot inflate to; see the comment at the call.
+///
+/// Out of line on purpose. Written into the decoder, the check changed how
+/// the compiler optimised the decoder's own code: callgrind put the extra
+/// cost inside `decode_values`, not in the check or in the PNG crate, and it
+/// came to about 11% more instructions per decode on the perf corpus's PNG
+/// fields, which fails the perf gate. Kept apart, the decode is within a few
+/// hundred instructions of what it was without the check.
+#[inline(never)]
+fn check_png_buffer(buf_size: usize, ds_len: usize) -> Result<(), FieldglassError> {
+    let most = capped::inflate_bound(ds_len);
+    if buf_size > most {
+        return Err(FieldglassError::Parse(format!(
+            "PNG packing: the image needs {buf_size} decoded bytes but §7 holds {ds_len} \
+             bytes, which inflate to at most {most}"
+        )));
+    }
+    Ok(())
 }
 
 /// Decode CCSDS / AEC packing (template 5.42). §7 carries a CCSDS-121.0-B
