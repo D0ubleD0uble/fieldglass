@@ -346,8 +346,8 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       default), step 365 (2024-12-31) is followed by step 0; with Loop off,
       playback stops on step 365.
 - [ ] Choose 5 / s, untick Loop and tick Zonal average. Click another editor
-      tab in the same group and come back: all three are as you left them.
-      *Known to fail at the prep merge: #1027.*
+      tab in the same group and come back: all three are as you left them
+      (#1027).
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, variable `air`
 
@@ -373,8 +373,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       250 K) and warm in July (about 293 K). The caption reads `air along time
       (hours since 1800-01-01 00:00:0.0) · 238.35–300.83 degK · 366 of 366
       points`. The label under the plot reads as 2024 dates (`2024-01-01 …
-      2024-12-31`). *Known to fail at the prep merge: it shows raw hours
-      (`1963536 … 1972296`); #1028.*
+      2024-12-31`), not raw hours (#1028).
 - [ ] A dashed rule marks the day on screen. Step to another day: the plot
       clears with the new render. Click the same cell again and the rule is at
       the new day.
@@ -395,13 +394,12 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 
 - [ ] Set the axes to `time` (X) and `lat` (Y). The panel says
       `Cross-section: these axes are not a map, so it is drawn in index
-      space.`, sets the projection picker to Source projection and greys it out, hides
-      the map overlays, and draws a time–latitude plot: the seasonal swing is
-      strongest at high latitudes. Latitude ticks read 90 … −90, and the time
-      ticks read as dates. *Known to fail at the prep merge: this file's time
-      reference has fractional seconds, so its ticks read as hours
-      (1963540 …); #1028.* Before this change the plane was placed on the
-      Earth, reading time as longitude.
+      space.`, sets the projection picker to Source projection and greys it
+      out, hides the map overlays, and draws a time–latitude plot: the
+      seasonal swing is strongest at high latitudes. Latitude ticks read 90 …
+      −90, and the time ticks read as dates, though this file's time
+      reference has fractional seconds (#1028). Before this change the plane
+      was placed on the Earth, reading time as longitude.
 - [ ] Click a cell: the readout gives the value and its grid cell, with no
       longitude. A line plot is offered along `lon`.
 - [ ] Do the same on `B: samples/0.6.0/air_v2.zarr`, whose time units have no
@@ -431,8 +429,8 @@ A depth axis with fill values used to fail to draw; no file here has one.
       the arrows and the speed key both go.
 - [ ] Turn arrows back on, spacing 4, colour red. Click another editor tab in
       the same group and come back, then import `batlow.cpt` (§9): both times
-      the arrows, V component, spacing and colour are as you left them.
-      *Known to fail at the prep merge: #1027.*
+      the arrows, V component, spacing and colour are as you left them
+      (#1027).
 - [ ] Mid-latitude westerlies point east; the trade winds point west. Around a
       low in the Northern Hemisphere the arrows turn anticlockwise.
 - [ ] **priority** Orthographic centred on each pole (Center lat ±90), and Polar
