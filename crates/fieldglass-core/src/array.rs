@@ -311,6 +311,26 @@ pub enum ArrayError {
         limit: u64,
     },
 
+    /// A compressed chunk stored as more bytes than one chunk may decode to,
+    /// refused before it is read.
+    ///
+    /// A chunk is read whole at the size its index states. A filter grows a
+    /// chunk by a few bytes at most, so one stored this large could not have
+    /// passed [`Self::ChunkTooLarge`] decoded. As there, the file is not at
+    /// fault: only more than this reader reads at once (#997).
+    #[error(
+        "this variable is stored in chunks of {} each, and a chunk is read \
+         whole: more than the {} one chunk may decode to. The file itself is fine",
+        human_bytes(*bytes),
+        human_bytes(*limit)
+    )]
+    StoredChunkTooLarge {
+        /// What one chunk is stored as.
+        bytes: u64,
+        /// The most one chunk may decode to.
+        limit: u64,
+    },
+
     /// A container that lists more than one listing of it will hold: more
     /// objects, or more bytes of path-qualified names, than the reader keeps
     /// (#921).
@@ -1475,6 +1495,20 @@ mod tests {
             "{message}"
         );
         assert!(message.contains("more than the 8.0 MiB"), "{message}");
+        assert!(message.contains("The file itself is fine"), "{message}");
+    }
+
+    /// A chunk stored too large to read says it is stored that size, not
+    /// that it decodes to it (#997).
+    #[test]
+    fn a_chunk_stored_too_large_says_stored_not_decoded() {
+        let message = ArrayError::StoredChunkTooLarge {
+            bytes: 2 << 30,
+            limit: 256 << 20,
+        }
+        .to_string();
+        assert!(message.contains("chunks of 2.0 GiB each"), "{message}");
+        assert!(!message.contains("decode to 2.0 GiB"), "{message}");
         assert!(message.contains("The file itself is fine"), "{message}");
     }
 

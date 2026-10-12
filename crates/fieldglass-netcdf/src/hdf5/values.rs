@@ -287,6 +287,27 @@ fn assemble_raw<S: ByteSource + ?Sized>(
             Ok(raw)
         }
         DataLayout::Contiguous { address, .. } => {
+            // The region's last byte is in the file, checked before the runs
+            // or the buffer are built (#997). Both are bounded only by the
+            // field cap, so a few-KB file declaring a large dataset would
+            // otherwise allocate hundreds of megabytes before its first read
+            // found the data missing.
+            if let Some(addr) = address {
+                // An empty region ends at element 0, so at `addr`, and reads
+                // nothing.
+                let end = crate::region::end(shape, region)
+                    .and_then(|n| n.checked_mul(elem as u64))
+                    .and_then(|n| addr.checked_add(n))
+                    .ok_or_else(|| {
+                        FieldglassError::Parse("contiguous data offset overflows u64".into())
+                    })?;
+                if end > source.size() {
+                    return Err(FieldglassError::Parse(format!(
+                        "contiguous data ends at {end}, past the file size {}",
+                        source.size()
+                    )));
+                }
+            }
             let mut raw = fill_buffer(span, elem, fill_default);
             if let Some(addr) = address {
                 // The region's runs, each one range, resolved in one batch
@@ -431,6 +452,12 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
             })?
         }
         ChunkIndex::SingleChunk(Some(single)) => {
+            // Checked before it is narrowed, so a filtered size past 4 GiB is
+            // too large, as a smaller one past the cap is below, rather than
+            // a size that does not fit the record.
+            if let Some(stored) = single.filtered_size {
+                super::filter::check_stored_chunk_size(stored)?;
+            }
             let size = single
                 .filtered_size
                 .unwrap_or(chunk_bytes as u64)
@@ -551,6 +578,22 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
             .any(|g| g[0].filter_mask & pipeline_bits != pipeline_bits)
     {
         super::filter::check_chunk_size(&chunk_shape, chunk_bytes)?;
+    }
+    // A chunk no filter runs on is its stored bytes, so a stored size other
+    // than one chunk's is refused here, before it is planned or read (#997).
+    // A chunk a filter runs on is read whole at its stored size, so one stored
+    // past the decoded ceiling is refused here too. Without either check a
+    // size the index states would be fetched, bounded only by the size the
+    // source declares.
+    for g in &groups {
+        if filtered && g[0].filter_mask & pipeline_bits != pipeline_bits {
+            super::filter::check_stored_chunk_size(u64::from(g[0].size))?;
+        } else if u64::from(g[0].size) != chunk_bytes as u64 {
+            return Err(FieldglassError::Parse(format!(
+                "chunk stored as {} bytes, expected {chunk_bytes}",
+                g[0].size
+            )));
+        }
     }
     // A filtered chunk the file's memo still holds decompressed is not read
     // again (#939): a time scrub over chunks that span several planes would

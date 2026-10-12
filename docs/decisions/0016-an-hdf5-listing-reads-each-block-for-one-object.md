@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-10-11). Answers #921. Widens decision 1 of
 [ADR-0014](0014-hdf5-group-names-are-held-to-their-heap.md) from one group to
-the whole listing.
+the whole listing. Decision 5 added for #997 (2026-10-11).
 
 ## Context
 
@@ -91,6 +91,64 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    error here: it predates this decision as the guard on a cyclic tree, and
    whether a valid group can reach it is a separate question.
 
+5. **One metadata structure is read in at most 16 MiB** (#997). Claims stop a
+   block being read twice; they do not bound one read. An object header's
+   chunks, a fractal-heap object and a global-heap object are each read whole
+   at a length the file states, and over a source read by range (#950) that
+   length is bounded only by the size the host declares, so one field could
+   ask for gigabytes. Each is now checked before the read against
+   `MAX_METADATA_BYTES` (16 MiB, the classic header's `MAX_HEADER_BYTES`), in
+   `crates/fieldglass-netcdf/src/hdf5/source.rs`:
+
+   | Structure | Counted | Largest in the corpus | Why 16 MiB leaves room |
+   | --- | --- | --- | --- |
+   | object header | every chunk, prefix included: the v1 header size, the v2 chunk-0 size, each continuation | 2,163 bytes (a v2 chunk 0 in `samples/oisst.nc`); 1,792 in a v1 header | libhdf5 keeps a message under 64 KiB (`H5O_MESG_MAX_SIZE`) and sizes a new chunk to the message it adds (`H5O__alloc_new_chunk`); 16 MiB is 256 maximal messages |
+   | fractal-heap object | a managed object, and a huge object's stored and decoded length | 70,025 bytes (`hdf5_huge_only_heaps.h5`); 5,629 from netCDF-C | in a NetCDF-4 file each is one dense attribute or link; a classic file's whole header is held to the same 16 MiB |
+   | global-heap object | the one object a lookup reads; objects scanned past are skipped, not read | 8 bytes: every `DIMENSION_LIST` entry in the fixtures and `samples/` | libhdf5 sizes a collection to the object it is made for (`H5HG_insert`), so the format sets no ceiling |
+
+   The largest values were measured by opening every committed NetCDF-4 and
+   HDF5 fixture and the five NetCDF-4 files `tools/fetch_samples.sh` puts in
+   `samples/`. A filtered fractal-heap direct block keeps its 64 MiB ceiling,
+   now on its stored size as well as its decoded one. A header, huge-object
+   or global-heap length is charged before it is narrowed to `usize`, so the
+   refusal is the same on a 32-bit target.
+
+   libhdf5 lets a heap declare direct blocks of up to 2 GiB
+   (`H5HF_MAX_DIRECT_SIZE_LIMIT`), and nothing in the format bounds a header
+   chunk or a global-heap object, so a valid file can pass each cap. What
+   passing one costs depends on what the structure is:
+
+   - **One dense attribute or link** (a fractal-heap object) is skipped, and
+     the file kept: the listing goes on without it, as it goes on without an
+     attribute it cannot parse. One oversized attribute would otherwise make
+     the whole file unreadable, even from a buffer in memory. Only a
+     well-formed object is skipped: it is checked to lie in the file and
+     claimed before its size is, so one past the end of the file, or a
+     second record naming one already claimed, is still a parse error, as
+     before. A `DIMENSION_LIST` skipped this way leaves its variable on
+     anonymous `phony_dim_N` axes, as a variable with no `DIMENSION_LIST`
+     has. Nothing reports the skip: the attributes `parse_bodies` drops are
+     not reported either, and a host has no channel for either yet.
+   - **Structure the listing stands on** is refused as
+     `ArrayError::ListingTooLarge`, as in decision 4: an object header, which
+     holds a dataset's layout and its compact attributes together; a
+     global-heap object, the `DIMENSION_LIST` references a lookup resolves;
+     and a filtered heap block, which holds many objects. The filtered block
+     past 64 MiB was a parse error before.
+
+   Two data-chunk reads are sized by fields the file states, and both are now
+   checked before the chunk is planned or read. An unfiltered chunk is held to
+   its own chunk's size (a parse error, refused after the read before). A
+   filtered chunk's stored size, up to 4 GiB in a B-tree key, is held to the
+   256 MiB decoded-chunk ceiling of #970, as `ArrayError::StoredChunkTooLarge`: a
+   filter grows a chunk by a few bytes at most, so a chunk stored past the
+   ceiling could not have passed it decoded. A contiguous dataset's region
+   is checked to end inside the file before its run list and output buffer
+   are built: both are bounded only by the field cap, so a 2.7 KB file
+   declaring 8,192 × 8,191 float32 values held 268 MB before its first read
+   found the data missing (`crates/fieldglass/tests/contiguous_past_the_file.rs`,
+   through the reader and `Session`; it now holds under 4 MiB).
+
 The evidence is the fixtures above, their `NOTICE.md` entry and
 `crates/fieldglass-netcdf/tests/hdf5_shared_blocks.rs`, which checks each
 refusal, how often the shared block is read and the listing's peak heap, that
@@ -99,7 +157,28 @@ that `hdf5_deep_group_chain_past_name_cap.h5` is refused as too large rather
 than corrupt (also through `Session` in
 `crates/fieldglass/tests/hdf5_listing_cap.rs`).
 
+For decision 5, `declared_tests` in `crates/fieldglass-netcdf/src/hdf5.rs` rewrites
+one length field of a committed fixture to claim gigabytes (a v1 header size, a
+v1 and a v2 continuation, a v2 chunk-0 size, a global-heap object, an
+unfiltered and a filtered chunk's B-tree key) and opens it through
+`NetcdfReader::from_source` over `fieldglass_core::testing::Declared`, a source
+that holds the file and declares a terabyte. Each is refused with no read
+longer than 64 KiB; before the change each asked for the gigabytes in one read.
+The same tests rewrite huge-object index records: `netcdf4_huge_attributes.nc`
+still lists every variable, drops only its two oversized attributes, and
+decodes; with `t`'s `DIMENSION_LIST` record pointed at one of them and the
+`comment` record taken out of the index, `t` falls back to `phony_dim_0`;
+`hdf5_huge_link_name.h5` resolves without its oversized link. Before the
+change each file was refused. With the `comment` record left in, two records
+name one object and the listing is a parse error; an oversized object past
+the end of a buffer is a parse error too, not skipped. The managed-object
+and filtered-block caps are checked in `heap.rs`.
+
 ## Consequences
+
+- A file read by range costs no more to refuse than its fields take to read:
+  no header, heap object or global-heap object is fetched past 16 MiB, however
+  large the host says the file is.
 
 - A listing's cost is bounded by the file's own storage: each shared shape is
   refused after reading the block at most twice (the second header reads a

@@ -313,7 +313,7 @@ impl FilterPipeline {
 /// below that and the byte cap above.
 ///
 /// An unfiltered chunk needs neither: it is read at its stored size, which
-/// the file itself bounds.
+/// must be the chunk's own and is checked to be before the read (#997).
 pub(super) fn check_chunk_size(
     chunk_dims: &[u64],
     chunk_bytes: usize,
@@ -321,6 +321,29 @@ pub(super) fn check_chunk_size(
     fieldglass_core::array::field_element_count(chunk_dims)?;
     if chunk_bytes > MAX_DECOMPRESSED_CHUNK {
         return Err(chunk_too_large(chunk_bytes as u64));
+    }
+    Ok(())
+}
+
+/// Refuse a filtered chunk stored as more than `MAX_DECOMPRESSED_CHUNK`
+/// bytes, before it is planned or read (#997).
+///
+/// A filtered chunk is read whole at the size its index states, up to 4 GiB
+/// in a B-tree key and more in a single-chunk layout, and nothing else bounds
+/// that read but the size a ranged source declares. A filter may legally
+/// grow a chunk, but only slightly (fletcher32 adds 4 bytes, deflate a few
+/// per block), so a chunk whose decoded length passes [`check_chunk_size`]
+/// is not stored at this size. It is too large rather than corrupt, as the
+/// decoded refusal is, and the error says it is stored that size
+/// ([`ArrayError::StoredChunkTooLarge`]). The size stays a `u64` to the
+/// check, so a 32-bit target refuses it the same way.
+pub(super) fn check_stored_chunk_size(stored: u64) -> Result<(), FieldglassError> {
+    if stored > MAX_DECOMPRESSED_CHUNK as u64 {
+        return Err(ArrayError::StoredChunkTooLarge {
+            bytes: stored,
+            limit: MAX_DECOMPRESSED_CHUNK as u64,
+        }
+        .into());
     }
     Ok(())
 }

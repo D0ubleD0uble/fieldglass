@@ -227,6 +227,43 @@ impl<S: ByteSource + ?Sized> Fields for FileCursor<'_, S> {
     }
 }
 
+/// Ceiling on the bytes one HDF5 metadata structure is read in: one object
+/// header (all its chunks), one fractal-heap object, one global-heap object
+/// (#997, ADR-0016 decision 5).
+///
+/// Each of these is read whole at a length the file states. Over a buffer
+/// that length is bounded by the bytes in hand; over a source read by range,
+/// only by the size the host declares, so a header claiming a gigabyte chunk
+/// would be fetched in one read. The real ones are kilobytes: libhdf5 keeps a
+/// header message under 64 KiB and sizes a new header chunk to the message it
+/// adds, and netCDF-C's `DIMENSION_LIST` objects are a few references. 16 MiB
+/// is thousands of times any of them in the committed corpus, and the same
+/// figure as the classic header's ceiling (`classic::MAX_HEADER_BYTES`).
+///
+/// A policy cap, not a format limit: a valid file could pass it, so passing it
+/// is [`ArrayError::ListingTooLarge`], which says the file is fine, rather
+/// than a parse error.
+pub(crate) const MAX_METADATA_BYTES: u64 = 16 << 20;
+
+/// Refuse `len` more bytes of one metadata structure past
+/// [`MAX_METADATA_BYTES`], counted into `total`, before they are read. `what`
+/// names the bytes counted, as [`ArrayError::ListingTooLarge`] prints it
+/// (`"bytes in one HDF5 object header"`).
+pub(crate) fn charge_metadata(
+    total: &mut u64,
+    len: u64,
+    what: &'static str,
+) -> Result<(), FieldglassError> {
+    *total = total.saturating_add(len);
+    if *total > MAX_METADATA_BYTES {
+        return Err(FieldglassError::Array(ArrayError::ListingTooLarge {
+            what,
+            limit: MAX_METADATA_BYTES,
+        }));
+    }
+    Ok(())
+}
+
 /// File ranges one traversal has already read, held so no two overlap (#895).
 ///
 /// An object header's continuation chunks and a B-tree v2's nodes each belong
