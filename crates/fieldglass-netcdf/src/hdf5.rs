@@ -277,7 +277,15 @@ fn superblock_at_base<S: ByteSource + ?Sized>(source: &S) -> Result<(), Fieldgla
 /// against newer superblock layouts.
 pub fn probe<S: ByteSource + ?Sized>(source: &S) -> Result<Hdf5Probe, FieldglassError> {
     let off = find_signature(source)?.ok_or_else(|| not_hdf5(source))?;
+    probe_at(source, off)
+}
 
+/// [`probe`] for a caller that has already found the signature, at `off`
+/// ([`find_signature`]'s answer), so it is not searched for twice (#999).
+pub fn probe_at<S: ByteSource + ?Sized>(
+    source: &S,
+    off: u64,
+) -> Result<Hdf5Probe, FieldglassError> {
     // Superblock fields after the 8-byte signature, common to all versions:
     //   off + 8  : superblock version (1 byte)
     //

@@ -9,7 +9,7 @@ use crate::geometry::{DatasetView, VarView};
 use crate::hdf5::{self, Hdf5Probe};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::CfUnpacking;
-use fieldglass_core::bytes::{ByteSource, read_up_to};
+use fieldglass_core::bytes::ByteSource;
 
 /// Which on-disk layout backs a NetCDF file.
 #[derive(Debug, Clone)]
@@ -98,23 +98,28 @@ impl<S: ByteSource> NetcdfReader<S> {
     /// [`SourceIdentity::named`](fieldglass_core::SourceIdentity::named), for
     /// example from the object's URL and its size or ETag.
     pub fn from_source(source: S) -> Result<Self, FieldglassError> {
-        // Four bytes or none, so a three-byte "CDF" is no container rather
-        // than a truncated header, as it was over a buffer.
-        let classic = {
-            let head = read_up_to(&source, 0, 4)?;
-            head.len() == 4 && head.starts_with(b"CDF")
-        };
-        let backing = if classic {
-            let header = classic::parse_header_from(&source)?;
-            NetcdfBacking::Classic(header)
-        } else if hdf5::find_signature(&source)?.is_some() {
-            // At byte 0, or after a userblock (#936).
-            let probe = hdf5::probe(&source)?;
-            NetcdfBacking::Hdf5(probe)
-        } else {
-            // The error shows the first bytes, as many as it keeps.
-            let found = read_up_to(&source, 0, 8)?;
-            return Err(FieldglassError::invalid_magic("CDF or \\x89HDF", &found));
+        // The classic walk's first window holds the magic, so telling a
+        // classic file from the rest costs no request of its own (#999). A
+        // three-byte "CDF" is no container rather than a truncated header, as
+        // it was over a buffer.
+        let backing = match classic::try_parse_header_from(&source)? {
+            Ok(header) => NetcdfBacking::Classic(header),
+            Err(head) => {
+                // At byte 0, which that window already holds, or after a
+                // userblock (#936).
+                let at = if head.starts_with(&fieldglass_core::HDF5_SIGNATURE) {
+                    Some(0)
+                } else {
+                    hdf5::find_signature(&source)?
+                };
+                match at {
+                    Some(at) => NetcdfBacking::Hdf5(hdf5::probe_at(&source, at)?),
+                    // The error shows the first bytes, as many as it keeps.
+                    None => {
+                        return Err(FieldglassError::invalid_magic("CDF or \\x89HDF", &head));
+                    }
+                }
+            }
         };
         Ok(Self { backing, source })
     }

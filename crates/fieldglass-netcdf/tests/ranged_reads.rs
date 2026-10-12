@@ -246,9 +246,11 @@ fn opening_an_hdf5_file_reads_its_superblock_only() {
             "{name} is not HDF5"
         );
         let read = covered(&spans(&asked(&source)));
-        // Eight bytes at each offset a signature may be at before the one it
-        // is at, and sixteen of superblock after it.
-        assert!(read <= 64, "{name}: opening read {read} bytes");
+        // The cursor's first window, which holds a signature at byte 0; after
+        // a userblock, eight bytes at the offset it is at and sixteen of
+        // superblock too (#999).
+        let bound = FIRST_WINDOW_BYTES as u64 + 16;
+        assert!(read <= bound, "{name}: opening read {read} bytes");
     }
 }
 
@@ -471,4 +473,31 @@ fn a_header_past_its_cap_is_refused_before_it_is_read() {
     small.extend_from_slice(&[0; 8]); // var_list ABSENT
     let size = small.len() as u64;
     NetcdfReader::from_source(Declared { held: small, size }).expect("a small value opens");
+}
+
+/// Opening asks for the magic in the window the walk needs anyway, and finds
+/// an HDF5 signature once (#999). Before, a classic open made a request for the
+/// four magic bytes ahead of the header's windows, and an HDF5 open one for the
+/// magic and a second search for the signature: each exact count below is one
+/// fewer, or two, than it was.
+#[test]
+fn opening_a_file_makes_no_request_for_its_own_magic() {
+    let count = |name: &str, bytes: &'static [u8]| {
+        let source = Recording::new(bytes);
+        NetcdfReader::from_source(&source).unwrap_or_else(|e| panic!("{name}: {e}"));
+        source.reads().len()
+    };
+    let classic = |name: &str| CLASSIC.iter().find(|f| f.0 == name).expect("fixture").1;
+    let hdf5 = |name: &str| HDF5.iter().find(|f| f.0 == name).expect("fixture").1;
+
+    // The header's windows are 64, 128, 256 ... bytes; the magic is in the first.
+    assert_eq!(count("cdf1", classic("ersst_v5_187001_cdf1.nc")), 7);
+    assert_eq!(
+        count("record_single", classic("record_single_short_cdf2.nc")),
+        2
+    );
+    // The first window holds the signature at 0, and the superblock is one more.
+    assert_eq!(count("oisst", hdf5("oisst_avhrr_v2.nc")), 2);
+    // After a userblock: the first window misses, the search finds 512 once.
+    assert_eq!(count("userblock", hdf5("hdf5_userblock_earliest.h5")), 4);
 }

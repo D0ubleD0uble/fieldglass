@@ -383,8 +383,26 @@ pub fn parse_header(bytes: &[u8]) -> Result<ClassicHeader, FieldglassError> {
 pub fn parse_header_from<S: ByteSource + ?Sized>(
     source: &S,
 ) -> Result<ClassicHeader, FieldglassError> {
-    let mut p = Parser::new(source)?;
+    walk_header(Parser::new(source)?, source)
+}
 
+/// [`parse_header_from`] for a caller that does not yet know the file is
+/// classic. `Err` carries the file's first bytes (up to eight) when they are
+/// not a classic magic, found without a request beyond the header's own first
+/// window (#999).
+pub fn try_parse_header_from<S: ByteSource + ?Sized>(
+    source: &S,
+) -> Result<Result<ClassicHeader, Vec<u8>>, FieldglassError> {
+    match Parser::start(source)? {
+        Ok(p) => walk_header(p, source).map(Ok),
+        Err(head) => Ok(Err(head)),
+    }
+}
+
+fn walk_header<S: ByteSource + ?Sized>(
+    mut p: Parser<'_, S>,
+    source: &S,
+) -> Result<ClassicHeader, FieldglassError> {
     // numrecs follows the 4-byte magic.
     let numrecs = p.read_numrecs()?;
 
@@ -991,33 +1009,45 @@ struct Parser<'a, S: ByteSource + ?Sized> {
 
 impl<'a, S: ByteSource + ?Sized> Parser<'a, S> {
     fn new(source: &'a S) -> Result<Self, FieldglassError> {
-        let size = source.size();
-        if size < 4 {
+        if source.size() < 4 {
             return Err(FieldglassError::Parse(
                 "NetCDF classic header requires at least the 4-byte magic".to_string(),
             ));
         }
-        let mut cursor = FileCursor::at(source, 0)?;
-        let magic: [u8; 4] = cursor
-            .take(4)?
-            .try_into()
-            .map_err(|_| FieldglassError::Parse("NetCDF classic magic read short".to_string()))?;
-        if &magic[0..3] != b"CDF" {
-            // The error shows the first few bytes, as a buffer parse did.
-            let found = read_up_to(source, 0, 8)?;
-            return Err(FieldglassError::invalid_magic("CDF", &found));
+        // The error shows the first few bytes, as a buffer parse did.
+        Self::start(source)?.map_err(|head| FieldglassError::invalid_magic("CDF", &head))
+    }
+
+    /// Begin a header walk, or hand back the file's first bytes (up to eight)
+    /// when they are not a classic magic, so a caller that goes on to look for
+    /// another format does not read them again (#999).
+    ///
+    /// The magic is the first thing the cursor takes, so it comes out of the
+    /// cursor's first window: opening a classic file needs no request of its
+    /// own to find out that it is one. An unknown version byte is still an
+    /// error, not "not classic": the file says `CDF`.
+    fn start(source: &'a S) -> Result<Result<Self, Vec<u8>>, FieldglassError> {
+        let size = source.size();
+        if size < 4 {
+            return Ok(Err(read_up_to(source, 0, 8)?.to_vec()));
         }
-        let version = ClassicVersion::from_byte(magic[3]).ok_or_else(|| {
+        let mut cursor = FileCursor::at(source, 0)?;
+        let head = cursor.peek_up_to(8)?;
+        if !head.starts_with(b"CDF") {
+            return Ok(Err(head.to_vec()));
+        }
+        let version_byte = head[3];
+        cursor.take(4)?;
+        let version = ClassicVersion::from_byte(version_byte).ok_or_else(|| {
             FieldglassError::Parse(format!(
-                "unsupported NetCDF classic version byte 0x{:02x}",
-                magic[3]
+                "unsupported NetCDF classic version byte 0x{version_byte:02x}"
             ))
         })?;
-        Ok(Self {
+        Ok(Ok(Self {
             cursor,
             size,
             version,
-        })
+        }))
     }
 
     /// The cursor's offset in the file.
