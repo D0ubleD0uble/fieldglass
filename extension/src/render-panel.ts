@@ -523,12 +523,39 @@ export function formatAxisValue(value: number, units: string | null): string {
   };
   const step = since ? perUnit[since[1].toLowerCase()] : undefined;
   if (since && step) {
-    // `1990-01-01 00:00:00` is CF's spelling; `T` and a zone make it ISO. A
-    // reference the browser cannot read falls through to the number.
-    const reference = since[2].replace(" ", "T");
-    const epoch = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(reference) ? reference : reference + "Z");
-    if (Number.isFinite(epoch)) {
-      const at = new Date(epoch + value * step);
+    // The reference in UDUNITS' spelling, read here rather than by
+    // Date.parse, which refuses most of it (#1028): one-digit fields
+    // (`1900-1-1`), fractional or one-digit seconds (`00:00:0.0`, which every
+    // NCEP/NCAR reanalysis file writes), a space or `T` before the time, no
+    // time at all, and a zone as `Z`, `UTC`, `GMT` or an offset (`+05:30`,
+    // `-6`). A reference it cannot read falls through to the number.
+    let rest = since[2].trim();
+    const take = (re: RegExp) => {
+      const m = re.exec(rest);
+      if (m) rest = rest.slice(m[0].length);
+      return m;
+    };
+    const day = take(/^(\d{1,4})-(\d{1,2})-(\d{1,2})/);
+    const clock = day ? take(/^[T ]+(\d{1,2}):(\d{1,2})/) : null;
+    const seconds = clock ? take(/^:(\d{1,2}\.?\d*)/) : null;
+    rest = rest.trim();
+    const offset = /^([+-])(\d{1,2})(:?)(\d\d)?$/.exec(rest);
+    let epoch = NaN;
+    if (day && (rest === "" || /^(Z|UTC|GMT)$/i.test(rest) || offset)) {
+      const at = new Date(0);
+      // setUTCFullYear, since Date.UTC reads a year below 100 as 19xx.
+      at.setUTCFullYear(Number(day[1]), Number(day[2]) - 1, Number(day[3]));
+      at.setUTCHours(clock ? Number(clock[1]) : 0, clock ? Number(clock[2]) : 0, 0, 0);
+      epoch = at.getTime() + (seconds ? Number(seconds[1]) : 0) * 1000;
+      if (offset) {
+        // `+05:30` is 5 h 30 min ahead of UTC, so its midnight is earlier.
+        const minutes = Number(offset[2]) * 60 + Number(offset[4] || 0);
+        epoch -= (offset[1] === "-" ? -1 : 1) * minutes * 60000;
+      }
+    }
+    const at = new Date(epoch + value * step);
+    // An instant past the Date range is invalid, and toISOString would throw.
+    if (Number.isFinite(at.getTime())) {
       const date = at.toISOString().slice(0, 10);
       const time = at.toISOString().slice(11, 16);
       return time === "00:00" ? date : date + " " + time;
@@ -539,6 +566,23 @@ export function formatAxisValue(value: number, units: string | null): string {
   // (`0.30000000004`), and a tick label should show neither that, nor `0.000`
   // for zero, nor `1013` for a pressure level of `1013.25`.
   return String(Number(value.toPrecision(6)));
+}
+
+/** The label under a line plot: the first and last points of the axis it runs
+ *  along, read the way the cross-section's ticks read them, so a CF time is a
+ *  date (#1028). An axis with no coordinates is positioned by index, and says
+ *  so with plain numbers.
+ *
+ *  Serialized into the panel script, so it may use only formatAxisValue, which
+ *  is serialized beside it. */
+export function composeLineAxisLabel(
+  first: number,
+  last: number,
+  coordinateUnits: string | null,
+  hasCoordinates: boolean,
+): string {
+  const read = (x: number) => (hasCoordinates ? formatAxisValue(x, coordinateUnits) : String(x));
+  return read(first) + " … " + read(last);
 }
 
 /** The frame an animation steps to from `index` along an axis of `length`
@@ -881,6 +925,7 @@ export function renderImagePanelHtml(
         let fieldSupports = ${JSON.stringify(supports)};
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
+        ${composeLineAxisLabel.toString()}
         ${composeProbeValue.toString()}
         ${composeRangeText.toString()}
         ${composeVectorScale.toString()}
@@ -943,6 +988,7 @@ export function renderImagePanelHtml(
           xSel.value = String(sliceState.xDim);
           wrap.innerHTML = dimStepperHtml(v, sliceState.yDim, sliceState.xDim, sliceState.sliceIndices);
           buildAnimationControls();
+          fillLineAxes();
           syncCrossSectionMode();
         }
 
@@ -1233,6 +1279,12 @@ export function renderImagePanelHtml(
         // next one, so a slow decode lowers the frame rate rather than queueing
         // requests behind itself.
         let animation = null;
+        // The animated axis and the line plot's axis the user chose, kept apart
+        // from their selects: those are rebuilt with each slice, after
+        // restoreState has run, so a saved choice is applied when they are
+        // filled rather than when the snapshot is read (#1027).
+        let preferredAnimateDim = null;
+        let preferredLineAxis = null;
 
         function animationDim() {
           const sel = document.getElementById('animate-dim');
@@ -1258,6 +1310,10 @@ export function renderImagePanelHtml(
               : '<option value="' + i + '">' + escapeAttr(d.name) + '</option>')
             .join('');
           sel.value = String(choice);
+          if (preferredAnimateDim !== null &&
+              Array.from(sel.options).some((o) => o.value === preferredAnimateDim)) {
+            sel.value = preferredAnimateDim;
+          }
           row.toggleAttribute('hidden', false);
           updateFrameLabel();
         }
@@ -1360,7 +1416,11 @@ export function renderImagePanelHtml(
           on('anim-back', jump(() => stepAnimation(-1)));
           on('anim-forward', jump(() => stepAnimation(1)));
           const sel = document.getElementById('animate-dim');
-          if (sel) sel.addEventListener('change', () => { stopAnimation(); updateFrameLabel(); });
+          if (sel) sel.addEventListener('change', () => {
+            preferredAnimateDim = sel.value;
+            stopAnimation();
+            updateFrameLabel();
+          });
         }
 
         function setupSlice() {
@@ -2010,9 +2070,14 @@ export function renderImagePanelHtml(
           drawOverlay();
         }
 
+        // A V component left unchosen, as a restore leaves it when its message
+        // is gone from a file that changed (#1027), draws no arrows: its value
+        // is '', which Number() would read as message 0.
         function vectorsEnabled() {
+          const v = document.getElementById('vector-field-v');
           return overlaysOffered() && fieldSupports.vectors === true &&
-            !!(document.getElementById('overlay-vectors') || {}).checked;
+            !!(document.getElementById('overlay-vectors') || {}).checked &&
+            !!v && v.value !== '';
         }
 
         // Ask the provider for the arrows of this message paired with the chosen
@@ -2333,16 +2398,25 @@ export function renderImagePanelHtml(
           return held.concat(horizontal);
         }
 
-        function offerLine(r) {
-          if (!SLICE || r.gridI == null || r.gridJ == null) { hideLine(); return; }
+        // Offer the slice's axes in the line plot's picker, keeping the one
+        // chosen. Filled when the slice is set up as well as on a click, so a
+        // panel written again shows the saved axis before anything is probed.
+        // Returns whether there is an axis to plot along.
+        function fillLineAxes() {
           const axes = lineAxes();
           const sel = document.getElementById('line-axis');
-          if (!axes.length || !sel) { hideLine(); return; }
-          const previous = sel.value;
+          if (!sel) return false;
+          const previous = sel.value !== '' ? sel.value : preferredLineAxis;
           sel.innerHTML = axes
             .map((d) => '<option value="' + d.i + '">' + escapeAttr(d.name) + '</option>')
             .join('');
           if (axes.some((d) => String(d.i) === previous)) sel.value = previous;
+          return axes.length > 0;
+        }
+
+        function offerLine(r) {
+          if (!SLICE || r.gridI == null || r.gridJ == null) { hideLine(); return; }
+          if (!fillLineAxes()) { hideLine(); return; }
           lineCell = { gridI: r.gridI, gridJ: r.gridJ };
           // A click asks for this cell's line, which replaces a zonal mean.
           const toggle = document.getElementById('zonal-toggle');
@@ -2365,7 +2439,13 @@ export function renderImagePanelHtml(
 
         {
           const sel = document.getElementById('line-axis');
-          if (sel) sel.addEventListener('change', requestLine);
+          if (sel) sel.addEventListener('change', () => {
+            preferredLineAxis = sel.value;
+            // The line plot sits outside the toolbar, whose listener snapshots
+            // every other control.
+            snapshotState();
+            requestLine();
+          });
         }
 
         const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -2407,6 +2487,8 @@ export function renderImagePanelHtml(
         {
           const toggle = document.getElementById('zonal-toggle');
           if (toggle) toggle.addEventListener('change', () => {
+            // Outside the toolbar, so it snapshots for itself (#1027).
+            snapshotState();
             if (zonalOn()) {
               lineCell = null;
               setAxisPickerHidden(true);
@@ -2442,9 +2524,8 @@ export function renderImagePanelHtml(
           // Position each point by its coordinate when the axis has one, and by
           // its index otherwise — an axis with a hole in its coordinates arrives
           // without them, rather than with a gap to invent across.
-          const xs = line.coordinates && line.coordinates.length === n
-            ? line.coordinates
-            : line.values.map((_, i) => i);
+          const indices = line.values.map((_, i) => i);
+          const xs = line.coordinates && line.coordinates.length === n ? line.coordinates : indices;
           const present = [];
           for (let i = 0; i < n; i++) {
             if (line.mask[i] === 1 && Number.isFinite(line.values[i])) present.push(i);
@@ -2500,7 +2581,7 @@ export function renderImagePanelHtml(
             })));
           }
           const axisLabel = svgEl('text', { class: 'axis-label', x: pad.l, y: height - 4 });
-          axisLabel.textContent = String(xs[0]) + ' … ' + String(xs[n - 1]);
+          axisLabel.textContent = composeLineAxisLabel(xs[0], xs[n - 1], line.coordinateUnits, xs !== indices);
           svg.appendChild(axisLabel);
 
           // A line with no name (#775) is captioned as values, not as nothing.
@@ -2806,6 +2887,23 @@ export function renderImagePanelHtml(
             contourWidth: val('width-contours'),
             contourInterval: val('contour-interval'),
             contoursOnly: chk('contours-only'),
+            // This cycle's controls (#1027): arrows, the zonal average, the
+            // animation and the line plot's axis.
+            vectors: chk('overlay-vectors'),
+            vectorFieldV: val('vector-field-v'),
+            vectorKeyV: (() => {
+              const v = document.getElementById('vector-field-v');
+              const chosen = v && v.selectedOptions[0];
+              return chosen ? chosen.dataset.key : undefined;
+            })(),
+            vectorSpacing: val('vector-spacing'),
+            vectorColor: val('color-vectors'),
+            vectorWidth: val('width-vectors'),
+            zonal: chk('zonal-toggle'),
+            animateDim: preferredAnimateDim !== null ? preferredAnimateDim : val('animate-dim'),
+            animSpeed: val('anim-speed'),
+            animLoop: chk('anim-loop'),
+            lineAxis: preferredLineAxis !== null ? preferredLineAxis : val('line-axis'),
             slice: sliceState,
             // The variable by name as well as by index: a panel rewritten for
             // a file that changed under it restores by name (#839).
@@ -2823,7 +2921,14 @@ export function renderImagePanelHtml(
         // no identity (a NetCDF panel's, or one saved before #959) restores by
         // index, as before.
         function restoreFieldB(index, key) {
-          const b = document.getElementById('compare-field-b');
+          restoreMessagePick('compare-field-b', index, key);
+        }
+
+        // A message picker's saved choice, kept where its index still names
+        // that message and found by identity where it moved. Field B (#959) and
+        // the V component (#1027) both use it.
+        function restoreMessagePick(id, index, key) {
+          const b = document.getElementById(id);
           if (!b || index === undefined || index === null) return;
           if (typeof key !== 'string') {
             if (Array.from(b.options).some((o) => o.value === String(index))) b.value = String(index);
@@ -2920,6 +3025,24 @@ export function renderImagePanelHtml(
             cc.value = s.contourColor;
             cc.dataset.userSet = '1';
           }
+          // Arrows, the zonal average, the animation and the line plot's axis
+          // (#1027). Arrows restored on a panel that does not offer them stay
+          // unchecked in effect: vectorsEnabled() also asks the field.
+          setChk('overlay-vectors', s.vectors);
+          restoreMessagePick('vector-field-v', s.vectorFieldV, s.vectorKeyV);
+          setVal('vector-spacing', s.vectorSpacing);
+          setVal('width-vectors', s.vectorWidth);
+          const vc = document.getElementById('color-vectors');
+          if (vc && s.vectorColor) {
+            vc.value = s.vectorColor;
+            vc.dataset.userSet = '1';
+          }
+          setChk('zonal-toggle', s.zonal);
+          setVal('anim-speed', s.animSpeed);
+          // Loop starts on; a snapshot from before #1027 has no say.
+          if (typeof s.animLoop === 'boolean') setChk('anim-loop', s.animLoop);
+          if (typeof s.animateDim === 'string' && s.animateDim !== '') preferredAnimateDim = s.animateDim;
+          if (typeof s.lineAxis === 'string' && s.lineAxis !== '') preferredLineAxis = s.lineAxis;
           // Dependent visibility the change handlers would normally toggle.
           // (The projection-dependent groups are syncProjectionControls' job.)
           const rm = document.getElementById('range-manual-fields');
