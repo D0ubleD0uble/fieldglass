@@ -547,9 +547,9 @@ pub fn is_oblate_spheroid(semi_major_m: f64, semi_minor_m: f64) -> bool {
         && semi_minor_m <= semi_major_m
 }
 
-/// The floor [`GridGeometry::reprojectable`] puts under a metre-plane family,
-/// measured on the radius the **message declared** rather than on the plane the
-/// projection derives from it.
+/// The floor every answer [`GridGeometry`] gives for a metre-plane family puts
+/// under it, measured on the radius the **message declared** rather than on the
+/// plane the projection derives from it.
 ///
 /// Three conditions the projectors' own `is_well_defined` does not all cover:
 /// the declared radius has to describe a sphere at all, the grid has to have a
@@ -559,6 +559,14 @@ pub fn is_oblate_spheroid(semi_major_m: f64, semi_minor_m: f64) -> bool {
 /// `k·rectifying_radius` for transverse Mercator, either of which can be the
 /// larger or the smaller number. Both are asked, so a grid stating a cell
 /// between them is refused rather than offered and then refused again.
+///
+/// The render measures the declared radius too (`fieldglass`'s
+/// `require_declared_radius`, which names the number in its refusal), so this
+/// is what keeps a grid's placement and the operations that need its points
+/// in agreement. Asked only by [`reprojectable`](GridGeometry::reprojectable)
+/// before #1002, it let a polar stereographic grid on an Earth smaller than one
+/// cell but not than its own plane be placed, and then refused every contour,
+/// arrow and long CSV.
 ///
 /// The zero-step clause is here rather than left to [`plane_spans_a_grid_cell`],
 /// which passes a spacing-free grid vacuously by design: a zero step is a
@@ -572,23 +580,64 @@ fn declared_plane_carries_the_grid(radius_m: f64, dx_metres: f64, dy_metres: f64
         && plane_spans_a_grid_cell(radius_m, dx_metres, dy_metres)
 }
 
+// The four metre-plane families' projectors, each with whether its plane
+// resolves: the projector's own constants (`is_well_defined`) and the floor on
+// the Earth the message declared (`declared_plane_carries_the_grid`). Every
+// `GridGeometry` answer for these families starts here, so the two halves are
+// asked together everywhere and the radius each family declares is named once.
+// The `bool` is what `planar_grid_is_placeable` takes as `projection_resolves`.
+
+fn lambert_resolving(p: &LambertParams) -> (LambertProjector, bool) {
+    let proj = LambertProjector::new(*p);
+    let resolves = declared_plane_carries_the_grid(p.earth_radius_m, p.dx_metres, p.dy_metres)
+        && proj.is_well_defined();
+    (proj, resolves)
+}
+
+fn polar_stereo_resolving(p: &PolarStereoParams) -> (PolarStereoProjector, bool) {
+    let proj = PolarStereoProjector::new(*p);
+    let resolves = declared_plane_carries_the_grid(p.earth_radius_m, p.dx_metres, p.dy_metres)
+        && proj.is_well_defined();
+    (proj, resolves)
+}
+
+fn transverse_mercator_resolving(
+    p: &TransverseMercatorParams,
+) -> (TransverseMercatorProjector, bool) {
+    let proj = TransverseMercatorProjector::new(*p);
+    let resolves = declared_plane_carries_the_grid(p.semi_major_m, p.dx_metres, p.dy_metres)
+        && proj.is_well_defined();
+    (proj, resolves)
+}
+
+fn lambert_azimuthal_resolving(p: &LambertAzimuthalParams) -> (LambertAzimuthalProjector, bool) {
+    let proj = LambertAzimuthalProjector::new(*p);
+    let resolves = declared_plane_carries_the_grid(p.semi_major_m, p.dx_metres, p.dy_metres)
+        && proj.is_well_defined();
+    (proj, resolves)
+}
+
 /// Whether a planar grid can be placed on the Earth at all — the one predicate
-/// [`GridGeometry::forward`], [`GridGeometry::lonlat_bbox`] and
-/// [`GridGeometry::plane_affine`] gate on, so that none of the three can answer
-/// for a grid whose [`GridGeometry::inverse`] declines every point of it.
+/// [`GridGeometry::forward`], [`GridGeometry::lonlat_bbox`],
+/// [`GridGeometry::plane_affine`] and [`GridGeometry::inverse`] gate on, so that
+/// none of them can answer for a grid the others decline.
 ///
 /// Two conditions, and a message can fail either one on its own.
 ///
-/// `projection_resolves` is the projector's own constants check. It is passed in
-/// rather than read off the trait because it is an inherent `is_well_defined` on
-/// each of the four planar projectors rather than a trait method — the same
-/// shape the GRIB readers' `finite_lonlat` helpers use. `false` means
+/// `projection_resolves` is whether the plane is real. `GridGeometry` passes the
+/// projector's own constants check *and* the floor on the Earth the message
+/// declared, together: it is an argument rather than read off the trait because
+/// `is_well_defined` is inherent on each of the four planar projectors rather
+/// than a trait method — the same shape the GRIB readers' `finite_lonlat`
+/// helpers use — and because the declared radius is the message's, not the
+/// projector's. A `false` from the first half means
 /// [`PlanarGridProjector::accepts`] rejects every point. The arithmetic does not
 /// necessarily go non-finite there: a Lambert cone on a declared radius of zero
 /// reports every grid point at the south pole, which reads downstream as a
 /// coordinate rather than as a broken grid. [`plane_spans_a_grid_cell`] rides in
-/// through this argument too, which is why an Earth small enough to fit inside
-/// one grid cell is refused here without a second condition of its own.
+/// through this argument twice, against the family's own plane and against the
+/// declared Earth, which is why an Earth small enough to fit inside one grid
+/// cell is refused here without a second condition of its own (#610, #1002).
 ///
 /// The second is that the *raster* has a resolvable position in the plane the
 /// projection defines. A grid may state a first point the forward map sends to
@@ -646,6 +695,30 @@ fn placed_bbox(projection_resolves: bool, proj: &dyn PlanarGridProjector) -> Opt
     planar_grid_is_placeable(projection_resolves, proj)
         .then(|| proj.placed_lonlat_bbox())
         .flatten()
+}
+
+/// A planar family's inverse map, or one that answers `None` everywhere when the
+/// grid cannot be placed. The [`placed_point`] gate, for the inverse.
+///
+/// The projector's own `inverse` already declines every point of most such
+/// grids: [`PlanarGridProjector::accepts`] asks `is_well_defined`, and a raster
+/// with no position in its plane divides by a step that changes nothing. It
+/// does not know the Earth the message declared, though, so a grid whose own
+/// plane carries a cell and whose declared Earth does not still inverted —
+/// a probe answered for a grid `forward` and `lonlat_bbox` call unplaceable
+/// (#1002).
+fn placed_inverse<'a, P>(
+    projection_resolves: bool,
+    proj: P,
+) -> Box<dyn Fn(f64, f64) -> Option<GridIndex> + 'a>
+where
+    P: PlanarGridProjector + 'a,
+{
+    if planar_grid_is_placeable(projection_resolves, &proj) {
+        Box::new(move |lat, lon| proj.inverse(lat, lon))
+    } else {
+        Box::new(|_, _| None)
+    }
 }
 
 /// A planar family's position in the plane its CRS names, or `None` when the
@@ -1284,27 +1357,28 @@ impl GridGeometry {
             // The planar families answer through one guard, so that a grid
             // whose `inverse` declines every point is declined here too and a
             // point beyond the projection's reach is space rather than `NaN`;
-            // see [`placed_point`]. All four pass their own constants check:
+            // see [`placed_point`]. All four pass their own constants check
+            // and the floor on the declared Earth (`*_resolving`, #1002):
             // polar stereographic used to pass `true` on the grounds that its
             // scale factor `(1 + sin|LaD|)/2` is one no declarable `LaD` drives
             // to zero. That is silent about the radius that multiplies it, and
             // wrong about `LaD` besides — §3.20 can state ±270°, where the
             // factor is exactly zero (#603).
             Self::Lambert(p) => {
-                let proj = LambertProjector::new(*p);
-                placed_point(proj.is_well_defined(), &proj, i, j)
+                let (proj, resolves) = lambert_resolving(p);
+                placed_point(resolves, &proj, i, j)
             }
             Self::PolarStereo(p) => {
-                let proj = PolarStereoProjector::new(*p);
-                placed_point(proj.is_well_defined(), &proj, i, j)
+                let (proj, resolves) = polar_stereo_resolving(p);
+                placed_point(resolves, &proj, i, j)
             }
             Self::TransverseMercator(p) => {
-                let proj = TransverseMercatorProjector::new(*p);
-                placed_point(proj.is_well_defined(), &proj, i, j)
+                let (proj, resolves) = transverse_mercator_resolving(p);
+                placed_point(resolves, &proj, i, j)
             }
             Self::LambertAzimuthal(p) => {
-                let proj = LambertAzimuthalProjector::new(*p);
-                placed_point(proj.is_well_defined(), &proj, i, j)
+                let (proj, resolves) = lambert_azimuthal_resolving(p);
+                placed_point(resolves, &proj, i, j)
             }
             // A pixel whose line of sight misses the Earth is space, and the
             // projector already says so.
@@ -1353,23 +1427,19 @@ impl GridGeometry {
                 bounded!(move |i, j| proj.grid_point_lonlat(i, j))
             }
             Self::Lambert(p) => {
-                let proj = LambertProjector::new(*p);
-                let resolves = proj.is_well_defined();
+                let (proj, resolves) = lambert_resolving(p);
                 bounded!(move |i, j| placed_point(resolves, &proj, i, j))
             }
             Self::PolarStereo(p) => {
-                let proj = PolarStereoProjector::new(*p);
-                let resolves = proj.is_well_defined();
+                let (proj, resolves) = polar_stereo_resolving(p);
                 bounded!(move |i, j| placed_point(resolves, &proj, i, j))
             }
             Self::TransverseMercator(p) => {
-                let proj = TransverseMercatorProjector::new(*p);
-                let resolves = proj.is_well_defined();
+                let (proj, resolves) = transverse_mercator_resolving(p);
                 bounded!(move |i, j| placed_point(resolves, &proj, i, j))
             }
             Self::LambertAzimuthal(p) => {
-                let proj = LambertAzimuthalProjector::new(*p);
-                let resolves = proj.is_well_defined();
+                let (proj, resolves) = lambert_azimuthal_resolving(p);
                 bounded!(move |i, j| placed_point(resolves, &proj, i, j))
             }
             Self::Geostationary(p) => {
@@ -1401,7 +1471,9 @@ impl GridGeometry {
     /// is already a closure for this reason; #464 wires this into it.
     ///
     /// An [`Unsupported`](Self::Unsupported) grid returns a closure that
-    /// answers `None`, so a caller needs no second code path for it.
+    /// answers `None`, so a caller needs no second code path for it, and so
+    /// does a planar grid that [`forward`](Self::forward) and
+    /// [`lonlat_bbox`](Self::lonlat_bbox) cannot place.
     pub fn inverse_at(&self) -> Box<dyn Fn(f64, f64) -> Option<GridIndex> + '_> {
         match self {
             Self::LatLon(p) => Box::new(move |lat, lon| latlon_inverse(p, lat, lon)),
@@ -1419,20 +1491,20 @@ impl GridGeometry {
                 Box::new(move |lat, lon| proj.inverse(lat, lon))
             }
             Self::Lambert(p) => {
-                let proj = LambertProjector::new(*p);
-                Box::new(move |lat, lon| proj.inverse(lat, lon))
+                let (proj, resolves) = lambert_resolving(p);
+                placed_inverse(resolves, proj)
             }
             Self::PolarStereo(p) => {
-                let proj = PolarStereoProjector::new(*p);
-                Box::new(move |lat, lon| proj.inverse(lat, lon))
+                let (proj, resolves) = polar_stereo_resolving(p);
+                placed_inverse(resolves, proj)
             }
             Self::TransverseMercator(p) => {
-                let proj = TransverseMercatorProjector::new(*p);
-                Box::new(move |lat, lon| proj.inverse(lat, lon))
+                let (proj, resolves) = transverse_mercator_resolving(p);
+                placed_inverse(resolves, proj)
             }
             Self::LambertAzimuthal(p) => {
-                let proj = LambertAzimuthalProjector::new(*p);
-                Box::new(move |lat, lon| proj.inverse(lat, lon))
+                let (proj, resolves) = lambert_azimuthal_resolving(p);
+                placed_inverse(resolves, proj)
             }
             Self::Geostationary(p) => {
                 let proj = GeostationaryProjector::new(*p);
@@ -1509,12 +1581,12 @@ impl GridGeometry {
             // box on the south pole for a grid whose `inverse` declines every
             // point of it.
             Self::Lambert(p) => {
-                let proj = LambertProjector::new(*p);
-                placed_bbox(proj.is_well_defined(), &proj)
+                let (proj, resolves) = lambert_resolving(p);
+                placed_bbox(resolves, &proj)
             }
             Self::PolarStereo(p) => {
-                let proj = PolarStereoProjector::new(*p);
-                let box_ = placed_bbox(proj.is_well_defined(), &proj)?;
+                let (proj, resolves) = polar_stereo_resolving(p);
+                let box_ = placed_bbox(resolves, &proj)?;
                 if proj.pole_inside_grid() {
                     // Every meridian is present and the enclosing arc has no
                     // empty gap to be the complement of, so the walk's
@@ -1533,12 +1605,12 @@ impl GridGeometry {
             // with degenerate constants is finite and meaningless, which frames
             // a render on nothing.
             Self::TransverseMercator(p) => {
-                let proj = TransverseMercatorProjector::new(*p);
-                placed_bbox(proj.is_well_defined(), &proj)
+                let (proj, resolves) = transverse_mercator_resolving(p);
+                placed_bbox(resolves, &proj)
             }
             Self::LambertAzimuthal(p) => {
-                let proj = LambertAzimuthalProjector::new(*p);
-                placed_bbox(proj.is_well_defined(), &proj)
+                let (proj, resolves) = lambert_azimuthal_resolving(p);
+                placed_bbox(resolves, &proj)
             }
             // The on-disk extent, so a cropped sector (GOES CONUS or
             // mesoscale, a Meteosat sector) frames its sector rather than a
@@ -1725,14 +1797,16 @@ impl GridGeometry {
     /// pole is such a grid: the origin lands at 1.9e23 m, where adding a 60 km
     /// step is a no-op in `f64`, and `inverse` then declines every pixel.
     ///
-    /// The plane itself is measured twice, on purpose —
+    /// The plane itself is measured twice, on purpose, and by every one of
+    /// those answers rather than by this one alone (#1002) —
     /// against the **declared** radius, which is what a message states and what
     /// the render's own parameter builders measure, and against the family's own
-    /// plane inside `is_well_defined`, which is a different number for three of
+    /// plane inside `is_well_defined`, which is a different number for two of
     /// the four. A polar stereographic plane is `2·R·k₀` (1.87·R at a ±60°
     /// latitude of true scale) and a transverse Mercator plane is
     /// `k·rectifying_radius`, so a grid stating a cell between the two would
-    /// otherwise be offered here and refused by the render.
+    /// otherwise be offered here and refused by the render, or placed and then
+    /// refused every operation that needs its points.
     ///
     /// [`Lookup`](Self::Lookup) is always reprojectable: its inverse is a
     /// nearest-cell search over centres that carry their own positions, so there
@@ -1747,24 +1821,20 @@ impl GridGeometry {
             }
             Self::Lookup(_) => true,
             Self::Lambert(p) => {
-                let proj = LambertProjector::new(*p);
-                declared_plane_carries_the_grid(p.earth_radius_m, p.dx_metres, p.dy_metres)
-                    && planar_grid_is_placeable(proj.is_well_defined(), &proj)
+                let (proj, resolves) = lambert_resolving(p);
+                planar_grid_is_placeable(resolves, &proj)
             }
             Self::PolarStereo(p) => {
-                let proj = PolarStereoProjector::new(*p);
-                declared_plane_carries_the_grid(p.earth_radius_m, p.dx_metres, p.dy_metres)
-                    && planar_grid_is_placeable(proj.is_well_defined(), &proj)
+                let (proj, resolves) = polar_stereo_resolving(p);
+                planar_grid_is_placeable(resolves, &proj)
             }
             Self::TransverseMercator(p) => {
-                let proj = TransverseMercatorProjector::new(*p);
-                declared_plane_carries_the_grid(p.semi_major_m, p.dx_metres, p.dy_metres)
-                    && planar_grid_is_placeable(proj.is_well_defined(), &proj)
+                let (proj, resolves) = transverse_mercator_resolving(p);
+                planar_grid_is_placeable(resolves, &proj)
             }
             Self::LambertAzimuthal(p) => {
-                let proj = LambertAzimuthalProjector::new(*p);
-                declared_plane_carries_the_grid(p.semi_major_m, p.dx_metres, p.dy_metres)
-                    && planar_grid_is_placeable(proj.is_well_defined(), &proj)
+                let (proj, resolves) = lambert_azimuthal_resolving(p);
+                planar_grid_is_placeable(resolves, &proj)
             }
             // No radius floor: a space view's axes are scan angles rather than
             // metres and every term of its maths is a ratio, so shrinking the
@@ -2020,20 +2090,20 @@ impl GridGeometry {
             // plane no point of it can be read back out of, and an origin the
             // forward map sent to infinity reaches a host as JSON `null`.
             Self::Lambert(p) => {
-                let proj = LambertProjector::new(*p);
-                placed_affine(proj.is_well_defined(), &proj)
+                let (proj, resolves) = lambert_resolving(p);
+                placed_affine(resolves, &proj)
             }
             Self::PolarStereo(p) => {
-                let proj = PolarStereoProjector::new(*p);
-                placed_affine(proj.is_well_defined(), &proj)
+                let (proj, resolves) = polar_stereo_resolving(p);
+                placed_affine(resolves, &proj)
             }
             Self::TransverseMercator(p) => {
-                let proj = TransverseMercatorProjector::new(*p);
-                placed_affine(proj.is_well_defined(), &proj)
+                let (proj, resolves) = transverse_mercator_resolving(p);
+                placed_affine(resolves, &proj)
             }
             Self::LambertAzimuthal(p) => {
-                let proj = LambertAzimuthalProjector::new(*p);
-                placed_affine(proj.is_well_defined(), &proj)
+                let (proj, resolves) = lambert_azimuthal_resolving(p);
+                placed_affine(resolves, &proj)
             }
             // Scan angles become metres on the same sight line `+h` measures
             // along, so the affine and the CRS agree by construction.
