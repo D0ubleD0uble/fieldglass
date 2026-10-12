@@ -22,9 +22,9 @@
 //! Reference: HDF5 file format specification version 3, "Disk Format: Level 2A
 //! — Data Object Headers" <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>.
 
-use super::source::{ClaimedRanges, charge_metadata, read_at, read_up_to};
+use super::source::{ClaimedRanges, charge_metadata, read_at};
 use fieldglass_core::FieldglassError;
-use fieldglass_core::bytes::{ByteSource, checked_usize};
+use fieldglass_core::bytes::{ByteSource, checked_usize, read_head};
 use std::collections::VecDeque;
 
 /// Object-header continuation message (points at the next chunk of messages).
@@ -112,7 +112,7 @@ pub(crate) fn walk_chunks<S: ByteSource + ?Sized>(
     offset_size: u8,
     length_size: u8,
 ) -> Result<(ObjectHeader, HeaderChunks), FieldglassError> {
-    let prefix = read_up_to(source, offset, HEADER_PROBE_BYTES)?;
+    let prefix = read_head(source, offset, HEADER_PROBE_BYTES)?;
     let mut chunks = Vec::new();
     let header = if prefix.starts_with(OHDR_SIGNATURE) {
         parse_v2(

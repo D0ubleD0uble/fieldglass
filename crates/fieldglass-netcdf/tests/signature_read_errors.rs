@@ -37,3 +37,15 @@ fn zeros_served_whole_are_still_not_netcdf() {
         .expect_err("zeros are no container");
     assert!(matches!(err, FieldglassError::InvalidMagic { .. }), "{err}");
 }
+
+/// A file of four to seven bytes whose read comes back short is a short read,
+/// not "neither classic nor HDF5" (#998): the magic was not all there.
+#[test]
+fn a_tiny_file_served_short_is_a_short_read() {
+    for bytes in [&b"CDF\x01"[..], &b"CDF\x01\0\0"[..]] {
+        let err = NetcdfReader::from_source(Short::new(bytes.to_vec(), 0, 1))
+            .map(|_| ())
+            .expect_err("a truncated leading read is not a verdict");
+        assert!(matches!(err, FieldglassError::ShortRead { .. }), "{err}");
+    }
+}

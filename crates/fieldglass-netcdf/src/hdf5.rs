@@ -283,7 +283,7 @@ pub fn probe<S: ByteSource + ?Sized>(source: &S) -> Result<Hdf5Probe, Fieldglass
 
 /// [`probe`] for a caller that has already found the signature, at `off`
 /// ([`find_signature`]'s answer), so it is not searched for twice (#999).
-pub fn probe_at<S: ByteSource + ?Sized>(
+pub(crate) fn probe_at<S: ByteSource + ?Sized>(
     source: &S,
     off: u64,
 ) -> Result<Hdf5Probe, FieldglassError> {

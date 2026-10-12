@@ -9,7 +9,7 @@ use crate::packing::spherical::{SpectralCoefficients, decode_spectral};
 use crate::pds::{ProductDefinition, parse_product_definition};
 use crate::tables::LevelValue;
 use fieldglass_core::bytes::{
-    ByteRange, ByteSource, FileCursor, find_forward, read_at, read_exact, read_up_to,
+    ByteRange, ByteSource, FileCursor, find_forward, read_at, read_exact, read_head,
 };
 use fieldglass_core::sht::SpectralTruncation;
 use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns, SynthesisedField};
@@ -922,7 +922,7 @@ fn read_message_at<S: ByteSource + ?Sized>(
     message_index: usize,
 ) -> Result<Grib1Message, FieldglassError> {
     let size = source.size();
-    let is = parse_indicator(&read_up_to(source, offset, INDICATOR_LEN)?)?;
+    let is = parse_indicator(&read_head(source, offset, INDICATOR_LEN)?)?;
 
     // The scan only stops on an edition-1 indicator; a reader handed an offset
     // directly has not been through it.

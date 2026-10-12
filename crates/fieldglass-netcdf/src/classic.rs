@@ -390,7 +390,7 @@ pub fn parse_header_from<S: ByteSource + ?Sized>(
 /// classic. `Err` carries the file's first bytes (up to eight) when they are
 /// not a classic magic, found without a request beyond the header's own first
 /// window (#999).
-pub fn try_parse_header_from<S: ByteSource + ?Sized>(
+pub(crate) fn try_parse_header_from<S: ByteSource + ?Sized>(
     source: &S,
 ) -> Result<Result<ClassicHeader, Vec<u8>>, FieldglassError> {
     match Parser::start(source)? {

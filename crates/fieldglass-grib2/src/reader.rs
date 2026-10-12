@@ -28,7 +28,7 @@ use crate::spectral::{
     decode_spectral_simple,
 };
 use fieldglass_core::bytes::{
-    ByteRange, ByteSource, FileCursor, find_forward, read_at, read_exact, read_up_to,
+    ByteRange, ByteSource, FileCursor, find_forward, read_at, read_exact, read_head,
 };
 use fieldglass_core::sht::SpectralTruncation;
 use fieldglass_core::{FieldglassError, GlobalGrid, GridGeometry, StoredRuns, SynthesisedField};
@@ -1296,7 +1296,7 @@ fn read_message_at<S: ByteSource + ?Sized>(
     let size = source.size();
     // Checks the magic and the edition itself, so an offset handed in directly
     // rather than found by the scan is held to both.
-    let is = parse_indicator(&read_up_to(source, offset, INDICATOR_SECTION_LEN)?)?;
+    let is = parse_indicator(&read_head(source, offset, INDICATOR_SECTION_LEN)?)?;
 
     if is.total_length < INDICATOR_SECTION_LEN as u64 + END_SECTION_LEN as u64 {
         return Err(FieldglassError::Parse(format!(
