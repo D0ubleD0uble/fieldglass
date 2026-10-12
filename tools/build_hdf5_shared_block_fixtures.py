@@ -34,16 +34,24 @@ block once per object unless a listing refuses the second reference.
     ``v`` with 2,000 more hard links to it. A valid file, not patched; its
     2,001 names of about 36 KB each total 72 MB, past the 64 MiB a listing
     holds.
+  * ``hdf5_btree_in_two_roles.h5`` (``libver="latest"``): dataset ``v``
+    with nine small attributes and a 5,000-byte one, so its dense storage
+    holds a huge object and its fractal heap has a huge-object B-tree (type
+    1). Its Attribute Info message then names that B-tree as its attribute
+    name index too (#1005). One B-tree in two roles is corrupt, not shared:
+    libhdf5 checks the type of a v2 B-tree when it opens one.
 
 Every checksum a patch touches (version-2 object headers) is recomputed.
-h5py reads the valid two; ``NOTICE.md`` records what it makes of the others.
+h5py reads the valid ones; ``NOTICE.md`` records what it makes of the others.
 
 ``--scale K`` multiplies the object counts (and the chain depth) by ``K``,
 for measuring how a reader's cost grows; the committed files use ``K = 1``.
 
+Name files to build only those; with none, every file is built.
+
 Run from the repo root (needs ``h5py`` and ``numpy``):
 
-    python3 tools/build_hdf5_shared_block_fixtures.py [--scale K] [--out DIR]
+    python3 tools/build_hdf5_shared_block_fixtures.py [--scale K] [--out DIR] [NAME ...]
 """
 from __future__ import annotations
 
@@ -303,6 +311,33 @@ def hard_linked_dense_attributes(path: Path, scale: int) -> None:
     h5(path, "latest", build)
 
 
+def btree_in_two_roles(path: Path, scale: int) -> None:
+    del scale  # one object, whatever the scale
+    addrs: dict[str, int] = {}
+
+    def build(f):
+        v = f.create_dataset("v", data=np.arange(4, dtype="i4"), track_times=False)
+        for i in range(9):
+            v.attrs[f"a{i}"] = np.int32(i)
+        v.attrs["big"] = np.zeros(5000, dtype="u1")
+        addrs["v"] = addr(v)
+
+    raw = h5(path, "latest", build)
+    header = Ohdr(raw, addrs["v"])
+    _, body, size = header.find(MSG_ATTRIBUTE_INFO)
+    # version, flags, then the heap and name-index B-tree addresses.
+    assert raw[body + 1] == 0 and size == 18, (raw[body : body + 2], size)
+    heap = struct.unpack_from("<Q", raw, body + 2)[0]
+    assert raw[heap : heap + 4] == b"FRHP", hex(heap)
+    # Signature, version, heap ID length (2), I/O filter length (2), flags,
+    # maximum managed size (4), next huge ID (8), then the huge-object B-tree.
+    huge = struct.unpack_from("<Q", raw, heap + 22)[0]
+    assert raw[huge : huge + 4] == b"BTHD" and raw[huge + 5] == 1, hex(huge)
+    struct.pack_into("<Q", raw, body + 10, huge)
+    header.reseal()
+    path.write_bytes(bytes(raw))
+
+
 BUILDERS = {
     "hdf5_shared_continuation.h5": shared_continuation,
     "hdf5_shared_attribute_storage.h5": shared_attribute_storage,
@@ -311,6 +346,7 @@ BUILDERS = {
     "hdf5_deep_group_chain.h5": deep_group_chain,
     "hdf5_hard_linked_dense_attributes.h5": hard_linked_dense_attributes,
     "hdf5_deep_group_chain_past_name_cap.h5": deep_chain_past_name_cap,
+    "hdf5_btree_in_two_roles.h5": btree_in_two_roles,
 }
 
 
@@ -318,9 +354,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--scale", type=int, default=1)
     parser.add_argument("--out", type=Path, default=FIXTURES)
+    parser.add_argument("names", nargs="*", metavar="NAME")
     args = parser.parse_args()
+    unknown = sorted(set(args.names) - set(BUILDERS))
+    if unknown:
+        parser.error(f"no builder for {', '.join(unknown)}")
     args.out.mkdir(parents=True, exist_ok=True)
     for name, build in BUILDERS.items():
+        if args.names and name not in args.names:
+            continue
         path = args.out / name
         build(path, args.scale)
         print(f"wrote {path} ({path.stat().st_size} B)")

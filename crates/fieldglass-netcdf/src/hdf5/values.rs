@@ -1225,8 +1225,14 @@ fn collect_v2_btree_chunks<S: ByteSource + ?Sized>(
             ))),
         }
     };
-    let (btree_type, records) =
-        super::heap::btree_v2_records(source, header_addr, osize, lsize, &layout)?;
+    let (btree_type, records) = super::heap::btree_v2_records(
+        source,
+        header_addr,
+        osize,
+        lsize,
+        super::heap::BTreeRole::Chunks,
+        &layout,
+    )?;
     let filtered = match btree_type {
         BTREE_V2_TYPE_CHUNK_UNFILTERED => false,
         BTREE_V2_TYPE_CHUNK_FILTERED => true,

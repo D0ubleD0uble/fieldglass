@@ -59,3 +59,18 @@ fn a_store_libhdf5_reads_is_unsupported_and_a_block_it_refuses_is_decode() {
     let corrupt = Session::open(CONTINUATION.to_vec()).expect_err("shared continuation");
     assert_eq!(corrupt.code(), "decode", "{corrupt:?}");
 }
+
+// One B-tree named in two roles, an attribute index that is its heap's
+// huge-object index, is corrupt, not a shared store (#1005).
+const TWO_ROLES: &[u8] =
+    include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_btree_in_two_roles.h5");
+
+#[test]
+fn a_btree_named_in_two_roles_is_decode_not_unsupported() {
+    let refused = Session::open(TWO_ROLES.to_vec()).expect_err("one tree in two roles");
+    assert_eq!(refused.code(), "decode", "{refused:?}");
+    assert!(
+        !refused.to_string().contains("The file itself is fine"),
+        "{refused}"
+    );
+}

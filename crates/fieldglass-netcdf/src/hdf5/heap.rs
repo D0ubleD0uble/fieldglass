@@ -30,6 +30,39 @@ use fieldglass_core::bytes::{ByteSource, checked_usize};
 /// objects share one dense attribute or link store (ADR-0016 decision 2).
 const DENSE_STORE: &str = "dense attribute or link store";
 
+/// The role a B-tree v2 is read in, which its header's claim carries (#1005).
+///
+/// A store is shared only when it is named again in the same role. A tree
+/// named as an object's attribute index and as a heap's huge-object index is
+/// corrupt: libhdf5 opens a v2 B-tree for one type and checks it, and 2.0.0
+/// crashes on `hdf5_btree_in_two_roles.h5` rather than read it. The claim's
+/// label is the role, so
+/// [`ClaimedRanges::claim_store`] reports only a same-role repeat as shared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BTreeRole {
+    /// A heap's huge-object index (type 1, or type 2 in a filtered heap).
+    HugeObjects,
+    /// A dense attribute store's index (type 8 or 9).
+    Attributes,
+    /// A dense link store's index (type 5 or 6).
+    Links,
+    /// A chunked dataset's chunk index (type 10 or 11).
+    Chunks,
+}
+
+impl BTreeRole {
+    /// The header's claim label: what an overlap error names, and the kind a
+    /// repeat must match to be a shared store.
+    pub(crate) const fn header_label(self) -> &'static str {
+        match self {
+            Self::HugeObjects => "B-tree v2 header of a huge-object index",
+            Self::Attributes => "B-tree v2 header of an attribute index",
+            Self::Links => "B-tree v2 header of a link index",
+            Self::Chunks => "B-tree v2 header of a chunk index",
+        }
+    }
+}
+
 const SIG_BTREE_V2_HDR: &[u8; 4] = b"BTHD";
 const SIG_BTREE_V2_INTERNAL: &[u8; 4] = b"BTIN";
 const SIG_BTREE_V2_LEAF: &[u8; 4] = b"BTLF";
@@ -128,20 +161,34 @@ pub(crate) fn btree_v2_records<S: ByteSource + ?Sized>(
     addr: u64,
     osize: u8,
     lsize: u8,
+    role: BTreeRole,
     record_layout: &dyn Fn(u8, usize) -> Result<(), FieldglassError>,
 ) -> Result<(u8, Vec<Vec<u8>>), FieldglassError> {
     let mut claimed = ClaimedRanges::default();
-    btree_v2_records_in(source, addr, (osize, lsize), record_layout, &mut claimed)
+    btree_v2_records_in(
+        source,
+        addr,
+        (osize, lsize),
+        role,
+        record_layout,
+        &mut claimed,
+    )
 }
 
 /// [`btree_v2_records`], claiming the header and every node in `claimed`, the
 /// file ranges a whole listing has read (#921). Objects whose dense storage
 /// names one B-tree, or B-trees that share a node, are refused at the second
 /// claim rather than walked once per object.
+///
+/// The header is claimed for `role`, and only once `record_layout` has
+/// accepted its type (#1005). A tree read again in the same role is a store
+/// two objects share. One whose type the role cannot read, or one claimed
+/// before in another role, is corrupt.
 pub(crate) fn btree_v2_records_in<S: ByteSource + ?Sized>(
     source: &S,
     addr: u64,
     (osize, lsize): (u8, u8),
+    role: BTreeRole,
     record_layout: &dyn Fn(u8, usize) -> Result<(), FieldglassError>,
     claimed: &mut ClaimedRanges,
 ) -> Result<(u8, Vec<Vec<u8>>), FieldglassError> {
@@ -149,7 +196,6 @@ pub(crate) fn btree_v2_records_in<S: ByteSource + ?Sized>(
     // split and merge percents, the root's address and record count (2), the
     // tree's record count, and the checksum.
     let header_len = 22 + u64::from(osize) + u64::from(lsize);
-    claimed.claim_store(addr, header_len, "B-tree v2 header", DENSE_STORE)?;
     let mut hdr = FileCursor::at(source, addr)?;
     hdr.tag(SIG_BTREE_V2_HDR)?;
     hdr.skip(1)?; // version
@@ -165,7 +211,10 @@ pub(crate) fn btree_v2_records_in<S: ByteSource + ?Sized>(
     if record_size == 0 {
         return Err(FieldglassError::Parse("zero B-tree v2 record size".into()));
     }
+    // The type, then the claim: a tree whose type this role cannot read is
+    // corrupt whoever else names it, so it is never reported as shared.
     record_layout(btree_type, record_size)?;
+    claimed.claim_store(addr, header_len, role.header_label(), DENSE_STORE)?;
     if node_size > MAX_BTREE_V2_NODE_SIZE {
         return Err(FieldglassError::Parse(
             "implausible B-tree v2 node size".into(),
@@ -924,7 +973,14 @@ fn read_huge_records<S: ByteSource + ?Sized>(
             )))
         }
     };
-    let (_, raw) = btree_v2_records_in(source, addr, (osize, lsize), &layout, file)?;
+    let (_, raw) = btree_v2_records_in(
+        source,
+        addr,
+        (osize, lsize),
+        BTreeRole::HugeObjects,
+        &layout,
+        file,
+    )?;
     let mut records = raw
         .iter()
         .map(|r| {
@@ -1353,7 +1409,8 @@ mod tests {
     fn reads_leaf_records() {
         let records = vec![vec![1u8; 11], vec![2u8; 11]];
         let buf = btree_v2(5, 11, &records);
-        let (btype, got) = btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())).unwrap();
+        let (btype, got) =
+            btree_v2_records(&buf, 0, 8, 8, BTreeRole::Links, &|_, _| Ok(())).unwrap();
         assert_eq!(btype, 5);
         assert_eq!(got, records);
     }
@@ -1401,7 +1458,7 @@ mod tests {
         write_leaf(&mut buf, leaf0, rs, &[vec![0xAA; rs]]);
         write_leaf(&mut buf, leaf1, rs, &[vec![0xCC; rs]]);
 
-        let (_, got) = btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())).unwrap();
+        let (_, got) = btree_v2_records(&buf, 0, 8, 8, BTreeRole::Links, &|_, _| Ok(())).unwrap();
         assert_eq!(got, vec![vec![0xAA; rs], vec![0xBB; rs], vec![0xCC; rs]]);
     }
 
@@ -1424,7 +1481,8 @@ mod tests {
         );
         write_leaf(&mut buf, leaf, rs, &[vec![0xAA; rs]]);
         let source = fieldglass_core::testing::Recording::new(buf.as_slice());
-        let err = btree_v2_records(&source, 0, 8, 8, &|_, _| Ok(())).expect_err("shared node");
+        let err = btree_v2_records(&source, 0, 8, 8, BTreeRole::Links, &|_, _| Ok(()))
+            .expect_err("shared node");
         assert!(
             err.to_string().contains("overlaps one already read"),
             "{err}"
@@ -1452,13 +1510,58 @@ mod tests {
                 )))
             }
         };
-        let err = btree_v2_records(&source, 0, 8, 8, &layout).expect_err("64 is not 11");
+        let err = btree_v2_records(&source, 0, 8, 8, BTreeRole::Links, &layout)
+            .expect_err("64 is not 11");
         assert!(
             err.to_string().contains("type 5 record of 64 bytes"),
             "{err}"
         );
         let past_header = source.reads().iter().filter(|r| r.start >= 0x40).count();
         assert_eq!(past_header, 0, "no node is read");
+    }
+
+    /// One tree read twice in one listing: in the same role it is a store two
+    /// objects share; in a role whose type check refuses it, or in another
+    /// role at all, it is corrupt (#1005). The type is checked before the
+    /// claim, so a refused type is never reported as shared.
+    #[test]
+    fn a_tree_read_again_is_shared_only_in_the_same_role() {
+        let buf = btree_v2(1, 24, &[vec![0x11; 24]]);
+        let any = |_: u8, _: usize| Ok(());
+        let attributes = |t: u8, _: usize| {
+            if t == 8 {
+                Ok(())
+            } else {
+                Err(FieldglassError::Parse(format!(
+                    "unsupported B-tree v2 type {t} for attributes"
+                )))
+            }
+        };
+        let read = |role,
+                    layout: &dyn Fn(u8, usize) -> Result<(), FieldglassError>,
+                    c: &mut ClaimedRanges| {
+            btree_v2_records_in(&buf, 0, (8, 8), role, layout, c)
+        };
+
+        let mut claimed = ClaimedRanges::default();
+        read(BTreeRole::HugeObjects, &any, &mut claimed).expect("first read");
+        let err = read(BTreeRole::HugeObjects, &any, &mut claimed).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                FieldglassError::Array(ArrayError::SharedStorage { what: DENSE_STORE })
+            ),
+            "{err:?}"
+        );
+        // A role that refuses the type: refused on the type, not the claim.
+        let err = read(BTreeRole::Attributes, &attributes, &mut claimed).unwrap_err();
+        assert!(err.to_string().contains("type 1 for attributes"), "{err:?}");
+        // A role whose check passes it: the claim's role refuses it.
+        let err = read(BTreeRole::Links, &any, &mut claimed).unwrap_err();
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m.contains("link index")),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -1512,7 +1615,7 @@ mod tests {
         write_leaf(&mut buf, leaves_r[0], rs, &[rec(6)]);
         write_leaf(&mut buf, leaves_r[1], rs, &[rec(8)]);
 
-        let (_, got) = btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())).unwrap();
+        let (_, got) = btree_v2_records(&buf, 0, 8, 8, BTreeRole::Links, &|_, _| Ok(())).unwrap();
         assert_eq!(got, (0u8..9).map(rec).collect::<Vec<_>>());
     }
 
@@ -1521,7 +1624,7 @@ mod tests {
         let mut buf = btree_v2(5, 11, &[]);
         put(&mut buf, 12, &1000u16.to_le_bytes()); // depth far past any real tree
         assert!(matches!(
-            btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())),
+            btree_v2_records(&buf, 0, 8, 8, BTreeRole::Links, &|_, _| Ok(())),
             Err(FieldglassError::Parse(_))
         ));
     }
@@ -1531,7 +1634,7 @@ mod tests {
         let mut buf = btree_v2(5, 11, &[]);
         // Claim 1000 records but supply none.
         put(&mut buf, 24, &1000u16.to_le_bytes());
-        assert!(btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())).is_err());
+        assert!(btree_v2_records(&buf, 0, 8, 8, BTreeRole::Links, &|_, _| Ok(())).is_err());
     }
 
     #[test]
@@ -1539,7 +1642,7 @@ mod tests {
         let mut buf = btree_v2(5, 11, &[]);
         put(&mut buf, 6, &u32::MAX.to_le_bytes()); // 4 GiB node size
         assert!(matches!(
-            btree_v2_records(&buf, 0, 8, 8, &|_, _| Ok(())),
+            btree_v2_records(&buf, 0, 8, 8, BTreeRole::Links, &|_, _| Ok(())),
             Err(FieldglassError::Parse(_))
         ));
     }

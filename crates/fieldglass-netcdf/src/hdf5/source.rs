@@ -587,4 +587,41 @@ mod claimed_ranges_tests {
             FieldglassError::Parse(_)
         ));
     }
+
+    /// A B-tree v2 header claimed again in the role it was first read in is a
+    /// shared store; claimed again in another role it is corrupt (#1005).
+    #[test]
+    fn a_btree_header_is_shared_only_in_the_same_role() {
+        use super::super::heap::BTreeRole;
+        let roles = [
+            BTreeRole::HugeObjects,
+            BTreeRole::Attributes,
+            BTreeRole::Links,
+            BTreeRole::Chunks,
+        ];
+        for first in roles {
+            for again in roles {
+                let mut c = ClaimedRanges::default();
+                c.claim_store(100, 38, first.header_label(), "store")
+                    .unwrap();
+                let err = c
+                    .claim_store(100, 38, again.header_label(), "store")
+                    .unwrap_err();
+                if first == again {
+                    assert!(
+                        matches!(
+                            err,
+                            FieldglassError::Array(ArrayError::SharedStorage { what: "store" })
+                        ),
+                        "{first:?}: {err:?}"
+                    );
+                } else {
+                    assert!(
+                        matches!(err, FieldglassError::Parse(_)),
+                        "{first:?} then {again:?}: {err:?}"
+                    );
+                }
+            }
+        }
+    }
 }
