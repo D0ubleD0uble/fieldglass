@@ -76,18 +76,18 @@ remote transports are not. **Trust** is the track that turns "decodes
 everything" into "decodes everything correctly", and is a parallel effort by
 design.
 
-Read after 0.6.0, **Containers** has most of what was half-built: Zarr v2 and
-v3 stores open, szip decodes, and a NetCDF slice reads only its own bytes. What
-is left is the remote transports, which are now host work over seams that
-exist. **Hosts** gained the browser package, and the interaction backlog is
-cleared except for metadata editing.
-
 **Hosts** is new to this list, and it is the reason the wasm build was promoted
 out of **Later**; that build has since landed, and what remains of the track is
 in **Next**. It is not a sixth kind of feature so much as a multiplier on the other
 five: the format crates are pure byte-in, values-out engines already, so every
 runtime added reaches the same decoders. It earns a track of its own because it
 trades against them for attention rather than composing with them.
+
+After 0.6.0, **Containers** is mostly built: Zarr v2 and v3 stores open,
+szip decodes, and a NetCDF slice reads only its own bytes. What is left is the
+remote transports and streaming reads in the extension, both host work over
+seams that exist. **Hosts** gained the browser package, and the interaction
+backlog is cleared except for metadata editing.
 
 ### Where verification fits
 
@@ -127,7 +127,7 @@ packing decodes" became true in 0.4.0; under commitment 3 it becomes
 ## Now
 
 Small, independently shippable, in progress or next to start. No ordering
-between them. Each closes out an open milestone.
+between them. Most close out an open milestone.
 
 | Item | Track | Why now |
 |---|---|---|
@@ -143,7 +143,7 @@ Problems we are confident we can solve; shape known, timing not.
 
 The readers now read by range through `ByteSource` and stores through
 `ObjectSource`, so a remote file or store is the host filling one of those
-seams, not new reader work ([ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md)).
+seams, not new reader work ([ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md)). Local Zarr stores shipped in 0.6.0 under the Zarr epic (#246); a remote store is the S3 row below.
 
 | Item | Track | What it unlocks |
 |---|---|---|

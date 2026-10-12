@@ -47,7 +47,7 @@ Bump versions in lockstep:
 | `extension/package.json` | `version` field |
 | `Cargo.lock` | `cargo check --workspace` to refresh |
 | `crates/fieldglass-{aec,grib1,grib2,netcdf,zarr,fetchplan}/fuzz/Cargo.lock` | refresh each of the six — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet each lock still records the resolved `fieldglass-*` version. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. Forgetting is caught by the `nested-lockfiles` pre-commit hook, which refuses the bump commit itself; if hooks are bypassed it fails the **Nested lockfiles in sync** job and blocks the fuzz jobs until fixed. |
-| `crates/fieldglass-perf/Cargo.lock` | the same shape and the same hook. The performance harness is its own workspace and takes `fieldglass`, `-aec`, `-core` and `-zarr` by path, so its lock records their version. Run `cargo update -w` in `crates/fieldglass-perf`. |
+| `crates/fieldglass-perf/Cargo.lock` | the same shape and the same hook. The performance harness is its own workspace and takes `fieldglass`, `-aec`, `-core` and `-zarr` by path, so its lock records every `fieldglass-*` version they pull in. Run `cargo update -w` in `crates/fieldglass-perf`. |
 | `crates/fieldglass-verify/Cargo.lock` | the same again. `fieldglass-verify` is its own workspace and takes `fieldglass-core` by path, so its lock records core's version. Run `cargo update -w` in `crates/fieldglass-verify`. |
 | `extension/package-lock.json` | `cd extension && npm install --package-lock-only` to refresh |
 
