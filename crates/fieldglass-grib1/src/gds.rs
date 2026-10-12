@@ -291,10 +291,10 @@ impl PolarStereoGrid {
     }
 
     /// The grid as `core`'s projection parameters: the Earth octet 17 picks,
-    /// the fixed [`Self::lad`], and the scan-signed increments. The one
-    /// statement of them, read by [`Self::last_point`] and by the
-    /// `GridGeometry` conversion, so the corner the GDS reports and the grid
-    /// core places are the same grid.
+    /// the fixed [`Self::lad`], and the scan-signed increments. Read by the
+    /// `GridGeometry` conversion, which is also what
+    /// [`GridDescription::bounds`] derives the far corner through, so the
+    /// corner the GDS reports and the grid core places are the same grid.
     pub(crate) fn projection_params(&self) -> PolarStereoParams {
         // Dx/Dy are unsigned magnitudes; the scanning mode says which way the
         // grid runs from its first point, so the walk has to carry that sign or
@@ -313,18 +313,6 @@ impl PolarStereoGrid {
             dy_metres: dy,
             south_pole: self.south_pole,
         }
-    }
-
-    /// Geographic `(lat, lon)` of the last scanned grid point — the corner
-    /// diagonally opposite the origin.
-    ///
-    /// GRIB1 polar-stereographic GDS encodes only the first point (La1/Lo1);
-    /// unlike a lat/lon grid there is no La2/Lo2 to read. The opposite corner
-    /// is recovered by forward-projecting the origin to plane metres, stepping
-    /// `(Nx-1)·Dx` / `(Ny-1)·Dy`, and inverse-projecting back to lat/lon —
-    /// through `core`'s geometry, so a grid core cannot place has no corner.
-    fn last_point(&self) -> Option<(f64, f64)> {
-        derived_last_point(&GridGeometry::PolarStereo(self.projection_params()))
     }
 }
 
@@ -373,8 +361,8 @@ impl LambertGrid {
         )
     }
 
-    /// The grid as `core`'s projection parameters, stated once for
-    /// [`Self::last_point`] and the `GridGeometry` conversion. ON388 states no
+    /// The grid as `core`'s projection parameters, for the `GridGeometry`
+    /// conversion [`GridDescription::bounds`] also reads. ON388 states no
     /// separate `LaD`, so the first standard parallel is the latitude of true
     /// scale.
     pub(crate) fn projection_params(&self) -> LambertParams {
@@ -393,18 +381,6 @@ impl LambertGrid {
             latin1: self.latin1,
             latin2: self.latin2,
         }
-    }
-
-    /// Geographic `(lat, lon)` of the last scanned grid point — the corner
-    /// diagonally opposite the origin.
-    ///
-    /// Like polar stereographic, a GRIB1 Lambert GDS encodes only the first
-    /// point; the opposite corner is recovered from the projection, the same
-    /// way. A collapsed cone (both standard parallels on the equator, say)
-    /// inverts to `NaN`, which used to reach the message table as the text
-    /// "NaN"; it reports no corner instead.
-    fn last_point(&self) -> Option<(f64, f64)> {
-        derived_last_point(&GridGeometry::Lambert(self.projection_params()))
     }
 }
 
@@ -732,17 +708,27 @@ impl GridDescription {
             // projection; a grid whose projection cannot place one reports no
             // pair at all rather than a `NaN` (its declared first point is
             // still available from [`Self::first_point`]).
-            Self::PolarStereographic(g) => g
-                .last_point()
-                .map(|(la2, lo2)| CornerPair::new(g.lat_first, g.lon_first, la2, lo2)),
-            Self::LambertConformal(g) => g
-                .last_point()
-                .map(|(la2, lo2)| CornerPair::new(g.lat_first, g.lon_first, la2, lo2)),
+            Self::PolarStereographic(_) | Self::LambertConformal(_) => self.derived_corners(),
             // Spectral coefficients have no corner coordinates: the field is
             // global by construction and lives in wavenumber space.
             Self::SphericalHarmonic(_) => None,
             Self::Unsupported { .. } => None,
         }
+    }
+
+    /// The declared first point and the derived last one, placed by the same
+    /// `GridGeometry` conversion every host places the grid with, or `None`
+    /// where it places no last point.
+    ///
+    /// GRIB1 polar stereographic and Lambert GDSs encode only the first point
+    /// (La1/Lo1); there is no La2/Lo2 to read. The opposite corner is recovered
+    /// by projecting the origin to plane metres, stepping `(Nx-1)·Dx` /
+    /// `(Ny-1)·Dy` with the scan sign, and inverting. See [`derived_last_point`]
+    /// for what that declines and why the bare projector was not enough (#1011).
+    fn derived_corners(&self) -> Option<CornerPair> {
+        let (lat_last, lon_last) = derived_last_point(&GridGeometry::from(self))?;
+        let (lat_first, lon_first) = self.first_point()?;
+        Some(CornerPair::new(lat_first, lon_first, lat_last, lon_last))
     }
 
     /// The corners of the raster [`Self::dimensions`] describes.

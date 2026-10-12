@@ -725,6 +725,10 @@ impl LambertTemplate {
     /// forward-project the first point to plane metres, step `(Nx-1)·Dx` and
     /// `(Ny-1)·Dy` along the grid's own scan, and invert. `None` wherever
     /// `core` places no such point, so a grid nothing places has no corner.
+    ///
+    /// This asks the template's own parameters. [`GridDefinitionSection::bounds`]
+    /// asks the section's `GridGeometry` conversion, which adds that
+    /// conversion's own declines (an Earth that describes no body, #844).
     pub fn last_point(&self) -> Option<(f64, f64)> {
         derived_last_point(&GridGeometry::Lambert(self.projection_params()))
     }
@@ -1146,20 +1150,15 @@ impl GridDefinitionSection {
             // latitude of true scale in a column labelled "last point", and the
             // same two values are already reported as the projection parameters
             // they are. A grid whose projection cannot place the corner reports
-            // the first point alone rather than a substitute.
-            GridTemplate::PolarStereographic(t) => t
-                .last_point()
-                .map(|(la2, lo2)| CornerPair::new(t.la1, t.lo1, la2, lo2)),
-            GridTemplate::Lambert(t) => t
-                .last_point()
-                .map(|(la2, lo2)| CornerPair::new(t.la1, t.lo1, la2, lo2)),
+            // no pair rather than a substitute; see `derived_corners`.
+            GridTemplate::PolarStereographic(_) | GridTemplate::Lambert(_) => {
+                self.derived_corners()
+            }
             // §3.140 likewise states a real first point and no second one.
             // It used to report the tangent point in the corner's place; the
             // napi layer already replaced that with the derived corner, and now
             // the crate does, so both agree (#472).
-            GridTemplate::LambertAzimuthal(t) => t
-                .last_point()
-                .map(|(la2, lo2)| CornerPair::new(t.la1, t.lo1, la2, lo2)),
+            GridTemplate::LambertAzimuthal(_) => self.derived_corners(),
             GridTemplate::Gaussian(t) => Some(CornerPair::new(t.la1, t.lo1, t.la2, t.lo2)),
             GridTemplate::SpaceView(_) => None,
             GridTemplate::SphericalHarmonic(_) => None,
@@ -1169,6 +1168,21 @@ impl GridDefinitionSection {
             GridTemplate::Healpix(_) => None,
             GridTemplate::Unsupported(_) => None,
         }
+    }
+
+    /// The declared first point and the derived last one of a template that
+    /// states only the first, placed by the same `GridGeometry` conversion
+    /// every host places the grid with, or `None` where it places no last point.
+    ///
+    /// Through the section's own conversion rather than the template's
+    /// parameters, so a grid that conversion declines (a projected Earth that
+    /// is no body, #844) is declined here by the same arm, and the corner pair
+    /// and the placement are one answer by construction (#1011).
+    fn derived_corners(&self) -> Option<CornerPair> {
+        GridGeometry::from(self).corner_pair().map(|c| CornerPair {
+            lon_last: normalise_lon(c.lon_last),
+            ..c
+        })
     }
 
     /// The corners of the raster [`Self::dimensions`] describes.
