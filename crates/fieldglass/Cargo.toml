@@ -38,25 +38,25 @@ all-features = true
 # `analysis` features instead of being pinned on here (#552), so a host can
 # decline one; `fs` is not forwarded at all, because ADR-0005 hands every host
 # bytes rather than a path.
-fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["serde"] }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.6.0", default-features = false, features = ["serde"] }
 # Optional so a consumer links only the decoders it opens (#552). Each carries
 # its own codecs — GRIB2 alone pulls PNG, AEC, JPEG 2000 and the complex-packing
 # paths — and a build that never sees a GRIB1 message should not pay for them.
-fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.5.0", optional = true }
-fieldglass-grib2 = { path = "../fieldglass-grib2", version = "=0.5.0", optional = true }
+fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.6.0", optional = true }
+fieldglass-grib2 = { path = "../fieldglass-grib2", version = "=0.6.0", optional = true }
 # The third shipped decoder, reachable through `Session` since #662. Optional
 # for the reason the GRIB pair is: a build that never opens a NetCDF file should
 # not carry the HDF5 object model and its filter pipeline.
-fieldglass-netcdf = { path = "../fieldglass-netcdf", version = "=0.5.0", optional = true }
+fieldglass-netcdf = { path = "../fieldglass-netcdf", version = "=0.6.0", optional = true }
 # Zarr stores, the second container of named arrays (#704). Optional for the
 # reason the other decoders are, and with its default `codecs`: a session reads
 # values, so it needs the decompressors a store's chunks were written through.
-fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.5.0", optional = true }
+fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.6.0", optional = true }
 # Optional for the reason the decoders are: a host that only decodes bytes it
 # already holds never plans a fetch, and the browser bundle is not asked to
 # carry a planner it does not call. `fetchplan` forwards `grib2`, because the
 # resolver this crate adds on top is built out of the GRIB2 parameter tables.
-fieldglass-fetchplan = { path = "../fieldglass-fetchplan", version = "=0.5.0", optional = true }
+fieldglass-fetchplan = { path = "../fieldglass-fetchplan", version = "=0.6.0", optional = true }
 serde = { workspace = true }
 schemars = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
@@ -66,7 +66,7 @@ serde_json = { workspace = true, optional = true }
 # source that holds nothing but the message a sidecar index named, which is what
 # `Session::open_message_at` is measured against (#709). A dev-dependency
 # feature, so nothing a host links carries it.
-fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["serde", "testing"] }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.6.0", default-features = false, features = ["serde", "testing"] }
 serde_json = { workspace = true }
 # This crate itself, with `schema`, so the schema tests run under `cargo test`
 # although the feature is off by default (#927); a test behind it would
