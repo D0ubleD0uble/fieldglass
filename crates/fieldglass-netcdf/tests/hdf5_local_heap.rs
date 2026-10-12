@@ -85,3 +85,21 @@ fn a_name_running_past_the_segment_is_refused() {
         "runs past the end of its local heap",
     );
 }
+
+/// A name window the source serves short is a short read (#998 pattern), not a
+/// name that "runs past the end" of its segment: the bytes are there, the
+/// source gave fewer. Only reads from the segment onward are shortened.
+#[test]
+fn a_short_heap_name_window_is_a_short_read() {
+    use fieldglass_core::FieldglassError;
+    use fieldglass_core::testing::Short;
+
+    let p = probe(UNTERMINATED);
+    let (address, _) = segment(UNTERMINATED, 24);
+    let source = Short::new(UNTERMINATED.to_vec(), address, 1);
+    let err = list_root_children(&source, &p).expect_err("a short window is not a verdict");
+    assert!(
+        matches!(err, FieldglassError::ShortRead { at, .. } if at >= address),
+        "{err}"
+    );
+}

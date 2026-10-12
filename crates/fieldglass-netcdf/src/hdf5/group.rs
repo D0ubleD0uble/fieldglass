@@ -24,11 +24,11 @@
 
 use super::heap::{self, FractalHeap};
 use super::object_header::{self, read_uint_le};
-use super::source::{ClaimedRanges, Cursor, Fields, FileCursor, read_up_to, scan_windows};
+use super::source::{ClaimedRanges, Cursor, Fields, FileCursor, scan_windows};
 use super::{BtreeK, Hdf5Probe, Listing};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::ArrayError;
-use fieldglass_core::bytes::ByteSource;
+use fieldglass_core::bytes::{ByteSource, read_head};
 use std::collections::HashSet;
 
 // Object-header message types consulted here.
@@ -595,13 +595,16 @@ fn read_heap_name<S: ByteSource + ?Sized>(
     let room = usize::try_from(heap.size - offset).unwrap_or(usize::MAX);
     let ceiling = MAX_LINK_NAME_BYTES.min(room);
     for want in scan_windows(ceiling) {
-        let window = read_up_to(source, start, want)
-            .map_err(|_| FieldglassError::Parse("heap name offset past end of file".into()))?;
+        // `read_head`: a source error is the error, and a window served short
+        // is `ShortRead`. Only a window clamped by the file's size comes back
+        // under `want`, which is what the break below keys on (#998 pattern).
+        let window = read_head(source, start, want)?;
         if let Some(end) = window.iter().position(|&b| b == 0) {
             return decode_name(&window[..end]);
         }
-        // No terminator, and the file had no more to give: the name runs off
-        // the end rather than being longer than the window.
+        // No terminator, and the file had no more to give (`want` was clamped
+        // by its size): the name runs off the end rather than being longer than
+        // the window.
         if window.len() < want {
             break;
         }
