@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-10-11). Answers #921. Widens decision 1 of
 [ADR-0014](0014-hdf5-group-names-are-held-to-their-heap.md) from one group to
-the whole listing. Decision 5 added for #997 (2026-10-11).
+the whole listing. Decision 5 added for #997, and decision 2's B-tree rows split by role for #1005 (2026-10-11).
 
 ## Context
 
@@ -67,11 +67,19 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    is `ArrayError::SharedStorage`, which says the file is fine and reaches a
    host as `unsupported`, as decision 4 does for a listing past its cap.
    `ClaimedRanges::claim_store` raises it when a store claim repeats the exact
-   block an earlier store claim holds. The claims are classed so:
+   block an earlier store claim of the same kind holds. A B-tree v2 header's
+   kind is the role it is read in (`heap::BTreeRole`: a heap's huge-object
+   index, an attribute index, a link index), and its type is checked against
+   that role before the claim (#1005). libhdf5 checks a v2 B-tree's type when
+   it opens one, so one tree named in two roles is corrupt, not shared. A
+   fractal heap has no type and libhdf5 opens it for any role, so its header's
+   kind is the same in every role. The claims are classed so:
 
    | Claim | Class |
    | --- | --- |
-   | fractal-heap header, B-tree v2 header (a dense attribute or link store, or a heap's huge-object index) claimed again | `SharedStorage`, "dense attribute or link store" |
+   | fractal-heap header claimed again, in any role | `SharedStorage`, "dense attribute or link store" |
+   | B-tree v2 header (a dense attribute or link index, or a heap's huge-object index) claimed again in the same role | `SharedStorage`, "dense attribute or link store" |
+   | B-tree v2 header claimed again in another role, or whose type its role cannot read | `Parse` |
    | local heap header or data segment claimed again | `SharedStorage`, "local heap" |
    | object-header chunk, B-tree v1 node, `SNOD`, group member name, B-tree v2 node, huge or managed heap object | `Parse`: the specification or libhdf5 treats a second name for these as corrupt (ADR-0014) |
    | a store claim that overlaps anything but an identical earlier claim of the same kind (a local heap header laid on another heap's data segment is corrupt) | `Parse` |

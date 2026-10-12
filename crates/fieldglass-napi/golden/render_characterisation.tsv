@@ -1310,6 +1310,7 @@ netcdf/goes_geostationary_metres.nc#Rad	combine/a_minus_b/render/source/nearest	
 netcdf/goes_geostationary_metres.nc#Rad	meta	family=space_view ni=6 nj=6 reprojectable=true supports=none	13acea70fdee7d88
 netcdf/goes_geostationary_metres.nc#Rad	render/equirectangular/nearest	ok w=720 h=720 opaque=513608	973ac7952ca26c91
 netcdf/goes_geostationary_metres.nc#Rad	render/source/nearest	ok w=6 h=6 opaque=36	e169bc4fbda758f0
+netcdf/hdf5_btree_in_two_roles.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_btree_k_sb1.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_btree_k_sb2.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_btreev2_multilevel.h5	file	parsed=true fields=0	fc2e409795c31cf7

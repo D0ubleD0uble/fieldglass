@@ -669,8 +669,14 @@ fn link_info_links<S: ByteSource + ?Sized>(
             "unsupported B-tree v2 type {t} for links"
         ))),
     };
-    let (btree_type, records) =
-        heap::btree_v2_records_in(source, btree_addr, (osize, lsize), &layout, file)?;
+    let (btree_type, records) = heap::btree_v2_records_in(
+        source,
+        btree_addr,
+        (osize, lsize),
+        heap::BTreeRole::Links,
+        &layout,
+        file,
+    )?;
     if btree_type != 5 && btree_type != 6 {
         return Err(FieldglassError::Parse(format!(
             "unsupported B-tree v2 type {btree_type} for links"

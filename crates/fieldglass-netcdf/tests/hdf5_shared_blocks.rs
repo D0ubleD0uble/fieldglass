@@ -45,6 +45,9 @@ const HARD_LINKED: &[u8] = include_bytes!("fixtures/hdf5_hard_linked_dense_attri
 /// 100 nested groups named with 360 characters, and one dataset with 2,001
 /// names at the bottom: 72 MB of path-qualified names.
 const PAST_NAME_CAP: &[u8] = include_bytes!("fixtures/hdf5_deep_group_chain_past_name_cap.h5");
+/// One dataset whose Attribute Info names its heap's huge-object B-tree (type
+/// 1) as its attribute name index too.
+const TWO_ROLES: &[u8] = include_bytes!("fixtures/hdf5_btree_in_two_roles.h5");
 
 struct Tracking;
 
@@ -192,6 +195,28 @@ fn groups_sharing_one_dense_link_store_are_refused() {
     assert!(names.len() <= 65, "{}", names.len());
     // Before: 16,449 objects listed under 16.6 MB of names.
     assert!(peak < 4 * MB, "peak {peak}");
+}
+
+/// A B-tree named in two roles is corrupt, not a shared store (#1005). One
+/// object is involved: its heap reads the tree as its huge-object index, and
+/// its Attribute Info names the same tree as its attribute name index. The
+/// tree is type 1, which no attribute index is, so the second read refuses
+/// its type. Before, the second claim repeated the first under one label for
+/// every B-tree, and the file was reported as two objects sharing a store.
+#[test]
+fn a_btree_named_in_two_roles_is_corrupt_not_shared() {
+    let p = probe(TWO_ROLES);
+    let err = resolve_hdf5_metadata(TWO_ROLES, &p).expect_err("one tree in two roles");
+    assert!(matches!(err, FieldglassError::Parse(_)), "{err:?}");
+    assert!(
+        err.to_string()
+            .contains("unsupported B-tree v2 type 1 for attributes"),
+        "{err}"
+    );
+    // The reader's own entry point agrees.
+    let reader = NetcdfReader::from_bytes(TWO_ROLES.to_vec()).unwrap();
+    let err = reader.hdf5_metadata().expect_err("one tree in two roles");
+    assert!(matches!(err, FieldglassError::Parse(_)), "{err:?}");
 }
 
 #[test]

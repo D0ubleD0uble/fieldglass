@@ -393,9 +393,9 @@ of the second shape, 8,192 references to one `SNOD`, made a 197 KB file use
 3.85 GB. `tests/hdf5_shared_snod.rs` checks both refusals through a
 recording source.
 
-## Shared block fixtures (`hdf5_shared_continuation.h5`, `hdf5_shared_attribute_storage.h5`, `hdf5_shared_link_storage.h5`, `hdf5_shared_local_heap.h5`, `hdf5_deep_group_chain.h5`, `hdf5_hard_linked_dense_attributes.h5`, `hdf5_deep_group_chain_past_name_cap.h5`)
+## Shared block fixtures (`hdf5_shared_continuation.h5`, `hdf5_shared_attribute_storage.h5`, `hdf5_shared_link_storage.h5`, `hdf5_shared_local_heap.h5`, `hdf5_deep_group_chain.h5`, `hdf5_hard_linked_dense_attributes.h5`, `hdf5_deep_group_chain_past_name_cap.h5`, `hdf5_btree_in_two_roles.h5`)
 
-Seven files for #921, built by `tools/build_hdf5_shared_block_fixtures.py`
+Seven files for #921 and one for #1005, built by `tools/build_hdf5_shared_block_fixtures.py`
 (reproducible byte for byte) from h5py 3.16.0 files (libhdf5 2.0.0). In the
 first four, many objects or groups name one stored block, which a valid file
 gives to one object alone; the builder patches h5py's output and recomputes
@@ -434,6 +434,17 @@ shapes with `K` times the objects, for measuring.
   64 MiB one listing holds, so Fieldglass refuses it as
   `ArrayError::ListingTooLarge`, which says the file is fine and reaches a
   host as `unsupported`.
+- `hdf5_btree_in_two_roles.h5` (8,133 bytes, `libver='latest'`): dataset
+  `v`, `[0, 1, 2, 3]`, with nine `int32` attributes and a 5,000-byte one, so
+  its dense storage holds a huge object and its fractal heap has a
+  huge-object B-tree (type 1). The builder points the Attribute Info
+  message's name-index address at that B-tree too and recomputes the header
+  checksum. One tree is then named in two roles by one object. Type 1 is no
+  attribute index, so the file is corrupt, and Fieldglass refuses it as
+  `Parse` (a host's `decode`), not as a shared store (#1005). h5py 3.16.0
+  (libhdf5 2.0.0) opens `v` and then crashes with a segmentation fault
+  listing its attributes, so it is no oracle for the values; it does not read
+  the file as valid either.
 
 Read once per object, the shared block made the listing's cost grow with the
 number of objects times the block: the attribute file resolved at 103 MB of

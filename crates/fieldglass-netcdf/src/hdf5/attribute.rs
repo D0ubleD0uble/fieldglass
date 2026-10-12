@@ -231,6 +231,7 @@ fn read_dense_attribute_bodies<S: ByteSource + ?Sized>(
         source,
         btree_addr,
         (probe.offset_size, probe.length_size),
+        heap::BTreeRole::Attributes,
         &layout,
         file,
     )?;
