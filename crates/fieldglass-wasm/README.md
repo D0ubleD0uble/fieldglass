@@ -322,12 +322,17 @@ on `ee428723` (#929's merge): 22,029 raw and 12,424 gzipped above the previous
 baseline figures, and 21,383 and 13,141 above `+simd128`'s. That is the
 local-versus-CI gap plus the growth of the merges since #870.
 
+The 0.6.0 release prep (#854) re-recorded it from the `ci.yml` run on
+`42c1fd0f`: 30,147 raw bytes and 18,657 gzipped above the previous baseline
+figures (3.1%), and 33,276 and 19,471 above `+simd128`'s (3.3%). That is the
+growth of the merges since #929.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,557,085 | 596,571 |
-| `+simd128` | 1,540,544 | 593,005 |
+| baseline | 1,587,232 | 615,228 |
+| `+simd128` | 1,573,820 | 612,476 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
