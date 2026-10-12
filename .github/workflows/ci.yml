@@ -226,7 +226,7 @@ jobs:
           cargo test --target wasm32-wasip1 \
             -p fieldglass-core -p fieldglass-grib1 -p fieldglass-grib2 \
             -p fieldglass-netcdf -p fieldglass -p fieldglass-fetchplan \
-            -p fieldglass-aec --features fieldglass/conformance \
+            -p fieldglass-aec -p fieldglass-zarr --features fieldglass/conformance \
             -- --skip detect::fs_tests \
                --skip probing_an_empty_raster_answers_rather_than_panicking
 
