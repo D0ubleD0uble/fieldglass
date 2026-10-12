@@ -724,7 +724,7 @@ impl LambertTemplate {
     /// it is recovered the way `fieldglass-grib1` recovers its Lambert corner:
     /// forward-project the first point to plane metres, step `(Nx-1)·Dx` and
     /// `(Ny-1)·Dy` along the grid's own scan, and invert. `None` wherever
-    /// `core` places no such point; see [`derived_last_point`].
+    /// `core` places no such point, so a grid nothing places has no corner.
     pub fn last_point(&self) -> Option<(f64, f64)> {
         derived_last_point(&GridGeometry::Lambert(self.projection_params()))
     }
