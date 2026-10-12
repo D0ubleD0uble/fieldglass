@@ -15,7 +15,7 @@ const opts = { projection: 'equirectangular', resampling: 'nearest', flipY: fals
 
 function grib(HandleName, buf, label) {
   const h = m[HandleName].fromBytes(buf);
-  const msgs = h.messages();
+  const msgs = Array.from({ length: h.count() }, (_, i) => h.message(i));
   const i = msgs.findIndex((x) => x.reprojectable);
   const idx = i >= 0 ? i : 0;
   const mm = msgs[idx];
@@ -23,10 +23,16 @@ function grib(HandleName, buf, label) {
   try {
     r = h.renderGrid(idx, opts);
   } catch (e) {
-    return console.log(`  ${label}: ${msgs.length} msgs; grid=${mm.gridType} packing=${mm.packing}  RENDER FAILED: ${e.message}`);
+    return console.log(`  ${label}: ${msgs.length} msgs; grid=${gridLabel(mm)} packing=${mm.packing}  RENDER FAILED: ${e.message}`);
   }
-  console.log(`  ${label}: ${msgs.length} msgs | msg#${idx} ${mm.parameterName} | grid=${mm.gridType} ${mm.gridNi}x${mm.gridNj} | packing=${mm.packing} | reproj=${mm.reprojectable}`);
+  console.log(`  ${label}: ${msgs.length} msgs | msg#${idx} ${mm.parameter ?? mm.abbreviation} | grid=${gridLabel(mm)} | packing=${mm.packing} | reproj=${mm.reprojectable}`);
   console.log(`         render: ${r.width}x${r.height} | ${r.projectionSummary} | ${range(r)}`);
+}
+
+function gridLabel(mm) {
+  const g = mm.grid;
+  if (g == null) return mm.truncation ? 'spectral' : 'none';
+  return g.ni == null ? g.kind : `${g.kind} ${g.ni}x${g.nj}`;
 }
 
 // `usedMin`/`usedMax` are `null` when every cell is masked (#871).
@@ -53,8 +59,8 @@ function netcdf(buf, label) {
   }
 }
 
-const dir = path.join(REPO, 'samples');
-const files = fs.readdirSync(dir).filter((f) => /\.(grib2|grib|grb2|nc|nc4)$/.test(f)).sort();
+const dir = path.join(REPO, process.argv[2] || 'samples');
+const files = fs.readdirSync(dir).filter((f) => /\.(grib2|grib1|grib|grb2|nc|nc4)$/.test(f)).sort();
 if (!files.length) {
   console.log('No sample files in samples/ — run tools/fetch_samples.sh first.');
   process.exit(0);

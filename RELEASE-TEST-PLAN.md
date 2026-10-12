@@ -45,13 +45,14 @@ git fetch origin && git checkout "$RELEASE_SHA"
 # then compile the TypeScript.
 ( cd crates/fieldglass-napi && npx napi build --platform --release \
     --target x86_64-unknown-linux-gnu --output-dir "$(git rev-parse --show-toplevel)/extension/bin" )
-( cd extension && npm run compile )
+( cd extension && npm ci && npm run compile )
 
 # Full samples.
 tools/fetch_samples.sh
 
 # Sanity: decode + reproject every sample headlessly before touching the UI.
 node tools/preflight_samples.js
+# Run it again over samples/0.6.0 once the next step has built those files.
 ```
 
 Then `F5` to launch the dev host.
@@ -184,7 +185,13 @@ write("members_8_8.grib2", m8, m8)
 # A colour table in a model Fieldglass refuses.
 (out / "hsv.cpt").write_text("# COLOR_MODEL = HSV\n0 0-1-1 1 360-1-1\n")
 EOF
+
+# Every file above decodes and renders headlessly.
+node tools/preflight_samples.js samples/0.6.0
 ```
+
+`.h5` files do not open in Fieldglass by double-click: right-click the file,
+*Open With…*, *Fieldglass Viewer*.
 
 ### Files by section
 
@@ -198,10 +205,11 @@ Each file is opened once; this is where its checks are.
 | `S: samples/ecmwf.grib2` | 17 |
 | `S: samples/goes.nc` | 21 |
 | `S: samples/rtofs_ice.nc` | 41 |
-| `B: samples/0.6.0/ncep_air_daily_2024.nc` | 2, 3, 4, 5 |
+| `S: samples/mirs_swath.nc` | 1 |
+| `B: samples/0.6.0/ncep_air_daily_2024.nc` | 2, 3, 4, 5, 7, 8 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 3, 4, 5 |
 | `B: samples/0.6.0/air_v2.zarr`, `air_v3.zarr` | 2 |
-| `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6 |
+| `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21 |
 | `B: samples/0.6.0/cmc_pair.grib` | 6, 24 |
 | `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6 |
 | `B: samples/0.6.0/spectral_pair.grib2` | 16 |
@@ -211,18 +219,20 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/hsv.cpt`, `F: crates/fieldglass-core/tests/fixtures/cpt/*.cpt` | 9 |
 | `F: crates/fieldglass-zarr/tests/fixtures/stores/*` | 2 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc` | 18, 19, 20, 22 |
-| `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc` | 3, 4, 27 |
+| `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc` | 3, 4, 27, 44 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/goes_geostationary*.nc`, `goes16_abi_cmip.nc` | 21, 40 |
-| `F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2` | 19, 20, 39 |
-| `F: crates/fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1` (and `.grib2`) | 35 |
+| `F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2` (and the `tiny_earth_pair.grib2` built from it) | 19, 20, 39 |
+| `F: crates/fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1`, `F: crates/fieldglass-grib2/tests/fixtures/j_consecutive_latlon.grib2` | 35 |
 | `F: crates/fieldglass-grib1/tests/fixtures/reduced_gg_*.grib1`, `F: crates/fieldglass-grib2/tests/fixtures/*reduced_gaussian.grib2` | 8, 36, 37 |
 | `F: crates/fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1` | 13 |
-| `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` | 1, 15 |
+| `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` | 1, 15, 44 |
+| `F: crates/fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc` | 44 |
 | `F: crates/fieldglass-grib2/tests/fixtures/ccsds_flags46_12bit.grib2` | 17 |
-| `F: extension/src/test/fixtures/healpix_n4_ring.grib2` | 1, 14 |
+| `F: extension/src/test/fixtures/healpix_n4_ring.grib2`, `netcdf_classic_dummy.nc` | 1 |
+| `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`, `bifourier_ellipse_ieee32.grib2` | 1, 16 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc` | 22, 25 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/fill_only_*.nc` | 27 |
-| HDF5 and NetCDF-4 fixtures under `crates/fieldglass-netcdf/tests/fixtures/` | 10, 26, 29, 30, 31, 32, 34 |
+| HDF5, NetCDF-4 and classic NetCDF fixtures under `crates/fieldglass-netcdf/tests/fixtures/` (including `numrecs_*.nc`) | 10, 26, 29, 30, 31, 32, 34, 34a |
 
 ---
 
@@ -269,6 +279,11 @@ small, and it is *not* a substitute for the per-feature sections below it.
 Each store is opened with *Fieldglass: Open Zarr Store…* from the command
 palette, picking the store's folder.
 
+- [ ] First, from a cold window: *Developer: Reload Window* with no Fieldglass
+      file open, then run *Fieldglass: Open Zarr Store…*. The folder dialog
+      opens, with no "command not found". Reload again and do the same with
+      *Fieldglass: Import Color Table…* (cancel the dialog).
+
 **`B: samples/0.6.0/air_v2.zarr`** (consolidated v2, written by xarray)
 
 - [ ] A render panel opens on `air`, a global temperature map 144 × 73, with
@@ -276,8 +291,12 @@ palette, picking the store's folder.
       and Orthographic.
 - [ ] The slice picker lists `time` with 366 steps. Stepping to another day
       changes the map.
-- [ ] **priority** Probe one point, say 40° N 100° W, on 2024-01-15. Note the
-      value.
+- [ ] **priority** Set `time` to 14 (2024-01-15; the slice panel shows step
+      numbers, not dates) and probe 40° N 100° W. It reads about 246.6 degK.
+      Note the value.
+- [ ] Export CSV…, long layout: 10,512 data rows (`grep -c '^[-0-9]'`), one
+      per cell of 144 × 73. The matrix layout exports too.
+- [ ] Export PNG: the save dialog opens inside the store's folder.
 
 **`B: samples/0.6.0/air_v3.zarr`** (unconsolidated v3) and
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**
@@ -317,20 +336,27 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 
 - [ ] The panel shows an Animate row with first, back, play/pause, forward and
       last buttons, a speed control and a Loop toggle. It starts on `time`.
-- [ ] Press play: the date in the subtitle advances a day per frame and the
-      Northern Hemisphere warms towards July.
+- [ ] Press play: the label beside Loop counts `step 1 of 0–365`, `step 2 of
+      0–365`, …, the `time` stepper follows, and the Northern Hemisphere warms
+      towards July.
 - [ ] With the colour range on automatic, the colour bar's numbers do **not**
       change during playback: the range of the step playback started from is
       held, so frames stay comparable.
-- [ ] Faster and slower speeds change the frame rate. With Loop on, the last
-      day (2024-12-31) is followed by the first; with Loop off, playback stops
-      on the last day.
+- [ ] Faster and slower speeds change the frame rate. With Loop on (the
+      default), step 365 (2024-12-31) is followed by step 0; with Loop off,
+      playback stops on step 365.
+- [ ] Choose 5 / s, untick Loop and tick Zonal average. Click another editor
+      tab in the same group and come back: all three are as you left them.
+      *Known to fail at the prep merge: #1027.*
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, variable `air`
 
-- [ ] Choose `level` as the dimension to step through. Frames step through
-      17 pressure levels, 1000 to 10 hPa. Over the tropics it is coldest near
-      100 hPa and warmer again above.
+- [ ] Choose `level` as the dimension to step through: 17 levels, 1000 to 10
+      hPa. Step with the forward button rather than Play, so each level takes
+      its own range. Probe a point on the equator: about −80 °C at 100 hPa,
+      warmer again above (about −45 °C at 10 hPa). This file is in `degC`.
+      During Play the first level's range is held, so the upper levels paint
+      in the bottom colour; that is intended.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc`**, `t2m`
 
@@ -343,11 +369,14 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
 - [ ] Click a cell in Siberia (60° N 100° E). A line plot appears under the
-      readout: a time series over 2024, cold in January (about 240 K) and
-      warm in July (about 290 K). The x axis is labelled with dates, the y axis
-      in the variable's units (`degK`).
-- [ ] A dashed rule marks the day on screen. Step to another day and the rule
-      moves.
+      readout, above the map: a time series over 2024, cold in January (about
+      250 K) and warm in July (about 293 K). The caption reads `air along time
+      (hours since 1800-01-01 00:00:0.0) · 238.35–300.83 degK · 366 of 366
+      points`; the label under the plot gives raw time values (`1963536 …
+      1972296`), not dates.
+- [ ] A dashed rule marks the day on screen. Step to another day: the plot
+      clears with the new render. Click the same cell again and the rule is at
+      the new day.
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, `air`
 
@@ -363,12 +392,19 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
-- [ ] Set the axes to `time` (X) and `lat` (Y). The panel says it is a
-      cross-section, hides the projection picker and the map overlays, and
-      draws a time–latitude plot: the seasonal swing is strongest at high
-      latitudes. The time axis reads as dates, the latitude axis as degrees.
-      Before this change the plane was placed on the Earth, reading time as
-      longitude.
+- [ ] Set the axes to `time` (X) and `lat` (Y). The panel says
+      `Cross-section: these axes are not a map, so it is drawn in index
+      space.`, sets the projection picker to Source and greys it out, hides
+      the map overlays, and draws a time–latitude plot: the seasonal swing is
+      strongest at high latitudes. Latitude ticks read 90 … −90, and the time
+      ticks read as dates. *Known to fail at the prep merge: this file's time
+      reference has fractional seconds, so its ticks read as hours
+      (1963540 …); #1028.* Before this change the plane was placed on the
+      Earth, reading time as longitude.
+- [ ] Click a cell: the readout gives the value and its grid cell, with no
+      longitude. A line plot is offered along `lon`.
+- [ ] Do the same on `B: samples/0.6.0/air_v2.zarr`, whose time units have no
+      fractional seconds: its time ticks read as dates.
 - [ ] Set the axes back to `lon` and `lat`: the map, the projection picker
       and the overlays return.
 
@@ -384,9 +420,18 @@ A depth axis with fill values used to fail to draw; no file here has one.
 
 **`B: samples/0.6.0/gfs_wind.grib2`** (earth-relative)
 
-- [ ] Open message 0 (UGRD). The Vectors row offers message 1 (VGRD) as v.
-      Turn it on: arrows over the field, with a legend giving the speed of a
-      full-length arrow. Larger spacing draws fewer arrows.
+- [ ] Open message 0 (UGRD). In the Vectors row pick `#1 · VGRD …` as V
+      component (it starts on message 0, the u field itself), then tick
+      Arrows: arrows over the field, with a key (`⟶ … m s⁻¹`) giving the speed
+      of a full-length arrow. A larger "every N cells" draws fewer arrows. No
+      note about grid axes shows: GFS states earth-relative components.
+- [ ] Change the arrow colour and weight: the arrows redraw in them. Export
+      PNG: the arrows are in the image, the speed key is not. Untick Arrows:
+      the arrows and the speed key both go.
+- [ ] Turn arrows back on, spacing 4, colour red. Click another editor tab in
+      the same group and come back, then import `batlow.cpt` (§9): both times
+      the arrows, V component, spacing and colour are as you left them.
+      *Known to fail at the prep merge: #1027.*
 - [ ] Mid-latitude westerlies point east; the trade winds point west. Around a
       low in the Northern Hemisphere the arrows turn anticlockwise.
 - [ ] **priority** Orthographic centred on each pole (Center lat ±90), and Polar
@@ -397,6 +442,8 @@ A depth axis with fill values used to fail to draw; no file here has one.
 
 **`B: samples/0.6.0/hrrr_wind.grib2`** (grid-relative, Lambert)
 
+- [ ] Message 0's Vectors row reads "This file states its components along
+      the grid's axes; they are rotated to true north."
 - [ ] **priority** Draw arrows on Equirectangular and compare with the GFS
       arrows over the same states (same date and cycle). Directions agree to
       within the difference two models give, on both the west and east edges
@@ -432,25 +479,42 @@ A depth axis with fill values used to fail to draw; no file here has one.
       the gesture and sharpens when it ends.
 - [ ] Pan across the date line: the map stays continuous, with no blank strip
       or jump.
-- [ ] Zoom in, Zoom out and Reset view sit in the Bounds row. After each
-      gesture the bounds fields show the window; typing a window by hand still
-      works.
+- [ ] The +, − and Reset view buttons sit in the Bounds row (Equirectangular
+      and Web Mercator only). After each gesture the bounds fields show the
+      window; typing a window by hand still works.
+- [ ] Zoom into Europe, then Export PNG: the image is the zoomed window, not
+      the whole globe.
 - [ ] A click without a drag probes the value under the pointer.
 - [ ] On Mollweide and Orthographic, scrolling and dragging leave the map
       where it is.
+
+**`B: samples/0.6.0/gfs_wind.grib2`**, Equirectangular, coastlines, contours and arrows on
+
+- [ ] **priority** Zoom into Europe and pan. When the gesture ends, the
+      coastlines, contours and arrows all line up with the field.
+
+**`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
+
+- [ ] Zoom and pan work the same on a slice panel, and Reset view returns to
+      the whole globe.
 
 ## 8. A zonal average (#240)
 
 **`S: samples/gfs.grib2`**
 
-- [ ] Tick Zonal average: a line beneath the map, near 300 K in the tropics
-      and coldest over Antarctica. It has a point for every row of latitude.
-      Change message or slice and the line follows.
+- [ ] Tick Zonal average: a line appears under the readout, above the map,
+      near 300 K in the tropics and coldest over Antarctica. The caption ends
+      `721 of 721 points`, one per row.
 
-**`F: crates/fieldglass-grib1/tests/fixtures/reduced_gg_n32.grib1`**
+**`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
-- [ ] The line spans all 64 rows with no gap at the short polar rows. Whether
-      only stored values were averaged cannot be seen;
+- [ ] Tick Zonal average, then step `time`: the line follows the slice.
+
+**`F: crates/fieldglass-grib1/tests/fixtures/reduced_gg_n32_smooth.grib1`**
+
+- [ ] The line spans all 64 rows (`64 of 64 points`) with no gap at the short
+      polar rows, from about 248 K at the poles to 288 K at the equator.
+      Whether only stored values were averaged cannot be seen;
       `crates/fieldglass/tests/zonal_mean.rs` checks the means against eccodes.
 
 **`S: samples/hrrr.grib2`**
@@ -484,6 +548,9 @@ A depth axis with fill values used to fail to draw; no file here has one.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/hdf5_szip.h5`**, `hdf5_szip_hand.h5`
 
+A `.h5` file does not open in Fieldglass by double-click: right-click it, *Open
+With…*, *Fieldglass Viewer*. The same goes for every `.h5` file below.
+
 - [ ] Both open. Every 2-D dataset draws a source view (`i2_ppb16`,
       `i2_ppb10`, `f4_ppb18`, `f8_ppb8` and the rest) with no error. Values
       match h5py in CI (`tests/hdf5_szip.rs`); by eye there is only "draws".
@@ -507,12 +574,13 @@ does not open yet (#248). There is no real-world szip file in the samples.
 
 **`B: samples/0.6.0/grib1_names.grib1`** (same file as §11)
 
-- [ ] Message 0's level reads `Ground or water surface`, not `Cloud base
-      level`, and shows no level number.
+- [ ] Message 0's Level Type reads `Ground or water surface`, not `Cloud base
+      level`, and its Level cell is a dash, not a number.
 
 The four level types now read in their table's unit (a height in centimetres,
 eta levels and layers, the kPa top of a mixed-precision layer) have no file
-here; `crates/fieldglass-grib1/tests/code_tables.rs` covers them.
+here; the `values_read_in_the_unit_their_table_row_states` test in
+`crates/fieldglass-grib1/src/reader.rs` covers them.
 
 ## 13. A code a table does not name shows as its number (#774)
 
@@ -522,32 +590,38 @@ here; `crates/fieldglass-grib1/tests/code_tables.rs` covers them.
 
 **`B: samples/0.6.0/grib2_codes.grib2`** (also used in §14)
 
-- [ ] Message 1's discipline reads `Discipline 99`, not "Unknown discipline".
+- [ ] Message 1's parameter reads `Parameter 99/0/0`: discipline 99 is in no
+      table. The panel does not show the discipline itself;
+      `crates/fieldglass/tests/unknown_codes.rs` checks it reads `Discipline 99`.
 
 **`F: crates/fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1`**
 
 - [ ] The Center column shows the sub-centre as `Sub-centre 105`. In 0.5.0 it
       showed nothing.
 
-The other wordings (`Production status 200`, `Fixed surface 242`,
-`unsupported(13)` and the rest) have no file here;
-`crates/fieldglass/tests/unknown_codes.rs` covers them.
+The other wordings have no file here.
+`crates/fieldglass/tests/unknown_codes.rs` covers `Production status 200`,
+`Data type 99` and the sub-centre; `Fixed surface 242` is pinned in
+`crates/fieldglass-napi/src/lib.rs`, and `unsupported(13)`, `Level type 250` and
+`+5 time unit 200` in `fieldglass-grib1`'s unit tests (`src/gds.rs`,
+`src/reader.rs`).
 
 ## 14. Code-table labels and dimensionless units (#653, #654, #873)
 
 **`B: samples/0.6.0/grib2_codes.grib2`** (same file as §13)
 
-- [ ] Message 0 reads discipline `Computational parameters` and parameter
-      `Stochastically Perturbed Parametrization Tendency (SPPT)`.
+- [ ] Message 0's parameter reads `Stochastically Perturbed Parametrization
+      Tendency (SPPT)`. The panel does not show the discipline; the
+      `fieldglass-grib2` table tests check that 191 reads `Computational
+      parameters`.
 - [ ] Its units are empty, not `Numeric`, in the message table, the panel
       title and the colour bar.
 
-**`F: extension/src/test/fixtures/healpix_n4_ring.grib2`** (also used in §1)
-
-- [ ] The Grid column names the HEALPix grid, not `Unknown grid template`.
-
-`crates/fieldglass-grib2/tests/wmo_code_tables.rs` holds every other label to the
-WMO tables.
+The Table 3.1 grid names (HEALPix, and the four templates that read `Unknown
+grid template`) are not shown in the panel: the Grid column shows the decoder's
+short name (`healpix`), as it did in 0.5.0.
+`crates/fieldglass-grib2/tests/wmo_code_tables.rs` checks them, and holds every
+other label to the WMO tables.
 
 ## 15. The metadata table (#773, #775)
 
@@ -557,7 +631,9 @@ WMO tables.
 - [ ] The GRIB2 Center cell ends with its production status (for example
       `· Operational products`). The GRIB1 cells have none: GRIB1 carries no
       production status.
-- [ ] No cell in either table shows a dash or a placeholder such as "Unknown".
+- [ ] No cell in either table shows a placeholder such as "Unknown",
+      "Reserved" or "N/A". The only dash is in the GRIB1 Level column, for a
+      level with no value (the surface, and message 5's `Missing`).
 
 A GRIB2 message with no forecast or level type, which now leaves them out of the
 Compare picker and the subtitle, has no file here;
@@ -578,9 +654,10 @@ Compare picker and the subtitle, has no file here;
       with a `#` line naming T359.
 
 `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2` and every
-sample file are at or below T359 and draw as before (§1). The transform's
-accuracy up to T8192 is checked in CI (`tests/spectral_truncation.rs`,
-`fieldglass-core` `tests/sht_extended_range.rs`).
+sample file are at or below T359 and draw as before (§1). The transform is
+checked in CI against pyshtools at T2500 and 80-bit arithmetic at T3000
+(`fieldglass-core` `tests/sht_extended_range.rs`), and the T383 band limit in
+`fieldglass-grib2`'s `tests/spectral_truncation.rs`.
 
 ## 17. GRIB2 CCSDS with Fieldglass's own decoder (#762)
 
@@ -669,13 +746,16 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc`**, copied to a scratch folder first
 
 - [ ] Open the copy, open a panel on `temperature`, then close the file's
-      editor. Change the variable in the panel to `lat_bnds`: the projection
-      picker and overlays follow the slice you picked (source only), not the
-      last one drawn.
+      editor. Change the variable in the panel to `lat_bnds`. The panel says
+      `NetCDF handle was disposed`, and the projection picker and overlays
+      follow the slice you picked (source only), not the last one drawn.
 - [ ] Overwrite the copy with `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc`
-      and open it again. The panel's variable list is the new file's, and the
-      panel says the variable it was showing is gone rather than drawing
-      something else under the old name.
+      and open it again. Reopening alone does not touch the panel: make it
+      draw again (*Developer: Reload Webviews*, or flip any control). The
+      panel's variable list is the new file's (`PRODUCT/qa_value`,
+      `PRODUCT/SUPPORT_DATA/surface_altitude`), and it says `lat_bnds is no
+      longer in the file, so nothing was drawn. Pick a variable to draw.`
+      rather than drawing something else under the old name.
 
 ## 23. A GRIB panel finds its message after its file changes (#959)
 
@@ -683,16 +763,19 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
 
 - [ ] Open it. Both messages list a parameter, level and forecast time; in
       0.5.0 the ensemble template (4.1) left them blank.
-- [ ] Open a render panel on message 1 (member 8). Close the file's editor,
-      copy `members_8_7.grib2` over `members.grib2` and open it again. Make the
-      panel draw again (*Developer: Reload Webviews*, or import a colour
-      table, which rebuilds every open panel). It draws member 8, now message 0,
-      under its own heading. Before the change, set Compare with message 0
-      (member 7) as Field B; after it, Field B is still member 7, now
-      message 1.
-- [ ] Close the editor again, copy `members_8_8.grib2` over it (member 8 twice)
-      and reopen. The panel draws nothing, its heading reads `No message
-      drawn`, and it lists the file's messages to pick from.
+- [ ] Open a render panel on message 1 (member 8) and turn on Compare with
+      message 0 (member 7) as Field B. Close the file's editor, copy
+      `samples/0.6.0/members_8_7.grib2` over `members.grib2` and open it
+      again. Make the panel draw again (*Developer: Reload Webviews*, or
+      import a colour table, which rebuilds every open panel). It draws
+      member 8, now message 0, under its own heading, and Field B is still
+      member 7, now message 1.
+- [ ] Close the editor again, copy `samples/0.6.0/members_8_8.grib2` over it
+      (member 8 twice), reopen and make the panel draw again. It draws
+      nothing, its heading reads `No message drawn`, its tab reads `Render:
+      pick a message`, and it lists the file's messages to pick from. Pick
+      message 1: it draws member 8 under its own heading, and the tab is
+      renamed.
 
 Derived forecasts (a mean against a spread) and GRIB2 local parameters are told
 apart the same way; `crates/fieldglass/tests/message_identity.rs` and
@@ -732,10 +815,11 @@ members are not told apart yet, by design.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/fill_only_at_field_cap.nc`** and **`fill_only_past_field_cap.nc`**
 
-- [ ] The 8192 × 8192 file draws one flat value; at 64 Mi cells this can
-      take a few seconds. The 10000 × 10000 file is refused with a message
-      giving the size and saying the file itself is fine, before anything is
-      read.
+- [ ] The 8192 × 8192 file draws: every cell is the fill value, so the
+      panel shows "no values" and no colour bar. At 64 Mi cells this can take
+      a few seconds. The 10000 × 10000 file is refused before anything is
+      read, with `this read asks for 100000000 values at once, more than the
+      67108864 one field may hold. The file itself is fine`.
 
 How many bytes a slice reads, and the 2 ms and 5 ms step times, are measured in
 CI by `crates/fieldglass-perf` against `docs/performance.md`; the browser
@@ -746,8 +830,11 @@ package's half is in §44.
 **`S: samples/mrms.grib2`** (7000 × 3500)
 
 - [ ] Mollweide renders without a long stall. Export PNG and check its size
-      (`file export.png`): width × height is at most 67,108,864, and the shape
-      is the Mollweide 2:1. In 0.5.0 this asked for about 98 million pixels.
+      (`file export.png`): about 11,711 × 5,850 (5,866 with a subtitle line).
+      That is an 11,585 × 5,792 map (67.1 million pixels, 2:1) plus 126 px of
+      margins and colour bar across and 58 to 74 px of title and margins
+      down. In 0.5.0 the map alone was 14,000 × 7,000, about 98 million
+      pixels.
 
 ## 29. HDF5 files that begin with a userblock (#936)
 
@@ -769,50 +856,81 @@ package's half is in §44.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/`** `hdf5_sizes_o4_l8.h5`, `hdf5_sizes_o8_l4.h5`, `hdf5_soft_links_earliest.h5`, `netcdf4_huge_attributes.nc`, `hdf5_huge_link_name.h5`, `hdf5_btree_k_sb1.h5`, `hdf5_btree_k_sb2.h5`
 
-- [ ] Each opens and lists its variables. `netcdf4_huge_attributes.nc` shows
-      its long attributes in full. The two `btree_k` files are written with
-      larger B-tree nodes than the default and must still open (#920). Values
-      are checked against h5py in CI.
+- [ ] Each opens without the "metadata could not be fully resolved" note and
+      lists its variables. `hdf5_huge_link_name.h5` holds only groups, so it
+      lists none. In `netcdf4_huge_attributes.nc`, hovering the global
+      `history` value shows all 5,600 characters (the cell shows the first
+      120). `t`'s 5,000-byte `comment` is past the three attributes the table
+      previews; its value is checked in CI (`tests/hdf5_huge_objects.rs`).
+      Values are checked against h5py in CI.
 
-## 32. Damaged or hostile files fail fast (#837, #847, #888, #895, #901, #908, #920, #921, #970, #975, #981, #986, #987, #989)
+The two `btree_k` files open, but their larger-than-default chunk B-tree is read
+only when `v` is decoded, and `v` is 1-D, which the panel does not draw.
+`tests/hdf5_btree_k.rs` covers #920.
+
+## 32. Damaged or hostile files fail fast (#837, #847, #888, #895, #901, #908, #920, #921, #970, #975, #981, #986, #987, #989, #1000, #1008)
 
 Open each file in **`F: crates/fieldglass-netcdf/tests/fixtures/`** below and
 click through its variables. For every one: a message within a second or two,
 no crash, no frozen window, and the extension host's memory (*Developer: Open
 Process Explorer*) does not jump by hundreds of MB.
 
-- [ ] `hdf5_chunk_past_ceiling.h5`: `zstd_f4_past_field_cap` and
-      `zstd_f8_past_ceiling` are refused as unsupported, with a message saying
-      the file itself is fine (#970). `deflate_f8_bomb` is refused.
-      `deflate_f8_unwritten` stores no chunk and reads as its fill value.
+- [ ] `hdf5_chunk_past_ceiling.h5`: `zstd_f8_past_ceiling` and
+      `deflate_f8_bomb` are refused with "…stored in chunks that decode to
+      320.0 MiB each… The file itself is fine", and `zstd_f4_past_field_cap`
+      with "this read asks for 268435456 values at once… The file itself is
+      fine" (#970). `deflate_f8_unwritten` stores no chunk and, with no fill
+      value set, draws as a flat 0.
 - [ ] `hdf5_szip_hostile.h5`: both datasets refused (#975).
-- [ ] `hdf5_codec_bombs.h5`: both bombs refused as a corrupt chunk (#981).
-      `deflate_short_stream` and `zstd_short_stream` are each refused as a
-      chunk that decoded to 64 bytes, expected 268,435,456, with no jump in
-      memory (#986). The matching bounds on Zarr's blosc, LZ4 and transpose
+- [ ] `hdf5_codec_bombs.h5`: `deflate_bomb` and `zstd_bomb` are refused with
+      "parse error: deflate (zstd) chunk decompresses past the chunk's
+      3145728-byte length" (#981). `deflate_short_stream` and
+      `zstd_short_stream` are each refused with "chunk decoded to 64 bytes,
+      expected 268435456", with no jump in memory (#986). The matching bounds on Zarr's blosc, LZ4 and transpose
       paths are covered only by tests (`fieldglass-zarr`'s
       `tests/codec_bombs.rs`).
 - [ ] `hdf5_shared_attribute_storage.h5`, `hdf5_shared_link_storage.h5`,
-      `hdf5_shared_local_heap.h5`: refused rather than read (#921).
-      *Confirm after #991 merges:* the message says the file is fine and
-      uses a layout Fieldglass does not support, rather than calling it
-      corrupt (#987). `hdf5_shared_continuation.h5` stays a corrupt-file
-      error.
+      `hdf5_shared_local_heap.h5` (#921, #987): each opens to the superblock
+      view only, with no variables, and a note that the metadata could not be
+      fully resolved because "two objects in this file share one dense
+      attribute or link store" ("one local heap" for the third) and "The file
+      itself is fine". `hdf5_shared_continuation.h5` gives the same view with
+      "parse error: object-header chunk at … overlaps one already read", and
+      no "file is fine".
 - [ ] `hdf5_deep_group_chain.h5` (600 nested groups, a valid file): opens
       at once and lists `v` at the bottom of the chain (#921).
-- [ ] `hdf5_duplicate_chunk_records.h5` (one chunk named 16 times) and
-      `hdf5_oversized_chunk.h5` (a legal 16 Mi-element chunk) open at once
-      (#837). `hdf5_conflicting_chunk_records.h5` is refused (#888).
-- [ ] `hdf5_fixed_array_huge_count.h5`: refused (#939 review).
-- [ ] *Confirm after the #989 PR merges:* its windowed zstd fixture is refused
-      before anything large is reserved, in NetCDF-4 and Zarr.
+- [ ] `hdf5_fixed_array_huge_count.h5`: `v` is refused at once with "this
+      read asks for 17179869184 values at once… The file itself is fine". The
+      hostile index itself is reached only by a line read, covered by
+      `crates/fieldglass/tests/whole_variable_budget.rs`.
+- [ ] `hdf5_zstd_wide_window.h5`: `zstd_wide_window` is refused at once with
+      "this variable's zstd chunks ask to keep 64.0 MiB of history … more
+      than the 8.0 MiB this reader keeps for a chunk this size. The file
+      itself is fine", with no jump in memory (#989). The Zarr half is
+      covered by `fieldglass-zarr`'s `tests/codec_bombs.rs`.
+- [ ] `numrecs_huge_cdf1.nc` and `numrecs_huge_cdf5.nc` (248 and 364 bytes,
+      stating 60,000,000 records and holding 2): `v` lists 60,000,000
+      records, and **Render v** is refused at once with "…exceeds source size
+      248" (364 for CDF-5), with no jump in memory (#1000).
+
+The chunk-index files (`hdf5_duplicate_chunk_records.h5`,
+`hdf5_oversized_chunk.h5`, `hdf5_conflicting_chunk_records.h5`) each hold a 1-D
+`v`, which the panel does not draw, and the index is read only on decode.
+`tests/hdf5_chunk_records.rs` covers #837 and #888.
 
 Memory and time limits are measured exactly in CI (`tests/hdf5_codec_bombs.rs`,
 `tests/hdf5_szip_hostile.rs`, `tests/hdf5_shared_blocks.rs`,
 `tests/hdf5_chunk_ceiling.rs`, `crates/fieldglass/tests/hdf5_listing_cap.rs`,
-and `crates/fieldglass/tests/whole_variable_budget.rs` for #847).
-The GRIB cases in the CHANGELOG list (#631, #802, #848, #849, #913) have no openable
-fixture beyond those tests and the fuzz corpus.
+and `crates/fieldglass/tests/whole_variable_budget.rs` for #847). The HDF5
+index and heap cases (#895, #901, #908) are covered by
+`tests/hdf5_shared_snod.rs`, `tests/hdf5_local_heap.rs` and the unit tests in
+`src/hdf5/heap.rs`. The GRIB cases in the CHANGELOG list have no openable
+fixture; tests cover them: #631 (`malformed_inputs.rs`, GRIB1 and GRIB2), #802
+(`decode_matrix.rs`, `decode_matrix_reshape.rs`), #848
+(`decode_jpeg2000.rs`), #849 (`bifourier_hostile.rs`,
+`decode_ecmwf_complex.rs`), #913 (`crates/fieldglass/tests/field_index_u64.rs`)
+and #1001 (`allocations_ahead_of_data.rs`, GRIB1 and GRIB2), plus the fuzz
+corpus.
 
 ## 33. HDF5 integers narrower than their storage (#795)
 
@@ -824,8 +942,22 @@ checks every value against h5py (-20 reads as -20, not 65516).
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/record_single_short_cdf1.nc`**
 
-- [ ] `s` (3 × 3) draws a source view with no error. The values are checked
-      in CI (`tests/classic_record_layout.rs`); 0.5.0 read the wrong bytes.
+- [ ] `s` (3 × 3) draws a source view with the colour bar running from 1 to
+      9 and nine distinct cells stepping evenly from one corner to the other.
+      Read with the padded stride, as 0.5.0 did, the second record reads 5,
+      6, 7, and 4 and 8 never appear. CI checks the values
+      (`tests/classic_record_layout.rs`).
+
+## 34a. A streaming classic file shows its records (#1008)
+
+**`F: crates/fieldglass-netcdf/tests/fixtures/numrecs_streaming_cdf1.nc`**, `numrecs_streaming_cdf5.nc`, `numrecs_streaming_partial_cdf1.nc`, `numrecs_streaming_partial_cdf5.nc`
+
+These state their record count as unknown, as a file still being written does.
+
+- [ ] In each streaming file, **Render v** draws two cells, and probing reads
+      7 and -8. In 0.5.0, `v` opened with no records.
+- [ ] In each partial file, `v` draws one cell, 7. The second record is cut
+      short, so it is not counted.
 
 ## 35. A field stored column by column is the right way round (#542, #602, #792)
 
@@ -863,33 +995,66 @@ temperature. Compare within a pair, not across them.
 
 **`S: samples/gfs.grib2`** (also used in §1, §7 and §8)
 
-- [ ] **priority** Equirectangular at the default window: the left and right
-      edges of the image are field, not a one-pixel stripe of background.
+- [ ] **priority** Equirectangular at the default window: Export PNG and look
+      at the map's first and last columns at full size. Both are field, not a
+      one-pixel stripe of background. (At panel size the image is scaled, and
+      a one-pixel stripe can vanish.)
 
-## 39. Grids that cannot be placed (#576, #603, #610, #843, #844)
+## 39. Grids that cannot be placed (#576, #603, #610, #843, #844, #1002, #1011)
 
 **`F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2`** (same file as §19)
 
-- [ ] The source view draws the values. The grid reports its real 16 × 31,
-      not 0 by 0.
+- [ ] The source view draws the values: the field is a constant 273.15 K, so
+      it is one flat colour. The panel caption reads `polar_stereo 16×31 (grid
+      coordinates)`, with no corner pair (no `→`), and the message table shows
+      no corner either. 0.5.0 showed the first point twice (#1011).
 - [ ] Contours and the long CSV are not offered, and the note says the grid
       is not placed (§20). No message calls the grid type unsupported.
 
+**A polar stereographic grid on an Earth smaller than one cell (#1002).** Build
+it from the same file, written twice so a Vectors row appears:
+
+```sh
+python3 - crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2 samples/0.6.0/tiny_earth_pair.grib2 <<'PY'
+import struct, sys
+b = bytearray(open(sys.argv[1], 'rb').read())
+at = 16
+while b[at + 4] != 3:
+    at += struct.unpack('>I', b[at:at + 4])[0]
+b[at + 14] = 1                                   # Earth radius given in the file
+b[at + 15] = 0
+b[at + 16:at + 20] = struct.pack('>I', 80_000)   # R = 80 km
+b[at + 55:at + 63] = struct.pack('>II', 100_000_000, 100_000_000)  # Dx = Dy = 100 km
+open(sys.argv[2], 'wb').write(bytes(b) * 2)
+PY
+```
+
+- [ ] Open `samples/0.6.0/tiny_earth_pair.grib2`. The overlays are disabled
+      with "Overlays need a grid placed on the Earth, and this one isn't.",
+      arrows with "Arrows need a grid placed on the Earth, and this one
+      isn't." and the zonal average with "A zonal average needs a grid placed
+      on the Earth, and this one isn't." No note mentions satellite-view
+      grids, and no error is shown. 0.5.0 placed this grid and then refused
+      contours "for satellite-view grids".
+
 The other degenerate grids (a radius of zero, a scale factor of zero, a
-latitude of true scale of 270°, non-finite parameters, an Earth smaller than a
-cell, a geostationary camera inside the Earth, a rotation angle of 1e30°) are
-hand-built in tests: `crates/fieldglass/tests/non_finite_geometry.rs`,
-`fieldglass-core`'s `tests/grid_geometry.rs`, and the #842 and #961/#962 tests
-in `crates/fieldglass/tests/declared_grid_family.rs`.
+latitude of true scale of 270°, non-finite parameters, a geostationary camera
+inside the Earth, a rotation angle of 1e30°) are hand-built in tests:
+`crates/fieldglass/tests/non_finite_geometry.rs` (with the #961 and #962
+cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
+`crates/fieldglass/tests/placement.rs` (#1002, #1011), and
+`crates/fieldglass-grib2/tests/grid_definition.rs` for the 1e30° rotation
+(#842).
 
 ## 40. A geostationary grid in metres is placed (#966)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/goes_geostationary.nc`** (also used in §21) and **`goes_geostationary_metres.nc`**
 
-- [ ] **priority** On Equirectangular both draw the same 6 × 6 patch in the
-      same place, between about 6.5° S and 6.5° N. Probe one pixel in each:
-      the same latitude and longitude. In 0.5.0 the metres file was drawn far
-      off the Earth.
+- [ ] **priority** On Equirectangular with coastlines on, both draw the same
+      6 × 6 patch over the equator at 75° W, reaching about 7.8° either side,
+      with the Pacific coast of Ecuador and Colombia near its west edge. Probe
+      the same spot in each: the same value and the same `grid i,j`. In 0.5.0
+      the metres file was drawn far off the Earth.
 
 ## 41. Repainting a slice reuses its placement (#662)
 
@@ -897,8 +1062,9 @@ in `crates/fieldglass/tests/declared_grid_family.rs`.
 
 - [ ] The first draw takes a couple of seconds. After that, changing the
       colour map, the range or the variable to another one on the same grid
-      repaints at once. Timings are held in CI by
-      `crates/fieldglass/tests/placement_is_memoised.rs`.
+      repaints at once. `crates/fieldglass/tests/placement_is_memoised.rs`
+      checks that a second placement reads nothing and derives no second
+      geometry; nothing times it.
 
 ## 42. Error messages read the same in both hosts (#574)
 
@@ -911,7 +1077,7 @@ extension, and §44 sees the browser package's.
 No manual check: the in-table P1 editor is not enabled in released builds.
 `crates/fieldglass/tests/grib1_p1_edit.rs` covers it.
 
-## 44. The browser package (#460, #466, #580, #808, #950)
+## 44. The browser package (#460, #466, #808, #939, #950)
 
 Install the tarball the release dry run built (RELEASING.md §2), not one built
 locally, and decode in a real browser page.
@@ -993,29 +1159,61 @@ Open <http://localhost:8000/> in a current Chrome or Firefox.
       2 GiB read limit and would be refused.
 - [ ] `done` is printed and the browser console shows no error.
 
+**The GPU shader the package ships.** Nothing in CI runs it on a GPU; the
+crate's smoke page does. Point it at the same tarball, from the repo root:
+
+```sh
+rm -rf crates/fieldglass-wasm/pkg/web && mkdir -p crates/fieldglass-wasm/pkg/web
+tar -xzf /tmp/fieldglass-browser/fieldglass-wasm-X.Y.Z.tgz --strip-components=1 -C crates/fieldglass-wasm/pkg/web
+python3 -m http.server 8001
+```
+
+- [ ] Open <http://localhost:8001/crates/fieldglass-wasm/examples/smoke/>. It
+      decodes `rap_jpeg2000_lambert.grib2` in a Web Worker and paints it with
+      the shader and the CPU painter. The verdict reads `PASS — N pixels
+      compared, M off by one lookup entry, 0 mismatched.`
+
 ---
 
 ## No manual check
 
-`[Unreleased]` entries with no section above, and why:
+`[0.6.0]` entries with no section above, and why:
 
 - **GRIB2 fields capped at 64 Mi points; a whole-variable read capped at
-  2 GiB.** Hostile-input limits; §27 and §32 see the refusals that reach a user.
+  2 GiB.** Hostile-input limits. §27 sees only the slice cap; the rest are
+  held by `malformed_inputs.rs::the_grid_cap_is_the_core_field_cap_to_the_point`
+  (GRIB1 and GRIB2) and the two `whole_variable_budget.rs` files (in
+  `crates/fieldglass` and `fieldglass-netcdf`).
 - **Painting or probing a field of the wrong length (#845, #902), bi-Fourier
   past 65,535 coefficients in the browser (#889), lengths that wrap on 32-bit
   (#561), GRIB bitmaps of the wrong length (#804), NetCDF-4 shuffle on a
-  partial element (#203).** No file a user would open shows them; the unit and
-  wasm32 tests in CI do.
+  partial element (#203).** No file a user would open shows them. The tests:
+  #845 `fieldglass-core`'s `colormap.rs::paint_tolerates_slices_of_the_wrong_length`
+  and `crates/fieldglass/src/render.rs::probe_pixel_on_a_short_slice_reports_no_value`;
+  #902 `crates/fieldglass/tests/field_index_u64.rs`; #889
+  `fieldglass-grib2`'s `spectral.rs::bifourier_laplacian_does_not_overflow_a_32_bit_usize`;
+  #561 `fieldglass-core`'s `bytes.rs::checked_usize_refuses_to_wrap_a_value_a_32_bit_target_cannot_hold`;
+  #804 `fieldglass-grib1`'s `tests/decode_bitmap.rs::a_bitmap_shorter_than_the_grid_is_an_error`
+  and `fieldglass-grib2`'s `ds.rs::rejects_bitmap_length_mismatch`; #203
+  `fieldglass-core`'s `shuffle.rs::a_ragged_tail_is_carried_across_and_the_rest_transposed`.
 - **Two NetCDF-4 files of the same size read as one (#681).** The committed
   equal-size pairs have the same structure, so the bug would not show by eye.
   `crates/fieldglass-netcdf/tests/hdf5_traversal_cache.rs` builds a pair that
   does.
 - **Two grids that cannot be placed compared by what their files declare
   (#961, #962).** Needs two hand-built unplaceable grids;
-  `crates/fieldglass/tests/declared_grid_family.rs`.
+  `crates/fieldglass/tests/non_finite_geometry.rs`
+  (`two_declined_grids_combine_only_when_they_declare_the_same_grid`,
+  `two_declined_geostationary_slices_combine_only_when_they_declare_the_same_grid`).
 - **Rust API** (breaking changes and additions) and **Internal**: no user
-  interface. The semver list is checked with `cargo semver-checks`, and each
-  crate is tested from its packaged `.crate` in CI (RELEASING.md §3).
+  interface, except the error kinds they add, which reach a user as the
+  messages §32 checks. Those that change what a user sees have tests: a dense
+  attribute or link past 16 MiB skipped, and a dropped `DIMENSION_LIST` giving
+  `phony_dim_N` (#921), in `fieldglass-netcdf`'s `src/hdf5.rs`;
+  `crates/fieldglass/tests/contiguous_past_the_file.rs` (#997);
+  `tests/hdf5_szip_hostile.rs` (#1016). The semver list is checked with
+  `cargo semver-checks`, and each crate is tested from its packaged `.crate`
+  in CI (RELEASING.md §3).
 
 ---
 

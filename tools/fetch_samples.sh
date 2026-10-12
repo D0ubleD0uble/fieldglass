@@ -251,9 +251,13 @@ get_rtofs() { # NetCDF-4, tripolar curvilinear (2-D lat/lon, no grid mapping)
 get_mirs() { # NetCDF-4, satellite swath (per-pixel 2-D lat/lon)
   info "NOAA-21 MiRS imagery granule (swath curvilinear)"
   # A full 33-minute granule: 768 scanlines by 96 fields of view, a complete
-  # half orbit. The committed fixture is 100 scanlines of it.
-  local base="https://noaa-nesdis-n21-pds.s3.amazonaws.com/NPR_MIRS_IMG_33min/2023/09/19"
-  local name="NPR-MIRS-IMG_33min_v11_n21_s202309191449310_e202309191523380_c202309191705326.nc"
+  # half orbit. The committed fixture is 100 scanlines of it. The bucket keeps
+  # only recent days, so list the run day's prefix and take its first granule.
+  local base="https://noaa-nesdis-n21-pds.s3.amazonaws.com"
+  local name
+  name="$(curl -fsSL "$base/?list-type=2&prefix=NPR_MIRS_IMG_33min/${DATE:0:4}/${DATE:4:2}/${DATE:6:2}/&max-keys=1" \
+    | grep -o '<Key>[^<]*</Key>' | sed 's/<[^>]*>//g' | head -1)" || { warn "MiRS listing failed"; return 1; }
+  [ -n "$name" ] || { warn "no MiRS granule for ${DATE}"; return 1; }
   if curl -fsSL "$base/$name" -o "$OUT/mirs_swath.nc"; then
     ok "mirs_swath.nc ($(du -h "$OUT/mirs_swath.nc" | cut -f1))"
   else
