@@ -995,10 +995,12 @@ chunk to 256 MiB + 1 (`MAX_DECOMPRESSED_CHUNK` + 1) reads back correctly through
 h5py 3.16, after allocating that much; the same on `deflate_szip` also reads
 back. The reader refuses both, before allocating. When only shuffle precedes
 szip the prefix must equal the chunk's length; behind a length-changing filter
-it may be at most the chunk's length plus an eighth plus 4 KiB (4,168 bytes
-for `deflate_szip`), which covers deflate's, zstd's and fletcher32's growth,
-and 33 times the chunk plus 4 KiB behind an szip (#813,
-`hdf5_szip_growth.h5`).
+it may be at most the chunk's length grown by that filter's worst case:
+zlib's `deflateBound` for deflate (82 bytes for `deflate_szip`'s 64-byte
+chunk), `ZSTD_COMPRESSBOUND` for zstd, 4 bytes for fletcher32, and the
+longest stream szip's parameters allow, at most 33 times the chunk plus
+4 KiB, behind an szip (#813, #975, `hdf5_szip_growth.h5`; #1016 replaced a
+flat eighth plus 4 KiB with these).
 A prefix of 511 or 513 on the 512-byte chunk fails in libhdf5 as well.
 `a_chunk_whose_size_prefix_is_wrong_is_refused` and
 `behind_deflate_the_prefix_is_bounded_by_the_chunk` in
@@ -1018,7 +1020,8 @@ libsz pads each one-pixel scanline to a 32-pixel block, so the szip stream is
 107,268 bytes, 26 times the chunk; deflate stores it in about a kilobyte, and
 the chunk is written with `write_direct_chunk`. libhdf5's read-back is the
 oracle, and the builder checks it equals the source and that the stream
-still grows past the chunk plus an eighth plus 4 KiB.
+still grows past the chunk plus an eighth plus 4 KiB, the bound before
+#975.
 
 The reader bounds deflate's output behind an szip by the longest stream
 szip's parameters allow for the chunk, at most 33 times it, plus 4 KiB
@@ -1047,8 +1050,9 @@ the pipeline and the szip `cd_values` itself; each chunk is written with
   8, 2048, in one chunk of `(2048, 2048)`, 4 MiB. The 32,623-byte chunk is a
   zlib stream of 32 MiB of zeros. libhdf5 inflates all of it and then fails
   in szip ("filter returned failure during read"). Fieldglass stops deflate
-  at 4,722,688 bytes, the chunk plus an eighth plus 4 KiB, which is more than
-  the longest stream szip's parameters allow for 4 MiB (4,243,456 bytes).
+  at 4,247,552 bytes, the longest stream szip's parameters allow for 4 MiB
+  (4,243,456 bytes) plus 4 KiB for the size prefix and padding (#1016; it
+  was the chunk plus an eighth plus 4 KiB, 4,722,688, before).
 
 The oracle records the pipeline, the `cd_values`, where each stored chunk
 lies, the bomb's inflated size and what libhdf5 makes of each read.

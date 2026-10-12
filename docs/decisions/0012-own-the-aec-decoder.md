@@ -35,6 +35,15 @@ plus 4 KiB for deflate, zstd and fletcher32 as before, and 33 times for an
 szip, and it applies to deflate and zstd as well as to szip's prefix.
 Decision 6 records the szip factor and the one case it does not cover.
 
+**Amended** (2026-10-11, #1016): each earlier filter's worst-case growth is
+now its own, one table shared with the stored-size check of ADR-0016
+decision 5 (`filter_growth` in `hdf5/filter.rs`): 4 bytes for fletcher32,
+zlib's `deflateBound` for any parameters for deflate, `ZSTD_COMPRESSBOUND`
+for zstd, and szip's as before. The flat eighth plus 4 KiB, and the floor it
+set under every bound, are gone. The bound may pass the 256 MiB ceiling by
+that growth, up to twice it, so a chunk at the ceiling under fletcher32 and
+deflate, the order netCDF-C writes, decodes.
+
 **Amended** (2026-10-11, #975): two lengths the szip path took on trust are
 now held to what the stream and its parameters allow. The size prefix may be
 no more than the stream can code: no coded data set covers more than a
@@ -279,9 +288,10 @@ SZIP (#248). So:
   files, and the prefix is then the earlier filter's output length, which
   nothing outside the stream records. So the prefix is bounded rather than
   matched: by the chunk's length grown by each earlier filter's worst case,
-  an eighth plus 4 KiB for deflate, zstd and fletcher32 (deflate's and zstd's
-  worst-case growth and fletcher32's four bytes), and 33 times for an szip,
-  which keeps a tiny chunk from committing a 256 MiB buffer. deflate and zstd
+  zlib's `deflateBound` for deflate, `ZSTD_COMPRESSBOUND` for zstd,
+  fletcher32's four bytes (#1016; an eighth plus 4 KiB for all three
+  before), and 33 times for an szip, which keeps a tiny chunk from
+  committing a 256 MiB buffer. deflate and zstd
   are bounded the same way when something before them changes the length,
   and by the chunk's own length otherwise (#813). The reader then requires
   the chunk to come back exactly its own length, whatever the pipeline.

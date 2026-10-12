@@ -137,7 +137,15 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    (about an eighth, RFC 1951 §3.2.6; zlib's stored blocks on data that does
    not compress add 5 bytes per 65,535, §3.2.4), zstd `ZSTD_COMPRESSBOUND`
    (about 1/256), and szip what its parameters allow. This holds for a
-   filtered chunk, a filtered heap block and a filtered huge heap object.
+   filtered chunk, a filtered heap block and a filtered huge heap object,
+   and for what a codec may decode to behind those filters (ADR-0012
+   decision 6), so a 256 MiB chunk under fletcher32 and deflate, the order
+   netCDF-C writes, decodes as well as being read. Twice the cap holds every
+   file libhdf5 writes: its szip never picks a scanline shorter than a block,
+   which keeps a stream under twice its input, and the filter is optional, so
+   a chunk szip would grow is stored unfiltered. Only an szip from a writer
+   outside libhdf5's limits, up to 33 times, can pass it, and is refused as
+   too large.
 
    libhdf5 lets a heap declare direct blocks of up to 2 GiB
    (`H5HF_MAX_DIRECT_SIZE_LIMIT`), and nothing in the format bounds a header
