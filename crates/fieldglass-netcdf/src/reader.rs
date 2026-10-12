@@ -107,7 +107,7 @@ impl<S: ByteSource> NetcdfReader<S> {
         let backing = if classic {
             let header = classic::parse_header_from(&source)?;
             NetcdfBacking::Classic(header)
-        } else if hdf5::find_signature(&source).is_some() {
+        } else if hdf5::find_signature(&source)?.is_some() {
             // At byte 0, or after a userblock (#936).
             let probe = hdf5::probe(&source)?;
             NetcdfBacking::Hdf5(probe)

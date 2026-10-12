@@ -3,7 +3,8 @@ use std::fs::File;
 #[cfg(feature = "fs")]
 use std::io::Read;
 
-use crate::bytes::{ByteSource, read_up_to};
+use crate::bytes::{ByteSource, read_at};
+use crate::error::FieldglassError;
 
 /// The HDF5 signature, `\x89HDF\r\n\x1a\n`, which opens a NetCDF-4 file's
 /// superblock.
@@ -29,19 +30,31 @@ pub const DETECT_WINDOW: usize = 16384 + HDF5_SIGNATURE.len();
 /// [`HDF5_SIGNATURE_OFFSETS`].
 ///
 /// The offset is the superblock's: the userblock's size, and the base every
-/// other address in the file is relative to. A source that ends, or fails to
-/// read, before the next offset has no signature past it.
-pub fn find_hdf5_signature<S: ByteSource + ?Sized>(source: &S) -> Option<u64> {
+/// other address in the file is relative to. A source whose size ends before
+/// the next offset has no signature past it, and that is `Ok(None)`.
+///
+/// # Errors
+///
+/// A failure of the source, or a read that comes back shorter than the source's
+/// own size promised ([`FieldglassError::ShortRead`]). Neither says the bytes
+/// are not HDF5, so neither is folded into `Ok(None)`: a host over a transport
+/// can tell a retryable failure from a file it cannot open (#998).
+pub fn find_hdf5_signature<S: ByteSource + ?Sized>(
+    source: &S,
+) -> Result<Option<u64>, FieldglassError> {
+    let size = source.size();
     for off in HDF5_SIGNATURE_OFFSETS {
-        let at = read_up_to(source, off, HDF5_SIGNATURE.len()).ok()?;
-        if at.len() < HDF5_SIGNATURE.len() {
-            return None;
+        // A signature that does not fit before the end is the ordinary "not
+        // here"; one that should fit and comes back short is an error.
+        if off.saturating_add(HDF5_SIGNATURE.len() as u64) > size {
+            return Ok(None);
         }
+        let at = read_at(source, off, HDF5_SIGNATURE.len())?;
         if at[..] == HDF5_SIGNATURE {
-            return Some(off);
+            return Ok(Some(off));
         }
     }
-    None
+    Ok(None)
 }
 
 /// What the leading bytes of a file turned out to be.
@@ -77,7 +90,8 @@ pub fn detect_from_bytes(bytes: &[u8]) -> Format {
         return Format::NetCdf;
     }
     // NetCDF-4 / HDF5: "\x89HDF\r\n\x1a\n", at byte 0 or after a userblock.
-    if find_hdf5_signature(bytes).is_some() {
+    // A slice cannot fail to read, so the error arm is unreachable.
+    if matches!(find_hdf5_signature(bytes), Ok(Some(_))) {
         return Format::NetCdf;
     }
     Format::Unknown
@@ -173,7 +187,7 @@ mod tests {
         for at in HDF5_SIGNATURE_OFFSETS {
             let at = at as usize;
             let bytes = signature_at(at, at + 64);
-            assert_eq!(find_hdf5_signature(&bytes[..]), Some(at as u64));
+            assert_eq!(find_hdf5_signature(&bytes[..]).unwrap(), Some(at as u64));
             assert!(matches!(detect_from_bytes(&bytes), Format::NetCdf), "{at}");
         }
         // The last offset is inside the window a host is told to pass.
@@ -188,11 +202,34 @@ mod tests {
         // the end of the buffer.
         for (at, len) in [(32768, 32768 + 64), (256, 1024), (100, 200)] {
             let bytes = signature_at(at, len);
-            assert_eq!(find_hdf5_signature(&bytes[..]), None, "{at}");
+            assert_eq!(find_hdf5_signature(&bytes[..]).unwrap(), None, "{at}");
             assert!(matches!(detect_from_bytes(&bytes), Format::Unknown), "{at}");
         }
         let bytes = signature_at(512, 1024);
         assert!(matches!(detect_from_bytes(&bytes[..515]), Format::Unknown));
+    }
+
+    #[test]
+    fn a_failed_or_short_read_is_an_error_not_no_signature() {
+        use crate::testing::{Short, Starved};
+
+        // Truncated at 512: the probe there comes back a byte short.
+        let err = find_hdf5_signature(&Short::new(vec![0u8; 4096], 512, 1))
+            .expect_err("a short read is not a verdict");
+        assert!(matches!(
+            err,
+            FieldglassError::ShortRead {
+                at: 512,
+                got: 7,
+                wanted: 8
+            }
+        ));
+        let starved = Starved::new(vec![0u8; 4096]);
+        starved.arm();
+        assert!(find_hdf5_signature(&starved).is_err());
+        // A source too small for the next offset is still just "not there".
+        assert_eq!(find_hdf5_signature(&vec![0u8; 600]).unwrap(), None);
+        assert_eq!(find_hdf5_signature(&Vec::<u8>::new()).unwrap(), None);
     }
 
     #[test]

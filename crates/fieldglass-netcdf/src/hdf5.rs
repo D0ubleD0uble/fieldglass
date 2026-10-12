@@ -250,7 +250,9 @@ fn not_hdf5<S: ByteSource + ?Sized>(source: &S) -> FieldglassError {
 /// ([`fieldglass_core::HDF5_SIGNATURE_OFFSETS`]), so this is a bounded number
 /// of small reads over any source rather than a walk of the whole file. The
 /// search is `core`'s, so format detection finds exactly the files this does.
-pub fn find_signature<S: ByteSource + ?Sized>(source: &S) -> Option<u64> {
+///
+/// A failure of the source is an error, not "no signature" (#998).
+pub fn find_signature<S: ByteSource + ?Sized>(source: &S) -> Result<Option<u64>, FieldglassError> {
     fieldglass_core::find_hdf5_signature(source)
 }
 
@@ -260,7 +262,7 @@ pub fn find_signature<S: ByteSource + ?Sized>(source: &S) -> Option<u64> {
 /// A file with a userblock passed unwrapped has its superblock further in;
 /// reading on would follow the addresses it states into the userblock's bytes.
 fn superblock_at_base<S: ByteSource + ?Sized>(source: &S) -> Result<(), FieldglassError> {
-    match find_signature(source) {
+    match find_signature(source)? {
         Some(0) => Ok(()),
         Some(at) => Err(FieldglassError::Parse(format!(
             "HDF5 superblock is at byte {at}, after a userblock: read the file \
@@ -274,7 +276,7 @@ fn superblock_at_base<S: ByteSource + ?Sized>(source: &S) -> Result<(), Fieldgla
 /// version-independent (signature + version byte + sizes), so this is safe
 /// against newer superblock layouts.
 pub fn probe<S: ByteSource + ?Sized>(source: &S) -> Result<Hdf5Probe, FieldglassError> {
-    let off = find_signature(source).ok_or_else(|| not_hdf5(source))?;
+    let off = find_signature(source)?.ok_or_else(|| not_hdf5(source))?;
 
     // Superblock fields after the 8-byte signature, common to all versions:
     //   off + 8  : superblock version (1 byte)
