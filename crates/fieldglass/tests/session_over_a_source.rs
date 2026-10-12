@@ -260,6 +260,27 @@ impl ByteSource for Shared {
     }
 }
 
+/// The leading read coming back short is a short read, not a verdict on the
+/// bytes (#998): the detection prefix needs byte 7 of a GRIB message, and a
+/// source that serves seven of the eight asked for has not said it is no GRIB.
+#[test]
+fn a_short_leading_read_is_a_short_read_not_an_unsupported_format() {
+    use fieldglass_core::testing::Short;
+
+    let (bytes, offsets) = object();
+    let err = Session::open_source(Short::new(bytes.clone(), 0, 1))
+        .expect_err("a truncated leading read is no verdict");
+    assert_eq!(err.code(), "short_read", "{}", err.message());
+
+    let at = offsets[1];
+    let err = Session::open_message_at(Short::new(bytes.clone(), at, 1), at)
+        .expect_err("a truncated leading read is no verdict");
+    assert_eq!(err.code(), "short_read", "{}", err.message());
+
+    // The same bytes served whole open.
+    Session::open_message_at(bytes, at).expect("whole");
+}
+
 /// A source shorter than the detection prefix says "no container", not "short
 /// read": too few bytes to identify is an answer about the bytes.
 #[test]

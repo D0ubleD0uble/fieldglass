@@ -219,50 +219,50 @@ lost to the next regression.
 | `grib2-5.42-S/decode` | 16,380 | 4 | 22,449 | 22,621 | 1 | 16 | 475,038 | 2,540,618 | 3,542,059 | 2,097,152 | 2,097,152 |
 | `grib2-5.42-S/place` | 0 | — | 0 | 759 | 0 | 4 | 70 | 16,964 | 32,000 | — | — |
 | `grib2-5.42-S/codec` | 16,380 | — | — | — | — | 1 | 32,760 | 1,381,261 | 1,704,054 | — | — |
-| `netcdf-classic-D/open` | 0 | — | 448 | 1,704 | 5 | 103 | 5,006 | 42,267 | 74,880 | 5,898,240 | 5,898,240 |
+| `netcdf-classic-D/open` | 0 | — | 448 | 1,704 | 4 | 103 | 5,006 | 42,595 | 75,063 | 5,898,240 | 5,898,240 |
 | `netcdf-classic-D/variables` | 0 | — | 0 | 1,704 | 0 | 41 | 1,290 | 27,731 | 42,209 | 5,898,240 | 5,898,240 |
 | `netcdf-classic-D/slice` | 16,380 | 4 | 66,604 | 67,224 | 3 | 104 | 476,012 | 1,790,834 | 2,687,674 | 5,898,240 | 5,898,240 |
 | `netcdf-classic-D/scrub` | 16,380 | 4 | 525,244 | 525,864 | 10 | 559 | 476,012 | 13,588,594 | 18,928,946 | 5,898,240 | 5,898,240 |
 | `netcdf-classic-D/place` | 0 | — | 1,084 | 1,704 | 2 | 85 | 6,179 | 122,970 | 189,110 | — | — |
-| `netcdf-classic-L/open` | 0 | — | 448 | 2,592 | 5 | 103 | 5,006 | 42,539 | 75,320 | 5,767,168 | 5,767,168 |
+| `netcdf-classic-L/open` | 0 | — | 448 | 2,592 | 4 | 103 | 5,006 | 42,867 | 75,515 | 5,767,168 | 5,767,168 |
 | `netcdf-classic-L/variables` | 0 | — | 0 | 2,592 | 0 | 41 | 1,290 | 13,381 | 20,485 | 5,767,168 | 5,767,168 |
 | `netcdf-classic-L/slice` | 65,160 | 4 | 262,804 | 263,232 | 3 | 104 | 1,890,632 | 6,745,838 | 10,102,953 | 5,767,168 | 5,767,168 |
 | `netcdf-classic-L/scrub` | 65,160 | 4 | 2,087,284 | 2,087,712 | 10 | 559 | 1,890,632 | 53,114,452 | 74,193,862 | 5,767,168 | 5,767,168 |
 | `netcdf-classic-L/place` | 0 | — | 2,164 | 2,592 | 2 | 85 | 11,219 | 138,965 | 209,532 | — | — |
-| `netcdf-classic-S/open` | 0 | — | 448 | 1,512 | 5 | 103 | 5,006 | 42,400 | 75,109 | 2,752,512 | 2,752,512 |
+| `netcdf-classic-S/open` | 0 | — | 448 | 1,512 | 4 | 103 | 5,006 | 42,728 | 75,300 | 2,752,512 | 2,752,512 |
 | `netcdf-classic-S/variables` | 0 | — | 0 | 1,512 | 0 | 41 | 1,290 | 13,381 | 20,561 | 2,752,512 | 2,752,512 |
 | `netcdf-classic-S/slice` | 16,380 | 4 | 66,604 | 67,032 | 3 | 104 | 476,012 | 1,790,583 | 2,681,002 | 2,752,512 | 2,752,512 |
 | `netcdf-classic-S/scrub` | 16,380 | 4 | 525,244 | 525,672 | 10 | 559 | 476,012 | 13,591,527 | 18,927,440 | 2,752,512 | 2,752,512 |
 | `netcdf-classic-S/place` | 0 | — | 1,084 | 1,512 | 2 | 85 | 6,179 | 122,671 | 188,632 | — | — |
-| `netcdf4-zlib-D/open` | 0 | — | 2,676 | 12,942 | 30 | 388 | 17,029 | 363,771 | 542,555 | 3,932,160 | 3,932,160 |
+| `netcdf4-zlib-D/open` | 0 | — | 2,700 | 12,942 | 28 | 389 | 17,029 | 365,339 | 546,219 | 3,932,160 | 3,932,160 |
 | `netcdf4-zlib-D/variables` | 0 | — | 0 | 12,942 | 0 | 41 | 1,290 | 13,395 | 20,501 | 3,932,160 | 3,932,160 |
 | `netcdf4-zlib-D/slice` | 16,380 | 4 | 37,587 | 47,445 | 10 | 257 | 544,324 | 4,817,150 | 6,996,802 | 3,932,160 | 3,932,160 |
 | `netcdf4-zlib-D/scrub` | 16,380 | 4 | 278,950 | 288,808 | 17 | 1,008 | 1,003,736 | 36,688,566 | 51,687,755 | 4,128,768 | 4,128,768 |
 | `netcdf4-zlib-D/place` | 0 | — | 1,084 | 12,942 | 2 | 155 | 6,179 | 225,958 | 331,666 | — | — |
 | `netcdf4-zlib-D/codec` | 16,380 | — | — | — | — | 2 | 79,510 | 1,227,555 | 1,666,847 | — | — |
-| `netcdf4-zlib-L/open` | 0 | — | 2,676 | 14,990 | 30 | 388 | 17,029 | 364,042 | 542,642 | 3,670,016 | 3,670,016 |
+| `netcdf4-zlib-L/open` | 0 | — | 2,700 | 14,990 | 28 | 389 | 17,029 | 364,767 | 545,241 | 3,670,016 | 3,670,016 |
 | `netcdf4-zlib-L/variables` | 0 | — | 0 | 14,990 | 0 | 41 | 1,290 | 13,407 | 20,509 | 3,670,016 | 3,670,016 |
 | `netcdf4-zlib-L/slice` | 65,160 | 4 | 126,701 | 139,063 | 8 | 231 | 2,152,528 | 16,925,473 | 24,408,469 | 4,980,736 | 4,980,736 |
 | `netcdf4-zlib-L/scrub` | 65,160 | 4 | 993,924 | 1,006,286 | 15 | 982 | 3,977,780 | 135,192,810 | 190,588,795 | 7,340,032 | 7,340,032 |
 | `netcdf4-zlib-L/place` | 0 | — | 2,164 | 14,990 | 2 | 155 | 11,219 | 255,253 | 371,974 | — | — |
 | `netcdf4-zlib-L/codec` | 65,160 | — | — | — | — | 3 | 506,796 | 4,001,216 | 5,663,413 | — | — |
-| `netcdf4-zlib-S/open` | 0 | — | 2,676 | 12,942 | 30 | 388 | 17,029 | 364,297 | 542,575 | 2,228,224 | 2,228,224 |
+| `netcdf4-zlib-S/open` | 0 | — | 2,700 | 12,942 | 28 | 389 | 17,029 | 365,121 | 545,630 | 2,228,224 | 2,228,224 |
 | `netcdf4-zlib-S/variables` | 0 | — | 0 | 12,942 | 0 | 41 | 1,290 | 13,371 | 20,453 | 2,228,224 | 2,228,224 |
 | `netcdf4-zlib-S/slice` | 16,380 | 4 | 36,051 | 47,445 | 8 | 231 | 542,788 | 4,783,841 | 6,948,937 | 2,490,368 | 2,490,368 |
 | `netcdf4-zlib-S/scrub` | 16,380 | 4 | 277,414 | 288,808 | 15 | 982 | 1,002,200 | 36,644,460 | 51,625,879 | 3,014,656 | 3,014,656 |
 | `netcdf4-zlib-S/place` | 0 | — | 1,084 | 12,942 | 2 | 155 | 6,179 | 225,177 | 330,384 | — | — |
 | `netcdf4-zlib-S/codec` | 16,380 | — | — | — | — | 2 | 79,510 | 1,224,169 | 1,660,252 | — | — |
-| `netcdf4-zlib-span-D/open` | 0 | — | 2,676 | 12,942 | 30 | 388 | 17,029 | 363,122 | 540,798 | 3,801,088 | 3,801,088 |
+| `netcdf4-zlib-span-D/open` | 0 | — | 2,700 | 12,942 | 28 | 389 | 17,029 | 363,375 | 542,910 | 3,801,088 | 3,801,088 |
 | `netcdf4-zlib-span-D/variables` | 0 | — | 0 | 12,942 | 0 | 41 | 1,290 | 13,371 | 20,481 | 3,801,088 | 3,801,088 |
 | `netcdf4-zlib-span-D/slice` | 16,380 | 4 | 135,885 | 147,279 | 8 | 231 | 739,348 | 10,435,450 | 14,806,622 | 3,801,088 | 3,801,088 |
 | `netcdf4-zlib-span-D/scrub` | 16,380 | 4 | 270,555 | 281,949 | 15 | 944 | 1,001,468 | 36,082,103 | 50,356,359 | 3,801,088 | 3,801,088 |
 | `netcdf4-zlib-span-D/place` | 0 | — | 1,084 | 12,942 | 2 | 155 | 6,179 | 225,007 | 330,358 | — | — |
-| `netcdf4-zlib-span-L/open` | 0 | — | 2,676 | 14,990 | 30 | 388 | 17,029 | 362,104 | 539,744 | 3,670,016 | 3,670,016 |
+| `netcdf4-zlib-span-L/open` | 0 | — | 2,700 | 14,990 | 28 | 389 | 17,029 | 363,076 | 542,658 | 3,670,016 | 3,670,016 |
 | `netcdf4-zlib-span-L/variables` | 0 | — | 0 | 14,990 | 0 | 41 | 1,290 | 13,371 | 20,481 | 3,670,016 | 3,670,016 |
 | `netcdf4-zlib-span-L/slice` | 65,160 | 4 | 486,788 | 499,406 | 7 | 224 | 2,934,144 | 35,903,466 | 51,513,152 | 5,767,168 | 5,767,168 |
 | `netcdf4-zlib-span-L/scrub` | 65,160 | 4 | 972,454 | 985,072 | 14 | 937 | 3,976,744 | 131,007,400 | 183,997,308 | 6,815,744 | 6,815,744 |
 | `netcdf4-zlib-span-L/place` | 0 | — | 2,164 | 14,990 | 2 | 155 | 11,219 | 254,462 | 370,869 | — | — |
-| `netcdf4-zlib-span-S/open` | 0 | — | 2,676 | 12,942 | 30 | 388 | 17,029 | 362,545 | 540,484 | 2,228,224 | 2,228,224 |
+| `netcdf4-zlib-span-S/open` | 0 | — | 2,700 | 12,942 | 28 | 389 | 17,029 | 362,239 | 541,637 | 2,228,224 | 2,228,224 |
 | `netcdf4-zlib-span-S/variables` | 0 | — | 0 | 12,942 | 0 | 41 | 1,290 | 13,371 | 20,481 | 2,228,224 | 2,228,224 |
 | `netcdf4-zlib-span-S/slice` | 16,380 | 4 | 135,629 | 147,279 | 7 | 224 | 739,044 | 10,426,250 | 14,730,051 | 2,752,512 | 2,752,512 |
 | `netcdf4-zlib-span-S/scrub` | 16,380 | 4 | 270,299 | 281,949 | 14 | 937 | 1,001,164 | 36,066,328 | 50,331,904 | 3,014,656 | 3,014,656 |
@@ -388,13 +388,13 @@ that the count does not change.
 | `netcdf-classic/slice` | 104 | 104 | holds |
 | `netcdf-classic/scrub` | 559 | 559 | holds |
 | `netcdf-classic/place` | 85 | 85 | holds |
-| `netcdf4-zlib/open` | 388 | 388 | holds |
+| `netcdf4-zlib/open` | 389 | 389 | holds |
 | `netcdf4-zlib/variables` | 41 | 41 | holds |
 | `netcdf4-zlib/slice` | 231 | 231 | holds |
 | `netcdf4-zlib/scrub` | 982 | 982 | holds |
 | `netcdf4-zlib/place` | 155 | 155 | holds |
 | `netcdf4-zlib/codec` | 2 | 3 | grows +1 |
-| `netcdf4-zlib-span/open` | 388 | 388 | holds |
+| `netcdf4-zlib-span/open` | 389 | 389 | holds |
 | `netcdf4-zlib-span/variables` | 41 | 41 | holds |
 | `netcdf4-zlib-span/slice` | 224 | 224 | holds |
 | `netcdf4-zlib-span/scrub` | 937 | 937 | holds |
@@ -696,10 +696,10 @@ bound violation is its own issue.
    extraction. The bytes were the file, 6× to 1,231× each row's bound, until
    the reader read through a `ByteSource` (#950). Now opening a session reads a
    classic header, or an HDF5 file's superblock and metadata, and every NetCDF bytes-read row is within its bound: an open reads 448 bytes of
-   a classic file (bound 1,512 to 2,592) and 2,676 of a NetCDF-4 one (12,942 to
+   a classic file (bound 1,512 to 2,592) and 2,700 of a NetCDF-4 one (12,942 to
    14,990), a slice its runs or chunks and the metadata to find them
    (`netcdf-classic-D/slice` 66,604 of 2,098,344 bytes, bound 67,224). Reading
-   by range costs round trips: a NetCDF-4 open takes 30 requests, one per
+   by range costs round trips: a NetCDF-4 open takes 28 requests, one per
    structure the walk follows. On ERA5 the twelve-frame scrub read the whole
    49.8 MB file; it now reads 24,927,472 bytes in 21 requests, against a bound
    of 24,927,568 (re-measured 2026-10-11; the table above is the first run).

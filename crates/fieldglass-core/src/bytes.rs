@@ -616,6 +616,30 @@ pub fn read_up_to<S: ByteSource + ?Sized>(
     source.read(ByteRange::new(addr, (len as u64).min(available)))
 }
 
+/// Read the first `len` bytes at `addr` for format detection: as many as the
+/// source holds, up to `len`, and a read that comes back with fewer than that
+/// is an error (#998).
+///
+/// [`read_up_to`] for a caller whose verdict is "these bytes are no container".
+/// A source shorter than `len` is an honest short answer, so the bytes it has
+/// are returned; a source that holds the bytes but serves fewer is
+/// [`FieldglassError::ShortRead`], which a host can tell from a file it cannot
+/// open. An `addr` past the end is an error, as in [`read_up_to`].
+pub fn read_head<S: ByteSource + ?Sized>(
+    source: &S,
+    addr: u64,
+    len: usize,
+) -> Result<Cow<'_, [u8]>, FieldglassError> {
+    let size = source.size();
+    if addr > size {
+        return Err(FieldglassError::Parse(format!(
+            "address {addr} past end of file ({size} bytes)"
+        )));
+    }
+    let want = (len as u64).min(size - addr);
+    read_exact(source, ByteRange::new(addr, want))
+}
+
 /// The window sizes a scan for a terminator steps through, up to `ceiling`.
 ///
 /// Same argument as [`FileCursor`]'s: a name is usually a dozen bytes, so

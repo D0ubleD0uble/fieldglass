@@ -282,3 +282,19 @@ fn a_decode_whose_sections_come_back_short_fails_cleanly() {
     );
     assert!(reader.decode_message_raster(0).is_err());
 }
+
+/// The indicator read at an offset handed in directly is checked for length
+/// (#998): a source that serves one byte fewer than asked is a short read, not
+/// an indicator that "requires N bytes".
+#[test]
+fn a_short_indicator_read_at_an_offset_is_a_short_read() {
+    use fieldglass_core::testing::Short;
+
+    let file = multi_message_file();
+    let whole = Grib2Reader::from_bytes(file.clone()).expect("scan");
+    let at = whole.messages[0].byte_offset;
+    let err = Grib2Reader::from_message_at(Short::new(file, at, 1), at)
+        .map(|_| ())
+        .expect_err("a truncated indicator read is no verdict");
+    assert!(matches!(err, FieldglassError::ShortRead { .. }), "{err}");
+}
