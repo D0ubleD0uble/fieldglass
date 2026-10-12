@@ -55,15 +55,18 @@ argument, so the guarantee is tested without the suite paying to build a
 
 Since #813 each codec stops at the chunk's own length when every filter before
 it keeps the length (only shuffle does). Behind filters that change it, the
-bound is the chunk's length grown by each one's worst case in turn: an eighth
-plus 4 KiB for fletcher32, deflate and zstd (the margin szip's prefix already
-had; since #1016 each filter's own bound instead), and 33 times for szip, whose uncompressed blocks and scanline padding
-can make one-pixel scanlines about 32 times their input. szip's factor is
-large, but bounding it by the 256 MiB ceiling instead, as the first draft of
-#813 did, let a file sidestep the bound by putting an szip in front. 256 MiB
-is only the outer ceiling now: a 12-byte chunk had been able to inflate to
-all of it before the caller's length check refused the result, and on wasm
-that is a real allocation.
+bound is the chunk's length grown by each one's own worst case in turn, from
+one table of filter growth (#1016): 4 bytes for fletcher32, zlib's
+`deflateBound` for deflate (about an eighth), zstd's compress bound for zstd,
+and for szip the longest stream its parameters allow, up to 33 times, since
+uncompressed blocks and scanline padding can make one-pixel scanlines about
+32 times their input. That bound is capped at twice the 256 MiB ceiling. The
+cap matters only for a chunk already near the ceiling: a small chunk is held
+to its own growth, so a 12-byte chunk, which before #813 could inflate to the
+whole ceiling before the caller's length check refused it, now stops a few
+bytes past its length. On wasm that difference is a real allocation. Bounding
+szip by the ceiling alone, as the first draft of #813 did, would let a file
+sidestep the bound by putting an szip in front.
 
 The chunk's own length is the file's to state, though, and an extendable
 dataset may legally have a chunk far larger than itself. So #813's bound held
@@ -75,8 +78,9 @@ the 64 Mi values one field holds (the check a Zarr chunk meets), before it
 reads it, as `ArrayError::ChunkTooLarge` or `FieldTooLarge`: a valid file
 asked for too much, which a host reports as `unsupported`. `reverse` refuses
 the same length as a backstop, so no codec is ever handed an exact length
-past the ceiling, and the ceiling now bounds only lengths nothing records,
-behind a length-changing filter. A chunk every filter skipped, or one the
+past the ceiling. Only a length nothing records, behind a length-changing
+filter, may pass it, by that filter's growth and never past twice the
+ceiling. A chunk every filter skipped, or one the
 index does not store, is not refused: neither is inflated.
 
 zstd needs a **second, separate** ceiling, and this is the part worth carrying

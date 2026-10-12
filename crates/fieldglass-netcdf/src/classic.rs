@@ -369,6 +369,10 @@ pub const MAX_HEADER_BYTES: u64 = 16 << 20;
 
 /// Parse a NetCDF classic header from the start of `bytes`. Stops walking
 /// after `var_list`; the rest of the file is variable data, which we ignore.
+///
+/// One exception: a STREAMING file (`numrecs` with every bit set) gets its
+/// record count from the length of `bytes` (#1008), so pass the whole file.
+/// Given only the header, such a file reports 0 records.
 pub fn parse_header(bytes: &[u8]) -> Result<ClassicHeader, FieldglassError> {
     parse_header_from(bytes)
 }
@@ -379,7 +383,8 @@ pub fn parse_header(bytes: &[u8]) -> Result<ClassicHeader, FieldglassError> {
 /// The header's length is in no field ahead of it, so it is read in growing
 /// windows (see [`FileCursor`]) and costs a few reads of under twice its own
 /// length. The variables' data, which is most of a file, is read only when a
-/// variable or a region of one is decoded.
+/// variable or a region of one is decoded. A STREAMING file's record count
+/// comes from `source.size()`, as [`parse_header`]'s does from its slice.
 pub fn parse_header_from<S: ByteSource + ?Sized>(
     source: &S,
 ) -> Result<ClassicHeader, FieldglassError> {
