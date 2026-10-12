@@ -777,7 +777,7 @@ grib2/polar_stereographic_surface.grib2#00	contours/mollweide/auto	err: grid typ
 grib2/polar_stereographic_surface.grib2#00	contours/source/auto	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	csv/long	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	csv/matrix	ok lines=31	bdeac24d6363405c
-grib2/polar_stereographic_surface.grib2#00	meta	family=polar_stereo ni=16 nj=31 reprojectable=false supports=none	f360907738bb93c8
+grib2/polar_stereographic_surface.grib2#00	meta	family=polar_stereo ni=16 nj=31 reprojectable=false supports=none	53410d6e8fafd78b
 grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/0,0	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/359,180	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656
 grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/7,3	err: grid type "polar_stereo" declares degenerate projection parameters, so its grid points have no geographic position	fa76e23a6a585656

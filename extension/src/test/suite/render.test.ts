@@ -26,6 +26,7 @@ import * as vscode from "vscode";
 
 import {
   buildGridReadyMessage,
+  describeProjection,
   listMessages,
   renderHtml,
   sliceCaption,
@@ -1235,6 +1236,55 @@ suite("render-panel HTML", () => {
     assert.strictEqual(meta.placement, "unplaceable");
     const { offered } = offeredProjections(meta);
     assert.deepStrictEqual(offered, ["source"], `got ${offered.join(", ")}`);
+  });
+
+  test("a polar grid core does not place shows no corner in the caption or the table (#1011)", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    // GRIB1: the CMC polar message with Dx = Dy (GDS octets 21-26, u24
+    // metres) set to `step`. 7000 km is past the 6367 km Earth and inside the
+    // 11 882 km plane, the band only the declared-Earth floor refuses.
+    const grib1 = (step: number): MessageInfo => {
+      const bytes = Buffer.from(fs.readFileSync(path.join(
+        vscode.extensions.getExtension(EXT_ID)!.extensionPath, "..", "crates", "fieldglass-grib1", "tests", "fixtures",
+        "cmc_wind_300_2010052400_p012.grib",
+      )));
+      const gds = 8 + bytes.readUIntBE(8, 3);
+      assert.strictEqual(bytes[gds + 5], 5, "a polar stereographic GDS");
+      bytes.writeUIntBE(step, gds + 20, 3);
+      bytes.writeUIntBE(step, gds + 23, 3);
+      return native.Grib1Handle.fromBytes(bytes).message(0);
+    };
+    // GRIB2: the §3.20 fixture on an Earth of `radius` m under 100 km cells,
+    // the edit placement.rs and point-operations.test.ts make (#1002).
+    const grib2 = (radius: number): MessageInfo => {
+      const bytes = Buffer.from(fs.readFileSync(crateGrib2Fixture("polar_stereographic_surface.grib2")));
+      let at = 16;
+      while (bytes[at + 4] !== 3) {
+        at += bytes.readUInt32BE(at);
+      }
+      bytes[at + 14] = 1;
+      bytes[at + 15] = 0;
+      bytes.writeUInt32BE(radius, at + 16);
+      bytes.writeUInt32BE(100_000_000, at + 55);
+      bytes.writeUInt32BE(100_000_000, at + 59);
+      return native.Grib2Handle.fromBytes(bytes).message(0);
+    };
+    const table = (meta: MessageInfo) =>
+      renderHtml({ cspSource: "" } as unknown as vscode.Webview, "grib2", "x.grib2", [meta], undefined, undefined, false);
+
+    for (const [name, meta] of [["GRIB1, Dx = 7000 km", grib1(7_000_000)], ["GRIB2, R = 80 km", grib2(80_000)]] as const) {
+      assert.strictEqual(meta.placement, "unplaceable", name);
+      assert.strictEqual(meta.grid?.corners, null, `${name}: no corner pair`);
+      assert.ok(!describeProjection(meta).includes("→"), `${name}: ${describeProjection(meta)}`);
+      assert.ok(!table(meta).includes("→"), `${name}: the table states no corner`);
+    }
+    // The controls place, and show their corners in both.
+    for (const [name, meta] of [["GRIB1, Dx = 60 km", grib1(60_000)], ["GRIB2, R = 120 km", grib2(120_000)]] as const) {
+      assert.strictEqual(meta.placement, "placed", name);
+      assert.ok(describeProjection(meta).includes("→"), `${name}: ${describeProjection(meta)}`);
+      assert.ok(table(meta).includes("→"), `${name}: the table states the corners`);
+    }
   });
 
   test("the colormap picker offers the whole Rust registry and defaults to viridis", () => {
