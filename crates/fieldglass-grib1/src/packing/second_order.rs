@@ -377,7 +377,12 @@ fn check_groups(
     let lengths_at = widths_at.saturating_add(block(width_of_widths));
     let lengths_end = lengths_at.saturating_add(block(width_of_lengths));
     let first_order_end = n1.saturating_add(block(width_of_first_order));
-    if lengths_end > bds_len || first_order_end > bds_len {
+    // The widths and lengths are held to the declared section length, as the
+    // decoder's own checks hold them. The first-order and second-order values
+    // are read from `bds[n1..]` and `bds[n2..]`, every byte the caller passed,
+    // which can run past the declared end; they are held to that too, so no
+    // message the decoder reads is refused here.
+    if lengths_end > bds_len || first_order_end > bds.len() {
         return Err(FieldglassError::Parse(format!(
             "BDS of {bds_len} bytes is too short for the group widths, lengths and \
              first-order values of {num_groups} groups"
@@ -419,7 +424,9 @@ fn check_groups(
             "BDS group lengths and SPD seeds make {points} values but {present} points are present"
         )));
     }
-    let held = ((bds_len - n2) as u64).saturating_mul(8);
+    // Every byte from `N2` the decoder's reader sees, `bds[n2..]`, not only
+    // those before the declared section end.
+    let held = (bds.len().saturating_sub(n2) as u64).saturating_mul(8);
     if needs.offset_bits > held {
         return Err(FieldglassError::Parse(format!(
             "BDS second-order values need {} bits but the section holds {held} from N2",
@@ -530,6 +537,33 @@ mod tests {
         let out = decode(&bds, &header, 0, None, 8, StoredRuns::Uniform(8))
             .expect("a zero-width group decodes");
         assert_eq!(out.len(), 8);
+    }
+
+    /// The decoder reads second-order values from `bds[n2..]`, every byte it
+    /// is handed, which can run past the declared section length. The check
+    /// ahead of the allocations (#1001) counts the same bytes, so a section
+    /// whose values sit past its declared end decodes as before rather than
+    /// being newly refused. The group is large enough beside the 32-byte
+    /// section that the check's full pass runs.
+    #[test]
+    fn values_past_the_declared_section_end_are_counted_as_the_decoder_reads_them() {
+        let count = 60_000u16;
+        let expected_count = usize::from(count) + 1; // + orderOfSPD seed
+        let (mut bds, header) = zero_width_spd1_bds(count, 33); // N2 at the declared end
+        bds[28] = 8; // groupWidths[0]: one 8-bit residual per point
+        bds.extend(std::iter::repeat_n(0, usize::from(count))); // past section_len
+        let out = decode(
+            &bds,
+            &header,
+            0,
+            None,
+            expected_count,
+            StoredRuns::Uniform(expected_count),
+        )
+        .expect("residuals past the declared end are read, as before");
+        let present: Vec<f64> = out.into_iter().map(|v| v.expect("no missing")).collect();
+        let want: Vec<f64> = (0..=count).map(f64::from).collect();
+        assert_eq!(present, want);
     }
 
     #[test]
