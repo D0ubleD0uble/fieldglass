@@ -459,11 +459,17 @@ pub fn decode_variable_raw(
 /// This is the function a remote transport calls to know what to fetch, and
 /// `decode_variable_raw_from` reads exactly these ranges and no others —
 /// which is asserted rather than assumed, in `classic_byte_source.rs`.
+///
+/// The plan is what the header claims, not what the file has proved: nothing
+/// here knows the file's size, so a record variable gets a range for every
+/// record `numrecs` states, up to the whole-variable budget. A caller holding
+/// the source should check the ranges against its size, as the decode does
+/// before it builds them (#1000).
 pub fn variable_plan(
     header: &ClassicHeader,
     var_index: usize,
 ) -> Result<Vec<ByteRange>, FieldglassError> {
-    let (var, layout) = variable_layout(header, var_index)?;
+    let (var, layout) = variable_layout(header, var_index, None)?;
     let _ = var;
     Ok(layout.ranges)
 }
@@ -479,33 +485,11 @@ pub fn decode_variable_raw_from<S: ByteSource>(
     source: &S,
     var_index: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    let (var, layout) = variable_layout(header, var_index)?;
+    // Every slab lies inside the file, checked in the layout against the
+    // source's size before a range is built or anything fetched.
+    let (var, layout) = variable_layout(header, var_index, Some(source.size()))?;
     if layout.total == 0 {
         return Ok(Vec::new());
-    }
-
-    // Every slab the plan names lies inside the file, checked against the
-    // source's size before anything is fetched: a header that points past the
-    // end is a malformed file, and a remote source should not be asked for
-    // bytes that are not there.
-    let slabs = &layout.slabs;
-    if !layout::slabs_within(
-        slabs.begin,
-        slabs.stride,
-        slabs.records,
-        slabs.len,
-        source.size(),
-    ) {
-        return Err(FieldglassError::Parse(format!(
-            "variable {:?}: {} slab(s) of {} bytes from offset {} at stride {} \
-             exceeds source size {}",
-            var.name,
-            slabs.records,
-            slabs.len,
-            slabs.begin,
-            slabs.stride,
-            source.size()
-        )));
     }
 
     // One resolve for the whole variable, before any of it is read. A remote
@@ -547,17 +531,6 @@ pub fn decode_variable_raw_from<S: ByteSource>(
 struct VariableLayout {
     ranges: Vec<ByteRange>,
     total: usize,
-    slabs: Slabs,
-}
-
-/// The slabs a variable occupies, as the formula that places them: `records`
-/// slabs of `len` bytes, slab `r` at `begin + r * stride`. `ranges` is this
-/// written out; the decode checks this form against the file's size.
-struct Slabs {
-    begin: u64,
-    stride: u64,
-    records: usize,
-    len: u64,
 }
 
 /// Resolve a variable's fetch plan and element count without reading any data.
@@ -566,9 +539,19 @@ struct Slabs {
 /// transport wants the ranges without the values, and the test that the two
 /// agree needs both from one place. The arithmetic is the `layout` kernel's,
 /// proved not to overflow and to compute the spec's offsets.
+///
+/// With the file's size, `file_size`, every slab is checked to lie inside the
+/// file before the ranges are built (#1000). A record variable has a range per
+/// record, and `numrecs` is the header's claim: a file of a few hundred bytes
+/// can state 100 M records, and building their ranges first allocated 1.6 GB
+/// before the check refused them. The slabs are a formula until then, and
+/// checking the formula costs nothing. Without a size, which is the plan
+/// alone, the ranges are the header's, bounded only by the whole-variable
+/// budget.
 fn variable_layout(
     header: &ClassicHeader,
     var_index: usize,
+    file_size: Option<u64>,
 ) -> Result<(&Variable, VariableLayout), FieldglassError> {
     let var = numeric_variable(header, var_index)?;
     let is_record_var = is_record_variable(header, var);
@@ -590,12 +573,6 @@ fn variable_layout(
             VariableLayout {
                 ranges: Vec::new(),
                 total: 0,
-                slabs: Slabs {
-                    begin: var.begin,
-                    stride: 0,
-                    records: 0,
-                    len: 0,
-                },
             },
         ));
     }
@@ -620,13 +597,18 @@ fn variable_layout(
     let elem = var.nc_type.element_size() as u64;
     let len = layout::slab_bytes(count, elem)
         .ok_or_else(|| FieldglassError::Parse("variable slab size overflows u64".to_string()))?;
-    let slabs = Slabs {
-        begin: var.begin,
-        stride,
-        records,
-        len,
-    };
-    let ranges = layout::slab_ranges(slabs.begin, slabs.stride, slabs.records, slabs.len)
+    // A header that points past the end is a malformed file, and a remote
+    // source should not be asked for bytes that are not there.
+    if let Some(size) = file_size
+        && !layout::slabs_within(var.begin, stride, records, len, size)
+    {
+        return Err(FieldglassError::Parse(format!(
+            "variable {:?}: {records} slab(s) of {len} bytes from offset {} at stride \
+             {stride} exceeds source size {size}",
+            var.name, var.begin
+        )));
+    }
+    let ranges = layout::slab_ranges(var.begin, stride, records, len)
         .ok_or_else(|| {
             FieldglassError::Parse(format!(
                 "variable {:?} has a slab whose end overflows u64 \
@@ -640,14 +622,7 @@ fn variable_layout(
         .map(|(start, len)| ByteRange::new(start, len))
         .collect();
 
-    Ok((
-        var,
-        VariableLayout {
-            ranges,
-            total,
-            slabs,
-        },
-    ))
+    Ok((var, VariableLayout { ranges, total }))
 }
 
 /// The variable at `var_index`, checked as a value decode needs it: numeric,
@@ -697,12 +672,15 @@ fn numeric_variable(
 /// run never crosses from one record into the next. The ranges are in the
 /// region's C order, which is the order [`decode_region_raw_from`] decodes
 /// them in.
+///
+/// Like [`variable_plan`], the ranges are the header's claim, not checked
+/// against the file's size, which nothing here knows.
 pub fn region_plan(
     header: &ClassicHeader,
     var_index: usize,
     region: &[Range<u64>],
 ) -> Result<Vec<ByteRange>, FieldglassError> {
-    Ok(region_layout(header, var_index, region)?.1.ranges)
+    Ok(region_layout(header, var_index, region, None)?.1.ranges)
 }
 
 /// Decode `region` of one variable through a [`ByteSource`], reading only the
@@ -719,24 +697,12 @@ pub fn decode_region_raw_from<S: ByteSource>(
     var_index: usize,
     region: &[Range<u64>],
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    let (var, layout) = region_layout(header, var_index, region)?;
+    // Every range lies inside the file, checked in the layout before a range is
+    // built or anything fetched, for the reason `decode_variable_raw_from`
+    // checks its slabs.
+    let (var, layout) = region_layout(header, var_index, region, Some(source.size()))?;
     if layout.total == 0 {
         return Ok(Vec::new());
-    }
-    // Every range lies inside the file, checked before anything is fetched,
-    // for the reason `decode_variable_raw_from` checks its slabs.
-    if let Some(past) = layout
-        .ranges
-        .iter()
-        .find(|r| r.end().is_none_or(|end| end > source.size()))
-    {
-        return Err(FieldglassError::Parse(format!(
-            "variable {:?}: {} bytes of the region at offset {} exceed source size {}",
-            var.name,
-            past.len,
-            past.start,
-            source.size()
-        )));
     }
     source.prefetch(&layout.ranges)?;
 
@@ -759,10 +725,18 @@ pub fn decode_region_raw_from<S: ByteSource>(
 }
 
 /// A region's fetch plan and element count, without reading any data.
+///
+/// With the file's size, `file_size`, the region's last byte is checked to lie
+/// inside the file before any range is built, as [`variable_layout`] checks a
+/// whole variable's slabs (#1000). The ranges run in increasing order, so the
+/// last one ends last and that one check covers them all. Up to then the
+/// region is arithmetic; a region of every record of a record variable is a
+/// range per record, and `numrecs` is only the header's claim.
 fn region_layout<'h>(
     header: &'h ClassicHeader,
     var_index: usize,
     region: &[Range<u64>],
+    file_size: Option<u64>,
 ) -> Result<(&'h Variable, RegionLayout), FieldglassError> {
     let var = numeric_variable(header, var_index)?;
     let shape = variable_shape(header, var_index)?;
@@ -793,21 +767,46 @@ fn region_layout<'h>(
     };
     // A fixed variable is one C-order array at `begin`. A record variable is
     // one such array per record, the rest of its shape, `recsize` apart.
-    let mut bases = Vec::new();
-    let (inner_shape, inner_region) = if is_record_variable(header, var) {
+    let record_base = |record: u64, recsize: u64| {
+        record
+            .checked_mul(recsize)
+            .and_then(|o| var.begin.checked_add(o))
+            .ok_or_else(overflow)
+    };
+    let (records, inner_shape, inner_region) = if is_record_variable(header, var) {
         let recsize = record_size(header)?;
-        for record in region[0].clone() {
-            bases.push(
-                record
-                    .checked_mul(recsize)
-                    .and_then(|o| var.begin.checked_add(o))
-                    .ok_or_else(overflow)?,
-            );
-        }
-        (&shape[1..], &region[1..])
+        (
+            Some((region[0].clone(), recsize)),
+            &shape[1..],
+            &region[1..],
+        )
     } else {
-        bases.push(var.begin);
-        (&shape[..], region)
+        (None, &shape[..], region)
+    };
+    if let Some(size) = file_size {
+        // The last record's array, and the end of the region's last element in
+        // it. The region is not empty, so every range has a last element.
+        let last_base = match &records {
+            Some((records, recsize)) => record_base(records.end - 1, *recsize)?,
+            None => var.begin,
+        };
+        let end = crate::region::end(inner_shape, inner_region)
+            .and_then(|e| e.checked_mul(elem))
+            .and_then(|e| last_base.checked_add(e))
+            .ok_or_else(overflow)?;
+        if end > size {
+            return Err(FieldglassError::Parse(format!(
+                "variable {:?}: the region ends at byte {end}, which exceeds source \
+                 size {size}",
+                var.name
+            )));
+        }
+    }
+    let bases = match records {
+        Some((records, recsize)) => records
+            .map(|record| record_base(record, recsize))
+            .collect::<Result<Vec<u64>, _>>()?,
+        None => vec![var.begin],
     };
     let runs = crate::region::runs(inner_shape, inner_region)?;
     let mut ranges = Vec::with_capacity(bases.len().saturating_mul(runs.len()));

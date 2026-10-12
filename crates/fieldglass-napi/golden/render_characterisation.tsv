@@ -1845,6 +1845,26 @@ netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	ok
 netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e1e74955f34862d2
 netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	ok w=8 h=0 opaque=0	83b281a3301f643e
+netcdf/numrecs_huge_cdf1.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/numrecs_huge_cdf1.nc#v	combine/a_minus_b/render/source/nearest	err: parse error: variable "v": the region ends at byte #, which exceeds source size #	d04cab31f57436d1
+netcdf/numrecs_huge_cdf1.nc#v	meta	family=source ni=1 nj=60000000 reprojectable=false supports=none	ad0bc23e83542e3d
+netcdf/numrecs_huge_cdf1.nc#v	render/equirectangular/nearest	err: parse error: variable "v": the region ends at byte #, which exceeds source size #	d04cab31f57436d1
+netcdf/numrecs_huge_cdf1.nc#v	render/source/nearest	err: parse error: variable "v": the region ends at byte #, which exceeds source size #	d04cab31f57436d1
+netcdf/numrecs_huge_cdf5.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/numrecs_huge_cdf5.nc#v	combine/a_minus_b/render/source/nearest	err: parse error: variable "v": the region ends at byte #, which exceeds source size #	0179d451082c9fac
+netcdf/numrecs_huge_cdf5.nc#v	meta	family=source ni=1 nj=60000000 reprojectable=false supports=none	ad0bc23e83542e3d
+netcdf/numrecs_huge_cdf5.nc#v	render/equirectangular/nearest	err: parse error: variable "v": the region ends at byte #, which exceeds source size #	0179d451082c9fac
+netcdf/numrecs_huge_cdf5.nc#v	render/source/nearest	err: parse error: variable "v": the region ends at byte #, which exceeds source size #	0179d451082c9fac
+netcdf/numrecs_streaming_cdf1.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/numrecs_streaming_cdf1.nc#v	combine/a_minus_b/render/source/nearest	ok w=1 h=0 opaque=0	af65179ddcb40740
+netcdf/numrecs_streaming_cdf1.nc#v	meta	family=source ni=1 nj=0 reprojectable=false supports=none	3e9ab008bd888976
+netcdf/numrecs_streaming_cdf1.nc#v	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/numrecs_streaming_cdf1.nc#v	render/source/nearest	ok w=1 h=0 opaque=0	af65179ddcb40740
+netcdf/numrecs_streaming_cdf5.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/numrecs_streaming_cdf5.nc#v	combine/a_minus_b/render/source/nearest	ok w=1 h=0 opaque=0	af65179ddcb40740
+netcdf/numrecs_streaming_cdf5.nc#v	meta	family=source ni=1 nj=0 reprojectable=false supports=none	3e9ab008bd888976
+netcdf/numrecs_streaming_cdf5.nc#v	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/numrecs_streaming_cdf5.nc#v	render/source/nearest	ok w=1 h=0 opaque=0	af65179ddcb40740
 netcdf/oisst_avhrr_v2.nc	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/oisst_avhrr_v2.nc#ice	combine/a_minus_b/render/source/nearest	ok w=32 h=32 opaque=540	edf3a76c72bfedbc
 netcdf/oisst_avhrr_v2.nc#ice	meta	family=latlon ni=32 nj=32 reprojectable=true supports=contours,vectors,long_csv,zonal_mean	e15cd9c935b192f6

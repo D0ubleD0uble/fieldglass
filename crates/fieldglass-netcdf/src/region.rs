@@ -118,6 +118,26 @@ pub(crate) fn runs(
     }
 }
 
+/// Where `region` ends in a C-order array of `shape`: one past the offset, in
+/// elements, of its last element, which is the end of the last of its
+/// [`runs`] and so of all of them, since they run in increasing order.
+///
+/// Arithmetic only, so a caller can check the region against the bytes behind
+/// it before it builds a run, a range or anything else per element (#1000).
+/// `None` when the offset overflows a `u64`. A region with an empty range on
+/// any axis ends at 0; a rank-0 region (a scalar) is one element and ends at 1.
+pub(crate) fn end(shape: &[u64], region: &[Range<u64>]) -> Option<u64> {
+    if region.iter().any(|r| r.start >= r.end) {
+        return Some(0);
+    }
+    // Horner's rule over the last index of every axis, outermost first.
+    let mut last: u64 = 0;
+    for (range, &extent) in region.iter().zip(shape) {
+        last = last.checked_mul(extent)?.checked_add(range.end - 1)?;
+    }
+    last.checked_add(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,6 +171,11 @@ mod tests {
                     .collect();
                 let want = walk(shape, &region);
                 assert_eq!(got, want, "shape {shape:?} region {region:?}");
+                assert_eq!(
+                    end(shape, &region),
+                    Some(want.last().map_or(0, |&last| last + 1)),
+                    "shape {shape:?} region {region:?}"
+                );
                 assert_eq!(
                     element_count(shape, &region).unwrap(),
                     want.len(),
@@ -195,6 +220,7 @@ mod tests {
         assert_eq!(runs(&[4, 5, 6], &[0..4, 0..5, 0..6]).unwrap(), [(0, 120)]);
         assert_eq!(runs(&[4, 5, 6], &[2..3, 0..5, 0..6]).unwrap(), [(60, 30)]);
         assert_eq!(runs(&[], &[]).unwrap(), [(0, 1)]);
+        assert_eq!(end(&[], &[]), Some(1));
     }
 
     // `&[0..4]` is a region of one axis, not a mistyped `Vec` of its values.
