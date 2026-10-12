@@ -2920,10 +2920,14 @@ export function renderImagePanelHtml(
             vectorColor: val('color-vectors'),
             vectorWidth: val('width-vectors'),
             zonal: chk('zonal-toggle'),
-            // What is on screen, or the saved choice while its picker is empty.
-            animateDim: val('animate-dim') || preferredAnimateDim || undefined,
+            // Only an axis the user picked: buildAnimationControls applies it
+            // wherever it is offered, so the default on screen is not saved,
+            // or it would stick to its position for the next variable.
+            animateDim: preferredAnimateDim ?? undefined,
             animSpeed: val('anim-speed'),
             animLoop: chk('anim-loop'),
+            // The line plot's axis as shown, or the saved choice while its
+            // picker is empty.
             lineAxis: val('line-axis') || preferredLineAxis || undefined,
             slice: sliceState,
             // The variable by name as well as by index: a panel rewritten for

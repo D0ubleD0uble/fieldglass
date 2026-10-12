@@ -129,6 +129,9 @@ function fourDimensionStore(root: string): void {
   array("time", ["time"], [2], [0, 1], "days since 2000-01-01");
   array("level", ["level"], [2], [1000, 500], "hPa");
   array("t", ["time", "level", "lat", "lon"], [2, 2, 3, 4], Array.from({ length: 48 }, (_, i) => 250 + i), "K");
+  // The same axes with time second: a default kept by position would animate
+  // `level` here.
+  array("u", ["level", "time", "lat", "lon"], [2, 2, 3, 4], Array.from({ length: 48 }, (_, i) => i), "m s-1");
 }
 
 suite("A render panel keeps its controls across a rebuild (#1027)", function () {
@@ -235,6 +238,42 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
       for (const id of ["animate-dim", "anim-speed", "anim-loop", "line-axis"]) {
         assert.ok(moved.includes(id), `the test moved ${id}`);
       }
+    } finally {
+      panel.dispose();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an axis nobody picked is not kept by its position for the next variable", async () => {
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1027-"));
+    const store = path.join(dir, "four.zarr");
+    fourDimensionStore(store);
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const variables = native.ZarrHandle.fromDirectory(store).variables();
+    const t = variables.find((v) => v.name === "t");
+    const u = variables.find((v) => v.name === "u");
+    assert.ok(t && u, "the store has t and u");
+    assert.deepStrictEqual([t.detectedTimeDim, u.detectedTimeDim], [0, 1], "time sits first in t and second in u");
+    const panel = await openReal(p, () => p.openZarrStore(vscode.Uri.file(store)));
+    try {
+      await panel.waitSent(drawnOrRefused, 0, "the first render");
+      await settle(panel);
+      const first = (await panel.controls())["slice-variable"];
+      const other = first === String(t.variableIndex) ? u : t;
+      // Another control changed, which saves the panel with Animate on its
+      // default; shown again; then moved to the variable whose time sits
+      // elsewhere.
+      await panel.drive([{ id: "anim-speed", value: 5 }]);
+      await rebuilt(panel);
+      await panel.drive([{ id: "slice-variable", value: other.variableIndex }]);
+      await settle(panel);
+      assert.strictEqual(
+        (await panel.controls())["animate-dim"],
+        String(other.detectedTimeDim),
+        `${other.name} animates along time`,
+      );
     } finally {
       panel.dispose();
       fs.rmSync(dir, { recursive: true, force: true });
