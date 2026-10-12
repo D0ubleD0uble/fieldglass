@@ -12,8 +12,10 @@
 //!
 //! `numrecs_streaming_*.nc` are the same file with `numrecs` set to the
 //! specification's STREAMING value, every bit set. That is an indeterminate
-//! count, not a huge one, so the file opens and its record variables have no
-//! records.
+//! count, not a huge one: the reader counts the whole records the file holds
+//! from its size, 2 here (#1008). `numrecs_streaming_partial_*.nc` are those
+//! files cut 5 bytes short, part way through record 1, so they hold 1 whole
+//! record and the partial one is not read.
 //!
 //! A tracking global allocator records the peak of live bytes on this thread
 //! while it is armed, so tests on other threads cannot add to it.
@@ -44,6 +46,18 @@ const STREAMING: [(&str, &[u8]); 2] = [
     (
         "numrecs_streaming_cdf5.nc",
         include_bytes!("fixtures/numrecs_streaming_cdf5.nc"),
+    ),
+];
+
+/// The streaming files cut short part way through their last record.
+const PARTIAL: [(&str, &[u8]); 2] = [
+    (
+        "numrecs_streaming_partial_cdf1.nc",
+        include_bytes!("fixtures/numrecs_streaming_partial_cdf1.nc"),
+    ),
+    (
+        "numrecs_streaming_partial_cdf5.nc",
+        include_bytes!("fixtures/numrecs_streaming_partial_cdf5.nc"),
     ),
 ];
 
@@ -216,24 +230,68 @@ fn the_records_the_file_holds_still_read() {
     }
 }
 
+/// Every record of `time` and `v`, whole and as regions, and the fixed `f`,
+/// for a streaming file holding `records` whole records of the base file's 2.
+// A one-axis region is one range, not a mistyped `Vec` of its values.
+#[allow(clippy::single_range_in_vec_init)]
+fn assert_reads_records(name: &str, bytes: &[u8], records: u64) {
+    let reader = open(bytes);
+    let fieldglass_netcdf::NetcdfBacking::Classic(header) = &reader.backing else {
+        panic!("{name}: a classic file");
+    };
+    assert_eq!(
+        header.numrecs,
+        Some(records),
+        "{name}: counted from the size"
+    );
+    let v = index(&reader, "v");
+    let time = index(&reader, "time");
+    let f = index(&reader, "f");
+    let n = usize::try_from(records).unwrap();
+    let v_want = &[Some(7.0), Some(-8.0)][..n];
+    let time_want = &[Some(0.0), Some(6.0)][..n];
+    assert_eq!(reader.variable_shape(v).unwrap(), [records, 1], "{name}");
+    assert_eq!(reader.variable_shape(time).unwrap(), [records], "{name}");
+    assert_eq!(reader.decode_variable_raw(v).unwrap(), v_want, "{name}");
+    assert_eq!(
+        reader.decode_variable_raw(time).unwrap(),
+        time_want,
+        "{name}"
+    );
+    assert_eq!(
+        reader.decode_region_raw(v, &[0..records, 0..1]).unwrap(),
+        v_want,
+        "{name}"
+    );
+    assert_eq!(
+        reader.decode_region_raw(time, &[0..records]).unwrap(),
+        time_want,
+        "{name}"
+    );
+    // The record after the count is outside the variable's shape.
+    assert!(
+        reader
+            .decode_region_raw(time, &[records..records + 1])
+            .is_err(),
+        "{name}: record {records} is not counted"
+    );
+    assert_eq!(
+        reader.decode_variable_raw(f).unwrap(),
+        [Some(0.5)],
+        "{name}"
+    );
+}
+
 #[test]
-fn a_streaming_file_opens_with_no_records() {
+fn a_streaming_file_reads_the_records_it_holds() {
     for (name, bytes) in STREAMING {
-        let reader = open(bytes);
-        let fieldglass_netcdf::NetcdfBacking::Classic(header) = &reader.backing else {
-            panic!("{name}: a classic file");
-        };
-        assert_eq!(header.numrecs, None, "{name}: STREAMING is not a count");
-        let v = index(&reader, "v");
-        let time = index(&reader, "time");
-        let f = index(&reader, "f");
-        assert_eq!(reader.variable_shape(v).unwrap(), [0, 1], "{name}");
-        assert_eq!(reader.decode_variable_raw(v).unwrap(), [], "{name}");
-        assert_eq!(reader.decode_variable_raw(time).unwrap(), [], "{name}");
-        assert_eq!(
-            reader.decode_variable_raw(f).unwrap(),
-            [Some(0.5)],
-            "{name}"
-        );
+        assert_reads_records(name, bytes, 2);
+    }
+}
+
+#[test]
+fn a_streaming_file_cut_short_reads_its_whole_records_only() {
+    for (name, bytes) in PARTIAL {
+        assert_reads_records(name, bytes, 1);
     }
 }

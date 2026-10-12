@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the NetCDF classic `numrecs` fixtures (#1000).
+"""Generate the NetCDF classic `numrecs` fixtures (#1000, #1008).
 
 A classic header states its record count, `numrecs`, before anything in the
 file shows that many records are there. The reader used to build one byte
 range per stated record before checking the ranges against the file, so a file
 of a few hundred bytes could make it allocate gigabytes first. These files pin
-that the check now comes first, and that a streaming file still opens.
+that the check now comes first, and that a streaming file reads the whole
+records it holds.
 
 Each starts as the same small file written by libnetcdf (through the
 `netCDF4` Python package): an unlimited `time` dimension, `x = 1`, a `double`
@@ -23,6 +24,11 @@ variable `f(x)`, with 2 records written. `recsize` is 12 (8 for `time`, 1 for
     the specification's STREAMING value, all bits set (`0xFFFFFFFF` in CDF-1,
     `0xFFFFFFFFFFFFFFFF` in CDF-5), "indeterminate record count". libnetcdf
     writes no such file, so it is made the same way.
+  * `numrecs_streaming_partial_cdf1.nc`, `numrecs_streaming_partial_cdf5.nc`:
+    the streaming file with its last 5 bytes cut off, as a write interrupted
+    part way through record 1 leaves it. Record 1 then has 7 of its 12 bytes,
+    part of its `time` value and none of its `v`, so the file holds 1 whole
+    record.
 
 The patch is one fixed-width field at byte 4, after the magic. The build is
 reproducible byte for byte. Run from the repo root (needs `netCDF4` +
@@ -41,6 +47,9 @@ import numpy as np
 
 FIXTURES = Path("crates/fieldglass-netcdf/tests/fixtures")
 HUGE = 60_000_000
+# Bytes cut off the end of the streaming file for the partial-record files:
+# fewer than the 12 of one record, more than the 4 of `v`'s padded slab.
+CUT = 5
 
 FORMATS = {
     "cdf1": ("NETCDF3_CLASSIC", 4),
@@ -82,6 +91,10 @@ def main() -> int:
             path = FIXTURES / f"numrecs_{kind}_{tag}.nc"
             path.write_bytes(with_numrecs(data, width, numrecs))
             print(f"{path}: {path.stat().st_size} bytes, numrecs {numrecs:#x}")
+        streaming = with_numrecs(data, width, (1 << (8 * width)) - 1)
+        path = FIXTURES / f"numrecs_streaming_partial_{tag}.nc"
+        path.write_bytes(streaming[:-CUT])
+        print(f"{path}: {path.stat().st_size} bytes, streaming, cut short")
     return 0
 
 
