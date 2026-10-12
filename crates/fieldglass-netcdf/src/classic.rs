@@ -1645,6 +1645,28 @@ mod tests {
         ] {
             assert_eq!(streaming_record_count(&header, size), want, "size {size}");
         }
+        // Exactly one record variable of bytes or shorts: its records are
+        // unpadded (#204), so `recsize` is 3 bytes or 2, not the padded 4.
+        let bytes = record_header(0, 3, vec![var("b", vec![0, 1], NcType::Byte, 4, 100)]);
+        let shorts = record_header(0, 1, vec![var("s", vec![0, 1], NcType::Short, 4, 100)]);
+        for (size, want_bytes, want_shorts) in [
+            (100, 0, 0),
+            (102, 0, 1),
+            (103, 1, 1),
+            (108, 2, 4),
+            (109, 3, 4),
+        ] {
+            assert_eq!(
+                streaming_record_count(&bytes, size),
+                want_bytes,
+                "byte, size {size}"
+            );
+            assert_eq!(
+                streaming_record_count(&shorts, size),
+                want_shorts,
+                "short, size {size}"
+            );
+        }
         // No record variable: nothing to count.
         let fixed = record_header(0, 1, vec![var("f", vec![1], NcType::Int, 4, 96)]);
         assert_eq!(streaming_record_count(&fixed, 1 << 40), 0);
