@@ -70,7 +70,7 @@ miniz_oxide = "0.9"
 # caret range rather than an exact pin: unlike `rust-j2k` this is a
 # widely-used general-purpose crate, in the same class as `png` and
 # `miniz_oxide`. Decode only — we never write zstd.
-ruzstd = "0.9"
+ruzstd = "0.9.1"
 
 # The wasm host's release profile. `panic = "abort"` and `opt-level = "z"` are
 # the browser bundle's, not the workspace's: a custom profile keeps them off
