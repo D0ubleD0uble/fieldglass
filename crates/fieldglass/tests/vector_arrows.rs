@@ -219,18 +219,13 @@ fn grid_relative_components_agree_with_earth_relative_on_a_latlon_grid() {
         );
     }
     // And they really do point north: up the raster, which is north-up. The
-    // arrow *at* the pole is the exception and is left in deliberately — north
-    // from the north pole crosses the pole and comes back down the far side,
-    // which is what a great circle does and what the projection draws.
-    let mut crossed_the_pole = 0;
+    // pole row draws nothing, having no north to point along (#1045), so
+    // every arrow does.
+    assert!(earth.len() > 20, "only {} arrows", earth.len());
     for ((_, y0), (_, y1)) in earth.iter().map(|(a, b)| (*a, *b)) {
-        if y0 < 1.0 {
-            crossed_the_pole += 1;
-            continue;
-        }
+        assert!(y0 >= 1.0, "no arrow starts on the pole row: y {y0}");
         assert!(y1 < y0, "north is up: {y0} → {y1}");
     }
-    assert!(crossed_the_pole > 0, "the pole row is in this grid");
 }
 
 /// The case the option exists for: a projected grid, where the grid's north and

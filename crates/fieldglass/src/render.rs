@@ -2160,6 +2160,65 @@ const HEAD_FRACTION: f64 = 0.32;
 #[cfg(feature = "render")]
 const HEAD_ANGLE_DEG: f64 = 155.0;
 
+/// How near a pole, in degrees of latitude, a cell must be for no arrow to be
+/// drawn from it. A pole row's latitude comes back as exactly ±90 from a
+/// regular grid and to within about 1e-13° through a rotation, so this only
+/// has to absorb rounding: the nearest real row of any grid is far further off.
+#[cfg(feature = "render")]
+const POLE_TOLERANCE_DEG: f64 = 1e-6;
+
+/// How close, in metres, two neighbouring cells of one row must be to be the
+/// same point: the row has collapsed onto a pole of the grid's own frame.
+#[cfg(feature = "render")]
+const COLLAPSED_ROW_M: f64 = 1e-3;
+
+/// Whether the cell at `(i, j)` is somewhere the components have no single
+/// direction to draw (#1045).
+///
+/// **At a geographic pole**, east and north are undefined. GRIB resolves u and
+/// v "relative to easterly and northerly directions" (WMO Code table 3.3,
+/// bit 5), so a writer has to pick a frame per cell, and NCEP's GFS gives each
+/// cell of a pole row the one wind along its own meridian: the values turn
+/// with longitude while the wind does not. A bearing measured from north also
+/// means nothing there, and [`destination`] sends every arrow down the cell's
+/// own meridian whatever its bearing. So each sampled cell of a pole row drew
+/// a different arrow from one point, smearing along a map's top and bottom
+/// edges and fanning out in a polar view. No arrow is drawn from such a cell:
+/// the row is one point, and picking one cell's frame to draw it in would be a
+/// convention GRIB does not state.
+///
+/// **At a pole of the grid's own frame** — a rotated grid whose rows reach its
+/// rotated pole — grid-relative components are measured along axes that turn
+/// with the column in the same way. That row is one point too, which is how it
+/// is found: the cell and its neighbour along the row coincide. Earth-relative
+/// components there are a real east and north, so only a grid-relative pair is
+/// skipped on this test; a curvilinear grid whose coordinates repeat is not
+/// thinned by it.
+#[cfg(feature = "render")]
+fn no_direction_at(
+    at: impl Fn(usize, usize) -> Option<(f64, f64)>,
+    (i, j): (usize, usize),
+    ni: usize,
+    grid_relative: bool,
+) -> bool {
+    let Some(here) = at(i, j) else {
+        return false;
+    };
+    if here.0.abs() >= 90.0 - POLE_TOLERANCE_DEG {
+        return true;
+    }
+    if !grid_relative {
+        return false;
+    }
+    let beside = if i + 1 < ni {
+        i + 1
+    } else {
+        i.saturating_sub(1)
+    };
+    beside != i
+        && at(beside, j).is_some_and(|there| distance_between(here, there) < COLLAPSED_ROW_M)
+}
+
 /// The point `distance` metres from `(lat, lon)` along `bearing` (radians,
 /// clockwise from north), on a sphere. The standard great-circle destination:
 /// arrows are drawn as geographic segments so that *the projection* bends them,
@@ -2311,9 +2370,13 @@ pub fn vector_polylines(
         (Some(u), Some(v)) if u.is_finite() && v.is_finite() => Some(u.hypot(v)),
         _ => None,
     };
+    let at = |i: usize, j: usize| forward(i as u32, j as u32);
+    // A cell at a pole is left out before anything is measured, so that the
+    // scale is a drawn cell's as well (#1045).
     let sampled: Vec<(usize, usize)> = (0..nj as usize)
         .step_by(step)
         .flat_map(|j| (0..ni as usize).step_by(step).map(move |i| (i, j)))
+        .filter(|&cell| !no_direction_at(at, cell, ni as usize, vectors.grid_relative))
         .collect();
     let fastest = vectors.reference_speed.filter(|s| *s > 0.0).or_else(|| {
         sampled
@@ -2330,7 +2393,6 @@ pub fn vector_polylines(
         return Ok(VectorArrows::default());
     };
 
-    let at = |i: usize, j: usize| forward(i as u32, j as u32);
     // How long the fastest arrow is: the spacing between sampled cells, so
     // arrows just touch at the top of the scale rather than crossing the plot.
     let longest = sampled
