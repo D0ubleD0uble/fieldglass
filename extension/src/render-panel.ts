@@ -3459,6 +3459,10 @@ export function renderImagePanelHtml(
       display: flex; align-items: center; flex-wrap: wrap;
       gap: 0.5rem 1.25rem;
     }
+    /* The rule above sets display, overriding the UA stylesheet's hidden rule
+       (see .picker-note[hidden]); without this the Message row (#959) and the
+       Animate row show on every panel (#1035). */
+    .toolbar-row[hidden] { display: none; }
     .toolbar fieldset {
       display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
       border: none; padding: 0; margin: 0;
