@@ -70,6 +70,14 @@ export interface PageState {
    *  and the one chosen (`""` for none). */
   messageOffers: string[] | null;
   messagePicked: string;
+  /** The computed `display` of the Message and Animate rows, `null` when the
+   *  panel has no such row (#1035). The rows' `hidden` attribute is not
+   *  enough: an author `display` rule beats it. */
+  messageRowDisplay: string | null;
+  animateRowDisplay: string | null;
+  /** Every element carrying `hidden` whose computed `display` is not `none`,
+   *  as `tag#id.class`: what a user sees although the page put it away. */
+  shownWhileHidden: string[];
   /** The Compare row's Field B, `null` when the panel has no such row. */
   compareFieldB: string | null;
   canvasVisibility: string;
@@ -101,7 +109,15 @@ const DRIVER = `
       const messageRow = byId('message-pick-row');
       const picked = messages && messages.selectedOptions[0];
       const fieldB = byId('compare-field-b');
+      const displayOf = (id) => (byId(id) ? getComputedStyle(byId(id)).display : null);
+      const describe = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') +
+        (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/).join('.') : '');
       return {
+        messageRowDisplay: displayOf('message-pick-row'),
+        animateRowDisplay: displayOf('animate-row'),
+        shownWhileHidden: Array.from(document.querySelectorAll('[hidden]'))
+          .filter((el) => getComputedStyle(el).display !== 'none')
+          .map(describe),
         messageOffers: messages && messageRow && !messageRow.hidden
           ? Array.from(messages.options).map((o) => o.textContent)
           : null,
