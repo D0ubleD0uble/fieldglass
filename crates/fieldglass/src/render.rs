@@ -2295,7 +2295,9 @@ impl Default for VectorArrows {
 /// its own [`Source`]. Cell `k` of one is paired with cell `k` of the other, so
 /// the two must line up cell for cell, and they are checked with the same gate
 /// that combining two fields uses (`aligned`, #793). A cell missing in either
-/// is skipped. The arrows are drawn on `u`'s placement.
+/// is skipped, and so is a cell at a pole: a global grid's pole row is one
+/// point whose components turn with the column, and has no east or north to
+/// draw them along (#1045). The arrows are drawn on `u`'s placement.
 ///
 /// **Each arrow is built in geographic space and projected like a coastline.**
 /// The shaft runs from the cell along the flow's own bearing, so the target
