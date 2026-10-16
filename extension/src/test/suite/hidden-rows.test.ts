@@ -90,7 +90,7 @@ suite("Hidden toolbar rows are not displayed (#1035)", function () {
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await panel.drive([]);
-      assert.notStrictEqual(state.animateRowDisplay, "none");
+      assert.strictEqual(state.animateRowDisplay, "flex");
       assert.deepStrictEqual(state.shownWhileHidden, []);
     } finally {
       panel.dispose();
@@ -113,9 +113,10 @@ suite("Hidden toolbar rows are not displayed (#1035)", function () {
       editor = await openEditor(p, file);
       const from = panel.sent.length;
       await panel.drive([{ id: "flip-y", checked: true }]);
-      await panel.waitSent(isType("gridError"), from, "the refusal");
+      const reply = await panel.waitSent((m) => m && (m.type === "gridReady" || m.type === "gridError"), from, "the render after the change");
+      assert.strictEqual(reply.type, "gridError", `drew message ${reply.messageIndex} instead of refusing`);
       const state = await panel.drive([]);
-      assert.notStrictEqual(state.messageRowDisplay, "none");
+      assert.strictEqual(state.messageRowDisplay, "flex");
       assert.strictEqual(state.messageOffers?.length, 2);
       assert.deepStrictEqual(state.shownWhileHidden, []);
     } finally {
