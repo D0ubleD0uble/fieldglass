@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>running</title>
+<script type="module">
+if (new URLSearchParams(location.search).has('worker')) {
+  const w = new Worker('./page.js' + location.search, { type: 'module' });
+  w.onmessage = (e) => { window.__result = e.data; document.title = 'done'; };
+  w.onerror = (e) => { window.__result = { ok: false, stage: 'worker', error: e.message }; document.title = 'done'; };
+} else {
+  import('./page.js');
+}
+</script>

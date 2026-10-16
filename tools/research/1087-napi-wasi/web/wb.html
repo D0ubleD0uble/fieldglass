@@ -1,0 +1,13 @@
+<!doctype html><meta charset="utf-8"><title>running</title>
+<script type="module">
+import init, { open } from './fieldglass_wasm.js';
+try {
+  await init();
+  const bytes = new Uint8Array(await (await fetch('./hrrr_complex_spd_lambert.grib2')).arrayBuffer());
+  const ms = []; let f, v;
+  for (let i = 0; i < 8; i++) { const t = performance.now(); const h = open(bytes); f = h.decode(0, { dtype: 'f64' }); v = f.values(); f.mask(); ms.push(performance.now() - t); }
+  const decodeMs = ms.slice(1).sort((a, b) => a - b)[3];
+  window.__result = { ok: true, decodeMs, crossOriginIsolated, n: v.length, valuesCtor: v.constructor.name, shared: typeof SharedArrayBuffer !== 'undefined' && v.buffer instanceof SharedArrayBuffer };
+} catch (e) { window.__result = { ok: false, error: String(e) }; }
+document.title = 'done';
+</script>

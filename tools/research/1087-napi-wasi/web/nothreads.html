@@ -1,0 +1,4 @@
+<!doctype html><meta charset="utf-8"><title>running</title>
+<script type="module">
+if (new URLSearchParams(location.search).has("worker")) { const w = new Worker("./nothreads.js", { type: "module" }); w.onmessage = (e) => { window.__result = e.data; document.title = "done"; }; w.onerror = (e) => { window.__result = { ok: false, error: e.message }; document.title = "done"; }; } else { import("./nothreads.js"); }
+</script>

@@ -1,0 +1,20 @@
+{
+  "name": "fieldglass-research-1087",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Measurement harness for issue 1087 (napi-rs WASI vs wasm-bindgen). The emnapi pins are the only set found to both link and load.",
+  "napi": {
+    "binaryName": "fieldglass",
+    "targets": ["x86_64-unknown-linux-gnu", "wasm32-wasip1-threads"]
+  },
+  "dependencies": {
+    "@emnapi/core": "2.0.0-alpha.6",
+    "@emnapi/runtime": "2.0.0-alpha.6",
+    "@napi-rs/cli": "3.10.8",
+    "@napi-rs/wasm-runtime": "1.2.5",
+    "buffer": "6.0.3",
+    "emnapi": "2.0.0-alpha.6",
+    "esbuild": "0.28.2",
+    "puppeteer-core": "25.14.0"
+  }
+}
