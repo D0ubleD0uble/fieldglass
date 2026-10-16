@@ -25,7 +25,7 @@ import { extensionPath, isType, openEditor, openReal, provider, reasonFor } from
 /** Says the grid is not placed, and names no family as unsupported. */
 function assertSaysNotPlaced(reason: string | null, what: string): void {
   assert.ok(reason, `${what}: the reason is given`);
-  assert.match(reason, /placed on the Earth/, `${what}: the reason says the grid is not placed, got "${reason}"`);
+  assert.match(reason, /no known position on the Earth/, `${what}: the reason says the grid is not placed, got "${reason}"`);
   assert.doesNotMatch(reason, /not yet|grids/, `${what}: the reason calls no family unsupported, got "${reason}"`);
   assert.strictEqual(reason, UNPLACED_REASON, what);
 }

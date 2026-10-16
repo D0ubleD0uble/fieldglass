@@ -30,10 +30,9 @@ export async function provider(): Promise<FieldglassEditorProvider> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Msg = any;
 
-/** What the driver reports of the page. */
 /** The controls a grid can't use, which the panel hides (#1036), by the key
  *  `UnavailableGroup` names them with. The long CSV layout is not on the page. */
-export const PAGE_CONTROLS = ["projection", "overlay", "contours", "arrows", "zonal"] as const;
+export const PAGE_CONTROLS = ["projection", "resampling", "overlay", "contours", "arrows", "zonal"] as const;
 export type PageControl = (typeof PAGE_CONTROLS)[number];
 
 /** The panel's "Not available for this grid" disclosure (#1036). */
@@ -48,6 +47,8 @@ export interface UnavailableLine {
   live: boolean;
   /** The element right before it, as `tag#id`. */
   after: string | null;
+  /** Whether its summary is in the tab order. */
+  summaryFocusable: boolean;
 }
 
 /** The reason the "Not available for this grid" line gives for the control
@@ -63,6 +64,7 @@ export function reasonFor(state: PageState, label: string): string | null {
   return null;
 }
 
+/** What the driver reports of the page. */
 export interface PageState {
   /** Whether the Overlay row carries `hidden`. */
   overlayHidden: boolean;
@@ -80,7 +82,12 @@ export interface PageState {
   controlShown: Record<PageControl, boolean | null>;
   /** The "Not available for this grid" line, `null` when the page has none. */
   unavailable: UnavailableLine | null;
+  /** The focused element as `tag#id.class`, suffixed ` in #unavailable` when
+   *  it is inside the line. */
+  focused: string | null;
   projection: string;
+  /** Whether the projection `<select>` itself is disabled. */
+  projectionDisabled: boolean;
   /** Every target the projection picker offers, in order. */
   projectionOffers: string[];
   /** The point-probe readout. */
@@ -132,6 +139,7 @@ const DRIVER = `
     // Each control a grid can rule out, by the element a user would see go.
     const CONTROLS = {
       projection: () => labelOf('picker-projection'),
+      resampling: () => labelOf('picker-resampling'),
       overlay: () => byId('overlay-fieldset'),
       contours: () => byId('contour-layer'),
       arrows: () => byId('vector-fieldset'),
@@ -160,6 +168,7 @@ const DRIVER = `
         })),
         live: line.hasAttribute('aria-live') || !!line.querySelector('[aria-live]'),
         after: before ? before.tagName.toLowerCase() + (before.id ? '#' + before.id : '') : null,
+        summaryFocusable: !!summary && summary.tabIndex >= 0,
       };
     }
     function report() {
@@ -194,7 +203,9 @@ const DRIVER = `
         controlDisplay: controlsBy((el) => getComputedStyle(el).display),
         controlShown: controlsBy((el) => el.getClientRects().length > 0),
         unavailable: unavailableLine(),
+        focused: document.activeElement ? describe(document.activeElement) + (document.activeElement.closest('#unavailable') ? ' in #unavailable' : '') : null,
         projection: picker.value,
+        projectionDisabled: picker.disabled,
         projectionOffers: Array.from(picker.options).map((o) => o.value),
         probe: byId('probe').textContent,
         sliceVariable: variable ? (chosen ? chosen.textContent : '') : null,
@@ -295,6 +306,7 @@ const DRIVER = `
         if (!el) throw new Error('no #' + a.id);
         // A disclosure opens the way a click on its summary opens it.
         if ('open' in a) { if (el.open !== a.open) el.querySelector('summary').click(); continue; }
+        if ('focus' in a) { el.focus(); continue; }
         if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
@@ -316,7 +328,7 @@ export interface RealPanel {
   /** What the provider posted to the page, oldest first. */
   sent: Msg[];
   /** Set controls as a user would, then read the page back. */
-  drive(actions: Array<{ id: string; value?: string | number; checked?: boolean; open?: boolean }>): Promise<PageState>;
+  drive(actions: Array<{ id: string; value?: string | number; checked?: boolean; open?: boolean; focus?: boolean }>): Promise<PageState>;
   /** Click the middle of the image, as a user reads the value there. Resolves
    *  once the page has sent the click; the reply comes after. */
   probe(): Promise<void>;

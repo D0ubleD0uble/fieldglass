@@ -95,7 +95,7 @@ suite("Point operations follow the grid (#945)", function () {
       assert.deepStrictEqual(first.sliceGrid.supports, NONE, "and takes no point operation");
 
       let state = await panel.drive([]);
-      assert.notStrictEqual(state.controlDisplay.overlay, "none", "the Overlay row stays offered");
+      assert.strictEqual(state.controlShown.overlay, true, "the Overlay row stays offered");
       assert.strictEqual(state.controlDisplay.contours, "none", "Contours is hidden");
       assert.strictEqual(reasonFor(state, "Contours"), SATELLITE_NOT_YET_REASON, "with the reason");
       // The real reason (#979): this 6 x 6 sector is wholly on the Earth, so
@@ -177,7 +177,7 @@ suite("Point operations follow the grid (#945)", function () {
       assert.strictEqual(reasonFor(state, "Overlay"), UNPLACED_REASON, "because the grid is not placed");
       assert.strictEqual(reasonFor(state, "Contours"), null, "the Overlay row's reason covers contours");
       assert.strictEqual(state.controlDisplay.arrows, "none");
-      assert.strictEqual(reasonFor(state, "Arrows"), UNPLACED_REASON);
+      assert.strictEqual(reasonFor(state, "Vectors"), UNPLACED_REASON);
       assert.strictEqual(reasonFor(state, "Zonal average"), UNPLACED_REASON);
       for (const item of state.unavailable?.items ?? []) {
         assert.doesNotMatch(item.text, /satellite-view/, "nothing blames a satellite view");

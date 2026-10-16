@@ -32,7 +32,7 @@ import {
 const EXT_ID = "fieldglass.fieldglass";
 
 /** The reason given for a slice with no coordinates (#960). */
-const UNPLACED_NOTE = "this grid isn't placed on the Earth.";
+const UNPLACED_NOTE = "this grid has no known position on the Earth.";
 /** What a slice panel hides for a slice nothing places (#1036). */
 const UNPLACED_SLICE: UnavailableGroup[] = [
   {
@@ -40,9 +40,10 @@ const UNPLACED_SLICE: UnavailableGroup[] = [
     reason: UNPLACED_NOTE,
     controls: [
       { key: "projection", label: "Projection" },
+      { key: "resampling", label: "Resampling" },
       { key: "overlay", label: "Overlay" },
       { key: "zonal", label: "Zonal average" },
-      { key: "longCsv", label: "Long CSV layout" },
+      { key: "longCsv", label: "Long layout (Export CSV)" },
     ],
   },
 ];
@@ -255,15 +256,13 @@ suite("Slice panel projection picker", () => {
       reason: "not yet supported for this grid.",
     });
     // A placed grid that declines (a lat/lon grid scanned east to west) is
-    // that grid, not its family.
-    assert.deepStrictEqual(projectionReason(false, "placed", "latlon"), {
-      kind: "structural",
-      reason: "not available for this latlon grid.",
-    });
-    assert.deepStrictEqual(projectionReason(false, "placed", null), {
-      kind: "structural",
-      reason: "not available for this grid.",
-    });
+    // that grid's layout, not its family, and a limit of this build.
+    for (const label of ["latlon", null]) {
+      assert.deepStrictEqual(projectionReason(false, "placed", label), {
+        kind: "notYet",
+        reason: "not yet supported for this grid's layout.",
+      });
+    }
     // A grid that reprojects has no reason, whatever else is said.
     for (const placement of ["placed", "unplaceable", "unsupported", undefined] as const) {
       assert.strictEqual(projectionReason(true, placement, "lambert"), null);
@@ -300,7 +299,7 @@ suite("Slice panel projection picker", () => {
       native.colormaps(),
       native.combineOps(),
     );
-    for (const name of ["applyReprojectable", "projectionOptionsHtml", "unavailableHtml"]) {
+    for (const name of ["applyReprojectable", "projectionOptionsHtml", "unavailableSummary", "unavailableItemsHtml"]) {
       assert.ok(html.includes(`function ${name}(`), `${name} is serialized into the script`);
     }
     assert.match(html, /const MAP_PROJECTIONS = \[/, "and the targets it builds from");

@@ -131,7 +131,7 @@ suite("The render panel's own script", function () {
       await panel.waitSent(isType("overlayReady"), from, "the coastlines");
       state = await panel.drive([]);
       assert.ok(state.projectionOffers.includes("equirectangular"));
-      assert.notStrictEqual(state.controlDisplay.overlay, "none");
+      assert.strictEqual(state.controlShown.overlay, true);
 
       // The editor closes under the panel, and the panel is restored with
       // equirectangular saved. Its first render fails.
@@ -145,10 +145,15 @@ suite("The render panel's own script", function () {
       state = await panel.drive([{ id: "overlay-graticule", checked: true }]);
       assert.deepStrictEqual(state.projectionOffers, ["source"], "no map targets for a slice nothing places");
       assert.strictEqual(state.projection, "source");
+      assert.strictEqual(failed.handleGone, true, "the answer is about the closed file");
       assert.strictEqual(state.controlDisplay.projection, "none", "the picker is hidden");
-      assert.strictEqual(reasonFor(state, "Projection"), UNPLACED_REASON);
       assert.strictEqual(state.controlDisplay.overlay, "none", "the Overlay row is hidden");
-      assert.strictEqual(reasonFor(state, "Overlay"), UNPLACED_REASON, "with the reason");
+      // The file is closed, which says nothing about the grid: the line does
+      // not claim it has no position on the Earth (#1036), and the status
+      // says what happened.
+      assert.strictEqual(state.unavailable?.display, "none", "no 'Not available for this grid' line");
+      assert.strictEqual(reasonFor(state, "Projection"), null);
+      assert.match(state.status, /disposed/);
       assert.deepStrictEqual(
         panel.received.slice(before.received).filter(overlayTraffic).map((m) => m.type),
         [],
@@ -171,9 +176,10 @@ suite("The render panel's own script", function () {
             reason: UNPLACED_REASON,
             controls: [
               { key: "projection", label: "Projection" },
+              { key: "resampling", label: "Resampling" },
               { key: "overlay", label: "Overlay" },
               { key: "zonal", label: "Zonal average" },
-              { key: "longCsv", label: "Long CSV layout" },
+              { key: "longCsv", label: "Long layout (Export CSV)" },
             ],
           },
         ],
@@ -195,9 +201,9 @@ suite("The render panel's own script", function () {
       state = await panel.drive([]);
       assert.ok(state.projectionOffers.includes("equirectangular"), `got ${state.projectionOffers.join(", ")}`);
       assert.strictEqual(state.projection, "equirectangular");
-      assert.notStrictEqual(state.controlDisplay.projection, "none");
+      assert.strictEqual(state.controlShown.projection, true);
       assert.strictEqual(reasonFor(state, "Projection"), null);
-      assert.notStrictEqual(state.controlDisplay.overlay, "none");
+      assert.strictEqual(state.controlShown.overlay, true);
       assert.strictEqual(reasonFor(state, "Overlay"), null);
     } finally {
       panel.dispose();

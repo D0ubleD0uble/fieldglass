@@ -58,7 +58,7 @@ suite("Overlays follow placement (#840)", function () {
       // contours on an equirectangular map are drawn.
       let from = panel.sent.length;
       let state = await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
-      assert.notStrictEqual(state.controlDisplay.overlay, "none");
+      assert.strictEqual(state.controlShown.overlay, true);
       assert.strictEqual(reasonFor(state, "Overlay"), null);
       await panel.waitSent((m) => m.type === "gridReady" && m.options.projection === "equirectangular", from, "the map");
       from = panel.sent.length;
@@ -118,7 +118,7 @@ suite("Overlays follow placement (#840)", function () {
       await panel.waitSent(isType("overlayReady"), back, "the coastlines again");
       await panel.waitSent(isType("contourReady"), back, "the contours again");
       state = await panel.drive([]);
-      assert.notStrictEqual(state.controlDisplay.overlay, "none");
+      assert.strictEqual(state.controlShown.overlay, true);
       assert.strictEqual(reasonFor(state, "Overlay"), null);
 
       // A cross-section is not placed either: time down the rows of
@@ -192,7 +192,7 @@ suite("Overlays follow placement (#840)", function () {
       assert.strictEqual(state.controlDisplay.overlay, "none");
       assert.strictEqual(reasonFor(state, "Overlay"), UNPLACED_REASON);
       assert.strictEqual(state.controlDisplay.arrows, "none");
-      assert.strictEqual(reasonFor(state, "Arrows"), UNPLACED_REASON);
+      assert.strictEqual(reasonFor(state, "Vectors"), UNPLACED_REASON);
       assert.deepStrictEqual(panel.received.filter(overlayTraffic).map((m) => m.type), []);
       assert.deepStrictEqual(panel.sent.filter((m: Msg) => m && /Error$|vectorResult/.test(m.type)), []);
     } finally {

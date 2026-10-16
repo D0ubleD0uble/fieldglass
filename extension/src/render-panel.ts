@@ -417,17 +417,21 @@ export const UNPLACED_LONG_CSV_NOTE = "The long layout needs a grid placed on th
 /** A panel control a grid can't use (#1036). The panel hides it, rather than
  *  disabling it, and names it in the "Not available for this grid" line under
  *  the grid caption. `longCsv` is the long layout of a slice panel's CSV
- *  export, which the layout prompt leaves out; the rest are on the page. */
-export type UnavailableKey = "projection" | "overlay" | "contours" | "arrows" | "zonal" | "longCsv";
+ *  export, which the layout prompt leaves out; the rest are on the page.
+ *  Resampling goes with the projection: the source view paints one pixel per
+ *  cell and never resamples (`TargetKind::Source` in the `fieldglass` crate's
+ *  `render.rs`), so a field shown only in it has nothing to resample. */
+export type UnavailableKey = "projection" | "resampling" | "overlay" | "contours" | "arrows" | "zonal" | "longCsv";
 
 /** Each control's label as the panel shows it, which is how the line names it. */
 export const UNAVAILABLE_LABELS: Readonly<Record<UnavailableKey, string>> = {
   projection: "Projection",
+  resampling: "Resampling",
   overlay: "Overlay",
   contours: "Contours",
-  arrows: "Arrows",
+  arrows: "Vectors",
   zonal: "Zonal average",
-  longCsv: "Long CSV layout",
+  longCsv: "Long layout (Export CSV)",
 };
 
 /** Controls a grid can't use for one reason (#1036).
@@ -443,8 +447,8 @@ export interface UnavailableGroup {
 
 /** Why a control needs a grid on the Earth and this one has none (#840,
  *  #960): overlays, arrows, the zonal average, the long CSV and reprojection
- *  all give it for such a grid. */
-export const UNPLACED_REASON = "this grid isn't placed on the Earth.";
+ *  all give it for a grid Rust does not place. */
+export const UNPLACED_REASON = "this grid has no known position on the Earth.";
 
 /** Why a placed grid takes no zonal average: a rotated or projected grid (#945). */
 export const NO_ZONAL_REASON = "this grid's rows aren't circles of latitude.";
@@ -463,7 +467,9 @@ export const SATELLITE_NOT_YET_REASON = "not yet supported for satellite-view gr
  *  place nothing (a Lambert grid on an Earth of radius zero is `unplaceable`
  *  under the label `lambert`). Only an `unsupported` template is a family this
  *  build does not support yet. A placed grid that does not reproject (a
- *  lat/lon grid scanned east to west) is that one grid, not its family.
+ *  lat/lon grid scanned east to west) is that one grid's layout, not its
+ *  family, and a limit of this build rather than of the grid: Rust's answer
+ *  gives no reason beyond `reprojectable`, so the line says only that.
  *  Everything else is not placed on the Earth.
  *
  *  `label` is the grid's family, `null` when there is no grid. It is the
@@ -478,7 +484,7 @@ export function projectionReason(
     return { kind: "notYet", reason: "not yet supported for " + (label === null ? "this grid" : label + " grids") + "." };
   }
   if (placement === "placed") {
-    return { kind: "structural", reason: "not available for this " + (label === null ? "" : label + " ") + "grid." };
+    return { kind: "notYet", reason: "not yet supported for this grid's layout." };
   }
   return { kind: "structural", reason: UNPLACED_REASON };
 }
@@ -506,7 +512,11 @@ export function unavailableControls(
   const notYet = { kind: "notYet", reason: SATELLITE_NOT_YET_REASON } as const;
   const found: Array<{ key: UnavailableKey; kind: UnavailableGroup["kind"]; reason: string }> = [];
   const projection = projectionReason(field.reprojectable, field.placement, field.label);
-  if (projection) found.push({ key: "projection", ...projection });
+  if (projection) {
+    found.push({ key: "projection", ...projection });
+    // Only the source view is left, which never resamples.
+    found.push({ key: "resampling", ...projection });
+  }
   if (!placed) found.push({ key: "overlay", ...notPlaced });
   else if (!field.supports.contours) found.push({ key: "contours", ...notYet });
   if (offers.arrows && !(placed && field.supports.vectors)) {
@@ -533,25 +543,43 @@ export function unavailableControls(
   return groups;
 }
 
-/** The inside of the "Not available for this grid" disclosure (#1036): a
- *  summary naming every hidden control, then one line per reason. Empty when
- *  nothing is hidden; the panel then hides the disclosure.
+/** The "Not available for this grid" line's summary (#1036): every hidden
+ *  control by its label, as plain text. Empty when nothing is hidden.
  *
- *  Serialized into the panel script, which rebuilds it from each slice
- *  render's answer, so it must not reference anything outside itself. A
- *  reason can carry the file's grid family, so every string is escaped. */
-export function unavailableHtml(groups: ReadonlyArray<UnavailableGroup> | null | undefined): string {
+ *  Serialized into the panel script, which sets it as the summary's
+ *  `textContent` from each slice render's answer, so it must not reference
+ *  anything outside itself. */
+export function unavailableSummary(groups: ReadonlyArray<UnavailableGroup> | null | undefined): string {
   if (!groups || groups.length === 0) return "";
+  const labels: string[] = [];
+  for (const g of groups) for (const c of g.controls) labels.push(c.label);
+  return "Not available for this grid: " + labels.join(", ");
+}
+
+/** The line's list (#1036): one `<li>` per reason, naming the controls that
+ *  share it, `data-kind` saying which kind of reason it is.
+ *
+ *  Serialized into the panel script like {@link unavailableSummary}. A reason
+ *  can carry the file's grid family, so every string is escaped. */
+export function unavailableItemsHtml(groups: ReadonlyArray<UnavailableGroup> | null | undefined): string {
+  if (!groups) return "";
   const esc = (s: string) =>
     String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const labels: string[] = [];
   let items = "";
   for (const g of groups) {
     const names = g.controls.map((c) => esc(c.label));
-    labels.push(...names);
     items += '<li data-kind="' + esc(g.kind) + '">' + names.join(", ") + ": " + esc(g.reason) + "</li>";
   }
-  return "<summary>Not available for this grid: " + labels.join(", ") + "</summary><ul>" + items + "</ul>";
+  return items;
+}
+
+/** The inside of the "Not available for this grid" disclosure (#1036), as the
+ *  panel's first HTML writes it. The summary and the list are always there,
+ *  empty when nothing is hidden (the panel then hides the disclosure), so the
+ *  script can rewrite each in place and keep the summary node a user may be
+ *  focused on. */
+export function unavailableHtml(groups: ReadonlyArray<UnavailableGroup> | null | undefined): string {
+  return "<summary>" + escapeHtml(unavailableSummary(groups)) + "</summary><ul>" + unavailableItemsHtml(groups) + "</ul>";
 }
 
 /** Up to `count` evenly spaced indices along an axis of `length` points, always
@@ -1022,7 +1050,8 @@ export function renderImagePanelHtml(
         // mapPlaced.
         // A reason can carry the file's grid family: same escaping as sliceJson.
         let unavailable = ${JSON.stringify(unavailable).replace(/</g, "\\u003c")};
-        ${unavailableHtml.toString()}
+        ${unavailableSummary.toString()}
+        ${unavailableItemsHtml.toString()}
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
         ${composeLineAxisLabel.toString()}
@@ -1294,11 +1323,16 @@ export function renderImagePanelHtml(
         // The long CSV layout has none: the CSV prompt leaves it out.
         const UNAVAILABLE_ELEMENTS = {
           projection: 'projection-control',
+          resampling: 'resampling-control',
           overlay: 'overlay-fieldset',
           contours: 'contour-layer',
           arrows: 'vector-fieldset',
           zonal: 'zonal-control',
         };
+        // What a cross-section puts away whatever its answer says (#171): its
+        // axes are not a map, so there is nothing to project or overlay. Its
+        // own note says so at once; the line follows with the slice's answer.
+        const CROSS_SECTION_HIDES = ['projection', 'resampling', 'overlay'];
 
         // Whether the field on screen can't use a control, by its key.
         function isUnavailable(key) {
@@ -1309,30 +1343,50 @@ export function renderImagePanelHtml(
         // and rewrite the "Not available for this grid" line to match (#1036).
         // A hidden control keeps its value for the next field that takes it;
         // what it asks for is gated on the field's answers (overlaysOffered,
-        // contoursOffered, vectorsEnabled, zonalOn), not on the box. Only
-        // the line's contents are rewritten, so one a user opened stays open
-        // while they step through the slices.
+        // contoursOffered, vectorsEnabled, zonalOn), not on the box.
+        //
+        // The line keeps its own <summary> node: only the summary's text and
+        // the list are rewritten, so a line a user opened stays open, and one
+        // they are on keeps the keyboard focus, while they step through the
+        // slices. Focus inside a control that goes moves to the summary.
+        //
+        // fileClosed: the last answer came while the panel's file was closed
+        // (#839). Nothing is known about the slice then, so the controls stay
+        // put away but the line makes no claim about the grid; the status
+        // says the file is gone.
+        let fileClosed = false;
         function applyUnavailable(groups) {
           unavailable = Array.isArray(groups) ? groups : [];
+          const cross = isCrossSection();
+          const line = document.getElementById('unavailable');
+          const summary = line ? line.querySelector('summary') : null;
+          let focusLost = false;
           for (const key of Object.keys(UNAVAILABLE_ELEMENTS)) {
             const el = document.getElementById(UNAVAILABLE_ELEMENTS[key]);
-            // A cross-section puts the Overlay row away too.
-            if (el) el.toggleAttribute('hidden', isUnavailable(key) || (key === 'overlay' && isCrossSection()));
+            if (!el) continue;
+            // A cross-section puts the map's own controls away too.
+            const hide = isUnavailable(key) || (cross && CROSS_SECTION_HIDES.includes(key));
+            if (hide && el.contains(document.activeElement)) focusLost = true;
+            el.toggleAttribute('hidden', hide);
           }
-          const line = document.getElementById('unavailable');
-          if (line) {
-            const html = unavailableHtml(unavailable);
-            if (line.innerHTML !== html) line.innerHTML = html;
-            line.toggleAttribute('hidden', html === '');
-          }
+          if (!line || !summary) return;
+          const list = line.querySelector('ul');
+          const text = unavailableSummary(unavailable);
+          if (summary.textContent !== text) summary.textContent = text;
+          const items = unavailableItemsHtml(unavailable);
+          if (list && list.innerHTML !== items) list.innerHTML = items;
+          const shown = unavailable.length > 0 && !fileClosed;
+          line.toggleAttribute('hidden', !shown);
+          if (focusLost && shown) summary.focus();
         }
 
         // Take a slice render's answer to whether it is placed (#840), which
         // point operations it takes (#945) and which controls it can't use
         // (#1036).
-        function applySlicePlacement(placed, supports, groups) {
+        function applySlicePlacement(placed, supports, groups, handleGone) {
           mapPlaced = placed === true;
           if (supports) fieldSupports = supports;
+          fileClosed = handleGone === true;
           applyUnavailable(groups);
           applyContoursOnly();
         }
@@ -1356,7 +1410,7 @@ export function renderImagePanelHtml(
             syncProjectionControls();
             snapshotState();
           }
-          applySlicePlacement(sliceGrid.placed, sliceGrid.supports, sliceGrid.unavailable);
+          applySlicePlacement(sliceGrid.placed, sliceGrid.supports, sliceGrid.unavailable, handleGone);
         }
 
         // A cross-section has no projection and no coastlines to draw on it.
@@ -1364,18 +1418,17 @@ export function renderImagePanelHtml(
           const cross = isCrossSection();
           const note = document.getElementById('cross-section-note');
           const projection = document.getElementById('picker-projection');
-          const overlays = document.getElementById('overlay-fieldset');
           if (note) {
             note.toggleAttribute('hidden', !cross);
             note.textContent = cross
               ? 'Cross-section: these axes are not a map, so it is drawn in index space.'
               : '';
           }
-          if (projection) {
-            if (cross && projection.value !== 'source') projection.value = 'source';
-            projection.disabled = cross;
-          }
-          if (overlays) overlays.toggleAttribute('hidden', cross || isUnavailable('overlay'));
+          if (projection && cross && projection.value !== 'source') projection.value = 'source';
+          // The picker, Resampling and the Overlay row are hidden, not greyed
+          // out, as for any grid that can't use them (#1036), and come back
+          // with the map unless the slice's answer says otherwise.
+          applyUnavailable(unavailable);
           applyContoursOnly();
           if (cross && sliceState) {
             requestAxis(sliceState.yDim);
@@ -3445,6 +3498,7 @@ export function renderImagePanelHtml(
     .projection:has(+ .unavailable:not([hidden])) { margin-bottom: 0.2rem; }
     .unavailable { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
     .unavailable summary { cursor: pointer; }
+    .unavailable summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
     .unavailable ul { margin: 0.25rem 0 0; padding-left: 1.4rem; }
     .unavailable[hidden] { display: none; }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
@@ -3731,7 +3785,7 @@ ${slice
         <label>Central meridian
           <input type="number" id="picker-world-meridian" value="0" min="-360" max="360" step="any"></label>
       </span>
-      <label>Resampling
+      <label id="resampling-control"${hides("resampling") ? " hidden" : ""}>Resampling
         <select id="picker-resampling">
           <option value="nearest" selected>Nearest</option>
           <option value="bilinear">Bilinear</option>

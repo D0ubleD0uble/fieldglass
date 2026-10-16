@@ -19,7 +19,13 @@ import * as os from "os";
 import * as path from "path";
 
 import { loadNative } from "../../native";
-import { NO_ZONAL_REASON, SATELLITE_NOT_YET_REASON, UNPLACED_REASON } from "../../render-panel";
+import {
+  NO_ZONAL_REASON,
+  projectionReason,
+  SATELLITE_NOT_YET_REASON,
+  unavailableControls,
+  UNPLACED_REASON,
+} from "../../render-panel";
 import {
   extensionPath,
   isType,
@@ -83,15 +89,22 @@ function tempFile(name: string, bytes: Buffer): { file: string; done: () => void
 
 /** The page hides exactly `hidden` of the controls it has, and shows the rest.
  *  `absent` are the controls this panel never has. */
-function assertHides(state: PageState, hidden: PageControl[], absent: PageControl[] = []): void {
+function assertHides(
+  state: PageState,
+  hidden: PageControl[],
+  absent: PageControl[] = [],
+  covered: PageControl[] = [],
+): void {
   for (const key of PAGE_CONTROLS) {
-    if (absent.includes(key)) {
+    if (covered.includes(key)) {
+      assert.strictEqual(state.controlShown[key], false, `${key} goes with the row around it`);
+    } else if (absent.includes(key)) {
       assert.strictEqual(state.controlDisplay[key], null, `${key}: this panel has none`);
     } else if (hidden.includes(key)) {
       assert.strictEqual(state.controlDisplay[key], "none", `${key} is not displayed`);
       assert.strictEqual(state.controlShown[key], false, `${key} takes no room`);
     } else {
-      assert.notStrictEqual(state.controlDisplay[key], "none", `${key} is displayed`);
+      assert.strictEqual(state.controlShown[key], true, `${key} is on screen`);
     }
   }
   assert.deepStrictEqual(state.shownWhileHidden, [], "nothing marked hidden is shown");
@@ -145,9 +158,20 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       assertHides(state, ["zonal"], ["arrows"]);
       assertLine(state, ["Zonal average"], [{ kind: "structural", text: `Zonal average: ${NO_ZONAL_REASON}` }]);
       assert.strictEqual(state.unavailable?.open, false, "collapsed");
+      assert.strictEqual(state.unavailable?.summaryFocusable, true, "the summary is in the tab order");
 
       state = await panel.drive([{ id: "unavailable", open: true }]);
       assert.strictEqual(state.unavailable?.open, true, "a click on the summary opens it");
+
+      // Onto another variable of the same swath: the slice changes, the line
+      // and its open state stay.
+      const from = panel.sent.length;
+      const rr = variableIndex(file, "RR");
+      await panel.drive([{ id: "slice-variable", value: rr }]);
+      await panel.waitSent((m: Msg) => m.type === "gridReady" && m.messageIndex === rr, from, "RR drawn");
+      state = await panel.drive([]);
+      assertLine(state, ["Zonal average"], [{ kind: "structural", text: `Zonal average: ${NO_ZONAL_REASON}` }]);
+      assert.strictEqual(state.unavailable?.open, true, "still open after a slice step");
 
       // A checked but hidden Zonal average asks for nothing, through a
       // re-render, which also keeps the line open: only its contents are
@@ -178,12 +202,11 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await panel.drive([]);
-      assertHides(state, ["projection", "overlay", "arrows", "zonal"]);
-      assert.strictEqual(state.controlShown.contours, false, "contours go with the Overlay row");
+      assertHides(state, ["projection", "resampling", "overlay", "arrows", "zonal"], [], ["contours"]);
       assertLine(
         state,
-        ["Projection", "Overlay", "Arrows", "Zonal average"],
-        [{ kind: "structural", text: `Projection, Overlay, Arrows, Zonal average: ${UNPLACED_REASON}` }],
+        ["Projection", "Resampling", "Overlay", "Vectors", "Zonal average"],
+        [{ kind: "structural", text: `Projection, Resampling, Overlay, Vectors, Zonal average: ${UNPLACED_REASON}` }],
       );
       assert.doesNotMatch(panel.html(), /satellite-view/, "nothing blames a satellite view");
 
@@ -214,10 +237,10 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       assertHides(state, ["contours", "zonal"], ["arrows"]);
       assertLine(
         state,
-        ["Zonal average", "Contours", "Long CSV layout"],
+        ["Zonal average", "Contours", "Long layout (Export CSV)"],
         [
           { kind: "structural", text: `Zonal average: ${NO_ZONAL_REASON}` },
-          { kind: "notYet", text: `Contours, Long CSV layout: ${SATELLITE_NOT_YET_REASON}` },
+          { kind: "notYet", text: `Contours, Long layout (Export CSV): ${SATELLITE_NOT_YET_REASON}` },
         ],
       );
     } finally {
@@ -261,11 +284,11 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       await panel.drive([{ id: "slice-variable", value: latBnds }]);
       await panel.waitSent((m: Msg) => m.type === "gridReady" && m.messageIndex === latBnds, from, "lat_bnds drawn");
       state = await panel.drive([]);
-      assertHides(state, ["projection", "overlay", "zonal"], ["arrows"]);
+      assertHides(state, ["projection", "resampling", "overlay", "zonal"], ["arrows"], ["contours"]);
       assertLine(
         state,
-        ["Projection", "Overlay", "Zonal average", "Long CSV layout"],
-        [{ kind: "structural", text: `Projection, Overlay, Zonal average, Long CSV layout: ${UNPLACED_REASON}` }],
+        ["Projection", "Resampling", "Overlay", "Zonal average", "Long layout (Export CSV)"],
+        [{ kind: "structural", text: `Projection, Resampling, Overlay, Zonal average, Long layout (Export CSV): ${UNPLACED_REASON}` }],
       );
 
       from = panel.sent.length;
@@ -277,5 +300,114 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
     } finally {
       panel.dispose();
     }
+  });
+
+  test("focus in a control that goes moves to the line's summary", async () => {
+    const p = await provider();
+    const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
+    const latBnds = variableIndex(file, "lat_bnds");
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: variableIndex(file, "temperature") }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let state = await panel.drive([{ id: "zonal-toggle", focus: true }]);
+      assert.strictEqual(state.focused, "input#zonal-toggle", "the toggle has the focus");
+      const from = panel.sent.length;
+      // Picking the variable is a change event, not a focus move, so the
+      // focus is still on the toggle when lat_bnds' answer hides it.
+      await panel.drive([{ id: "slice-variable", value: latBnds }]);
+      await panel.waitSent((m: Msg) => m.type === "gridReady" && m.messageIndex === latBnds, from, "lat_bnds drawn");
+      state = await panel.drive([]);
+      assert.strictEqual(state.controlDisplay.zonal, "none");
+      assert.strictEqual(state.focused, "summary in #unavailable", "the focus is not lost with the toggle");
+    } finally {
+      panel.dispose();
+    }
+  });
+
+  test("a cross-section hides the projection picker and Resampling rather than greying them out", async () => {
+    const p = await provider();
+    const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: variableIndex(file, "temperature") }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      // time down the rows: not a map.
+      let from = panel.sent.length;
+      await panel.drive([{ id: "slice-y", value: 0 }]);
+      await panel.waitSent(isType("gridReady"), from, "the cross-section");
+      let state = await panel.drive([]);
+      assertHides(state, ["projection", "resampling", "overlay", "zonal"], ["arrows"], ["contours"]);
+      assert.strictEqual(state.projection, "source");
+      assert.match(panel.html(), /id="picker-projection"/);
+      assert.strictEqual(state.projectionDisabled, false, "hidden, not disabled");
+
+      // Back to lat down the rows: the map's controls return.
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-y", value: 1 }]);
+      await panel.waitSent((m: Msg) => m.type === "gridReady" && m.sliceGrid && m.sliceGrid.placed, from, "the map again");
+      state = await panel.drive([]);
+      assertHides(state, [], ["arrows"]);
+      assertNoLine(state);
+    } finally {
+      panel.dispose();
+    }
+  });
+});
+
+suite("Which controls a grid can't use, and why (#1036)", () => {
+  const none = { contours: false, vectors: false, longCsv: false, zonalMean: false };
+  const all = { contours: true, vectors: true, longCsv: true, zonalMean: true };
+
+  test("a template this build does not model is 'not yet', apart from the grid's own reasons", () => {
+    const groups = unavailableControls(
+      { reprojectable: false, placement: "unsupported", label: "unsupported(3.4)", supports: none },
+      { arrows: true, csv: true },
+    );
+    assert.deepStrictEqual(
+      groups.map((g) => [g.kind, g.controls.map((c) => c.label).join(", "), g.reason]),
+      [
+        ["structural", "Overlay, Vectors, Zonal average, Long layout (Export CSV)", UNPLACED_REASON],
+        ["notYet", "Projection, Resampling", "not yet supported for unsupported(3.4) grids."],
+      ],
+    );
+    assert.deepStrictEqual(projectionReason(false, "unsupported", null), {
+      kind: "notYet",
+      reason: "not yet supported for this grid.",
+    });
+  });
+
+  test("a placed grid that does not reproject is a limit of this build, and says so once", () => {
+    // A lat/lon grid scanned east to west, say: placed, and everything else works.
+    const groups = unavailableControls(
+      { reprojectable: false, placement: "placed", label: "latlon", supports: all },
+      { arrows: true, csv: true },
+    );
+    assert.deepStrictEqual(groups, [
+      {
+        kind: "notYet",
+        reason: "not yet supported for this grid's layout.",
+        controls: [
+          { key: "projection", label: "Projection" },
+          { key: "resampling", label: "Resampling" },
+        ],
+      },
+    ]);
+    assert.doesNotMatch(groups[0].reason, /latlon|not available/, "the reason does not restate the summary");
+  });
+
+  test("a grid that takes everything lists nothing, and the panel's own rows decide what can be listed", () => {
+    const placed = { reprojectable: true, placement: "placed" as const, label: "latlon", supports: all };
+    assert.deepStrictEqual(unavailableControls(placed, { arrows: true, csv: true }), []);
+    const sat = { ...placed, label: "space_view", supports: none };
+    const labels = (offers: { arrows: boolean; csv: boolean }) =>
+      unavailableControls(sat, offers).flatMap((g) => g.controls.map((c) => c.label));
+    assert.deepStrictEqual(labels({ arrows: false, csv: false }), ["Zonal average", "Contours"]);
+    assert.deepStrictEqual(labels({ arrows: true, csv: true }), [
+      "Zonal average",
+      "Contours",
+      "Vectors",
+      "Long layout (Export CSV)",
+    ]);
   });
 });
