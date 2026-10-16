@@ -52,14 +52,19 @@ fn gfs() -> Field {
 
 /// Solid-body rotation about the axis through (0°, 90°E), resolved east and
 /// north at every cell of the 2.5° grid: `u = −sin λ sin φ`, `v = −cos λ`.
+///
+/// The two pole rows are doubled, to speed 2 against at most 1 everywhere
+/// else, so that a scale taken from a pole cell, which is not drawn, shows up
+/// as a reference speed of 2.
 fn across_the_pole() -> (Vec<Option<f64>>, Vec<Option<f64>>) {
     let (mut u, mut v) = (Vec::new(), Vec::new());
     for j in 0..73 {
         let lat = (90.0 - 2.5 * f64::from(j)).to_radians();
+        let scale = if j == 0 || j == 72 { 2.0 } else { 1.0 };
         for i in 0..144 {
             let lon = (2.5 * f64::from(i)).to_radians();
-            u.push(Some(-lon.sin() * lat.sin()));
-            v.push(Some(-lon.cos()));
+            u.push(Some(-scale * lon.sin() * lat.sin()));
+            v.push(Some(-scale * lon.cos()));
         }
     }
     (u, v)
@@ -159,7 +164,8 @@ fn no_arrow_runs_along_the_top_or_bottom_of_an_equirectangular_map() {
             15 * row
         );
     }
-    // The scale is a drawn cell's: speed 1 along lon 0 and 180 at every lat.
+    // The scale is a drawn cell's: speed 1 along lon 0 and 180 at every lat
+    // between the poles, not the pole rows' 2.
     let speed = arrows.reference_speed.expect("arrows were drawn");
     assert!((speed - 1.0).abs() < 1e-9, "reference speed {speed}");
 }
@@ -255,6 +261,23 @@ fn no_arrow_starts_at_a_rotated_grid_s_own_pole() {
         "only {} arrows",
         tails(&arrows).len()
     );
+
+    // Earth-relative components at the same point are a real east and north,
+    // the same wind in every cell of the row, so those arrows are drawn: the
+    // skip is for a frame that turns, not for a row that collapses.
+    vectors.grid_relative = false;
+    let arrows = vector_polylines(&source, &u, &source, &v, &o, &vectors).expect("arrows project");
+    for (lat, lon) in [(40.0, -170.0), (-40.0, 10.0)] {
+        let pole = pixel(&source, &o, lat, lon);
+        let at_pole = tails(&arrows)
+            .iter()
+            .filter(|(x, y)| (x - pole.0).hypot(y - pole.1) <= 1.0)
+            .count();
+        assert!(
+            at_pole >= 20,
+            "earth-relative arrows start at the grid's pole ({lat}, {lon}): {at_pole}"
+        );
+    }
 }
 
 /// The initial bearing from one point to another, in degrees clockwise from
