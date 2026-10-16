@@ -441,8 +441,9 @@ A depth axis with fill values used to fail to draw; no file here has one.
       stereographic for each hemisphere: arrows keep
       following the flow around the pole rather than all pointing one screen
       direction, and no fan of arrows radiates from the pole itself (#1045).
-      Arrows are projected like a coastline, so a wrong bearing shows up here
-      first.
+      Each arrowhead sits square on the end of its own shaft, even on the
+      long, curved arrows nearest the pole. Arrows are projected like a
+      coastline, so a wrong bearing shows up here first.
 
 **`B: samples/0.6.0/hrrr_wind.grib2`** (grid-relative, Lambert)
 

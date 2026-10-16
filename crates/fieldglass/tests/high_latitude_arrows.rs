@@ -1,6 +1,7 @@
-//! No arrow starts at a pole (#1045).
+//! Wind arrows at high latitude (#1045): none starts at a pole, and each head
+//! lines up with the end of its own shaft.
 //!
-//! A global grid's first and last rows are often the poles themselves: every
+//! **Pole rows.** A global grid's first and last rows are often the poles themselves: every
 //! cell of the row is the same point. Its components are no single vector in
 //! one frame. GRIB states them "relative to easterly and northerly directions"
 //! (WMO Code table 3.3, bit 5), and at a pole there is no east or north, so a
@@ -9,6 +10,12 @@
 //! sampled pole cell drew an arrow down its own meridian, which smeared a band
 //! along the top and bottom of an Equirectangular map and drew a fan at the
 //! pole of a polar view.
+//!
+//! **Heads.** A shaft is a great circle, and a great circle's bearing changes
+//! along it, most at high latitude: a 10° arrow heading west from lat 75 ends
+//! about 33° off the bearing it started on. The barbs were drawn at the
+//! starting bearing, so the head was turned away from the shaft's end. They
+//! are checked here in geographic terms, by inverting each projection exactly.
 //!
 //! The grid is a real one: `gfs_c255_latlon.grib2`, a 2.5° global GFS message
 //! decoded through `Session`, whose rows 0 and 72 are lat 90 and −90. The
@@ -248,4 +255,124 @@ fn no_arrow_starts_at_a_rotated_grid_s_own_pole() {
         "only {} arrows",
         tails(&arrows).len()
     );
+}
+
+/// The initial bearing from one point to another, in degrees clockwise from
+/// north. The test's own spherical formula, not the library's.
+fn bearing_deg(from: (f64, f64), to: (f64, f64)) -> f64 {
+    let (p1, p2) = (from.0.to_radians(), to.0.to_radians());
+    let dl = (to.1 - from.1).to_radians();
+    let y = dl.sin() * p2.cos();
+    let x = p1.cos() * p2.sin() - p1.sin() * p2.cos() * dl.cos();
+    y.atan2(x).to_degrees()
+}
+
+/// An angle folded onto `(−180, 180]`.
+fn wrap(deg: f64) -> f64 {
+    let d = deg.rem_euclid(360.0);
+    if d > 180.0 { d - 360.0 } else { d }
+}
+
+/// Every whole arrow's five vertices, as `(lat, lon)` through `geo`.
+fn arrows_in_degrees(
+    arrows: &VectorArrows,
+    geo: impl Fn(f64, f64) -> (f64, f64),
+) -> Vec<[(f64, f64); 5]> {
+    let p = &arrows.runs;
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    for &len in &p.seg_lengths {
+        if len == ARROW_VERTICES {
+            let v = |k: usize| geo(p.xy[(at + k) * 2], p.xy[(at + k) * 2 + 1]);
+            out.push([v(0), v(1), v(2), v(3), v(4)]);
+        }
+        at += len as usize;
+    }
+    out
+}
+
+/// Each head is symmetric about the shaft's end: seen from the tip, the two
+/// barbs leave at ±155° from the bearing the shaft arrives on. Returns how
+/// many shafts turned by more than 20° along their length, the case that
+/// tells a head drawn at the starting bearing from one drawn at the end.
+fn assert_heads_follow_their_shafts(what: &str, arrows: &[[(f64, f64); 5]]) -> usize {
+    assert!(arrows.len() > 100, "{what}: only {} arrows", arrows.len());
+    let mut turned = 0;
+    for [tail, tip, left, _, right] in arrows {
+        // A cell barely moving, such as `v = −cos 90° ≈ 6e-17` on the
+        // equator at 90°E, draws an arrow shorter than a rounding error,
+        // which has no direction to measure.
+        if (tip.0 - tail.0).hypot(tip.1 - tail.1) < 1e-6 {
+            continue;
+        }
+        let arriving = bearing_deg(*tip, *tail) + 180.0;
+        let turn = wrap(arriving - bearing_deg(*tail, *tip));
+        if turn.abs() > 20.0 {
+            turned += 1;
+        }
+        let l = wrap(bearing_deg(*tip, *left) - arriving);
+        let r = wrap(bearing_deg(*tip, *right) - arriving);
+        assert!(
+            (l + 155.0).abs() < 1e-3 && (r - 155.0).abs() < 1e-3,
+            "{what}: the head at {tip:?} is not symmetric about the shaft's end: \
+             barbs at {l:.3}° and {r:.3}° (shaft turned {turn:.2}°)"
+        );
+    }
+    turned
+}
+
+/// Equirectangular, which is linear in both axes, so its pixels invert
+/// exactly. The westward arrows at lat ±75 are about 10° of arc and turn by
+/// about 33° along their length.
+#[test]
+fn arrowheads_follow_the_end_of_their_shafts_on_an_equirectangular_map() {
+    let field = gfs();
+    let (u, v) = across_the_pole();
+    let o = options("equirectangular", None);
+    let arrows = arrows(&field, &u, &v, &o);
+    let source = field.source();
+    let (x0, y0) = pixel(&source, &o, 0.0, 0.0);
+    let (x90, _) = pixel(&source, &o, 0.0, 90.0);
+    let (_, y60) = pixel(&source, &o, 60.0, 0.0);
+    let geo = |x: f64, y: f64| (60.0 * (y - y0) / (y60 - y0), 90.0 * (x - x0) / (x90 - x0));
+    let turned =
+        assert_heads_follow_their_shafts("equirectangular", &arrows_in_degrees(&arrows, geo));
+    assert!(turned >= 8, "only {turned} arrows turn enough to tell");
+}
+
+/// Orthographic centred on each pole: the globe seen from far above the pole,
+/// so a point's pixel is the pole's plus `cos φ` times a fixed linear map of
+/// `(cos λ, sin λ)`. Two points on lat ±60 pin that map down, and it inverts
+/// exactly.
+#[test]
+fn arrowheads_follow_the_end_of_their_shafts_on_a_polar_orthographic_globe() {
+    let field = gfs();
+    let (u, v) = across_the_pole();
+    for pole_lat in [90.0f64, -90.0] {
+        let o = options("orthographic", Some(pole_lat));
+        let arrows = arrows(&field, &u, &v, &o);
+        let source = field.source();
+        let sign = pole_lat.signum();
+        let c = pixel(&source, &o, pole_lat, 0.0);
+        // cos 60° = 0.5, so each axis is twice the offset of its lat-60 point.
+        let axis = |lon: f64| {
+            let p = pixel(&source, &o, sign * 60.0, lon);
+            (2.0 * (p.0 - c.0), 2.0 * (p.1 - c.1))
+        };
+        let (e0, e90) = (axis(0.0), axis(90.0));
+        let det = e0.0 * e90.1 - e0.1 * e90.0;
+        let geo = |x: f64, y: f64| {
+            let (dx, dy) = (x - c.0, y - c.1);
+            let a = (dx * e90.1 - dy * e90.0) / det;
+            let b = (e0.0 * dy - e0.1 * dx) / det;
+            let lat = sign * a.hypot(b).min(1.0).acos().to_degrees();
+            (lat, b.atan2(a).to_degrees())
+        };
+        let what = format!("orthographic {pole_lat}");
+        let turned = assert_heads_follow_their_shafts(&what, &arrows_in_degrees(&arrows, geo));
+        assert!(
+            turned >= 4,
+            "{what}: only {turned} arrows turn enough to tell"
+        );
+    }
 }

@@ -2461,11 +2461,19 @@ pub fn vector_polylines(
             continue;
         }
         let tip = destination(start.0, start.1, bearing, length);
+        // The head is turned from the bearing the shaft *arrives* on, not the
+        // one it left on. A great circle's bearing changes along it, most at
+        // high latitude: a 10° shaft heading west from lat 75 ends about 33°
+        // off its starting bearing, and a head drawn at that would point away
+        // from the shaft's end. Arriving is the reverse of the bearing from
+        // the tip back to the tail.
+        let arriving =
+            bearing_between(tip, start).map_or(bearing, |back| back + std::f64::consts::PI);
         let barb = |side: f64| {
             destination(
                 tip.0,
                 tip.1,
-                bearing + side * HEAD_ANGLE_DEG.to_radians(),
+                arriving + side * HEAD_ANGLE_DEG.to_radians(),
                 length * HEAD_FRACTION,
             )
         };
