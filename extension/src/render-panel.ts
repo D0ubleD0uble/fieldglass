@@ -245,7 +245,8 @@ ${options}
       <input type="number" id="width-vectors" class="layer-width" value="1" min="0.2" max="5" step="0.1" aria-label="Arrow line weight">
       <span class="slice-len" id="vector-scale" aria-live="polite"></span>
       <span class="picker-note" id="vector-note">${
-        gridRelative ? "This file states its components along the grid's axes; they are rotated to true north." : ""
+        // Said only of arrows that can be drawn.
+        gridRelative && !hidden ? "This file states its components along the grid's axes; they are rotated to true north." : ""
       }</span>
     </fieldset>
 `;
