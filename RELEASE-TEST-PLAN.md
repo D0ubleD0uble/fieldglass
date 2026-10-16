@@ -433,11 +433,17 @@ A depth axis with fill values used to fail to draw; no file here has one.
       (#1027).
 - [ ] Mid-latitude westerlies point east; the trade winds point west. Around a
       low in the Northern Hemisphere the arrows turn anticlockwise.
+- [ ] On Equirectangular, with and without Reset view, no band of arrows runs
+      along the top or bottom edge. This grid's first and last rows are the
+      poles, where east and north are undefined, so no arrow starts there
+      (#1045).
 - [ ] **priority** Orthographic centred on each pole (Center lat ±90), and Polar
       stereographic for each hemisphere: arrows keep
       following the flow around the pole rather than all pointing one screen
-      direction. Arrows are projected like a coastline, so a wrong bearing
-      shows up here first.
+      direction, and no fan of arrows radiates from the pole itself (#1045).
+      Each arrowhead sits square on the end of its own shaft, even on the
+      long, curved arrows nearest the pole. Arrows are projected like a
+      coastline, so a wrong bearing shows up here first.
 
 **`B: samples/0.6.0/hrrr_wind.grib2`** (grid-relative, Lambert)
 
