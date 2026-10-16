@@ -402,8 +402,9 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 
 - [ ] Set the axes to `time` (X) and `lat` (Y). The panel says
       `Cross-section: these axes are not a map, so it is drawn in index
-      space.`, hides the projection picker, the map overlays and Zonal
-      average (the line under the caption names them), and draws a
+      space.`, hides the projection picker, Resampling, the map overlays and
+      Zonal average (the line under the caption names them; nothing is
+      greyed out), and draws a
       time–latitude plot: the
       seasonal swing is strongest at high latitudes. Latitude ticks read 90 …
       −90, and the time ticks read as dates, though this file's time
@@ -413,7 +414,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       longitude. A line plot is offered along `lon`.
 - [ ] Do the same on `B: samples/0.6.0/air_v2.zarr`, whose time units have no
       fractional seconds: its time ticks read as dates.
-- [ ] Set the axes back to `lon` and `lat`: the map, the projection picker
+- [ ] Set the axes back to `lon` and `lat`: the map, the projection picker, Resampling
       and the overlays return.
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, `air`
@@ -694,8 +695,9 @@ checked in CI against pyshtools at T2500 and 80-bit arithmetic at T3000
 
 - [ ] Open `temperature`: the projection picker offers the map projections.
 - [ ] Switch the variable to `lat_bnds`, which has no coordinates: the
-      projection picker is hidden, the caption says `source`, and the line
-      under it starts `Not available for this grid: Projection`.
+      projection picker and Resampling are hidden, the caption says
+      `source`, and the line under it starts `Not available for this grid:
+      Projection, Resampling`.
 - [ ] Switch back to `temperature`: the picker returns with the map
       projections, and the line goes.
 
@@ -707,8 +709,8 @@ The same rule on a Zarr store is covered by
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc`** (same file as §18)
 
 - [ ] On `lat_bnds`, open the "Not available for this grid" line under the
-      caption. It lists Projection with "this grid isn't placed on the
-      Earth." It does not say "not yet supported for source grids".
+      caption. It lists Projection and Resampling with "this grid has no
+      known position on the Earth." It does not say "not yet supported for source grids".
 
 **`F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2`** (Dx = Dy = 0; also used in §20 and §39)
 
@@ -720,15 +722,15 @@ The same rule on a Zarr store is covered by
 
 - [ ] On `temperature`, turn on coastlines and contours. Switch to
       `lat_bnds`: the Overlay row, contours included, is hidden, and the line
-      under the caption lists Overlay with "this grid isn't placed on the
-      Earth." No error is shown.
+      under the caption lists Overlay with "this grid has no known position on
+      the Earth." No error is shown.
 - [ ] Switch back to `temperature`: the Overlay row returns, and the
       coastlines and contours you had on come back.
 
 **`F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2`** (same file as §19)
 
 - [ ] The Overlay row is hidden, and the line lists Overlay with "this grid
-      isn't placed on the Earth." The file holds one message, so there is no
+      has no known position on the Earth." The file holds one message, so there is no
       Vectors row; arrows on an unplaced grid are checked on
       `tiny_earth_pair.grib2` in §39.
 
@@ -742,11 +744,12 @@ mesoscale sector. The same reasons apply to all three, and to a full disc.
 - [ ] The field is placed: the projection picker and coastlines are offered,
       and coastlines draw.
 - [ ] Contours and Zonal average are hidden. The line under the caption reads
-      `Not available for this grid: Zonal average, Contours, Long CSV
-      layout`. Opened, it gives two reasons, the grid's own first:
+      `Not available for this grid: Zonal average, Contours, Long layout
+      (Export CSV)`. Opened, it gives two reasons, the grid's own first:
       `Zonal average: this grid's rows aren't circles of latitude.`, then
-      `Contours, Long CSV layout: not yet supported for satellite-view
-      grids.`
+      `Contours, Long layout (Export CSV): not yet supported for
+      satellite-view grids.` Tab reaches the summary, which shows a focus
+      outline, and Enter opens it.
 - [ ] Export CSV offers only the matrix layout, and its prompt says "The long
       layout isn't available for satellite-view grids yet."
 - [ ] No reason claims that some of the grid's points have no position, and
@@ -767,8 +770,9 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
 - [ ] Open the copy, open a panel on `temperature`, then close the file's
       editor. Change the variable in the panel to `lat_bnds`. The panel says
       `NetCDF handle was disposed`, and the projection picker and overlays
-      follow the slice you picked (hidden, and named in the line under the
-      caption), not the last one drawn.
+      follow the slice you picked (hidden), not the last one drawn. No "Not
+      available for this grid" line shows while the file is closed: it says
+      nothing about the grid.
 - [ ] Overwrite the copy with `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc`
       and open it again. Reopening alone does not touch the panel: make it
       draw again (*Developer: Reload Webviews*, or flip any control). The
@@ -1050,11 +1054,12 @@ open(sys.argv[2], 'wb').write(bytes(b) * 2)
 PY
 ```
 
-- [ ] Open `samples/0.6.0/tiny_earth_pair.grib2`. The projection picker, the
-      Overlay row, the Vectors row and Zonal average are hidden. The line
-      under the caption reads `Not available for this grid: Projection,
-      Overlay, Arrows, Zonal average`, and opened, `Projection, Overlay,
-      Arrows, Zonal average: this grid isn't placed on the Earth.` Nothing
+- [ ] Open `samples/0.6.0/tiny_earth_pair.grib2`. The projection picker,
+      Resampling, the Overlay row, the Vectors row and Zonal average are
+      hidden. The line under the caption reads `Not available for this grid:
+      Projection, Resampling, Overlay, Vectors, Zonal average`, and opened,
+      `Projection, Resampling, Overlay, Vectors, Zonal average: this grid has
+      no known position on the Earth.` Nothing
       mentions satellite-view grids, and no error is shown. 0.5.0 placed this
       grid and then refused contours "for satellite-view grids".
 
