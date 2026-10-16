@@ -242,6 +242,14 @@ Carried forward each cycle. This is the minimum for a release whose diff is
 small, and it is *not* a substitute for the per-feature sections below it.
 
 - [ ] `S: samples/gfs.grib2` — renders, reprojects, coastlines align.
+- [ ] **Controls a grid can't use are hidden, and the panel says why**
+      (#1036). On `gfs.grib2` every control shows, and there is no "Not
+      available for this grid" line under the caption. On
+      `S: samples/mirs_swath.nc`, Zonal average is hidden; the line under the
+      caption reads `Not available for this grid: Zonal average`, starts
+      closed, and opens (click, or Tab to it and press Enter) to `Zonal
+      average: this grid's rows aren't circles of latitude.` Nothing is greyed
+      out.
 - [ ] **Contours on `gfs.grib2` in Mollweide.** No isoline streaks straight
       across the map. Use Mollweide rather than Equirectangular: an
       equirectangular raster is as wide as the grid, which lands the last pixel
@@ -394,8 +402,9 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 
 - [ ] Set the axes to `time` (X) and `lat` (Y). The panel says
       `Cross-section: these axes are not a map, so it is drawn in index
-      space.`, sets the projection picker to Source projection and greys it
-      out, hides the map overlays, and draws a time–latitude plot: the
+      space.`, hides the projection picker, the map overlays and Zonal
+      average (the line under the caption names them), and draws a
+      time–latitude plot: the
       seasonal swing is strongest at high latitudes. Latitude ticks read 90 …
       −90, and the time ticks read as dates, though this file's time
       reference has fractional seconds (#1028). Before this change the plane
@@ -524,8 +533,9 @@ A depth axis with fill values used to fail to draw; no file here has one.
 
 **`S: samples/hrrr.grib2`**
 
-- [ ] The checkbox is disabled, with the note that a zonal average needs rows
-      that are circles of latitude (#945).
+- [ ] The checkbox is hidden, and the "Not available for this grid" line
+      under the caption opens to `Zonal average: this grid's rows aren't
+      circles of latitude.` (#945, #1036).
 
 ## 9. Import a GMT color table (#236)
 
@@ -683,66 +693,70 @@ checked in CI against pyshtools at T2500 and 80-bit arithmetic at T3000
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc`** (also used in §19, §20 and §22)
 
 - [ ] Open `temperature`: the projection picker offers the map projections.
-- [ ] Switch the variable to `lat_bnds`, which has no coordinates: the picker
-      offers only the source view, and the caption says `source`.
-- [ ] Switch back to `temperature`: the map projections return.
+- [ ] Switch the variable to `lat_bnds`, which has no coordinates: the
+      projection picker is hidden, the caption says `source`, and the line
+      under it starts `Not available for this grid: Projection`.
+- [ ] Switch back to `temperature`: the picker returns with the map
+      projections, and the line goes.
 
 The same rule on a Zarr store is covered by
 `extension/src/test/suite/slice-picker.test.ts`.
 
-## 19. The projection note says "not placed", not "not supported" (#960)
+## 19. The projection reason says "not placed", not "not supported" (#960)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc`** (same file as §18)
 
-- [ ] On `lat_bnds`, the note beside the projection picker reads
-      "Reprojection needs a grid placed on the Earth, and this one isn't." It
-      does not say "isn't available for source grids yet".
+- [ ] On `lat_bnds`, open the "Not available for this grid" line under the
+      caption. It lists Projection with "this grid isn't placed on the
+      Earth." It does not say "not yet supported for source grids".
 
 **`F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2`** (Dx = Dy = 0; also used in §20 and §39)
 
-- [ ] The same note, not "Reprojection isn't available for polar_stereo grids
-      yet".
+- [ ] The same reason, not "not yet supported for polar_stereo grids".
 
 ## 20. Overlays offered only where they can be drawn (#840)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc`** (same file as §18)
 
 - [ ] On `temperature`, turn on coastlines and contours. Switch to
-      `lat_bnds`: the overlays and contours are disabled, with
-      "Overlays need a grid placed on the Earth, and this one isn't." No
-      error is shown.
-- [ ] Switch back to `temperature`: the coastlines and contours you had on
-      come back.
+      `lat_bnds`: the Overlay row, contours included, is hidden, and the line
+      under the caption lists Overlay with "this grid isn't placed on the
+      Earth." No error is shown.
+- [ ] Switch back to `temperature`: the Overlay row returns, and the
+      coastlines and contours you had on come back.
 
 **`F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2`** (same file as §19)
 
-- [ ] The overlays are disabled with "Overlays need a grid placed on the
-      Earth, and this one isn't." The file holds one message, so there is no
-      Vectors row; refusing arrows on an unplaced grid is covered by
-      `extension/src/test/suite/overlay-placement.test.ts`.
+- [ ] The Overlay row is hidden, and the line lists Overlay with "this grid
+      isn't placed on the Earth." The file holds one message, so there is no
+      Vectors row; arrows on an unplaced grid are checked on
+      `tiny_earth_pair.grib2` in §39.
 
 ## 21. Contours, the long CSV and the zonal average gated by grid (#945, #979)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/goes_geostationary.nc`** (`Rad`), **`F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc`** (`CMI`) and **`S: samples/goes.nc`**
 
 The first two are small sectors with every pixel on the Earth; `goes.nc` is a
-mesoscale sector. The same notes apply to all three, and to a full disc.
+mesoscale sector. The same reasons apply to all three, and to a full disc.
 
-- [ ] The field is placed: coastlines are offered and draw.
-- [ ] Contours are disabled with "Contours aren't available for
-      satellite-view grids yet."
-- [ ] The zonal average is disabled with "A zonal average needs rows that
-      are circles of latitude, and this grid's rows aren't."
+- [ ] The field is placed: the projection picker and coastlines are offered,
+      and coastlines draw.
+- [ ] Contours and Zonal average are hidden. The line under the caption reads
+      `Not available for this grid: Zonal average, Contours, Long CSV
+      layout`. Opened, it gives two reasons, the grid's own first:
+      `Zonal average: this grid's rows aren't circles of latitude.`, then
+      `Contours, Long CSV layout: not yet supported for satellite-view
+      grids.`
 - [ ] Export CSV offers only the matrix layout, and its prompt says "The long
       layout isn't available for satellite-view grids yet."
-- [ ] No note claims that some of the grid's points have no position, and
+- [ ] No reason claims that some of the grid's points have no position, and
       nothing shows an error.
 
 A NetCDF panel has no Vectors row, so arrows are not checked here.
 
 **`S: samples/hrrr.grib2`** (Lambert)
 
-- [ ] Contours stay offered and draw. Only the zonal average is disabled
+- [ ] Contours stay offered and draw. Only the zonal average is hidden
       (§8). The file holds one message, so it has no Vectors row; arrows on a
       Lambert grid are checked on `hrrr_wind.grib2` in §6.
 
@@ -753,7 +767,8 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
 - [ ] Open the copy, open a panel on `temperature`, then close the file's
       editor. Change the variable in the panel to `lat_bnds`. The panel says
       `NetCDF handle was disposed`, and the projection picker and overlays
-      follow the slice you picked (source only), not the last one drawn.
+      follow the slice you picked (hidden, and named in the line under the
+      caption), not the last one drawn.
 - [ ] Overwrite the copy with `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc`
       and open it again. Reopening alone does not touch the panel: make it
       draw again (*Developer: Reload Webviews*, or flip any control). The
@@ -1013,8 +1028,9 @@ temperature. Compare within a pair, not across them.
       it is one flat colour. The panel caption reads `polar_stereo 16×31 (grid
       coordinates)`, with no corner pair (no `→`), and the message table shows
       no corner either. 0.5.0 showed the first point twice (#1011).
-- [ ] Contours and the long CSV are not offered, and the note says the grid
-      is not placed (§20). No message calls the grid type unsupported.
+- [ ] The Overlay row, contours included, is hidden and the long CSV is not
+      offered; the line under the caption and the CSV prompt say the grid is
+      not placed (§20). No message calls the grid type unsupported.
 
 **A polar stereographic grid on an Earth smaller than one cell (#1002).** Build
 it from the same file, written twice so a Vectors row appears:
@@ -1034,13 +1050,13 @@ open(sys.argv[2], 'wb').write(bytes(b) * 2)
 PY
 ```
 
-- [ ] Open `samples/0.6.0/tiny_earth_pair.grib2`. The overlays are disabled
-      with "Overlays need a grid placed on the Earth, and this one isn't.",
-      arrows with "Arrows need a grid placed on the Earth, and this one
-      isn't." and the zonal average with "A zonal average needs a grid placed
-      on the Earth, and this one isn't." No note mentions satellite-view
-      grids, and no error is shown. 0.5.0 placed this grid and then refused
-      contours "for satellite-view grids".
+- [ ] Open `samples/0.6.0/tiny_earth_pair.grib2`. The projection picker, the
+      Overlay row, the Vectors row and Zonal average are hidden. The line
+      under the caption reads `Not available for this grid: Projection,
+      Overlay, Arrows, Zonal average`, and opened, `Projection, Overlay,
+      Arrows, Zonal average: this grid isn't placed on the Earth.` Nothing
+      mentions satellite-view grids, and no error is shown. 0.5.0 placed this
+      grid and then refused contours "for satellite-view grids".
 
 The other degenerate grids (a radius of zero, a scale factor of zero, a
 latitude of true scale of 270°, non-finite parameters, a geostationary camera
