@@ -5,8 +5,9 @@
 // on a slice's `SliceGrid`), not a list kept here. A satellite view, a full disc
 // or a sector wholly on the Earth, is placed and takes coastlines, but the
 // library has no point map for the family yet, so its contours were offered
-// and then refused with a `contourError`. The notes say that, not that some of
-// its points have no position (#979).
+// and then refused with a `contourError`. The reasons say that, not that some
+// of its points have no position (#979). A control a grid does not take is
+// hidden, and the panel's "Not available for this grid" line says why (#1036).
 //
 // These run the panel's own script in a real webview, through the driver in
 // `real-panel.ts`, the way #840's tests do.
@@ -19,16 +20,22 @@ import * as vscode from "vscode";
 
 import { loadNative, type GridSupport, type SlicePanelHandle } from "../../native";
 import {
-  NO_CONTOURS_NOTE,
   NO_LONG_CSV_NOTE,
-  NO_ZONAL_NOTE,
+  NO_ZONAL_REASON,
+  SATELLITE_NOT_YET_REASON,
   UNPLACED_LONG_CSV_NOTE,
-  UNPLACED_OVERLAY_NOTE,
-  UNPLACED_VECTORS_NOTE,
-  UNPLACED_ZONAL_NOTE,
-  zonalNote,
+  UNPLACED_REASON,
 } from "../../render-panel";
-import { extensionPath, isType, type Msg, openEditor, openReal, provider, waitUntil } from "./real-panel";
+import {
+  extensionPath,
+  isType,
+  type Msg,
+  openEditor,
+  openReal,
+  provider,
+  reasonFor,
+  waitUntil,
+} from "./real-panel";
 
 const NONE: GridSupport = { contours: false, vectors: false, longCsv: false, zonalMean: false };
 
@@ -73,7 +80,7 @@ function polarStereoOnAnEarthOf(radiusM: number): Buffer {
 suite("Point operations follow the grid (#945)", function () {
   this.timeout(120_000);
 
-  test("a space view slice disables Contours and the zonal average, with the reason, and posts no contourError", async () => {
+  test("a space view slice hides Contours and the zonal average, with the reason, and posts no contourError", async () => {
     const p = await provider();
     const file = crateFixture("fieldglass-netcdf", "goes_geostationary.nc");
     const rad = variableIndex(file, "Rad");
@@ -88,19 +95,19 @@ suite("Point operations follow the grid (#945)", function () {
       assert.deepStrictEqual(first.sliceGrid.supports, NONE, "and takes no point operation");
 
       let state = await panel.drive([]);
-      assert.strictEqual(state.overlayDisabled, false, "the Overlay row stays offered");
-      assert.strictEqual(state.contoursDisabled, true, "Contours is disabled");
-      assert.strictEqual(state.contourNote, NO_CONTOURS_NOTE, "with the reason");
+      assert.notStrictEqual(state.controlDisplay.overlay, "none", "the Overlay row stays offered");
+      assert.strictEqual(state.controlDisplay.contours, "none", "Contours is hidden");
+      assert.strictEqual(reasonFor(state, "Contours"), SATELLITE_NOT_YET_REASON, "with the reason");
       // The real reason (#979): this 6 x 6 sector is wholly on the Earth, so
       // no point of it lacks a position.
-      assert.match(String(state.contourNote), /satellite-view grids yet/, "the family is not supported yet");
-      assert.doesNotMatch(String(state.contourNote), /position|none/, "and no point is said to lack a position");
-      assert.strictEqual(state.zonalDisabled, true, "Zonal average is disabled");
-      assert.strictEqual(state.zonalNote, NO_ZONAL_NOTE, "with the reason");
+      assert.match(String(reasonFor(state, "Contours")), /not yet supported for satellite-view grids/);
+      assert.doesNotMatch(String(reasonFor(state, "Contours")), /position|none/, "and no point is said to lack a position");
+      assert.strictEqual(state.controlDisplay.zonal, "none", "Zonal average is hidden");
+      assert.strictEqual(reasonFor(state, "Zonal average"), NO_ZONAL_REASON, "with the reason");
 
-      // On a map, with coastlines, and with the Contours box set the way the
-      // panel used to let a user set it: the coastlines are drawn, and no
-      // contour is asked for or refused.
+      // On a map, with coastlines, and with the hidden Contours box set the way
+      // the panel used to let a user set it (or a restored snapshot can): the
+      // coastlines are drawn, and no contour is asked for or refused.
       let from = panel.sent.length;
       state = await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
       await panel.waitSent((m) => m.type === "gridReady" && m.options.projection === "equirectangular", from, "the map");
@@ -117,8 +124,8 @@ suite("Point operations follow the grid (#945)", function () {
       await panel.drive([{ id: "flip-y", checked: true }]);
       await panel.waitSent(isType("gridReady"), from, "a re-render");
       state = await panel.drive([]);
-      assert.strictEqual(state.contoursDisabled, true);
-      assert.strictEqual(state.contourNote, NO_CONTOURS_NOTE);
+      assert.strictEqual(state.controlDisplay.contours, "none");
+      assert.strictEqual(reasonFor(state, "Contours"), SATELLITE_NOT_YET_REASON);
       assert.deepStrictEqual(
         panel.received
           .slice(before.received)
@@ -166,14 +173,14 @@ suite("Point operations follow the grid (#945)", function () {
         { id: "overlay-contours", checked: true },
         { id: "overlay-vectors", checked: true },
       ]);
-      assert.strictEqual(state.overlayDisabled, true, "the Overlay row is disabled");
-      assert.strictEqual(state.overlayNote, UNPLACED_OVERLAY_NOTE, "because the grid is not placed");
-      assert.strictEqual(state.contourNote, null, "the Overlay note covers contours");
-      assert.strictEqual(state.vectorDisabled, true);
-      assert.strictEqual(state.vectorNote, UNPLACED_VECTORS_NOTE);
-      assert.strictEqual(state.zonalNote, UNPLACED_ZONAL_NOTE);
-      for (const note of [state.overlayNote, state.contourNote, state.vectorNote, state.zonalNote]) {
-        assert.doesNotMatch(String(note), /satellite-view/, "nothing blames a satellite view");
+      assert.strictEqual(state.controlDisplay.overlay, "none", "the Overlay row is hidden");
+      assert.strictEqual(reasonFor(state, "Overlay"), UNPLACED_REASON, "because the grid is not placed");
+      assert.strictEqual(reasonFor(state, "Contours"), null, "the Overlay row's reason covers contours");
+      assert.strictEqual(state.controlDisplay.arrows, "none");
+      assert.strictEqual(reasonFor(state, "Arrows"), UNPLACED_REASON);
+      assert.strictEqual(reasonFor(state, "Zonal average"), UNPLACED_REASON);
+      for (const item of state.unavailable?.items ?? []) {
+        assert.doesNotMatch(item.text, /satellite-view/, "nothing blames a satellite view");
       }
       assert.deepStrictEqual(
         panel.sent.filter((m: Msg) => m && /Error$|vectorResult|contourReady/.test(m.type)).map((m: Msg) => m.type),
@@ -256,10 +263,10 @@ suite("Point operations follow the grid (#945)", function () {
         assert.strictEqual(supports.contours, true, `${family} contours today`);
 
         let state = await panel.drive([]);
-        assert.strictEqual(state.contoursDisabled, false, "Contours is offered");
-        assert.strictEqual(state.contourNote, null, "with no note");
-        assert.strictEqual(state.zonalDisabled, !supports.zonalMean, "Zonal average follows Rust's answer");
-        assert.strictEqual(state.zonalNote, supports.zonalMean ? null : NO_ZONAL_NOTE);
+        assert.strictEqual(state.controlShown.contours, true, "Contours is offered");
+        assert.strictEqual(reasonFor(state, "Contours"), null, "with no reason against");
+        assert.strictEqual(state.controlShown.zonal, supports.zonalMean, "Zonal average follows Rust's answer");
+        assert.strictEqual(reasonFor(state, "Zonal average"), supports.zonalMean ? null : NO_ZONAL_REASON);
 
         const from = panel.sent.length;
         state = await panel.drive([{ id: "overlay-contours", checked: true }]);
@@ -275,11 +282,6 @@ suite("Point operations follow the grid (#945)", function () {
     });
   }
 
-  test("the zonal note gives the reason that applies: rows that are not latitudes, or no placement", () => {
-    assert.strictEqual(zonalNote(true), NO_ZONAL_NOTE);
-    assert.strictEqual(zonalNote(false), UNPLACED_ZONAL_NOTE);
-  });
-
   test("an unplaced slice says it is not placed, not that its rows or points are wrong", async () => {
     const p = await provider();
     const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
@@ -290,19 +292,19 @@ suite("Point operations follow the grid (#945)", function () {
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       let state = await panel.drive([]);
-      assert.strictEqual(state.zonalDisabled, false, "a lat/lon slice takes a zonal average");
-      assert.strictEqual(state.zonalNote, null);
+      assert.strictEqual(state.controlShown.zonal, true, "a lat/lon slice takes a zonal average");
+      assert.strictEqual(reasonFor(state, "Zonal average"), null);
 
-      // Onto lat_bnds, which nothing places: the toggle is disabled and the
-      // reason is the placement, as the Overlay row says.
+      // Onto lat_bnds, which nothing places: the toggle is hidden and the
+      // reason is the placement, as the Overlay row's is.
       const from = panel.sent.length;
       await panel.drive([{ id: "slice-variable", value: latBnds }]);
       await panel.waitSent((m: Msg) => m.type === "gridReady" && m.messageIndex === latBnds, from, "lat_bnds drawn");
       state = await panel.drive([]);
-      assert.strictEqual(state.overlayNote, UNPLACED_OVERLAY_NOTE);
-      assert.strictEqual(state.zonalDisabled, true);
-      assert.strictEqual(state.zonalNote, UNPLACED_ZONAL_NOTE);
-      assert.strictEqual(state.contourNote, null, "the Overlay note covers contours");
+      assert.strictEqual(reasonFor(state, "Overlay"), UNPLACED_REASON);
+      assert.strictEqual(state.controlDisplay.zonal, "none");
+      assert.strictEqual(reasonFor(state, "Zonal average"), UNPLACED_REASON);
+      assert.strictEqual(reasonFor(state, "Contours"), null, "the Overlay row's reason covers contours");
     } finally {
       panel.dispose();
     }
@@ -312,7 +314,7 @@ suite("Point operations follow the grid (#945)", function () {
     try {
       await direct.waitSent(isType("gridReady"), 0, "lat_bnds drawn");
       const state = await direct.drive([]);
-      assert.strictEqual(state.zonalNote, UNPLACED_ZONAL_NOTE);
+      assert.strictEqual(reasonFor(state, "Zonal average"), UNPLACED_REASON);
     } finally {
       direct.dispose();
     }

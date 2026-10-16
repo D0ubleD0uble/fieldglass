@@ -45,12 +45,13 @@ import {
   UNPLACED_LONG_CSV_NOTE,
   offersOverlays,
   renderImagePanelHtml,
-  reprojectionNote,
   sanitizePngName,
+  unavailableControls,
   type CompareFieldOption,
   type PanelField,
   type SlicePanelData,
   type SliceSpec,
+  type UnavailableGroup,
 } from "./render-panel";
 
 const FORMAT_LABELS: Record<string, string> = {
@@ -1935,13 +1936,13 @@ export interface GridReadyMessage {
   /** A slice panel's answer for the slice actually drawn (#822): its grid
    *  family (`null` when it could not be placed) and whether it can be
    *  reprojected. The projection picker follows it, because the picker can
-   *  move onto a variable or axis pair with a different answer. `note` is
-   *  {@link reprojectionNote} for it, the text shown beside the picker.
+   *  move onto a variable or axis pair with a different answer.
    *  `placed` is {@link offersOverlays} for it: whether the overlays,
-   *  contours and arrows apply, which the Overlay row follows (#840).
-   *  `supports` is which point operations it takes (#945), which the
-   *  Contours controls and the Zonal average toggle follow. Absent for a GRIB
-   *  panel, which draws one field. */
+   *  contours and arrows apply (#840). `supports` is which point operations
+   *  it takes (#945). `unavailable` is {@link unavailableControls} for it:
+   *  the controls the panel hides for it, and why, which the "Not available
+   *  for this grid" line says (#1036). Absent for a GRIB panel, which draws
+   *  one field. */
   sliceGrid?: SliceAnswer;
 }
 
@@ -1950,21 +1951,27 @@ export interface GridReadyMessage {
 export interface SliceAnswer {
   label: string | null;
   reprojectable: boolean;
-  note: string;
   placed: boolean;
   supports: GridSupport;
+  unavailable: UnavailableGroup[];
 }
 
 /** The answers for a slice from its `SliceGrid`, or for one the handle could
  *  not place (`null`): no family, the source view alone, no overlays, and no
- *  point operation. */
+ *  point operation. A slice panel has no Vectors row and does export a CSV. */
 export function sliceAnswer(grid: SliceGrid | null): SliceAnswer {
+  const label = grid?.label ?? null;
+  const reprojectable = grid?.reprojectable ?? false;
+  const supports = grid?.supports ?? NO_SUPPORT;
   return {
-    label: grid?.label ?? null,
-    reprojectable: grid?.reprojectable ?? false,
-    note: reprojectionNote(grid?.reprojectable ?? false, grid?.placement, grid?.label ?? null),
+    label,
+    reprojectable,
     placed: offersOverlays(grid?.placement),
-    supports: grid?.supports ?? NO_SUPPORT,
+    supports,
+    unavailable: unavailableControls(
+      { reprojectable, placement: grid?.placement, label, supports },
+      { arrows: false, csv: true },
+    ),
   };
 }
 

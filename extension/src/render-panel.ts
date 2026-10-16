@@ -219,8 +219,7 @@ ${options}
 function vectorFieldsetHtml(
   fields: CompareFieldOption[],
   gridRelative: boolean,
-  placed: boolean,
-  takesArrows: boolean,
+  hidden: boolean,
 ): string {
   if (fields.length < 2) {
     return "";
@@ -228,10 +227,10 @@ function vectorFieldsetHtml(
   const options = messageOptionsHtml(fields);
   // Arrows are drawn along the grid's own geometry, so a message nothing
   // places takes none (#840), and neither does a placed one the library
-  // cannot yet map to the Earth point by point (#945, #979). A GRIB panel
+  // cannot yet map to the Earth point by point (#945, #979). The row is then
+  // `hidden` and the "Not available" line says why (#1036). A GRIB panel
   // draws one message, so this is settled when the panel is written.
-  const offered = placed && takesArrows;
-  return `    <fieldset id="vector-fieldset"${offered ? "" : " disabled"}>
+  return `    <fieldset id="vector-fieldset"${hidden ? " hidden" : ""}>
       <legend>Vectors:</legend>
       <label><input type="checkbox" id="overlay-vectors"> Arrows</label>
       <label>V component
@@ -246,13 +245,7 @@ ${options}
       <input type="number" id="width-vectors" class="layer-width" value="1" min="0.2" max="5" step="0.1" aria-label="Arrow line weight">
       <span class="slice-len" id="vector-scale" aria-live="polite"></span>
       <span class="picker-note" id="vector-note">${
-        !placed
-          ? UNPLACED_VECTORS_NOTE
-          : !takesArrows
-            ? NO_VECTORS_NOTE
-            : gridRelative
-              ? "This file states its components along the grid's axes; they are rotated to true north."
-              : ""
+        gridRelative ? "This file states its components along the grid's axes; they are rotated to true north." : ""
       }</span>
     </fieldset>
 `;
@@ -368,21 +361,21 @@ export function projectionOptionsHtml(
   return html;
 }
 
-/** The projection `<select>` and its note, moved to a slice render's answer to
- *  whether it can be reprojected (#822). `offered` is whether the select
- *  currently lists the map targets; the options are rebuilt only when that
- *  changes, keeping the selection where it is still offered and going back to
- *  `source` where it is not — which is what the provider drew it in. The note
- *  takes the text the provider composed.
+/** The projection `<select>`, moved to a slice render's answer to whether it
+ *  can be reprojected (#822). `offered` is whether the select currently lists
+ *  the map targets; the options are rebuilt only when that changes, keeping the
+ *  selection where it is still offered and going back to `source` where it is
+ *  not — which is what the provider drew it in. Where it is not, the panel
+ *  hides the picker and gives the reason in its "Not available for this grid"
+ *  line (#1036).
  *
  *  Returns the new `offered`, and whether the selection moved. Takes its
- *  elements as arguments, so a test can run it against stand-ins. Serialized
+ *  element as an argument, so a test can run it against a stand-in. Serialized
  *  into the panel script, so it must not reference anything outside itself but
  *  {@link projectionOptionsHtml}, which is serialized beside it. */
 export function applyReprojectable(
   projection: { value: string; innerHTML: string; options: ArrayLike<{ value: string }> } | null,
-  note: { textContent: string | null; toggleAttribute(name: string, force: boolean): unknown } | null,
-  sliceGrid: { reprojectable: boolean; note?: string },
+  sliceGrid: { reprojectable: boolean },
   offered: boolean,
   targets: ReadonlyArray<{ value: string; label: string }>,
 ): { offered: boolean; moved: boolean } {
@@ -395,45 +388,8 @@ export function applyReprojectable(
     projection.value = still ? keep : "source";
     moved = !still;
   }
-  if (note) {
-    note.textContent = typeof sliceGrid.note === "string" ? sliceGrid.note : "";
-    note.toggleAttribute("hidden", reprojectable);
-  }
   return { offered: reprojectable, moved };
 }
-
-/** The note beside the projection picker: why there is nothing but the source
- *  view, or nothing at all for a field that can be reprojected (#960).
- *
- *  Keyed on the placement Rust reports, never on the family: a grid of a
- *  family this build reprojects can still be declined because its own numbers
- *  place nothing (a Lambert grid on an Earth of radius zero is `unplaceable`
- *  under the label `lambert`). Only an `unsupported` template is a family this
- *  build does not support yet. A placed grid that does not reproject (a
- *  lat/lon grid scanned east to west) is that one grid, not its family.
- *  Everything else has nothing placed on the Earth, which the Overlay row's
- *  {@link UNPLACED_OVERLAY_NOTE} says too.
- *
- *  `label` is the grid's family, `null` when there is no grid. A slice render
- *  sends the note composed (`GridReadyMessage.sliceGrid`), so the panel script
- *  carries no copy of the wording. */
-export function reprojectionNote(
-  reprojectable: boolean,
-  placement: Placement | null | undefined,
-  label: string | null,
-): string {
-  if (reprojectable) return "";
-  if (placement === "unsupported") {
-    return "Reprojection isn't available for " + (label === null ? "this grid" : label + " grids") + " yet.";
-  }
-  if (placement === "placed") {
-    return "Reprojection isn't available for this " + (label === null ? "" : label + " ") + "grid.";
-  }
-  return UNPLACED_REPROJECT_NOTE;
-}
-
-/** {@link reprojectionNote} for a field nothing places on the Earth. */
-export const UNPLACED_REPROJECT_NOTE = "Reprojection needs a grid placed on the Earth, and this one isn't.";
 
 /** Whether the render panel offers its overlays for a field: the map layers,
  *  the graticule, contours and arrows all project through the field's
@@ -444,48 +400,157 @@ export function offersOverlays(placement: Placement | null | undefined): boolean
   return placement === "placed";
 }
 
-/** Shown in the Overlay row when {@link offersOverlays} is false. */
-export const UNPLACED_OVERLAY_NOTE = "Overlays need a grid placed on the Earth, and this one isn't.";
-
-/** Shown in the Vectors row when {@link offersOverlays} is false. */
-export const UNPLACED_VECTORS_NOTE = "Arrows need a grid placed on the Earth, and this one isn't.";
-
 /** What a field takes when nothing answered for it: none of the point
  *  operations. A slice the handle could not place, or a message with no grid. */
 export const NO_SUPPORT: GridSupport = { contours: false, vectors: false, longCsv: false, zonalMean: false };
 
-/** Shown beside Contours on a placed field that takes none (#945). Which
- *  grids those are is Rust's answer (`GridSupport`), not a list kept here. Today
- *  it is every satellite view (a geostationary grid), whatever its extent: the
- *  library has no map from such a grid to the Earth yet (#979). */
-export const NO_CONTOURS_NOTE = "Contours aren't available for satellite-view grids yet.";
-
-/** {@link NO_CONTOURS_NOTE} for the Vectors row. */
-export const NO_VECTORS_NOTE = "Arrows aren't available for satellite-view grids yet.";
-
 /** Said in the CSV layout prompt when a placed field's grid does not take the
- *  long layout (#945). */
+ *  long layout (#945). Today that is every satellite view; see
+ *  {@link SATELLITE_NOT_YET_REASON}. */
 export const NO_LONG_CSV_NOTE = "The long layout isn't available for satellite-view grids yet.";
 
 /** {@link NO_LONG_CSV_NOTE} for a field nothing places on the Earth, where no
- *  point has a position, worded like the Overlay row's note. */
+ *  point has a position. */
 export const UNPLACED_LONG_CSV_NOTE = "The long layout needs a grid placed on the Earth, and this one isn't.";
 
-/** Shown beside the Zonal average toggle on a placed field that takes none
- *  (#945): a rotated or projected grid. */
-export const NO_ZONAL_NOTE = "A zonal average needs rows that are circles of latitude, and this grid's rows aren't.";
+/** A panel control a grid can't use (#1036). The panel hides it, rather than
+ *  disabling it, and names it in the "Not available for this grid" line under
+ *  the grid caption. `longCsv` is the long layout of a slice panel's CSV
+ *  export, which the layout prompt leaves out; the rest are on the page. */
+export type UnavailableKey = "projection" | "overlay" | "contours" | "arrows" | "zonal" | "longCsv";
 
-/** {@link NO_ZONAL_NOTE} for a field nothing places on the Earth, which has no
- *  latitude at all, worded like the Overlay row's note. */
-export const UNPLACED_ZONAL_NOTE = "A zonal average needs a grid placed on the Earth, and this one isn't.";
+/** Each control's label as the panel shows it, which is how the line names it. */
+export const UNAVAILABLE_LABELS: Readonly<Record<UnavailableKey, string>> = {
+  projection: "Projection",
+  overlay: "Overlay",
+  contours: "Contours",
+  arrows: "Arrows",
+  zonal: "Zonal average",
+  longCsv: "Long CSV layout",
+};
 
-/** The reason beside a disabled Zonal average toggle: whether the field is
- *  placed decides which (#945). Serialized into the panel script, so it must
- *  not reference anything outside itself. */
-export function zonalNote(placed: boolean): string {
-  return placed
-    ? "A zonal average needs rows that are circles of latitude, and this grid's rows aren't."
-    : "A zonal average needs a grid placed on the Earth, and this one isn't.";
+/** Controls a grid can't use for one reason (#1036).
+ *
+ *  `structural` says the grid itself rules them out. `notYet` says Fieldglass
+ *  does not support them for this kind of grid yet. The two tell a user
+ *  different things, so the line keeps them apart, structural reasons first. */
+export interface UnavailableGroup {
+  kind: "structural" | "notYet";
+  reason: string;
+  controls: Array<{ key: UnavailableKey; label: string }>;
+}
+
+/** Why a control needs a grid on the Earth and this one has none (#840,
+ *  #960): overlays, arrows, the zonal average, the long CSV and reprojection
+ *  all give it for such a grid. */
+export const UNPLACED_REASON = "this grid isn't placed on the Earth.";
+
+/** Why a placed grid takes no zonal average: a rotated or projected grid (#945). */
+export const NO_ZONAL_REASON = "this grid's rows aren't circles of latitude.";
+
+/** Why a placed grid takes no contours, arrows or long CSV (#945). Which grids
+ *  those are is Rust's answer (`GridSupport`), not a list kept here. Today it
+ *  is every satellite view (a geostationary grid), whatever its extent: the
+ *  library has no map from such a grid to the Earth yet (#979). */
+export const SATELLITE_NOT_YET_REASON = "not yet supported for satellite-view grids.";
+
+/** Why a field has no map projection but the source view, or `null` for one
+ *  that can be reprojected (#960).
+ *
+ *  Keyed on the placement Rust reports, never on the family: a grid of a
+ *  family this build reprojects can still be declined because its own numbers
+ *  place nothing (a Lambert grid on an Earth of radius zero is `unplaceable`
+ *  under the label `lambert`). Only an `unsupported` template is a family this
+ *  build does not support yet. A placed grid that does not reproject (a
+ *  lat/lon grid scanned east to west) is that one grid, not its family.
+ *  Everything else is not placed on the Earth.
+ *
+ *  `label` is the grid's family, `null` when there is no grid. It is the
+ *  file's text, which {@link unavailableHtml} escapes. */
+export function projectionReason(
+  reprojectable: boolean,
+  placement: Placement | null | undefined,
+  label: string | null,
+): { kind: UnavailableGroup["kind"]; reason: string } | null {
+  if (reprojectable) return null;
+  if (placement === "unsupported") {
+    return { kind: "notYet", reason: "not yet supported for " + (label === null ? "this grid" : label + " grids") + "." };
+  }
+  if (placement === "placed") {
+    return { kind: "structural", reason: "not available for this " + (label === null ? "" : label + " ") + "grid." };
+  }
+  return { kind: "structural", reason: UNPLACED_REASON };
+}
+
+/** The controls a field's grid can't use, grouped by reason, structural
+ *  reasons first (#1036). Rust decides what each grid takes (`placement`,
+ *  `reprojectable`, `supports`); this only names the controls and the reason.
+ *
+ *  `offers` says which of these the panel has at all: the Vectors row is
+ *  written only for a GRIB file of two or more messages, and only a slice
+ *  panel exports a CSV. A control the panel never had is not listed. Contours
+ *  sit in the Overlay row, so a grid that takes no overlay lists the row, not
+ *  its contours. */
+export function unavailableControls(
+  field: {
+    reprojectable: boolean;
+    placement: Placement | null | undefined;
+    label: string | null;
+    supports: GridSupport;
+  },
+  offers: { arrows: boolean; csv: boolean },
+): UnavailableGroup[] {
+  const placed = offersOverlays(field.placement);
+  const notPlaced = { kind: "structural", reason: UNPLACED_REASON } as const;
+  const notYet = { kind: "notYet", reason: SATELLITE_NOT_YET_REASON } as const;
+  const found: Array<{ key: UnavailableKey; kind: UnavailableGroup["kind"]; reason: string }> = [];
+  const projection = projectionReason(field.reprojectable, field.placement, field.label);
+  if (projection) found.push({ key: "projection", ...projection });
+  if (!placed) found.push({ key: "overlay", ...notPlaced });
+  else if (!field.supports.contours) found.push({ key: "contours", ...notYet });
+  if (offers.arrows && !(placed && field.supports.vectors)) {
+    found.push({ key: "arrows", ...(placed ? notYet : notPlaced) });
+  }
+  if (!field.supports.zonalMean) {
+    found.push({ key: "zonal", ...(placed ? ({ kind: "structural", reason: NO_ZONAL_REASON } as const) : notPlaced) });
+  }
+  if (offers.csv && !(placed && field.supports.longCsv)) {
+    found.push({ key: "longCsv", ...(placed ? notYet : notPlaced) });
+  }
+  const groups: UnavailableGroup[] = [];
+  for (const kind of ["structural", "notYet"] as const) {
+    for (const f of found) {
+      if (f.kind !== kind) continue;
+      let group = groups.find((g) => g.kind === kind && g.reason === f.reason);
+      if (!group) {
+        group = { kind, reason: f.reason, controls: [] };
+        groups.push(group);
+      }
+      group.controls.push({ key: f.key, label: UNAVAILABLE_LABELS[f.key] });
+    }
+  }
+  return groups;
+}
+
+/** The inside of the "Not available for this grid" disclosure (#1036): a
+ *  summary naming every hidden control, then one line per reason. Empty when
+ *  nothing is hidden; the panel then hides the disclosure.
+ *
+ *  Serialized into the panel script, which rebuilds it from each slice
+ *  render's answer, so it must not reference anything outside itself. A
+ *  reason can carry the file's grid family, so every string is escaped. */
+export function unavailableHtml(groups: ReadonlyArray<UnavailableGroup> | null | undefined): string {
+  if (!groups || groups.length === 0) return "";
+  const esc = (s: string) =>
+    String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const labels: string[] = [];
+  let items = "";
+  for (const g of groups) {
+    const names = g.controls.map((c) => esc(c.label));
+    labels.push(...names);
+    items += '<li data-kind="' + esc(g.kind) + '">' + names.join(", ") + ": " + esc(g.reason) + "</li>";
+  }
+  return "<summary>Not available for this grid: " + labels.join(", ") + "</summary><ul>" + items + "</ul>";
 }
 
 /** Up to `count` evenly spaced indices along an axis of `length` points, always
@@ -854,9 +919,21 @@ export function renderImagePanelHtml(
   // Which point operations the field takes, Rust's answer (#945). A slice
   // panel follows each slice it draws for these too.
   const supports: GridSupport = meta.supports ?? NO_SUPPORT;
-  // The contour note speaks for a placed field only: on one nothing places,
-  // the Overlay row's own note already says why.
-  const contourNote = placed && !supports.contours;
+  // The controls the field's grid can't use, which are hidden, and why
+  // (#1036). A slice panel follows each slice it draws for these too. A GRIB
+  // panel waiting for a message to be picked has no grid to speak for.
+  const unavailable: UnavailableGroup[] = pickMessages
+    ? []
+    : unavailableControls(
+      {
+        reprojectable: meta.reprojectable,
+        placement: meta.placement,
+        label: meta.grid ? meta.grid.label : null,
+        supports,
+      },
+      { arrows: !slice && (compareFields ?? []).length >= 2, csv: !!slice },
+    );
+  const hides = (key: UnavailableKey) => unavailable.some((g) => g.controls.some((c) => c.key === key));
 
   const script = `
     <script nonce="${cspNonce}">
@@ -937,15 +1014,20 @@ export function renderImagePanelHtml(
         let mapPlaced = ${JSON.stringify(placed)};
         // Which point operations the field on screen takes (#945): Rust's
         // answer, taken like mapPlaced. Contours, arrows and the zonal average
-        // are offered only where it says so, with the reason where it does not.
+        // are asked for only where it says so.
         let fieldSupports = ${JSON.stringify(supports)};
+        // The controls the field on screen can't use, grouped by reason
+        // (#1036): hidden, and named in the "Not available" line. Taken like
+        // mapPlaced.
+        // A reason can carry the file's grid family: same escaping as sliceJson.
+        let unavailable = ${JSON.stringify(unavailable).replace(/</g, "\\u003c")};
+        ${unavailableHtml.toString()}
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
         ${composeLineAxisLabel.toString()}
         ${composeProbeValue.toString()}
         ${composeRangeText.toString()}
         ${composeVectorScale.toString()}
-        ${zonalNote.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -1185,7 +1267,6 @@ export function renderImagePanelHtml(
         function applySliceGrid(sliceGrid) {
           const next = applyReprojectable(
             document.getElementById('picker-projection'),
-            document.getElementById('reproject-note'),
             sliceGrid,
             mapsOffered,
             MAP_PROJECTIONS,
@@ -1197,7 +1278,8 @@ export function renderImagePanelHtml(
         // Whether the overlays, contours and arrows apply to the field on
         // screen: it is placed on the Earth (#840), and its axes are a map. An
         // overlay that does not apply is not asked for and not drawn, and its
-        // toggle keeps its state for the next field that takes it.
+        // toggle, hidden meanwhile (#1036), keeps its state for the next field
+        // that takes it.
         function overlaysOffered() {
           return mapPlaced && !isCrossSection();
         }
@@ -1207,33 +1289,50 @@ export function renderImagePanelHtml(
           return overlaysOffered() && fieldSupports.contours === true;
         }
 
-        // Take a slice render's answer to whether it is placed (#840): the
-        // Overlay row is disabled, with the reason, for a slice that is not.
-        // And to which point operations it takes (#945): the Contours controls
-        // and the Zonal average toggle are disabled, with the reason, for a
-        // slice that takes none.
-        function applySlicePlacement(placed, supports) {
+        // The element each control the grid can't use is hidden by (#1036).
+        // The long CSV layout has none: the CSV prompt leaves it out.
+        const UNAVAILABLE_ELEMENTS = {
+          projection: 'projection-control',
+          overlay: 'overlay-fieldset',
+          contours: 'contour-layer',
+          arrows: 'vector-fieldset',
+          zonal: 'zonal-control',
+        };
+
+        // Whether the field on screen can't use a control, by its key.
+        function isUnavailable(key) {
+          return unavailable.some((g) => g.controls.some((c) => c.key === key));
+        }
+
+        // Hide every control the field on screen can't use, show the rest,
+        // and rewrite the "Not available for this grid" line to match (#1036).
+        // A hidden control keeps its value for the next field that takes it;
+        // what it asks for is gated on the field's answers (overlaysOffered,
+        // contoursOffered, vectorsEnabled, zonalOn), not on the box. Only
+        // the line's contents are rewritten, so one a user opened stays open
+        // while they step through the slices.
+        function applyUnavailable(groups) {
+          unavailable = Array.isArray(groups) ? groups : [];
+          for (const key of Object.keys(UNAVAILABLE_ELEMENTS)) {
+            const el = document.getElementById(UNAVAILABLE_ELEMENTS[key]);
+            // A cross-section puts the Overlay row away too.
+            if (el) el.toggleAttribute('hidden', isUnavailable(key) || (key === 'overlay' && isCrossSection()));
+          }
+          const line = document.getElementById('unavailable');
+          if (line) {
+            const html = unavailableHtml(unavailable);
+            if (line.innerHTML !== html) line.innerHTML = html;
+            line.toggleAttribute('hidden', html === '');
+          }
+        }
+
+        // Take a slice render's answer to whether it is placed (#840), which
+        // point operations it takes (#945) and which controls it can't use
+        // (#1036).
+        function applySlicePlacement(placed, supports, groups) {
           mapPlaced = placed === true;
           if (supports) fieldSupports = supports;
-          const overlays = document.getElementById('overlay-fieldset');
-          if (overlays) overlays.disabled = !mapPlaced;
-          const note = document.getElementById('overlay-note');
-          if (note) note.toggleAttribute('hidden', mapPlaced);
-          // Spoken for a placed slice only; the Overlay note covers the rest.
-          const noContours = mapPlaced && fieldSupports.contours !== true;
-          for (const id of ['overlay-contours', 'color-contours', 'width-contours', 'contour-interval', 'contours-only']) {
-            const el = document.getElementById(id);
-            if (el) el.disabled = noContours;
-          }
-          const contourNote = document.getElementById('contour-note');
-          if (contourNote) contourNote.toggleAttribute('hidden', !noContours);
-          const zonal = document.getElementById('zonal-toggle');
-          if (zonal) zonal.disabled = fieldSupports.zonalMean !== true;
-          const zonalReason = document.getElementById('zonal-note');
-          if (zonalReason) {
-            zonalReason.toggleAttribute('hidden', fieldSupports.zonalMean === true);
-            zonalReason.textContent = zonalNote(mapPlaced);
-          }
+          applyUnavailable(groups);
           applyContoursOnly();
         }
 
@@ -1256,17 +1355,13 @@ export function renderImagePanelHtml(
             syncProjectionControls();
             snapshotState();
           }
-          applySlicePlacement(sliceGrid.placed, sliceGrid.supports);
+          applySlicePlacement(sliceGrid.placed, sliceGrid.supports, sliceGrid.unavailable);
         }
 
         // A cross-section has no projection and no coastlines to draw on it.
         function syncCrossSectionMode() {
           const cross = isCrossSection();
           const note = document.getElementById('cross-section-note');
-          // The cross-section note says why there is no map; the reprojection
-          // note would only repeat it for an axis pair that is not a grid.
-          const reprojectNote = document.getElementById('reproject-note');
-          if (reprojectNote) reprojectNote.toggleAttribute('hidden', cross || mapsOffered);
           const projection = document.getElementById('picker-projection');
           const overlays = document.getElementById('overlay-fieldset');
           if (note) {
@@ -1279,7 +1374,7 @@ export function renderImagePanelHtml(
             if (cross && projection.value !== 'source') projection.value = 'source';
             projection.disabled = cross;
           }
-          if (overlays) overlays.toggleAttribute('hidden', cross);
+          if (overlays) overlays.toggleAttribute('hidden', cross || isUnavailable('overlay'));
           applyContoursOnly();
           if (cross && sliceState) {
             requestAxis(sliceState.yDim);
@@ -1863,6 +1958,9 @@ export function renderImagePanelHtml(
           if (subtitle) subtitle.textContent = '';
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = '';
+          // Nor does the "Not available" line speak for a grid any more.
+          const unavailableLine = document.getElementById('unavailable');
+          if (unavailableLine) unavailableLine.hidden = true;
           const probeEl = document.getElementById('probe');
           if (probeEl) probeEl.textContent = '';
           hideLine();
@@ -2492,8 +2590,8 @@ export function renderImagePanelHtml(
         // line. It describes the whole field, so it has no cell and no axis to
         // pick, and a re-render asks for it again rather than clearing it.
         // Only for a field whose rows are circles of latitude (#945): on any
-        // other the toggle is disabled with the reason, and keeps its state
-        // for the next field that takes it.
+        // other the toggle is hidden, with the reason in the "Not available"
+        // line (#1036), and keeps its state for the next field that takes it.
         function zonalOn() {
           const toggle = document.getElementById('zonal-toggle');
           return fieldSupports.zonalMean === true && !!(toggle && toggle.checked);
@@ -3340,6 +3438,14 @@ export function renderImagePanelHtml(
     h1 { font-size: 1.1rem; margin: 0 0 0.2rem 0; }
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; margin-bottom: 0.5rem; }
     .projection { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
+    /* The controls this grid can't use (#1036), right under the caption it
+       qualifies: collapsed to one line, opened for the reasons. The caption's
+       bottom margin moves below the line while it shows. */
+    .projection:has(+ .unavailable:not([hidden])) { margin-bottom: 0.2rem; }
+    .unavailable { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
+    .unavailable summary { cursor: pointer; }
+    .unavailable ul { margin: 0.25rem 0 0; padding-left: 1.4rem; }
+    .unavailable[hidden] { display: none; }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
     /* An author display rule beats the UA stylesheet's [hidden] by origin, and
        a note inside a <label> is out of reach of the toolbar-row rule below
@@ -3362,6 +3468,8 @@ export function renderImagePanelHtml(
       color: var(--vscode-descriptionForeground, inherit);
     }
     .zonal-toggle { display: inline-block; font-size: 0.85rem; margin-bottom: 0.35rem; color: var(--vscode-descriptionForeground, inherit); }
+    /* See .picker-note[hidden]: hidden for a grid with no rows of latitude (#1036). */
+    .zonal-toggle[hidden] { display: none; }
     .line-panel { margin: 0 0 0.75rem; }
     .line-axis { font-size: 0.85rem; color: var(--vscode-descriptionForeground, inherit); }
     .line-plot {
@@ -3502,6 +3610,8 @@ export function renderImagePanelHtml(
       gap: 0.25rem;
       margin-right: 0.6rem;
     }
+    /* Contours, on a grid that takes none (#1036); see .picker-note[hidden]. */
+    .overlay-layer[hidden] { display: none; }
     .toolbar .layer-width { width: 3.5rem; }
     .toolbar .layer-color {
       width: 1.6rem;
@@ -3557,6 +3667,7 @@ export function renderImagePanelHtml(
   <h1 id="title-line">${escapeHtml(titleLine)}</h1>
   <div class="subtitle">${escapeHtml(subLine)}</div>
   <div class="projection" id="projection-summary">${pickMessages ? "" : escapeHtml(projectionSummary)}</div>
+  <details class="unavailable" id="unavailable"${unavailable.length === 0 ? " hidden" : ""}>${unavailableHtml(unavailable)}</details>
   <div class="toolbar" role="toolbar" aria-label="Render settings">
     <div class="toolbar-row">
       <button type="button" id="export-png">Export PNG…</button>
@@ -3596,11 +3707,8 @@ ${slice
     </div>`}
     <div class="toolbar-row">
       <span id="cross-section-note" class="picker-note" hidden></span>
-      <label>Projection
+      <label id="projection-control"${hides("projection") ? " hidden" : ""}>Projection
         <select id="picker-projection">${projectionOptionsHtml(MAP_PROJECTIONS, meta.reprojectable)}</select>
-        <span class="picker-note" id="reproject-note"${meta.reprojectable ? " hidden" : ""}>${
-          // The label is the grid family the file names; the rest is constant.
-          reprojectionNote(meta.reprojectable, meta.placement, meta.grid ? escapeHtml(meta.grid.label) : null)}</span>
       </label>
       <span id="preset-ortho" hidden>
         <label>Center lon
@@ -3632,7 +3740,7 @@ ${slice
     </div>
 ${colormapFieldsetHtml(colormaps)}
 ${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compareFields ?? [], combineOps)}
-${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, placed, supports.vectors)}
+${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, hides("arrows"))}
     <fieldset>
       <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
@@ -3658,9 +3766,8 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
         <button type="button" id="zoom-reset">Reset view</button>
       </span>
     </fieldset>
-    <fieldset id="overlay-fieldset"${placed ? "" : " disabled"}>
+    <fieldset id="overlay-fieldset"${hides("overlay") ? " hidden" : ""}>
       <legend>Overlay:</legend>
-      <span class="picker-note" id="overlay-note"${placed ? " hidden" : ""}>${UNPLACED_OVERLAY_NOTE}</span>
       <span class="overlay-layer">
         <label><input type="checkbox" id="overlay-coastlines"> Coastlines</label>
         <input type="color" id="color-coastline" class="layer-color" aria-label="Coastline colour">
@@ -3688,22 +3795,20 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
         <label id="graticule-spacing-label" class="spacing-hidden">spacing
           <input type="number" id="graticule-spacing" value="30" min="5" max="90" step="5"></label>
       </span>
-      <span class="overlay-layer" id="contour-layer">
-        <label><input type="checkbox" id="overlay-contours"${contourNote ? " disabled" : ""}> Contours</label>
-        <input type="color" id="color-contours" class="layer-color" aria-label="Contour colour"${contourNote ? " disabled" : ""}>
-        <input type="number" id="width-contours" class="layer-width" value="0.8" min="0.2" max="5" step="0.1" aria-label="Contour line weight"${contourNote ? " disabled" : ""}>
+      <span class="overlay-layer" id="contour-layer"${hides("contours") ? " hidden" : ""}>
+        <label><input type="checkbox" id="overlay-contours"> Contours</label>
+        <input type="color" id="color-contours" class="layer-color" aria-label="Contour colour">
+        <input type="number" id="width-contours" class="layer-width" value="0.8" min="0.2" max="5" step="0.1" aria-label="Contour line weight">
         <label id="contour-interval-label" class="spacing-hidden">interval
-          <input type="number" id="contour-interval" min="0" step="any" placeholder="auto" title="Level spacing; blank picks ~8 nice levels"${contourNote ? " disabled" : ""}></label>
-        <label><input type="checkbox" id="contours-only"${contourNote ? " disabled" : ""}> only</label>
-        <span class="picker-note" id="contour-note"${contourNote ? "" : " hidden"}>${NO_CONTOURS_NOTE}</span>
+          <input type="number" id="contour-interval" min="0" step="any" placeholder="auto" title="Level spacing; blank picks ~8 nice levels"></label>
+        <label><input type="checkbox" id="contours-only"> only</label>
       </span>
     </fieldset>
   </div>
   <div id="status">Rendering…</div>
   <div id="contour-status" class="contour-status" aria-live="polite"></div>
   <div id="probe" class="probe-readout" aria-live="polite"></div>
-  <label class="zonal-toggle"><input type="checkbox" id="zonal-toggle"${supports.zonalMean ? "" : " disabled"}> Zonal average</label>
-  <span class="picker-note" id="zonal-note"${supports.zonalMean ? " hidden" : ""}>${zonalNote(placed)}</span>
+  <label class="zonal-toggle" id="zonal-control"${hides("zonal") ? " hidden" : ""}><input type="checkbox" id="zonal-toggle"> Zonal average</label>
   <div id="line-panel" class="line-panel" hidden>
     <label class="line-axis" id="line-axis-label">Plot along <select id="line-axis"></select></label>
     <svg id="line-plot" class="line-plot" role="img" aria-label="The variable through the probed cell"></svg>
