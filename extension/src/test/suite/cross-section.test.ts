@@ -155,6 +155,8 @@ suite("Cross-sections", () => {
     assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 20 }, { centre: 12, size: 20 }, { centre: 50, size: 20 }, { centre: 100, size: 20 }], 0, 100, 4), [0, null, 40, 80]);
     // Two ends that cannot both fit: the first stays.
     assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 20 }, { centre: 10, size: 20 }], 0, 30, 4), [0, null]);
+    // An axis shorter than two labels and the gap: one end, not both run off it.
+    assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 14 }, { centre: 37, size: 14 }], 0, 30, 4), [0, null]);
     // A label longer than the axis is not drawn at all.
     assert.deepStrictEqual(layoutAxisLabels([{ centre: 5, size: 50 }], 0, 30, 4), [null]);
     assert.deepStrictEqual(layoutAxisLabels([], 0, 30, 4), []);

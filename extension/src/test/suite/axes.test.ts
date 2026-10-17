@@ -343,18 +343,17 @@ suite("Line-plot and cross-section axes (#1043)", function () {
     }
   });
 
-  test("a time × latitude section keeps every label in its own rail, at full and narrow width", async () => {
+  test("a time × latitude section keeps every label in its own rail, at any width", async () => {
     const { panel, close } = await storePanel(dailyStore);
     try {
-      // Y = lat, X = time.
+      // Y = lat, X = time. The panel's width is set, not left to the window,
+      // so the image is the same height here and in CI: 366 × 73 drawn at
+      // the width it is given, so a fifth as tall.
+      await panel.drive([{ id: "body", width: "900px" }]);
       const state = await rerender(panel, [{ id: "slice-y", value: 1 }, { id: "slice-x", value: 0 }], sized(DAYS.length, 73));
       const check = (s: PageState, what: string) => {
         const rails = s.rails;
         assert.ok(rails?.shown, `${what}: the rails are shown`);
-        assert.strictEqual(rails.y[0].text, "90", `${what}: 90 at the top`);
-        assert.strictEqual(rails.y[rails.y.length - 1].text, "−90", `${what}: −90 at the bottom`);
-        assert.strictEqual(rails.x[0].text, "2024-01-01", `${what}: the first day`);
-        assert.strictEqual(rails.x[rails.x.length - 1].text, "2024-12-31", `${what}: the last day`);
         const all = rails.y.concat(rails.x);
         assertApart(all, what);
         // Down the side of the image, never above or below it, and under it,
@@ -364,11 +363,28 @@ suite("Line-plot and cross-section axes (#1043)", function () {
         if (rails.colorbar) {
           for (const l of all) assert.ok(!overlaps(l.box, rails.colorbar), `${what}: "${l.text}" is under the colour bar`);
         }
+        assert.strictEqual(rails.x[0].text, "2024-01-01", `${what}: the first day`);
+        return rails;
       };
-      check(state, "default width");
-      const narrow = await panel.drive([{ id: "body", width: "360px" }]);
-      assert.ok(narrow.rails && narrow.rails.image.right - narrow.rails.image.left < 300, "the image narrowed");
-      check(narrow, "narrow");
+      let rails = check(state, "900 px");
+      assert.strictEqual(rails.y[0].text, "90", "90 at the top");
+      assert.strictEqual(rails.y[rails.y.length - 1].text, "−90", "−90 at the bottom");
+      assert.strictEqual(rails.x[rails.x.length - 1].text, "2024-12-31", "the last day");
+
+      // Narrow: the image is about 37 px tall, room for both end labels but
+      // not much else (CI once drew the bottom one past it).
+      rails = check(await panel.drive([{ id: "body", width: "360px" }]), "360 px");
+      const tall = rails.image.bottom - rails.image.top;
+      assert.ok(tall > 30 && tall < 45, `the image is ${tall} px tall`);
+      assert.deepStrictEqual([rails.y[0].text, rails.y[rails.y.length - 1].text], ["90", "−90"], "both ends fit");
+
+      // Narrower still, the image is shorter than two labels: one end is
+      // dropped rather than either running past the image.
+      rails = check(await panel.drive([{ id: "body", width: "300px" }]), "300 px");
+      const short = rails.image.bottom - rails.image.top;
+      const label = rails.y.length ? rails.y[0].box.bottom - rails.y[0].box.top : 0;
+      assert.ok(short < 2 * label + 4, `the image (${short} px) is shorter than two labels (${label} px each)`);
+      assert.ok(rails.y.length <= 1, `at most one latitude label: ${rails.y.map((l) => l.text)}`);
     } finally {
       close();
     }

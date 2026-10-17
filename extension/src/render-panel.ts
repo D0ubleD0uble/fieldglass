@@ -1506,17 +1506,25 @@ export function renderImagePanelHtml(
         // are fitted inside it (#1043): an end label is slid inward rather
         // than run into the other rail, the colour bar or the note above the
         // image, and one that would overlap a neighbour is dropped.
+        // The labels are placed and bounded by the image, not by the rail: the
+        // rail's own box can run a few pixels past the image (#1043, seen in
+        // CI, where a 37 px image sat in a 40 px row), and a label inside the
+        // rail but past the image's edge runs into the corner or under the
+        // note above. A label's fraction is of the image too.
         function fitRail(rail, vertical) {
           const box = rail.getBoundingClientRect();
-          const spans = Array.from(rail.children);
-          const extent = vertical ? box.height : box.width;
+          const canvas = document.getElementById('canvas');
+          const image = canvas ? canvas.getBoundingClientRect() : box;
+          const lo = vertical ? image.top - box.top : image.left - box.left;
+          const extent = vertical ? image.height : image.width;
           // Not laid out yet: the percentages stand until the ResizeObserver
           // that sees it laid out fits them.
           if (!(extent > 0)) return;
+          const spans = Array.from(rail.children);
           const starts = layoutAxisLabels(spans.map((s) => {
             const r = s.getBoundingClientRect();
-            return { centre: (Number(s.dataset.at) / 100) * extent, size: vertical ? r.height : r.width };
-          }), 0, extent, 4);
+            return { centre: lo + (Number(s.dataset.at) / 100) * extent, size: vertical ? r.height : r.width };
+          }), lo, lo + extent, 4);
           spans.forEach((s, i) => {
             if (starts[i] === null) { s.remove(); return; }
             s.style.transform = 'none';
@@ -3943,7 +3951,7 @@ export function renderImagePanelHtml(
               const panel = document.getElementById('line-panel');
               if (plot && lastLine && panel && !panel.hidden) drawLine(lastLine.line, lastLine.markIndex, lastLine.emptyText);
             });
-            for (const id of ['axis-y', 'axis-x', 'line-plot']) {
+            for (const id of ['axis-y', 'axis-x', 'canvas', 'line-plot']) {
               const el = document.getElementById(id);
               if (el) refit.observe(el);
             }
