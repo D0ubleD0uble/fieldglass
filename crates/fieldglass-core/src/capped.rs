@@ -70,9 +70,12 @@ pub fn grow_toward(buf: &mut Vec<u8>, hint: usize, limit: usize) -> bool {
 /// one-byte probe on the stack rather than into the buffer.
 ///
 /// Each `read` asks for at most [`READ_STEP`] bytes. A decoder that buffers
-/// what it decodes until the caller's slice is full, as `ruzstd` does, would
-/// otherwise hold a second copy of the output: handed one 3 MiB slice,
-/// `ruzstd` grew its own buffer to 4 MiB beside it (#981).
+/// what it decodes until the caller's slice is full would otherwise hold a
+/// second copy of the output: `ruzstd` 0.9.0, handed one 3 MiB slice, grew its
+/// own buffer to 4 MiB beside it (#981). `ruzstd` 0.9.1 decodes one block at a
+/// time and returns as soon as it holds anything past the window, so the step
+/// is now only a defensive cap, kept so the bound does not depend on the
+/// decoder's version.
 pub fn read_to_end_within(
     mut reader: impl Read,
     hint: usize,
@@ -159,9 +162,11 @@ const ZSTD_MAX_BLOCK: usize = 128 << 10;
 ///
 /// A decoder keeps the frame's whole window, `Window_Size` (RFC 8878 section
 /// 3.1.1.1.2), before it can hand back a byte: `ruzstd` returns nothing until
-/// it holds more than the window, in a ring of up to twice it. So the window,
-/// not the output limit, sets what a decode holds, and a frame stating 64 MiB
-/// in a 4 KiB chunk held about 192 MiB before the limit saw any output.
+/// it holds more than the window, in a ring sized to about the window plus
+/// 256 KiB (`ruzstd` 0.9.1; 0.9.0 rounded it up to a power of two, up to twice
+/// the window). So the window, not the output limit, sets what a decode holds,
+/// and a frame stating 64 MiB in a 4 KiB chunk held about 64 MiB before the
+/// limit saw any output (about 192 MiB under 0.9.0).
 ///
 /// The RFC lets a decoder refuse a frame whose window is past its own limit,
 /// and recommends accepting at least 8 MiB, so a window up to that decodes

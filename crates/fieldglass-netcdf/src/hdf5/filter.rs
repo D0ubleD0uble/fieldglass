@@ -82,7 +82,7 @@ const MAX_DECOMPRESSED_CHUNK: usize = 256 << 20;
 /// An encoder sets the window to about the size of the data it is compressing,
 /// so a window this large already implies a single HDF5 chunk of 64 MiB, which
 /// no sane writer produces (libhdf5's own chunk cache defaults to 1 MiB). This
-/// is deliberately tighter than `ruzstd`'s 100 MiB default: the guarantee
+/// is deliberately tighter than `ruzstd`'s 128 MiB default: the guarantee
 /// should be ours, and stated, rather than inherited from an upstream default
 /// that a version bump could quietly widen.
 ///
@@ -1264,7 +1264,7 @@ mod tests {
         // The ceiling is *ours*, not whatever the decoder defaults to. This
         // frame is otherwise complete and valid — same header, then one raw
         // block of four bytes — and declares a 72 MiB window, inside `ruzstd`'s
-        // 100 MiB default but outside our 64 MiB one, which is all a chunk past
+        // 128 MiB default but outside our 64 MiB one, which is all a chunk past
         // 64 MiB gets. Under the default it decodes to `AA BB CC DD`; it fails
         // here only because we set the bound, so a future bump that widened
         // the upstream default could not pass this test unnoticed.

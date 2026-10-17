@@ -88,7 +88,7 @@ to the next codec. A zstd frame header declares its own window size, and the
 decoder sizes that buffer during frame init — before any output exists, so an
 output bound cannot see it. The two are independent: a *small* window producing
 enormous output is precisely what a bomb is. `MAX_ZSTD_WINDOW` (64 MiB) bounds
-it, deliberately tighter than `ruzstd`'s own 100 MiB default, because a
+it, deliberately tighter than `ruzstd`'s own 128 MiB default, because a
 guarantee inherited from an upstream default is one a version bump can widen
 without anyone noticing.
 
@@ -123,19 +123,21 @@ length; a 12-byte deflate stream in a chunk stating 256 MiB starts at
 12,384 bytes, where it had 256 MiB zeroed. Blosc's zlib and zstd streams in
 Zarr take the same bound.
 
-`ruzstd` sizes its own ring buffer the same way, to the next power of two
-past what it holds plus one byte: up to about twice the window, which
-`MAX_ZSTD_WINDOW` bounds and the output limit does not. A single-segment frame
-states its content size instead of a window, and the ring is sized from that,
-`next_power_of_two(content) + 1`. `ruzstd` also buffers whatever it decodes
-until the caller's slice is full, so the output is read in steps of one zstd
-block (`capped::READ_STEP`, 128 KiB); handed a whole 3 MiB chunk at once it
-held a second 4 MiB copy beside the output.
+`ruzstd` sizes its own ring buffer to about the window plus 256 KiB (0.9.1;
+0.9.0 rounded up to the next power of two, up to about twice the window). The
+window is bounded by `MAX_ZSTD_WINDOW`, and the output limit does not bound it.
+A single-segment frame states its content size instead of a window, and the
+ring is sized from that. `ruzstd` 0.9.0 buffered whatever it decoded until the
+caller's slice was full, so the output is read in steps of one zstd block
+(`capped::READ_STEP`, 128 KiB); handed a whole 3 MiB chunk at once it held a
+second 4 MiB copy beside the output. 0.9.1 decodes one block at a time and
+returns once it holds anything past the window, so the step is now a defensive
+cap that keeps the bound independent of the decoder's version.
 
 **The window has to follow the chunk (#989).** `ruzstd` returns nothing until
 it holds more than the window, so a frame stating 64 MiB in a 4 KiB chunk had
-the decoder hold 64 MiB, in a ring of 128 MiB (about 192 MiB at once while it
-grew), before the output limit saw a byte. A fixed `MAX_ZSTD_WINDOW` cannot fix
+the decoder hold 64 MiB before the output limit saw a byte (under 0.9.0, in a
+ring of 128 MiB, about 192 MiB at once while it grew). A fixed `MAX_ZSTD_WINDOW` cannot fix
 that without refusing valid chunks of the same size, so each frame's window is
 now held to `capped::zstd_window_limit`: the codec's output limit, but never
 under 8 MiB and never past `MAX_ZSTD_WINDOW`. RFC 8878 section 3.1.1.1.2 lets a
