@@ -326,9 +326,12 @@ use fieldglass_core::printable_bytes as printable;
 /// Three octets and nothing else, because that is what a request is stored as
 /// and what both sidecar vocabularies have to resolve *to* for a query written
 /// once to match on either.
+///
+/// An unknown key is refused when one is read: it sits inside a query, where a
+/// misspelt octet must be an error rather than a silently different parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ParameterId {
     /// GRIB2 discipline (Code Table 0.0).
     pub discipline: u8,

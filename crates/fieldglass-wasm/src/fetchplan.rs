@@ -51,8 +51,12 @@ fn strict<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<
     serde_json::from_value(json).map_err(|e| unreadable(what, &e))
 }
 
+/// An argument that did not read is the caller's to fix, so it is
+/// `invalid_option`, with serde's own message naming the key.
 fn unreadable(what: &str, e: &dyn std::fmt::Display) -> JsValue {
-    js_sys::Error::new(&format!("could not read the {what}: {e}")).into()
+    throw(fieldglass::Error::InvalidOption {
+        detail: format!("could not read the {what}: {e}"),
+    })
 }
 
 #[derive(Debug)]
@@ -126,9 +130,10 @@ impl MessageManifest {
     /// own words, the last two by meaning, which is what matches on either
     /// dialect. Every stated key must hold, and an empty query selects every
     /// record. **Every match comes back**, so check the length: four ensemble
-    /// members are four items, never one guessed for you. An unknown key
-    /// throws rather than being ignored, since dropping a misspelt one would
-    /// widen the query.
+    /// members are four items, never one guessed for you. An unknown key, at
+    /// the top or inside `level` or `parameter`, throws `invalid_option`
+    /// rather than being ignored, since dropping a misspelt one would widen
+    /// the query.
     #[wasm_bindgen(unchecked_return_type = "PlanItem[]")]
     pub fn select(
         &self,
@@ -172,9 +177,11 @@ pub fn verify_envelope(
     let item: PlanItem = required(item, "plan item")?;
     let declared = fieldglass::fetchplan::verify_envelope(&item, bytes).map_err(throw)?;
     // A GRIB2 message can declare up to 2^64 bytes, and a JS number holds an
-    // integer exactly only to 2^53. Anything past that did not arrive in a
-    // `Uint8Array` either, and `verifyEnvelope` has already refused it as
-    // short, so this conversion is exact for every value that reaches it.
+    // integer exactly only to 2^53. A declared length is returned only when it
+    // is at most what arrived in the `Uint8Array`; anything longer has already
+    // been refused, as `short_read` from an open range or as `decode` from an
+    // exact one whose length disagrees. So this conversion is exact for every
+    // value that reaches it.
     Ok(declared as f64)
 }
 
@@ -193,7 +200,8 @@ pub fn validate_source(
 /// newest first, each with the object key it should be under.
 ///
 /// A candidate is a guess: walk the list and fetch until one succeeds. The
-/// clock is yours (`Date.now() / 1000`); the planner reads none.
+/// clock is yours, in whole seconds: `Math.floor(Date.now() / 1000)`, since a
+/// fractional second is refused. The planner reads no clock of its own.
 #[wasm_bindgen(unchecked_return_type = "Candidate[]")]
 pub fn candidates(
     #[wasm_bindgen(unchecked_param_type = "SourceSpec")] source: JsValue,

@@ -77,9 +77,13 @@ pub enum Surface {
 /// [`Surface::PotentialTemperature`]. A layer between two bounds fills both, in
 /// the order the manifest wrote them (`30-0 mb above ground` is
 /// `value = 30`, `value2 = 0`).
+///
+/// An unknown key is refused when one is read, for the reason [`Query`](crate::Query)
+/// refuses one: a level inside a query with a misspelt `valeu` would otherwise
+/// read as "no value stated", which matches every level on the surface.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[non_exhaustive]
 pub struct LevelSpec {
     /// Which surface.

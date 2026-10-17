@@ -112,8 +112,9 @@ use crate::error::Error;
 #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct CandidateOptions {
-    /// Now, as Unix seconds. A browser's `Date.now()` is milliseconds, so
-    /// divide it by 1000 first.
+    /// Now, as whole Unix seconds. A browser's `Date.now()` is milliseconds,
+    /// so pass `Math.floor(Date.now() / 1000)`: a fractional second is not an
+    /// integer and is refused.
     pub now_unix_secs: i64,
     /// The forecast step to expand each key for, in hours. `0`, the analysis,
     /// when left out.

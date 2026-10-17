@@ -225,7 +225,7 @@
       "description": "When to ask [`candidates`] about, as a host sends it.\n\nThe clock is the host's (the planner reads none), so it is the one thing a\nhost has to state. The step defaults to the analysis.",
       "properties": {
         "nowUnixSecs": {
-          "description": "Now, as Unix seconds. A browser's `Date.now()` is milliseconds, so\ndivide it by 1000 first.",
+          "description": "Now, as whole Unix seconds. A browser's `Date.now()` is milliseconds,\nso pass `Math.floor(Date.now() / 1000)`: a fractional second is not an\ninteger and is refused.",
           "format": "int64",
           "type": "integer"
         },
@@ -934,7 +934,8 @@
       "type": "object"
     },
     "LevelSpec": {
-      "description": "A level, parsed as far as the grammar goes.\n\n`value` and `value2` are in the surface's own unit — hectopascals for\n[`Surface::Isobaric`], metres for the height and depth surfaces, kelvin for\n[`Surface::PotentialTemperature`]. A layer between two bounds fills both, in\nthe order the manifest wrote them (`30-0 mb above ground` is\n`value = 30`, `value2 = 0`).",
+      "additionalProperties": false,
+      "description": "A level, parsed as far as the grammar goes.\n\n`value` and `value2` are in the surface's own unit — hectopascals for\n[`Surface::Isobaric`], metres for the height and depth surfaces, kelvin for\n[`Surface::PotentialTemperature`]. A layer between two bounds fills both, in\nthe order the manifest wrote them (`30-0 mb above ground` is\n`value = 30`, `value2 = 0`).\n\nAn unknown key is refused when one is read, for the reason [`Query`](crate::Query)\nrefuses one: a level inside a query with a misspelt `valeu` would otherwise\nread as \"no value stated\", which matches every level on the surface.",
       "properties": {
         "surface": {
           "$ref": "#/$defs/Surface",
@@ -1662,7 +1663,8 @@
       "type": "object"
     },
     "ParameterId": {
-      "description": "A WMO parameter's identity, as GRIB2 numbers it.\n\nThree octets and nothing else, because that is what a request is stored as\nand what both sidecar vocabularies have to resolve *to* for a query written\nonce to match on either.",
+      "additionalProperties": false,
+      "description": "A WMO parameter's identity, as GRIB2 numbers it.\n\nThree octets and nothing else, because that is what a request is stored as\nand what both sidecar vocabularies have to resolve *to* for a query written\nonce to match on either.\n\nAn unknown key is refused when one is read: it sits inside a query, where a\nmisspelt octet must be an error rather than a silently different parameter.",
       "properties": {
         "category": {
           "description": "Parameter category within the discipline (Code Table 4.1).",

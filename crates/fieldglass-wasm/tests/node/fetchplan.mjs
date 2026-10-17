@@ -162,6 +162,28 @@ check(
   /levelTxt/.test(String((() => { try { idx.select({ levelTxt: '2 mb' }); } catch (e) { return e.message ?? e; } return 'did not throw'; })())),
 );
 check(
+  'and it is invalid_option',
+  codeOf(() => idx.select({ levelTxt: '2 mb' })) === 'invalid_option',
+);
+// Inside the structs a query nests, too: a misspelt `valeu` would otherwise
+// read as "no value", which is every isobaric level.
+check(
+  'a misspelt key inside level throws invalid_option',
+  codeOf(() => idx.select({ level: { surface: 'isobaric', valeu: 2, value2: null } })) === 'invalid_option',
+);
+check(
+  'a misspelt key inside parameter throws invalid_option',
+  codeOf(() => idx.select({ parameter: { discipline: 0, category: 1, numbr: 1 } })) === 'invalid_option',
+);
+check(
+  'a fractional clock is refused, not truncated',
+  codeOf(() => wasm.candidates(recording.sources.source, { nowUnixSecs: 1788500000.5 })) === 'invalid_option',
+);
+check(
+  'a misspelt candidate option is refused',
+  codeOf(() => wasm.candidates(recording.sources.source, { nowUnixSecs: 1788500000, stepHour: 6 })) === 'invalid_option',
+);
+check(
   'text that is not a .idx is decode, naming the line',
   codeOf(() => wasm.parseWgrib2Idx('k', '1:notanumber:d=2026090400:TMP:surface:anl:')) === 'decode',
 );

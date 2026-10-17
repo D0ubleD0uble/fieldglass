@@ -64,7 +64,9 @@ repos:
       - id: cargo-clippy-wasm-fetchplan
         name: cargo clippy -p fieldglass-wasm --features fetchplan -- -D warnings
         language: system
-        types: [rust]
+        # TOML too: the feature is declared in a manifest, and an edit there
+        # alone can break the build this hook exists to keep compiling.
+        types_or: [rust, toml]
         entry: cargo clippy -p fieldglass-wasm --features fetchplan --all-targets -- -D warnings
         pass_filenames: false
 
