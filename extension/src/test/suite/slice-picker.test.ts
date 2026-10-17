@@ -359,8 +359,9 @@ suite("Slice panel projection picker", () => {
     assert.strictEqual(picker.noteHidden, true, "and the note goes");
     // The export is named for the variable drawn, not the one the panel opened
     // on — the same frozen-at-open shape as the picker.
-    assert.match(panel.html(), /DEFAULT_PNG_NAME = "lat_bnds-message-1\.png"/);
-    assert.strictEqual(onTemperature.defaultPngName, `temperature-message-${temperature.variableIndex}.png`);
+    // Named for the file too, and with no "message", a GRIB word (#1038).
+    assert.match(panel.html(), /DEFAULT_PNG_NAME = "netcdf4_dimscale-lat_bnds\.png"/);
+    assert.strictEqual(onTemperature.defaultPngName, "netcdf4_dimscale-temperature.png");
 
     // …and they draw.
     picker.choose("equirectangular");

@@ -218,6 +218,7 @@ suite("Render pipeline", () => {
       },
       meta,
       options,
+      { kind: "message", name: "test.grib" },
     );
 
     assert.strictEqual(message.rgba.constructor.name, "Uint8Array",
@@ -265,7 +266,7 @@ suite("Render pipeline", () => {
     assert.ok(messages.length > 0, "GRIB1 fixture should contain at least one message");
 
     const rendered = handle.renderGrid(0, defaultRenderOptions());
-    const message = buildGridReadyMessage(rendered, messages[0], defaultRenderOptions());
+    const message = buildGridReadyMessage(rendered, messages[0], defaultRenderOptions(), { kind: "message", name: "test.grib" });
 
     await withProbePanel(async (panel) => {
       const echo = await probeRgbaShape(panel, message.rgba);
@@ -560,7 +561,7 @@ suite("Render pipeline", () => {
     assert.ok(messages.length > 0, "GRIB2 fixture should contain at least one message");
 
     const rendered = handle.renderGrid(0, defaultRenderOptions());
-    const message = buildGridReadyMessage(rendered, messages[0], defaultRenderOptions());
+    const message = buildGridReadyMessage(rendered, messages[0], defaultRenderOptions(), { kind: "message", name: "test.grib" });
 
     await withProbePanel(async (panel) => {
       const echo = await probeRgbaShape(panel, message.rgba);
@@ -1990,6 +1991,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       },
       sliceField(sst, null),
       defaultRenderOptions(),
+      { kind: "variable", name: "ersst_v5_187001_cdf1.nc" },
     );
 
     assert.strictEqual(
@@ -2003,7 +2005,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     );
     // Same composer as the initial HTML, so the live update cannot drift from
     // the heading the panel was built with.
-    assert.strictEqual(message.titleLine, composeTitleLine(sliceField(sst, null)));
+    assert.strictEqual(message.titleLine, composeTitleLine(sliceField(sst, null), "variable"));
   });
 
   // Every table scrolls inside itself rather than widening the page (#452).

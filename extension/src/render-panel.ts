@@ -103,6 +103,14 @@ function sliceJson(slice: SlicePanelData): string {
   return JSON.stringify(slice).replace(/</g, "\\u003c");
 }
 
+/** A string from the file (a variable name, its units, the file's own name),
+ *  inlined into the panel script as a literal. Same `<` escaping as
+ *  {@link sliceJson}: a file named `</script>…` or a variable whose units
+ *  hold one must not close the script (#1038). */
+function scriptString(text: string): string {
+  return JSON.stringify(text).replace(/</g, "\\u003c");
+}
+
 /** The colormap registry, inlined into the panel script. Same `<` escaping as
  *  {@link sliceJson}. The panel needs it to build its picker and to paint the
  *  legend gradient in the colours Rust will actually paint the grid with. */
@@ -829,24 +837,74 @@ export function panMapWindow(
   };
 }
 
-/** The PNG export's default filename (#243), from the parameter and message
- *  index; the provider sanitises it again before writing. Sent with every
- *  render for the reason {@link composeTitleLine} is. */
-export function composeDefaultPngName(meta: Pick<PanelField, "index" | "parameter">): string {
-  return sanitizePngName(`${meta.parameter ? meta.parameter + "-" : ""}message-${meta.index}.png`);
+/** What a panel draws: a GRIB message, or a variable of a NetCDF file or Zarr
+ *  store. "Message" is a GRIB word, so only a GRIB panel uses it (#1038). */
+export type FieldKind = "message" | "variable";
+
+/** The file or store a panel draws from (#1038): its kind of field, and its
+ *  name as the user sees it in the explorer (`gfs.grib2`, `air_v2.zarr`). */
+export interface PanelSource {
+  kind: FieldKind;
+  name: string;
 }
 
-/** The panel's heading: which message/variable is drawn, and in what units.
+/** The file extensions Fieldglass opens by, which a default export name drops
+ *  from the source's name. Anything else stays: a GRIB file named
+ *  `gfs.t00z.pgrb2.0p25.f000` keeps its forecast hour. */
+const SOURCE_EXTENSIONS = /\.(grb|grib|grib1|grb1|grb2|grib2|nc|nc4|netcdf|zarr)$/i;
+
+/** A source's name without the extension Fieldglass opened it by. */
+export function sourceStem(name: string): string {
+  return name.replace(SOURCE_EXTENSIONS, "");
+}
+
+/** The PNG export's default filename (#243): the source's stem, the parameter
+ *  and, for a GRIB message, its index (`gfs-temperature-message-0.png`,
+ *  `air_v2-air.png`); the provider sanitises it again before writing. Sent with
+ *  every render for the reason {@link composeTitleLine} is. */
+export function composeDefaultPngName(
+  meta: Pick<PanelField, "index" | "parameter">,
+  source: PanelSource,
+): string {
+  const parts = [
+    sourceStem(source.name),
+    meta.parameter,
+    source.kind === "message" ? `message-${meta.index}` : "",
+  ].filter((s) => !!s);
+  return sanitizePngName(`${parts.join("-")}.png`);
+}
+
+/** The panel's heading: which message or variable is drawn, and in what
+ *  units. A GRIB panel reads `Message 0 — Temperature (K)`; a NetCDF or Zarr
+ *  panel names its variable alone, `air (degK)`, since "message" is a GRIB
+ *  word (#1038). The file or store is named on the line under it.
  *
  *  Exported because the heading has to be rebuilt whenever the drawn field
  *  changes — a NetCDF panel keeps one webview and switches variables inside it
  *  — so `buildGridReadyMessage` sends a fresh one with every render. Composing
  *  it in one place keeps the live update from drifting out of step with the
  *  HTML the panel was first built with. */
-export function composeTitleLine(meta: Pick<PanelField, "index" | "parameter" | "units">): string {
-  return `Message ${meta.index}`
-    + (meta.parameter ? ` — ${meta.parameter}` : "")
-    + (meta.units ? ` (${meta.units})` : "");
+export function composeTitleLine(
+  meta: Pick<PanelField, "index" | "parameter" | "units">,
+  kind: FieldKind,
+): string {
+  const units = meta.units ? ` (${meta.units})` : "";
+  if (kind === "variable") return (meta.parameter || `Variable ${meta.index}`) + units;
+  return `Message ${meta.index}` + (meta.parameter ? ` — ${meta.parameter}` : "") + units;
+}
+
+/** Longest a part of a tab title may run, so a hostile name can't fill it. */
+const MAX_TAB_PART = 64;
+
+/** A render panel's tab title (#1038): the field, then the file or store it
+ *  comes from, `msg 0 TMP · gfs.grib2` or `air · air_v2.zarr`. The field goes
+ *  first because VS Code cuts a narrow tab's title at its end. Both parts come
+ *  from the file (a decoded name, a file name), so control characters are
+ *  dropped and each part is capped. VS Code shows a title as plain text, so
+ *  there is nothing to escape. */
+export function composeTabTitle(field: string, sourceName: string): string {
+  const clean = (s: string) => s.replace(/[\u0000-\u001F\u007F]/g, "").slice(0, MAX_TAB_PART);
+  return [clean(field), clean(sourceName)].filter((s) => !!s).join(" · ");
 }
 
 /** The band-limit note for a spectral map drawn below the truncation its
@@ -915,7 +973,11 @@ export function renderImagePanelHtml(
   slice?: SlicePanelData,
   compareFields?: CompareFieldOption[],
   pickMessages?: CompareFieldOption[],
+  // The file or store's name, which the line under the heading opens with
+  // (#1038). A slice panel draws a variable; any other draws a GRIB message.
+  sourceName = "",
 ): string {
+  const source: PanelSource = { kind: slice ? "variable" : "message", name: sourceName };
   const cspNonce = nonce();
   const csp = [
     `default-src 'none'`,
@@ -925,7 +987,7 @@ export function renderImagePanelHtml(
   ].join("; ");
   // A GRIB panel written while it waits for a message to be picked names
   // none (#959), in the heading and in what the PNG export would draw.
-  const titleLine = pickMessages ? NO_MESSAGE_HEADING : composeTitleLine(meta);
+  const titleLine = pickMessages ? NO_MESSAGE_HEADING : composeTitleLine(meta, source.kind);
   // `level` is the bare value ("300", "100 – 85"); `levelType` carries the
   // unit and surface name ("(hPa) Isobaric level", "Cloud base level").
   // Together they read naturally as "300 (hPa) Isobaric level". For surface
@@ -938,10 +1000,13 @@ export function renderImagePanelHtml(
   const levelDescription = meta.level && meta.level !== meta.levelType
     ? [meta.level, meta.levelType].filter((s) => !!s).join(" ")
     : meta.levelType;
-  const subBase = [levelDescription, meta.referenceTime, meta.forecast]
+  // The source first, in every format and while a message is being picked:
+  // with several panels open on twins of the same data, it is what tells
+  // them apart (#1038).
+  const subBase = [source.name, levelDescription, meta.referenceTime, meta.forecast]
     .filter((s) => !!s).join(" · ");
-  const subLine = pickMessages ? "" : composeSubtitle(subBase, composeTruncationNote(meta));
-  const defaultPngName = composeDefaultPngName(meta);
+  const subLine = pickMessages ? source.name : composeSubtitle(subBase, composeTruncationNote(meta));
+  const defaultPngName = composeDefaultPngName(meta, source);
   // Whether the overlays are offered for the field the panel is written for.
   // A slice panel then follows each slice it draws (#840).
   const placed = offersOverlays(meta.placement);
@@ -1004,19 +1069,22 @@ export function renderImagePanelHtml(
         // move with the variable, so gridReady refreshes this. It used to be
         // frozen at the variable the panel opened on, which put that
         // variable's unit against another variable's numbers.
-        let UNITS = ${JSON.stringify(meta.units || "")};
+        let UNITS = ${scriptString(meta.units || "")};
         // Title / subtitle / default filename for the PNG export (#243).
         // TITLE_LINE tracks the drawn field for the same reason as UNITS.
-        let TITLE_LINE = ${JSON.stringify(titleLine)};
+        let TITLE_LINE = ${scriptString(titleLine)};
         // SUB_LINE's band-limit note follows the map on screen: a Compare map
         // is labelled by whichever operand is band-limited (#814), so every
         // gridReady recomposes it over SUB_BASE.
-        const SUB_BASE = ${JSON.stringify(subBase)};
-        let SUB_LINE = ${JSON.stringify(subLine)};
+        const SUB_BASE = ${scriptString(subBase)};
+        let SUB_LINE = ${scriptString(subLine)};
+        // The file or store, which stays on the line under the heading even
+        // while no message is drawn (#1038).
+        const SOURCE_NAME = ${scriptString(source.name)};
         ${composeSubtitle.toString()}
         // Tracks the drawn field too: a slice panel's export was named after the
         // variable it opened on (#822).
-        let DEFAULT_PNG_NAME = ${JSON.stringify(defaultPngName)};
+        let DEFAULT_PNG_NAME = ${scriptString(defaultPngName)};
         // Whether this message's u/v run along the grid's axes (#241). The file
         // says so; the panel passes it on rather than asking the user.
         const UV_GRID_RELATIVE = ${JSON.stringify(meta.uvRelativeToGrid === true)};
@@ -2016,11 +2084,11 @@ export function renderImagePanelHtml(
           const colorbar = document.getElementById('colorbar');
           if (colorbar) colorbar.hidden = true;
           TITLE_LINE = ${JSON.stringify(NO_MESSAGE_HEADING)};
-          SUB_LINE = '';
+          SUB_LINE = SOURCE_NAME;
           const h1 = document.getElementById('title-line');
           if (h1) h1.textContent = TITLE_LINE;
           const subtitle = document.querySelector('.subtitle');
-          if (subtitle) subtitle.textContent = '';
+          if (subtitle) subtitle.textContent = SUB_LINE;
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = '';
           // Nor does the "Not available" line speak for a grid any more.

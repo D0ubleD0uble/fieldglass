@@ -100,6 +100,11 @@ export interface PageState {
   sliceVariables: string[] | null;
   /** The panel heading. */
   title: string;
+  /** The line under the heading. */
+  subtitle: string;
+  /** Everything the page shows a user: its rendered text, and every tooltip
+   *  and accessible label on it (#1038). */
+  text: string;
   /** The status line under the image. */
   status: string;
   /** Whether the Animate row's Play button is disabled. */
@@ -214,6 +219,12 @@ const DRIVER = `
         sliceVariable: variable ? (chosen ? chosen.textContent : '') : null,
         sliceVariables: variable ? Array.from(variable.options).map((o) => o.textContent) : null,
         title: byId('title-line').textContent,
+        subtitle: document.querySelector('.subtitle').textContent,
+        text: [document.body.innerText].concat(
+          Array.from(document.querySelectorAll('[title], [aria-label], [placeholder]'))
+            .filter((el) => el.getClientRects().length > 0)
+            .flatMap((el) => ['title', 'aria-label', 'placeholder'].map((a) => el.getAttribute(a) || '')),
+        ).join('\\n'),
         status: byId('status').textContent,
         playDisabled: !!(byId('anim-play') && byId('anim-play').disabled),
         canvasVisibility: byId('canvas').style.visibility,
@@ -350,6 +361,8 @@ export interface RealPanel {
   rebuild(): void;
   /** The page as the provider last wrote it, driver included. */
   html(): string;
+  /** The panel's tab title, as the provider last set it. */
+  title(): string;
   /** Run `cb` once, as the provider next writes the page, before the new page
    *  can send anything. */
   onNextWrite(cb: () => void): void;
@@ -466,6 +479,7 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       }),
     rebuild: build,
     html: () => panel.webview.html,
+    title: () => panel.title,
     onNextWrite: (cb) => {
       nextWrite = cb;
     },
