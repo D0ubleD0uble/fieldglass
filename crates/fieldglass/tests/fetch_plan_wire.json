@@ -1,0 +1,540 @@
+{
+  "description": "Recorded by `FIELDGLASS_UPDATE_PLAN=1 cargo test -p fieldglass --test fetch_plan_wire`; do not edit by hand. crates/fieldglass-wasm/tests/node/fetchplan.mjs asks the browser module the same questions and compares (#1081). Paths are from the repository root.",
+  "ecmwf": {
+    "key": "20260904/00z/ifs/0p25/oper/20260904000000-0h-oper-fc.grib2",
+    "path": "crates/fieldglass-fetchplan/tests/fixtures/ecmwf_ifs_0p25_oper.index",
+    "plan": {
+      "first": {
+        "address": {
+          "index": 0,
+          "kind": "message",
+          "subIndex": null
+        },
+        "expect": {
+          "abbreviation": "nsss",
+          "forecast": "0",
+          "level": "sfc",
+          "levelSpec": {
+            "surface": "surface",
+            "value": null,
+            "value2": null
+          },
+          "parameter": null,
+          "qualifiers": [
+            "class=od",
+            "domain=g",
+            "expver=0001",
+            "stream=oper",
+            "type=fc"
+          ],
+          "referenceTime": "2026090400",
+          "totalLength": 224
+        },
+        "key": "20260904/00z/ifs/0p25/oper/20260904000000-0h-oper-fc.grib2",
+        "range": {
+          "kind": "exact",
+          "length": 224,
+          "offset": 0
+        }
+      },
+      "itemCount": 187,
+      "last": {
+        "address": {
+          "index": 186,
+          "kind": "message",
+          "subIndex": null
+        },
+        "expect": {
+          "abbreviation": "u",
+          "forecast": "0",
+          "level": "pl 500",
+          "levelSpec": {
+            "surface": "isobaric",
+            "value": 500.0,
+            "value2": null
+          },
+          "parameter": null,
+          "qualifiers": [
+            "class=od",
+            "domain=g",
+            "expver=0001",
+            "stream=oper",
+            "type=fc"
+          ],
+          "referenceTime": "2026090400",
+          "totalLength": 709665
+        },
+        "key": "20260904/00z/ifs/0p25/oper/20260904000000-0h-oper-fc.grib2",
+        "range": {
+          "kind": "exact",
+          "length": 709665,
+          "offset": 135512098
+        }
+      },
+      "messageCount": 187,
+      "selections": [
+        {
+          "items": [
+            {
+              "address": {
+                "index": 46,
+                "kind": "message",
+                "subIndex": null
+              },
+              "expect": {
+                "abbreviation": "2t",
+                "forecast": "0",
+                "level": "sfc",
+                "levelSpec": {
+                  "surface": "surface",
+                  "value": null,
+                  "value2": null
+                },
+                "parameter": null,
+                "qualifiers": [
+                  "class=od",
+                  "domain=g",
+                  "expver=0001",
+                  "stream=oper",
+                  "type=fc"
+                ],
+                "referenceTime": "2026090400",
+                "totalLength": 649317
+              },
+              "key": "20260904/00z/ifs/0p25/oper/20260904000000-0h-oper-fc.grib2",
+              "range": {
+                "kind": "exact",
+                "length": 649317,
+                "offset": 28673209
+              }
+            }
+          ],
+          "query": {
+            "abbreviation": "2t"
+          },
+          "rangeHeaders": [
+            "bytes=28673209-29322525"
+          ]
+        },
+        {
+          "items": [
+            {
+              "address": {
+                "index": 135,
+                "kind": "message",
+                "subIndex": null
+              },
+              "expect": {
+                "abbreviation": "t",
+                "forecast": "0",
+                "level": "pl 500",
+                "levelSpec": {
+                  "surface": "isobaric",
+                  "value": 500.0,
+                  "value2": null
+                },
+                "parameter": null,
+                "qualifiers": [
+                  "class=od",
+                  "domain=g",
+                  "expver=0001",
+                  "stream=oper",
+                  "type=fc"
+                ],
+                "referenceTime": "2026090400",
+                "totalLength": 619728
+              },
+              "key": "20260904/00z/ifs/0p25/oper/20260904000000-0h-oper-fc.grib2",
+              "range": {
+                "kind": "exact",
+                "length": 619728,
+                "offset": 90056771
+              }
+            }
+          ],
+          "query": {
+            "abbreviation": "t",
+            "level": {
+              "surface": "isobaric",
+              "value": 500.0,
+              "value2": null
+            }
+          },
+          "rangeHeaders": [
+            "bytes=90056771-90676498"
+          ]
+        }
+      ]
+    }
+  },
+  "envelope": {
+    "declaredLength": 210,
+    "item": {
+      "address": {
+        "index": 106,
+        "kind": "message",
+        "subIndex": null
+      },
+      "expect": {
+        "abbreviation": "RH",
+        "forecast": "anl",
+        "level": "2 mb",
+        "levelSpec": {
+          "surface": "isobaric",
+          "value": 2.0,
+          "value2": null
+        },
+        "parameter": null,
+        "qualifiers": [],
+        "referenceTime": "2026090400",
+        "totalLength": null
+      },
+      "key": "gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000",
+      "range": {
+        "kind": "exact",
+        "length": 210,
+        "offset": 76032983
+      }
+    },
+    "path": "crates/fieldglass-fetchplan/tests/fixtures/gfs_0p25_rh_2mb.grib2",
+    "staleCode": "decode",
+    "truncatedCode": "short_read",
+    "truncatedTo": 100
+  },
+  "sources": {
+    "candidates": [
+      {
+        "cycleUnixSecs": 1788480000,
+        "key": "gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000",
+        "stepHours": 0
+      },
+      {
+        "cycleUnixSecs": 1788458400,
+        "key": "gfs.20260903/18/atmos/gfs.t18z.pgrb2.0p25.f000",
+        "stepHours": 0
+      },
+      {
+        "cycleUnixSecs": 1788436800,
+        "key": "gfs.20260903/12/atmos/gfs.t12z.pgrb2.0p25.f000",
+        "stepHours": 0
+      }
+    ],
+    "noCycleHours": {
+      "code": "invalid_option",
+      "source": {
+        "cycleHours": [],
+        "keyPattern": "gfs.{yyyy}{mm}{dd}/{HH}/atmos/gfs.t{HH}z.pgrb2.0p25.f{fff}",
+        "latencyMinutes": 240,
+        "maxCandidates": 3
+      }
+    },
+    "options": {
+      "nowUnixSecs": 1788500000,
+      "stepHours": 0
+    },
+    "source": {
+      "cycleHours": [
+        0,
+        6,
+        12,
+        18
+      ],
+      "keyPattern": "gfs.{yyyy}{mm}{dd}/{HH}/atmos/gfs.t{HH}z.pgrb2.0p25.f{fff}",
+      "latencyMinutes": 240,
+      "maxCandidates": 3
+    },
+    "unknownPlaceholder": {
+      "code": "invalid_option",
+      "source": {
+        "cycleHours": [
+          0,
+          6,
+          12,
+          18
+        ],
+        "keyPattern": "gfs.{yyyy}{zz}/gfs.t{HH}z",
+        "latencyMinutes": 240,
+        "maxCandidates": 3
+      }
+    }
+  },
+  "wgrib2": {
+    "key": "gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000",
+    "path": "crates/fieldglass-fetchplan/tests/fixtures/gfs_0p25.idx",
+    "plan": {
+      "first": {
+        "address": {
+          "index": 0,
+          "kind": "message",
+          "subIndex": null
+        },
+        "expect": {
+          "abbreviation": "PRMSL",
+          "forecast": "anl",
+          "level": "mean sea level",
+          "levelSpec": {
+            "surface": "mean_sea_level",
+            "value": null,
+            "value2": null
+          },
+          "parameter": null,
+          "qualifiers": [],
+          "referenceTime": "2026090400",
+          "totalLength": null
+        },
+        "key": "gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000",
+        "range": {
+          "kind": "exact",
+          "length": 875084,
+          "offset": 0
+        }
+      },
+      "itemCount": 696,
+      "last": {
+        "address": {
+          "index": 695,
+          "kind": "message",
+          "subIndex": null
+        },
+        "expect": {
+          "abbreviation": "VWSH",
+          "forecast": "anl",
+          "level": "PV=-2e-06 (Km^2/kg/s) surface",
+          "levelSpec": {
+            "surface": {
+              "named": "PV=-2e-06 (Km^2/kg/s) surface"
+            },
+            "value": null,
+            "value2": null
+          },
+          "parameter": null,
+          "qualifiers": [],
+          "referenceTime": "2026090400",
+          "totalLength": null
+        },
+        "key": "gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000",
+        "range": {
+          "kind": "openEnded",
+          "offset": 490148925
+        }
+      },
+      "messageCount": 696,
+      "selections": [
+        {
+          "items": [
+            {
+              "address": {
+                "index": 106,
+                "kind": "message",
+                "subIndex": null
+              },
+              "expect": {
+                "abbreviation": "RH",
+                "forecast": "anl",
+                "level": "2 mb",
+                "levelSpec": {
+                  "surface": "isobaric",
+                  "value": 2.0,
+                  "value2": null
+                },
+                "parameter": null,
+                "qualifiers": [],
+                "referenceTime": "2026090400",
+                "totalLength": null
+              },
+              "key": "gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000",
+              "range": {
+                "kind": "exact",
+                "length": 210,
+                "offset": 76032983
+              }
+            }
+          ],
+          "query": {
+            "abbreviation": "RH",
+            "levelText": "2 mb"
+          },
+          "rangeHeaders": [
+            "bytes=76032983-76033192"
+          ]
+        },
+        {
+          "items": [
+            {
+              "address": {
+                "index": 106,
+                "kind": "message",
+                "subIndex": null
+              },
+              "expect": {
+                "abbreviation": "RH",
+                "forecast": "anl",
+                "level": "2 mb",
+                "levelSpec": {
+                  "surface": "isobaric",
+                  "value": 2.0,
+                  "value2": null
+                },
+                "parameter": null,
+                "qualifiers": [],
+                "referenceTime": "2026090400",
+                "totalLength": null
+              },
+              "key": "gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000",
+              "range": {
+                "kind": "exact",
+                "length": 210,
+                "offset": 76032983
+              }
+            }
+          ],
+          "query": {
+            "level": {
+              "surface": "isobaric",
+              "value": 2.0,
+              "value2": null
+            },
+            "parameter": {
+              "category": 1,
+              "discipline": 0,
+              "number": 1
+            }
+          },
+          "rangeHeaders": [
+            "bytes=76032983-76033192"
+          ]
+        },
+        {
+          "items": [
+            {
+              "address": {
+                "index": 579,
+                "kind": "message",
+                "subIndex": null
+              },
+              "expect": {
+                "abbreviation": "TMP",
+                "forecast": "anl",
+                "level": "2 m above ground",
+                "levelSpec": {
+                  "surface": "height_above_ground",
+                  "value": 2.0,
+                  "value2": null
+                },
+                "parameter": null,
+                "qualifiers": [],
+                "referenceTime": "2026090400",
+                "totalLength": null
+              },
+              "key": "gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000",
+              "range": {
+                "kind": "exact",
+                "length": 510996,
+                "offset": 405924592
+              }
+            }
+          ],
+          "query": {
+            "abbreviation": "TMP",
+            "levelText": "2 m above ground"
+          },
+          "rangeHeaders": [
+            "bytes=405924592-406435587"
+          ]
+        },
+        {
+          "items": [
+            {
+              "address": {
+                "index": 579,
+                "kind": "message",
+                "subIndex": null
+              },
+              "expect": {
+                "abbreviation": "TMP",
+                "forecast": "anl",
+                "level": "2 m above ground",
+                "levelSpec": {
+                  "surface": "height_above_ground",
+                  "value": 2.0,
+                  "value2": null
+                },
+                "parameter": null,
+                "qualifiers": [],
+                "referenceTime": "2026090400",
+                "totalLength": null
+              },
+              "key": "gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000",
+              "range": {
+                "kind": "exact",
+                "length": 510996,
+                "offset": 405924592
+              }
+            }
+          ],
+          "query": {
+            "level": {
+              "surface": "height_above_ground",
+              "value": 2.0,
+              "value2": null
+            },
+            "parameter": {
+              "category": 0,
+              "discipline": 0,
+              "number": 0
+            }
+          },
+          "rangeHeaders": [
+            "bytes=405924592-406435587"
+          ]
+        },
+        {
+          "items": [
+            {
+              "address": {
+                "index": 695,
+                "kind": "message",
+                "subIndex": null
+              },
+              "expect": {
+                "abbreviation": "VWSH",
+                "forecast": "anl",
+                "level": "PV=-2e-06 (Km^2/kg/s) surface",
+                "levelSpec": {
+                  "surface": {
+                    "named": "PV=-2e-06 (Km^2/kg/s) surface"
+                  },
+                  "value": null,
+                  "value2": null
+                },
+                "parameter": null,
+                "qualifiers": [],
+                "referenceTime": "2026090400",
+                "totalLength": null
+              },
+              "key": "gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000",
+              "range": {
+                "kind": "openEnded",
+                "offset": 490148925
+              }
+            }
+          ],
+          "query": {
+            "abbreviation": "VWSH",
+            "levelText": "PV=-2e-06 (Km^2/kg/s) surface"
+          },
+          "rangeHeaders": [
+            "bytes=490148925-"
+          ]
+        },
+        {
+          "items": [],
+          "query": {
+            "abbreviation": "NOTAPARAMETER"
+          },
+          "rangeHeaders": []
+        }
+      ]
+    }
+  }
+}

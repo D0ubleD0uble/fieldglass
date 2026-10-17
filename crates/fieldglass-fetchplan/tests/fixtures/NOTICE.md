@@ -1,6 +1,6 @@
 # Test fixture provenance
 
-Two kinds of fixture live here, with different provenance.
+Three kinds of fixture live here, with different provenance.
 
 **The GRIB sidecars in this directory** are **real, unmodified manifest
 sidecars** fetched from a public endpoint on 2026-09-06, for the 2026-09-04 00Z
@@ -11,8 +11,12 @@ believes they emit. Three of the shapes the parser handles (`n.m` sub-messages,
 the numeric `var discipline=…` fallback name, probability qualifiers) were
 discovered by reading these files, not by reading a specification.
 
-No credentials are needed for any of these endpoints. Nothing here is a GRIB
-message; a sidecar carries offsets and labels, not data.
+No credentials are needed for any of these endpoints. A sidecar carries offsets
+and labels, not data.
+
+**One GRIB message**, `gfs_0p25_rh_2mb.grib2`, is the bytes one record of
+`gfs_0p25.idx` points at, so a plan can be checked against what it fetches. Its
+section below says how it was taken.
 
 **The chunk-addressing fixtures in [`zarr/`](zarr/)** are generated, and the
 section at the end of this file says by what and from where.
@@ -31,6 +35,26 @@ GFS 0.25° global, analysis. 696 records — the largest sidecar here, and the o
 that exercises the range arithmetic at scale. Note that this product has **no**
 `n.m` sub-messages, contrary to what one might assume from the issue text; the
 sub-message case is covered by `nam_awip12.idx` below, which does.
+
+### `gfs_0p25_rh_2mb.grib2`
+
+Record 107 of `gfs_0p25.idx` (`RH:2 mb:anl`), fetched on 2026-10-16 from the
+object that sidecar describes,
+`https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000`,
+with `Range: bytes=76032983-76033192`: from the record's offset to one byte
+before record 108's. Unmodified, 210 bytes, SHA-256
+`55e074b163aec826a51805cd1a8414c79c331585f16707c0c4c10882f1e700cd`. The live
+sidecar was fetched again the same day and is byte-identical to the committed
+one, so the offsets are the ones this message sits at.
+
+It was picked for its size. Relative humidity at 2 hPa is zero everywhere, so
+the message is a constant field of 1,038,240 points in complex packing with
+spatial differencing (5.3), one of the smallest records in the product; most
+are hundreds of kilobytes. eccodes 2.34.1 (`grib_ls`) reads it as `r` on `isobaricInhPa` level 2,
+2026-09-04 00Z, minimum and maximum 0. The browser host's planner test
+(`crates/fieldglass-wasm/tests/node/fetchplan.mjs`) and the umbrella's
+(`crates/fieldglass/tests/fetch_plan_wire.rs`) select this record, build its
+`Range` header, verify its envelope on these bytes and decode it (#1081).
 
 ### `hrrr_conus_wrfsfc.idx`
 

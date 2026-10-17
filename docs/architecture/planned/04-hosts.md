@@ -19,7 +19,7 @@ flowchart LR
         nb --> canvas["RGBA → canvas<br/>overlays, probe, contours"]
     end
     subgraph browser["fieldglass-app (planned, milestone 11)"]
-        cat["sources.json<br/>(catalog is data)"] --> plan["fetchplan, inside the wasm module<br/>.idx → ranges + expect"]
+        cat["sources.json<br/>(catalog is data)"] --> plan["fetchplan in wasm, built behind a feature (#1081)<br/>.idx → ranges + expect"]
         plan --> fetch["fetch() with Range<br/>public bucket, CORS"]
         fetch --> wb["wasm handle<br/>no cache"]
         wb --> gpu["values + mask textures<br/>+ Palette LUT texture<br/>shipped shader snippet"]
@@ -46,13 +46,15 @@ sequenceDiagram
     A->>W: want(source, run, field, level)
     W->>B: GET model.grib2.idx
     B-->>W: idx text
-    W->>P: Wgrib2Idx::select(query, resolver)
-    P-->>W: PlanItem { range: OpenEnded(offset), expect }
-    W->>B: GET model.grib2 (Range: bytes=offset-)
+    W->>P: parseWgrib2Idx(key, idx).select(query)
+    P-->>W: PlanItem { range, address, expect }
+    W->>P: httpRangeHeader(item.range)
+    W->>B: GET model.grib2 (Range: bytes=offset-end)
     B-->>W: one GRIB2 message
+    W->>P: verifyEnvelope(item, bytes)
+    Note over P: GRIB magic, edition and §0 length against the plan
     W->>H: open(bytes)
-    W->>H: decode(0, { reduce, dtype, expect })
-    Note over H: Session verifies GRIB magic, §0 length, parameter against expect
+    W->>H: decode(0, { reduce, dtype })
     H-->>W: Field { values, mask, georef, stats }
     W->>H: palette(opts)
     H-->>W: Palette { lut, t0, t1, scale, masked }
@@ -103,8 +105,15 @@ Notes that shape the two hosts:
   cancellation stays in `f64`. `t0`/`t1` are `f64` for this reason. Both the
   bound and the breakdown are pinned by
   `crates/fieldglass-core/tests/palette_golden.rs`.
-- **Trust.** A `.idx` range is a claim; the decoder checks the fetched bytes
-  against it (magic, length, parameter) and errors on a mismatch.
+- **Trust.** A `.idx` range is a claim. `verifyEnvelope` checks the fetched
+  bytes against it (magic, edition, length) before they are opened, and throws
+  `short_read` for a short transfer and `decode` for bytes that are not the
+  message, which is what a stale sidecar produces (#1081). The planner calls are
+  built behind `fieldglass-wasm`'s `fetchplan` feature and are not in the
+  shipped bundle until where they ship is decided: inside this module, or as a
+  module of their own. The parameter check,
+  `fieldglass::fetchplan::verify_message`, is not bound in the browser module
+  yet.
 - **The extension later.** "Open URL…" in VS Code (#247) is the same
   `fetchplan` call from TypeScript with `fetch()` in the extension host, then
   the existing napi path. Nothing new in Rust.

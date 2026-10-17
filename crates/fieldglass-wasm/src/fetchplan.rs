@@ -1,0 +1,214 @@
+//! The fetch planner, in the browser (#1081).
+//!
+//! The sequence `docs/architecture/planned/04-hosts.md` draws: the Worker
+//! fetches a sidecar's text, the planner turns it into byte ranges plus what
+//! the bytes should be, the Worker fetches one range and checks the bytes
+//! against the plan before it opens them. Every call here is synchronous and
+//! does no I/O; the network is the Worker's.
+//!
+//! Like the rest of this crate it forwards and converts, nothing more. The
+//! plan items, queries and sources are `fieldglass-fetchplan`'s own serde types,
+//! declared in `api.generated.d.ts` from the same schema as everything else, so
+//! there is no second spelling of any of them here.
+
+use std::sync::OnceLock;
+
+use fieldglass::fetchplan::{
+    CandidateOptions, EcmwfIndex, PlanItem, PlanRange, Query, SourceSpec, TableResolver, Wgrib2Idx,
+};
+use wasm_bindgen::prelude::*;
+
+use crate::{throw, to_js};
+
+/// The table-backed resolver, built once per Worker.
+///
+/// Its first `resolve` inverts the GRIB2 parameter tables into a name index
+/// (tens of milliseconds natively), so it is kept rather than rebuilt for each
+/// sidecar. NCEP's tables, because every NOAA `.idx` is written in them; an
+/// ECMWF `.index` names its parameters in MARS short names, which no table here
+/// carries, so those select by the sidecar's own words.
+fn resolver() -> &'static TableResolver {
+    static RESOLVER: OnceLock<TableResolver> = OnceLock::new();
+    RESOLVER.get_or_init(TableResolver::ncep)
+}
+
+/// Read a required argument: unlike an options object, `null` is not "all
+/// defaults" but a mistake, and is refused as one.
+fn required<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<T, JsValue> {
+    serde_wasm_bindgen::from_value(value).map_err(|e| unreadable(what, &e))
+}
+
+/// Read an argument whose type refuses unknown keys, so that it does.
+///
+/// serde-wasm-bindgen reads a struct by asking the object for each field the
+/// struct names, so a key it does not name is never looked at and
+/// `deny_unknown_fields` cannot fire: `{ levelTxt: "2 mb" }` would read as an
+/// empty query and select every record. Reading the object into a JSON value
+/// first enumerates every key it has, and the type's own rule then applies.
+fn strict<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<T, JsValue> {
+    let json: serde_json::Value =
+        serde_wasm_bindgen::from_value(value).map_err(|e| unreadable(what, &e))?;
+    serde_json::from_value(json).map_err(|e| unreadable(what, &e))
+}
+
+/// An argument that did not read is the caller's to fix, so it is
+/// `invalid_option`, with serde's own message naming the key.
+fn unreadable(what: &str, e: &dyn std::fmt::Display) -> JsValue {
+    throw(fieldglass::Error::InvalidOption {
+        detail: format!("could not read the {what}: {e}"),
+    })
+}
+
+#[derive(Debug)]
+enum Sidecar {
+    Wgrib2(Wgrib2Idx),
+    Ecmwf(EcmwfIndex),
+}
+
+/// A parsed GRIB sidecar: a wgrib2 `.idx` or an ECMWF `.index`.
+///
+/// Holds the parsed records and nothing else; free it when you are done.
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct MessageManifest {
+    sidecar: Sidecar,
+}
+
+impl MessageManifest {
+    fn manifest(&self) -> &dyn fieldglass::fetchplan::MessageManifest {
+        match &self.sidecar {
+            Sidecar::Wgrib2(idx) => idx,
+            Sidecar::Ecmwf(idx) => idx,
+        }
+    }
+}
+
+/// Parse a wgrib2 `.idx` sidecar.
+///
+/// `key` is the object the sidecar describes, as you will fetch it; every plan
+/// item carries it back unchanged, and nothing here derives or alters one.
+/// Throws `decode`, naming the line, for text that is not a `.idx`.
+#[wasm_bindgen(js_name = parseWgrib2Idx)]
+pub fn parse_wgrib2_idx(key: &str, text: &str) -> Result<MessageManifest, JsValue> {
+    let idx = Wgrib2Idx::parse(key, text).map_err(|e| throw(e.into()))?;
+    Ok(MessageManifest {
+        sidecar: Sidecar::Wgrib2(idx),
+    })
+}
+
+/// Parse an ECMWF `.index` sidecar (JSON lines). `key` as for
+/// `parseWgrib2Idx`. Its parameters are MARS short names (`2t`), which no
+/// table here resolves to WMO codes, so select them by `abbreviation`.
+#[wasm_bindgen(js_name = parseEcmwfIndex)]
+pub fn parse_ecmwf_index(key: &str, text: &str) -> Result<MessageManifest, JsValue> {
+    let idx = EcmwfIndex::parse(key, text).map_err(|e| throw(e.into()))?;
+    Ok(MessageManifest {
+        sidecar: Sidecar::Ecmwf(idx),
+    })
+}
+
+#[wasm_bindgen]
+impl MessageManifest {
+    /// Every record, in the sidecar's order. A `.idx` states no length, so the
+    /// last record's range is `openEnded`.
+    #[wasm_bindgen(unchecked_return_type = "PlanItem[]")]
+    pub fn items(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.manifest().items())
+    }
+
+    /// One item per GRIB message: the records of an `n.m` message share one
+    /// fetch, so they collapse onto the first.
+    #[wasm_bindgen(unchecked_return_type = "PlanItem[]")]
+    pub fn messages(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.manifest().messages())
+    }
+
+    /// The records a query selects, through the GRIB2 parameter tables.
+    ///
+    /// `query` is `{ abbreviation?, levelText?, forecast?, qualifiers?,
+    /// unqualified?, parameter?, level? }`: the first five in the sidecar's
+    /// own words, the last two by meaning, which is what matches on either
+    /// dialect. Every stated key must hold, and an empty query selects every
+    /// record. **Every match comes back**, so check the length: four ensemble
+    /// members are four items, never one guessed for you. An unknown key, at
+    /// the top or inside `level` or `parameter`, throws `invalid_option`
+    /// rather than being ignored, since dropping a misspelt one would widen
+    /// the query.
+    #[wasm_bindgen(unchecked_return_type = "PlanItem[]")]
+    pub fn select(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "Query | null | undefined")] query: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let query: Query = if query.is_undefined() || query.is_null() {
+            Query::default()
+        } else {
+            strict(query, "query")?
+        };
+        to_js(&self.manifest().select(&query, resolver()))
+    }
+}
+
+/// The value of the HTTP `Range` header that fetches `range`, or `null` when
+/// the whole object is wanted and no header should be sent.
+#[wasm_bindgen(js_name = httpRangeHeader, unchecked_return_type = "string | null")]
+pub fn http_range_header(
+    #[wasm_bindgen(unchecked_param_type = "PlanRange")] range: JsValue,
+) -> Result<JsValue, JsValue> {
+    let range: PlanRange = required(range, "range")?;
+    Ok(range
+        .http_range_header()
+        .map_or(JsValue::NULL, |h| JsValue::from_str(&h)))
+}
+
+/// Check fetched bytes against what a plan item promised: the GRIB magic, the
+/// edition, and the length the message declares against what arrived. Returns
+/// that declared length, which is where the message ends in an open-ended
+/// fetch.
+///
+/// Pass the item back whole, as `select` returned it. Throws `short_read` when
+/// fewer bytes arrived than the item asked for or the message declares (worth
+/// a retry), and `decode` when the bytes are not the promised message, which is
+/// what a stale sidecar looks like (worth refetching the sidecar).
+#[wasm_bindgen(js_name = verifyEnvelope)]
+pub fn verify_envelope(
+    #[wasm_bindgen(unchecked_param_type = "PlanItem")] item: JsValue,
+    bytes: &[u8],
+) -> Result<f64, JsValue> {
+    let item: PlanItem = required(item, "plan item")?;
+    let declared = fieldglass::fetchplan::verify_envelope(&item, bytes).map_err(throw)?;
+    // A GRIB2 message can declare up to 2^64 bytes, and a JS number holds an
+    // integer exactly only to 2^53. A declared length is returned only when it
+    // is at most what arrived in the `Uint8Array`; anything longer has already
+    // been refused, as `short_read` from an open range or as `decode` from an
+    // exact one whose length disagrees. So this conversion is exact for every
+    // value that reaches it.
+    Ok(declared as f64)
+}
+
+/// Check a catalog entry before it is used. Throws `invalid_option` naming what
+/// is wrong: no cycle hours, an hour past 23, hours out of order, or a key
+/// placeholder the planner does not know.
+#[wasm_bindgen(js_name = validateSource)]
+pub fn validate_source(
+    #[wasm_bindgen(unchecked_param_type = "SourceSpec")] source: JsValue,
+) -> Result<(), JsValue> {
+    let source: SourceSpec = required(source, "source")?;
+    source.validate().map_err(|e| throw(e.into()))
+}
+
+/// The runs of `source` that should have posted by `options.nowUnixSecs`,
+/// newest first, each with the object key it should be under.
+///
+/// A candidate is a guess: walk the list and fetch until one succeeds. The
+/// clock is yours, in whole seconds: `Math.floor(Date.now() / 1000)`, since a
+/// fractional second is refused. The planner reads no clock of its own.
+#[wasm_bindgen(unchecked_return_type = "Candidate[]")]
+pub fn candidates(
+    #[wasm_bindgen(unchecked_param_type = "SourceSpec")] source: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "CandidateOptions")] options: JsValue,
+) -> Result<JsValue, JsValue> {
+    let source: SourceSpec = required(source, "source")?;
+    let options: CandidateOptions = strict(options, "candidate options")?;
+    let out = fieldglass::fetchplan::candidates_at(&source, &options).map_err(throw)?;
+    to_js(&out)
+}

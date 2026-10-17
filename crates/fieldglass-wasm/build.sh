@@ -7,11 +7,14 @@
 # This script checks that rather than letting the mismatch surface as an
 # "invalid schema version" at import time.
 #
-#     ./build.sh [web|nodejs] [--no-opt] [--simd]
+#     ./build.sh [web|nodejs] [--no-opt] [--simd] [--features=<name>]
 #
 #     --no-opt   skip wasm-opt (for a clone without binaryen; the sizes it
 #                prints are then not the shipped ones)
 #     --simd     add `-C target-feature=+simd128`, into `pkg/<kind>-simd`
+#     --features=<name>
+#                build with one of this crate's cargo features, into
+#                `pkg/<kind>-<name>`: `fetchplan` is the only one (#1081)
 #
 # Output lands in `pkg/`, which is gitignored: it is a build product, and
 # publishing it to npm is #466.
@@ -20,12 +23,14 @@ set -euo pipefail
 TARGET_KIND=web
 RUN_WASM_OPT=1
 SIMD=0
+FEATURES=
 for arg in "$@"; do
   case "$arg" in
     web|nodejs) TARGET_KIND="$arg" ;;
     --no-opt)   RUN_WASM_OPT=0 ;;
     --simd)     SIMD=1 ;;
-    *) echo "usage: $0 [web|nodejs] [--no-opt] [--simd]" >&2; exit 2 ;;
+    --features=?*) FEATURES="${arg#--features=}" ;;
+    *) echo "usage: $0 [web|nodejs] [--no-opt] [--simd] [--features=<name>]" >&2; exit 2 ;;
   esac
 done
 
@@ -33,6 +38,7 @@ CRATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$CRATE_DIR/../.." && pwd)"
 OUT_DIR="$CRATE_DIR/pkg/$TARGET_KIND"
 [ "$SIMD" -eq 1 ] && OUT_DIR="$OUT_DIR-simd"
+[ -n "$FEATURES" ] && OUT_DIR="$OUT_DIR-${FEATURES//,/-}"
 
 want="$(grep -A1 '^name = "wasm-bindgen"$' "$REPO_ROOT/Cargo.lock" \
         | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n1)"
@@ -54,10 +60,13 @@ if [ "$SIMD" -eq 1 ]; then
   export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+simd128"
 fi
 
+# `${FEATURES:+…}` rather than an array, for the bash 3.2 reason below: it
+# expands to one word when a feature was named and to nothing otherwise.
 cargo build --manifest-path "$REPO_ROOT/Cargo.toml" \
   -p fieldglass-wasm \
   --profile wasm-release \
-  --target wasm32-unknown-unknown
+  --target wasm32-unknown-unknown \
+  ${FEATURES:+"--features=$FEATURES"}
 
 wasm-bindgen \
   --target "$TARGET_KIND" \

@@ -239,6 +239,8 @@ jobs:
         run: |
           crates/fieldglass-wasm/build.sh web
           crates/fieldglass-wasm/build.sh nodejs
+          crates/fieldglass-wasm/build.sh web --features=fetchplan
+          crates/fieldglass-wasm/build.sh nodejs --features=fetchplan
           crates/fieldglass-wasm/build.sh web --simd
           crates/fieldglass-wasm/build.sh nodejs --simd
 
@@ -280,6 +282,35 @@ jobs:
           node crates/fieldglass-wasm/tests/node/netcdf.mjs
           node crates/fieldglass-wasm/tests/node/netcdf.mjs \
             --pkg crates/fieldglass-wasm/pkg/nodejs-simd
+
+      # The fetch planner in the browser module (#1081): one GFS field from the
+      # committed `.idx`, its Range header, and the envelope check on the
+      # committed bytes that range fetched; then every answer the Rust planner
+      # recorded in `crates/fieldglass/tests/fetch_plan_wire.json`, replayed
+      # through the bundle. Committed files only, and it fails rather than skips
+      # when one is missing.
+      #
+      # Against the `fetchplan` feature build: the planner is not in the shipped
+      # bundle until where it ships is decided (#1081). Its size is printed
+      # beside the gated table, and not gated, so that decision is made from
+      # this runner's figure rather than a local one.
+      - name: Fetch planner through the browser host
+        run: |
+          node crates/fieldglass-wasm/tests/node/fetchplan.mjs \
+            --pkg crates/fieldglass-wasm/pkg/nodejs-fetchplan
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import gzip
+          def size(p):
+              d = open(p, "rb").read()
+              return len(d), len(gzip.compress(d, compresslevel=9, mtime=0))
+          base = size("crates/fieldglass-wasm/pkg/web/fieldglass_wasm_bg.wasm")
+          plan = size("crates/fieldglass-wasm/pkg/web-fetchplan/fieldglass_wasm_bg.wasm")
+          print("\n### Bundle with the fetch planner (#1081, not gated)\n")
+          print("| Build | `.wasm` bytes | gzipped bytes |")
+          print("|---|---:|---:|")
+          print(f"| baseline | {base[0]:,} | {base[1]:,} |")
+          print(f"| baseline + `fetchplan` | {plan[0]:,} ({(plan[0] / base[0] - 1) * 100:+.1f}%) | {plan[1]:,} ({(plan[1] / base[1] - 1) * 100:+.1f}%) |")
+          EOF
 
       - name: Native decode baseline
         run: |

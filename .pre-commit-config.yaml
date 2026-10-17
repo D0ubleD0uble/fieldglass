@@ -57,6 +57,19 @@ repos:
         entry: cargo clippy --all-targets --workspace -- -D warnings
         pass_filenames: false
 
+      # The browser host's planner binding (#1081) is behind a feature nothing
+      # in the workspace turns on, so the hook above never compiles it. Off in
+      # the shipped bundle until where the planner ships is decided; linted here
+      # so it does not rot while it waits.
+      - id: cargo-clippy-wasm-fetchplan
+        name: cargo clippy -p fieldglass-wasm --features fetchplan -- -D warnings
+        language: system
+        # TOML too: the feature is declared in a manifest, and an edit there
+        # alone can break the build this hook exists to keep compiling.
+        types_or: [rust, toml]
+        entry: cargo clippy -p fieldglass-wasm --features fetchplan --all-targets -- -D warnings
+        pass_filenames: false
+
       - id: cargo-clippy-core-no-default
         name: cargo clippy -p fieldglass-core --no-default-features -- -D warnings
         language: system
