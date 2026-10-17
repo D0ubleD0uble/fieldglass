@@ -1532,6 +1532,11 @@ export function renderImagePanelHtml(
           });
         }
 
+        // An element's laid-out size as "WxH", whole pixels.
+        function sizeKey(box) {
+          return Math.round(box.width) + 'x' + Math.round(box.height);
+        }
+
         function drawAxisRails() {
           const railY = document.getElementById('axis-y');
           const railX = document.getElementById('axis-x');
@@ -1577,6 +1582,12 @@ export function renderImagePanelHtml(
             .join('');
           fitRail(railY, true);
           fitRail(railX, false);
+          // The image size the rails were last fitted to, so a reader (the
+          // test driver) can tell fitted labels from ones still placed for
+          // the size before (#1043).
+          const wrap = document.getElementById('plot-wrap');
+          const image = document.getElementById('canvas');
+          if (wrap && image) wrap.dataset.fitted = sizeKey(image.getBoundingClientRect());
           const name = (axis, dim) => {
             const base = axis ? axis.dimension : v.dims[dim].name;
             const units = axis && axis.units && !/ since /i.test(axis.units) ? ' (' + axis.units + ')' : '';
@@ -3093,7 +3104,10 @@ export function renderImagePanelHtml(
           // Kept before anything is drawn, the empty answer included, so a resize
           // redraws what is on screen rather than the line before it.
           lastLine = { line: line, markIndex: markIndex, emptyText: emptyText };
-          if (!line) { svg.classList.remove('profile'); caption.textContent = emptyText; return; }
+          // The size this plot is drawn for, as the rails record theirs, once
+          // its class (a profile is taller) has settled that size.
+          const fit = () => { svg.dataset.fitted = sizeKey(svg.getBoundingClientRect()); };
+          if (!line) { svg.classList.remove('profile'); fit(); caption.textContent = emptyText; return; }
 
           const n = line.values.length;
           // Position each point by its coordinate when the axis has one, and by
@@ -3114,6 +3128,7 @@ export function renderImagePanelHtml(
           // levels are not squeezed into the top of the plot.
           const vertical = hasCoordinates ? line.coordinateVertical || null : null;
           svg.classList.toggle('profile', !!vertical);
+          fit();
           if (!present.length) {
             caption.textContent = (line.variable || 'Values') + ' across ' + along + ': no data at this cell.';
             return;
@@ -3931,26 +3946,29 @@ export function renderImagePanelHtml(
           window.addEventListener('resize', drawOverlay);
           // The axis labels are fitted to the room they have (#1043), so a
           // narrower panel drops the ones that no longer fit and a wider one
-          // brings them back. Watched on the rails and the plot themselves, not
-          // the window: a rail is also laid out, or resized, when the image
-          // arrives or the toolbar wraps, with no window resize at all. Each
-          // refit keeps the element's size, so it does not trigger itself.
+          // brings them back. Each fit records the size it was made for
+          // (data-fitted), and anything that may have moved it asks for a
+          // refit only where that size is stale, so a refit, which keeps the
+          // size, never triggers itself. Watched on the rails, the image and
+          // the plot (a rail is laid out or resized when the image arrives or
+          // the toolbar wraps, with no window resize), and on the window as
+          // well, in case a resize is not observed.
+          function refitIfStale() {
+            const wrap = document.getElementById('plot-wrap');
+            const image = document.getElementById('canvas');
+            const rail = document.getElementById('axis-y');
+            if (wrap && image && rail && !rail.hidden && wrap.dataset.fitted !== sizeKey(image.getBoundingClientRect())) {
+              drawAxisRails();
+            }
+            const svg = document.getElementById('line-plot');
+            const panel = document.getElementById('line-panel');
+            if (svg && lastLine && panel && !panel.hidden && svg.dataset.fitted !== sizeKey(svg.getBoundingClientRect())) {
+              drawLine(lastLine.line, lastLine.markIndex, lastLine.emptyText);
+            }
+          }
+          window.addEventListener('resize', refitIfStale);
           if (typeof ResizeObserver === 'function') {
-            const sizes = new Map();
-            const refit = new ResizeObserver((entries) => {
-              let rails = false;
-              let plot = false;
-              for (const e of entries) {
-                const box = e.contentRect;
-                const key = Math.round(box.width) + 'x' + Math.round(box.height);
-                if (sizes.get(e.target) === key) continue;
-                sizes.set(e.target, key);
-                if (e.target.id === 'line-plot') plot = true; else rails = true;
-              }
-              if (rails) drawAxisRails();
-              const panel = document.getElementById('line-panel');
-              if (plot && lastLine && panel && !panel.hidden) drawLine(lastLine.line, lastLine.markIndex, lastLine.emptyText);
-            });
+            const refit = new ResizeObserver(refitIfStale);
             for (const id of ['axis-y', 'axis-x', 'canvas', 'line-plot']) {
               const el = document.getElementById(id);
               if (el) refit.observe(el);

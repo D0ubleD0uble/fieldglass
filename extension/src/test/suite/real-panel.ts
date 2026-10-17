@@ -426,6 +426,38 @@ const DRIVER = `
       });
       return { moved: moved, stuck: stuck, unknown: unknown };
     }
+    // Whether the rails and the line plot are fitted to their current size,
+    // by the size each records it was last fitted for (data-fitted).
+    function fitted() {
+      const key = (el) => {
+        const r = el.getBoundingClientRect();
+        return Math.round(r.width) + 'x' + Math.round(r.height);
+      };
+      const rail = byId('axis-y');
+      const railsOk = !rail || rail.getClientRects().length === 0 ||
+        byId('plot-wrap').dataset.fitted === key(byId('canvas'));
+      const svg = byId('line-plot');
+      const plotOk = !svg || svg.getClientRects().length === 0 || svg.dataset.fitted === key(svg);
+      return railsOk && plotOk;
+    }
+    // Run done once fitted() holds, checked every 16 ms (not by frames, which
+    // a throttled page may not paint), or after five
+    // seconds regardless, so a test reads what is there and says why.
+    function whenFitted(done) {
+      const start = Date.now();
+      let nudged = false;
+      const check = () => {
+        if (fitted() || Date.now() - start > 5000) { done(); return; }
+        // A resize the page has not seen after a while is told it the way a
+        // window resize would; the page refits only what is stale.
+        if (!nudged && Date.now() - start > 250) {
+          nudged = true;
+          window.dispatchEvent(new Event('resize'));
+        }
+        setTimeout(check, 16);
+      };
+      setTimeout(check, 0);
+    }
     window.addEventListener('message', (ev) => {
       const m = ev.data;
       if (m && m.type === 'test:controls') {
@@ -449,8 +481,9 @@ const DRIVER = `
         api.postMessage({ type: 'test:probed', tag: m.tag, width: r.width, height: r.height });
         return;
       }
-      // A width change is fitted by the page's ResizeObserver, which runs
-      // before the next paint: the report waits for two frames after one.
+      // A width change is fitted by the page's ResizeObserver, whenever the
+      // browser delivers it: the report waits until the page says it has
+      // fitted the rails and the plot to the sizes they now have (#1043).
       let resized = false;
       for (const a of m.actions) {
         const el = a.id === 'body' ? document.body : byId(a.id);
@@ -464,7 +497,7 @@ const DRIVER = `
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
       const send = () => api.postMessage({ type: 'test:state', tag: m.tag, state: report() });
-      if (resized) requestAnimationFrame(() => requestAnimationFrame(send)); else send();
+      if (resized) whenFitted(send); else send();
     });
   })();
 `;
