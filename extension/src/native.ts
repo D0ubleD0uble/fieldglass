@@ -21,9 +21,9 @@ import * as path from "path";
 
 import * as vscode from "vscode";
 
-import type { AxisValues, GridSupport, MessageInfo, Placement } from "./api.generated";
+import type { AxisValues, GridSupport, MessageInfo, Placement, Vertical } from "./api.generated";
 
-export type { AxisValues, Georef, GridSupport, Identification, MessageInfo, Placement } from "./api.generated";
+export type { AxisValues, Georef, GridSupport, Identification, MessageInfo, Placement, Vertical } from "./api.generated";
 
 // ---------------------------------------------------------------------------
 // NetCDF dataset types (returned from the native module)
@@ -281,6 +281,9 @@ export interface LineResult {
    *  back to indices. */
   coordinates: number[] | null;
   coordinateUnits: string | null;
+  /** Whether the axis is vertical, and which way its values increase (CF
+   *  §4.3), when there are coordinates; `null` otherwise (#1043). */
+  coordinateVertical: Vertical | null;
 }
 
 /** Element-wise combine operation on two aligned fields (#239). `aMinusB` is

@@ -99,6 +99,89 @@ pub fn is_time_axis(array: &ArrayDescription) -> bool {
     })
 }
 
+/// The way a vertical coordinate's values increase, as CF's `positive`
+/// attribute states it (§4.3): `Up` for a height, `Down` for a depth or a
+/// pressure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Positive {
+    /// Values increase upward: a height above the surface.
+    Up,
+    /// Values increase downward: a depth below the surface, or a pressure.
+    Down,
+}
+
+/// A vertical coordinate, as CF §4.3 identifies one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VerticalAxis {
+    /// Which way the values increase.
+    pub positive: Positive,
+    /// Whether the `units` are a pressure, which a plot spaces by the
+    /// logarithm of.
+    pub pressure: bool,
+}
+
+/// Whether a coordinate array is a vertical axis, and which way its values
+/// increase, by CF conventions (§4.3, "Vertical (Height or Depth)
+/// Coordinate").
+///
+/// CF identifies a vertical coordinate by `units` of pressure or by a
+/// `positive` attribute of `up` or `down` (case-insensitive), and requires
+/// `positive` whenever the units are not a pressure. So `positive` is read
+/// first; a pressure that states none is `Down`, since pressure falls with
+/// height. An `axis = "Z"` coordinate stating neither is a vertical axis CF
+/// does not orient, and is read as `Up`, the way a plot's own vertical axis
+/// runs. Anything else is `None`.
+///
+/// One rule for every vertical axis: a `Down` axis is drawn with its values
+/// increasing down the page. That puts the surface at the bottom of a pressure
+/// axis (1000 hPa below 10 hPa) and at the top of a depth axis (0 m above
+/// 5000 m), from the attribute alone.
+pub fn vertical_axis(array: &ArrayDescription) -> Option<VerticalAxis> {
+    let pressure = text(array, "units").is_some_and(is_pressure_unit);
+    let stated = match text(array, "positive").map(|p| p.trim().to_ascii_lowercase()) {
+        Some(p) if p == "up" => Some(Positive::Up),
+        Some(p) if p == "down" => Some(Positive::Down),
+        _ => None,
+    };
+    let positive = stated
+        .or(pressure.then_some(Positive::Down))
+        .or((text(array, "axis").map(str::trim) == Some("Z")).then_some(Positive::Up))?;
+    Some(VerticalAxis { positive, pressure })
+}
+
+/// Whether `units` names a pressure, the test CF §4.3 makes with UDUNITS. The
+/// spellings files use rather than all UDUNITS parses: the pascal with its
+/// common prefixes, the bar family (`mb` as the millibar it means on a vertical
+/// axis, not UDUNITS' millibarn), the atmosphere and the torr. Case-insensitive,
+/// since every spelling here is a pressure in either case.
+fn is_pressure_unit(units: &str) -> bool {
+    matches!(
+        units.trim().to_ascii_lowercase().as_str(),
+        "pa" | "hpa"
+            | "kpa"
+            | "mpa"
+            | "dapa"
+            | "pascal"
+            | "pascals"
+            | "hectopascal"
+            | "hectopascals"
+            | "kilopascal"
+            | "kilopascals"
+            | "bar"
+            | "bars"
+            | "mbar"
+            | "mb"
+            | "millibar"
+            | "millibars"
+            | "cbar"
+            | "dbar"
+            | "decibar"
+            | "decibars"
+            | "atm"
+            | "torr"
+    )
+}
+
 /// CF latitude/longitude `units` test. Accepts the canonical `degrees_north` /
 /// `degrees_east` family and the spelling variants CF permits
 /// (`degree_north`, `degreesN`, `degree_N`, …). Case-insensitive on the
@@ -725,6 +808,55 @@ mod tests {
             &[("standard_name", "time_bounds")],
         ] {
             assert!(!is_time_axis(&coordinate(attrs)), "{attrs:?}");
+        }
+    }
+
+    #[test]
+    fn a_vertical_axis_is_oriented_by_positive_then_by_pressure_units() {
+        let down = |pressure| {
+            Some(VerticalAxis {
+                positive: Positive::Down,
+                pressure,
+            })
+        };
+        let up = |pressure| {
+            Some(VerticalAxis {
+                positive: Positive::Up,
+                pressure,
+            })
+        };
+        // NCEP/NCAR reanalysis `level`: every marker at once.
+        let ncep = [("units", "millibar"), ("positive", "down"), ("axis", "Z")];
+        assert_eq!(vertical_axis(&coordinate(&ncep)), down(true));
+        // A pressure with no `positive`, which CF allows, falls with height.
+        assert_eq!(vertical_axis(&coordinate(&[("units", "hPa")])), down(true));
+        assert_eq!(vertical_axis(&coordinate(&[("units", " Pa ")])), down(true));
+        // An ocean depth: `positive` is required, and says down.
+        let depth = [("units", "m"), ("positive", "DOWN")];
+        assert_eq!(vertical_axis(&coordinate(&depth)), down(false));
+        // A height.
+        let height = [("units", "m"), ("positive", "up")];
+        assert_eq!(vertical_axis(&coordinate(&height)), up(false));
+        // A dimensionless sigma level states `positive` and no units.
+        assert_eq!(
+            vertical_axis(&coordinate(&[("positive", "down")])),
+            down(false)
+        );
+        // A Z axis that states no direction reads as a plot's own axis does.
+        assert_eq!(vertical_axis(&coordinate(&[("axis", "Z")])), up(false));
+    }
+
+    #[test]
+    fn an_axis_with_no_vertical_marker_is_not_vertical() {
+        for attrs in [
+            &[][..],
+            &[("units", "degrees_north"), ("axis", "Y")],
+            &[("units", "hours since 2020-01-01")],
+            &[("units", "m")],
+            &[("positive", "sideways")],
+            &[("units", "Pascal's triangle")],
+        ] {
+            assert_eq!(vertical_axis(&coordinate(attrs)), None, "{attrs:?}");
         }
     }
 }

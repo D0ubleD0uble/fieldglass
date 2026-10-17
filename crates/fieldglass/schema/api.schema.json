@@ -103,13 +103,25 @@
             "string",
             "null"
           ]
+        },
+        "vertical": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Vertical"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether the axis is vertical, and which way its values increase,\nfrom its coordinate array's attributes by CF §4.3; `None` for an\naxis CF does not mark vertical, or one with no coordinates. A host\ndraws a vertical axis the right way up from this (#1043)."
         }
       },
       "required": [
         "dimension",
         "length",
         "coordinates",
-        "units"
+        "units",
+        "vertical"
       ],
       "type": "object"
     },
@@ -732,6 +744,17 @@
             "null"
           ]
         },
+        "coordinateVertical": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Vertical"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether the axis is vertical, and which way its values increase, as\n[`AxisValues::vertical`] reads it, when there are coordinates. A\nhost draws a vertical line as a profile from this (#1043)."
+        },
         "coordinates": {
           "description": "The axis's coordinate values, in index order — the times or levels to\nlabel the line against.\n\n`None` when the axis has no 1-D coordinate array of its own name, or\nwhen one of its values is absent: a coordinate with a hole has no\nhonest position to plot that point at, so the host falls back to\nindices rather than being handed a gap it would have to invent across.",
           "items": {
@@ -788,7 +811,8 @@
         "units",
         "dimension",
         "coordinates",
-        "coordinateUnits"
+        "coordinateUnits",
+        "coordinateVertical"
       ],
       "type": "object"
     },
@@ -1449,6 +1473,21 @@
         }
       ]
     },
+    "Positive": {
+      "description": "Which way a vertical axis's values increase, CF's `positive` (§4.3).",
+      "oneOf": [
+        {
+          "const": "up",
+          "description": "Upward: a height.",
+          "type": "string"
+        },
+        {
+          "const": "down",
+          "description": "Downward: a depth, or a pressure.",
+          "type": "string"
+        }
+      ]
+    },
     "Probe": {
       "description": "One point sampled out of a field.",
       "properties": {
@@ -1962,6 +2001,24 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "Vertical": {
+      "description": "A vertical axis, as CF §4.3 identifies one: by a `positive` attribute\nor by `units` of pressure (#1043).\n\nWhat a host needs to draw it the right way up. One rule covers every\ncase: a [`Positive::Down`] axis is drawn with its values increasing\ndown the page, which puts a pressure axis's surface (1000 hPa) at the\nbottom and a depth axis's surface (0 m) at the top.",
+      "properties": {
+        "positive": {
+          "$ref": "#/$defs/Positive",
+          "description": "Which way the values increase: the file's `positive` attribute, or\n`down` for a pressure that states none."
+        },
+        "pressure": {
+          "description": "Whether the units are a pressure, which a profile is drawn on the\nlogarithm of.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "positive",
+        "pressure"
+      ],
       "type": "object"
     },
     "WarpOptions": {

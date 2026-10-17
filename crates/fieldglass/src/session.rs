@@ -774,6 +774,9 @@ pub fn line_through(
         coordinate_units: coordinates
             .as_ref()
             .and_then(|_| array_units(source, &dimension)),
+        coordinate_vertical: coordinates
+            .as_ref()
+            .and_then(|_| array_vertical(source, &dimension)),
         coordinates,
         dimension,
     })
@@ -812,6 +815,9 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
         units: coordinates
             .as_ref()
             .and_then(|_| array_units(source, &axis.name)),
+        vertical: coordinates
+            .as_ref()
+            .and_then(|_| array_vertical(source, &axis.name)),
         dimension: axis.name.clone(),
         length: axis.length,
         coordinates,
@@ -873,6 +879,17 @@ fn array_units(source: &dyn ArraySource, array: &str) -> Option<String> {
         .and_then(AttributeValue::text)
         .filter(|u| !u.trim().is_empty())
         .map(str::to_string)
+}
+
+/// Whether an array is a vertical coordinate, and which way its values
+/// increase, by CF §4.3 (#1043): the reading behind [`AxisValues::vertical`]
+/// and [`Line::coordinate_vertical`].
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn array_vertical(source: &dyn ArraySource, array: &str) -> Option<crate::api::Vertical> {
+    source
+        .array(array)
+        .and_then(fieldglass_core::cf::vertical_axis)
+        .map(Into::into)
 }
 
 /// One 2-D plane of an array, raw, as `nj` rows (along `y`) of `ni` values

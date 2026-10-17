@@ -188,6 +188,40 @@ api_type! {
         /// the axis has no coordinate array (#775). For a time axis this is the
         /// CF form, `hours since 2020-01-01`.
         pub units: Option<String>,
+        /// Whether the axis is vertical, and which way its values increase,
+        /// from its coordinate array's attributes by CF §4.3; `None` for an
+        /// axis CF does not mark vertical, or one with no coordinates. A host
+        /// draws a vertical axis the right way up from this (#1043).
+        pub vertical: Option<Vertical>,
+    }
+
+    /// A vertical axis, as CF §4.3 identifies one: by a `positive` attribute
+    /// or by `units` of pressure (#1043).
+    ///
+    /// What a host needs to draw it the right way up. One rule covers every
+    /// case: a [`Positive::Down`] axis is drawn with its values increasing
+    /// down the page, which puts a pressure axis's surface (1000 hPa) at the
+    /// bottom and a depth axis's surface (0 m) at the top.
+    #[derive(Copy, Eq)]
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct Vertical {
+        /// Which way the values increase: the file's `positive` attribute, or
+        /// `down` for a pressure that states none.
+        pub positive: Positive,
+        /// Whether the units are a pressure, which a profile is drawn on the
+        /// logarithm of.
+        pub pressure: bool,
+    }
+
+    /// Which way a vertical axis's values increase, CF's `positive` (§4.3).
+    #[derive(Copy, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Positive {
+        /// Upward: a height.
+        Up,
+        /// Downward: a depth, or a pressure.
+        Down,
     }
 
     /// Which element type a caller wants back from a decode.
@@ -610,6 +644,10 @@ api_type! {
         pub coordinates: Option<Vec<f64>>,
         /// The coordinate array's units, when there are coordinates.
         pub coordinate_units: Option<String>,
+        /// Whether the axis is vertical, and which way its values increase, as
+        /// [`AxisValues::vertical`] reads it, when there are coordinates. A
+        /// host draws a vertical line as a profile from this (#1043).
+        pub coordinate_vertical: Option<Vertical>,
     }
 
     /// One decoded field: the values, where they sit, and what they are.
@@ -1216,6 +1254,20 @@ impl From<fieldglass_core::sht::SpectralTruncation> for SpectralTruncation {
         Self {
             declared: t.declared,
             truncated_to: t.truncated_to,
+        }
+    }
+}
+
+/// The core reading of a vertical coordinate, as the wire type every host
+/// binds (#1043).
+impl From<fieldglass_core::cf::VerticalAxis> for Vertical {
+    fn from(v: fieldglass_core::cf::VerticalAxis) -> Self {
+        Self {
+            positive: match v.positive {
+                fieldglass_core::cf::Positive::Up => Positive::Up,
+                fieldglass_core::cf::Positive::Down => Positive::Down,
+            },
+            pressure: v.pressure,
         }
     }
 }
