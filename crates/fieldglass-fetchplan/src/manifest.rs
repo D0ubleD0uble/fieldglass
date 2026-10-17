@@ -55,7 +55,15 @@ impl ParameterResolver for NoResolver {
 /// records returns four items, each carrying the qualifiers that distinguish it
 /// (`ENS=+1`, `prob <304.8`), and the caller picks. Silently taking the first
 /// would hand a user one ensemble member and call it the forecast.
-#[derive(Debug, Clone, Default, PartialEq)]
+///
+/// **On the wire** (#1081) a host sends one as a camelCase object, and a key it
+/// leaves out is unstated, exactly as a field left at its default is here. An
+/// unknown key is refused rather than ignored: a misspelt `levelTxt` dropped
+/// silently would widen the query to every level, which is a wrong answer that
+/// looks like a right one.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct Query {
     /// The sidecar's own short name, matched case-insensitively and in full.

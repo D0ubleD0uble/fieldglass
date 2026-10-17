@@ -22,6 +22,7 @@
 /// The modelled variants are the ones a stored request plausibly names. Anything
 /// else is [`Self::Named`], which compares as the string the manifest wrote.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Surface {
@@ -77,15 +78,49 @@ pub enum Surface {
 /// the order the manifest wrote them (`30-0 mb above ground` is
 /// `value = 30`, `value2 = 0`).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct LevelSpec {
     /// Which surface.
     pub surface: Surface,
     /// The level's value, or the layer's first bound.
+    #[cfg_attr(feature = "schema", schemars(with = "StatedOrNull"))]
     pub value: Option<f64>,
     /// The layer's second bound, when the level is a layer.
+    #[cfg_attr(feature = "schema", schemars(with = "StatedOrNull"))]
     pub value2: Option<f64>,
+}
+
+/// How [`LevelSpec`]'s two values are described in the schema: a number or
+/// `null`, with the key always present.
+///
+/// A level is both returned (inside an [`Expect`](crate::Expect)) and sent
+/// (inside a [`Query`](crate::Query)), and one definition has to describe it
+/// both ways. Returned, every key is there (#574), and that is the stricter of
+/// the two, so it is the one stated: a host sending a level writes
+/// `value: null` rather than leaving the key out. serde itself still reads a
+/// missing key as `None`, so this narrows only what the declarations say.
+///
+/// `schemars(required)` is not the spelling: it makes the field required by
+/// describing it as non-nullable, which would declare `value: number` and turn
+/// every named surface into a lie.
+#[cfg(feature = "schema")]
+struct StatedOrNull;
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for StatedOrNull {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "StatedOrNull".into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        <Option<f64> as schemars::JsonSchema>::json_schema(generator)
+    }
 }
 
 impl LevelSpec {

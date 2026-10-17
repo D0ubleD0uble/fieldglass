@@ -32,6 +32,7 @@ const MAX_UNIX_SECS: i64 = i64::MAX / 1_000;
 /// One entry of the host's source catalog: how a model names its objects and
 /// when it posts them.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct SourceSpec {
@@ -83,6 +84,7 @@ impl SourceSpec {
 
 /// A run this source should have posted, and the key it should be under.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct Candidate {

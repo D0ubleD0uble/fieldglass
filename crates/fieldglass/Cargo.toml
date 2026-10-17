@@ -132,7 +132,11 @@ analysis = ["fieldglass-core/analysis"]
 # **Off by default** (#927): a crates.io consumer reads the types, not their
 # schema, and should not compile `schemars` to do it. The self dev-dependency
 # above turns it on for this crate's tests.
-schema = ["dep:schemars"]
+#
+# It reaches into the planner when `fetchplan` is on (#1081): a plan item and the
+# query that selects it cross to a host as they are, so their derives live with
+# them, behind the planner's own `schema` feature.
+schema = ["dep:schemars", "fieldglass-fetchplan?/schema"]
 
 # Fetch planning (#461, ADR-0005 decision 5): the manifest dialects in both
 # addressing shapes — a query over the messages of a GRIB sidecar, and a chunk

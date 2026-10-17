@@ -7,6 +7,14 @@
 //! snippet a GPU host pastes into its own shader. Every decision about what a
 //! field *is* was made in [`fieldglass`].
 //!
+//! With the `fetchplan` feature the fetch planner is forwarded the same way
+//! (#1081): `parseWgrib2Idx` and `parseEcmwfIndex` read a sidecar into a
+//! `MessageManifest`, whose `select` turns a query into plan items, and
+//! `httpRangeHeader` and `verifyEnvelope` are the two steps either side of the
+//! Worker's `fetch`. `candidates` says which runs of a source should have
+//! posted by now. The feature is off in the shipped bundle until where the
+//! planner ships is decided (see `Cargo.toml`).
+//!
 //! # The memory contract
 //!
 //! Linear memory never shrinks, and an animation holds many fields at once, so
@@ -46,6 +54,15 @@
 use fieldglass::{DecodeOptions, Field, Isoline, PaletteOptions, Session, WarpOptions};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
+
+#[cfg(feature = "fetchplan")]
+mod fetchplan;
+
+#[cfg(feature = "fetchplan")]
+pub use fetchplan::{
+    MessageManifest, candidates, http_range_header, parse_ecmwf_index, parse_wgrib2_idx,
+    validate_source, verify_envelope,
+};
 
 /// The API's wire types as TypeScript, generated from
 /// `crates/fieldglass/schema/api.schema.json` by `tools/gen_api_declarations.py`
