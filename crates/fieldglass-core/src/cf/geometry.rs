@@ -136,8 +136,10 @@ pub struct VerticalAxis {
 /// So the direction is read, in order, from:
 /// 1. `positive`, `up` or `down`;
 /// 2. units of pressure, which is `Down`, since pressure falls with height;
-/// 3. a `standard_name` whose definition fixes the direction (see
-///    [`standard_name_direction`]);
+/// 3. a `standard_name` whose definition fixes the direction: `depth`, the
+///    pressures and the atmosphere sigma coordinates grow downward; `height`,
+///    `altitude`, the ln-pressure, hybrid-height, ocean sigma and ocean s
+///    coordinates grow upward, each from its Appendix D formula;
 ///
 /// and an `axis = "Z"` coordinate none of those orient is vertical with no
 /// direction (`positive: None`): a host leaves it in storage order rather than
