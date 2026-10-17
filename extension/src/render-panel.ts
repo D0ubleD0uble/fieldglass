@@ -683,25 +683,101 @@ export function formatAxisValue(value: number, units: string | null): string {
   // Six significant digits, then back through `Number` to drop the padding
   // `toPrecision` adds: a coordinate array carries float noise
   // (`0.30000000004`), and a tick label should show neither that, nor `0.000`
-  // for zero, nor `1013` for a pressure level of `1013.25`.
-  return String(Number(value.toPrecision(6)));
+  // for zero, nor `1013` for a pressure level of `1013.25`. Signed the way the
+  // line plot's caption is (#1043).
+  return typesetMinus(String(Number(value.toPrecision(6))));
 }
 
-/** The label under a line plot: the first and last points of the axis it runs
- *  along, read the way the cross-section's ticks read them, so a CF time is a
- *  date (#1028). An axis with no coordinates is positioned by index, and says
- *  so with plain numbers.
+/** A number's text with a true minus sign (U+2212) for each hyphen, as a tick
+ *  label and the line plot's caption write it (#1037, #1043): `−90`, not
+ *  `-90`, and `1.5e−7`. A value that reads as zero is not negative, so `-0`
+ *  and `-0.0` lose the sign. For a number's text only: a date's hyphens are
+ *  not minus signs.
  *
- *  Serialized into the panel script, so it may use only formatAxisValue, which
- *  is serialized beside it. */
-export function composeLineAxisLabel(
-  first: number,
-  last: number,
-  coordinateUnits: string | null,
-  hasCoordinates: boolean,
-): string {
-  const read = (x: number) => (hasCoordinates ? formatAxisValue(x, coordinateUnits) : String(x));
-  return read(first) + " … " + read(last);
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself. */
+export function typesetMinus(text: string): string {
+  return (Number(text) === 0 ? text.replace(/^-/, "") : text).replace(/-/g, "−");
+}
+
+/** Round numbers to label a value axis from `min` to `max` with about `count`
+ *  ticks: steps of 1, 2, 2.5 or 5 times a power of ten, every tick inside the
+ *  range (#1043). Empty for a range with no span.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself. */
+export function niceTicks(min: number, max: number, count: number): number[] {
+  if (!(Number.isFinite(min) && Number.isFinite(max)) || !(max > min) || !(count >= 1)) return [];
+  const raw = (max - min) / count;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map((f) => f * magnitude).find((s) => s >= raw) || 10 * magnitude;
+  const first = Math.ceil(min / step - 1e-9);
+  const ticks: number[] = [];
+  for (let k = first; k * step <= max + step * 1e-9 && ticks.length < 100; k++) {
+    // Through toPrecision, so 0.1 + 0.2 steps print as 0.3.
+    ticks.push(Number((k * step).toPrecision(12)));
+  }
+  return ticks;
+}
+
+/** Where an axis's tick labels go so that none overlaps another or leaves the
+ *  axis's own label area (#1043). One rule for the line plot's two axes and
+ *  the cross-section's two rails.
+ *
+ *  Each label has a `centre`, where it belongs along the axis, and a `size`,
+ *  its length the same way; the area runs from `lo` to `hi`. Each is centred
+ *  on its tick, then slid inward as far as it must be to stay inside the area,
+ *  which is what keeps an end label off the corner, the colour bar and the
+ *  note above the image. The first and last are placed first, then the rest
+ *  in order, and a label that would come within `gap` of one already placed
+ *  is dropped rather than drawn over it. Returns each label's start, in the
+ *  order given, or `null` for one dropped.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself. */
+export function layoutAxisLabels(
+  labels: ReadonlyArray<{ centre: number; size: number }>,
+  lo: number,
+  hi: number,
+  gap: number,
+): Array<number | null> {
+  const placed = labels.map((l) => ({ centre: l.centre, size: l.size, start: null as number | null }));
+  // The ends first, then the rest in order.
+  const order = placed.length > 1 ? [placed[0], placed[placed.length - 1]].concat(placed.slice(1, -1)) : placed.slice();
+  const kept: Array<[number, number]> = [];
+  for (const label of order) {
+    const { centre, size } = label;
+    if (!(size >= 0) || !Number.isFinite(centre) || size > hi - lo) continue;
+    const start = Math.min(Math.max(centre - size / 2, lo), hi - size);
+    const end = start + size;
+    if (kept.some(([a, b]) => start < b + gap && end > a - gap)) continue;
+    kept.push([start, end]);
+    label.start = start;
+  }
+  return placed.map((label) => label.start);
+}
+
+/** Whether a cross-section draws its rows bottom-up to put a vertical Y axis
+ *  the right way up (#1043): the panel's default, which Flip Y axis then
+ *  inverts.
+ *
+ *  Rows are drawn in storage order, first at the top. CF's `positive` (§4.3)
+ *  says which way the axis's values increase: `down` for a pressure or a depth,
+ *  so the values should grow down the page, which puts 1000 hPa at the bottom
+ *  and a depth of 0 m at the top; `up` for a height, so they should grow up
+ *  it. The rows are turned over when storage order says otherwise. An axis
+ *  that is not vertical, or has no coordinates to read the order from, stays in
+ *  storage order.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself. */
+export function verticalAxisFlips(
+  axis: { coordinates: number[] | null; vertical: { positive: string } | null } | null | undefined,
+): boolean {
+  const values = axis && axis.coordinates;
+  if (!axis || !axis.vertical || !values || values.length < 2) return false;
+  const growsDownThePage = values[values.length - 1] > values[0];
+  return growsDownThePage !== (axis.vertical.positive === "down");
 }
 
 /** The value range in a line plot's caption, `"−72.8 to 31.5"` (#1037).
@@ -715,11 +791,11 @@ export function composeLineAxisLabel(
  *  value of a billion or more, or below 0.0001, is written in exponent form,
  *  with the same rule for keeping the ends apart.
  *
- *  Serialized into the panel script, so it must not reference anything
- *  outside itself. */
+ *  Serialized into the panel script, so it may use only typesetMinus, which
+ *  is serialized beside it. */
 export function composeLineRange(min: number, max: number): string {
-  // A value that rounds to zero is not negative.
-  const signed = (text: string) => (Number(text) === 0 ? text.replace(/^-/, "") : text).replace(/-/g, "−");
+  // A value that rounds to zero is not negative, as on the axes' ticks.
+  const signed = typesetMinus;
   if (min === max) return signed(String(Number(min.toPrecision(7))));
   const largest = Math.max(Math.abs(min), Math.abs(max));
   if (!(largest < 1e9) || largest < 1e-4) {
@@ -1195,7 +1271,10 @@ export function renderImagePanelHtml(
         ${unavailableItemsHtml.toString()}
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
-        ${composeLineAxisLabel.toString()}
+        ${typesetMinus.toString()}
+        ${niceTicks.toString()}
+        ${layoutAxisLabels.toString()}
+        ${verticalAxisFlips.toString()}
         ${composeLineRange.toString()}
         ${composeProbeValue.toString()}
         ${composeRangeText.toString()}
@@ -1375,15 +1454,72 @@ export function renderImagePanelHtml(
           const key = axisKey(msg.dim);
           if (key) {
             axisPending[key] = false;
-            axisCache[key] = msg.result || null;
+            // With the file closed (#839) nothing is known about the axis, so
+            // it is asked for again once the file is back, not kept as none.
+            if (msg.handleGone !== true) axisCache[key] = msg.result || null;
+          }
+          // A render held for the Y axis goes now: on its values, or without
+          // them, since a closed file answers the render with why.
+          if (awaitingYAxis && (msg.handleGone === true || yAxisKnown())) {
+            const send = awaitingYAxis;
+            awaitingYAxis = null;
+            send();
           }
           drawAxisRails();
+        }
+
+        // A render held until the Y axis's values arrive (#1043): which way up
+        // a cross-section's rows go depends on them, and a render drawn the
+        // wrong way up and then redrawn would flash. Only the latest is kept.
+        let awaitingYAxis = null;
+
+        function yAxisKnown() {
+          return !!sliceState && axisCache[axisKey(sliceState.yDim)] !== undefined;
+        }
+
+        function whenYAxisKnown(send) {
+          if (!isCrossSection() || yAxisKnown()) {
+            awaitingYAxis = null;
+            send();
+            return;
+          }
+          awaitingYAxis = send;
+          requestAxis(sliceState.yDim);
+        }
+
+        // Whether the rows are drawn bottom-up: Flip Y axis, turned over once
+        // more for a cross-section whose vertical Y axis storage order puts
+        // the wrong way up (#1043). So the box stays the user's override of
+        // the default, on either orientation. One answer for the render, the
+        // probe that reads it and the rails that label it.
+        function rowsFlipped() {
+          const box = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
+          if (!isCrossSection()) return box;
+          return box !== verticalAxisFlips(axisCache[axisKey(sliceState.yDim)]);
         }
 
         // Place the tick labels down the left of the image and under it. A label
         // sits at the fraction of the image its index does — the centre of its
         // row or column — and reads the coordinate value there, or the index
-        // when the file gives the axis no coordinates.
+        // when the file gives the axis no coordinates. Then each rail's labels
+        // are fitted inside it (#1043): an end label is slid inward rather
+        // than run into the other rail, the colour bar or the note above the
+        // image, and one that would overlap a neighbour is dropped.
+        function fitRail(rail, vertical) {
+          const box = rail.getBoundingClientRect();
+          const spans = Array.from(rail.children);
+          const extent = vertical ? box.height : box.width;
+          const starts = layoutAxisLabels(spans.map((s) => {
+            const r = s.getBoundingClientRect();
+            return { centre: (Number(s.dataset.at) / 100) * extent, size: vertical ? r.height : r.width };
+          }), 0, extent, 4);
+          spans.forEach((s, i) => {
+            if (starts[i] === null) { s.remove(); return; }
+            s.style.transform = 'none';
+            if (vertical) s.style.top = starts[i] + 'px'; else s.style.left = starts[i] + 'px';
+          });
+        }
+
         function drawAxisRails() {
           const railY = document.getElementById('axis-y');
           const railX = document.getElementById('axis-x');
@@ -1400,7 +1536,8 @@ export function renderImagePanelHtml(
           }
           const v = sliceVariable(sliceState.variableIndex);
           if (!v) return;
-          const flip = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
+          // The orientation the image on screen was drawn with.
+          const flip = rowsFlipped();
           const axisY = axisCache[axisKey(sliceState.yDim)];
           const axisX = axisCache[axisKey(sliceState.xDim)];
           const rows = lastPayload.height;
@@ -1417,15 +1554,17 @@ export function renderImagePanelHtml(
               // the flip-y toggle turns the plane over.
               const index = flip ? rows - 1 - row : row;
               const at = ((row + 0.5) / rows) * 100;
-              return '<span style="top:' + at + '%">' + escapeAttr(label(axisY, index)) + '</span>';
+              return '<span data-at="' + at + '" style="top:' + at + '%">' + escapeAttr(label(axisY, index)) + '</span>';
             })
             .join('');
           railX.innerHTML = axisTickIndices(cols, 5)
             .map((col) => {
               const at = ((col + 0.5) / cols) * 100;
-              return '<span style="left:' + at + '%">' + escapeAttr(label(axisX, col)) + '</span>';
+              return '<span data-at="' + at + '" style="left:' + at + '%">' + escapeAttr(label(axisX, col)) + '</span>';
             })
             .join('');
+          fitRail(railY, true);
+          fitRail(railX, false);
           const name = (axis, dim) => {
             const base = axis ? axis.dimension : v.dims[dim].name;
             const units = axis && axis.units && !/ since /i.test(axis.units) ? ' (' + axis.units + ')' : '';
@@ -1899,7 +2038,7 @@ export function renderImagePanelHtml(
             ? heldProjection
             : (document.getElementById('picker-projection') || {}).value || 'source';
           const resampling = (document.getElementById('picker-resampling') || {}).value || 'nearest';
-          const flipY = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
+          const flipY = rowsFlipped();
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const options = { projection, resampling, flipY };
           // Colours. The name is a registry name the Rust side knows; reverse
@@ -1975,7 +2114,11 @@ export function renderImagePanelHtml(
             return;
           }
           if (awaitingPick) return;
-          vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(true), sliceFields(), compareRequest()));
+          // A cross-section's rows are oriented by its Y axis (#1043), so its
+          // values are read before the first render that needs them.
+          whenYAxisKnown(() => {
+            vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(true), sliceFields(), compareRequest()));
+          });
           setStatus('Rendering…');
         }
 
@@ -2738,11 +2881,14 @@ export function renderImagePanelHtml(
         // off, so ticking it plots that cell without another click.
         let lineCell = null;
         let probedCell = null;
+        // The line on screen, so a resize can draw it again at the new width.
+        let lastLine = null;
 
         // Put the plot away. The readout's cell is kept, so the plot can come
         // back for it; hideLine forgets that too, for a readout cleared.
         function putLineAway() {
           lineCell = null;
+          lastLine = null;
           const panel = document.getElementById('line-panel');
           if (panel) panel.hidden = true;
         }
@@ -2939,13 +3085,21 @@ export function renderImagePanelHtml(
           // its index otherwise — an axis with a hole in its coordinates arrives
           // without them, rather than with a gap to invent across.
           const indices = line.values.map((_, i) => i);
-          const xs = line.coordinates && line.coordinates.length === n ? line.coordinates : indices;
+          const hasCoordinates = !!(line.coordinates && line.coordinates.length === n);
+          const xs = hasCoordinates ? line.coordinates : indices;
           const present = [];
           for (let i = 0; i < n; i++) {
             if (line.mask[i] === 1 && Number.isFinite(line.values[i])) present.push(i);
           }
           const units = line.units ? ' ' + line.units : '';
           const along = line.dimension + (line.coordinateUnits ? ' (' + line.coordinateUnits + ')' : '');
+          // A vertical axis (CF §4.3) is drawn as a profile: the coordinate up
+          // the page and the value across it, the way up its positive attribute says
+          // (#1043). A pressure is spaced by its logarithm, so the upper
+          // levels are not squeezed into the top of the plot.
+          const vertical = hasCoordinates ? line.coordinateVertical || null : null;
+          svg.classList.toggle('profile', !!vertical);
+          lastLine = { line: line, markIndex: markIndex, emptyText: emptyText };
           if (!present.length) {
             caption.textContent = (line.variable || 'Values') + ' across ' + along + ': no data at this cell.';
             return;
@@ -2954,26 +3108,113 @@ export function renderImagePanelHtml(
           const width = svg.clientWidth || 400;
           const height = svg.clientHeight || 160;
           svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
-          const pad = { l: 8, r: 8, t: 10, b: 16 };
-          let xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
-          let ymin = line.min, ymax = line.max;
-          if (!(Number.isFinite(ymin) && Number.isFinite(ymax))) {
-            ymin = Math.min.apply(null, present.map((i) => line.values[i]));
-            ymax = Math.max.apply(null, present.map((i) => line.values[i]));
+          const logScale = !!(vertical && vertical.pressure && xs.every((x) => x > 0));
+          const scaled = (x) => (logScale ? Math.log(x) : x);
+          let cmin = Math.min.apply(null, xs.map(scaled)), cmax = Math.max.apply(null, xs.map(scaled));
+          let vmin = line.min, vmax = line.max;
+          if (!(Number.isFinite(vmin) && Number.isFinite(vmax))) {
+            vmin = Math.min.apply(null, present.map((i) => line.values[i]));
+            vmax = Math.max.apply(null, present.map((i) => line.values[i]));
           }
           // The range the caption states, before any padding below.
-          const range = composeLineRange(Number(ymin), Number(ymax));
+          const range = composeLineRange(Number(vmin), Number(vmax));
           // A flat line or a single point still needs a span to draw into.
-          if (xmax === xmin) { xmin -= 0.5; xmax += 0.5; }
-          if (ymax === ymin) { ymin -= 0.5; ymax += 0.5; }
-          const px = (x) => pad.l + (x - xmin) / (xmax - xmin) * (width - pad.l - pad.r);
-          const py = (y) => pad.t + (1 - (y - ymin) / (ymax - ymin)) * (height - pad.t - pad.b);
+          if (cmax === cmin) { cmin -= 0.5; cmax += 0.5; }
+          if (vmax === vmin) { vmin -= 0.5; vmax += 0.5; }
 
-          // The slice on screen, marked where it sits along this axis.
+          // The ticks: round numbers on the value axis, and real coordinate
+          // values on the other, read the way the cross-section's ticks are
+          // (dates stay dates). Measured before the plot area is fixed, so the
+          // left margin fits the widest label down the side.
+          const coordinateLabel = (x) => (hasCoordinates ? formatAxisValue(x, line.coordinateUnits) : String(x));
+          const measure = (text) => {
+            const t = svgEl('text', { class: 'axis-label', x: 0, y: 0 });
+            t.textContent = text;
+            svg.appendChild(t);
+            const box = t.getBBox();
+            svg.removeChild(t);
+            return { w: box.width, h: box.height || 10 };
+          };
+          const valueTicks = niceTicks(Number(vmin), Number(vmax), 5)
+            .map((v) => ({ at: v, text: formatAxisValue(v, null) }));
+          // As many coordinate ticks as fit with room between them, judged by
+          // the end labels; the layout below drops any that still overlap.
+          const ends = [measure(coordinateLabel(xs[0])), measure(coordinateLabel(xs[n - 1]))];
+          const room = vertical
+            ? Math.max(ends[0].h, ends[1].h) + 6
+            : Math.max(ends[0].w, ends[1].w) + 24;
+          const candidates = axisTickIndices(n, Math.max(2, Math.floor((vertical ? height : width - 40) / room)))
+            .map((i) => ({ at: scaled(xs[i]), text: coordinateLabel(xs[i]) }));
+          const yTicks = (vertical ? candidates : valueTicks).map((t) => Object.assign(t, measure(t.text)));
+          const xTicks = (vertical ? valueTicks : candidates).map((t) => Object.assign(t, measure(t.text)));
+          const labelH = Math.max(10, ...yTicks.concat(xTicks).map((t) => t.h));
+          const pad = {
+            l: Math.ceil(Math.max(0, ...yTicks.map((t) => t.w))) + 9,
+            r: 10,
+            t: Math.ceil(labelH / 2) + 4,
+            b: Math.ceil(labelH) + 8,
+          };
+          const plotW = Math.max(1, width - pad.l - pad.r);
+          const plotH = Math.max(1, height - pad.t - pad.b);
+          const bottom = pad.t + plotH;
+          // Each axis maps its value to a fraction of the plot, 0 at the left
+          // or the bottom. A down axis runs the other way up the page.
+          const coordinateFraction = (x) => (scaled(x) - cmin) / (cmax - cmin);
+          const valueFraction = (v) => (v - vmin) / (vmax - vmin);
+          const up = !vertical || vertical.positive !== 'down';
+          const toY = (f) => bottom - f * plotH;
+          const toX = (f) => pad.l + f * plotW;
+          const point = (i) => vertical
+            ? { x: toX(valueFraction(line.values[i])), y: toY(up ? coordinateFraction(xs[i]) : 1 - coordinateFraction(xs[i])) }
+            : { x: toX(coordinateFraction(xs[i])), y: toY(valueFraction(line.values[i])) };
+          // A tick's position along its own axis, from the value it labels.
+          const xTickAt = (t) => toX(vertical ? (t.at - vmin) / (vmax - vmin) : (t.at - cmin) / (cmax - cmin));
+          const yTickAt = (t) => {
+            const f = vertical ? (t.at - cmin) / (cmax - cmin) : (t.at - vmin) / (vmax - vmin);
+            return toY(vertical && !up ? 1 - f : f);
+          };
+
+          // The two axis lines, then each axis's ticks and labels, fitted so
+          // that none overlaps another or leaves its side of the plot.
+          svg.appendChild(svgEl('path', {
+            class: 'axis', d: 'M ' + pad.l + ' ' + pad.t + ' V ' + bottom + ' H ' + (pad.l + plotW),
+          }));
+          const yStarts = layoutAxisLabels(yTicks.map((t) => ({ centre: yTickAt(t), size: t.h })), 0, bottom + labelH / 2, 2);
+          yTicks.forEach((t, k) => {
+            if (yStarts[k] === null) return;
+            const y = yTickAt(t);
+            svg.appendChild(svgEl('line', { class: 'axis', x1: pad.l - 4, x2: pad.l, y1: y, y2: y }));
+            const label = svgEl('text', {
+              class: 'axis-label tick-label', 'data-axis': 'y', 'text-anchor': 'end',
+              'dominant-baseline': 'central', x: pad.l - 6, y: (yStarts[k] + t.h / 2).toFixed(1),
+            });
+            label.textContent = t.text;
+            svg.appendChild(label);
+          });
+          const xStarts = layoutAxisLabels(xTicks.map((t) => ({ centre: xTickAt(t), size: t.w })), pad.l, width - 2, 8);
+          xTicks.forEach((t, k) => {
+            if (xStarts[k] === null) return;
+            const x = xTickAt(t);
+            svg.appendChild(svgEl('line', { class: 'axis', x1: x, x2: x, y1: bottom, y2: bottom + 4 }));
+            const label = svgEl('text', {
+              class: 'axis-label tick-label', 'data-axis': 'x', 'text-anchor': 'start',
+              'dominant-baseline': 'hanging', x: xStarts[k].toFixed(1), y: bottom + 6,
+            });
+            label.textContent = t.text;
+            svg.appendChild(label);
+          });
+
+          // The slice on screen, marked where it sits along this axis: across
+          // a profile, upright on any other line.
           const here = markIndex;
           if (here != null && here < n) {
-            const x = px(xs[here]);
-            svg.appendChild(svgEl('line', { class: 'rule', x1: x, x2: x, y1: pad.t, y2: height - pad.b }));
+            if (vertical) {
+              const y = point(here).y;
+              svg.appendChild(svgEl('line', { class: 'rule', x1: pad.l, x2: pad.l + plotW, y1: y, y2: y }));
+            } else {
+              const x = toX(coordinateFraction(xs[here]));
+              svg.appendChild(svgEl('line', { class: 'rule', x1: x, x2: x, y1: pad.t, y2: bottom }));
+            }
           }
 
           // Broken at a masked point: a gap in the data is a gap in the line,
@@ -2982,23 +3223,24 @@ export function renderImagePanelHtml(
           let open = false;
           for (let i = 0; i < n; i++) {
             if (line.mask[i] !== 1 || !Number.isFinite(line.values[i])) { open = false; continue; }
-            d += (open ? ' L ' : ' M ') + px(xs[i]).toFixed(1) + ' ' + py(line.values[i]).toFixed(1);
+            const p = point(i);
+            d += (open ? ' L ' : ' M ') + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
             open = true;
           }
           svg.appendChild(svgEl('path', {
-            d: d.trim(), fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5,
+            class: 'trace', d: d.trim(), fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5,
             'vector-effect': 'non-scaling-stroke',
           }));
           // Points too, when there are few enough to see: a two-step axis is
           // otherwise a bare segment with no sign of where the samples are.
           if (present.length <= 60) {
-            present.forEach((i) => svg.appendChild(svgEl('circle', {
-              cx: px(xs[i]).toFixed(1), cy: py(line.values[i]).toFixed(1), r: 2.5, fill: 'currentColor',
-            })));
+            present.forEach((i) => {
+              const p = point(i);
+              svg.appendChild(svgEl('circle', {
+                cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: 2.5, fill: 'currentColor', 'data-index': i,
+              }));
+            });
           }
-          const axisLabel = svgEl('text', { class: 'axis-label', x: pad.l, y: height - 4 });
-          axisLabel.textContent = composeLineAxisLabel(xs[0], xs[n - 1], line.coordinateUnits, xs !== indices);
-          svg.appendChild(axisLabel);
 
           // A line with no name (#775) is captioned as values, not as nothing.
           // The range is written with "to" and a true minus (#1037), and
@@ -3672,6 +3914,14 @@ export function renderImagePanelHtml(
           // Keep the overlay aligned + crisp as the panel (and the displayed
           // image size) resizes.
           window.addEventListener('resize', drawOverlay);
+          // The axis labels are fitted to the width they have (#1043), so a
+          // narrower panel drops the ones that no longer fit, and a wider one
+          // brings them back.
+          window.addEventListener('resize', () => {
+            drawAxisRails();
+            const panel = document.getElementById('line-panel');
+            if (lastLine && panel && !panel.hidden) drawLine(lastLine.line, lastLine.markIndex, lastLine.emptyText);
+          });
           // Snapshot the selections on every control change. One delegated
           // pair on the toolbar covers every control — including the
           // dynamically-built slice inputs — and bubbles fire *after* the
@@ -3721,8 +3971,11 @@ export function renderImagePanelHtml(
         restoreState();
         attachControls();
         // Attach the (possibly restored) selections so the provider's first
-        // paint honours them; a fresh panel just sends its defaults.
-        vscode.postMessage(Object.assign({ type: 'ready' }, currentOptions(true), sliceFields(), compareRequest()));
+        // paint honours them; a fresh panel just sends its defaults. A panel
+        // restored onto a cross-section reads its Y axis first (#1043).
+        whenYAxisKnown(() => {
+          vscode.postMessage(Object.assign({ type: 'ready' }, currentOptions(true), sliceFields(), compareRequest()));
+        });
       })();
     </script>
   `;
@@ -3785,7 +4038,10 @@ export function renderImagePanelHtml(
       color: var(--vscode-charts-blue, var(--vscode-foreground));
     }
     .line-plot .rule { stroke: var(--vscode-descriptionForeground, currentColor); stroke-dasharray: 3 3; opacity: 0.7; }
-    .line-plot .axis-label { fill: var(--vscode-descriptionForeground, currentColor); font-size: 10px; }
+    .line-plot .axis-label { fill: var(--vscode-descriptionForeground, currentColor); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .line-plot .axis { stroke: var(--vscode-descriptionForeground, currentColor); fill: none; opacity: 0.6; }
+    /* A vertical profile (#1043) stands upright, so it is given the height. */
+    .line-plot.profile { height: 280px; max-width: 420px; }
     .line-caption {
       font-size: 0.8rem;
       font-variant-numeric: tabular-nums;

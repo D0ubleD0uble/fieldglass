@@ -3796,7 +3796,7 @@ pub struct LineResult {
     /// Whether the axis is vertical, and which way its values increase (CF
     /// §4.3), when there are coordinates; `null` otherwise (#1043). The API's
     /// own `Vertical`.
-    #[napi(ts_type = "Vertical | null")]
+    #[napi(ts_type = "Vertical")]
     pub coordinate_vertical: Option<serde_json::Value>,
 }
 
