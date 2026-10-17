@@ -66,6 +66,8 @@ export function reasonFor(state: PageState, label: string): string | null {
 
 /** What the driver reports of the page. */
 export interface PageState {
+  /** The Resampling picker's value, hidden or not; `null` if the panel has none. */
+  resampling: string | null;
   /** Whether the Overlay row carries `hidden`. */
   overlayHidden: boolean;
   /** The Vectors row's note, `null` for a panel with no Vectors row. */
@@ -185,6 +187,7 @@ const DRIVER = `
       const describe = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') +
         (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/).join('.') : '');
       return {
+        resampling: byId('picker-resampling') ? byId('picker-resampling').value : null,
         messageRowDisplay: displayOf('message-pick-row'),
         animateRowDisplay: displayOf('animate-row'),
         shownWhileHidden: Array.from(document.querySelectorAll('[hidden]'))
