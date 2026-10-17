@@ -22,16 +22,31 @@ import {
   applyReprojectable,
   MAP_PROJECTIONS,
   projectionOptionsHtml,
+  projectionReason,
   renderImagePanelHtml,
-  reprojectionNote,
-  UNPLACED_REPROJECT_NOTE,
+  UNPLACED_REASON,
   type PanelField,
+  type UnavailableGroup,
 } from "../../render-panel";
 
 const EXT_ID = "fieldglass.fieldglass";
 
-/** The note beside the picker for a slice with no coordinates (#960). */
-const UNPLACED_NOTE = "Reprojection needs a grid placed on the Earth, and this one isn't.";
+/** The reason given for a slice with no coordinates (#960). */
+const UNPLACED_NOTE = "this grid has no known position on the Earth.";
+/** What a slice panel hides for a slice nothing places (#1036). */
+const UNPLACED_SLICE: UnavailableGroup[] = [
+  {
+    kind: "structural",
+    reason: UNPLACED_NOTE,
+    controls: [
+      { key: "projection", label: "Projection" },
+      { key: "resampling", label: "Resampling" },
+      { key: "overlay", label: "Overlay" },
+      { key: "zonal", label: "Zonal average" },
+      { key: "longCsv", label: "Long layout (Export CSV)" },
+    ],
+  },
+];
 /** A slice's point-operation answers (#945): none for one nothing places, all
  *  four for a lat/lon slice. */
 const NONE = { contours: false, vectors: false, longCsv: false, zonalMean: false };
@@ -141,9 +156,16 @@ function render(
   return reply as GridReadyMessage;
 }
 
-/** The panel script's projection picker and note, as stand-ins for the two
- *  elements, moved by the same `applyReprojectable` the script runs on every
- *  slice render. Starts as the panel's HTML wrote it. */
+/** The reason a slice's answer gives for hiding the projection picker
+ *  (#1036), `""` when it is not hidden. */
+function projectionReasonIn(groups: UnavailableGroup[]): string {
+  return groups.find((g) => g.controls.some((c) => c.key === "projection"))?.reason ?? "";
+}
+
+/** The panel script's projection picker, as a stand-in for the element,
+ *  moved by the same `applyReprojectable` the script runs on every slice
+ *  render, and whether the picker is hidden and why, from the same answer the
+ *  script hides it by. Starts as the panel's HTML wrote it. */
 class Picker {
   value = "source";
   options: { value: string }[] = [];
@@ -153,10 +175,12 @@ class Picker {
 
   constructor(html: string) {
     this.innerHTML = /<select id="picker-projection">([\s\S]*?)<\/select>/.exec(html)?.[1] ?? "";
-    const note = /<span class="picker-note" id="reproject-note"( hidden)?>([^<]*)<\/span>/.exec(html);
-    assert.ok(note, "the reprojection note is in the panel");
-    this.noteHidden = note[1] !== undefined;
-    this.noteText = note[2];
+    const control = /<label id="projection-control"( hidden)?>/.exec(html);
+    assert.ok(control, "the projection picker is in the panel");
+    // Hidden picker, shown reason; and the other way round.
+    this.noteHidden = control[1] === undefined;
+    const line = /<li data-kind="[a-zA-Z]+">Projection[^:<]*: ([^<]*)<\/li>/.exec(html);
+    this.noteText = line ? line[1] : "";
     this.offered = this.options.length > 1;
   }
 
@@ -181,12 +205,9 @@ class Picker {
   /** What `handleGridReady` does with a render's answer. */
   take(reply: GridReadyMessage): boolean {
     assert.ok(reply.sliceGrid, "a slice render carries the slice's own answer");
-    const note = {
-      textContent: this.noteText as string | null,
-      toggleAttribute: (_: string, hidden: boolean) => (this.noteHidden = hidden),
-    };
-    const next = applyReprojectable(this, note, reply.sliceGrid, this.offered, MAP_PROJECTIONS);
-    this.noteText = note.textContent ?? "";
+    const next = applyReprojectable(this, reply.sliceGrid, this.offered, MAP_PROJECTIONS);
+    this.noteText = projectionReasonIn(reply.sliceGrid.unavailable);
+    this.noteHidden = this.noteText === "";
     this.offered = next.offered;
     return next.moved;
   }
@@ -209,33 +230,42 @@ suite("Slice panel projection picker", () => {
       "equal_earth",
     ]);
     assert.deepStrictEqual(offered(projectionOptionsHtml(MAP_PROJECTIONS, false)), ["source"]);
-    assert.strictEqual(reprojectionNote(true, "placed", "latlon"), "");
+    assert.strictEqual(projectionReason(true, "placed", "latlon"), null);
   });
 
-  test("the projection note is keyed on placement, not on the family (#960)", () => {
-    assert.strictEqual(UNPLACED_REPROJECT_NOTE, UNPLACED_NOTE);
+  test("the projection reason is keyed on placement, not on the family (#960)", () => {
+    const notPlaced = { kind: "structural", reason: UNPLACED_NOTE };
+    assert.strictEqual(UNPLACED_REASON, UNPLACED_NOTE);
     // A slice no coordinates place, and a declined grid of a family this
     // build reprojects: neither family is unsupported, the grid is not placed.
-    assert.strictEqual(reprojectionNote(false, "unplaceable", "source"), UNPLACED_NOTE);
-    assert.strictEqual(reprojectionNote(false, "unplaceable", "lambert"), UNPLACED_NOTE);
-    assert.strictEqual(reprojectionNote(false, "unplaceable", "space_view"), UNPLACED_NOTE);
+    assert.deepStrictEqual(projectionReason(false, "unplaceable", "source"), notPlaced);
+    assert.deepStrictEqual(projectionReason(false, "unplaceable", "lambert"), notPlaced);
+    assert.deepStrictEqual(projectionReason(false, "unplaceable", "space_view"), notPlaced);
     // Nothing to place, or no answer at all.
-    assert.strictEqual(reprojectionNote(false, "no_raster", "bifourier"), UNPLACED_NOTE);
-    assert.strictEqual(reprojectionNote(false, "predefined_unresolved", null), UNPLACED_NOTE);
-    assert.strictEqual(reprojectionNote(false, undefined, null), UNPLACED_NOTE);
-    // A template this build does not model keeps "not yet".
-    assert.strictEqual(
-      reprojectionNote(false, "unsupported", "unsupported(3.4)"),
-      "Reprojection isn't available for unsupported(3.4) grids yet.",
-    );
-    assert.strictEqual(reprojectionNote(false, "unsupported", null), "Reprojection isn't available for this grid yet.");
+    assert.deepStrictEqual(projectionReason(false, "no_raster", "bifourier"), notPlaced);
+    assert.deepStrictEqual(projectionReason(false, "predefined_unresolved", null), notPlaced);
+    assert.deepStrictEqual(projectionReason(false, undefined, null), notPlaced);
+    // A template this build does not model keeps "not yet", kept apart from
+    // the structural reasons (#1036).
+    assert.deepStrictEqual(projectionReason(false, "unsupported", "unsupported(3.4)"), {
+      kind: "notYet",
+      reason: "not yet supported for unsupported(3.4) grids.",
+    });
+    assert.deepStrictEqual(projectionReason(false, "unsupported", null), {
+      kind: "notYet",
+      reason: "not yet supported for this grid.",
+    });
     // A placed grid that declines (a lat/lon grid scanned east to west) is
-    // that grid, not its family.
-    assert.strictEqual(reprojectionNote(false, "placed", "latlon"), "Reprojection isn't available for this latlon grid.");
-    assert.strictEqual(reprojectionNote(false, "placed", null), "Reprojection isn't available for this grid.");
-    // A grid that reprojects has no note, whatever else is said.
+    // that grid's layout, not its family, and a limit of this build.
+    for (const label of ["latlon", null]) {
+      assert.deepStrictEqual(projectionReason(false, "placed", label), {
+        kind: "notYet",
+        reason: "not yet supported for this grid's layout.",
+      });
+    }
+    // A grid that reprojects has no reason, whatever else is said.
     for (const placement of ["placed", "unplaceable", "unsupported", undefined] as const) {
-      assert.strictEqual(reprojectionNote(true, placement, "lambert"), "");
+      assert.strictEqual(projectionReason(true, placement, "lambert"), null);
     }
   });
 
@@ -269,7 +299,7 @@ suite("Slice panel projection picker", () => {
       native.colormaps(),
       native.combineOps(),
     );
-    for (const name of ["applyReprojectable", "projectionOptionsHtml"]) {
+    for (const name of ["applyReprojectable", "projectionOptionsHtml", "unavailableSummary", "unavailableItemsHtml"]) {
       assert.ok(html.includes(`function ${name}(`), `${name} is serialized into the script`);
     }
     assert.match(html, /const MAP_PROJECTIONS = \[/, "and the targets it builds from");
@@ -316,14 +346,14 @@ suite("Slice panel projection picker", () => {
     panel.send({ type: "ready", projection: "source", resampling: "nearest", flipY: false, slice: latBndsSlice });
     const first = panel.posted[panel.posted.length - 1] as GridReadyMessage;
     assert.strictEqual(first.type, "gridReady");
-    assert.deepStrictEqual(first.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false, supports: NONE });
+    assert.deepStrictEqual(first.sliceGrid, { label: "source", reprojectable: false, placed: false, supports: NONE, unavailable: UNPLACED_SLICE });
     assert.strictEqual(picker.take(first), false);
     assert.deepStrictEqual(picker.offers(), ["source"]);
 
     // Move the same panel onto temperature. The render says it can be
     // reprojected, so the picker offers the map targets…
     const onTemperature = render(panel, temperatureSlice, picker.value);
-    assert.deepStrictEqual(onTemperature.sliceGrid, { label: "latlon", reprojectable: true, note: "", placed: true, supports: LATLON });
+    assert.deepStrictEqual(onTemperature.sliceGrid, { label: "latlon", reprojectable: true, placed: true, supports: LATLON, unavailable: [] });
     assert.strictEqual(picker.take(onTemperature), false, "source stays selected");
     assert.ok(picker.offers().includes("equirectangular"), `got ${picker.offers().join(", ")}`);
     assert.strictEqual(picker.noteHidden, true, "and the note goes");
@@ -352,7 +382,7 @@ suite("Slice panel projection picker", () => {
     const back = render(panel, latBndsSlice, picker.value);
     assert.strictEqual(back.options.projection, "source", "drawn in the source view");
     assert.strictEqual(back.usedLatMin, null, "with no geographic extent");
-    assert.deepStrictEqual(back.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false, supports: NONE });
+    assert.deepStrictEqual(back.sliceGrid, { label: "source", reprojectable: false, placed: false, supports: NONE, unavailable: UNPLACED_SLICE });
     assert.strictEqual(picker.take(back), true, "the selection moves");
     assert.strictEqual(picker.value, "source");
     assert.deepStrictEqual(picker.offers(), ["source"]);
@@ -376,7 +406,7 @@ suite("Slice panel projection picker", () => {
     panel.send({ type: "ready", projection: "source", resampling: "nearest", flipY: false });
     const first = panel.posted[panel.posted.length - 1] as GridReadyMessage;
     assert.strictEqual(first.type, "gridReady");
-    assert.deepStrictEqual(first.sliceGrid, { label: "latlon", reprojectable: true, note: "", placed: true, supports: LATLON });
+    assert.deepStrictEqual(first.sliceGrid, { label: "latlon", reprojectable: true, placed: true, supports: LATLON, unavailable: [] });
     const variableIndex = first.messageIndex;
 
     picker.choose("equirectangular");
@@ -386,7 +416,7 @@ suite("Slice panel projection picker", () => {
 
     const transposed = render(panel, { variableIndex, yDim: 1, xDim: 0, sliceIndices: [0, 0] }, picker.value);
     assert.strictEqual(transposed.options.projection, "source", "drawn in the source view, not refused");
-    assert.deepStrictEqual(transposed.sliceGrid, { label: "source", reprojectable: false, note: UNPLACED_NOTE, placed: false, supports: NONE });
+    assert.deepStrictEqual(transposed.sliceGrid, { label: "source", reprojectable: false, placed: false, supports: NONE, unavailable: UNPLACED_SLICE });
     assert.strictEqual(picker.take(transposed), true);
     assert.strictEqual(picker.value, "source");
     assert.deepStrictEqual(picker.offers(), ["source"]);

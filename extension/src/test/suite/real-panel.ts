@@ -30,29 +30,66 @@ export async function provider(): Promise<FieldglassEditorProvider> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Msg = any;
 
+/** The controls a grid can't use, which the panel hides (#1036), by the key
+ *  `UnavailableGroup` names them with. The long CSV layout is not on the page. */
+export const PAGE_CONTROLS = ["projection", "resampling", "overlay", "contours", "arrows", "zonal"] as const;
+export type PageControl = (typeof PAGE_CONTROLS)[number];
+
+/** The panel's "Not available for this grid" disclosure (#1036). */
+export interface UnavailableLine {
+  /** Its computed `display`. */
+  display: string;
+  open: boolean;
+  summary: string;
+  /** One per reason, in order: `data-kind` and the text. */
+  items: Array<{ kind: string | null; text: string }>;
+  /** Whether it, or anything in it, announces changes (`aria-live`). */
+  live: boolean;
+  /** The element right before it, as `tag#id`. */
+  after: string | null;
+  /** Whether its summary is in the tab order. */
+  summaryFocusable: boolean;
+}
+
+/** The reason the "Not available for this grid" line gives for the control
+ *  labelled `label` (#1036), `null` when the line is not shown or does not
+ *  name it. */
+export function reasonFor(state: PageState, label: string): string | null {
+  const line = state.unavailable;
+  if (!line || line.display === "none") return null;
+  for (const item of line.items) {
+    const at = item.text.indexOf(": ");
+    if (at >= 0 && item.text.slice(0, at).split(", ").includes(label)) return item.text.slice(at + 2);
+  }
+  return null;
+}
+
 /** What the driver reports of the page. */
 export interface PageState {
-  overlayDisabled: boolean;
+  /** Whether the Overlay row carries `hidden`. */
   overlayHidden: boolean;
-  /** The Overlay row's note when shown, `null` when hidden. */
-  overlayNote: string | null;
-  vectorDisabled: boolean | null;
+  /** The Vectors row's note, `null` for a panel with no Vectors row. */
   vectorNote: string | null;
   coastlines: boolean;
   graticule: boolean;
   contours: boolean;
-  /** Whether the Contours checkbox is disabled, and the note beside it when
-   *  shown (#945). */
-  contoursDisabled: boolean;
-  contourNote: string | null;
-  /** Whether the Zonal average toggle is disabled, and its note when shown. */
-  zonalDisabled: boolean;
-  zonalNote: string | null;
+  /** Each control's own computed `display`, `null` where the panel has no
+   *  such control (a GRIB file of one message has no Vectors row). Found by
+   *  the ids every panel has had, not by any one build's wrapper ids. */
+  controlDisplay: Record<PageControl, string | null>;
+  /** Whether each control takes up room on screen: false inside a hidden
+   *  ancestor as well (contours in a hidden Overlay row). */
+  controlShown: Record<PageControl, boolean | null>;
+  /** The "Not available for this grid" line, `null` when the page has none. */
+  unavailable: UnavailableLine | null;
+  /** The focused element as `tag#id.class`, suffixed ` in #unavailable` when
+   *  it is inside the line. */
+  focused: string | null;
   projection: string;
+  /** Whether the projection `<select>` itself is disabled. */
+  projectionDisabled: boolean;
   /** Every target the projection picker offers, in order. */
   projectionOffers: string[];
-  /** The note beside the picker when shown, `null` when hidden. */
-  reprojectNote: string | null;
   /** The point-probe readout. */
   probe: string;
   /** A slice panel's variable picker: the name selected and every name
@@ -98,7 +135,42 @@ const DRIVER = `
       return api;
     };
     const byId = (id) => document.getElementById(id);
-    const shownText = (el) => (el && !el.hasAttribute('hidden') ? el.textContent : null);
+    const labelOf = (id) => (byId(id) ? byId(id).closest('label') : null);
+    // Each control a grid can rule out, by the element a user would see go.
+    const CONTROLS = {
+      projection: () => labelOf('picker-projection'),
+      resampling: () => labelOf('picker-resampling'),
+      overlay: () => byId('overlay-fieldset'),
+      contours: () => byId('contour-layer'),
+      arrows: () => byId('vector-fieldset'),
+      zonal: () => labelOf('zonal-toggle'),
+    };
+    function controlsBy(read) {
+      const out = {};
+      for (const key of Object.keys(CONTROLS)) {
+        const el = CONTROLS[key]();
+        out[key] = el ? read(el) : null;
+      }
+      return out;
+    }
+    function unavailableLine() {
+      const line = byId('unavailable');
+      if (!line) return null;
+      const summary = line.querySelector('summary');
+      const before = line.previousElementSibling;
+      return {
+        display: getComputedStyle(line).display,
+        open: line.open === true,
+        summary: summary ? summary.textContent : '',
+        items: Array.from(line.querySelectorAll('li')).map((li) => ({
+          kind: li.getAttribute('data-kind'),
+          text: li.textContent,
+        })),
+        live: line.hasAttribute('aria-live') || !!line.querySelector('[aria-live]'),
+        after: before ? before.tagName.toLowerCase() + (before.id ? '#' + before.id : '') : null,
+        summaryFocusable: !!summary && summary.tabIndex >= 0,
+      };
+    }
     function report() {
       const overlays = byId('overlay-fieldset');
       const vectors = byId('vector-fieldset');
@@ -123,21 +195,18 @@ const DRIVER = `
           : null,
         messagePicked: picked ? picked.textContent : '',
         compareFieldB: fieldB ? fieldB.value : null,
-        overlayDisabled: !!(overlays && overlays.disabled),
         overlayHidden: !!(overlays && overlays.hasAttribute('hidden')),
-        overlayNote: shownText(byId('overlay-note')),
-        vectorDisabled: vectors ? vectors.disabled : null,
         vectorNote: vectors ? byId('vector-note').textContent : null,
         coastlines: byId('overlay-coastlines').checked,
         graticule: byId('overlay-graticule').checked,
         contours: byId('overlay-contours').checked,
-        contoursDisabled: byId('overlay-contours').disabled,
-        contourNote: shownText(byId('contour-note')),
-        zonalDisabled: byId('zonal-toggle').disabled,
-        zonalNote: shownText(byId('zonal-note')),
+        controlDisplay: controlsBy((el) => getComputedStyle(el).display),
+        controlShown: controlsBy((el) => el.getClientRects().length > 0),
+        unavailable: unavailableLine(),
+        focused: document.activeElement ? describe(document.activeElement) + (document.activeElement.closest('#unavailable') ? ' in #unavailable' : '') : null,
         projection: picker.value,
+        projectionDisabled: picker.disabled,
         projectionOffers: Array.from(picker.options).map((o) => o.value),
-        reprojectNote: shownText(byId('reproject-note')),
         probe: byId('probe').textContent,
         sliceVariable: variable ? (chosen ? chosen.textContent : '') : null,
         sliceVariables: variable ? Array.from(variable.options).map((o) => o.textContent) : null,
@@ -235,6 +304,9 @@ const DRIVER = `
       for (const a of m.actions) {
         const el = byId(a.id);
         if (!el) throw new Error('no #' + a.id);
+        // A disclosure opens the way a click on its summary opens it.
+        if ('open' in a) { if (el.open !== a.open) el.querySelector('summary').click(); continue; }
+        if ('focus' in a) { el.focus(); continue; }
         if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
@@ -256,7 +328,7 @@ export interface RealPanel {
   /** What the provider posted to the page, oldest first. */
   sent: Msg[];
   /** Set controls as a user would, then read the page back. */
-  drive(actions: Array<{ id: string; value?: string | number; checked?: boolean }>): Promise<PageState>;
+  drive(actions: Array<{ id: string; value?: string | number; checked?: boolean; open?: boolean; focus?: boolean }>): Promise<PageState>;
   /** Click the middle of the image, as a user reads the value there. Resolves
    *  once the page has sent the click; the reply comes after. */
   probe(): Promise<void>;

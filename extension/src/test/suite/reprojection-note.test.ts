@@ -1,5 +1,5 @@
-// The note beside the projection picker says why a field has only the source
-// view, from the placement Rust reports (#960).
+// The reason the panel gives for a field with only the source view comes from
+// the placement Rust reports (#960).
 //
 // A grid of a family this build reprojects can still be declined, because its
 // own numbers place nothing: a GRIB2 Lambert grid on an Earth of radius zero is
@@ -10,8 +10,8 @@
 // not model (`unsupported`) is a family that is not supported yet.
 //
 // These run the panel's own script in a real webview, through the driver in
-// `real-panel.ts`, so they read the note the page shows: the one written into
-// the panel's HTML and the one a slice render sends.
+// `real-panel.ts`, so they read the reason the page shows in its "Not available"
+// line (#1036): the one written into the panel's HTML and the one a slice render sends.
 
 import * as assert from "assert";
 import * as fs from "fs";
@@ -19,15 +19,21 @@ import * as os from "os";
 import * as path from "path";
 
 import { loadNative } from "../../native";
-import { UNPLACED_OVERLAY_NOTE, UNPLACED_REPROJECT_NOTE } from "../../render-panel";
-import { extensionPath, isType, openEditor, openReal, provider } from "./real-panel";
+import { type UnavailableGroup, UNPLACED_REASON } from "../../render-panel";
+import { extensionPath, isType, openEditor, openReal, provider, reasonFor } from "./real-panel";
 
 /** Says the grid is not placed, and names no family as unsupported. */
-function assertSaysNotPlaced(note: string | null, what: string): void {
-  assert.ok(note, `${what}: the note is shown`);
-  assert.match(note, /placed on the Earth/, `${what}: the note says the grid is not placed, got "${note}"`);
-  assert.doesNotMatch(note, /grids yet/, `${what}: the note calls no family unsupported, got "${note}"`);
-  assert.strictEqual(note, UNPLACED_REPROJECT_NOTE, what);
+function assertSaysNotPlaced(reason: string | null, what: string): void {
+  assert.ok(reason, `${what}: the reason is given`);
+  assert.match(reason, /no known position on the Earth/, `${what}: the reason says the grid is not placed, got "${reason}"`);
+  assert.doesNotMatch(reason, /not yet|grids/, `${what}: the reason calls no family unsupported, got "${reason}"`);
+  assert.strictEqual(reason, UNPLACED_REASON, what);
+}
+
+/** The reason a render's answer gives for hiding the projection picker. */
+function projectionReasonIn(groups: UnavailableGroup[]): string | null {
+  const group = groups.find((g) => g.controls.some((c) => c.key === "projection"));
+  return group ? group.reason : null;
 }
 
 /** The committed Lambert fixture on a Code Table 3.2 shape-1 Earth of radius
@@ -71,9 +77,9 @@ suite("The projection note follows placement (#960)", function () {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await panel.drive([]);
       assert.deepStrictEqual(state.projectionOffers, ["source"]);
-      assertSaysNotPlaced(state.reprojectNote, "zero-radius Lambert");
+      assertSaysNotPlaced(reasonFor(state, "Projection"), "zero-radius Lambert");
       // The two notes now agree.
-      assert.strictEqual(state.overlayNote, UNPLACED_OVERLAY_NOTE);
+      assert.strictEqual(reasonFor(state, "Overlay"), UNPLACED_REASON);
     } finally {
       panel.dispose();
       fs.rmSync(dir, { recursive: true, force: true });
@@ -101,7 +107,7 @@ suite("The projection note follows placement (#960)", function () {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await panel.drive([]);
       assert.deepStrictEqual(state.projectionOffers, ["source"]);
-      assertSaysNotPlaced(state.reprojectNote, "lat_bnds, opened on");
+      assertSaysNotPlaced(reasonFor(state, "Projection"), "lat_bnds, opened on");
     } finally {
       panel.dispose();
     }
@@ -111,7 +117,7 @@ suite("The projection note follows placement (#960)", function () {
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       let state = await panel.drive([]);
-      assert.strictEqual(state.reprojectNote, null, "a placed latlon slice has no note");
+      assert.strictEqual(reasonFor(state, "Projection"), null, "a placed latlon slice has no reason");
       const from = panel.sent.length;
       await panel.drive([{ id: "slice-variable", value: latBnds }]);
       const drawn = await panel.waitSent(
@@ -119,10 +125,10 @@ suite("The projection note follows placement (#960)", function () {
         from,
         "lat_bnds drawn",
       );
-      assertSaysNotPlaced(drawn.sliceGrid.note, "lat_bnds, the render's note");
+      assertSaysNotPlaced(projectionReasonIn(drawn.sliceGrid.unavailable), "lat_bnds, the render's answer");
       state = await panel.drive([]);
-      assertSaysNotPlaced(state.reprojectNote, "lat_bnds, moved onto");
-      assert.strictEqual(state.overlayNote, UNPLACED_OVERLAY_NOTE);
+      assertSaysNotPlaced(reasonFor(state, "Projection"), "lat_bnds, moved onto");
+      assert.strictEqual(reasonFor(state, "Overlay"), UNPLACED_REASON);
     } finally {
       panel.dispose();
     }

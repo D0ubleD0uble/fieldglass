@@ -19,7 +19,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
-import { reprojectionNote, UNPLACED_OVERLAY_NOTE } from "../../render-panel";
+import { UNPLACED_REASON } from "../../render-panel";
 import {
   type Editor,
   extensionPath,
@@ -30,11 +30,9 @@ import {
   overlayTraffic,
   provider,
   type RealPanel,
+  reasonFor,
   refusals,
 } from "./real-panel";
-
-/** The note beside the picker for a slice the handle cannot place at all. */
-const NOTHING_PLACES = reprojectionNote(false, undefined, null);
 
 function fixture(name: string): string {
   return path.join(extensionPath(), "src", "test", "fixtures", name);
@@ -133,7 +131,7 @@ suite("The render panel's own script", function () {
       await panel.waitSent(isType("overlayReady"), from, "the coastlines");
       state = await panel.drive([]);
       assert.ok(state.projectionOffers.includes("equirectangular"));
-      assert.strictEqual(state.overlayDisabled, false);
+      assert.strictEqual(state.controlShown.overlay, true);
 
       // The editor closes under the panel, and the panel is restored with
       // equirectangular saved. Its first render fails.
@@ -147,9 +145,15 @@ suite("The render panel's own script", function () {
       state = await panel.drive([{ id: "overlay-graticule", checked: true }]);
       assert.deepStrictEqual(state.projectionOffers, ["source"], "no map targets for a slice nothing places");
       assert.strictEqual(state.projection, "source");
-      assert.strictEqual(state.reprojectNote, NOTHING_PLACES);
-      assert.strictEqual(state.overlayDisabled, true, "the Overlay row is disabled");
-      assert.strictEqual(state.overlayNote, UNPLACED_OVERLAY_NOTE, "with the reason");
+      assert.strictEqual(failed.handleGone, true, "the answer is about the closed file");
+      assert.strictEqual(state.controlDisplay.projection, "none", "the picker is hidden");
+      assert.strictEqual(state.controlDisplay.overlay, "none", "the Overlay row is hidden");
+      // The file is closed, which says nothing about the grid: the line does
+      // not claim it has no position on the Earth (#1036), and the status
+      // says what happened.
+      assert.strictEqual(state.unavailable?.display, "none", "no 'Not available for this grid' line");
+      assert.strictEqual(reasonFor(state, "Projection"), null);
+      assert.match(state.status, /disposed/);
       assert.deepStrictEqual(
         panel.received.slice(before.received).filter(overlayTraffic).map((m) => m.type),
         [],
@@ -164,9 +168,21 @@ suite("The render panel's own script", function () {
       assert.deepStrictEqual(failed.sliceGrid, {
         label: null,
         reprojectable: false,
-        note: NOTHING_PLACES,
         placed: false,
         supports: { contours: false, vectors: false, longCsv: false, zonalMean: false },
+        unavailable: [
+          {
+            kind: "structural",
+            reason: UNPLACED_REASON,
+            controls: [
+              { key: "projection", label: "Projection" },
+              { key: "resampling", label: "Resampling" },
+              { key: "overlay", label: "Overlay" },
+              { key: "zonal", label: "Zonal average" },
+              { key: "longCsv", label: "Long layout (Export CSV)" },
+            ],
+          },
+        ],
       });
 
       // The file is opened again. Picking the variable asks for a render,
@@ -185,9 +201,10 @@ suite("The render panel's own script", function () {
       state = await panel.drive([]);
       assert.ok(state.projectionOffers.includes("equirectangular"), `got ${state.projectionOffers.join(", ")}`);
       assert.strictEqual(state.projection, "equirectangular");
-      assert.strictEqual(state.reprojectNote, null);
-      assert.strictEqual(state.overlayDisabled, false);
-      assert.strictEqual(state.overlayNote, null);
+      assert.strictEqual(state.controlShown.projection, true);
+      assert.strictEqual(reasonFor(state, "Projection"), null);
+      assert.strictEqual(state.controlShown.overlay, true);
+      assert.strictEqual(reasonFor(state, "Overlay"), null);
     } finally {
       panel.dispose();
       editor.close();

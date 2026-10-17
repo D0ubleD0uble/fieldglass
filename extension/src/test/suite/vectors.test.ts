@@ -17,9 +17,9 @@ import { loadNative } from "../../native";
 import {
   composeRangeText,
   composeVectorScale,
-  NO_VECTORS_NOTE,
   renderImagePanelHtml,
-  UNPLACED_VECTORS_NOTE,
+  SATELLITE_NOT_YET_REASON,
+  UNPLACED_REASON,
   type CompareFieldOption,
   type PanelField,
 } from "../../render-panel";
@@ -229,7 +229,8 @@ suite("Vector arrows", () => {
     assert.doesNotMatch(plain, /rotated to true north/);
 
     // A placed grid that takes no arrows (a space view, #945): the
-    // row is written, disabled, with the reason, and not the frame note.
+    // row is written, hidden (#1036), the "Not available" line gives the
+    // reason, and the frame note is not written.
     const noArrows = html(
       {
         ...meta(true),
@@ -237,13 +238,13 @@ suite("Vector arrows", () => {
       } as PanelField,
       fields,
     );
-    assert.match(noArrows, /<fieldset id="vector-fieldset" disabled>/, "the Vectors row is disabled");
-    assert.ok(noArrows.includes(NO_VECTORS_NOTE), "with the reason");
-    assert.match(NO_VECTORS_NOTE, /satellite-view grids yet/, "not supported yet (#979)");
-    assert.doesNotMatch(NO_VECTORS_NOTE, /position|none/);
-    assert.ok(!noArrows.includes(UNPLACED_VECTORS_NOTE), "not the not-placed one: this grid is placed");
+    assert.match(noArrows, /<fieldset id="vector-fieldset" hidden>/, "the Vectors row is hidden");
+    assert.match(noArrows, /<li data-kind="notYet">[^<]*\bVectors\b[^<]*: ([^<]*)<\/li>/, "with a not-yet reason");
+    assert.ok(noArrows.includes(`Vectors: ${SATELLITE_NOT_YET_REASON}`), "the satellite-view one (#979)");
+    assert.doesNotMatch(SATELLITE_NOT_YET_REASON, /position|none/);
+    assert.ok(!noArrows.includes(UNPLACED_REASON), "not the not-placed one: this grid is placed");
     assert.doesNotMatch(noArrows, /rotated to true north/);
-    // And one that takes them is not disabled.
+    // And one that takes them is shown.
     assert.match(paired, /<fieldset id="vector-fieldset">/);
 
     // One message is no pair, so there is nothing to offer.

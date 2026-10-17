@@ -19,7 +19,7 @@ import * as os from "os";
 import * as path from "path";
 
 import { loadNative } from "../../native";
-import { UNPLACED_OVERLAY_NOTE, UNPLACED_VECTORS_NOTE } from "../../render-panel";
+import { UNPLACED_REASON } from "../../render-panel";
 import {
   extensionPath,
   isType,
@@ -28,6 +28,7 @@ import {
   openReal,
   overlayTraffic,
   provider,
+  reasonFor,
   refusals,
 } from "./real-panel";
 
@@ -57,8 +58,8 @@ suite("Overlays follow placement (#840)", function () {
       // contours on an equirectangular map are drawn.
       let from = panel.sent.length;
       let state = await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
-      assert.strictEqual(state.overlayDisabled, false);
-      assert.strictEqual(state.overlayNote, null);
+      assert.strictEqual(state.controlShown.overlay, true);
+      assert.strictEqual(reasonFor(state, "Overlay"), null);
       await panel.waitSent((m) => m.type === "gridReady" && m.options.projection === "equirectangular", from, "the map");
       from = panel.sent.length;
       await panel.drive([
@@ -83,8 +84,8 @@ suite("Overlays follow placement (#840)", function () {
       assert.strictEqual(drawn.options.projection, "source");
       state = await panel.drive([]);
       assert.strictEqual(state.projection, "source");
-      assert.strictEqual(state.overlayDisabled, true, "the Overlay row is disabled");
-      assert.strictEqual(state.overlayNote, UNPLACED_OVERLAY_NOTE, "with the reason");
+      assert.strictEqual(state.controlDisplay.overlay, "none", "the Overlay row is hidden");
+      assert.strictEqual(reasonFor(state, "Overlay"), UNPLACED_REASON, "with the reason");
       assert.deepStrictEqual(
         panel.received.slice(before.received).filter(overlayTraffic).map((m) => m.type),
         [],
@@ -117,8 +118,8 @@ suite("Overlays follow placement (#840)", function () {
       await panel.waitSent(isType("overlayReady"), back, "the coastlines again");
       await panel.waitSent(isType("contourReady"), back, "the contours again");
       state = await panel.drive([]);
-      assert.strictEqual(state.overlayDisabled, false);
-      assert.strictEqual(state.overlayNote, null);
+      assert.strictEqual(state.controlShown.overlay, true);
+      assert.strictEqual(reasonFor(state, "Overlay"), null);
 
       // A cross-section is not placed either: time down the rows of
       // temperature. Its axes are not a map, so nothing is asked for.
@@ -154,8 +155,8 @@ suite("Overlays follow placement (#840)", function () {
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await panel.drive([{ id: "overlay-coastlines", checked: true }]);
-      assert.strictEqual(state.overlayDisabled, true);
-      assert.strictEqual(state.overlayNote, UNPLACED_OVERLAY_NOTE);
+      assert.strictEqual(state.controlDisplay.overlay, "none");
+      assert.strictEqual(reasonFor(state, "Overlay"), UNPLACED_REASON);
       assert.deepStrictEqual(panel.received.filter(overlayTraffic).map((m) => m.type), []);
       assert.deepStrictEqual(panel.sent.filter(refusals).map((m) => m.error), []);
     } finally {
@@ -188,10 +189,10 @@ suite("Overlays follow placement (#840)", function () {
         { id: "overlay-contours", checked: true },
         { id: "overlay-vectors", checked: true },
       ]);
-      assert.strictEqual(state.overlayDisabled, true);
-      assert.strictEqual(state.overlayNote, UNPLACED_OVERLAY_NOTE);
-      assert.strictEqual(state.vectorDisabled, true);
-      assert.strictEqual(state.vectorNote, UNPLACED_VECTORS_NOTE);
+      assert.strictEqual(state.controlDisplay.overlay, "none");
+      assert.strictEqual(reasonFor(state, "Overlay"), UNPLACED_REASON);
+      assert.strictEqual(state.controlDisplay.arrows, "none");
+      assert.strictEqual(reasonFor(state, "Vectors"), UNPLACED_REASON);
       assert.deepStrictEqual(panel.received.filter(overlayTraffic).map((m) => m.type), []);
       assert.deepStrictEqual(panel.sent.filter((m: Msg) => m && /Error$|vectorResult/.test(m.type)), []);
     } finally {

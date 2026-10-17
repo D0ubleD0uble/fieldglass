@@ -52,7 +52,7 @@ import {
   composeTitleLine,
   composeTruncationNote,
   renderImagePanelHtml,
-  UNPLACED_REPROJECT_NOTE,
+  UNPLACED_REASON,
   type PanelField,
   type SlicePanelData,
 } from "../../render-panel";
@@ -1173,7 +1173,8 @@ suite("render-panel HTML", () => {
     assert.strictEqual(meta.reprojectable, false);
     const { offered, html } = offeredProjections(meta);
     assert.deepStrictEqual(offered, ["source"], `bi-Fourier must stay source-only, got ${offered.join(", ")}`);
-    assert.ok(html.includes(UNPLACED_REPROJECT_NOTE), "bi-Fourier must keep the source-only note");
+    assert.match(html, /<summary>Not available for this grid: Projection\b/, "bi-Fourier hides the picker (#1036)");
+    assert.ok(html.includes(UNPLACED_REASON), "and says the grid is not placed");
   });
 
   test("the message table offers Render exactly where Rust places the values (#776)", () => {
@@ -1914,7 +1915,8 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       supports: { contours: false, vectors: false, longCsv: false, zonalMean: false },
     });
     assert.deepStrictEqual(unplaced.offered, ["source"], `got ${unplaced.offered.join(", ")}`);
-    assert.ok(unplaced.html.includes(UNPLACED_REPROJECT_NOTE), "the note says the slice is not placed (#960)");
+    assert.match(unplaced.html, /<summary>Not available for this grid: Projection\b/, "the picker is hidden (#1036)");
+    assert.ok(unplaced.html.includes(UNPLACED_REASON), "and the reason says the slice is not placed (#960)");
     assert.ok(unplaced.html.includes("NetCDF slice — source"), "the caption says so too");
   });
 
