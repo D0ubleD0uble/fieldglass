@@ -221,9 +221,11 @@ fn a_deflate_bomb_holds_no_more_than_its_chunk() {
 /// bytes to hold the limit plus the one byte that tells a longer stream
 /// apart, and the read held 8,397,951 at once.
 ///
-/// `ruzstd` keeps its own buffers beside the output: a ring of about the
-/// window plus 256 KiB under 0.9.1 (up to twice the window under 0.9.0), and up
-/// to a window more while it drains it. Those are
+/// `ruzstd` keeps its own buffers beside the output: a ring that 0.9.1
+/// sizes as the window less 256 KiB rounded up to a power of two, plus 256 KiB
+/// (about the window plus 256 KiB for a power-of-two window, up to about twice
+/// the window for any other; a 40 MiB window gets 64.25 MiB), and up to a
+/// window more while it drains it. Those are
 /// bounded by the window, which no output bound sees (#413), so the peak is
 /// allowed three windows on top of the chunk. Reading in steps of a zstd
 /// block (`capped::READ_STEP`) kept the ring that small under 0.9.0, which

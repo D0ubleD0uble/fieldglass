@@ -123,11 +123,14 @@ length; a 12-byte deflate stream in a chunk stating 256 MiB starts at
 12,384 bytes, where it had 256 MiB zeroed. Blosc's zlib and zstd streams in
 Zarr take the same bound.
 
-`ruzstd` sizes its own ring buffer to about the window plus 256 KiB (0.9.1;
-0.9.0 rounded up to the next power of two, up to about twice the window). The
+`ruzstd` 0.9.1 sizes its own ring buffer by rounding the window less 256 KiB
+up to a power of two and adding 256 KiB back. A power-of-two window costs about
+the window plus 256 KiB; any other window costs up to about twice it (a 40 MiB
+window gets a 64.25 MiB ring). 0.9.0 rounded the whole window up. The
 window is bounded by `MAX_ZSTD_WINDOW`, and the output limit does not bound it.
 A single-segment frame states its content size instead of a window, and the
-ring is sized from that. `ruzstd` 0.9.0 buffered whatever it decoded until the
+ring is sized from that, so a content size that is not a power of two can cost
+nearly twice its size. `ruzstd` 0.9.0 buffered whatever it decoded until the
 caller's slice was full, so the output is read in steps of one zstd block
 (`capped::READ_STEP`, 128 KiB); handed a whole 3 MiB chunk at once it held a
 second 4 MiB copy beside the output. 0.9.1 decodes one block at a time and
