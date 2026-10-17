@@ -126,6 +126,13 @@ export interface AxisValues {
    * CF form, `hours since 2020-01-01`.
    */
   units: string | null;
+  /**
+   * Whether the axis is vertical, and which way its values increase,
+   * from its coordinate array's attributes by CF §4.3; `None` for an
+   * axis CF does not mark vertical, or one with no coordinates. A host
+   * draws a vertical axis the right way up from this (#1043).
+   */
+  vertical: Vertical | null;
 }
 
 /**
@@ -799,6 +806,12 @@ export interface Line {
    * The coordinate array's units, when there are coordinates.
    */
   coordinateUnits: string | null;
+  /**
+   * Whether the axis is vertical, and which way its values increase, as
+   * `AxisValues::vertical` reads it, when there are coordinates. A
+   * host draws a vertical line as a profile from this (#1043).
+   */
+  coordinateVertical: Vertical | null;
 }
 
 /**
@@ -1342,6 +1355,19 @@ export type Placement =
   | "predefined_unresolved";
 
 /**
+ * Which way a vertical axis's values increase, CF's `positive` (§4.3).
+ */
+export type Positive =
+  /**
+   * Upward: a height.
+   */
+  | "up"
+  /**
+   * Downward: a depth, or a pressure.
+   */
+  | "down";
+
+/**
  * One point sampled out of a field.
  */
 export interface Probe {
@@ -1769,6 +1795,31 @@ export interface VectorOptions {
    * `0` mean "about 24 arrows across the grid", which reads at any size.
    */
   spacing?: number | null;
+}
+
+/**
+ * A vertical axis, as CF §4.3 identifies one: by a `positive` attribute,
+ * by `units` of pressure, or as `axis = "Z"` (#1043).
+ *
+ * What a host needs to draw it the right way up. One rule covers every
+ * oriented case: a `Positive::Down` axis is drawn with its values
+ * increasing down the page, which puts a pressure axis's surface
+ * (1000 hPa) at the bottom and a depth axis's surface (0 m) at the top.
+ */
+export interface Vertical {
+  /**
+   * Which way the values increase: the file's `positive` attribute,
+   * `down` for a pressure that states none, or the direction its CF
+   * standard name fixes. `None` for a Z axis nothing orients, which a
+   * host leaves in storage order rather than guess.
+   */
+  positive: Positive | null;
+  /**
+   * Whether a profile along it is drawn on the logarithm of its values:
+   * an atmospheric pressure. A sea pressure (`dbar`) runs down but is
+   * drawn linear, like the depth it stands for.
+   */
+  logPressure: boolean;
 }
 
 /**

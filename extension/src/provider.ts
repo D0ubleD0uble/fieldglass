@@ -1716,9 +1716,16 @@ export class FieldglassEditorProvider
     // the line above, a failure answers with no values rather than an error:
     // an axis with no coordinate array is an ordinary state, and the panel
     // falls back to drawing indices.
+    //
+    // With the file closed (#839) it still answers, saying so: a panel holds a
+    // cross-section's render for its Y axis (#1043), and the render is what
+    // tells the user the file is gone.
     const axis = (req: { slice?: SliceSpec; dim?: unknown }) => {
       const docHandle = subject.handle();
-      if (!docHandle) return;
+      if (!docHandle) {
+        panel.webview.postMessage({ type: "axisResult", dim: req.dim, result: null, handleGone: true });
+        return;
+      }
       const spec = req.slice ?? initial;
       const reply = (result: AxisValues | null) =>
         panel.webview.postMessage({ type: "axisResult", dim: req.dim, result });

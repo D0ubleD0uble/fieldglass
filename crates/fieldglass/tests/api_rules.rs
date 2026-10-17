@@ -36,10 +36,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use fieldglass::{
     Addressing, Affine, AxisUnits, AxisValues, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype,
     Error, Field, FullDetail, Georef, GridSupport, Identification, Isoline, LeftOutArray, Line,
-    MessageIdentity, MessageInfo, MessageProbe, PaletteOptions, PixelProbe, Placement, Probe,
-    Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat, SpectralTruncation,
+    MessageIdentity, MessageInfo, MessageProbe, PaletteOptions, PixelProbe, Placement, Positive,
+    Probe, Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat, SpectralTruncation,
     StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo, VectorOptions,
-    WarpOptions, WarpTarget, Warped,
+    Vertical, WarpOptions, WarpTarget, Warped,
 };
 
 // ---------------------------------------------------------------------------
@@ -129,6 +129,10 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     // One axis of a variable with its coordinate values, for labelling a
     // cross-section's axes (#171).
     ("AxisValues", Class::Wire, ""),
+    // Which way a vertical axis runs, so a host draws it the right way up
+    // (#1043).
+    ("Vertical", Class::Wire, ""),
+    ("Positive", Class::Wire, ""),
     // The arrays a container holds and would not read, one shape for every
     // container (#709).
     ("LeftOutArray", Class::Wire, ""),
@@ -524,8 +528,10 @@ fn every_wire_type_round_trips_through_json() {
     );
     round_trip::<AxisValues>(
         "AxisValues",
-        r#"{"dimension":"time","length":3,"coordinates":[0.0,6.0,12.0],"units":"hours since 2020-01-01"}"#,
+        r#"{"dimension":"time","length":3,"coordinates":[0.0,6.0,12.0],"units":"hours since 2020-01-01","vertical":null}"#,
     );
+    round_trip::<Vertical>("Vertical", r#"{"positive":"down","logPressure":true}"#);
+    round_trip::<Positive>("Positive", r#""up""#);
     round_trip::<LeftOutArray>(
         "LeftOutArray",
         r#"{"name":"PRODUCT/sst","reason":"unsupported section: codec bz2"}"#,
@@ -541,7 +547,7 @@ fn every_wire_type_round_trips_through_json() {
 const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever"},"kind":"latlon","label":"latlon","ni":2,"nj":2,"boundsLonlat":[-1.0,1.0,-2.0,2.0],"corners":[1.0,-1.0,-2.0,2.0],"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true},"pointsPerRow":null,"proj4":"+proj=longlat","affine":{"x0":0.0,"y0":1.0,"dx":1.0,"dy":-1.0,"units":"degrees"},"periodicX":false,"scan":{"iNegative":false,"jPositive":true,"jConsecutive":false}}"#;
 
 /// A `Field`, with the smallest raster that still has a mask and statistics.
-const LINE_JSON: &str = r#"{"values":{"dtype":"f64","data":[6.0,18.0]},"mask":[1,1],"stats":{"min":6.0,"max":18.0,"validCount":2},"variable":"temperature","units":"K","dimension":"time","coordinates":[0.0,6.0],"coordinateUnits":"hours since 2020-01-01 00:00:00"}"#;
+const LINE_JSON: &str = r#"{"values":{"dtype":"f64","data":[6.0,18.0]},"mask":[1,1],"stats":{"min":6.0,"max":18.0,"validCount":2},"variable":"temperature","units":"K","dimension":"time","coordinates":[0.0,6.0],"coordinateUnits":"hours since 2020-01-01 00:00:00","coordinateVertical":null}"#;
 const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"truncation":{"declared":7999,"truncatedTo":359},"stats":{"min":1.0,"max":3.0,"validCount":3},"parameter":"Temperature","units":"K"}"#;
 
 /// A GRIB1 `MessageIdentity` with every optional field present.
@@ -596,6 +602,8 @@ const ROUND_TRIPPED: &[&str] = &[
     "DimensionInfo",
     "VariableInfo",
     "AxisValues",
+    "Vertical",
+    "Positive",
     "VectorOptions",
     "LeftOutArray",
 ];
@@ -1554,6 +1562,8 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<DimensionInfo>("DimensionInfo");
     check_schema::<VariableInfo>("VariableInfo");
     check_schema::<AxisValues>("AxisValues");
+    check_schema::<Vertical>("Vertical");
+    check_schema::<Positive>("Positive");
     check_schema::<VectorOptions>("VectorOptions");
     check_schema::<LeftOutArray>("LeftOutArray");
 
@@ -1598,6 +1608,8 @@ const SCHEMA_CHECKED: &[&str] = &[
     "DimensionInfo",
     "VariableInfo",
     "AxisValues",
+    "Vertical",
+    "Positive",
     "VectorOptions",
     "LeftOutArray",
 ];
@@ -1743,7 +1755,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     }
     register!(returned:
         SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, Line,
-        MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, LeftOutArray,
+        MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, LeftOutArray,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
         Error, Raster,
     );
