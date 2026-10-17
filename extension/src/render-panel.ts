@@ -376,7 +376,8 @@ export function projectionOptionsHtml(
  *  selection where it is still offered and going back to `source` where it is
  *  not — which is what the provider drew it in. Where it is not, the panel
  *  hides the picker and gives the reason in its "Not available for this grid"
- *  line (#1036).
+ *  line (#1036), and holds the target it moved off for the next slice that
+ *  takes it (#1099).
  *
  *  Returns the new `offered`, and whether the selection moved. Takes its
  *  element as an argument, so a test can run it against a stand-in. Serialized
@@ -1079,8 +1080,13 @@ export function renderImagePanelHtml(
         // payload, and keying on one left a panel whose first render failed
         // unable to ask for another (#839).
         let mountAnswered = false;
-        // The map target chosen before the panel lost its handle, kept for the
-        // snapshot while the picker offers only the source view (#839).
+        // The map target the user chose, held while the picker is put away and
+        // offers only the source view: the panel lost its handle (#839), the
+        // axes are a cross-section (#171), or the slice can't be reprojected
+        // (#822). The snapshot saves it, the render asks for it once the axes
+        // are a map again, and the picker shows it again on the first answer
+        // that offers the map targets (#1099). Like any hidden control, the
+        // picker keeps the user's choice for the next field that takes it.
         let heldProjection = null;
         // Set while the picker waits for a variable to replace one gone from
         // the file; a render asked for meanwhile would draw a variable nobody
@@ -1395,16 +1401,37 @@ export function renderImagePanelHtml(
         }
 
         // Take a slice render's own answer to whether it can be reprojected
-        // (#822); see applyReprojectable. Returns whether the selection moved.
+        // (#822); see applyReprojectable. A map target the answer takes off the
+        // picker is held, and a held one goes back on once the answer offers
+        // it again (#1099). Returns whether the selection moved.
         function applySliceGrid(sliceGrid) {
-          const next = applyReprojectable(
-            document.getElementById('picker-projection'),
-            sliceGrid,
-            mapsOffered,
-            MAP_PROJECTIONS,
-          );
+          const picker = document.getElementById('picker-projection');
+          const before = picker ? picker.value : 'source';
+          const next = applyReprojectable(picker, sliceGrid, mapsOffered, MAP_PROJECTIONS);
           mapsOffered = next.offered;
-          return next.moved;
+          if (next.moved) holdProjection(before);
+          return releaseHeldProjection() || next.moved;
+        }
+
+        // Hold a map target the picker is about to stop showing (#1099). The
+        // first one held stands: what replaces it is the source view, which is
+        // not a choice.
+        function holdProjection(value) {
+          if (heldProjection === null && typeof value === 'string' && value !== 'source') heldProjection = value;
+        }
+
+        // Put the held map target back on the picker where the field on screen
+        // takes it: the axes are a map and the picker offers it. Set as a
+        // value, not a change event, so it is not a new choice and asks for
+        // nothing; the render that drew this answer already asked for it
+        // (currentOptions). Returns whether the picker moved.
+        function releaseHeldProjection() {
+          const picker = document.getElementById('picker-projection');
+          if (heldProjection === null || !picker || !mapsOffered || isCrossSection()) return false;
+          if (!Array.from(picker.options).some((o) => o.value === heldProjection)) return false;
+          picker.value = heldProjection;
+          heldProjection = null;
+          return true;
         }
 
         // Whether the overlays, contours and arrows apply to the field on
@@ -1512,13 +1539,11 @@ export function renderImagePanelHtml(
         //
         // handleGone says the answer is about the panel having no handle (its
         // editor closed), not about the slice. The map targets go, but the one
-        // selected is kept for the snapshot, so a panel restored once the file
-        // is open again draws on it (heldProjection).
+        // selected is held, so a panel restored once the file is open again
+        // draws on it (heldProjection), as one that moves onto a slice that
+        // can't be reprojected does (#1099).
         function applySliceAnswer(sliceGrid, handleGone) {
           if (!sliceGrid) return;
-          const picker = document.getElementById('picker-projection');
-          if (!handleGone) heldProjection = null;
-          else if (heldProjection === null && picker && picker.value !== 'source') heldProjection = picker.value;
           if (applySliceGrid(sliceGrid)) {
             syncProjectionControls();
             snapshotState();
@@ -1537,7 +1562,11 @@ export function renderImagePanelHtml(
               ? 'Cross-section: these axes are not a map, so it is drawn in index space.'
               : '';
           }
-          if (projection && cross && projection.value !== 'source') projection.value = 'source';
+          // Held, not lost: the axes going back to a map draw it again (#1099).
+          if (projection && cross && projection.value !== 'source') {
+            holdProjection(projection.value);
+            projection.value = 'source';
+          }
           // The picker, Resampling and the Overlay row are hidden, not greyed
           // out, as for any grid that can't use them (#1036), and come back
           // with the map unless the slice's answer says otherwise.
@@ -1824,8 +1853,17 @@ export function renderImagePanelHtml(
           return !!(logEl && logEl.checked && !logEl.disabled);
         }
 
-        function currentOptions() {
-          const projection = (document.getElementById('picker-projection') || {}).value || 'source';
+        // render: the options are for a render request, which asks for a held
+        // map target (#1099) once the axes are a map again, though the picker
+        // offers only the source view until the answer comes back. The
+        // provider draws a slice that can't take it in the source view, and
+        // says so. Every other request (overlays, a probe) is about the image
+        // on screen, so it asks for what the picker shows.
+        function currentOptions(render) {
+          const held = render === true && heldProjection !== null && !isCrossSection();
+          const projection = held
+            ? heldProjection
+            : (document.getElementById('picker-projection') || {}).value || 'source';
           const resampling = (document.getElementById('picker-resampling') || {}).value || 'nearest';
           const flipY = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
           const mode = document.querySelector('input[name="range-mode"]:checked');
@@ -1903,7 +1941,7 @@ export function renderImagePanelHtml(
             return;
           }
           if (awaitingPick) return;
-          vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(), sliceFields(), compareRequest()));
+          vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(true), sliceFields(), compareRequest()));
           setStatus('Rendering…');
         }
 
@@ -3388,7 +3426,8 @@ export function renderImagePanelHtml(
         function attachControls() {
           setupSlice();
           const projPick = document.getElementById('picker-projection');
-          if (projPick) projPick.addEventListener('change', () => { syncProjectionControls(); requestRender(); });
+          // A choice the user makes replaces one held for them (#1099).
+          if (projPick) projPick.addEventListener('change', () => { heldProjection = null; syncProjectionControls(); requestRender(); });
           ['picker-center-lat', 'picker-center-lon', 'picker-preset-polar',
            'picker-central-meridian', 'picker-world-meridian'].forEach((id) => {
             const el = document.getElementById(id);
@@ -3586,7 +3625,7 @@ export function renderImagePanelHtml(
         attachControls();
         // Attach the (possibly restored) selections so the provider's first
         // paint honours them; a fresh panel just sends its defaults.
-        vscode.postMessage(Object.assign({ type: 'ready' }, currentOptions(), sliceFields(), compareRequest()));
+        vscode.postMessage(Object.assign({ type: 'ready' }, currentOptions(true), sliceFields(), compareRequest()));
       })();
     </script>
   `;
