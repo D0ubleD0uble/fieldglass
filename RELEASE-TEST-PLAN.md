@@ -413,10 +413,12 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 - [ ] Click any cell and plot along `time`: two points, at steps 7 and 119, and
       no line drawn between them. Gaps stay gaps.
 
-## 5. Any two dimensions as axes (#171)
+## 5. Any two dimensions as axes (#171, #1099)
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
+- [ ] On the map, choose Mollweide and set Resampling to Bilinear (used by
+      the last two checks below).
 - [ ] Set the axes to `time` (X) and `lat` (Y). The panel says
       `Cross-section: these axes are not a map, so it is drawn in index
       space.`, hides the projection picker, Resampling, the map overlays and
@@ -431,10 +433,14 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       longitude. A line plot is offered along `lon`.
 - [ ] Do the same on `B: samples/0.6.0/air_v2.zarr`, whose time units have no
       fractional seconds: its time ticks read as dates.
-- [ ] Set the axes back to `lon` and `lat`: the map, the projection picker and
-      the overlays return. Projection is still Source projection, so Resampling
-      stays hidden; choose Equirectangular and it appears. (#1099 will make the
-      projection you had before come back; this step changes with it.)
+- [ ] Back on `ncep_air_daily_2024.nc`, set the axes to `lon` and `lat`: the
+      map, the projection picker and the overlays return, and the map is drawn
+      in Mollweide again, with the picker showing it and Resampling back on
+      Bilinear (#1099). Failure looks like a map in Source projection, or a
+      picker reading Source projection.
+- [ ] Set the axes to `time` and `lat` again, hide the panel's tab behind
+      another and show it, then set the axes back: still Mollweide (#1027,
+      #1099).
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, `air`
 
@@ -708,7 +714,7 @@ checked in CI against pyshtools at T2500 and 80-bit arithmetic at T3000
       against eccodes' decode of the source field it was repacked from, not
       against eccodes' decode of this file.
 
-## 18. A NetCDF or Zarr panel offers only what the slice can do (#574, #822, #831)
+## 18. A NetCDF or Zarr panel offers only what the slice can do (#574, #822, #831, #1099)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc`** (also used in §19, §20 and §22)
 
@@ -719,6 +725,10 @@ checked in CI against pyshtools at T2500 and 80-bit arithmetic at T3000
       Projection, Resampling`.
 - [ ] Switch back to `temperature`: the picker returns with the map
       projections, and the line goes.
+- [ ] On `temperature`, choose Equirectangular, then switch to `lat_bnds`
+      and back to `temperature`: it is drawn in Equirectangular again, and the
+      picker shows it (#1099). Failure looks like the map coming back in Source
+      projection.
 
 The same rule on a Zarr store is covered by
 `extension/src/test/suite/slice-picker.test.ts`.
