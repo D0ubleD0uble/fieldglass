@@ -29,6 +29,7 @@ import {
   provider,
   type PageState,
   type RealPanel,
+  waitUntil,
 } from "./real-panel";
 
 /** One array of a Zarr v2 store: its axes, shape, float32 values and the
@@ -450,6 +451,135 @@ suite("Line-plot and cross-section axes (#1043)", function () {
         const reply = await panel.waitSent(drawn, from, `the rewritten page's render (${what})`);
         assert.strictEqual(reply.type, "gridReady", `${what}: ${reply.error ?? ""}`);
         assert.deepStrictEqual([reply.width, reply.height], [89, 1], `${what}: still the cross-section`);
+      }
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/** A classic NetCDF (CDF-1) file, written by hand: `dims` by name and length,
+ *  and float64 variables over them with text attributes, in that order. Enough
+ *  of the format for a test file the editor opens like any other. */
+function classicNetcdf(
+  dims: Array<[string, number]>,
+  vars: Array<{ name: string; dims: string[]; attrs: Record<string, string>; values: number[] }>,
+): Buffer {
+  const parts: Buffer[] = [];
+  const int = (v: number) => {
+    const b = Buffer.alloc(4);
+    b.writeInt32BE(v);
+    return b;
+  };
+  const name = (s: string) => {
+    const text = Buffer.from(s, "utf8");
+    return Buffer.concat([int(text.length), text, Buffer.alloc((4 - (text.length % 4)) % 4)]);
+  };
+  const header = (begins: number[]) => {
+    const out: Buffer[] = [Buffer.from("CDF\x01", "latin1"), int(0)];
+    out.push(int(0x0a), int(dims.length));
+    for (const [n, len] of dims) out.push(name(n), int(len));
+    out.push(int(0), int(0)); // no global attributes
+    out.push(int(0x0b), int(vars.length));
+    vars.forEach((v, k) => {
+      out.push(name(v.name), int(v.dims.length));
+      for (const d of v.dims) out.push(int(dims.findIndex(([n]) => n === d)));
+      const attrs = Object.entries(v.attrs);
+      out.push(int(0x0c), int(attrs.length));
+      for (const [an, av] of attrs) out.push(name(an), int(2), name(av)); // NC_CHAR
+      out.push(int(6), int(v.values.length * 8), int(begins[k])); // NC_DOUBLE
+    });
+    return Buffer.concat(out);
+  };
+  // The header's length does not depend on the offsets in it.
+  let at = header(vars.map(() => 0)).length;
+  const begins = vars.map((v) => {
+    const b = at;
+    at += v.values.length * 8;
+    return b;
+  });
+  parts.push(header(begins));
+  for (const v of vars) {
+    const data = Buffer.alloc(v.values.length * 8);
+    v.values.forEach((x, i) => data.writeDoubleBE(x, i * 8));
+    parts.push(data);
+  }
+  return Buffer.concat(parts);
+}
+
+/** The pressure-level profile store, as a classic NetCDF file: `air(level,
+ *  lat, lon)` on {@link LEVELS}, stored surface first, `offset` added. */
+function levelsFile(offset: number): Buffer {
+  return classicNetcdf(
+    [["level", LEVELS.length], ["lat", 3], ["lon", 3]],
+    [
+      { name: "level", dims: ["level"], attrs: { units: "millibar", positive: "down", axis: "Z" }, values: LEVELS },
+      { name: "lat", dims: ["lat"], attrs: { units: "degrees_north" }, values: LAT3 },
+      { name: "lon", dims: ["lon"], attrs: { units: "degrees_east" }, values: LON3 },
+      {
+        name: "air",
+        dims: ["level", "lat", "lon"],
+        attrs: { units: "degC" },
+        values: AIR.flatMap((v) => each(9, v + offset)),
+      },
+    ],
+  );
+}
+
+suite("A cross-section restored over a reopened or changed file (#1043)", function () {
+  this.timeout(120_000);
+
+  test("is painted, then turned the right way up once its Y axis arrives", async () => {
+    // The rewritten page's ready cannot wait for the axis (see the test
+    // above), so it paints in storage order, 1000 mb at the top, and draws
+    // again with the rows turned over once the axis says so.
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1043-"));
+    const file = path.join(dir, "levels.nc");
+    fs.writeFileSync(file, levelsFile(0));
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const air = native.NetcdfHandle.fromBytes(fs.readFileSync(file)).variables().find((v) => v.name === "air");
+    assert.ok(air, "air is renderable");
+    let editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.variableIndex }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      // level down the rows, lat across: 3 × 17, ground at the bottom.
+      await rerender(panel, [{ id: "slice-y", value: 0 }, { id: "slice-x", value: 1 }], sized(3, LEVELS.length));
+      for (const [what, offset] of [["reopened", 0], ["changed", 5]] as const) {
+        editor.close();
+        if (offset) fs.writeFileSync(file, levelsFile(offset));
+        editor = await openEditor(p, file);
+        const sent = panel.sent.length;
+        const received = panel.received.length;
+        const rewritten = new Promise<void>((resolve) => panel.onNextWrite(resolve));
+        // A click is a request too, and leaves Flip Y axis as it is.
+        await panel.probe();
+        await rewritten;
+        const ready = await waitUntil(() => panel.received.slice(received).find(isType("ready")), `the new page's ready (${what})`);
+        assert.strictEqual(ready.flipY, false, `${what}: the ready paints in storage order`);
+        const again = await waitUntil(
+          () => panel.received.slice(received).find(isType("rerenderRequest")),
+          `the render once the axis arrives (${what})`,
+        );
+        assert.strictEqual(again.flipY, true, `${what}: drawn again with the rows turned over`);
+        // The last render on screen is that one.
+        await waitUntil(
+          () => panel.sent.slice(sent).filter((m: Msg) => m.type === "gridReady").length >= 2 || undefined,
+          `both renders (${what})`,
+        );
+        const state = await panel.drive([]);
+        const rails = state.rails;
+        assert.ok(rails?.shown, `${what}: the rails are shown`);
+        assert.strictEqual(rails.y[0].text, "10", `${what}: 10 mb at the top`);
+        assert.strictEqual(rails.y[rails.y.length - 1].text, "1000", `${what}: 1000 mb at the bottom`);
+        const from = panel.sent.length;
+        await panel.probe(0.98);
+        const bottom = (await panel.waitSent(isType("probeResult"), from, "the probe")).result;
+        assert.strictEqual(bottom?.value, AIR[0] + offset, `${what}: the bottom row is the surface`);
       }
     } finally {
       panel.dispose();

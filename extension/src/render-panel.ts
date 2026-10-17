@@ -3114,7 +3114,6 @@ export function renderImagePanelHtml(
           const width = svg.clientWidth || 400;
           const height = svg.clientHeight || 160;
           svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
-          // A Z axis nothing orients is drawn the way a plot's own y axis runs.
           const logScale = !!(vertical && vertical.logPressure && xs.every((x) => x > 0));
           const scaled = (x) => (logScale ? Math.log(x) : x);
           let cmin = Math.min.apply(null, xs.map(scaled)), cmax = Math.max.apply(null, xs.map(scaled));
@@ -3168,6 +3167,7 @@ export function renderImagePanelHtml(
           // or the bottom. A down axis runs the other way up the page.
           const coordinateFraction = (x) => (scaled(x) - cmin) / (cmax - cmin);
           const valueFraction = (v) => (v - vmin) / (vmax - vmin);
+          // A Z axis nothing orients is drawn the way a plot's own y axis runs.
           const up = !vertical || vertical.positive !== 'down';
           const toY = (f) => bottom - f * plotH;
           const toX = (f) => pad.l + f * plotW;
@@ -4007,6 +4007,12 @@ export function renderImagePanelHtml(
         // only if the axis turns its rows over (#1043).
         const readyOptions = currentOptions(true);
         vscode.postMessage(Object.assign({ type: 'ready' }, readyOptions, sliceFields(), compareRequest()));
+        //
+        // Restoring the page asked for its axes already, ahead of the ready,
+        // and a page written again has those requests dropped. So they are
+        // forgotten and asked for again after it: a second answer to one that
+        // did arrive only draws the same rails again.
+        axisPending = {};
         if (isCrossSection() && !yAxisKnown()) {
           awaitingYAxis = () => {
             if (awaitingPick || rowsFlipped() === readyOptions.flipY) return;
@@ -4014,7 +4020,10 @@ export function renderImagePanelHtml(
             // and this one has to follow it either way.
             vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(true), sliceFields(), compareRequest()));
           };
+        }
+        if (isCrossSection()) {
           requestAxis(sliceState.yDim);
+          requestAxis(sliceState.xDim);
         }
       })();
     </script>
