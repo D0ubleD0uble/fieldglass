@@ -866,10 +866,19 @@ export function composeDefaultPngName(
   meta: Pick<PanelField, "index" | "parameter">,
   source: PanelSource,
 ): string {
+  // `sanitizePngName` keeps only what follows the last separator, so a
+  // separator inside a part ("Covariance of geopotential/temperature") would
+  // drop everything before it, the source's stem included.
+  const part = (s: string | null | undefined) => (s ?? "").replace(/[\\/]+/g, "-");
+  // A name with no ASCII letter or digit leaves nothing once sanitised, and two
+  // such variables would share one name; the variable's index tells them
+  // apart. A GRIB name already carries its message index.
+  const parameter = part(meta.parameter);
+  const named = /[A-Za-z0-9]/.test(parameter);
   const parts = [
-    sourceStem(source.name),
-    meta.parameter,
-    source.kind === "message" ? `message-${meta.index}` : "",
+    part(sourceStem(source.name)),
+    named ? parameter : "",
+    source.kind === "message" ? `message-${meta.index}` : named ? "" : String(meta.index),
   ].filter((s) => !!s);
   return sanitizePngName(`${parts.join("-")}.png`);
 }
@@ -893,18 +902,43 @@ export function composeTitleLine(
   return `Message ${meta.index}` + (meta.parameter ? ` — ${meta.parameter}` : "") + units;
 }
 
-/** Longest a part of a tab title may run, so a hostile name can't fill it. */
+/** Longest a part of a tab title may run, in code points, so a hostile name
+ *  can't fill it. */
 const MAX_TAB_PART = 64;
+
+/** What a tab title drops from a name, as code point ranges: control
+ *  characters, the line and paragraph separators, and the bidi embeddings,
+ *  overrides and isolates, which could make `a · b.nc` read backwards. Kept
+ *  as numbers so the source holds none of the characters it names. */
+const TAB_TITLE_STRIP: ReadonlyArray<readonly [number, number]> = [
+  [0x0000, 0x001f],
+  [0x007f, 0x007f],
+  [0x2028, 0x2029],
+  [0x202a, 0x202e],
+  [0x2066, 0x2069],
+];
+
+/** One name from the file made safe for a tab title: the `TAB_TITLE_STRIP`
+ *  characters dropped, then capped at `MAX_TAB_PART` code points. */
+export function cleanTitlePart(s: string | null | undefined): string {
+  return Array.from(s ?? "")
+    .filter((ch) => {
+      const c = ch.codePointAt(0) ?? 0;
+      return !TAB_TITLE_STRIP.some(([lo, hi]) => c >= lo && c <= hi);
+    })
+    .slice(0, MAX_TAB_PART)
+    .join("");
+}
 
 /** A render panel's tab title (#1038): the field, then the file or store it
  *  comes from, `msg 0 TMP · gfs.grib2` or `air · air_v2.zarr`. The field goes
  *  first because VS Code cuts a narrow tab's title at its end. Both parts come
- *  from the file (a decoded name, a file name), so control characters are
- *  dropped and each part is capped. VS Code shows a title as plain text, so
- *  there is nothing to escape. */
+ *  from the file (a decoded name, a file name), so each goes through
+ *  {@link cleanTitlePart}, which caps by code point so a character outside
+ *  the BMP is never cut in half. VS Code shows a title as plain text, so there is
+ *  nothing to escape. */
 export function composeTabTitle(field: string, sourceName: string): string {
-  const clean = (s: string) => s.replace(/[\u0000-\u001F\u007F]/g, "").slice(0, MAX_TAB_PART);
-  return [clean(field), clean(sourceName)].filter((s) => !!s).join(" · ");
+  return [cleanTitlePart(field), cleanTitlePart(sourceName)].filter((s) => !!s).join(" · ");
 }
 
 /** The band-limit note for a spectral map drawn below the truncation its

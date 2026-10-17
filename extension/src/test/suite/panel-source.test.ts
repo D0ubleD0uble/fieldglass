@@ -187,6 +187,27 @@ suite("A render panel names its file or store (#1038)", function () {
     assert.strictEqual(composeTabTitle("a\u0007b", "x\ny.nc"), "ab · xy.nc");
     assert.strictEqual(composeTabTitle("v", "n".repeat(100)), `v · ${"n".repeat(64)}`);
     assert.strictEqual(composeTabTitle("v", ""), "v", "no source, no separator");
+    // Built from code points, so this file holds none of the characters.
+    const cp = (...c: number[]) => String.fromCodePoint(...c);
+    // A right-to-left override, an isolate, and the line and paragraph
+    // separators are dropped: none can reorder or break the title.
+    assert.strictEqual(
+      composeTabTitle(`a${cp(0x202e)}b${cp(0x2066)}c${cp(0x2069)}`, `x${cp(0x2028)}y${cp(0x2029)}${cp(0x202a)}.nc`),
+      "abc · xy.nc",
+    );
+    // Capped by code point: 64 characters outside the BMP survive whole, the
+    // 65th goes, and no surrogate is left on its own.
+    const globe = cp(0x1f30d);
+    const capped = composeTabTitle("v", globe.repeat(65));
+    assert.strictEqual(capped, `v · ${globe.repeat(64)}`);
+    const lone = Array.from(capped).filter((ch) => {
+      const c = ch.charCodeAt(0);
+      return ch.length === 1 && c >= 0xd800 && c <= 0xdfff;
+    });
+    assert.deepStrictEqual(lone, [], "no surrogate left on its own");
+    // A cap in UTF-16 units kept 31 and a half of these.
+    const split = composeTabTitle("v", `x${globe.repeat(40)}`);
+    assert.strictEqual(split, `v · x${globe.repeat(40)}`, "40 characters is under the cap");
   });
 
   test("a heading says Message only for GRIB", () => {
@@ -215,6 +236,31 @@ suite("A render panel names its file or store (#1038)", function () {
     assert.strictEqual(
       composeDefaultPngName(meta, { kind: "message", name: "gfs.t00z.pgrb2.0p25.f000" }),
       "gfs.t00z.pgrb2.0p25.f000-temperature-message-4.png",
+    );
+    // A separator inside a name used to leave only what followed it, the
+    // source's stem lost with the rest.
+    assert.strictEqual(
+      composeDefaultPngName(
+        { index: 7, parameter: "Covariance of geopotential/temperature" },
+        { kind: "message", name: "era.grib1" },
+      ),
+      "era-covariance-of-geopotential-temperature-message-7.png",
+    );
+    assert.strictEqual(
+      composeDefaultPngName({ index: 1, parameter: "u\\v" }, { kind: "variable", name: "a/b.nc" }),
+      "a-b-u-v.png",
+    );
+    // A name with no ASCII letter or digit sanitises to nothing; the
+    // variable's index keeps two such variables apart.
+    const cp = (...c: number[]) => String.fromCodePoint(...c);
+    const temp = composeDefaultPngName({ index: 2, parameter: cp(0x6e29, 0x5ea6) }, { kind: "variable", name: "obs.nc" });
+    const rain = composeDefaultPngName({ index: 3, parameter: cp(0x964d, 0x6c34) }, { kind: "variable", name: "obs.nc" });
+    assert.strictEqual(temp, "obs-2.png");
+    assert.strictEqual(rain, "obs-3.png");
+    // A GRIB name already carries its message index.
+    assert.strictEqual(
+      composeDefaultPngName({ index: 5, parameter: cp(0x6e29, 0x5ea6) }, { kind: "message", name: "obs.grib2" }),
+      "obs-message-5.png",
     );
   });
 

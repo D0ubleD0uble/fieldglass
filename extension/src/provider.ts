@@ -37,6 +37,7 @@ import {
   type VectorLayer,
 } from "./overlay";
 import {
+  cleanTitlePart,
   composeDefaultPngName,
   composeTabTitle,
   composeTitleLine,
@@ -77,15 +78,6 @@ export function listMessages(handle: Grib1Handle | Grib2Handle): MessageInfo[] {
  *  exposes — a real type guard so callers don't need an `as` assertion. */
 function isGrib1Handle(handle: Grib1Handle | Grib2Handle): handle is Grib1Handle {
   return "setP1" in handle;
-}
-
-/** Sanitize a decoded (untrusted) string for use in a plain-text panel title:
- *  drop control characters and cap the length so it can't garble the tab. */
-function sanitizeTitlePart(s: string | undefined | null): string {
-  if (!s) {
-    return "";
-  }
-  return s.replace(/[\u0000-\u001F\u007F]/g, "").slice(0, 64);
 }
 
 /** The name a render panel calls its file or store by (#1038): the last part
@@ -809,7 +801,7 @@ export class FieldglassEditorProvider
     // panel titles as plain text, so there's no XSS, but strip control
     // characters and cap the length so a hostile file can't garble the tab.
     const titleOf = (m: MessageInfo): string => {
-      const abbr = sanitizeTitlePart(m.abbreviation);
+      const abbr = cleanTitlePart(m.abbreviation);
       return composeTabTitle(`msg ${m.index}` + (abbr ? ` ${abbr}` : ""), source);
     };
     const panel = vscode.window.createWebviewPanel(
@@ -1471,7 +1463,7 @@ export class FieldglassEditorProvider
     // follows the variable: set again by every render, from the variable the
     // render drew.
     const titleOf = (v: NetcdfVariableMeta): string =>
-      composeTabTitle(sanitizeTitlePart(v.name) || "variable", subject.source);
+      composeTabTitle(cleanTitlePart(v.name) || "variable", subject.source);
     const panel = vscode.window.createWebviewPanel(
       "fieldglass.render",
       titleOf(initialVar),

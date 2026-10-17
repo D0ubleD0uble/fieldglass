@@ -870,12 +870,10 @@ package's half is in §44.
 **`S: samples/mrms.grib2`** (7000 × 3500)
 
 - [ ] Mollweide renders without a long stall. Export PNG and check its size
-      (`file export.png`): about 11,711 × 5,866. The line under the heading,
-      which names the file, is always drawn.
-      That is an 11,585 × 5,792 map (67.1 million pixels, 2:1) plus 126 px of
-      margins and colour bar across and 58 to 74 px of title and margins
-      down. In 0.5.0 the map alone was 14,000 × 7,000, about 98 million
-      pixels.
+      (`file export.png`): about 11,711 × 5,866: an 11,585 × 5,792 map
+      (67.1 million pixels, 2:1) plus 126 px of margins and colour bar
+      across and 74 px of title, file name and margins down. In 0.5.0 the
+      map alone was 14,000 × 7,000, about 98 million pixels.
 
 ## 29. HDF5 files that begin with a userblock (#936)
 
