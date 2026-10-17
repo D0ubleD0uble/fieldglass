@@ -2004,20 +2004,27 @@
       "type": "object"
     },
     "Vertical": {
-      "description": "A vertical axis, as CF §4.3 identifies one: by a `positive` attribute\nor by `units` of pressure (#1043).\n\nWhat a host needs to draw it the right way up. One rule covers every\ncase: a [`Positive::Down`] axis is drawn with its values increasing\ndown the page, which puts a pressure axis's surface (1000 hPa) at the\nbottom and a depth axis's surface (0 m) at the top.",
+      "description": "A vertical axis, as CF §4.3 identifies one: by a `positive` attribute,\nby `units` of pressure, or as `axis = \"Z\"` (#1043).\n\nWhat a host needs to draw it the right way up. One rule covers every\noriented case: a [`Positive::Down`] axis is drawn with its values\nincreasing down the page, which puts a pressure axis's surface\n(1000 hPa) at the bottom and a depth axis's surface (0 m) at the top.",
       "properties": {
-        "positive": {
-          "$ref": "#/$defs/Positive",
-          "description": "Which way the values increase: the file's `positive` attribute, or\n`down` for a pressure that states none."
-        },
-        "pressure": {
-          "description": "Whether the units are a pressure, which a profile is drawn on the\nlogarithm of.",
+        "logPressure": {
+          "description": "Whether a profile along it is drawn on the logarithm of its values:\nan atmospheric pressure. A sea pressure (`dbar`) runs down but is\ndrawn linear, like the depth it stands for.",
           "type": "boolean"
+        },
+        "positive": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Positive"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Which way the values increase: the file's `positive` attribute,\n`down` for a pressure that states none, or the direction its CF\nstandard name fixes. `None` for a Z axis nothing orients, which a\nhost leaves in storage order rather than guess."
         }
       },
       "required": [
         "positive",
-        "pressure"
+        "logPressure"
       ],
       "type": "object"
     },

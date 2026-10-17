@@ -216,8 +216,8 @@ fn a_depth_axis_says_it_runs_down() {
     let lev = session.axis_values(sst, 1).expect("lev");
     assert_eq!(lev.dimension, "lev");
     let vertical = lev.vertical.expect("lev is vertical");
-    assert_eq!(vertical.positive, fieldglass::Positive::Down);
-    assert!(!vertical.pressure, "metres are not a pressure");
+    assert_eq!(vertical.positive, Some(fieldglass::Positive::Down));
+    assert!(!vertical.log_pressure, "metres are not a pressure");
     for dim in [0, 2, 3] {
         assert_eq!(
             session.axis_values(sst, dim).expect("an axis").vertical,
@@ -238,7 +238,7 @@ fn a_depth_axis_says_it_runs_down() {
 
 /// A pressure level that states no `positive` runs down all the same, since CF
 /// requires the attribute only for units that are not a pressure; on the wire
-/// it reads `{"positive": "down", "pressure": true}`. Built in memory as a Zarr
+/// it reads `{"positive": "down", "logPressure": true}`. Built in memory as a Zarr
 /// v2 store, the way the NCEP/NCAR reanalysis writes `level`, less `positive`.
 #[test]
 fn a_pressure_level_runs_down_without_saying_so() {
@@ -268,10 +268,10 @@ fn a_pressure_level_runs_down_without_saying_so() {
     let t = variable(&session, "t");
     let level = session.axis_values(t, 0).expect("level");
     let vertical = level.vertical.expect("a pressure is vertical");
-    assert_eq!(vertical.positive, fieldglass::Positive::Down);
-    assert!(vertical.pressure);
+    assert_eq!(vertical.positive, Some(fieldglass::Positive::Down));
+    assert!(vertical.log_pressure);
     assert_eq!(
         serde_json::to_value(vertical).expect("serialises"),
-        serde_json::json!({ "positive": "down", "pressure": true })
+        serde_json::json!({ "positive": "down", "logPressure": true })
     );
 }

@@ -530,7 +530,7 @@ fn every_wire_type_round_trips_through_json() {
         "AxisValues",
         r#"{"dimension":"time","length":3,"coordinates":[0.0,6.0,12.0],"units":"hours since 2020-01-01","vertical":null}"#,
     );
-    round_trip::<Vertical>("Vertical", r#"{"positive":"down","pressure":true}"#);
+    round_trip::<Vertical>("Vertical", r#"{"positive":"down","logPressure":true}"#);
     round_trip::<Positive>("Positive", r#""up""#);
     round_trip::<LeftOutArray>(
         "LeftOutArray",

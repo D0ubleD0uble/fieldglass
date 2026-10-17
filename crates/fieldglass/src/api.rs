@@ -195,23 +195,26 @@ api_type! {
         pub vertical: Option<Vertical>,
     }
 
-    /// A vertical axis, as CF §4.3 identifies one: by a `positive` attribute
-    /// or by `units` of pressure (#1043).
+    /// A vertical axis, as CF §4.3 identifies one: by a `positive` attribute,
+    /// by `units` of pressure, or as `axis = "Z"` (#1043).
     ///
     /// What a host needs to draw it the right way up. One rule covers every
-    /// case: a [`Positive::Down`] axis is drawn with its values increasing
-    /// down the page, which puts a pressure axis's surface (1000 hPa) at the
-    /// bottom and a depth axis's surface (0 m) at the top.
+    /// oriented case: a [`Positive::Down`] axis is drawn with its values
+    /// increasing down the page, which puts a pressure axis's surface
+    /// (1000 hPa) at the bottom and a depth axis's surface (0 m) at the top.
     #[derive(Copy, Eq)]
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Vertical {
-        /// Which way the values increase: the file's `positive` attribute, or
-        /// `down` for a pressure that states none.
-        pub positive: Positive,
-        /// Whether the units are a pressure, which a profile is drawn on the
-        /// logarithm of.
-        pub pressure: bool,
+        /// Which way the values increase: the file's `positive` attribute,
+        /// `down` for a pressure that states none, or the direction its CF
+        /// standard name fixes. `None` for a Z axis nothing orients, which a
+        /// host leaves in storage order rather than guess.
+        pub positive: Option<Positive>,
+        /// Whether a profile along it is drawn on the logarithm of its values:
+        /// an atmospheric pressure. A sea pressure (`dbar`) runs down but is
+        /// drawn linear, like the depth it stands for.
+        pub log_pressure: bool,
     }
 
     /// Which way a vertical axis's values increase, CF's `positive` (§4.3).
@@ -1263,11 +1266,11 @@ impl From<fieldglass_core::sht::SpectralTruncation> for SpectralTruncation {
 impl From<fieldglass_core::cf::VerticalAxis> for Vertical {
     fn from(v: fieldglass_core::cf::VerticalAxis) -> Self {
         Self {
-            positive: match v.positive {
+            positive: v.positive.map(|p| match p {
                 fieldglass_core::cf::Positive::Up => Positive::Up,
                 fieldglass_core::cf::Positive::Down => Positive::Down,
-            },
-            pressure: v.pressure,
+            }),
+            log_pressure: v.log_pressure,
         }
     }
 }
