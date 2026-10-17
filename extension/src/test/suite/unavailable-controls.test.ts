@@ -476,7 +476,9 @@ suite("Resampling is shown only while the projection warps (#1091)", function ()
       assert.strictEqual(state.resampling, "bilinear");
 
       await panel.drive([{ id: "picker-projection", value: "source" }]);
+      const before = panel.sent.length;
       panel.rebuild();
+      await panel.waitSent(isType("gridReady"), before, "the page again, on Source");
       state = await panel.drive([]);
       assert.strictEqual(state.projection, "source");
       assert.strictEqual(state.controlDisplay.resampling, "none");

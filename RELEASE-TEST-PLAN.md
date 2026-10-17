@@ -255,8 +255,9 @@ small, and it is *not* a substitute for the per-feature sections below it.
       Resampling picker. Choose Equirectangular: it appears. Set it to
       Bilinear, switch to Source projection and back: it is still Bilinear and
       the map is the same as before. Do the same on a NetCDF slice
-      (`S: samples/mirs_swath.nc`, a variable with a projection picker). Nothing else in the
-      toolbar leaves a blank gap or stays visible when it should be gone.
+      (`S: samples/mirs_swath.nc`, a variable with a projection picker).
+      Nothing else in the toolbar leaves a blank gap or stays visible when it
+      should be gone.
 - [ ] **Contours on `gfs.grib2` in Mollweide.** No isoline streaks straight
       across the map. Use Mollweide rather than Equirectangular: an
       equirectangular raster is as wide as the grid, which lands the last pixel

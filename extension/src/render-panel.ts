@@ -3777,7 +3777,7 @@ ${slice
         <label>Central meridian
           <input type="number" id="picker-world-meridian" value="0" min="-360" max="360" step="any"></label>
       </span>
-      <label id="resampling-control"${hides("resampling") ? " hidden" : ""}>Resampling
+      <label id="resampling-control" hidden>Resampling
         <select id="picker-resampling">
           <option value="nearest" selected>Nearest</option>
           <option value="bilinear">Bilinear</option>
