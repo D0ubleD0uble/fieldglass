@@ -231,11 +231,11 @@ suite("The render panel's own script", function () {
       const reply = await panel.waitSent(drawnOrRefused, from, "the restored render");
       assert.strictEqual(reply.type, "gridReady", `${reply.error ?? ""}`);
       assert.strictEqual(reply.messageIndex, after, "temp at its number in the new file");
-      assert.match(reply.titleLine, / — temp\b/);
+      assert.match(reply.titleLine, /^temp\b/);
       const state = await panel.drive([]);
       assert.strictEqual(state.sliceVariable, "temp");
       assert.deepStrictEqual(state.sliceVariables, ["temp"]);
-      assert.match(state.title, / — temp\b/);
+      assert.match(state.title, /^temp\b/);
     } finally {
       done();
     }
@@ -269,7 +269,7 @@ suite("The render panel's own script", function () {
       let state = await panel.drive([]);
       assert.match(state.status, /temp is no longer in the file/);
       assert.deepStrictEqual(state.sliceVariables, ["CMI", "DQF"]);
-      assert.ok(!/ — temp\b/.test(state.title), `the heading "${state.title}" does not name temp`);
+      assert.ok(!/^temp\b/.test(state.title), `the heading "${state.title}" does not name temp`);
       // Nothing is chosen, so any variable picked is a change, the first one
       // included; until then no other control asks for a render.
       assert.strictEqual(state.sliceVariable, "", "the picker has nothing chosen");
@@ -288,7 +288,7 @@ suite("The render panel's own script", function () {
       await panel.drive([{ id: "slice-variable", value: cmi }]);
       const drawn = await panel.waitSent(drawnOrRefused, from, "CMI");
       assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
-      assert.match(drawn.titleLine, / — CMI\b/);
+      assert.match(drawn.titleLine, /^CMI\b/);
       state = await panel.drive([]);
       assert.strictEqual(state.sliceVariable, "CMI");
       assert.strictEqual(state.playDisabled, false, "and Play is back");

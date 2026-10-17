@@ -324,6 +324,14 @@ palette, picking the store's folder.
       exactly as the NetCDF file it came from; a mismatch here is a placement
       bug, not a decode one (`crates/fieldglass/tests/zarr_netcdf_twins.rs`
       checks the committed pair).
+- [ ] With all three open on `air`, each says which it is (#1038). The tabs
+      read `air · air_v2.zarr`, `air · air_v3.zarr` and
+      `air · ncep_air_daily_2024.nc`; each heading reads `air (degK)`, and the
+      line under it is the store or file name. No panel says "Message"
+      anywhere. Pick `time_bnds` in one: its tab becomes
+      `time_bnds · <name>`, and Export PNG offers `<stem>-time_bnds.png`
+      (`air_v2-time_bnds.png`). In 0.5.0 every heading read `Message 0 — air`
+      and the tab kept `Render: air`.
 - [ ] Copy `air_v2.zarr` to a folder named `air_copy` (no `.zarr` suffix) and
       open that: it opens the same way. The suffix is not what the check uses.
 
@@ -807,10 +815,10 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       member 7, now message 1.
 - [ ] Close the editor again, copy `samples/0.6.0/members_8_8.grib2` over it
       (member 8 twice), reopen and make the panel draw again. It draws
-      nothing, its heading reads `No message drawn`, its tab reads `Render:
-      pick a message`, and it lists the file's messages to pick from. Pick
-      message 1: it draws member 8 under its own heading, and the tab is
-      renamed.
+      nothing, its heading reads `No message drawn`, its tab reads
+      `pick a message · members.grib2`, and it lists the file's messages to
+      pick from. Pick message 1: it draws member 8 under its own heading, and
+      the tab is renamed `msg 1 … · members.grib2`.
 
 Derived forecasts (a mean against a spread) and GRIB2 local parameters are told
 apart the same way; `crates/fieldglass/tests/message_identity.rs` and
@@ -865,11 +873,10 @@ package's half is in §44.
 **`S: samples/mrms.grib2`** (7000 × 3500)
 
 - [ ] Mollweide renders without a long stall. Export PNG and check its size
-      (`file export.png`): about 11,711 × 5,850 (5,866 with a subtitle line).
-      That is an 11,585 × 5,792 map (67.1 million pixels, 2:1) plus 126 px of
-      margins and colour bar across and 58 to 74 px of title and margins
-      down. In 0.5.0 the map alone was 14,000 × 7,000, about 98 million
-      pixels.
+      (`file export.png`): about 11,711 × 5,866: an 11,585 × 5,792 map
+      (67.1 million pixels, 2:1) plus 126 px of margins and colour bar
+      across and 74 px of title, file name and margins down. In 0.5.0 the
+      map alone was 14,000 × 7,000, about 98 million pixels.
 
 ## 29. HDF5 files that begin with a userblock (#936)
 

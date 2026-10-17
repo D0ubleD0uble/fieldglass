@@ -346,6 +346,7 @@ suite("Point operations follow the grid (#945)", function () {
             exportDir: vscode.Uri.file(path.dirname(file)),
             container: "NetCDF",
             noun: "file",
+            source: path.basename(file),
           },
           {
             variableIndex: v.variableIndex,

@@ -209,6 +209,7 @@ suite("Export CSV command (slice panel)", () => {
         exportDir: vscode.Uri.joinPath(doc.uri, ".."),
         container: "test",
         noun: "file",
+        source: "test.nc",
       }, {
         variableIndex: 0,
         yDim: 0,

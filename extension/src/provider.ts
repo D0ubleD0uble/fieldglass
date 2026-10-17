@@ -37,7 +37,9 @@ import {
   type VectorLayer,
 } from "./overlay";
 import {
+  cleanTitlePart,
   composeDefaultPngName,
+  composeTabTitle,
   composeTitleLine,
   composeTruncationNote,
   NO_LONG_CSV_NOTE,
@@ -49,6 +51,7 @@ import {
   unavailableControls,
   type CompareFieldOption,
   type PanelField,
+  type PanelSource,
   type SlicePanelData,
   type SliceSpec,
   type UnavailableGroup,
@@ -77,13 +80,11 @@ function isGrib1Handle(handle: Grib1Handle | Grib2Handle): handle is Grib1Handle
   return "setP1" in handle;
 }
 
-/** Sanitize a decoded (untrusted) string for use in a plain-text panel title:
- *  drop control characters and cap the length so it can't garble the tab. */
-function sanitizeTitlePart(s: string | undefined | null): string {
-  if (!s) {
-    return "";
-  }
-  return s.replace(/[\u0000-\u001F\u007F]/g, "").slice(0, 64);
+/** The name a render panel calls its file or store by (#1038): the last part
+ *  of its path, as the explorer shows it. A store is a directory, and a
+ *  trailing separator does not hide its name. */
+export function sourceName(uri: vscode.Uri): string {
+  return path.posix.basename(uri.path);
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +178,9 @@ interface SlicePanelSubject {
   container: string;
   /** What the container is, for a message about it: `"file"`, `"store"`. */
   noun: string;
+  /** The file or store's name, which the tab and the line under the heading
+   *  carry (#1038). */
+  source: string;
 }
 
 export class FieldglassEditorProvider
@@ -790,12 +794,15 @@ export class FieldglassEditorProvider
     // The message the panel draws. A file that changes under the panel can
     // hold it at another index, or not at all (#959), so this moves.
     let shown = meta;
+    // The tab names the message and the file (#1038). The panel keeps the
+    // name of the file it was opened on: it draws from that document.
+    const source = sourceName(document.uri);
     // The abbreviation comes from a decoded (untrusted) file. VS Code renders
     // panel titles as plain text, so there's no XSS, but strip control
     // characters and cap the length so a hostile file can't garble the tab.
     const titleOf = (m: MessageInfo): string => {
-      const abbr = sanitizeTitlePart(m.abbreviation);
-      return `Render: msg ${m.index}` + (abbr ? ` — ${abbr}` : "");
+      const abbr = cleanTitlePart(m.abbreviation);
+      return composeTabTitle(`msg ${m.index}` + (abbr ? ` ${abbr}` : ""), source);
     };
     const panel = vscode.window.createWebviewPanel(
       "fieldglass.render",
@@ -831,6 +838,7 @@ export class FieldglassEditorProvider
         // Written while no message is chosen (an imported colormap rebuilds
         // every panel): the page opens on the picker, never on the old heading.
         picking ?? undefined,
+        source,
       );
     };
     this.trackRenderPanel(panel, write);
@@ -876,7 +884,7 @@ export class FieldglassEditorProvider
       }
       picking = compareFields;
       // The tab no longer names the message either.
-      panel.title = "Render: pick a message";
+      panel.title = composeTabTitle("pick a message", source);
       gate.keep(current);
       refuse();
       return false;
@@ -927,7 +935,7 @@ export class FieldglassEditorProvider
             )
           : docHandle.renderGrid(shown.index, options);
         panel.webview.postMessage(
-          buildGridReadyMessage(rendered, shown, options),
+          buildGridReadyMessage(rendered, shown, options, { kind: "message", name: source }),
         );
       } catch (err) {
         panel.webview.postMessage({
@@ -1375,6 +1383,7 @@ export class FieldglassEditorProvider
         exportDir: vscode.Uri.joinPath(document.uri, ".."),
         container: "NetCDF",
         noun: "file",
+        source: sourceName(document.uri),
       },
       handle,
       variableIndex,
@@ -1399,6 +1408,7 @@ export class FieldglassEditorProvider
         exportDir: storeUri,
         container: "Zarr",
         noun: "store",
+        source: sourceName(storeUri),
       },
       handle,
       variableIndex,
@@ -1449,10 +1459,14 @@ export class FieldglassEditorProvider
     // one the panel opened on: a rebuild restores the picker's saved selection,
     // and a map target the opening slice could not take would not survive it.
     let shown = { meta: sliceField(initialVar, openedGrid), grid: openedGrid };
-    const title = `Render: ${sanitizeTitlePart(initialVar.name) || "variable"}`;
+    // The tab names the variable drawn and the file or store (#1038). It
+    // follows the variable: set again by every render, from the variable the
+    // render drew.
+    const titleOf = (v: NetcdfVariableMeta): string =>
+      composeTabTitle(cleanTitlePart(v.name) || "variable", subject.source);
     const panel = vscode.window.createWebviewPanel(
       "fieldglass.render",
-      title,
+      titleOf(initialVar),
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
       { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [] },
     );
@@ -1465,6 +1479,9 @@ export class FieldglassEditorProvider
         colormapRegistry(),
         combineOpRegistry(),
         slice,
+        undefined,
+        undefined,
+        subject.source,
       );
     };
     this.trackRenderPanel(panel, write);
@@ -1498,6 +1515,7 @@ export class FieldglassEditorProvider
       refusal = same ? null : `${name} is no longer in the ${subject.noun}, so nothing was drawn. Pick a variable to draw.`;
       const grid = gridOf(current, initial);
       shown = { meta: sliceField(opened, grid), grid };
+      panel.title = titleOf(opened);
       gate.rewrite(current);
       write();
     };
@@ -1555,8 +1573,17 @@ export class FieldglassEditorProvider
               options,
             );
         shown = { meta: sliceField(renderedVar(spec), grid), grid };
+        // Every animation frame renders, and the tab is renamed only when the
+        // variable changed.
+        const title = titleOf(renderedVar(spec));
+        if (panel.title !== title) panel.title = title;
         panel.webview.postMessage({
-          ...buildGridReadyMessage(rendered, sliceTitle(renderedVar(spec), spec.variableIndex), options),
+          ...buildGridReadyMessage(
+            rendered,
+            sliceTitle(renderedVar(spec), spec.variableIndex),
+            options,
+            { kind: "variable", name: subject.source },
+          ),
           sliceGrid: sliceAnswer(grid),
         } satisfies GridReadyMessage);
       } catch (err) {
@@ -2306,6 +2333,9 @@ export function buildGridReadyMessage(
   rendered: RenderedGrid,
   meta: Pick<PanelField, "index" | "parameter" | "units">,
   options: RenderOptions,
+  // What the panel draws from: a GRIB message or a variable, and the file or
+  // store's name, for the heading and the PNG name (#1038).
+  source: PanelSource,
 ): GridReadyMessage {
   const rgbaView = new Uint8Array(
     rendered.rgba.buffer,
@@ -2326,9 +2356,9 @@ export function buildGridReadyMessage(
     usedLonMax: rendered.usedLonMax,
     projectionSummary: rendered.projectionSummary,
     options,
-    titleLine: composeTitleLine(meta),
+    titleLine: composeTitleLine(meta, source.kind),
     parameterUnits: meta.units ?? "",
-    defaultPngName: composeDefaultPngName(meta),
+    defaultPngName: composeDefaultPngName(meta, source),
     truncationNote: composeTruncationNote(rendered),
   };
 }

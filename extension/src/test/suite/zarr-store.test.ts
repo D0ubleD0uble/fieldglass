@@ -168,6 +168,7 @@ suite("Zarr store", () => {
     }
     assert.strictEqual(after.length, before + 1, "a panel opened");
     const opened = after[after.length - 1];
-    assert.match(opened.label, /Render:/, `unexpected panel title: ${opened.label}`);
+    // Named for its first variable and the store (#1038).
+    assert.strictEqual(opened.label, "a · cf_v3", `unexpected panel title: ${opened.label}`);
   });
 });
