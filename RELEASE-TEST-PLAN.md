@@ -243,7 +243,8 @@ small, and it is *not* a substitute for the per-feature sections below it.
 
 - [ ] `S: samples/gfs.grib2` — renders, reprojects, coastlines align.
 - [ ] **Controls a grid can't use are hidden, and the panel says why**
-      (#1036). On `gfs.grib2` every control shows, and there is no "Not
+      (#1036). On `gfs.grib2` every control shows except Resampling, which is hidden
+      while Projection is on Source projection (next step), and there is no "Not
       available for this grid" line under the caption. On
       `S: samples/mirs_swath.nc`, Zonal average is hidden; the line under the
       caption reads `Not available for this grid: Zonal average`, starts
@@ -422,8 +423,10 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       longitude. A line plot is offered along `lon`.
 - [ ] Do the same on `B: samples/0.6.0/air_v2.zarr`, whose time units have no
       fractional seconds: its time ticks read as dates.
-- [ ] Set the axes back to `lon` and `lat`: the map, the projection picker, Resampling
-      and the overlays return.
+- [ ] Set the axes back to `lon` and `lat`: the map, the projection picker and
+      the overlays return. Projection is still Source projection, so Resampling
+      stays hidden; choose Equirectangular and it appears. (#1099 will make the
+      projection you had before come back; this step changes with it.)
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, `air`
 
