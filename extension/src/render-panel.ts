@@ -1339,6 +1339,18 @@ export function renderImagePanelHtml(
           return unavailable.some((g) => g.controls.some((c) => c.key === key));
         }
 
+        // Whether a control is put away: the field on screen can't use it, a
+        // cross-section has no map for it, or (Resampling alone, #1091) the
+        // projection is Source, where nothing is resampled. The last is a
+        // choice, not a limit of the grid, so it is not in the "Not
+        // available" line. Hidden, the control keeps its value.
+        function controlHidden(key) {
+          if (isUnavailable(key) || (isCrossSection() && CROSS_SECTION_HIDES.includes(key))) return true;
+          if (key !== 'resampling') return false;
+          const picker = document.getElementById('picker-projection');
+          return !picker || picker.value === 'source';
+        }
+
         // Hide every control the field on screen can't use, show the rest,
         // and rewrite the "Not available for this grid" line to match (#1036).
         // A hidden control keeps its value for the next field that takes it;
@@ -1357,7 +1369,6 @@ export function renderImagePanelHtml(
         let fileClosed = false;
         function applyUnavailable(groups) {
           unavailable = Array.isArray(groups) ? groups : [];
-          const cross = isCrossSection();
           const line = document.getElementById('unavailable');
           const summary = line ? line.querySelector('summary') : null;
           let focusLost = false;
@@ -1365,7 +1376,7 @@ export function renderImagePanelHtml(
             const el = document.getElementById(UNAVAILABLE_ELEMENTS[key]);
             if (!el) continue;
             // A cross-section puts the map's own controls away too.
-            const hide = isUnavailable(key) || (cross && CROSS_SECTION_HIDES.includes(key));
+            const hide = controlHidden(key);
             if (hide && el.contains(document.activeElement)) focusLost = true;
             el.toggleAttribute('hidden', hide);
           }
@@ -2991,6 +3002,9 @@ export function renderImagePanelHtml(
           if (world) world.toggleAttribute('hidden', !isWorldProjection(projection));
           const bounds = document.getElementById('bounds-fieldset');
           if (bounds) bounds.toggleAttribute('hidden', !warpsLatLon(projection));
+          // Resampling acts only on a warp: Source paints the array as stored (#1091).
+          const sampling = document.getElementById('resampling-control');
+          if (sampling) sampling.toggleAttribute('hidden', controlHidden('resampling'));
         }
 
         // --- Selection persistence across tab hide/show ----------------------
@@ -3482,6 +3496,10 @@ export function renderImagePanelHtml(
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <title>Fieldglass render</title>
   <style>
+    /* An author display rule beats the user-agent [hidden] rule, so any element
+       given a display and toggled with hidden showed anyway (#1035). One rule
+       here means no element needs its own override. */
+    [hidden] { display: none !important; }
     body {
       font-family: var(--vscode-font-family);
       color: var(--vscode-foreground);
@@ -3500,12 +3518,7 @@ export function renderImagePanelHtml(
     .unavailable summary { cursor: pointer; }
     .unavailable summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
     .unavailable ul { margin: 0.25rem 0 0; padding-left: 1.4rem; }
-    .unavailable[hidden] { display: none; }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
-    /* An author display rule beats the UA stylesheet's [hidden] by origin, and
-       a note inside a <label> is out of reach of the toolbar-row rule below
-       (#822). */
-    .picker-note[hidden] { display: none; }
     #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.1em; }
     .contour-status {
       font-size: 0.85rem;
@@ -3523,8 +3536,6 @@ export function renderImagePanelHtml(
       color: var(--vscode-descriptionForeground, inherit);
     }
     .zonal-toggle { display: inline-block; font-size: 0.85rem; margin-bottom: 0.35rem; color: var(--vscode-descriptionForeground, inherit); }
-    /* See .picker-note[hidden]: hidden for a grid with no rows of latitude (#1036). */
-    .zonal-toggle[hidden] { display: none; }
     .line-panel { margin: 0 0 0.75rem; }
     .line-axis { font-size: 0.85rem; color: var(--vscode-descriptionForeground, inherit); }
     .line-plot {
@@ -3573,9 +3584,6 @@ export function renderImagePanelHtml(
       border: 1px solid transparent;
       pointer-events: none;
     }
-    /* Hidden for a field with no values (#871); see the .picker-note[hidden]
-       rule for why an author display rule needs this. */
-    .colorbar-wrap[hidden] { display: none; }
     .colorbar-wrap {
       display: flex;
       align-items: stretch;
@@ -3622,35 +3630,21 @@ export function renderImagePanelHtml(
       display: flex; align-items: center; flex-wrap: wrap;
       gap: 0.5rem 1.25rem;
     }
-    /* The rule above sets display, overriding the UA stylesheet's hidden rule
-       (see .picker-note[hidden]); without this the Message row (#959) and the
-       Animate row show on every panel (#1035). */
-    .toolbar-row[hidden] { display: none; }
     .toolbar fieldset {
       display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
       border: none; padding: 0; margin: 0;
     }
-    /* The fieldset display:flex rule above overrides the UA hidden rule, so
-       restore it explicitly — the Bounds row hides for projections without a
-       manual lat/lon window (see syncProjectionControls). */
-    .toolbar fieldset[hidden] { display: none; }
     .toolbar legend {
       padding: 0;
       font-size: 0.8rem;
       color: var(--vscode-descriptionForeground);
     }
     .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; }
-    /* The rule above sets display, overriding the UA stylesheet's hidden
-       rule (display:none); without this the preset selectors never hide when
-       syncProjectionControls toggles them off. */
-    .toolbar label[hidden] { display: none; }
     /* The azimuthal centre groups (orthographic centre lon/lat, polar
        hemisphere + central meridian) bundle their fields in a span so
        syncProjectionControls can toggle the whole group; inline-flex spaces the
-       fields like the other groups, and the explicit hidden rule restores the
-       toggle the display above would otherwise override. */
+       fields like the other groups. */
     .toolbar-row > span { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem; }
-    .toolbar-row > span[hidden] { display: none; }
     /* The graticule-spacing field hides without reflowing: visibility:hidden
        keeps its box in the toolbar's flow, so toggling Graticule on/off can't
        grow the toolbar and shove the canvas down (it also drops the field out
@@ -3665,8 +3659,6 @@ export function renderImagePanelHtml(
       gap: 0.25rem;
       margin-right: 0.6rem;
     }
-    /* Contours, on a grid that takes none (#1036); see .picker-note[hidden]. */
-    .overlay-layer[hidden] { display: none; }
     .toolbar .layer-width { width: 3.5rem; }
     .toolbar .layer-color {
       width: 1.6rem;
@@ -3785,7 +3777,7 @@ ${slice
         <label>Central meridian
           <input type="number" id="picker-world-meridian" value="0" min="-360" max="360" step="any"></label>
       </span>
-      <label id="resampling-control"${hides("resampling") ? " hidden" : ""}>Resampling
+      <label id="resampling-control" hidden>Resampling
         <select id="picker-resampling">
           <option value="nearest" selected>Nearest</option>
           <option value="bilinear">Bilinear</option>

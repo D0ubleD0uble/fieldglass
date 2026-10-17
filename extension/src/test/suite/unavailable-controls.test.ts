@@ -155,7 +155,7 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       assert.strictEqual(first.sliceGrid.supports.zonalMean, false, "and has no rows of latitude");
 
       let state = await panel.drive([]);
-      assertHides(state, ["zonal"], ["arrows"]);
+      assertHides(state, ["zonal", "resampling"], ["arrows"]);
       assertLine(state, ["Zonal average"], [{ kind: "structural", text: `Zonal average: ${NO_ZONAL_REASON}` }]);
       assert.strictEqual(state.unavailable?.open, false, "collapsed");
       assert.strictEqual(state.unavailable?.summaryFocusable, true, "the summary is in the tab order");
@@ -234,7 +234,7 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       const state = await panel.drive([]);
       // Placed: the projection and the coastlines stay; contours go from
       // inside the Overlay row.
-      assertHides(state, ["contours", "zonal"], ["arrows"]);
+      assertHides(state, ["contours", "zonal", "resampling"], ["arrows"]);
       assertLine(
         state,
         ["Zonal average", "Contours", "Long layout (Export CSV)"],
@@ -257,7 +257,8 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
     const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
-      const state = await panel.drive([]);
+      // Resampling waits for a warp (#1091).
+      const state = await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
       assertHides(state, []);
       for (const key of PAGE_CONTROLS) assert.strictEqual(state.controlShown[key], true, `${key} is on screen`);
       assertNoLine(state);
@@ -277,7 +278,7 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       let state = await panel.drive([]);
-      assertHides(state, [], ["arrows"]);
+      assertHides(state, ["resampling"], ["arrows"]);
       assertNoLine(state);
 
       let from = panel.sent.length;
@@ -295,7 +296,7 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       await panel.drive([{ id: "slice-variable", value: temperature }]);
       await panel.waitSent((m: Msg) => m.type === "gridReady" && m.messageIndex === temperature, from, "temperature drawn");
       state = await panel.drive([]);
-      assertHides(state, [], ["arrows"]);
+      assertHides(state, ["resampling"], ["arrows"]);
       assertNoLine(state);
     } finally {
       panel.dispose();
@@ -347,6 +348,8 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       await panel.drive([{ id: "slice-y", value: 1 }]);
       await panel.waitSent((m: Msg) => m.type === "gridReady" && m.sliceGrid && m.sliceGrid.placed, from, "the map again");
       state = await panel.drive([]);
+      assertHides(state, ["resampling"], ["arrows"]); // still Source, so nothing to resample
+      state = await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
       assertHides(state, [], ["arrows"]);
       assertNoLine(state);
     } finally {
@@ -409,5 +412,124 @@ suite("Which controls a grid can't use, and why (#1036)", () => {
       "Vectors",
       "Long layout (Export CSV)",
     ]);
+  });
+});
+
+suite("Resampling is shown only while the projection warps (#1091)", function () {
+  this.timeout(120_000);
+
+  test("a GRIB panel hides it on Source and brings it back, with its value, on a warp", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, crateFixture("fieldglass-grib2", "regular_latlon_surface.grib2"));
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let state = await panel.drive([]);
+      assert.strictEqual(state.projection, "source");
+      assert.strictEqual(state.controlDisplay.resampling, "none", "no Resampling on Source");
+      assert.strictEqual(state.controlShown.resampling, false);
+      assertNoLine(state); // a choice, not a limit of the grid
+      assert.deepStrictEqual(state.shownWhileHidden, []);
+
+      let from = panel.sent.length;
+      await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+      await panel.waitSent(isType("gridReady"), from, "the warp");
+      state = await panel.drive([{ id: "picker-resampling", value: "bilinear" }]);
+      assert.strictEqual(state.controlShown.resampling, true, "shown on a warp");
+      assert.strictEqual(state.resampling, "bilinear");
+
+      // Source and back: still Bilinear, and the render asks for it.
+      from = panel.sent.length;
+      state = await panel.drive([{ id: "picker-projection", value: "source" }]);
+      assert.strictEqual(state.controlDisplay.resampling, "none");
+      assert.strictEqual(state.resampling, "bilinear", "kept while hidden");
+      assert.deepStrictEqual(state.shownWhileHidden, []);
+      await panel.waitSent((m: Msg) => m.type === "gridReady" && m.options.projection === "source", from, "Source");
+      from = panel.sent.length;
+      state = await panel.drive([{ id: "picker-projection", value: "mollweide" }]);
+      const drawn = await panel.waitSent((m: Msg) => m.type === "gridReady" && m.options.projection === "mollweide", from, "Mollweide");
+      assert.strictEqual(drawn.options.resampling, "bilinear", "the render uses the kept value");
+      assert.strictEqual(state.controlShown.resampling, true);
+      assert.strictEqual(state.resampling, "bilinear");
+      assert.deepStrictEqual(state.shownWhileHidden, []);
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  test("the saved panel state round-trips it, hidden or shown", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, crateFixture("fieldglass-grib2", "regular_latlon_surface.grib2"));
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await panel.drive([
+        { id: "picker-projection", value: "equirectangular" },
+        { id: "picker-resampling", value: "bilinear" },
+      ]);
+      panel.rebuild();
+      await panel.waitSent(isType("gridReady"), 0, "the page again");
+      let state = await panel.drive([]);
+      assert.strictEqual(state.projection, "equirectangular");
+      assert.strictEqual(state.controlShown.resampling, true);
+      assert.strictEqual(state.resampling, "bilinear");
+
+      await panel.drive([{ id: "picker-projection", value: "source" }]);
+      const before = panel.sent.length;
+      panel.rebuild();
+      await panel.waitSent(isType("gridReady"), before, "the page again, on Source");
+      state = await panel.drive([]);
+      assert.strictEqual(state.projection, "source");
+      assert.strictEqual(state.controlDisplay.resampling, "none");
+      assert.strictEqual(state.resampling, "bilinear", "the value survives a rebuild while hidden");
+      state = await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+      assert.strictEqual(state.controlShown.resampling, true);
+      assert.strictEqual(state.resampling, "bilinear");
+      assert.deepStrictEqual(state.shownWhileHidden, []);
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  test("a NetCDF slice panel does the same", async () => {
+    const p = await provider();
+    const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: variableIndex(file, "temperature") }));
+    try {
+      const first = await panel.waitSent(isType("gridReady"), 0, "the first render");
+      assert.strictEqual(first.sliceGrid.placed, true);
+      let state = await panel.drive([]);
+      assert.strictEqual(state.controlDisplay.resampling, "none", "no Resampling on Source");
+      assert.deepStrictEqual(state.shownWhileHidden, []);
+
+      const from = panel.sent.length;
+      await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+      await panel.waitSent((m: Msg) => m.type === "gridReady" && m.options.projection === "equirectangular", from, "the warp");
+      state = await panel.drive([{ id: "picker-resampling", value: "bilinear" }]);
+      assert.strictEqual(state.controlShown.resampling, true);
+      state = await panel.drive([{ id: "picker-projection", value: "source" }]);
+      assert.strictEqual(state.controlDisplay.resampling, "none");
+      assert.strictEqual(state.resampling, "bilinear");
+      state = await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+      assert.strictEqual(state.controlShown.resampling, true);
+      assert.strictEqual(state.resampling, "bilinear");
+      assert.deepStrictEqual(state.shownWhileHidden, []);
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  test("both webviews hide with one global rule, and no per-class override is left", () => {
+    for (const name of ["render-panel.ts", "provider.ts"]) {
+      const source = fs.readFileSync(path.join(extensionPath(), "src", name), "utf8");
+      const global = source.match(/^\s*\[hidden\] \{ display: none !important; \}$/gm) ?? [];
+      assert.strictEqual(global.length, 1, `${name} has the global rule once`);
+      const overrides = source.match(/[^\s{}][^\n{}]*\[hidden\]\s*\{\s*display:\s*none/g) ?? [];
+      assert.deepStrictEqual(overrides, [], `${name} has no per-class [hidden] override`);
+    }
   });
 });

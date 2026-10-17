@@ -2931,6 +2931,10 @@ export function renderHtml(
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Fieldglass</title>
   <style>
+    /* An author display rule beats the user-agent [hidden] rule, so any element
+       given a display and toggled with hidden showed anyway (#1035). One rule
+       here means no element needs its own override. */
+    [hidden] { display: none !important; }
     body {
       font-family: var(--vscode-font-family);
       color: var(--vscode-foreground);

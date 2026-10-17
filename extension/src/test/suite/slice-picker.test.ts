@@ -283,7 +283,7 @@ suite("Slice panel projection picker", () => {
       native.colormaps(),
       native.combineOps(),
     );
-    assert.match(html, /\.picker-note\[hidden\] \{ display: none; \}/);
+    assert.match(html, /^\s*\[hidden\] \{ display: none !important; \}$/m);
   });
 
   // The panel script calls these by name. A missing `.toString()` still
