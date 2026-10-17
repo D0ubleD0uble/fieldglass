@@ -383,6 +383,25 @@ fn a_misspelt_query_key_is_refused() {
     let err = serde_json::from_value::<Query>(json!({ "abbreviation": "TMP", "levelTxt": "2 mb" }))
         .expect_err("refused");
     assert!(err.to_string().contains("levelTxt"), "{err}");
+
+    // The same inside the structs a query nests: a misspelt `valeu` would read
+    // as "no value", every level on the surface, and a misspelt octet as a
+    // missing one.
+    let err = serde_json::from_value::<Query>(json!({
+        "level": { "surface": "isobaric", "valeu": 2.0, "value2": null }
+    }))
+    .expect_err("refused");
+    assert!(err.to_string().contains("valeu"), "{err}");
+    let err = serde_json::from_value::<Query>(json!({
+        "parameter": { "discipline": 0, "category": 1, "number": 1, "numbr": 2 }
+    }))
+    .expect_err("refused");
+    assert!(err.to_string().contains("numbr"), "{err}");
+    let err =
+        serde_json::from_value::<CandidateOptions>(json!({ "nowUnixSecs": 0, "stepHour": 6 }))
+            .expect_err("refused");
+    assert!(err.to_string().contains("stepHour"), "{err}");
+
     assert_eq!(
         serde_json::from_value::<Query>(json!({})).expect("empty reads"),
         Query::default(),

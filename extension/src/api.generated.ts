@@ -225,8 +225,9 @@ export interface Candidate {
  */
 export interface CandidateOptions {
   /**
-   * Now, as Unix seconds. A browser's `Date.now()` is milliseconds, so
-   * divide it by 1000 first.
+   * Now, as whole Unix seconds. A browser's `Date.now()` is milliseconds,
+   * so pass `Math.floor(Date.now() / 1000)`: a fractional second is not an
+   * integer and is refused.
    */
   nowUnixSecs: number;
   /**
@@ -924,6 +925,10 @@ export interface LeftOutArray {
  * `Surface::PotentialTemperature`. A layer between two bounds fills both, in
  * the order the manifest wrote them (`30-0 mb above ground` is
  * `value = 30`, `value2 = 0`).
+ *
+ * An unknown key is refused when one is read, for the reason `Query`
+ * refuses one: a level inside a query with a misspelt `valeu` would otherwise
+ * read as "no value stated", which matches every level on the surface.
  */
 export interface LevelSpec {
   /**
@@ -1471,6 +1476,9 @@ export interface PaletteOptions {
  * Three octets and nothing else, because that is what a request is stored as
  * and what both sidecar vocabularies have to resolve *to* for a query written
  * once to match on either.
+ *
+ * An unknown key is refused when one is read: it sits inside a query, where a
+ * misspelt octet must be an error rather than a silently different parameter.
  */
 export interface ParameterId {
   /**

@@ -105,7 +105,10 @@ gzipped (+15%) inside this module, or about 226 KB as a module of its own,
 which has to carry its own copy of the GRIB2 parameter tables.
 
 ```js
-import { parseWgrib2Idx, httpRangeHeader, verifyEnvelope, candidates } from './pkg/web/fieldglass_wasm.js';
+import init, {
+  open, parseWgrib2Idx, httpRangeHeader, verifyEnvelope, candidates,
+} from './pkg/web-fetchplan/fieldglass_wasm.js';
+await init();
 
 // Which runs should have posted by now, newest first. A guess: fetch until one exists.
 const source = {
