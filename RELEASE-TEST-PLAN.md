@@ -535,8 +535,10 @@ A depth axis with fill values used to fail to draw; no file here has one.
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
-- [ ] Zoom and pan work the same on a slice panel, and Reset view returns to
-      the whole globe.
+- [ ] Choose Equirectangular first (a slice panel opens on Source projection,
+      and one carried over from §5 is on Mollweide; neither zooms). Zoom and
+      pan then work the same on a slice panel, and Reset view returns to the
+      whole globe.
 
 ## 8. A zonal average (#240)
 
