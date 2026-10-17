@@ -126,16 +126,18 @@ Checks to run again once the issue's fix has merged and the addon and extension 
 
 | Issue | Retest | In plan / done |
 |---|---|---|
-| #1035 | Fresh GRIB render panel (any, e.g. `samples/gfs.grib2`): no Message row under Export PNG. 2-D-only NetCDF variable: no Animate row. §23: the Message row appears, with options, after an ambiguous file change. | |
-| #1036 | `samples/mirs_swath.nc` and `tiny_earth_pair.grib2`: unavailable controls are hidden, not greyed out; the agreed explanation shows. `gfs.grib2`: every control still shown. | |
+| #1035 | Fresh GRIB render panel (any, e.g. `samples/gfs.grib2`): no Message row under Export PNG. 2-D-only NetCDF variable: no Animate row. §23: the Message row appears, with options, after an ambiguous file change. | done (PR #1088) |
+| #1036 | `samples/mirs_swath.nc` and `tiny_earth_pair.grib2`: unavailable controls are hidden, not greyed out; the agreed explanation shows. `gfs.grib2`: every control still shown. | in plan; look judged PASS by owner (PR #1094) |
 | #1037 | NetCDF panel (`mirs_swath.nc` BT): Line plot box unticked by default, a click draws no plot; ticked, the plot appears with a label naming the variable and the axis. | |
-| #1038 | Open `air_v2.zarr`, `air_v3.zarr` and `ncep_air_daily_2024.nc` on `air`: each tab and heading names its source. Switch the variable: the tab follows. No NetCDF/Zarr panel says "Message". |  |
+| #1038 | Open `air_v2.zarr`, `air_v3.zarr` and `ncep_air_daily_2024.nc` on `air`: each tab and heading names its source. Switch the variable: the tab follows. No NetCDF/Zarr panel says "Message". | in plan (PR #1101) |
 | #1039 | Both export buttons in one row (GRIB and slice panels). The CSV dialog opens in the file's folder with a suggested `.csv` name. Typing `out` saves `out.csv`. |  |
 | #1040 | Open Zarr Store on `fixtures/stores`: plain message listing the stores inside. On `v2_problems`: a plain lead sentence, no raw codec or dtype tokens. |  |
 | #1041 | `ncep_air_levels_ltm.nc` level 5: 500 millibar beside the stepper, in the Animate label and in the subtitle. `ncep_air_daily_2024.nc` time 14: 2024-01-15. |  |
 | #1042 | Animate buttons: matching SVG icons, equal size, centred; back and forward mirror. |  |
 | #1043 | `ncep_air_levels_ltm.nc` 30°S 25°E along `level`: an upright profile with the surface at the bottom and millibar ticks. Level × lat section: ground at the bottom by default. Time × lat on the daily file: no colliding end labels. The Siberia time plot keeps date ticks. The sparse plot still shows two unjoined points. |  |
-| #1045 | `gfs_wind.grib2` arrows: no band along the top or bottom edge in Equirectangular, and no starburst at either pole in Orthographic ±90. |  |
+| #1045 | `gfs_wind.grib2` arrows: no band along the top or bottom edge in Equirectangular, and no starburst at either pole in Orthographic ±90. | in plan §6, plus arrowheads square on their shafts (PR #1089) |
 | #1046 | `gfs_wind.grib2` arrows: the key is a drawn arrow matching the longest on the map, and follows spacing and projection changes. |  |
 | #1049 | `gfs_wind.grib2` UGRD+VGRD: no note. `cmc_pair.grib`: the not-a-u/v-pair note, and arrows still draw. VGRD as u: the swapped-order note. |  |
 | #1051 | `hrrr_frames.grib2`: V #1 refused, then V #2 draws and the refusal is gone. Unticking Arrows clears the message. |  |
+| #1091 | `gfs.grib2` on Source projection: no Resampling picker. Equirectangular: it shows. Bilinear, then Source and back: still Bilinear and the map is unchanged. | in plan §1 (PR #1097) |
+| #1099 | `ncep_air_daily_2024.nc` `air`: Mollweide with Bilinear, then a time × lat cross-section, then back to lon × lat: Mollweide and Bilinear come back. The same through `netcdf4_dimscale.nc` temperature → lat_bnds → temperature. | in plan §5, §18 (PR #1107) |
