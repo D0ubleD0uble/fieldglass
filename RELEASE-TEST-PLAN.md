@@ -389,29 +389,40 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       values" with no colour bar (#871). Step 7 shows bands of latitude; step
       119 the same bands 100 higher. Playback does not stall or queue frames.
 
-## 4. Click a cell for a line plot (#172)
+## 4. Click a cell for a line plot (#172, #1037)
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
-- [ ] Click a cell in Siberia (60° N 100° E). A line plot appears under the
-      readout, above the map: a time series over 2024, cold in January (about
-      250 K) and warm in July (about 293 K). The caption reads `air along time
-      (hours since 1800-01-01 00:00:0.0) · 238.35–300.83 degK · 366 of 366
+- [ ] A Line plot box sits beside Zonal average, unticked. Click a cell: the
+      readout gives the value and no plot appears, as in a GRIB panel.
+- [ ] Tick Line plot. The plot appears at once for the cell you clicked. Click
+      a cell in Siberia (60° N 100° E): the plot under the readout, above the
+      map, is a time series over 2024, cold in January (about 250 K) and warm
+      in July (about 293 K). Above it, `air at this point, across time`, with
+      `time` as the axis picker. The caption reads `air along time (hours
+      since 1800-01-01 00:00:0.0) · 238.35 to 300.83 degK · 366 of 366
       points`. The label under the plot reads as 2024 dates (`2024-01-01 …
       2024-12-31`), not raw hours (#1028).
+- [ ] Click another editor tab in the same group and come back: Line plot is
+      still ticked. Untick it: the plot goes, and the next click only reads
+      the value. Tick it again for the checks below.
 - [ ] A dashed rule marks the day on screen. Step to another day: the plot
       clears with the new render. Click the same cell again and the rule is at
       the new day.
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, `air`
 
-- [ ] Choose `level` as the axis to plot along: a vertical profile, labelled
-      in millibar, cooling with height to the tropopause.
+- [ ] With Line plot ticked, click a cell and choose `level` as the axis: a
+      vertical profile, labelled in millibar, cooling with height to the
+      tropopause. The caption's range reads like `−72.8 to 31.5 degC`, with
+      "to" between the numbers and a minus sign on the first only. Failure
+      looks like `-72.769–31.484`, which reads as two negative numbers.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc`**, `t2m`
 
-- [ ] Click any cell and plot along `time`: two points, at steps 7 and 119, and
-      no line drawn between them. Gaps stay gaps.
+- [ ] With Line plot ticked, click any cell and plot along `time`: two
+      points, at steps 7 and 119, and no line drawn between them. Gaps stay
+      gaps.
 
 ## 5. Any two dimensions as axes (#171, #1099)
 
@@ -430,7 +441,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       reference has fractional seconds (#1028). Before this change the plane
       was placed on the Earth, reading time as longitude.
 - [ ] Click a cell: the readout gives the value and its grid cell, with no
-      longitude. A line plot is offered along `lon`.
+      longitude. With Line plot ticked, the plot is offered along `lon`.
 - [ ] Do the same on `B: samples/0.6.0/air_v2.zarr`, whose time units have no
       fractional seconds: its time ticks read as dates.
 - [ ] Back on `ncep_air_daily_2024.nc`, set the axes to `lon` and `lat`: the

@@ -198,13 +198,15 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
         // `time` is the only axis besides the map's, so there is one to animate.
         ["animate-dim"],
       );
-      for (const id of ["anim-speed", "anim-loop", "line-axis", "zonal-toggle"]) {
+      for (const id of ["anim-speed", "anim-loop", "line-axis", "line-toggle", "zonal-toggle"]) {
         assert.ok(moved.includes(id), `the test moved ${id}`);
       }
 
-      // The round trip left the zonal average on. A click on the map asks for
-      // that cell's line instead and unticks it, outside the toolbar.
+      // The round trip left the zonal average and the Line plot box on. A
+      // click on the map asks for that cell's line instead and unticks the
+      // zonal average, outside the toolbar.
       assert.strictEqual((await panel.controls())["zonal-toggle"], true, "the zonal average is on");
+      assert.strictEqual((await panel.controls())["line-toggle"], true, "and so is the line plot (#1037)");
       await panel.probe();
       await settle(panel);
       assert.strictEqual((await panel.controls())["zonal-toggle"], false, "the click replaced the zonal average");
@@ -235,7 +237,7 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
         },
         [],
       );
-      for (const id of ["animate-dim", "anim-speed", "anim-loop", "line-axis"]) {
+      for (const id of ["animate-dim", "anim-speed", "anim-loop", "line-axis", "line-toggle"]) {
         assert.ok(moved.includes(id), `the test moved ${id}`);
       }
     } finally {
