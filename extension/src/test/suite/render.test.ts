@@ -1078,6 +1078,11 @@ suite("render-panel HTML", () => {
     const sliceHtml = renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, fakeMeta(), "summary", registry(), combineOps(), slice);
     assert.ok(/id="line-panel"/.test(sliceHtml), "the slice panel carries the line plot (#172)");
     assert.ok(/id="line-axis"/.test(sliceHtml), "and its axis picker");
+    assert.ok(/id="line-toggle"/.test(sliceHtml), "and the box that turns it on (#1037)");
+    assert.ok(
+      !/id="line-toggle"/.test(renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, fakeMeta(), "summary", registry(), combineOps())),
+      "a GRIB panel has no axis to plot along, so no box",
+    );
     for (const [label, html] of [["message", renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, fakeMeta(), "summary", registry(), combineOps())], ["slice", sliceHtml]] as const) {
       assert.ok(/id="zonal-toggle"/.test(html), `the ${label} panel offers the zonal average (#240)`);
     }

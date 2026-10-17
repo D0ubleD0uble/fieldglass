@@ -704,6 +704,39 @@ export function composeLineAxisLabel(
   return read(first) + " … " + read(last);
 }
 
+/** The value range in a line plot's caption, `"−72.8 to 31.5"` (#1037).
+ *
+ *  Written with "to" and a true minus sign (U+2212): an en dash between two
+ *  signed numbers, `-72.769–31.484`, reads as a range from −72.769 to
+ *  −31.484. Both ends take the same number of decimals, enough for four
+ *  significant figures of the span, less any trailing zeros both share, and
+ *  more where that would print two different ends alike. A flat line is its
+ *  one value, to seven significant figures, so `101325` reads as itself. A
+ *  value of a billion or more, or below 0.0001, is written in exponent form,
+ *  with the same rule for keeping the ends apart.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself. */
+export function composeLineRange(min: number, max: number): string {
+  // A value that rounds to zero is not negative.
+  const signed = (text: string) => (Number(text) === 0 ? text.replace(/^-/, "") : text).replace(/-/g, "−");
+  if (min === max) return signed(String(Number(min.toPrecision(7))));
+  const largest = Math.max(Math.abs(min), Math.abs(max));
+  if (!(largest < 1e9) || largest < 1e-4) {
+    let digits = 4;
+    while (digits < 17 && min.toPrecision(digits) === max.toPrecision(digits)) digits++;
+    return signed(min.toPrecision(digits)) + " to " + signed(max.toPrecision(digits));
+  }
+  const span = Math.abs(max - min);
+  let decimals = Math.min(15, Math.max(0, 3 - Math.floor(Math.log10(span))));
+  const write = (v: number) => signed(v.toFixed(decimals));
+  while (decimals < 15 && write(min) === write(max)) decimals++;
+  // Zeros both ends close on say nothing: `101325 to 101330`, not
+  // `101325.000 to 101330.000`.
+  while (decimals > 0 && /0$/.test(min.toFixed(decimals)) && /0$/.test(max.toFixed(decimals))) decimals--;
+  return write(min) + " to " + write(max);
+}
+
 /** The frame an animation steps to from `index` along an axis of `length`
  *  steps, moving by `step` (±1): the next index, wrapped to the other end when
  *  `loop` is set, or `null` when an unlooped animation has run off the end.
@@ -1163,6 +1196,7 @@ export function renderImagePanelHtml(
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
         ${composeLineAxisLabel.toString()}
+        ${composeLineRange.toString()}
         ${composeProbeValue.toString()}
         ${composeRangeText.toString()}
         ${composeVectorScale.toString()}
@@ -2070,6 +2104,8 @@ export function renderImagePanelHtml(
           // And the line through the probed cell, for the same reason (#172) —
           // unless a zonal mean is on, which describes the new field and is
           // asked for again (#240).
+          // The readout's cell goes with the readout either way.
+          probedCell = null;
           if (zonalOn()) requestZonal(); else hideLine();
           // Reproject the overlay only when the raster *geometry* changed
           // (projection / preset / flip-y / bounds). A range- or resampling-
@@ -2681,7 +2717,7 @@ export function renderImagePanelHtml(
           const el = document.getElementById('probe');
           if (!el) return;
           const r = msg.result;
-          if (!r) { el.textContent = ''; return; }
+          if (!r) { el.textContent = ''; probedCell = null; return; }
           const coord = formatLatLon(r.lat, r.lon);
           const value = composeProbeValue(r, UNITS);
           const grid = (r.gridI != null && r.gridJ != null)
@@ -2694,12 +2730,34 @@ export function renderImagePanelHtml(
         // A slice panel only: a GRIB message has no axis to read along. The cell
         // a probe resolved is remembered, so picking another axis re-reads the
         // same cell rather than asking for a new click.
+        //
+        // The plot is drawn only while the Line plot box is ticked (#1037),
+        // which starts unticked: a click is usually meant to read a value, and
+        // with the box off it does only that, as in a GRIB panel. probedCell
+        // is the cell the readout on screen describes, kept while the box is
+        // off, so ticking it plots that cell without another click.
         let lineCell = null;
+        let probedCell = null;
 
-        function hideLine() {
+        // Put the plot away. The readout's cell is kept, so the plot can come
+        // back for it; hideLine forgets that too, for a readout cleared.
+        function putLineAway() {
           lineCell = null;
           const panel = document.getElementById('line-panel');
           if (panel) panel.hidden = true;
+        }
+
+        function hideLine() {
+          putLineAway();
+          probedCell = null;
+        }
+
+        // Whether a click draws the line through its cell: the box is ticked
+        // and the variable has an axis to plot along.
+        function lineOn() {
+          const toggle = document.getElementById('line-toggle');
+          const control = document.getElementById('line-control');
+          return !!(toggle && toggle.checked && control && !control.hidden);
         }
 
         // Every axis with more than one step. A non-horizontal one first — a
@@ -2721,10 +2779,22 @@ export function renderImagePanelHtml(
         // chosen. Filled when the slice is set up as well as on a click, so a
         // panel written again shows the saved axis before anything is probed.
         // Returns whether there is an axis to plot along.
+        //
+        // The Line plot box is hidden for a variable with no such axis, a
+        // single cell, and only there (#1037): plotting is the user's choice,
+        // not something a grid rules out, so it is not in the "Not available"
+        // line, and the box keeps its state for the next variable.
         function fillLineAxes() {
           const axes = lineAxes();
+          const control = document.getElementById('line-control');
+          if (control) control.hidden = axes.length === 0;
           const sel = document.getElementById('line-axis');
           if (!sel) return false;
+          // The picker's label names what is plotted: the variable, through
+          // the clicked point, across the axis chosen (#1037).
+          const name = document.getElementById('line-variable');
+          const v = sliceState ? sliceVariable(sliceState.variableIndex) : null;
+          if (name) name.textContent = v && v.name ? v.name : 'Values';
           const previous = sel.value !== '' ? sel.value : preferredLineAxis;
           sel.innerHTML = axes
             .map((d) => '<option value="' + d.i + '">' + escapeAttr(d.name) + '</option>')
@@ -2734,13 +2804,19 @@ export function renderImagePanelHtml(
         }
 
         function offerLine(r) {
-          if (!SLICE || r.gridI == null || r.gridJ == null) { hideLine(); return; }
+          probedCell = SLICE && r.gridI != null && r.gridJ != null ? { gridI: r.gridI, gridJ: r.gridJ } : null;
+          // With the box off a click only reads the value (#1037), and a
+          // zonal average on screen stays.
+          if (!lineOn()) return;
+          if (!probedCell) { hideLine(); return; }
           if (!fillLineAxes()) { hideLine(); return; }
-          lineCell = { gridI: r.gridI, gridJ: r.gridJ };
+          lineCell = probedCell;
           // A click asks for this cell's line, which replaces a zonal mean. The
           // click is outside the toolbar, so the untick saves itself (#1027).
+          // A Zonal average box hidden for this grid shows nothing, and keeps
+          // its value for the next field that takes it (#1036).
           const toggle = document.getElementById('zonal-toggle');
-          if (toggle && toggle.checked) {
+          if (toggle && zonalOn()) {
             toggle.checked = false;
             snapshotState();
           }
@@ -2757,6 +2833,21 @@ export function renderImagePanelHtml(
             gridI: lineCell.gridI,
             gridJ: lineCell.gridJ,
             slice: sliceState,
+          });
+        }
+
+        {
+          const toggle = document.getElementById('line-toggle');
+          if (toggle) toggle.addEventListener('change', () => {
+            // Outside the toolbar, so it snapshots for itself (#1027).
+            snapshotState();
+            if (toggle.checked) {
+              // The cell the readout describes, if any, is plotted at once.
+              if (probedCell) offerLine(probedCell);
+            } else if (lineCell) {
+              // The cell's line goes, but not a zonal average.
+              putLineAway();
+            }
           });
         }
 
@@ -2817,7 +2908,7 @@ export function renderImagePanelHtml(
               setAxisPickerHidden(true);
               requestZonal();
             } else {
-              hideLine();
+              putLineAway();
             }
           });
         }
@@ -2856,7 +2947,7 @@ export function renderImagePanelHtml(
           const units = line.units ? ' ' + line.units : '';
           const along = line.dimension + (line.coordinateUnits ? ' (' + line.coordinateUnits + ')' : '');
           if (!present.length) {
-            caption.textContent = (line.variable || 'Values') + ' along ' + along + ': no data at this cell.';
+            caption.textContent = (line.variable || 'Values') + ' across ' + along + ': no data at this cell.';
             return;
           }
 
@@ -2870,6 +2961,8 @@ export function renderImagePanelHtml(
             ymin = Math.min.apply(null, present.map((i) => line.values[i]));
             ymax = Math.max.apply(null, present.map((i) => line.values[i]));
           }
+          // The range the caption states, before any padding below.
+          const range = composeLineRange(Number(ymin), Number(ymax));
           // A flat line or a single point still needs a span to draw into.
           if (xmax === xmin) { xmin -= 0.5; xmax += 0.5; }
           if (ymax === ymin) { ymin -= 0.5; ymax += 0.5; }
@@ -2908,8 +3001,10 @@ export function renderImagePanelHtml(
           svg.appendChild(axisLabel);
 
           // A line with no name (#775) is captioned as values, not as nothing.
-          caption.textContent = (line.variable || 'Values') + ' along ' + along + ' · ' +
-            Number(ymin).toPrecision(5) + '–' + Number(ymax).toPrecision(5) + units +
+          // The range is written with "to" and a true minus (#1037), and
+          // "across" as the axis picker's label has it.
+          caption.textContent = (line.variable || 'Values') + ' across ' + along + ' · ' +
+            range + units +
             ' · ' + present.length + ' of ' + n + ' points';
         }
 
@@ -3226,6 +3321,7 @@ export function renderImagePanelHtml(
             vectorColor: val('color-vectors'),
             vectorWidth: val('width-vectors'),
             zonal: chk('zonal-toggle'),
+            linePlot: chk('line-toggle'),
             // Only an axis the user picked: buildAnimationControls applies it
             // wherever it is offered, so the default on screen is not saved,
             // or it would stick to its position for the next variable.
@@ -3369,6 +3465,7 @@ export function renderImagePanelHtml(
             vc.dataset.userSet = '1';
           }
           setChk('zonal-toggle', s.zonal);
+          setChk('line-toggle', s.linePlot);
           setVal('anim-speed', s.animSpeed);
           // Loop starts on; a snapshot from before #1027 has no say.
           if (typeof s.animLoop === 'boolean') setChk('anim-loop', s.animLoop);
@@ -3676,7 +3773,7 @@ export function renderImagePanelHtml(
       margin-bottom: 0.5rem;
       color: var(--vscode-descriptionForeground, inherit);
     }
-    .zonal-toggle { display: inline-block; font-size: 0.85rem; margin-bottom: 0.35rem; color: var(--vscode-descriptionForeground, inherit); }
+    .plot-toggle { display: inline-block; font-size: 0.85rem; margin: 0 0.75rem 0.35rem 0; color: var(--vscode-descriptionForeground, inherit); }
     .line-panel { margin: 0 0 0.75rem; }
     .line-axis { font-size: 0.85rem; color: var(--vscode-descriptionForeground, inherit); }
     .line-plot {
@@ -3996,9 +4093,9 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
   <div id="status">Rendering…</div>
   <div id="contour-status" class="contour-status" aria-live="polite"></div>
   <div id="probe" class="probe-readout" aria-live="polite"></div>
-  <label class="zonal-toggle" id="zonal-control"${hides("zonal") ? " hidden" : ""}><input type="checkbox" id="zonal-toggle"> Zonal average</label>
-  <div id="line-panel" class="line-panel" hidden>
-    <label class="line-axis" id="line-axis-label">Plot along <select id="line-axis"></select></label>
+  <label class="plot-toggle" id="zonal-control"${hides("zonal") ? " hidden" : ""}><input type="checkbox" id="zonal-toggle"> Zonal average</label>
+${slice ? `  <label class="plot-toggle" id="line-control"><input type="checkbox" id="line-toggle"> Line plot</label>\n` : ""}  <div id="line-panel" class="line-panel" hidden>
+    <label class="line-axis" id="line-axis-label"><span id="line-variable">Values</span> at this point, across <select id="line-axis"></select></label>
     <svg id="line-plot" class="line-plot" role="img" aria-label="The variable through the probed cell"></svg>
     <div id="line-caption" class="line-caption"></div>
   </div>

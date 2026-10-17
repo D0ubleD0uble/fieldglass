@@ -125,6 +125,21 @@ export interface PageState {
   /** The Compare row's Field B, `null` when the panel has no such row. */
   compareFieldB: string | null;
   canvasVisibility: string;
+  /** The line plot (#172, #1037), `null` for a panel with no Line plot box. */
+  linePlot: LinePlotState | null;
+}
+
+/** The line plot as a user sees it (#1037). */
+export interface LinePlotState {
+  /** Whether the Line plot box takes up room on screen. */
+  boxShown: boolean;
+  checked: boolean;
+  /** Whether the plot itself is on screen. */
+  shown: boolean;
+  /** The axis picker's label as read, with the axis chosen in place of the
+   *  picker; `null` while the picker is put away (a zonal average). */
+  label: string | null;
+  caption: string;
 }
 
 /** Added to the panel's page ahead of its own script. It keeps the webview API
@@ -178,6 +193,21 @@ const DRIVER = `
         summaryFocusable: !!summary && summary.tabIndex >= 0,
       };
     }
+    function linePlot() {
+      const toggle = byId('line-toggle');
+      if (!toggle) return null;
+      const label = byId('line-axis-label');
+      const read = (node) => node.tagName === 'SELECT'
+        ? (node.selectedOptions[0] ? node.selectedOptions[0].textContent : '')
+        : node.textContent;
+      return {
+        boxShown: labelOf('line-toggle').getClientRects().length > 0,
+        checked: toggle.checked,
+        shown: byId('line-panel').getClientRects().length > 0,
+        label: label.getClientRects().length > 0 ? Array.from(label.childNodes).map(read).join('') : null,
+        caption: byId('line-caption').textContent,
+      };
+    }
     function report() {
       const overlays = byId('overlay-fieldset');
       const vectors = byId('vector-fieldset');
@@ -228,6 +258,7 @@ const DRIVER = `
         status: byId('status').textContent,
         playDisabled: !!(byId('anim-play') && byId('anim-play').disabled),
         canvasVisibility: byId('canvas').style.visibility,
+        linePlot: linePlot(),
       };
     }
     // Every control on the page with an id, by id, and each radio group's
