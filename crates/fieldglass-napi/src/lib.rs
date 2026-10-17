@@ -3793,6 +3793,11 @@ pub struct LineResult {
     /// The coordinate array's units, when there are coordinates; `null`
     /// otherwise.
     pub coordinate_units: Option<String>,
+    /// Whether the axis is vertical, and which way its values increase (CF
+    /// §4.3), when there are coordinates; `null` otherwise (#1043). The API's
+    /// own `Vertical`.
+    #[napi(ts_type = "Vertical")]
+    pub coordinate_vertical: Option<serde_json::Value>,
 }
 
 impl From<fieldglass::Line> for LineResult {
@@ -3812,6 +3817,9 @@ impl From<fieldglass::Line> for LineResult {
             dimension: line.dimension,
             coordinates: line.coordinates,
             coordinate_units: line.coordinate_units,
+            coordinate_vertical: line
+                .coordinate_vertical
+                .and_then(|v| serde_json::to_value(v).ok()),
         }
     }
 }

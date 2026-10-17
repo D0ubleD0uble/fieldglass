@@ -389,7 +389,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       values" with no colour bar (#871). Step 7 shows bands of latitude; step
       119 the same bands 100 higher. Playback does not stall or queue frames.
 
-## 4. Click a cell for a line plot (#172, #1037)
+## 4. Click a cell for a line plot (#172, #1037, #1043)
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
@@ -401,8 +401,9 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       in July (about 293 K). Above it, `air at this point, across time`, with
       `time` as the axis picker. The caption reads `air across time (hours
       since 1800-01-01 00:00:0.0) · 238.35 to 300.83 degK · 366 of 366
-      points`. The label under the plot reads as 2024 dates (`2024-01-01 …
-      2024-12-31`), not raw hours (#1028).
+      points`. Time runs along the bottom, ticked with 2024 dates from
+      `2024-01-01` to `2024-12-31`, not raw hours (#1028), and the values are
+      ticked up the side. No two labels touch (#1043).
 - [ ] Click another editor tab in the same group and come back: Line plot is
       still ticked. Untick it: the plot goes, and the next click only reads
       the value. Tick it again for the checks below.
@@ -412,11 +413,17 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, `air`
 
-- [ ] With Line plot ticked, click a cell and choose `level` as the axis: a
-      vertical profile, labelled in millibar, cooling with height to the
-      tropopause. The caption's range reads like `−72.8 to 31.5 degC`, with
-      "to" between the numbers and a minus sign on the first only. Failure
-      looks like `-72.769–31.484`, which reads as two negative numbers.
+- [ ] With Line plot ticked, click 30° S 25° E and choose `level` as the
+      axis: an upright profile (#1043). Level runs up the side, ticked in
+      millibar with `1000` at the bottom and `10` at the top, spaced by log
+      pressure, so `100` sits halfway up. The surface is at the bottom near
+      +31 °C, the line cools to its coldest near 100 mb, and the values are
+      ticked along the bottom, a negative one with a true minus (`−50`). The
+      dashed rule is level, across the plot at the level on screen. Failure
+      looks like a line drawn sideways with `1000 … 10` under its left end.
+- [ ] The caption's range reads like `−72.8 to 31.5 degC`, with "to" between
+      the numbers and a minus sign on the first only. Failure looks like
+      `-72.769–31.484`, which reads as two negative numbers.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc`**, `t2m`
 
@@ -424,7 +431,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       points, at steps 7 and 119, and no line drawn between them. Gaps stay
       gaps.
 
-## 5. Any two dimensions as axes (#171, #1099)
+## 5. Any two dimensions as axes (#171, #1099, #1043)
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
@@ -440,6 +447,11 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       −90, and the time ticks read as dates, though this file's time
       reference has fractional seconds (#1028). Before this change the plane
       was placed on the Earth, reading time as longitude.
+- [ ] The end labels stay beside and under the image (#1043): `−90` and
+      `2024-01-01` do not overprint in the bottom-left corner, `2024-12-31`
+      ends at the image's right edge rather than under the colour bar, and
+      `90` does not reach up into the Line plot box above. Drag the panel
+      narrower: labels that no longer fit are dropped, and none overlap.
 - [ ] Click a cell: the readout gives the value and its grid cell, with no
       longitude. With Line plot ticked, the plot is offered along `lon`.
 - [ ] Do the same on `B: samples/0.6.0/air_v2.zarr`, whose time units have no
@@ -456,7 +468,11 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, `air`
 
 - [ ] Axes `lat` (X) and `level` (Y): a latitude–height section labelled in
-      degrees and millibar.
+      degrees and millibar, with the ground at the bottom (#1043): `1000` at
+      the foot of the level ticks and `10` at the top, warm along the bottom,
+      without touching Flip Y axis. Tick Flip Y axis: the section turns over,
+      `1000` at the top. Untick it again for the next check. Failure looks like
+      1000 mb at the top by default.
 
 A depth axis with fill values used to fail to draw; no file here has one.
 `crates/fieldglass/tests/cross_section_placement.rs` covers it.

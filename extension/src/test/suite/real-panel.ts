@@ -127,6 +127,8 @@ export interface PageState {
   canvasVisibility: string;
   /** The line plot (#172, #1037), `null` for a panel with no Line plot box. */
   linePlot: LinePlotState | null;
+  /** A slice panel's axis rails (#171, #1043), `null` for a GRIB panel. */
+  rails: RailsState | null;
 }
 
 /** The line plot as a user sees it (#1037). */
@@ -140,6 +142,54 @@ export interface LinePlotState {
    *  picker; `null` while the picker is put away (a zonal average). */
   label: string | null;
   caption: string;
+  /** What the plot draws, in page pixels (#1043). */
+  plot: LinePlotGeometry;
+}
+
+/** A box on the page, from `getBoundingClientRect`. */
+export interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** One axis label as drawn: its text and where it sits. */
+export interface AxisLabel {
+  text: string;
+  box: Box;
+}
+
+/** The line plot's marks (#1043). */
+export interface LinePlotGeometry {
+  /** Whether it is drawn as a vertical profile. */
+  profile: boolean;
+  /** Each sample's dot, by its index along the axis, at the dot's centre. */
+  points: Array<{ index: number; x: number; y: number }>;
+  /** The line's `d`: one `M` per run, so two unjoined points are two `M`s
+   *  and no `L`. */
+  path: string;
+  /** The dashed rule through the slice on screen, `null` for none. */
+  rule: { x1: number; y1: number; x2: number; y2: number } | null;
+  /** The tick labels on each axis. */
+  x: AxisLabel[];
+  y: AxisLabel[];
+  /** The plot itself. */
+  box: Box;
+}
+
+/** A cross-section's axis rails and what sits around them (#1043). */
+export interface RailsState {
+  /** Whether the rails are shown. */
+  shown: boolean;
+  /** The tick labels down the left of the image, top first. */
+  y: AxisLabel[];
+  /** The tick labels under it, left first. */
+  x: AxisLabel[];
+  /** The image, the colour bar, and the cross-section note above. */
+  image: Box;
+  colorbar: Box | null;
+  note: Box | null;
 }
 
 /** Added to the panel's page ahead of its own script. It keeps the webview API
@@ -206,6 +256,57 @@ const DRIVER = `
         shown: byId('line-panel').getClientRects().length > 0,
         label: label.getClientRects().length > 0 ? Array.from(label.childNodes).map(read).join('') : null,
         caption: byId('line-caption').textContent,
+        plot: lineGeometry(),
+      };
+    }
+    function boxOf(el) {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    }
+    const labelsIn = (root, selector) => Array.from(root.querySelectorAll(selector))
+      .filter((el) => el.getClientRects().length > 0)
+      .map((el) => ({ text: el.textContent, box: boxOf(el) }));
+    function lineGeometry() {
+      const svg = byId('line-plot');
+      const trace = svg.querySelector('path.trace');
+      const rule = svg.querySelector('line.rule');
+      // From the SVG's own units to the page's, so a dot and a label compare.
+      const m = svg.getScreenCTM();
+      const toPage = (x, y) => {
+        const p = svg.createSVGPoint();
+        p.x = x; p.y = y;
+        const q = m ? p.matrixTransform(m) : p;
+        return { x: q.x, y: q.y };
+      };
+      const n = (el, a) => Number(el.getAttribute(a));
+      return {
+        profile: svg.classList.contains('profile'),
+        points: Array.from(svg.querySelectorAll('circle')).map((c) => Object.assign(
+          { index: Number(c.getAttribute('data-index')) }, toPage(n(c, 'cx'), n(c, 'cy')))),
+        path: trace ? trace.getAttribute('d') : '',
+        rule: rule ? (() => {
+          const a = toPage(n(rule, 'x1'), n(rule, 'y1'));
+          const b = toPage(n(rule, 'x2'), n(rule, 'y2'));
+          return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+        })() : null,
+        x: labelsIn(svg, 'text.tick-label[data-axis="x"]'),
+        y: labelsIn(svg, 'text.tick-label[data-axis="y"]'),
+        box: boxOf(svg),
+      };
+    }
+    function rails() {
+      const railY = byId('axis-y');
+      const railX = byId('axis-x');
+      if (!railY || !railX) return null;
+      const colorbar = byId('colorbar');
+      const note = byId('cross-section-note');
+      return {
+        shown: railY.getClientRects().length > 0,
+        y: labelsIn(railY, 'span'),
+        x: labelsIn(railX, 'span'),
+        image: boxOf(byId('canvas')),
+        colorbar: colorbar && colorbar.getClientRects().length > 0 ? boxOf(colorbar) : null,
+        note: note && note.getClientRects().length > 0 ? boxOf(note) : null,
       };
     }
     function report() {
@@ -259,6 +360,7 @@ const DRIVER = `
         playDisabled: !!(byId('anim-play') && byId('anim-play').disabled),
         canvasVisibility: byId('canvas').style.visibility,
         linePlot: linePlot(),
+        rails: rails(),
       };
     }
     // Every control on the page with an id, by id, and each radio group's
@@ -324,6 +426,38 @@ const DRIVER = `
       });
       return { moved: moved, stuck: stuck, unknown: unknown };
     }
+    // Whether the rails and the line plot are fitted to their current size,
+    // by the size each records it was last fitted for (data-fitted).
+    function fitted() {
+      const key = (el) => {
+        const r = el.getBoundingClientRect();
+        return Math.round(r.width) + 'x' + Math.round(r.height);
+      };
+      const rail = byId('axis-y');
+      const railsOk = !rail || rail.getClientRects().length === 0 ||
+        byId('plot-wrap').dataset.fitted === key(byId('canvas'));
+      const svg = byId('line-plot');
+      const plotOk = !svg || svg.getClientRects().length === 0 || svg.dataset.fitted === key(svg);
+      return railsOk && plotOk;
+    }
+    // Run done once fitted() holds, checked every 16 ms (not by frames, which
+    // a throttled page may not paint), or after five
+    // seconds regardless, so a test reads what is there and says why.
+    function whenFitted(done) {
+      const start = Date.now();
+      let nudged = false;
+      const check = () => {
+        if (fitted() || Date.now() - start > 5000) { done(); return; }
+        // A resize the page has not seen after a while is told it the way a
+        // window resize would; the page refits only what is stale.
+        if (!nudged && Date.now() - start > 250) {
+          nudged = true;
+          window.dispatchEvent(new Event('resize'));
+        }
+        setTimeout(check, 16);
+      };
+      setTimeout(check, 0);
+    }
     window.addEventListener('message', (ev) => {
       const m = ev.data;
       if (m && m.type === 'test:controls') {
@@ -341,21 +475,29 @@ const DRIVER = `
         document.querySelector('.canvas-wrap').dispatchEvent(new MouseEvent('click', {
           bubbles: true,
           clientX: r.left + r.width / 2,
-          clientY: r.top + r.height / 2,
+          // Halfway down unless the test names a fraction of the height.
+          clientY: r.top + r.height * (typeof m.fy === 'number' ? m.fy : 0.5),
         }));
         api.postMessage({ type: 'test:probed', tag: m.tag, width: r.width, height: r.height });
         return;
       }
+      // A width change is fitted by the page's ResizeObserver, whenever the
+      // browser delivers it: the report waits until the page says it has
+      // fitted the rails and the plot to the sizes they now have (#1043).
+      let resized = false;
       for (const a of m.actions) {
-        const el = byId(a.id);
+        const el = a.id === 'body' ? document.body : byId(a.id);
         if (!el) throw new Error('no #' + a.id);
         // A disclosure opens the way a click on its summary opens it.
         if ('open' in a) { if (el.open !== a.open) el.querySelector('summary').click(); continue; }
         if ('focus' in a) { el.focus(); continue; }
+        // A narrower or wider panel, as a user drags its edge.
+        if ('width' in a) { el.style.width = a.width; resized = true; continue; }
         if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      api.postMessage({ type: 'test:state', tag: m.tag, state: report() });
+      const send = () => api.postMessage({ type: 'test:state', tag: m.tag, state: report() });
+      if (resized) whenFitted(send); else send();
     });
   })();
 `;
@@ -373,10 +515,15 @@ export interface RealPanel {
   /** What the provider posted to the page, oldest first. */
   sent: Msg[];
   /** Set controls as a user would, then read the page back. */
-  drive(actions: Array<{ id: string; value?: string | number; checked?: boolean; open?: boolean; focus?: boolean }>): Promise<PageState>;
-  /** Click the middle of the image, as a user reads the value there. Resolves
-   *  once the page has sent the click; the reply comes after. */
-  probe(): Promise<void>;
+  drive(
+    actions: Array<{ id: string; value?: string | number; checked?: boolean; open?: boolean; focus?: boolean; width?: string }>,
+  ): Promise<PageState>;
+  /** Click the middle of the image, as a user reads the value there, or the
+   *  point `fy` of the way down it. Resolves once the page has sent the click;
+   *  the reply comes after. */
+  probe(fy?: number): Promise<void>;
+  /** Post `m` to the page as the provider would. */
+  post(m: Msg): Promise<void>;
   /** Every control on the page, by id (radio groups as `radio:<name>`). */
   controls(): Promise<Record<string, string | boolean>>;
   /** Move every enabled control off its value, as a user would. `values`
@@ -475,14 +622,18 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       );
       return reply.state as PageState;
     },
-    probe: async () => {
+    probe: async (fy?: number) => {
       const mine = ++tag;
-      await panel.webview.postMessage({ type: "test:probe", tag: mine });
+      await panel.webview.postMessage({ type: "test:probe", tag: mine, fy });
       const reply = await waitUntil(
         () => received.find((m) => m.type === "test:probed" && m.tag === mine),
         `the page's click ${mine}`,
       );
       assert.ok(reply.width > 0 && reply.height > 0, "the image is laid out, so a click lands on it");
+    },
+    post: async (m) => {
+      // Recorded in `sent` by the wrapper above, like the provider's own.
+      await panel.webview.postMessage(m);
     },
     controls: async () => {
       const mine = ++tag;

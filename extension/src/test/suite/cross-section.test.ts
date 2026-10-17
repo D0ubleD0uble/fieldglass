@@ -16,10 +16,13 @@ import {
   axisTickIndices,
   formatAxisValue,
   isMapSlice,
+  layoutAxisLabels,
+  niceTicks,
   renderImagePanelHtml,
   type PanelField,
   type SlicePanelData,
-  composeLineAxisLabel,
+  typesetMinus,
+  verticalAxisFlips,
 } from "../../render-panel";
 
 function extensionPath(): string {
@@ -88,7 +91,10 @@ suite("Cross-sections", () => {
     assert.strictEqual(formatAxisValue(0, "degrees_east"), "0");
     assert.strictEqual(formatAxisValue(0.1 + 0.2, ""), "0.3");
     assert.strictEqual(formatAxisValue(1013.25, "hPa"), "1013.25");
-    assert.strictEqual(formatAxisValue(-88.5, "degrees_north"), "-88.5");
+    // A true minus, as the line plot's caption writes one (#1043).
+    assert.strictEqual(formatAxisValue(-88.5, "degrees_north"), "−88.5");
+    assert.strictEqual(formatAxisValue(-0.0000001, ""), "−1e−7");
+    assert.strictEqual(formatAxisValue(-0, ""), "0");
     assert.strictEqual(formatAxisValue(Number.NaN, "hPa"), "");
   });
 
@@ -126,12 +132,56 @@ suite("Cross-sections", () => {
     assert.strictEqual(formatAxisValue(0, "days since 2000-01-01" + " ".repeat(100_000)), "2000-01-01");
   });
 
-  test("the line plot's axis label reads its ends the way the ticks do (#1028)", () => {
-    const units = "hours since 1800-01-01 00:00:0.0";
-    assert.strictEqual(composeLineAxisLabel(1963536, 1972296, units, true), "2024-01-01 … 2024-12-31");
-    assert.strictEqual(composeLineAxisLabel(1000, 10, "millibar", true), "1000 … 10");
-    // An axis without coordinates is placed by index, and says so.
-    assert.strictEqual(composeLineAxisLabel(0, 365, units, false), "0 … 365");
+  test("a number is signed with a true minus, and zero is not negative (#1043)", () => {
+    assert.strictEqual(typesetMinus("-72.8"), "−72.8");
+    assert.strictEqual(typesetMinus("1.5e-7"), "1.5e−7");
+    assert.strictEqual(typesetMinus("-0.0"), "0.0");
+    assert.strictEqual(typesetMinus("300"), "300");
+  });
+
+  test("a value axis is ticked at round numbers inside its range (#1043)", () => {
+    assert.deepStrictEqual(niceTicks(-72.8, 31.5, 5), [-50, -25, 0, 25]);
+    assert.deepStrictEqual(niceTicks(238.35, 300.83, 4), [240, 260, 280, 300]);
+    assert.deepStrictEqual(niceTicks(0, 1, 5), [0, 0.2, 0.4, 0.6, 0.8, 1], "no float noise");
+    assert.deepStrictEqual(niceTicks(5, 5, 4), [], "no span, no ticks");
+    assert.deepStrictEqual(niceTicks(Number.NaN, 1, 4), []);
+    assert.ok(niceTicks(0, 1e300, 4).length <= 100, "bounded");
+  });
+
+  test("end labels are slid inside the axis, and a label that would overlap is dropped (#1043)", () => {
+    // Centred on 0 and 100, on an axis from 0 to 100: both slide inward.
+    assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 20 }, { centre: 100, size: 20 }], 0, 100, 4), [0, 80]);
+    // A middle label too close to an end is dropped; the ends are kept first.
+    assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 20 }, { centre: 12, size: 20 }, { centre: 50, size: 20 }, { centre: 100, size: 20 }], 0, 100, 4), [0, null, 40, 80]);
+    // Two ends that cannot both fit: the first stays.
+    assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 20 }, { centre: 10, size: 20 }], 0, 30, 4), [0, null]);
+    // An axis shorter than two labels and the gap: one end, not both run off it.
+    assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 14 }, { centre: 37, size: 14 }], 0, 30, 4), [0, null]);
+    // A label longer than the axis is not drawn at all.
+    assert.deepStrictEqual(layoutAxisLabels([{ centre: 5, size: 50 }], 0, 30, 4), [null]);
+    assert.deepStrictEqual(layoutAxisLabels([], 0, 30, 4), []);
+  });
+
+  test("a vertical axis is turned the way CF's positive says (#1043)", () => {
+    const axis = (coordinates: number[] | null, positive: string | null) => ({
+      coordinates,
+      vertical: positive === null ? null : { positive },
+    });
+    // NCEP/NCAR level, 1000 first, positive down: 1000 goes to the bottom.
+    assert.strictEqual(verticalAxisFlips(axis([1000, 500, 10], "down")), true);
+    // The same levels stored top first already read that way.
+    assert.strictEqual(verticalAxisFlips(axis([10, 500, 1000], "down")), false);
+    // A depth, 0 first, positive down: the surface is already at the top.
+    assert.strictEqual(verticalAxisFlips(axis([0, 10, 200], "down")), false);
+    // A height, 0 first, positive up: the ground goes to the bottom.
+    assert.strictEqual(verticalAxisFlips(axis([0, 1000, 5000], "up")), true);
+    // Not vertical, no coordinates, or one point: storage order.
+    assert.strictEqual(verticalAxisFlips(axis([-90, 0, 90], null)), false);
+    assert.strictEqual(verticalAxisFlips(axis(null, "down")), false);
+    assert.strictEqual(verticalAxisFlips(axis([1000], "down")), false);
+    assert.strictEqual(verticalAxisFlips(null), false);
+    // A Z axis nothing orients is left as stored.
+    assert.strictEqual(verticalAxisFlips({ coordinates: [1000, 10], vertical: { positive: null } }), false);
   });
 
   test("the addon reports an axis's coordinates and units", () => {
@@ -192,7 +242,15 @@ suite("Cross-sections", () => {
     for (const id of ["axis-y", "axis-x", "axis-caption", "cross-section-note", "overlay-fieldset"]) {
       assert.ok(html.includes(`id="${id}"`), `the panel has #${id}`);
     }
-    for (const fn of ["function isMapSlice(", "function axisTickIndices(", "function formatAxisValue("]) {
+    for (const fn of [
+      "function isMapSlice(",
+      "function axisTickIndices(",
+      "function formatAxisValue(",
+      "function typesetMinus(",
+      "function layoutAxisLabels(",
+      "function verticalAxisFlips(",
+      "function niceTicks(",
+    ]) {
       assert.ok(html.includes(fn), `${fn} is injected`);
     }
     for (const wiring of [

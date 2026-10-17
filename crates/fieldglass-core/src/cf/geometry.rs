@@ -99,6 +99,155 @@ pub fn is_time_axis(array: &ArrayDescription) -> bool {
     })
 }
 
+/// The way a vertical coordinate's values increase, as CF's `positive`
+/// attribute states it (§4.3): `Up` for a height, `Down` for a depth or a
+/// pressure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Positive {
+    /// Values increase upward: a height above the surface.
+    Up,
+    /// Values increase downward: a depth below the surface, or a pressure.
+    Down,
+}
+
+/// A vertical coordinate, as CF §4.3 identifies one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VerticalAxis {
+    /// Which way the values increase, or `None` for a vertical axis nothing
+    /// orients: an `axis = "Z"` with no `positive`, no pressure units and no
+    /// standard name that fixes a direction.
+    pub positive: Option<Positive>,
+    /// Whether a profile along it is spaced by the logarithm of its values: an
+    /// atmospheric pressure. A sea pressure (`dbar`, `decibar`) is a pressure
+    /// too, and runs down, but is drawn linear like the depth it stands for.
+    pub log_pressure: bool,
+}
+
+/// Whether a coordinate array is a vertical axis, and which way its values
+/// increase, by CF conventions (§4.3, "Vertical (Height or Depth)
+/// Coordinate", and Appendix D for the parametric coordinates).
+///
+/// CF §4.3: "A vertical coordinate will be identifiable by: units of pressure;
+/// or the presence of the positive attribute with a value of up or down (case
+/// insensitive)", and "the vertical type may be indicated additionally by
+/// providing the standard_name attribute … and/or the axis attribute with the
+/// value Z". `positive` is required unless the units are a pressure.
+///
+/// So the direction is read, in order, from:
+/// 1. `positive`, `up` or `down`;
+/// 2. units of pressure, which is `Down`, since pressure falls with height;
+/// 3. a `standard_name` whose definition fixes the direction: `depth`, the
+///    pressures and the atmosphere sigma coordinates grow downward; `height`,
+///    `altitude`, the ln-pressure, hybrid-height, ocean sigma and ocean s
+///    coordinates grow upward, each from its Appendix D formula;
+///
+/// and an `axis = "Z"` coordinate none of those orient is vertical with no
+/// direction (`positive: None`): a host leaves it in storage order rather than
+/// guess. Anything else is `None`.
+///
+/// One rule for every oriented axis: a `Down` axis is drawn with its values
+/// increasing down the page. That puts the surface at the bottom of a pressure
+/// axis (1000 hPa below 10 hPa) and at the top of a depth axis (0 m above
+/// 5000 m), from the file's own attributes.
+pub fn vertical_axis(array: &ArrayDescription) -> Option<VerticalAxis> {
+    let units = text(array, "units")
+        .map(pressure_unit)
+        .unwrap_or(PressureUnit::None);
+    let stated = match text(array, "positive").map(|p| p.trim().to_ascii_lowercase()) {
+        Some(p) if p == "up" => Some(Positive::Up),
+        Some(p) if p == "down" => Some(Positive::Down),
+        _ => None,
+    };
+    let named = text(array, "standard_name").and_then(standard_name_direction);
+    let positive = stated
+        .or((units != PressureUnit::None).then_some(Positive::Down))
+        .or(named);
+    let z = text(array, "axis").map(str::trim) == Some("Z");
+    if positive.is_none() && !z {
+        return None;
+    }
+    Some(VerticalAxis {
+        positive,
+        log_pressure: units == PressureUnit::Atmospheric,
+    })
+}
+
+/// The direction a CF standard name fixes for a vertical coordinate, from its
+/// definition, for the names a file states without `positive`:
+///
+/// * `depth`, and the pressures `air_pressure` and `sea_water_pressure`, grow
+///   downward.
+/// * `height` and `altitude` grow upward.
+/// * The parametric coordinates of Appendix D, from their formulas:
+///   `atmosphere_sigma_coordinate` (`p = ptop + sigma·(ps − ptop)`) and
+///   `atmosphere_hybrid_sigma_pressure_coordinate` (`p = a·p0 + b·ps`) grow
+///   with pressure, so downward. `atmosphere_ln_pressure_coordinate`
+///   (`p = p0·exp(−lev)`) grows as pressure falls, so upward.
+///   `atmosphere_hybrid_height_coordinate` (`z = a + b·orog`, `a` a height)
+///   grows upward. `ocean_sigma_coordinate` (`z = eta + sigma·(depth + eta)`,
+///   `z` positive upwards) and the s-coordinates (`ocean_s_coordinate`,
+///   `ocean_s_coordinate_g1`, `ocean_s_coordinate_g2`, where
+///   `−1 ≤ s ≤ 0`, 0 at the surface and −1 at the bottom) grow upward.
+///
+/// Others are not guessed at: `ocean_sigma_z_coordinate` states its direction
+/// in `positive` (Appendix D requires it), and `atmosphere_sleve_coordinate`
+/// and `ocean_double_sigma_coordinate` define their heights through functions
+/// whose direction the formula alone does not fix.
+fn standard_name_direction(name: &str) -> Option<Positive> {
+    match name.trim() {
+        "depth"
+        | "air_pressure"
+        | "sea_water_pressure"
+        | "atmosphere_sigma_coordinate"
+        | "atmosphere_hybrid_sigma_pressure_coordinate" => Some(Positive::Down),
+        "height"
+        | "altitude"
+        | "atmosphere_ln_pressure_coordinate"
+        | "atmosphere_hybrid_height_coordinate"
+        | "ocean_sigma_coordinate"
+        | "ocean_s_coordinate"
+        | "ocean_s_coordinate_g1"
+        | "ocean_s_coordinate_g2" => Some(Positive::Up),
+        _ => None,
+    }
+}
+
+/// What kind of pressure a `units` string names, if any.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PressureUnit {
+    /// Not a pressure.
+    None,
+    /// A pressure drawn on log spacing: the pascal family, the bar and
+    /// millibar, the atmosphere and the mercury columns.
+    Atmospheric,
+    /// The decibar, the ocean's pressure unit: about a metre of sea water.
+    Sea,
+}
+
+/// Whether `units` names a pressure, the test CF §4.3 makes with UDUNITS. The
+/// spellings files use rather than all UDUNITS parses: the pascal with its
+/// common prefixes and as `N m-2`, the bar family (`mb` as the millibar it
+/// means on a vertical axis, not UDUNITS' millibarn), the atmosphere, the torr
+/// and the mercury columns. A leading scale factor (`100 Pa`) is allowed.
+/// Case-insensitive, since every spelling here is a pressure in either case.
+fn pressure_unit(units: &str) -> PressureUnit {
+    let lower = units.trim().to_ascii_lowercase();
+    // `100 Pa`, `1e2 Pa`: a positive number, then the unit.
+    let unit = match lower.split_once(char::is_whitespace) {
+        Some((factor, rest)) if factor.parse::<f64>().is_ok_and(|f| f > 0.0) => rest.trim(),
+        _ => lower.as_str(),
+    };
+    match unit {
+        "pa" | "hpa" | "kpa" | "mpa" | "dapa" | "pascal" | "pascals" | "hectopascal"
+        | "hectopascals" | "kilopascal" | "kilopascals" | "n m-2" | "n/m2" | "n m^-2"
+        | "n m**-2" | "n.m-2" | "bar" | "bars" | "mbar" | "mb" | "millibar" | "millibars"
+        | "cbar" | "atm" | "atmosphere" | "atmospheres" | "torr" | "mmhg" | "mm hg" | "inhg"
+        | "in hg" => PressureUnit::Atmospheric,
+        "dbar" | "decibar" | "decibars" => PressureUnit::Sea,
+        _ => PressureUnit::None,
+    }
+}
+
 /// CF latitude/longitude `units` test. Accepts the canonical `degrees_north` /
 /// `degrees_east` family and the spelling variants CF permits
 /// (`degree_north`, `degreesN`, `degree_N`, …). Case-insensitive on the
@@ -725,6 +874,97 @@ mod tests {
             &[("standard_name", "time_bounds")],
         ] {
             assert!(!is_time_axis(&coordinate(attrs)), "{attrs:?}");
+        }
+    }
+
+    #[test]
+    fn a_vertical_axis_is_oriented_by_positive_then_pressure_then_standard_name() {
+        let v = |positive, log_pressure| {
+            Some(VerticalAxis {
+                positive,
+                log_pressure,
+            })
+        };
+        let (up, down) = (Some(Positive::Up), Some(Positive::Down));
+        let of = |attrs: &[(&str, &str)]| vertical_axis(&coordinate(attrs));
+        // NCEP/NCAR reanalysis `level`: every marker at once.
+        let ncep = [("units", "millibar"), ("positive", "down"), ("axis", "Z")];
+        assert_eq!(of(&ncep), v(down, true));
+        // A pressure with no `positive`, which CF allows, falls with height.
+        for units in [
+            "hPa",
+            " Pa ",
+            "100 Pa",
+            "N m-2",
+            "atmosphere",
+            "mmHg",
+            "inHg",
+        ] {
+            assert_eq!(of(&[("units", units)]), v(down, true), "{units}");
+        }
+        // A sea pressure runs down too, but is not drawn on log pressure.
+        assert_eq!(of(&[("units", "dbar")]), v(down, false));
+        assert_eq!(of(&[("units", "decibar"), ("axis", "Z")]), v(down, false));
+        // An ocean depth: `positive` is required, and says down.
+        assert_eq!(of(&[("units", "m"), ("positive", "DOWN")]), v(down, false));
+        // A height.
+        assert_eq!(of(&[("units", "m"), ("positive", "up")]), v(up, false));
+        // A dimensionless sigma level states `positive` and no units.
+        assert_eq!(of(&[("positive", "down")]), v(down, false));
+        // `positive` wins over a standard name that says otherwise.
+        let stated = [("standard_name", "depth"), ("positive", "up")];
+        assert_eq!(of(&stated), v(up, false));
+    }
+
+    #[test]
+    fn a_z_axis_with_no_positive_is_oriented_by_its_standard_name_or_not_at_all() {
+        let of = |attrs: &[(&str, &str)]| vertical_axis(&coordinate(attrs)).map(|v| v.positive);
+        // A depth that leaves out `positive`: down, from its standard name.
+        let depth = [("units", "m"), ("axis", "Z"), ("standard_name", "depth")];
+        assert_eq!(of(&depth), Some(Some(Positive::Down)));
+        for (name, positive) in [
+            ("air_pressure", Positive::Down),
+            ("sea_water_pressure", Positive::Down),
+            ("atmosphere_sigma_coordinate", Positive::Down),
+            (
+                "atmosphere_hybrid_sigma_pressure_coordinate",
+                Positive::Down,
+            ),
+            ("height", Positive::Up),
+            ("altitude", Positive::Up),
+            // p = p0·exp(−lev): lev grows as pressure falls.
+            ("atmosphere_ln_pressure_coordinate", Positive::Up),
+            ("atmosphere_hybrid_height_coordinate", Positive::Up),
+            ("ocean_sigma_coordinate", Positive::Up),
+            ("ocean_s_coordinate", Positive::Up),
+            ("ocean_s_coordinate_g1", Positive::Up),
+            ("ocean_s_coordinate_g2", Positive::Up),
+        ] {
+            assert_eq!(
+                of(&[("axis", "Z"), ("standard_name", name)]),
+                Some(Some(positive)),
+                "{name}"
+            );
+        }
+        // A Z axis nothing orients is vertical, with no direction to draw.
+        assert_eq!(of(&[("axis", "Z"), ("units", "m")]), Some(None));
+        assert_eq!(
+            of(&[("axis", "Z"), ("standard_name", "ocean_sigma_z_coordinate")]),
+            Some(None)
+        );
+    }
+
+    #[test]
+    fn an_axis_with_no_vertical_marker_is_not_vertical() {
+        for attrs in [
+            &[][..],
+            &[("units", "degrees_north"), ("axis", "Y")],
+            &[("units", "hours since 2020-01-01")],
+            &[("units", "m")],
+            &[("positive", "sideways")],
+            &[("units", "Pascal's triangle")],
+        ] {
+            assert_eq!(vertical_axis(&coordinate(attrs)), None, "{attrs:?}");
         }
     }
 }

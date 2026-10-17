@@ -205,3 +205,73 @@ fn a_non_finite_coordinate_is_a_hole() {
         assert_eq!(line.coordinate_units, None, "{bad}");
     }
 }
+
+/// Which way a vertical axis runs, read from its coordinate array by CF §4.3,
+/// so a host can draw it the right way up (#1043): ERSST's `lev` is a depth,
+/// `positive = "down"` in metres, and its other axes are not vertical.
+#[test]
+fn a_depth_axis_says_it_runs_down() {
+    let session = session("ersst_v5_187001_cdf1.nc");
+    let sst = variable(&session, "sst");
+    let lev = session.axis_values(sst, 1).expect("lev");
+    assert_eq!(lev.dimension, "lev");
+    let vertical = lev.vertical.expect("lev is vertical");
+    assert_eq!(vertical.positive, Some(fieldglass::Positive::Down));
+    assert!(!vertical.log_pressure, "metres are not a pressure");
+    for dim in [0, 2, 3] {
+        assert_eq!(
+            session.axis_values(sst, dim).expect("an axis").vertical,
+            None,
+            "dim {dim}"
+        );
+    }
+    // The line along it reads the same.
+    let line = session
+        .decode_line(sst, 1, &[0, 0, 0, 0], &DecodeOptions::default())
+        .expect("a line");
+    assert_eq!(line.coordinate_vertical, Some(vertical));
+    let time = session
+        .decode_line(sst, 0, &[0, 0, 0, 0], &DecodeOptions::default())
+        .expect("a line");
+    assert_eq!(time.coordinate_vertical, None, "time is not vertical");
+}
+
+/// A pressure level that states no `positive` runs down all the same, since CF
+/// requires the attribute only for units that are not a pressure; on the wire
+/// it reads `{"positive": "down", "logPressure": true}`. Built in memory as a Zarr
+/// v2 store, the way the NCEP/NCAR reanalysis writes `level`, less `positive`.
+#[test]
+fn a_pressure_level_runs_down_without_saying_so() {
+    let f64s = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let array = |shape: &str| {
+        format!(
+            r#"{{"zarr_format":2,"shape":{shape},"chunks":{shape},"dtype":"<f8","compressor":null,"fill_value":null,"order":"C","filters":null}}"#
+        )
+        .into_bytes()
+    };
+    let session = Session::open_store(fieldglass::MemoryObjects::from_iter(vec![
+        (".zgroup".to_string(), br#"{"zarr_format":2}"#.to_vec()),
+        ("level/.zarray".to_string(), array("[3]")),
+        (
+            "level/.zattrs".to_string(),
+            br#"{"_ARRAY_DIMENSIONS":["level"],"units":"millibar"}"#.to_vec(),
+        ),
+        ("level/0".to_string(), f64s(&[1000.0, 500.0, 10.0])),
+        ("t/.zarray".to_string(), array("[3,2,2]")),
+        (
+            "t/.zattrs".to_string(),
+            br#"{"_ARRAY_DIMENSIONS":["level","y","x"],"units":"K"}"#.to_vec(),
+        ),
+        ("t/0.0.0".to_string(), f64s(&[1.0; 12])),
+    ]))
+    .expect("opens");
+    let t = variable(&session, "t");
+    let level = session.axis_values(t, 0).expect("level");
+    let vertical = level.vertical.expect("a pressure is vertical");
+    assert_eq!(vertical.positive, Some(fieldglass::Positive::Down));
+    assert!(vertical.log_pressure);
+    assert_eq!(
+        serde_json::to_value(vertical).expect("serialises"),
+        serde_json::json!({ "positive": "down", "logPressure": true })
+    );
+}

@@ -33,9 +33,9 @@ pub mod placement;
 pub mod resolvers;
 
 pub use geometry::{
-    AxisKind, CurvilinearPair, RenderableArray, SliceGeometry, corner_and_regularity,
-    curvilinear_axes, curvilinear_pair, detect_axis, extract_plane, is_time_axis, read_plane,
-    renderable_arrays, synthesize_geometry,
+    AxisKind, CurvilinearPair, Positive, RenderableArray, SliceGeometry, VerticalAxis,
+    corner_and_regularity, curvilinear_axes, curvilinear_pair, detect_axis, extract_plane,
+    is_time_axis, read_plane, renderable_arrays, synthesize_geometry, vertical_axis,
 };
 pub use placement::{
     CfMapping, SOURCE_ONLY, SlicePlacement, classify_grid_mapping, coordinate_plane,
