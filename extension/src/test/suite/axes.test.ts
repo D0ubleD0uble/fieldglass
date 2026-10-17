@@ -397,4 +397,64 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       editor.close();
     }
   });
+
+  test("a click with no line, then a resize, still says so rather than drawing the line before", async () => {
+    const { panel, close } = await storePanel(profileStore);
+    try {
+      const drawnFirst = await plotted(panel);
+      assert.ok((drawnFirst.linePlot?.plot.points.length ?? 0) > 0, "a profile is drawn first");
+      // The provider's answer when a cell has no line.
+      await panel.post({ type: "lineResult", messageIndex: 0, result: null });
+      let state = await panel.drive([]);
+      assert.strictEqual(state.linePlot?.caption, "No line through this cell.");
+      assert.deepStrictEqual(state.linePlot?.plot.points, [], "and nothing is drawn");
+      state = await panel.drive([{ id: "body", width: "500px" }]);
+      assert.strictEqual(state.linePlot?.caption, "No line through this cell.", "a resize redraws what is on screen");
+      assert.deepStrictEqual(state.linePlot?.plot.points, [], "not the profile before it");
+    } finally {
+      close();
+    }
+  });
+
+  test("a page written again onto a cross-section draws, after its file is reopened or changed", async () => {
+    // A page written again over a reopened or changed file (#839, #959) has
+    // everything but its ready dropped until the ready arrives, so a ready
+    // held for the Y axis left it blank.
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1043-"));
+    const file = path.join(dir, "ersst.nc");
+    const fixtures = path.join(extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures");
+    fs.copyFileSync(path.join(fixtures, "ersst_v5_187001_cdf1.nc"), file);
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const sst = native.NetcdfHandle.fromBytes(fs.readFileSync(file)).variables().find((v) => v.name.endsWith("sst"));
+    assert.ok(sst, "sst is renderable");
+    let editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: sst.variableIndex }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      // lev (a depth, positive down) down the rows, lat across: 89 × 1.
+      await rerender(panel, [{ id: "slice-y", value: 1 }, { id: "slice-x", value: 2 }], sized(89, 1));
+      for (const [what, bytes] of [
+        ["reopened", null],
+        ["changed", fs.readFileSync(path.join(fixtures, "ersst_v5_187001_cdf2.nc"))],
+      ] as const) {
+        editor.close();
+        if (bytes) fs.writeFileSync(file, bytes);
+        editor = await openEditor(p, file);
+        const from = panel.sent.length;
+        const rewritten = new Promise<void>((resolve) => panel.onNextWrite(resolve));
+        // Any request after the handle changed has the page written again.
+        await panel.drive([{ id: "flip-y", checked: (await panel.controls())["flip-y"] !== true }]);
+        await rewritten;
+        const reply = await panel.waitSent(drawn, from, `the rewritten page's render (${what})`);
+        assert.strictEqual(reply.type, "gridReady", `${what}: ${reply.error ?? ""}`);
+        assert.deepStrictEqual([reply.width, reply.height], [89, 1], `${what}: still the cross-section`);
+      }
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

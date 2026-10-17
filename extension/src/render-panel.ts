@@ -766,16 +766,17 @@ export function layoutAxisLabels(
  *  so the values should grow down the page, which puts 1000 hPa at the bottom
  *  and a depth of 0 m at the top; `up` for a height, so they should grow up
  *  it. The rows are turned over when storage order says otherwise. An axis
- *  that is not vertical, or has no coordinates to read the order from, stays in
- *  storage order.
+ *  that is not vertical, a Z axis nothing orients (`positive` null), or one
+ *  with no coordinates to read the order from, stays in storage order.
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself. */
 export function verticalAxisFlips(
-  axis: { coordinates: number[] | null; vertical: { positive: string } | null } | null | undefined,
+  axis: { coordinates: number[] | null; vertical: { positive: string | null } | null } | null | undefined,
 ): boolean {
   const values = axis && axis.coordinates;
   if (!axis || !axis.vertical || !values || values.length < 2) return false;
+  if (axis.vertical.positive !== "up" && axis.vertical.positive !== "down") return false;
   const growsDownThePage = values[values.length - 1] > values[0];
   return growsDownThePage !== (axis.vertical.positive === "down");
 }
@@ -1509,8 +1510,8 @@ export function renderImagePanelHtml(
           const box = rail.getBoundingClientRect();
           const spans = Array.from(rail.children);
           const extent = vertical ? box.height : box.width;
-          // Not laid out (a page not yet shown): the percentages stand until
-          // the resize that lays it out fits them.
+          // Not laid out yet: the percentages stand until the ResizeObserver
+          // that sees it laid out fits them.
           if (!(extent > 0)) return;
           const starts = layoutAxisLabels(spans.map((s) => {
             const r = s.getBoundingClientRect();
@@ -3081,7 +3082,10 @@ export function renderImagePanelHtml(
           if (!panel || !svg || !caption) return;
           panel.hidden = false;
           while (svg.firstChild) svg.removeChild(svg.firstChild);
-          if (!line) { caption.textContent = emptyText; return; }
+          // Kept before anything is drawn, the empty answer included, so a resize
+          // redraws what is on screen rather than the line before it.
+          lastLine = { line: line, markIndex: markIndex, emptyText: emptyText };
+          if (!line) { svg.classList.remove('profile'); caption.textContent = emptyText; return; }
 
           const n = line.values.length;
           // Position each point by its coordinate when the axis has one, and by
@@ -3102,7 +3106,6 @@ export function renderImagePanelHtml(
           // levels are not squeezed into the top of the plot.
           const vertical = hasCoordinates ? line.coordinateVertical || null : null;
           svg.classList.toggle('profile', !!vertical);
-          lastLine = { line: line, markIndex: markIndex, emptyText: emptyText };
           if (!present.length) {
             caption.textContent = (line.variable || 'Values') + ' across ' + along + ': no data at this cell.';
             return;
@@ -3111,7 +3114,8 @@ export function renderImagePanelHtml(
           const width = svg.clientWidth || 400;
           const height = svg.clientHeight || 160;
           svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
-          const logScale = !!(vertical && vertical.pressure && xs.every((x) => x > 0));
+          // A Z axis nothing orients is drawn the way a plot's own y axis runs.
+          const logScale = !!(vertical && vertical.logPressure && xs.every((x) => x > 0));
           const scaled = (x) => (logScale ? Math.log(x) : x);
           let cmin = Math.min.apply(null, xs.map(scaled)), cmax = Math.max.apply(null, xs.map(scaled));
           let vmin = line.min, vmax = line.max;
@@ -3917,14 +3921,33 @@ export function renderImagePanelHtml(
           // Keep the overlay aligned + crisp as the panel (and the displayed
           // image size) resizes.
           window.addEventListener('resize', drawOverlay);
-          // The axis labels are fitted to the width they have (#1043), so a
-          // narrower panel drops the ones that no longer fit, and a wider one
-          // brings them back.
-          window.addEventListener('resize', () => {
-            drawAxisRails();
-            const panel = document.getElementById('line-panel');
-            if (lastLine && panel && !panel.hidden) drawLine(lastLine.line, lastLine.markIndex, lastLine.emptyText);
-          });
+          // The axis labels are fitted to the room they have (#1043), so a
+          // narrower panel drops the ones that no longer fit and a wider one
+          // brings them back. Watched on the rails and the plot themselves, not
+          // the window: a rail is also laid out, or resized, when the image
+          // arrives or the toolbar wraps, with no window resize at all. Each
+          // refit keeps the element's size, so it does not trigger itself.
+          if (typeof ResizeObserver === 'function') {
+            const sizes = new Map();
+            const refit = new ResizeObserver((entries) => {
+              let rails = false;
+              let plot = false;
+              for (const e of entries) {
+                const box = e.contentRect;
+                const key = Math.round(box.width) + 'x' + Math.round(box.height);
+                if (sizes.get(e.target) === key) continue;
+                sizes.set(e.target, key);
+                if (e.target.id === 'line-plot') plot = true; else rails = true;
+              }
+              if (rails) drawAxisRails();
+              const panel = document.getElementById('line-panel');
+              if (plot && lastLine && panel && !panel.hidden) drawLine(lastLine.line, lastLine.markIndex, lastLine.emptyText);
+            });
+            for (const id of ['axis-y', 'axis-x', 'line-plot']) {
+              const el = document.getElementById(id);
+              if (el) refit.observe(el);
+            }
+          }
           // Snapshot the selections on every control change. One delegated
           // pair on the toolbar covers every control — including the
           // dynamically-built slice inputs — and bubbles fire *after* the
@@ -3974,11 +3997,25 @@ export function renderImagePanelHtml(
         restoreState();
         attachControls();
         // Attach the (possibly restored) selections so the provider's first
-        // paint honours them; a fresh panel just sends its defaults. A panel
-        // restored onto a cross-section reads its Y axis first (#1043).
-        whenYAxisKnown(() => {
-          vscode.postMessage(Object.assign({ type: 'ready' }, currentOptions(true), sliceFields(), compareRequest()));
-        });
+        // paint honours them; a fresh panel just sends its defaults.
+        //
+        // Sent at once, never held: a page written again over a changed or
+        // reopened file (#839, #959) has every request but its ready dropped
+        // until the ready arrives, so a held ready would leave it blank. A page
+        // restored onto a cross-section whose Y axis is not yet known is
+        // painted in storage order, then asks for the axis, and draws again
+        // only if the axis turns its rows over (#1043).
+        const readyOptions = currentOptions(true);
+        vscode.postMessage(Object.assign({ type: 'ready' }, readyOptions, sliceFields(), compareRequest()));
+        if (isCrossSection() && !yAxisKnown()) {
+          awaitingYAxis = () => {
+            if (awaitingPick || rowsFlipped() === readyOptions.flipY) return;
+            // Not requestRender: the first paint may not have answered yet,
+            // and this one has to follow it either way.
+            vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(true), sliceFields(), compareRequest()));
+          };
+          requestAxis(sliceState.yDim);
+        }
       })();
     </script>
   `;

@@ -449,19 +449,22 @@ const DRIVER = `
         api.postMessage({ type: 'test:probed', tag: m.tag, width: r.width, height: r.height });
         return;
       }
+      // A width change is fitted by the page's ResizeObserver, which runs
+      // before the next paint: the report waits for two frames after one.
+      let resized = false;
       for (const a of m.actions) {
         const el = a.id === 'body' ? document.body : byId(a.id);
         if (!el) throw new Error('no #' + a.id);
         // A disclosure opens the way a click on its summary opens it.
         if ('open' in a) { if (el.open !== a.open) el.querySelector('summary').click(); continue; }
         if ('focus' in a) { el.focus(); continue; }
-        // A narrower or wider panel, as a user drags its edge: the page is
-        // told the way a window resize tells it.
-        if ('width' in a) { el.style.width = a.width; window.dispatchEvent(new Event('resize')); continue; }
+        // A narrower or wider panel, as a user drags its edge.
+        if ('width' in a) { el.style.width = a.width; resized = true; continue; }
         if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      api.postMessage({ type: 'test:state', tag: m.tag, state: report() });
+      const send = () => api.postMessage({ type: 'test:state', tag: m.tag, state: report() });
+      if (resized) requestAnimationFrame(() => requestAnimationFrame(send)); else send();
     });
   })();
 `;
@@ -486,6 +489,8 @@ export interface RealPanel {
    *  point `fy` of the way down it. Resolves once the page has sent the click;
    *  the reply comes after. */
   probe(fy?: number): Promise<void>;
+  /** Post `m` to the page as the provider would. */
+  post(m: Msg): Promise<void>;
   /** Every control on the page, by id (radio groups as `radio:<name>`). */
   controls(): Promise<Record<string, string | boolean>>;
   /** Move every enabled control off its value, as a user would. `values`
@@ -592,6 +597,10 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
         `the page's click ${mine}`,
       );
       assert.ok(reply.width > 0 && reply.height > 0, "the image is laid out, so a click lands on it");
+    },
+    post: async (m) => {
+      // Recorded in `sent` by the wrapper above, like the provider's own.
+      await panel.webview.postMessage(m);
     },
     controls: async () => {
       const mine = ++tag;

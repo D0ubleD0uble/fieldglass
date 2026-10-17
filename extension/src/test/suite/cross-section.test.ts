@@ -178,6 +178,8 @@ suite("Cross-sections", () => {
     assert.strictEqual(verticalAxisFlips(axis(null, "down")), false);
     assert.strictEqual(verticalAxisFlips(axis([1000], "down")), false);
     assert.strictEqual(verticalAxisFlips(null), false);
+    // A Z axis nothing orients is left as stored.
+    assert.strictEqual(verticalAxisFlips({ coordinates: [1000, 10], vertical: { positive: null } }), false);
   });
 
   test("the addon reports an axis's coordinates and units", () => {
