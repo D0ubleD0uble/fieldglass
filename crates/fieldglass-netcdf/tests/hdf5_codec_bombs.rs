@@ -226,8 +226,9 @@ fn a_deflate_bomb_holds_no_more_than_its_chunk() {
 /// to a window more while it drains it. Those are
 /// bounded by the window, which no output bound sees (#413), so the peak is
 /// allowed three windows on top of the chunk. Reading in steps of a zstd
-/// block (`capped::READ_STEP`) is what keeps the ring that small: handed the
-/// whole 3 MiB at once, `ruzstd` buffered all of it a second time.
+/// block (`capped::READ_STEP`) kept the ring that small under 0.9.0, which
+/// buffered all of a 3 MiB slice a second time; 0.9.1 decodes a block at a
+/// time, so the step is now a defensive cap.
 #[test]
 fn a_zstd_bomb_holds_no_more_than_its_chunk_and_window() {
     check_oracle("zstd_bomb", 32015);

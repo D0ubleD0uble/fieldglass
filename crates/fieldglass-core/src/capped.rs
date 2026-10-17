@@ -70,9 +70,12 @@ pub fn grow_toward(buf: &mut Vec<u8>, hint: usize, limit: usize) -> bool {
 /// one-byte probe on the stack rather than into the buffer.
 ///
 /// Each `read` asks for at most [`READ_STEP`] bytes. A decoder that buffers
-/// what it decodes until the caller's slice is full, as `ruzstd` does, would
-/// otherwise hold a second copy of the output: handed one 3 MiB slice,
-/// `ruzstd` grew its own buffer to 4 MiB beside it (#981).
+/// what it decodes until the caller's slice is full would otherwise hold a
+/// second copy of the output: `ruzstd` 0.9.0, handed one 3 MiB slice, grew its
+/// own buffer to 4 MiB beside it (#981). `ruzstd` 0.9.1 decodes one block at a
+/// time and returns as soon as it holds anything past the window, so the step
+/// is now only a defensive cap, kept so the bound does not depend on the
+/// decoder's version.
 pub fn read_to_end_within(
     mut reader: impl Read,
     hint: usize,

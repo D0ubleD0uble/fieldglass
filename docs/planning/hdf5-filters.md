@@ -125,11 +125,14 @@ Zarr take the same bound.
 
 `ruzstd` sizes its own ring buffer to about the window plus 256 KiB (0.9.1;
 0.9.0 rounded up to the next power of two, up to about twice the window). The
-window is bounded by `MAX_ZSTD_WINDOW`, and the output limit does not bound it. A single-segment frame
-states its content size instead of a window, and the ring is sized from that. `ruzstd` also buffers whatever it decodes
-until the caller's slice is full, so the output is read in steps of one zstd
-block (`capped::READ_STEP`, 128 KiB); handed a whole 3 MiB chunk at once it
-held a second 4 MiB copy beside the output.
+window is bounded by `MAX_ZSTD_WINDOW`, and the output limit does not bound it.
+A single-segment frame states its content size instead of a window, and the
+ring is sized from that. `ruzstd` 0.9.0 buffered whatever it decoded until the
+caller's slice was full, so the output is read in steps of one zstd block
+(`capped::READ_STEP`, 128 KiB); handed a whole 3 MiB chunk at once it held a
+second 4 MiB copy beside the output. 0.9.1 decodes one block at a time and
+returns once it holds anything past the window, so the step is now a defensive
+cap that keeps the bound independent of the decoder's version.
 
 **The window has to follow the chunk (#989).** `ruzstd` returns nothing until
 it holds more than the window, so a frame stating 64 MiB in a 4 KiB chunk had
