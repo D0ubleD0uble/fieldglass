@@ -1509,6 +1509,9 @@ export function renderImagePanelHtml(
           const box = rail.getBoundingClientRect();
           const spans = Array.from(rail.children);
           const extent = vertical ? box.height : box.width;
+          // Not laid out (a page not yet shown): the percentages stand until
+          // the resize that lays it out fits them.
+          if (!(extent > 0)) return;
           const starts = layoutAxisLabels(spans.map((s) => {
             const r = s.getBoundingClientRect();
             return { centre: (Number(s.dataset.at) / 100) * extent, size: vertical ? r.height : r.width };
