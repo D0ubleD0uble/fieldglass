@@ -159,9 +159,11 @@ const ZSTD_MAX_BLOCK: usize = 128 << 10;
 ///
 /// A decoder keeps the frame's whole window, `Window_Size` (RFC 8878 section
 /// 3.1.1.1.2), before it can hand back a byte: `ruzstd` returns nothing until
-/// it holds more than the window, in a ring of up to twice it. So the window,
-/// not the output limit, sets what a decode holds, and a frame stating 64 MiB
-/// in a 4 KiB chunk held about 192 MiB before the limit saw any output.
+/// it holds more than the window, in a ring sized to about the window plus
+/// 256 KiB (`ruzstd` 0.9.1; 0.9.0 rounded it up to a power of two, up to twice
+/// the window). So the window, not the output limit, sets what a decode holds,
+/// and a frame stating 64 MiB in a 4 KiB chunk held about 64 MiB before the
+/// limit saw any output (about 192 MiB under 0.9.0).
 ///
 /// The RFC lets a decoder refuse a frame whose window is past its own limit,
 /// and recommends accepting at least 8 MiB, so a window up to that decodes

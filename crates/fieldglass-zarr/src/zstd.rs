@@ -25,7 +25,7 @@ use ruzstd::decoding::errors::FrameDecoderError;
 
 /// Ceiling on the window a frame may ask the decoder to buffer.
 ///
-/// Tighter than `ruzstd`'s 100 MiB default on purpose: the guarantee should be
+/// Tighter than `ruzstd`'s 128 MiB default on purpose: the guarantee should be
 /// ours and stated, rather than inherited from an upstream default that a
 /// version bump could quietly widen. A window this large already implies a
 /// single chunk of 64 MiB, which no Zarr writer produces — chunks are sized for
@@ -125,7 +125,7 @@ mod tests {
     }
 
     /// The window bound is ours, not the decoder's default: this frame is
-    /// otherwise valid and declares 72 MiB, inside `ruzstd`'s 100 MiB default
+    /// otherwise valid and declares 72 MiB, inside `ruzstd`'s 128 MiB default
     /// and outside the 64 MiB set here, even for a chunk past 64 MiB. A bump
     /// that widened the upstream default could not pass this unnoticed.
     #[test]
