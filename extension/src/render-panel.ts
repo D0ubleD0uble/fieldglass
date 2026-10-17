@@ -709,32 +709,31 @@ export function composeLineAxisLabel(
  *  Written with "to" and a true minus sign (U+2212): an en dash between two
  *  signed numbers, `-72.769–31.484`, reads as a range from −72.769 to
  *  −31.484. Both ends take the same number of decimals, enough for four
- *  significant figures of the span, so the two ends differ where the data
- *  does and carry no digits past that. A flat line has no span, and shows its
- *  value to five significant figures. A value too large or too small for that
- *  to read well is written in exponent form.
+ *  significant figures of the span, less any trailing zeros both share, and
+ *  more where that would print two different ends alike. A flat line is its
+ *  one value, to seven significant figures, so `101325` reads as itself. A
+ *  value of a billion or more, or below 0.0001, is written in exponent form,
+ *  with the same rule for keeping the ends apart.
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself. */
 export function composeLineRange(min: number, max: number): string {
-  const span = Math.abs(max - min);
+  // A value that rounds to zero is not negative.
+  const signed = (text: string) => (Number(text) === 0 ? text.replace(/^-/, "") : text).replace(/-/g, "−");
+  if (min === max) return signed(String(Number(min.toPrecision(7))));
   const largest = Math.max(Math.abs(min), Math.abs(max));
-  let decimals = span > 0 ? Math.max(0, 3 - Math.floor(Math.log10(span))) : -1;
-  const exponent = !(largest < 1e9) || decimals > 8 || (span === 0 && largest !== 0 && largest < 1e-4);
-  // Zeros both ends would close on say nothing: `101325 to 101330`, not
-  // `101325.000 to 101330.000`.
-  while (!exponent && decimals > 0 && /0$/.test(min.toFixed(decimals)) && /0$/.test(max.toFixed(decimals))) {
-    decimals--;
+  if (!(largest < 1e9) || largest < 1e-4) {
+    let digits = 4;
+    while (digits < 17 && min.toPrecision(digits) === max.toPrecision(digits)) digits++;
+    return signed(min.toPrecision(digits)) + " to " + signed(max.toPrecision(digits));
   }
-  const write = (v: number) => {
-    let text: string;
-    if (exponent) text = v.toPrecision(4);
-    else if (decimals < 0) text = String(Number(v.toPrecision(5)));
-    else text = v.toFixed(decimals);
-    // A value that rounds to zero is not negative.
-    if (Number(text) === 0) text = text.replace(/^-/, "");
-    return text.replace(/-/g, "\u2212");
-  };
+  const span = Math.abs(max - min);
+  let decimals = Math.min(15, Math.max(0, 3 - Math.floor(Math.log10(span))));
+  const write = (v: number) => signed(v.toFixed(decimals));
+  while (decimals < 15 && write(min) === write(max)) decimals++;
+  // Zeros both ends close on say nothing: `101325 to 101330`, not
+  // `101325.000 to 101330.000`.
+  while (decimals > 0 && /0$/.test(min.toFixed(decimals)) && /0$/.test(max.toFixed(decimals))) decimals--;
   return write(min) + " to " + write(max);
 }
 
@@ -2105,6 +2104,8 @@ export function renderImagePanelHtml(
           // And the line through the probed cell, for the same reason (#172) —
           // unless a zonal mean is on, which describes the new field and is
           // asked for again (#240).
+          // The readout's cell goes with the readout either way.
+          probedCell = null;
           if (zonalOn()) requestZonal(); else hideLine();
           // Reproject the overlay only when the raster *geometry* changed
           // (projection / preset / flip-y / bounds). A range- or resampling-
@@ -2812,8 +2813,10 @@ export function renderImagePanelHtml(
           lineCell = probedCell;
           // A click asks for this cell's line, which replaces a zonal mean. The
           // click is outside the toolbar, so the untick saves itself (#1027).
+          // A Zonal average box hidden for this grid shows nothing, and keeps
+          // its value for the next field that takes it (#1036).
           const toggle = document.getElementById('zonal-toggle');
-          if (toggle && toggle.checked) {
+          if (toggle && zonalOn()) {
             toggle.checked = false;
             snapshotState();
           }
@@ -2944,7 +2947,7 @@ export function renderImagePanelHtml(
           const units = line.units ? ' ' + line.units : '';
           const along = line.dimension + (line.coordinateUnits ? ' (' + line.coordinateUnits + ')' : '');
           if (!present.length) {
-            caption.textContent = (line.variable || 'Values') + ' along ' + along + ': no data at this cell.';
+            caption.textContent = (line.variable || 'Values') + ' across ' + along + ': no data at this cell.';
             return;
           }
 
@@ -2958,6 +2961,8 @@ export function renderImagePanelHtml(
             ymin = Math.min.apply(null, present.map((i) => line.values[i]));
             ymax = Math.max.apply(null, present.map((i) => line.values[i]));
           }
+          // The range the caption states, before any padding below.
+          const range = composeLineRange(Number(ymin), Number(ymax));
           // A flat line or a single point still needs a span to draw into.
           if (xmax === xmin) { xmin -= 0.5; xmax += 0.5; }
           if (ymax === ymin) { ymin -= 0.5; ymax += 0.5; }
@@ -2996,9 +3001,10 @@ export function renderImagePanelHtml(
           svg.appendChild(axisLabel);
 
           // A line with no name (#775) is captioned as values, not as nothing.
-          // The range is written with "to" and a true minus (#1037).
-          caption.textContent = (line.variable || 'Values') + ' along ' + along + ' · ' +
-            composeLineRange(Number(ymin), Number(ymax)) + units +
+          // The range is written with "to" and a true minus (#1037), and
+          // "across" as the axis picker's label has it.
+          caption.textContent = (line.variable || 'Values') + ' across ' + along + ' · ' +
+            range + units +
             ' · ' + present.length + ' of ' + n + ' points';
         }
 

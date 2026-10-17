@@ -399,7 +399,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       a cell in Siberia (60° N 100° E): the plot under the readout, above the
       map, is a time series over 2024, cold in January (about 250 K) and warm
       in July (about 293 K). Above it, `air at this point, across time`, with
-      `time` as the axis picker. The caption reads `air along time (hours
+      `time` as the axis picker. The caption reads `air across time (hours
       since 1800-01-01 00:00:0.0) · 238.35 to 300.83 degK · 366 of 366
       points`. The label under the plot reads as 2024 dates (`2024-01-01 …
       2024-12-31`), not raw hours (#1028).
