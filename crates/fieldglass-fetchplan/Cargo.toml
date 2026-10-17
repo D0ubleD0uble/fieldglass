@@ -49,6 +49,16 @@ fieldglass-core = { path = "../fieldglass-core", version = "=0.6.0", default-fea
 # table at all.
 fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.6.0", default-features = false }
 
+# JSON Schema derives on the types a host sends and receives: a plan item, its
+# range, address and expectation, a query, a source and its candidates (#1081).
+# The `fieldglass` umbrella's own `schema` feature turns this on, to record the
+# host API's schema, which the browser host's TypeScript declarations are
+# generated from. Off by default, so neither a crates.io consumer nor any host
+# build compiles `schemars`.
+schemars = { workspace = true, optional = true }
+
+[features]
+schema = ["dep:schemars"]
 
 [dev-dependencies]
 # The same crate again, with the codecs this crate's library declines.

@@ -33,6 +33,7 @@ const GRIB1_SECTION0_LEN: usize = 8;
 /// — so the open end has to survive as far as the host, which either issues an
 /// open-ended `Range` header or closes it with a size it knows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", tag = "kind")]
 #[non_exhaustive]
 pub enum PlanRange {
@@ -137,6 +138,7 @@ impl PlanRange {
 /// a `param` in ECMWF's. What they have in common is that each is a *claim* a
 /// consumer can check.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct Expect {
@@ -325,6 +327,7 @@ use fieldglass_core::printable_bytes as printable;
 /// and what both sidecar vocabularies have to resolve *to* for a query written
 /// once to match on either.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ParameterId {
     /// GRIB2 discipline (Code Table 0.0).
@@ -342,6 +345,7 @@ pub struct ParameterId {
 /// identical range, and a chunk of an array is known by its place in the grid
 /// rather than by its offset into whichever object holds it (#685).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
@@ -388,6 +392,7 @@ pub enum Address {
 /// One thing to fetch: which object, which bytes, which chunk or message they
 /// are, and what they should be.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct PlanItem {

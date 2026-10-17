@@ -72,6 +72,16 @@
 //! # fn fetch_text() -> Result<String, std::io::Error> { unimplemented!() }
 //! ```
 
+//! # From a host
+//!
+//! The plan crosses to a host as it is (#1081): [`PlanItem`], [`PlanRange`],
+//! [`Address`], [`Expect`], [`Query`], [`SourceSpec`] and [`Candidate`] are
+//! serde types with a camelCase wire form, so a binding hands them over and
+//! reads them back without a DTO of its own. Two things here exist for a host
+//! rather than for a Rust caller: [`verify_envelope`], which is
+//! [`Expect::verify_envelope`] answering in this crate's [`Error`], and
+//! [`CandidateOptions`], the clock and step a host sends to [`candidates`].
+
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -90,6 +100,90 @@ pub use fieldglass_fetchplan::{
 };
 
 use crate::api::MessageInfo;
+use crate::error::Error;
+
+/// When to ask [`candidates`] about, as a host sends it.
+///
+/// The clock is the host's (the planner reads none), so it is the one thing a
+/// host has to state. The step defaults to the analysis.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+#[non_exhaustive]
+pub struct CandidateOptions {
+    /// Now, as Unix seconds. A browser's `Date.now()` is milliseconds, so
+    /// divide it by 1000 first.
+    pub now_unix_secs: i64,
+    /// The forecast step to expand each key for, in hours. `0`, the analysis,
+    /// when left out.
+    #[serde(default)]
+    pub step_hours: u32,
+}
+
+impl CandidateOptions {
+    /// The analysis step, at `now_unix_secs`.
+    pub fn new(now_unix_secs: i64) -> Self {
+        Self {
+            now_unix_secs,
+            step_hours: 0,
+        }
+    }
+}
+
+/// The runs of `source` that should have posted by the options' clock, newest
+/// first, as [`candidates`] answers it but in this crate's [`Error`].
+pub fn candidates_at(
+    source: &SourceSpec,
+    options: &CandidateOptions,
+) -> Result<Vec<Candidate>, Error> {
+    Ok(candidates(
+        source,
+        options.now_unix_secs,
+        options.step_hours,
+    )?)
+}
+
+/// Check fetched bytes against the envelope a plan item promised:
+/// [`Expect::verify_envelope`] over the item's own range, in this crate's
+/// [`Error`]. Returns the message's declared total length.
+///
+/// A host passes the item it was handed back whole, so the expectation and the
+/// range cannot come from two different items.
+///
+/// Fewer bytes than the item asked for, or than the message declares, is
+/// [`Error::ShortRead`], which is worth retrying. Anything else — the bytes are
+/// not GRIB, or not the length the sidecar said, which is what a stale sidecar
+/// looks like — is [`Error::Decode`].
+pub fn verify_envelope(item: &PlanItem, bytes: &[u8]) -> Result<u64, Error> {
+    let short = |wanted: u64| Error::ShortRead {
+        at: item.range.offset(),
+        got: bytes.len() as u64,
+        wanted,
+    };
+    let asked = item.range.length();
+    item.expect
+        .verify_envelope(bytes, &item.range)
+        .map_err(|m| match m {
+            // A range that stated its length says how many bytes the fetch
+            // should have returned, so fewer is a short transfer whatever the
+            // bytes then fail on. Read off the buffer and not the mismatch:
+            // `Length` also reports a sidecar whose stated length disagrees
+            // with the message's, and then its `fetched` is the stated length.
+            _ if asked.is_some_and(|asked| (bytes.len() as u64) < asked) => {
+                short(asked.unwrap_or_default())
+            }
+            // An open range has no length to hold the fetch to, so too few
+            // bytes for the indicator section, or for the length the message
+            // declares, is the transfer's. An exact range that arrived whole
+            // and is still too short is the sidecar's, and falls through.
+            Mismatch::TooShort { need, .. } if asked.is_none() => short(need as u64),
+            Mismatch::Truncated { declared, .. } => short(declared),
+            other => Error::Decode {
+                detail: format!("the fetched bytes are not what the plan promised: {other}"),
+            },
+        })
+}
 
 /// Disciplines to scan when building the reverse index.
 ///
@@ -141,6 +235,7 @@ fn disciplines() -> Vec<u8> {
 /// master entry rather than a local override, since local space starts at 192.
 /// Guessing between two *different* parameters would be worse than either.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct TableResolver {
     originator: fieldglass_grib2::Originator,
     index: OnceLock<HashMap<String, ParameterId>>,

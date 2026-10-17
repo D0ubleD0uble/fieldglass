@@ -41,6 +41,13 @@ use fieldglass::{
     StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo, VectorOptions,
     WarpOptions, WarpTarget, Warped,
 };
+// The planner's wire types (#1081). `fetchplan` is a default feature, so this
+// suite names them unconditionally: a build without it is not one this file is
+// meant to pass, and a compile error says so louder than a skipped check would.
+use fieldglass::fetchplan::{
+    Address, Candidate, CandidateOptions, Expect, LevelSpec, ParameterId, PlanItem, PlanRange,
+    Query, SourceSpec, Surface,
+};
 
 // ---------------------------------------------------------------------------
 // The classification
@@ -194,6 +201,15 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
         Class::Engine,
         "the pixel-probe result; napi converts it into its own DTO",
     ),
+    // --- fetchplan.rs: what the umbrella adds to the planner (#1081) --------
+    // The clock and step a host sends to `candidates`.
+    ("CandidateOptions", Class::Wire, ""),
+    (
+        "TableResolver",
+        Class::Engine,
+        "the GRIB2 tables inverted into a name index; a host holds one and \
+         passes it to `select`, and nothing serialises it",
+    ),
     // --- conformance.rs: the suite's own shape, not the host contract -------
     (
         "Tolerance",
@@ -311,6 +327,133 @@ const FOREIGN_REEXPORTS: &[(&str, Class, &str)] = &[
     ),
 ];
 
+/// The planner types `fieldglass::fetchplan` re-exports from
+/// `fieldglass-fetchplan`, classified the way [`FOREIGN_REEXPORTS`] classifies
+/// `core`'s (#1081).
+///
+/// The `Wire` ones cross to a host as they are, so they owe what a DTO owes:
+/// they are in the schema, round-trip from a document, and pass the source scan
+/// against the planner's own files
+/// ([`every_planner_wire_type_follows_the_rules`](fn@every_planner_wire_type_follows_the_rules)).
+/// A wire entry's third column is not a reason but an exemption, and only one
+/// rule can be exempted: `#[non_exhaustive]`, named by [`PLANNER_EXHAUSTIVE`].
+const PLANNER_REEXPORTS: &[(&str, Class, &str)] = &[
+    // What a host receives from a plan, and sends back to verify it.
+    ("PlanItem", Class::Wire, ""),
+    ("PlanRange", Class::Wire, ""),
+    ("Address", Class::Wire, ""),
+    ("Expect", Class::Wire, ""),
+    ("ParameterId", Class::Wire, ""),
+    ("LevelSpec", Class::Wire, ""),
+    ("Surface", Class::Wire, ""),
+    // What a host sends to select, and the run discovery's input and output.
+    ("Query", Class::Wire, ""),
+    ("SourceSpec", Class::Wire, ""),
+    ("Candidate", Class::Wire, ""),
+    (
+        "Wgrib2Idx",
+        Class::Engine,
+        "a parsed sidecar a host holds and asks; its items cross, it does not",
+    ),
+    (
+        "EcmwfIndex",
+        Class::Engine,
+        "a parsed sidecar a host holds and asks; its items cross, it does not",
+    ),
+    (
+        "Manifest",
+        Class::Engine,
+        "the trait both sidecars and the reference document implement",
+    ),
+    (
+        "MessageManifest",
+        Class::Engine,
+        "the trait `select` is on; a host calls it, never sends it",
+    ),
+    (
+        "ParameterResolver",
+        Class::Engine,
+        "the seam `TableResolver` implements, so a host can name it",
+    ),
+    (
+        "NoResolver",
+        Class::Engine,
+        "the resolver that resolves nothing, for the purely syntactic path",
+    ),
+    (
+        "FetchPlanError",
+        Class::Engine,
+        "what the planner fails with; a host receives it as `Error`, \
+         `decode` or `invalid_option`",
+    ),
+    (
+        "Mismatch",
+        Class::Engine,
+        "why fetched bytes are not what a plan promised; a host receives it as \
+         `Error`, through `fetchplan::verify_envelope`",
+    ),
+    (
+        "Dialect",
+        Class::Engine,
+        "which grammar a `FetchPlanError` names; reaches a host only as prose",
+    ),
+    // The chunk half (#687). No host binds it yet; #1081 binds the message half.
+    (
+        "KerchunkRefs",
+        Class::Engine,
+        "a parsed reference document; the chunk half, which no host binds yet",
+    ),
+    (
+        "ArrayMetadata",
+        Class::Engine,
+        "an array's parsed metadata, read in Rust on the way to a chunk key",
+    ),
+    (
+        "ArrayError",
+        Class::Engine,
+        "why array metadata did not read; reaches a host only as prose",
+    ),
+    (
+        "ChunkGrid",
+        Class::Engine,
+        "chunk-grid arithmetic, used in Rust to spell a chunk key",
+    ),
+    (
+        "ChunkKeyEncoding",
+        Class::Engine,
+        "how a chunk key is spelt, read in Rust",
+    ),
+];
+
+/// Planner wire types exempt from `#[non_exhaustive]`, with the reason.
+const PLANNER_EXHAUSTIVE: &[(&str, &str)] = &[(
+    "ParameterId",
+    "three octets, the identity GRIB2 gives a parameter (discipline, category, \
+     number); it cannot grow, and `#[non_exhaustive]` would stop a caller \
+     writing the triple it is",
+)];
+
+/// The planner's source files, for the source scan. Its types are declared
+/// there, not here, so the scan reads them where they are.
+const PLANNER_MODULES: &[(&str, &str)] = &[
+    (
+        "fetchplan/plan.rs",
+        include_str!("../../fieldglass-fetchplan/src/plan.rs"),
+    ),
+    (
+        "fetchplan/level.rs",
+        include_str!("../../fieldglass-fetchplan/src/level.rs"),
+    ),
+    (
+        "fetchplan/manifest.rs",
+        include_str!("../../fieldglass-fetchplan/src/manifest.rs"),
+    ),
+    (
+        "fetchplan/discovery.rs",
+        include_str!("../../fieldglass-fetchplan/src/discovery.rs"),
+    ),
+];
+
 // ---------------------------------------------------------------------------
 // The compile-time half
 // ---------------------------------------------------------------------------
@@ -373,6 +516,19 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<PaletteOptions>();
     is_wire_shaped::<Raster>();
     is_wire_shaped::<RenderOptions>();
+    is_wire_shaped::<CandidateOptions>();
+
+    // The planner's (#1081), declared in `fieldglass-fetchplan`.
+    is_wire_shaped::<PlanItem>();
+    is_wire_shaped::<PlanRange>();
+    is_wire_shaped::<Address>();
+    is_wire_shaped::<Expect>();
+    is_wire_shaped::<ParameterId>();
+    is_wire_shaped::<LevelSpec>();
+    is_wire_shaped::<Surface>();
+    is_wire_shaped::<Query>();
+    is_wire_shaped::<SourceSpec>();
+    is_wire_shaped::<Candidate>();
 
     is_engine_shaped::<ResolvedOptions>();
     is_engine_shaped::<TargetKind>();
@@ -409,6 +565,14 @@ fn every_option_type_is_constructible_from_outside_the_crate() {
     render.colormap = Some("plasma".to_string());
     render.flip_y = true;
     assert!(render.flip_y);
+
+    let mut at = CandidateOptions::new(1_788_500_000);
+    at.step_hours = 6;
+    assert_eq!(at.now_unix_secs, 1_788_500_000);
+
+    let mut query = Query::abbreviation("TMP").at_level_text("2 m above ground");
+    query.unqualified = true;
+    assert_eq!(query.abbreviation.as_deref(), Some("TMP"));
 }
 
 /// Every wire type survives a JSON round trip unchanged, from a document
@@ -531,9 +695,55 @@ fn every_wire_type_round_trips_through_json() {
         r#"{"name":"PRODUCT/sst","reason":"unsupported section: codec bz2"}"#,
     );
     round_trip::<RenderOptions>("RenderOptions", RENDER_OPTIONS_JSON);
+    round_trip::<CandidateOptions>(
+        "CandidateOptions",
+        r#"{"nowUnixSecs":1788500000,"stepHours":6}"#,
+    );
+
+    // The planner's (#1081). Every variant of each tagged enum, because the tag
+    // spelling is per variant.
+    round_trip::<PlanRange>(
+        "PlanRange",
+        r#"{"kind":"exact","offset":76032983,"length":210}"#,
+    );
+    round_trip::<PlanRange>("PlanRange", r#"{"kind":"openEnded","offset":490148925}"#);
+    round_trip::<PlanRange>("PlanRange", r#"{"kind":"whole"}"#);
+    round_trip::<Address>(
+        "Address",
+        r#"{"kind":"message","index":106,"subIndex":null}"#,
+    );
+    round_trip::<Address>(
+        "Address",
+        r#"{"kind":"chunk","array":"temp","index":[1,0]}"#,
+    );
+    round_trip::<Address>("Address", r#"{"kind":"key","key":"temp/.zarray"}"#);
+    round_trip::<ParameterId>("ParameterId", r#"{"discipline":0,"category":1,"number":1}"#);
+    round_trip::<Surface>("Surface", r#""isobaric""#);
+    round_trip::<Surface>("Surface", r#"{"named":"cloud ceiling"}"#);
+    round_trip::<LevelSpec>("LevelSpec", LEVEL_SPEC_JSON);
+    round_trip::<Expect>("Expect", &EXPECT_JSON.replace("LEVEL", LEVEL_SPEC_JSON));
+    round_trip::<PlanItem>(
+        "PlanItem",
+        &PLAN_ITEM_JSON.replace("EXPECT", &EXPECT_JSON.replace("LEVEL", LEVEL_SPEC_JSON)),
+    );
+    round_trip::<Query>("Query", &QUERY_JSON.replace("LEVEL", LEVEL_SPEC_JSON));
+    round_trip::<SourceSpec>("SourceSpec", SOURCE_SPEC_JSON);
+    round_trip::<Candidate>(
+        "Candidate",
+        r#"{"key":"gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000","cycleUnixSecs":1788480000,"stepHours":0}"#,
+    );
 
     assert_covers_every_wire_type("every_wire_type_round_trips_through_json", ROUND_TRIPPED);
 }
+
+/// A level with a value, so `value` is pinned present as well as absent.
+const LEVEL_SPEC_JSON: &str = r#"{"surface":"isobaric","value":2.0,"value2":null}"#;
+/// An `Expect` with every field stated; `LEVEL` stands in for the level.
+const EXPECT_JSON: &str = r#"{"abbreviation":"RH","parameter":{"discipline":0,"category":1,"number":1},"level":"2 mb","levelSpec":LEVEL,"forecast":"anl","referenceTime":"2026090400","totalLength":210,"qualifiers":["ENS=+1"]}"#;
+const PLAN_ITEM_JSON: &str = r#"{"key":"gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000","range":{"kind":"exact","offset":76032983,"length":210},"address":{"kind":"message","index":106,"subIndex":null},"expect":EXPECT}"#;
+/// A `Query` with every constraint stated.
+const QUERY_JSON: &str = r#"{"abbreviation":"RH","parameter":{"discipline":0,"category":1,"number":1},"levelText":"2 mb","level":LEVEL,"forecast":"anl","qualifiers":["ENS=+1"],"unqualified":false}"#;
+const SOURCE_SPEC_JSON: &str = r#"{"keyPattern":"gfs.{yyyy}{mm}{dd}/{HH}/atmos/gfs.t{HH}z.pgrb2.0p25.f{fff}","cycleHours":[0,6,12,18],"latencyMinutes":240,"maxCandidates":3}"#;
 
 /// A `Georef` as it crosses the wire. `geometry` is `core`'s tagged enum and is
 /// described loosely to a schema consumer on purpose, so the smallest real
@@ -598,10 +808,21 @@ const ROUND_TRIPPED: &[&str] = &[
     "AxisValues",
     "VectorOptions",
     "LeftOutArray",
+    "CandidateOptions",
+    "PlanItem",
+    "PlanRange",
+    "Address",
+    "Expect",
+    "ParameterId",
+    "LevelSpec",
+    "Surface",
+    "Query",
+    "SourceSpec",
+    "Candidate",
 ];
 
 /// Fail unless `covered` is exactly the `Class::Wire` half of
-/// [`CLASSIFICATION`].
+/// [`CLASSIFICATION`] and [`PLANNER_REEXPORTS`].
 ///
 /// The lists in this file are hand-written, which is the same fail-open the
 /// preamble says the source scan exists to close: a wire type added to
@@ -610,6 +831,7 @@ const ROUND_TRIPPED: &[&str] = &[
 fn assert_covers_every_wire_type(what: &str, covered: &[&str]) {
     let wanted: BTreeSet<&str> = CLASSIFICATION
         .iter()
+        .chain(PLANNER_REEXPORTS)
         .filter(|(_, c, _)| *c == Class::Wire)
         .map(|(n, _, _)| *n)
         .collect();
@@ -724,6 +946,10 @@ const MODULES: &[(&str, &str)] = &[
     // Declares no type today, and is here so that one added tomorrow is
     // classified rather than unscanned.
     ("shader.rs", include_str!("../src/shader.rs")),
+    // What the umbrella adds to the planner: the resolver, and one option type
+    // a host sends (#1081). The planner's own types are scanned from its files,
+    // through `PLANNER_MODULES`.
+    ("fetchplan.rs", include_str!("../src/fetchplan.rs")),
 ];
 
 /// Rules a declaration can break, as a message naming the type and the rule.
@@ -1195,13 +1421,141 @@ fn every_foreign_reexport_is_classified() {
     }
 }
 
+/// Every `pub use` statement in `source`, joined onto one line.
+///
+/// A re-export list long enough for rustfmt to wrap spans several lines, and a
+/// line-by-line scan would see only its first, which names no type.
+fn pub_use_statements(source: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut open: Option<String> = None;
+    for line in without_tests(source).lines() {
+        let t = line.trim();
+        let mut statement = match open.take() {
+            Some(mut s) => {
+                s.push(' ');
+                s.push_str(t);
+                s
+            }
+            None if t.starts_with("pub use ") => t.to_string(),
+            None => continue,
+        };
+        if statement.ends_with(';') {
+            out.push(std::mem::take(&mut statement));
+        } else {
+            open = Some(statement);
+        }
+    }
+    out
+}
+
+/// The planner re-export table names exactly the types `fieldglass::fetchplan`
+/// re-exports from `fieldglass-fetchplan` (#1081), and each one not on the wire
+/// says why.
+#[test]
+fn every_planner_reexport_is_classified() {
+    let source = include_str!("../src/fetchplan.rs");
+    let mut found = BTreeSet::new();
+    for statement in pub_use_statements(source) {
+        if !statement.contains("fieldglass_fetchplan") {
+            continue;
+        }
+        for name in statement
+            .trim_start_matches("pub use ")
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        {
+            // Types only, as in `every_foreign_reexport_is_classified`: the
+            // re-exported functions owe none of these rules.
+            let upper_first = name.chars().next().is_some_and(char::is_uppercase);
+            if upper_first && name.chars().any(char::is_lowercase) {
+                found.insert(name.to_string());
+            }
+        }
+    }
+    let classified: BTreeSet<String> = PLANNER_REEXPORTS
+        .iter()
+        .map(|(n, _, _)| (*n).to_string())
+        .collect();
+    assert!(
+        found.len() > 10,
+        "the scan found only {found:?}; it stopped reading the re-export list"
+    );
+    assert_eq!(
+        found, classified,
+        "the planner re-exports and PLANNER_REEXPORTS have diverged"
+    );
+}
+
+/// Every planner wire type passes the rules a wire type owes, read from the
+/// planner's own source: the derives, a stated casing, no `Vec<Option<…>>`, no
+/// skipped key, and `#[non_exhaustive]` unless [`PLANNER_EXHAUSTIVE`] says why
+/// not.
+#[test]
+fn every_planner_wire_type_follows_the_rules() {
+    let decls: BTreeMap<String, (&str, Decl)> = PLANNER_MODULES
+        .iter()
+        .flat_map(|(module, src)| declarations(src).into_iter().map(move |d| (*module, d)))
+        .map(|(module, d)| (d.name.clone(), (module, d)))
+        .collect();
+    let mut violations = Violations::new();
+    for (name, class, _) in PLANNER_REEXPORTS {
+        if *class != Class::Wire {
+            continue;
+        }
+        let Some((module, decl)) = decls.get(*name) else {
+            violations.push(format!("{name}: not declared in any of PLANNER_MODULES"));
+            continue;
+        };
+        let exempt = PLANNER_EXHAUSTIVE.iter().any(|(n, _)| n == name);
+        violations.extend(
+            check(decl, Class::Wire)
+                .into_iter()
+                .filter(|v| !(exempt && v.ends_with("is not #[non_exhaustive]")))
+                .map(|v| format!("{module}: {v}")),
+        );
+        if exempt && decl.attrs.iter().any(|a| a.contains("non_exhaustive")) {
+            violations.push(format!(
+                "{name}: is #[non_exhaustive] and also exempted from it; drop the exemption"
+            ));
+        }
+    }
+    for (name, reason) in PLANNER_EXHAUSTIVE {
+        assert!(!reason.is_empty(), "{name} is exempted with no reason");
+    }
+    assert!(
+        violations.is_empty(),
+        "{} ADR-0006 rule violation(s) on the planner's wire types:\n{}",
+        violations.len(),
+        violations.join("\n")
+    );
+}
+
+/// The planner's rule check is connected: a wire type with no schema derive is
+/// reported, read from text the way the planner's files are.
+#[test]
+fn the_planner_scan_rejects_a_type_without_its_derives() {
+    let bad = "#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]\n\
+               #[serde(rename_all = \"camelCase\")]\n\
+               #[non_exhaustive]\n\
+               pub struct PlanItem {\n    pub key: String,\n}\n";
+    let decl = declarations(bad).pop().expect("one declaration");
+    let found = check(&decl, Class::Wire);
+    assert!(
+        found.iter().any(|v| v.contains("schemars::JsonSchema")),
+        "{found:?}"
+    );
+}
+
 /// Every exemption states why.
 ///
 /// An exemption with no reason is how a rule stops being a rule: the next
 /// person adds one beside it and nobody can say what either was for.
 #[test]
 fn every_exemption_carries_a_reason() {
-    for (name, class, reason) in CLASSIFICATION.iter().chain(FOREIGN_REEXPORTS) {
+    for (name, class, reason) in CLASSIFICATION
+        .iter()
+        .chain(FOREIGN_REEXPORTS)
+        .chain(PLANNER_REEXPORTS)
+    {
         if *class != Class::Wire {
             assert!(
                 !reason.is_empty(),
@@ -1556,6 +1910,17 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<AxisValues>("AxisValues");
     check_schema::<VectorOptions>("VectorOptions");
     check_schema::<LeftOutArray>("LeftOutArray");
+    check_schema::<CandidateOptions>("CandidateOptions");
+    check_schema::<PlanItem>("PlanItem");
+    check_schema::<PlanRange>("PlanRange");
+    check_schema::<Address>("Address");
+    check_schema::<Expect>("Expect");
+    check_schema::<ParameterId>("ParameterId");
+    check_schema::<LevelSpec>("LevelSpec");
+    check_schema::<Surface>("Surface");
+    check_schema::<Query>("Query");
+    check_schema::<SourceSpec>("SourceSpec");
+    check_schema::<Candidate>("Candidate");
 
     assert_covers_every_wire_type(
         "no_wire_schema_hides_an_optional_element_array",
@@ -1600,6 +1965,17 @@ const SCHEMA_CHECKED: &[&str] = &[
     "AxisValues",
     "VectorOptions",
     "LeftOutArray",
+    "CandidateOptions",
+    "PlanItem",
+    "PlanRange",
+    "Address",
+    "Expect",
+    "ParameterId",
+    "LevelSpec",
+    "Surface",
+    "Query",
+    "SourceSpec",
+    "Candidate",
 ];
 
 /// A type that carries the engine's own `Vec<Option<f64>>` across the seam.
@@ -1670,12 +2046,19 @@ const UPDATE_SCHEMA_ENV: &str = "FIELDGLASS_UPDATE_SCHEMA";
 /// option object is read with `#[serde(default)]`, so a key a host leaves out
 /// is a default rather than an error: the *deserialize* contract, in which
 /// those fields are not required.
+///
+/// The planner's `PlanItem` is the one type a host sends *back*: it hands the
+/// item it was given to `verifyEnvelope`. It is registered as returned, because
+/// what a host passes back is the object it received, with every key present.
 const SENT: &[&str] = &[
     "DecodeOptions",
     "WarpOptions",
     "PaletteOptions",
     "RenderOptions",
     "VectorOptions",
+    "CandidateOptions",
+    "Query",
+    "SourceSpec",
 ];
 
 /// Wire types that are deliberately not in the schema, with the reason.
@@ -1746,9 +2129,11 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
         MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, LeftOutArray,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
         Error, Raster,
+        PlanItem, PlanRange, Address, Expect, ParameterId, LevelSpec, Surface, Candidate,
     );
     register!(sent:
         DecodeOptions, WarpOptions, PaletteOptions, RenderOptions, VectorOptions,
+        CandidateOptions, Query, SourceSpec,
     );
 
     let mut defs = sent.take_definitions(true);

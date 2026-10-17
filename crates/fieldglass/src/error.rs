@@ -161,6 +161,34 @@ impl From<FieldglassError> for Error {
     }
 }
 
+/// A planner failure, in the codes a host already branches on (#1081).
+///
+/// Two codes cover it. A source entry or a clock the caller handed over that
+/// the planner cannot use is the caller's to fix, so it is `invalid_option`.
+/// A manifest that does not parse is a document that did not, which is what
+/// `decode` already says about a container; the planner's own variant is kept
+/// in the prose, which names the dialect and the line.
+#[cfg(feature = "fetchplan")]
+impl From<fieldglass_fetchplan::FetchPlanError> for Error {
+    fn from(e: fieldglass_fetchplan::FetchPlanError) -> Self {
+        use fieldglass_fetchplan::FetchPlanError as E;
+        match e {
+            E::UnknownPlaceholder { .. }
+            | E::UnterminatedPlaceholder { .. }
+            | E::NoCycleHours
+            | E::CycleHourOutOfRange { .. }
+            | E::UnsortedCycleHours { .. }
+            | E::TimeOutOfRange { .. }
+            | E::OffsetPastEnd { .. } => Self::InvalidOption {
+                detail: e.to_string(),
+            },
+            other => Self::Decode {
+                detail: other.to_string(),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

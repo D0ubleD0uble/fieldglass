@@ -1,5 +1,86 @@
 {
   "$defs": {
+    "Address": {
+      "description": "Which chunk or message a [`PlanItem`] is: what the fetched bytes are, as\nagainst where they are.\n\nA range alone does not say. Two fields of one GRIB message carry the\nidentical range, and a chunk of an array is known by its place in the grid\nrather than by its offset into whichever object holds it (#685).",
+      "oneOf": [
+        {
+          "description": "A message of a GRIB stream.",
+          "properties": {
+            "index": {
+              "description": "The message's place in the manifest's own list of messages — the\nlist [`Manifest::messages`](crate::Manifest::messages) returns —\ncounting from zero. The manifest's order rather than a number the\nproducer wrote: an ECMWF `.index` writes none, and a wgrib2 `.idx`\ntrimmed by hand keeps the numbers of the object it came from.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "message",
+              "type": "string"
+            },
+            "subIndex": {
+              "description": "Which field *within* the message, when the message holds more than\none.\n\nwgrib2 numbers those records `n.m`, and every one of them shares\nmessage `n`'s offset — so two items can carry the identical range\nand differ only here. 1-based, matching the `m` wgrib2 writes;\n`None` when the message holds a single field.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "index",
+            "subIndex"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A chunk of an array in a keyed store.",
+          "properties": {
+            "array": {
+              "description": "The array's name as the manifest spells it, path-qualified for a\nnested group, and empty for a store's unnamed root array.",
+              "type": "string"
+            },
+            "index": {
+              "description": "The chunk's place in the array's chunk grid, one entry per axis.",
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "chunk",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "array",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A store key that names no chunk of an array the manifest describes.\n\nWhat [`KerchunkRefs::range_of`](crate::KerchunkRefs::range_of) hands\nback, since a lookup by key knows no array, and what a reference\ndocument's ranged entries are when they sit outside every array.",
+          "properties": {
+            "key": {
+              "description": "The key, as the manifest spells it.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "key"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Addressing": {
       "description": "How a container is addressed: what a caller asks for to get a field.\n\nThe two shapes are not a detail of the format, they are what the format\n*is*. GRIB is a stream of self-describing messages, so a message index\nis the whole address. NetCDF and Zarr hold named variables of two or\nmore dimensions, so a field is a variable plus which axes are the\nhorizontal pair plus where the caller is standing on the others — four\nthings, and no ordering of them is more natural than another.\n\nA host asks this once, on open, and then knows which half of\n[`crate::Session`] applies. Everything downstream of a decode —\n`render`, `probe`, `contours`, `combine`, `warp`, `palette` — takes a\n[`Field`] and is the same for both.",
       "oneOf": [
@@ -110,6 +191,54 @@
         "length",
         "coordinates",
         "units"
+      ],
+      "type": "object"
+    },
+    "Candidate": {
+      "description": "A run this source should have posted, and the key it should be under.",
+      "properties": {
+        "cycleUnixSecs": {
+          "description": "The cycle's nominal time, as Unix seconds.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "key": {
+          "description": "The expanded object key.",
+          "type": "string"
+        },
+        "stepHours": {
+          "description": "The forecast step, in hours, that this key was expanded for.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "cycleUnixSecs",
+        "stepHours"
+      ],
+      "type": "object"
+    },
+    "CandidateOptions": {
+      "additionalProperties": false,
+      "description": "When to ask [`candidates`] about, as a host sends it.\n\nThe clock is the host's (the planner reads none), so it is the one thing a\nhost has to state. The step defaults to the analysis.",
+      "properties": {
+        "nowUnixSecs": {
+          "description": "Now, as Unix seconds. A browser's `Date.now()` is milliseconds, so\ndivide it by 1000 first.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "stepHours": {
+          "default": 0,
+          "description": "The forecast step to expand each key for, in hours. `0`, the analysis,\nwhen left out.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "nowUnixSecs"
       ],
       "type": "object"
     },
@@ -342,6 +471,88 @@
           "type": "object"
         }
       ]
+    },
+    "Expect": {
+      "description": "What the manifest line promised about the bytes in a [`PlanItem`]'s range.\n\nEvery field is optional because the dialects promise different things: a\nwgrib2 `.idx` states an abbreviation, a level and a forecast in NCEP's own\nvocabulary and no length at all, while an ECMWF `.index` states a length and\na `param` in ECMWF's. What they have in common is that each is a *claim* a\nconsumer can check.",
+      "properties": {
+        "abbreviation": {
+          "description": "The parameter's short name in the **sidecar's own** vocabulary — `TMP`\non an NCEP `.idx`, `2t` on an ECMWF `.index`. Not translated: the whole\npoint of an expectation is that it is what the manifest said.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "forecast": {
+          "description": "The forecast field as the manifest renders it: `anl`, `6 hour fcst`,\n`0-1 hour acc fcst`, or an ECMWF `step` in hours.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "level": {
+          "description": "The level exactly as the manifest renders it: `2 m above ground`,\n`500 mb`, `sfc`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "levelSpec": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LevelSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The level parsed into a surface and a value, where\n[`parse_ncep_level`](crate::parse_ncep_level) or\n[`parse_ecmwf_level`](crate::parse_ecmwf_level) recognises it."
+        },
+        "parameter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParameterId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The parameter's WMO codes, when the manifest states them outright or a\n[`ParameterResolver`](crate::ParameterResolver) resolved them.\n\nwgrib2 writes them in the line itself for a parameter its own tables do\nnot name — `var discipline=0 center=7 local_table=1 parmcat=16 parm=201`\n— which is the one case where a `.idx` is *more* precise than its\nabbreviation, not less."
+        },
+        "qualifiers": {
+          "description": "Everything else the line carried, in order — `ENS=+1`, `prob <304.8`,\n`prob fcst 3/7`. Matched verbatim by a query and otherwise passed\nthrough, because the vocabulary is per-product and open-ended.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "referenceTime": {
+          "description": "The reference time as the manifest renders it — a wgrib2 `d=` value with\nthe prefix stripped (`2026090400`), or an ECMWF `date` and `time`\njoined (`2026090400`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "totalLength": {
+          "description": "The message's total length in bytes, when the manifest states it.\nECMWF's `_length` does; a wgrib2 `.idx` never does.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "abbreviation",
+        "parameter",
+        "level",
+        "levelSpec",
+        "forecast",
+        "referenceTime",
+        "totalLength",
+        "qualifiers"
+      ],
+      "type": "object"
     },
     "Field": {
       "description": "One decoded field: the values, where they sit, and what they are.\n\nThe host owns this. The façade keeps no decode cache — linear memory\nnever shrinks and an animation holds many fields — so a field is handed\nout once and passed back by reference to every operation that consumes\none.",
@@ -719,6 +930,37 @@
       "required": [
         "name",
         "reason"
+      ],
+      "type": "object"
+    },
+    "LevelSpec": {
+      "description": "A level, parsed as far as the grammar goes.\n\n`value` and `value2` are in the surface's own unit — hectopascals for\n[`Surface::Isobaric`], metres for the height and depth surfaces, kelvin for\n[`Surface::PotentialTemperature`]. A layer between two bounds fills both, in\nthe order the manifest wrote them (`30-0 mb above ground` is\n`value = 30`, `value2 = 0`).",
+      "properties": {
+        "surface": {
+          "$ref": "#/$defs/Surface",
+          "description": "Which surface."
+        },
+        "value": {
+          "description": "The level's value, or the layer's first bound.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "value2": {
+          "description": "The layer's second bound, when the level is a layer.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "surface",
+        "value",
+        "value2"
       ],
       "type": "object"
     },
@@ -1419,6 +1661,38 @@
       },
       "type": "object"
     },
+    "ParameterId": {
+      "description": "A WMO parameter's identity, as GRIB2 numbers it.\n\nThree octets and nothing else, because that is what a request is stored as\nand what both sidecar vocabularies have to resolve *to* for a query written\nonce to match on either.",
+      "properties": {
+        "category": {
+          "description": "Parameter category within the discipline (Code Table 4.1).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "discipline": {
+          "description": "GRIB2 discipline (Code Table 0.0).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "number": {
+          "description": "Parameter number within the category (Code Table 4.2).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "discipline",
+        "category",
+        "number"
+      ],
+      "type": "object"
+    },
     "Placement": {
       "description": "Whether a grid can be placed on the Earth, and why not when it cannot\n(#776).\n\nThe reason [`Georef::corners`] alone does not give: a `null` corner pair\ncan mean there is nothing to place, or that there is a raster and the\nprojection cannot place it, and a host acts differently on the two. The\nfirst has nothing to draw. The second still draws in its own grid\ncoordinates and only the map is missing.\n\nA sibling of the value rather than a wrapper around it (#574's decision):\nthe corners stay a plain `[f64; 4] | null`, and this says which absence\na `null` is.",
       "oneOf": [
@@ -1446,6 +1720,99 @@
           "const": "predefined_unresolved",
           "description": "A GRIB1 message with no grid description, identified only by a\npredefined grid number (WMO ON388 Table B) this build does not have\nin its catalogue. The message names a grid; this build cannot say\nwhich.\n\nOnly [`MessageInfo::placement`] reports this. A [`Georef`] exists\nonly once a grid is known, so its placement is never this one.",
           "type": "string"
+        }
+      ]
+    },
+    "PlanItem": {
+      "description": "One thing to fetch: which object, which bytes, which chunk or message they\nare, and what they should be.",
+      "properties": {
+        "address": {
+          "$ref": "#/$defs/Address",
+          "description": "Which chunk or message the bytes are."
+        },
+        "expect": {
+          "$ref": "#/$defs/Expect",
+          "description": "What the manifest line promised about these bytes."
+        },
+        "key": {
+          "description": "The object key the manifest describes, exactly as the caller gave it.\nThis crate never invents one and hard-codes no bucket.",
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/PlanRange",
+          "description": "The bytes to fetch."
+        }
+      },
+      "required": [
+        "key",
+        "range",
+        "address",
+        "expect"
+      ],
+      "type": "object"
+    },
+    "PlanRange": {
+      "description": "A byte range to fetch, in the three shapes a manifest can state one.\n\nThe distinction is not cosmetic. A wgrib2 `.idx` gives the offset of every\nmessage and the length of none: a message ends where the next one begins, so\nthe **last** record has no stated end at all. Some buckets will not tell a\nbrowser what the object's size is either — NOAA's NODD buckets expose\nneither `Content-Length` nor `Content-Range` cross-origin, while ECMWF does\n— so the open end has to survive as far as the host, which either issues an\nopen-ended `Range` header or closes it with a size it knows.",
+      "oneOf": [
+        {
+          "description": "Both ends known: `offset..offset + length`.",
+          "properties": {
+            "kind": {
+              "const": "exact",
+              "type": "string"
+            },
+            "length": {
+              "description": "How many bytes.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "offset": {
+              "description": "First byte, from the start of the object.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "offset",
+            "length"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The start is known and the end is the end of the object.",
+          "properties": {
+            "kind": {
+              "const": "openEnded",
+              "type": "string"
+            },
+            "offset": {
+              "description": "First byte, from the start of the object.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "offset"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The whole object, because the manifest addresses it as one unit.",
+          "properties": {
+            "kind": {
+              "const": "whole",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -1488,6 +1855,74 @@
         "j",
         "value"
       ],
+      "type": "object"
+    },
+    "Query": {
+      "additionalProperties": false,
+      "description": "What to select out of a manifest.\n\nEvery stated constraint must hold; an unstated one matches anything, so\n`Query::default()` selects every record. The two halves are deliberately\nseparate:\n\n* [`abbreviation`](Self::abbreviation) and [`level_text`](Self::level_text)\n  match the sidecar's **own** words, which is what a user pasting a line out\n  of a `.idx` has.\n* [`parameter`](Self::parameter) and [`level`](Self::level) match the\n  *meaning*, through a [`ParameterResolver`] and the level grammar, which is\n  what a stored request has — and is the only form that matches on NCEP and\n  ECMWF sources alike.\n\n**Ambiguity is never resolved by guessing.** A query that matches four\nrecords returns four items, each carrying the qualifiers that distinguish it\n(`ENS=+1`, `prob <304.8`), and the caller picks. Silently taking the first\nwould hand a user one ensemble member and call it the forecast.\n\n**On the wire** (#1081) a host sends one as a camelCase object, and a key it\nleaves out is unstated, exactly as a field left at its default is here. An\nunknown key is refused rather than ignored: a misspelt `levelTxt` dropped\nsilently would widen the query to every level, which is a wrong answer that\nlooks like a right one.",
+      "properties": {
+        "abbreviation": {
+          "default": null,
+          "description": "The sidecar's own short name, matched case-insensitively and in full.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "forecast": {
+          "default": null,
+          "description": "The sidecar's own forecast field, matched case-insensitively and in\nfull: `anl`, `6 hour fcst`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LevelSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A level, matched through [`LevelSpec::matches`] — so a query naming only\na surface matches every value on it."
+        },
+        "levelText": {
+          "default": null,
+          "description": "The sidecar's own level string, matched case-insensitively and in full.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parameter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParameterId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "WMO codes, matched against whatever the record resolves to."
+        },
+        "qualifiers": {
+          "default": [],
+          "description": "Qualifiers that must **all** appear on the record, each matched\ncase-insensitively and in full against one of the record's own:\n`ENS=+1`, `probability forecast`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unqualified": {
+          "default": false,
+          "description": "Require the record to carry **no** qualifiers at all.\n\nThe other half of narrowing an ambiguous request, and not reachable\nthrough [`qualifiers`](Self::qualifiers), which can only add\nrequirements. NBM publishes a plain deterministic field beside its\nprobabilistic ones under the same abbreviation and level — a bare\n`CEIL:cloud ceiling:1 hour fcst:` next to five `prob <…` records — and\nthe deterministic one is distinguished precisely by having nothing after\nthe forecast field. Without this it is the one record in an ambiguous\nset that cannot be asked for, which would leave a caller taking the\nfirst match and being right by accident.\n\nSetting this *and* [`qualifiers`](Self::qualifiers) is a contradiction\nand matches nothing, which is the honest answer rather than a panic.",
+          "type": "boolean"
+        }
+      },
       "type": "object"
     },
     "Raster": {
@@ -1694,6 +2129,44 @@
         }
       ]
     },
+    "SourceSpec": {
+      "description": "One entry of the host's source catalog: how a model names its objects and\nwhen it posts them.",
+      "properties": {
+        "cycleHours": {
+          "description": "The hours of the day this model runs, strictly ascending, each `0..=23`.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "keyPattern": {
+          "description": "The object-key template, e.g.\n`hrrr.{yyyy}{mm}{dd}/conus/hrrr.t{HH}z.wrfsfcf{ff}.grib2`.\n\nPlaceholders are `{yyyy}` `{yy}` `{mm}` `{dd}` `{doy}` for the cycle's\ndate, `{HH}` `{H}` for its hour, and `{fff}` `{ff}` `{f}` for the\nforecast step in hours. Anything else is refused by\n[`validate`](Self::validate) rather than passed through: a key with an\nunexpanded brace in it fetches nothing, and the 404 that follows is a\nmuch worse error message.",
+          "type": "string"
+        },
+        "latencyMinutes": {
+          "description": "How long after a cycle's nominal time its objects typically appear.\nA cycle is not offered as a candidate until `now` is past it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxCandidates": {
+          "description": "How many cycles back to offer, newest first. A host walks them until a\nfetch succeeds, which is what covers a late or skipped run.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "keyPattern",
+        "cycleHours",
+        "latencyMinutes",
+        "maxCandidates"
+      ],
+      "type": "object"
+    },
     "SpectralTruncation": {
       "description": "That a spectral field's map shows fewer wavenumbers than the file holds\n(#637): the truncation the message declares, and the one its values\nwere synthesised at.\n\n**A smoothed field is never shown silently.** A spectral message's\nvalues are synthesised onto the 0.5° global grid, which carries\nwavenumbers up to T359; a message declaring more is band-limited to\nthat, which is the correct picture at that resolution and a different,\nsmoother field from the one the file holds. This is the fact a host\nshows beside it — \"shown at T359 of T7999\" — carried as data so that\nevery host has it rather than only the one that wrote the caption.\n\nA value read out of such a field is the smoothed one; the file's own\nvalue at a point is [`crate::Session::probe_message`].",
       "properties": {
@@ -1779,6 +2252,119 @@
         "validCount"
       ],
       "type": "object"
+    },
+    "Surface": {
+      "description": "The surface a level sits on.\n\nThe modelled variants are the ones a stored request plausibly names. Anything\nelse is [`Self::Named`], which compares as the string the manifest wrote.",
+      "oneOf": [
+        {
+          "const": "surface",
+          "description": "Ground or water surface.",
+          "type": "string"
+        },
+        {
+          "const": "mean_sea_level",
+          "description": "Mean sea level.",
+          "type": "string"
+        },
+        {
+          "const": "isobaric",
+          "description": "An isobaric level, valued in hectopascals (`500 mb`, ECMWF `pl`).",
+          "type": "string"
+        },
+        {
+          "const": "pressure_above_ground",
+          "description": "A pressure difference from the ground, in hectopascals\n(`30-0 mb above ground`).",
+          "type": "string"
+        },
+        {
+          "const": "height_above_ground",
+          "description": "A height above ground, in metres (`2 m above ground`).",
+          "type": "string"
+        },
+        {
+          "const": "height_above_mean_sea_level",
+          "description": "A height above mean sea level, in metres.",
+          "type": "string"
+        },
+        {
+          "const": "depth_below_land",
+          "description": "A depth below the land surface, in metres (`0-0.1 m below ground`,\n`0.5 m underground`).",
+          "type": "string"
+        },
+        {
+          "const": "hybrid_level",
+          "description": "A model hybrid level (ECMWF `ml`).",
+          "type": "string"
+        },
+        {
+          "const": "sigma_level",
+          "description": "A sigma level or layer.",
+          "type": "string"
+        },
+        {
+          "const": "potential_temperature",
+          "description": "An isentropic (potential-temperature) level, in kelvin (ECMWF `pt`).",
+          "type": "string"
+        },
+        {
+          "const": "isotherm",
+          "description": "An isotherm, in degrees Celsius (`0C isotherm`).",
+          "type": "string"
+        },
+        {
+          "const": "entire_atmosphere",
+          "description": "The whole atmosphere as one layer.",
+          "type": "string"
+        },
+        {
+          "const": "cloud_top",
+          "description": "Cloud top.",
+          "type": "string"
+        },
+        {
+          "const": "cloud_base",
+          "description": "Cloud base.",
+          "type": "string"
+        },
+        {
+          "const": "cloud_ceiling",
+          "description": "Cloud ceiling.",
+          "type": "string"
+        },
+        {
+          "const": "tropopause",
+          "description": "The tropopause.",
+          "type": "string"
+        },
+        {
+          "const": "max_wind",
+          "description": "The level of maximum wind.",
+          "type": "string"
+        },
+        {
+          "const": "top_of_atmosphere",
+          "description": "Top of the atmosphere (nominal).",
+          "type": "string"
+        },
+        {
+          "const": "planetary_boundary_layer",
+          "description": "The planetary boundary layer.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Anything the grammar does not model, as the manifest wrote it.",
+          "properties": {
+            "named": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "named"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "SurfaceCodes": {
       "description": "A GRIB2 fixed surface (Code Table 4.5) as §4 writes it.",
