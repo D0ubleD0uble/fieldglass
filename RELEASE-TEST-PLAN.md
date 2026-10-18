@@ -424,11 +424,9 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       light-grey buttons in a dark theme (#1118).
 - [ ] Keyboard and high contrast (#1118). In the Dark Modern theme, click
       Export PNG… and press Tab along the toolbar: each button shows a ring
-      while it has focus. At `time` 0 the first and back buttons are
-      disabled and look faded next to the others. Switch to the High
+      while it has focus. Switch to the High
       Contrast theme (Ctrl+K Ctrl+T): every button has a clear border.
-      Failure looks like a light-grey button, no ring on Tab, a disabled
-      button that looks like the rest, or a button with no border in High
+      Failure looks like a light-grey button, no ring on Tab, or a button with no border in High
       Contrast. `panel-button-theme.test.ts` (`every button takes the
       theme's colours in light, dark and high-contrast themes, and the
       themes differ`) checks the same in all four themes.
@@ -478,7 +476,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 **`S: samples/gfs.grib2`**, the file's metadata view (the page that opens
 first)
 
-- [ ] The file page's buttons (Render, Export CSV…) in the Dark Modern theme
+- [ ] Click a message row to open it: the file page's buttons (Render, Export CSV…) in the Dark Modern theme
       take the theme's button colours, with no light-grey button (#1118).
       Press Tab: each button shows a ring while it has focus. In the High
       Contrast theme each has a clear border. The NetCDF page's Render
