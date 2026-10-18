@@ -2283,21 +2283,40 @@ const FEATURE_ROOTS_KEY: &str = "x-fieldglass-feature-roots";
 /// of reaching the default package's declarations, and the reverse.
 ///
 /// The planner's types are declared in `fieldglass-fetchplan` or the umbrella's
-/// `fetchplan` module, both behind `fetchplan`; the window planner's in the
-/// umbrella's `session::window`, behind `zarr`. The path is
-/// [`std::any::type_name`]'s, whose exact text Rust does not promise. A
-/// toolchain that changed it fails the registration loudly, which is the safe
-/// direction.
+/// `fetchplan` module, both behind `fetchplan`; Zarr's in `fieldglass-zarr` or
+/// the umbrella's `session::window`, behind `zarr`. Every-build types come only
+/// from the crates [`ALWAYS_CRATES`] names. A type from any other crate answers
+/// `"unknown crate"`, which no registration matches, so a type from a crate the
+/// umbrella gates behind a new feature cannot land in the default package's
+/// declarations by falling through.
+///
+/// The path is [`std::any::type_name`]'s, whose exact text Rust does not
+/// promise. A toolchain that changed it fails the registration loudly, which is
+/// the safe direction.
 fn feature_of_module<T: ?Sized>() -> &'static str {
     let path = std::any::type_name::<T>();
-    if path.starts_with("fieldglass_fetchplan::") || path.starts_with("fieldglass::fetchplan::") {
-        "fetchplan"
-    } else if path.starts_with("fieldglass::session::window::") {
-        "zarr"
-    } else {
-        "always"
+    let krate = path.split("::").next().unwrap_or_default();
+    match krate {
+        "fieldglass_fetchplan" => "fetchplan",
+        "fieldglass_zarr" => "zarr",
+        "fieldglass" if path.starts_with("fieldglass::fetchplan::") => "fetchplan",
+        "fieldglass" if path.starts_with("fieldglass::session::window::") => "zarr",
+        k if ALWAYS_CRATES.contains(&k) => "always",
+        _ => "unknown crate",
     }
 }
+
+/// The crates whose wire types every build of a host binds: the umbrella
+/// (outside its `fetchplan` and `session::window` modules), core, and the three
+/// readers the browser module always links. A crate added here is a claim that
+/// no feature of the browser module gates it.
+const ALWAYS_CRATES: &[&str] = &[
+    "fieldglass",
+    "fieldglass_core",
+    "fieldglass_grib1",
+    "fieldglass_grib2",
+    "fieldglass_netcdf",
+];
 
 /// [`feature_of_module`] tells the three kinds apart, so the registration check
 /// in [`api_schema`] can fail. Without the `zarr` answer a Zarr type registered
@@ -2311,6 +2330,13 @@ fn the_feature_of_a_root_is_read_off_its_module() {
     assert_eq!(feature_of_module::<WindowRequest>(), "zarr");
     assert_eq!(feature_of_module::<MessageInfo>(), "always");
     assert_eq!(feature_of_module::<Error>(), "always");
+    // A Zarr crate's own type is Zarr's, and a crate on no list matches no
+    // registration rather than defaulting to every build.
+    assert_eq!(
+        feature_of_module::<fieldglass_zarr::ZarrStore<fieldglass_core::MemoryObjects>>(),
+        "zarr"
+    );
+    assert_eq!(feature_of_module::<serde_json::Value>(), "unknown crate");
 }
 
 /// Rebuild every object with its keys in sorted order.

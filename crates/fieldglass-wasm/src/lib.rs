@@ -12,14 +12,15 @@
 //! `MessageManifest`, whose `select` turns a query into plan items, and
 //! `httpRangeHeader` and `verifyEnvelope` are the two steps either side of the
 //! Worker's `fetch`. `candidates` says which runs of a source should have
-//! posted by now. The feature is off in the shipped bundle until where the
-//! planner ships is decided (see `Cargo.toml`).
+//! posted by now. The feature is off by default: the package's default entry
+//! leaves it out, and its `@fieldglass/wasm/full` entry is built with it and
+//! `zarr` (#1158, see `Cargo.toml`).
 //!
 //! With the `zarr` feature, `openStore` opens a Zarr store from the objects a
 //! page fetched, and a handle over one says which objects a view needs:
 //! `coordinateChunks` for the coordinate arrays, then `planWindow` for the
 //! chunks a lat/lon box and a time step touch, which `decodeWindow` decodes
-//! from (#1083). Off in the shipped bundle for the same reason.
+//! from (#1083). Off by default too, and in the `full` entry beside the planner.
 //!
 //! # The memory contract
 //!
