@@ -317,6 +317,12 @@ const FOREIGN_REEXPORTS: &[(&str, Class, &str)] = &[
          built in Rust and handed to `Session::open_store`",
     ),
     (
+        "PrefetchedObjects",
+        Class::Engine,
+        "the `ObjectSource` a host fills as it fetches (#1124), which names keys \
+         it was never given; built in Rust and handed to `Session::open_store`",
+    ),
+    (
         "FieldglassError",
         Class::Engine,
         "what every method of both seams returns, so a host implementing one has \

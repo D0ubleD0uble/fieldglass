@@ -10,6 +10,10 @@
 //! values and reads back through xarray; nothing here is recorded from the
 //! code under test.
 //!
+//! The host's objects are a `PrefetchedObjects`, as the browser's are: a key it
+//! fetched is bytes, or absent when the store does not hold it (a 404), and
+//! any other key is one it has not fetched (#1124, #1163).
+//!
 //! Paths are relative for the `wasm32-wasip1` run's sandbox, which preopens the
 //! package directory and its parent.
 
@@ -19,8 +23,8 @@ use std::path::Path;
 use std::rc::Rc;
 
 use fieldglass::{
-    ChunkRef, DecodeOptions, Error, FieldglassError, MemoryObjects, ObjectSource, Session,
-    WindowRequest,
+    ChunkRef, DecodeOptions, Error, FieldglassError, MemoryObjects, ObjectSource,
+    PrefetchedObjects, Session, WindowRequest,
 };
 use fieldglass_core::testing::Recording;
 use serde_json::Value;
@@ -66,18 +70,31 @@ fn is_metadata(key: &str) -> bool {
         .any(|doc| key == *doc || key.ends_with(&format!("/{doc}")))
 }
 
-/// The objects of `store` a host holds: its metadata, plus these keys.
-fn holding(all: &[(String, Vec<u8>)], keys: &BTreeSet<String>) -> MemoryObjects {
-    MemoryObjects::from_iter(
-        all.iter()
-            .filter(|(k, _)| is_metadata(k) || keys.contains(k))
-            .cloned(),
-    )
+/// The objects of `store` a host holds after fetching its metadata and these
+/// keys: each key's bytes, or absent for one the store does not hold, as a
+/// fetch that came back 404 is given.
+fn holding(all: &[(String, Vec<u8>)], keys: &BTreeSet<String>) -> PrefetchedObjects {
+    let mut held = PrefetchedObjects::new();
+    for (key, bytes) in all {
+        if is_metadata(key) || keys.contains(key) {
+            held.insert(key.clone(), bytes.clone());
+        }
+    }
+    for key in keys {
+        if !all.iter().any(|(k, _)| k == key) {
+            held.insert_absent(key.clone());
+        }
+    }
+    held
 }
+
+/// The window stores, the oracle's keys: north to south and south to north,
+/// each in both editions.
+const STORES: [&str; 4] = ["window_v2", "window_v3", "window_s2n_v2", "window_s2n_v3"];
 
 /// The recording store, kept reachable after the session has taken it, as in
 /// `placement_is_memoised.rs`.
-struct Shared(Rc<Recording<MemoryObjects>>);
+struct Shared(Rc<Recording<PrefetchedObjects>>);
 
 impl ObjectSource for Shared {
     fn get(&self, key: &str) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
@@ -96,6 +113,10 @@ impl ObjectSource for Shared {
 
     fn prefetch(&self, keys: &[&str]) -> Result<(), FieldglassError> {
         self.0.prefetch(keys)
+    }
+
+    fn unfetched(&self, keys: &[&str]) -> Vec<String> {
+        self.0.unfetched(keys)
     }
 }
 
@@ -148,9 +169,23 @@ fn bounds(v: &Value) -> [f64; 4] {
 #[test]
 fn a_box_and_a_time_index_plan_exactly_the_chunks_they_touch() {
     let oracle = oracle();
-    for store in ["window_v2", "window_v3"] {
+    for store in STORES {
         let case = &oracle[store];
         let all = objects(store);
+        // The coordinate chunks zarr-python left unwritten are the ones the
+        // fixture lacks, so the fetches below see them as 404s.
+        let unwritten: BTreeSet<String> = refs(&case["coordinate_chunks"])
+            .into_iter()
+            .map(|c| c.key)
+            .filter(|k| !all.iter().any(|(key, _)| key == k))
+            .collect();
+        let recorded: BTreeSet<String> = case["unwritten_coordinate_chunks"]
+            .as_array()
+            .expect("a list")
+            .iter()
+            .map(|k| k.as_str().expect("a key").to_string())
+            .collect();
+        assert_eq!(unwritten, recorded, "{store}: unwritten coordinate chunks");
 
         // 1. The metadata alone names the coordinate chunks.
         let bare = Session::open_store(holding(&all, &BTreeSet::new())).expect("opens");
@@ -201,7 +236,7 @@ fn a_box_and_a_time_index_plan_exactly_the_chunks_they_touch() {
 #[test]
 fn a_window_decodes_from_its_planned_chunks_and_nothing_else() {
     let oracle = oracle();
-    for store in ["window_v2", "window_v3"] {
+    for store in STORES {
         let case = &oracle[store];
         let all = objects(store);
         let coordinates = keys(&refs(&case["coordinate_chunks"]));
@@ -571,7 +606,7 @@ const V3_GROUP: &[u8] = b"{\"zarr_format\":3,\"node_type\":\"group\",\"attribute
 
 /// `grp/t(lat, lon)` with `grp/lat` and `grp/lon` beside it: what a store
 /// written from a nested xarray `DataTree` holds.
-fn sub_group_store(with_coordinates: bool) -> MemoryObjects {
+fn sub_group_objects(with_coordinates: bool) -> Vec<(&'static str, Vec<u8>)> {
     let mut objects = vec![
         ("zarr.json", V3_GROUP.to_vec()),
         ("grp/zarr.json", V3_GROUP.to_vec()),
@@ -588,7 +623,20 @@ fn sub_group_store(with_coordinates: bool) -> MemoryObjects {
         objects.push(("grp/lat/c/0", f8(&[10.0, 20.0, 30.0])));
         objects.push(("grp/lon/c/0", f8(&[0.0, 90.0, 180.0, 270.0])));
     }
-    MemoryObjects::from_iter(objects)
+    objects
+}
+
+fn sub_group_store(with_coordinates: bool) -> MemoryObjects {
+    MemoryObjects::from_iter(sub_group_objects(with_coordinates))
+}
+
+/// The same objects, as a host that has fetched exactly these and no others.
+fn prefetched(objects: Vec<(&'static str, Vec<u8>)>) -> PrefetchedObjects {
+    let mut held = PrefetchedObjects::new();
+    for (key, bytes) in objects {
+        held.insert(key, bytes);
+    }
+    held
 }
 
 #[test]
@@ -627,7 +675,9 @@ fn a_variable_in_a_sub_group_names_its_own_groups_coordinates() {
 
 #[test]
 fn planning_before_the_coordinates_are_fetched_names_them() {
-    let session = Session::open_store(sub_group_store(false)).expect("opens");
+    // A host that has fetched the metadata and the data but not the
+    // coordinates is told which keys to fetch.
+    let session = Session::open_store(prefetched(sub_group_objects(false))).expect("opens");
     let t = variable(&session, "grp/t");
     let asked = WindowRequest::new(t, 0, 1, [15.0, 30.0, 170.0, 280.0], vec![0, 0]);
     for err in [
@@ -643,6 +693,197 @@ fn planning_before_the_coordinates_are_fetched_names_them() {
             "the missing objects are named: {message}"
         );
     }
+}
+
+#[test]
+fn a_coordinate_chunk_the_store_never_wrote_is_its_fill_value() {
+    // zarr-python skipped `latitude/c/2` of the south-to-north v3 store: it
+    // holds only the equator, which is the array's fill value (0.0).
+    let all = objects("window_s2n_v3");
+    assert!(
+        !all.iter().any(|(k, _)| k == "latitude/c/2"),
+        "the fixture leaves the chunk unwritten"
+    );
+    let oracle = oracle();
+    let case = &oracle["window_s2n_v3"];
+    let equator = case["windows"]
+        .as_array()
+        .expect("windows")
+        .iter()
+        .find(|w| w["name"] == "the_unwritten_coordinate_chunk")
+        .expect("the equator window");
+    let coordinates = keys(&refs(&case["coordinate_chunks"]));
+
+    // Given as absent, the 404 a fetch of it returns: it reads as 0.0, the
+    // equator, and the box around the equator plans the oracle's rows.
+    let session = Session::open_store(holding(&all, &coordinates)).expect("opens");
+    let t2m = variable(&session, "t2m");
+    let asked = request(t2m, bounds(&equator["bounds"]), 1);
+    let plan = session.plan_window(&asked).expect("plans");
+    assert_eq!(plan.rows.to_vec(), u64s(&equator["rows"]));
+    let latitudes = session.axis_values(t2m, 1).expect("latitudes");
+    assert_eq!(
+        latitudes.coordinates,
+        Some(vec![-60.0, -50.0, -40.0, -30.0, -20.0, -10.0, 0.0])
+    );
+
+    // A whole store that lacks the object says the same.
+    let whole = Session::open_store(MemoryObjects::from_iter(all.clone())).expect("opens");
+    assert_eq!(whole.plan_window(&asked).expect("plans"), plan);
+
+    // Not given at all, it is a fetch the host still owes, and named.
+    let mut owed = coordinates.clone();
+    owed.remove("latitude/c/2");
+    let session = Session::open_store(holding(&all, &owed)).expect("opens");
+    let err = session.plan_window(&asked).expect_err("not fetched");
+    assert_eq!(err.code(), "invalid_option", "{err}");
+    assert!(err.message().contains("`latitude/c/2`"), "{err}");
+}
+
+#[test]
+fn a_coordinate_chunk_absent_from_the_store_that_places_nothing_is_named() {
+    // `latitude/c/0` is every latitude of the north-to-south v3 store, and its
+    // fill value is NaN: given as absent, the coordinate is all fill, which
+    // places no grid. The refusal says which chunk did it.
+    let all: Vec<(String, Vec<u8>)> = objects("window_v3")
+        .into_iter()
+        .filter(|(k, _)| k != "latitude/c/0")
+        .collect();
+    let coordinates = keys(&refs(&oracle()["window_v3"]["coordinate_chunks"]));
+    let session = Session::open_store(holding(&all, &coordinates)).expect("opens");
+    let t2m = variable(&session, "t2m");
+    let asked = request(t2m, [5.0, 45.0, 50.0, 130.0], 0);
+    for err in [
+        session.plan_window(&asked).expect_err("no latitudes"),
+        session
+            .decode_window(&asked, &DecodeOptions::default())
+            .expect_err("no latitudes"),
+    ] {
+        assert_eq!(err.code(), "unsupported", "{err}");
+        let message = err.message();
+        assert!(
+            message.contains("`latitude/c/0`") && message.contains("fill value"),
+            "the unwritten chunk is named: {message}"
+        );
+    }
+}
+
+#[test]
+fn a_planned_chunk_the_host_did_not_fetch_is_named_not_filled() {
+    // #1124: a planned chunk left out of the objects is a fetch the host
+    // forgot, not a chunk the store never wrote.
+    let oracle = oracle();
+    let case = &oracle["window_v3"];
+    let window = &case["windows"][0];
+    assert_eq!(window["name"], "crosses_chunk_edges");
+    let all = objects("window_v3");
+    let coordinates = keys(&refs(&case["coordinate_chunks"]));
+    let planned = refs(&window["chunks"]);
+    let (forgotten, kept) = planned.split_first().expect("chunks");
+    let mut given: BTreeSet<String> = coordinates.union(&keys(kept)).cloned().collect();
+    let time = u32::try_from(window["time"].as_u64().expect("time")).expect("small");
+
+    let session = Session::open_store(holding(&all, &given)).expect("opens");
+    let t2m = variable(&session, "t2m");
+    let asked = request(t2m, bounds(&window["bounds"]), time);
+    let err = session
+        .decode_window(&asked, &DecodeOptions::default())
+        .expect_err("a planned chunk is missing");
+    assert_eq!(err.code(), "invalid_option", "{err}");
+    assert!(
+        err.message().contains(&format!("`{}`", forgotten.key)),
+        "{err}"
+    );
+    // Any other read that needs it is refused too, by the reader.
+    let err = session
+        .decode_slice(t2m, 1, 2, &[time, 0, 0], &DecodeOptions::default())
+        .expect_err("the plane needs it");
+    assert_eq!(err.code(), "decode", "{err}");
+    assert!(err.message().contains(&forgotten.key), "{err}");
+
+    // Given as absent, it is the fill value, NaN: its cells are masked and
+    // every other cell is xarray's.
+    let without: Vec<(String, Vec<u8>)> = all
+        .iter()
+        .filter(|(k, _)| *k != forgotten.key)
+        .cloned()
+        .collect();
+    given.insert(forgotten.key.clone());
+    let session = Session::open_store(holding(&without, &given)).expect("opens");
+    let field = session
+        .decode_window(&asked, &DecodeOptions::default())
+        .expect("decodes");
+    let want: Vec<f64> = window["values"]
+        .as_array()
+        .expect("values")
+        .iter()
+        .map(|v| v.as_f64().expect("a value"))
+        .collect();
+    let rows = u64s(&window["rows"]);
+    let columns: Vec<u64> = window["columns"]
+        .as_array()
+        .expect("runs")
+        .iter()
+        .flat_map(|r| {
+            let r = u64s(r);
+            r[0]..r[1]
+        })
+        .collect();
+    let values = field.values.to_f64();
+    let mut masked = 0;
+    for (at, (&mask, &value)) in field.mask.iter().zip(values.iter()).enumerate() {
+        let j = rows[0] + (at / columns.len()) as u64;
+        let i = columns[at % columns.len()];
+        if [j / 3, i / 4] == [forgotten.index[1], forgotten.index[2]] {
+            assert_eq!(mask, 0, "({i}, {j}) is fill");
+            masked += 1;
+        } else {
+            assert_eq!((mask, value), (1, want[at]), "({i}, {j})");
+        }
+    }
+    assert!(masked > 0, "the absent chunk holds window cells");
+}
+
+#[test]
+fn a_left_out_coordinate_is_named_with_why() {
+    // `lat` is stored as complex numbers, which this build does not read, so
+    // the store leaves it out and `t(lat, lon)` has no latitudes to place it.
+    let lat = String::from_utf8(v3_array("[3]", "[3]", "[\"lat\"]"))
+        .expect("text")
+        .replace("\"float64\"", "\"complex128\"");
+    let session = Session::open_store(MemoryObjects::from_iter([
+        ("zarr.json", V3_GROUP.to_vec()),
+        ("lat/zarr.json", lat.into_bytes()),
+        ("lon/zarr.json", v3_array("[4]", "[4]", "[\"lon\"]")),
+        ("lon/c/0", f8(&[0.0, 90.0, 180.0, 270.0])),
+        (
+            "t/zarr.json",
+            v3_array("[3,4]", "[3,4]", "[\"lat\",\"lon\"]"),
+        ),
+    ]))
+    .expect("opens");
+    let left_out = session.left_out();
+    let why = left_out
+        .iter()
+        .find(|l| l.name == "lat")
+        .unwrap_or_else(|| panic!("lat is left out: {left_out:?}"));
+    let t = variable(&session, "t");
+    let err = session
+        .plan_window(&WindowRequest::new(
+            t,
+            0,
+            1,
+            [0.0, 90.0, 0.0, 90.0],
+            vec![0, 0],
+        ))
+        .expect_err("no latitudes");
+    assert_eq!(err.code(), "unsupported", "{err}");
+    let message = err.message();
+    assert!(
+        message.contains("`lat`") && message.contains(&why.reason),
+        "names the coordinate and why ({}): {message}",
+        why.reason
+    );
 }
 
 #[test]

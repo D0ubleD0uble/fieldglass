@@ -95,7 +95,10 @@ function listing(root) {
   return out.sort();
 }
 
-for (const store of ['window_v2', 'window_v3']) {
+// North to south and south to north (#1163), each in both editions. The
+// south-to-north v3 store's `latitude/c/2` was never written (it holds only
+// the fill value, the equator), so its fetch below is a 404 passed as `null`.
+for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']) {
   console.log(`\n${store}`);
   const root = join(FIXTURES, 'windows', store);
   const keys = listing(root);
@@ -132,6 +135,11 @@ for (const store of ['window_v2', 'window_v3']) {
     early?.message,
   );
   for (const { key } of coordinates) objects.set(key, fetch(key));
+  same(
+    `${store}: the coordinate chunks that came back 404`,
+    coordinates.filter((c) => objects.get(c.key) === null).map((c) => c.key),
+    expected.unwritten_coordinate_chunks,
+  );
   handle.free();
   handle = wasm.openStore(objects);
 
@@ -204,6 +212,30 @@ for (const store of ['window_v2', 'window_v3']) {
       check(`${name}: and some cells are masked`, mask.includes(0));
       f.free();
       partial.free();
+
+      // Not passed at all, it is a fetch the page still owes (#1124):
+      // `decodeWindow` names it rather than filling it, and so does any other
+      // read that needs it.
+      const owed = new Map([...objects]);
+      for (const { key } of kept) owed.set(key, fetch(key));
+      const forgot = wasm.openStore(owed);
+      let thrown;
+      try {
+        forgot.decodeWindow(request);
+      } catch (e) {
+        thrown = e;
+      }
+      same(`${name}: a planned chunk not passed is invalid_option`, thrown?.code, 'invalid_option');
+      check(`${name}: and names its key`, thrown?.message?.includes(`\`${gone.key}\``), thrown?.message);
+      let slice;
+      try {
+        forgot.decodeSlice(t2m.index, 1, 2, [window.time, 0, 0], null);
+      } catch (e) {
+        slice = e;
+      }
+      same(`${name}: decodeSlice over it is decode`, slice?.code, 'decode');
+      check(`${name}: and names the key`, slice?.message?.includes(gone.key), slice?.message);
+      forgot.free();
     }
   }
 
@@ -236,6 +268,58 @@ for (const store of ['window_v2', 'window_v3']) {
   });
   same(`${store}: and decodes nothing`, codeOf(() => handle.decodeWindow(off)), 'invalid_option');
   handle.free();
+}
+
+// Refusals that name what is wrong with a coordinate (#1163), over the v3
+// store's own files.
+console.log('\ncoordinates that place nothing');
+{
+  const root = join(FIXTURES, 'windows', 'window_v3');
+  const read = (key) => new Uint8Array(readFileSync(join(root, ...key.split('/'))));
+  const keys = listing(root);
+  const request = { variable: 0, yDim: 1, xDim: 2, bounds: [5, 45, 50, 130], sliceIndices: [0, 0, 0] };
+  /** The `{ code, message }` a planWindow over these objects throws. */
+  const refusal = (objects) => {
+    const handle = wasm.openStore(objects);
+    try {
+      const t2m = handle.variables().find((v) => v.name === 't2m');
+      handle.planWindow({ ...request, variable: t2m.index });
+      return { code: 'did not throw', message: '' };
+    } catch (e) {
+      return { code: e.code, message: e.message };
+    } finally {
+      handle.free();
+    }
+  };
+
+  // Every latitude is in `latitude/c/0`, whose fill value is NaN. Passed as
+  // `null` (the store does not hold it), the latitudes are all NaN: refused,
+  // naming the chunk.
+  const objects = new Map(keys.filter(isMetadata).map((k) => [k, read(k)]));
+  for (const k of ['time/c/0', 'longitude/c/0']) objects.set(k, read(k));
+  objects.set('latitude/c/0', null);
+  const fill = refusal(objects);
+  same('a coordinate chunk passed as null whose fill places nothing is unsupported', fill.code, 'unsupported');
+  check('and the refusal names the chunk', fill.message.includes('`latitude/c/0`'), fill.message);
+
+  // `latitude` stored as a type this build does not read: left out of the
+  // store, and named in the refusal with why.
+  const document = JSON.parse(new TextDecoder().decode(read('zarr.json')));
+  document.consolidated_metadata.metadata.latitude.data_type = 'complex128';
+  const leftOut = new Map(objects);
+  leftOut.set('zarr.json', new TextEncoder().encode(JSON.stringify(document)));
+  leftOut.set('latitude/c/0', read('latitude/c/0'));
+  const opened = wasm.openStore(leftOut);
+  const why = opened.leftOut().find((l) => l.name === 'latitude');
+  opened.free();
+  check('a coordinate of an unread type is left out', why !== undefined);
+  const named = refusal(leftOut);
+  same('a window over it is unsupported', named.code, 'unsupported');
+  check(
+    'and the refusal names the coordinate and why',
+    why !== undefined && named.message.includes('`latitude`') && named.message.includes(why.reason),
+    named.message,
+  );
 }
 
 console.log('\nopenStore');

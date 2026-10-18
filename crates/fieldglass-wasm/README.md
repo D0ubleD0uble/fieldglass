@@ -159,6 +159,8 @@ await init();
 
 // An object's bytes, or `null` for one the store does not hold: a sparse array
 // leaves chunks unwritten, and a 404 for one is its fill value, not an error.
+// Pass `null` rather than leaving the key out: a key not passed is one you
+// have not fetched, and a read that needs it throws.
 const get = async (key) => {
   const response = await fetch(`${store}/${key}`);
   if (response.status === 404) return null;
@@ -198,13 +200,20 @@ at least two cells each way: one row or column has no spacing to place it by,
 so a box that holds one takes the next one as well, and the plan names its
 chunks. Windows are planned over slices placed on a regular lat/lon grid, as
 1-D latitude and longitude coordinates place them; anything else throws
-`unsupported`. Planning before the coordinate chunks are in the map throws
-`invalid_option` naming the keys to fetch.
+`unsupported`.
 
-**A key you do not pass reads as absent**, which for a chunk is the fill value,
-exactly like a chunk the store never wrote, so pass every key a plan names. A
-chunk whose fetch came back 404 can be left out or passed as `null`, as `get`
-above does.
+**Pass a 404 as `null`, and pass every key a plan names.** `null` says the store
+holds no such object. A chunk the store never wrote is its array's fill value,
+which is how a sparse store works and how zarr-python leaves any chunk that is
+all fill, coordinate chunks included: a coordinate chunk passed as `null` reads
+as its fill value, and when that value places no grid (NaN, say) `planWindow`
+throws `unsupported` naming the chunk. A key you do **not** pass at all is one
+you have not fetched, and it is never read as fill: `planWindow` and
+`decodeWindow` throw `invalid_option` naming every such coordinate or planned
+chunk, and any other read that needs one (`decodeSlice`, `decodeLine`,
+`axisValues`) throws `decode` naming it. A window over a coordinate the store
+leaves out (an element type this build does not read, say) throws
+`unsupported` naming the coordinate and why.
 
 **A sharded array plans whole shards.** In a v3 store with `sharding_indexed`,
 each planned key is a shard, and a window fetches every shard it touches in
@@ -580,12 +589,15 @@ refused), and replays every answer the Rust planner recorded in `crates/fieldgla
 
 **`tests/node/zarr.mjs`** — Zarr stores, against a `--features=zarr` build
 (`--pkg crates/fieldglass-wasm/pkg/nodejs-zarr`). It opens the committed v2
-(blosc) and v3 (zstd) window stores from their metadata alone, fetches the
+(blosc) and v3 (zstd) window stores, north-to-south and south-to-north (whose
+v3 edition never wrote one latitude chunk), from their metadata alone, fetches the
 coordinate chunks and then the chunks each plan names from the committed files,
 and decodes each window from those alone. The rows, columns, chunks and values
 are checked against `crates/fieldglass-zarr/tests/fixtures/windows_oracle.json`,
 which the fixture script computes from the coordinates and reads back through
-xarray, and nothing unplanned may be fetched.
+xarray, and nothing unplanned may be fetched. It also checks that a planned
+chunk left out of the map throws, naming it, and that a coordinate whose fill
+value places nothing, or that the store leaves out, is named in the refusal.
 
 **`tests/node/colour_range.mjs`** — the colour-range rule both hosts follow
 (#1155), over the committed GFS fixture. An empty field paints transparent; one
