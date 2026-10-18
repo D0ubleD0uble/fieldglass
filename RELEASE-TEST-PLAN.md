@@ -540,7 +540,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 A depth axis with fill values used to fail to draw; no file here has one.
 `crates/fieldglass/tests/cross_section_placement.rs` covers it.
 
-## 6. Wind and current arrows (#241, #793, #805)
+## 6. Wind and current arrows (#241, #793, #805, #1049)
 
 **`B: samples/0.6.0/gfs_wind.grib2`** (earth-relative)
 
@@ -552,7 +552,13 @@ A depth axis with fill values used to fail to draw; no file here has one.
       the map (#1046). The Vectors row reads
       "Full-length arrow: … m s⁻¹". A larger "every N cells" draws fewer,
       longer arrows, and the key lengthens with them. No note about grid axes
-      shows: GFS states earth-relative components.
+      shows: GFS states earth-relative components. No note about the pair
+      shows either: UGRD and VGRD are a u/v pair (#1049).
+- [ ] Open message 1 (VGRD) and pick `#0 · UGRD …` as V component, then tick
+      Arrows: the arrows draw, and the Vectors row reads "These messages are a
+      u/v pair the wrong way round: VGRD is the v component and UGRD the u.
+      For arrows that point the right way, open UGRD and pick VGRD as V."
+      Untick Arrows: the note goes (#1049).
 - [ ] Change the arrow colour and weight: the arrows and the key redraw in
       them. Export PNG: the arrows and the key are in the image, the key at
       the right length for its label beside the arrows, and its label readable
@@ -604,13 +610,18 @@ A depth axis with fill values used to fail to draw; no file here has one.
 - [ ] u and v are the same field, so every arrow is at 45° to the grid. In the
       source view they all point the same way; on Equirectangular they fan
       out with longitude, since this polar grid's axes turn.
+- [ ] The arrows draw, and the Vectors row reads "These messages aren't a u/v
+      pair (WIND, WIND). The arrows treat them as the u and v components.",
+      under the note about the grid's axes (#1049). Failure looks like
+      arrows with no note, or a refusal instead of arrows.
 
 **`B: samples/0.6.0/hrrr_frames.grib2`**
 
 - [ ] Message 0 as u and message 1 as v is refused with a note that their
       component frame differs (u grid-relative, v earth-relative). Nothing is
       drawn.
-- [ ] Message 0 as u and message 2 as v draws.
+- [ ] Message 0 as u and message 2 as v draws, with the not-a-u/v-pair note:
+      both messages are temperature (#1049).
 
 **`B: samples/0.6.0/two_grids.grib2`**
 

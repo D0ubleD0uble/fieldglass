@@ -257,6 +257,7 @@ ${options}
         // Said only of arrows that can be drawn.
         gridRelative && !hidden ? "This file states its components along the grid's axes; they are rotated to true north." : ""
       }</span>
+      <span class="picker-note" id="vector-pair-note" aria-live="polite"></span>
     </fieldset>
 `;
 }
@@ -1349,6 +1350,24 @@ export function composeVectorScaleNote(label: string): string {
   return label ? "Full-length arrow: " + label : "";
 }
 
+/** The Vectors row's note when the arrows' two messages are not a u/v pair,
+ *  or are one in the wrong order (#1049). `pairing` is the addon's
+ *  `ProjectedVectors.pairing`, which Rust reads from the parameter tables;
+ *  `u` is this panel's message and `v` the V component pick. The arrows are
+ *  drawn either way. Serialized into the panel script. */
+export function composeVectorPairingNote(pairing: string | null | undefined, u: string, v: string): string {
+  if (pairing === "not_a_pair") {
+    return "These messages aren't a u/v pair (" + u + ", " + v + "). The arrows treat them as the u and v components.";
+  }
+  if (pairing === "swapped") {
+    return (
+      "These messages are a u/v pair the wrong way round: " + u + " is the v component and " + v +
+      " the u. For arrows that point the right way, open " + v + " and pick " + u + " as V."
+    );
+  }
+  return "";
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: PanelField,
@@ -1526,6 +1545,7 @@ export function renderImagePanelHtml(
         ${composeRangeText.toString()}
         ${composeVectorScale.toString()}
         ${composeVectorScaleNote.toString()}
+        ${composeVectorPairingNote.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -2705,6 +2725,7 @@ export function renderImagePanelHtml(
           lastPayload = null;
           lastContour = null;
           lastVectors = null;
+          clearVectorPairNote();
           clearOverlay();
           const canvas = document.getElementById('canvas');
           const ctx = canvas && canvas.getContext('2d');
@@ -2976,20 +2997,32 @@ export function renderImagePanelHtml(
             !!v && v.value !== '';
         }
 
+        // The Vectors row's note on the pair (#1049) belongs to the arrows it
+        // was said of, so it goes whenever they do.
+        function clearVectorPairNote() {
+          const pairNote = document.getElementById('vector-pair-note');
+          if (pairNote) pairNote.textContent = '';
+        }
+
         // Ask the provider for the arrows of this message paired with the chosen
         // V component, projected onto the current raster. Re-fetched whenever the
         // raster geometry moves, like the contours.
         function requestVectors() {
           if (!lastPayload || !vectorsEnabled()) {
             lastVectors = null;
-            // No arrows, so no key for them (#871).
+            // No arrows, so no key for them (#871), and nothing to say about
+            // their pair (#1049).
             const scale = document.getElementById('vector-scale');
             if (scale) scale.textContent = '';
+            clearVectorPairNote();
             drawOverlay();
             return;
           }
           const v = Number((document.getElementById('vector-field-v') || {}).value);
-          if (!Number.isFinite(v)) return;
+          if (!Number.isFinite(v)) {
+            clearVectorPairNote();
+            return;
+          }
           const spacing = Number((document.getElementById('vector-spacing') || {}).value);
           vectorSeq += 1;
           vscode.postMessage({
@@ -3014,6 +3047,14 @@ export function renderImagePanelHtml(
           if (scale) {
             scale.textContent = composeVectorScaleNote(
               composeVectorScale(lastVectors && lastVectors.referenceSpeed, UNITS));
+          }
+          // Whether the two messages are a u/v pair at all (#1049): the arrows
+          // are drawn either way, and the row says when they mean nothing.
+          const pairNote = document.getElementById('vector-pair-note');
+          if (pairNote) {
+            const names = (lastVectors && lastVectors.pairNames) || ['', ''];
+            pairNote.textContent = lastVectors
+              ? composeVectorPairingNote(lastVectors.pairing, names[0], names[1]) : '';
           }
           drawOverlay();
         }

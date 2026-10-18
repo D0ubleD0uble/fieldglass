@@ -21,7 +21,7 @@ import * as path from "path";
 
 import { nativeNotLoaded, reportProblem } from "./problems";
 
-import type { AxisValues, GridSupport, LeftOutArray, MessageInfo, Placement, Vertical } from "./api.generated";
+import type { AxisValues, GridSupport, LeftOutArray, MessageInfo, Placement, VectorPairing, Vertical } from "./api.generated";
 
 export type {
   AxisValues,
@@ -32,6 +32,7 @@ export type {
   LeftOutCause,
   MessageInfo,
   Placement,
+  VectorPairing,
   Vertical,
 } from "./api.generated";
 
@@ -198,12 +199,14 @@ export interface ParsedColorTable {
  *  `referenceSpeed` is `null` when no arrow was drawn (#871).
  *  `referenceLength` is how long a full-length arrow is drawn, in the same
  *  raster pixels as `xy`, for the key (#1046); `null` when no arrow is drawn
- *  whole. */
+ *  whole. `pairing` says whether the two messages are a u/v pair at all, by
+ *  the parameter each names (#1049); the arrows are drawn either way. */
 export interface ProjectedVectors {
   xy: Float64Array;
   segLengths: Uint32Array;
   referenceSpeed: number | null;
   referenceLength: number | null;
+  pairing: VectorPairing;
 }
 
 export interface RenderedGrid {

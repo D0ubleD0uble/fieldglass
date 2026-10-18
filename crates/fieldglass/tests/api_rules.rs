@@ -39,7 +39,7 @@ use fieldglass::{
     LeftOutCause, Line, MessageIdentity, MessageInfo, MessageProbe, PaletteOptions, PixelProbe,
     Placement, Positive, Probe, Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat,
     SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo,
-    VectorOptions, Vertical, WarpOptions, WarpTarget, Warped,
+    VectorOptions, VectorPairing, Vertical, WarpOptions, WarpTarget, Warped,
 };
 // The planner's wire types (#1081). `fetchplan` is a default feature, so this
 // suite names them unconditionally: a build without it is not one this file is
@@ -140,6 +140,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     // (#1043).
     ("Vertical", Class::Wire, ""),
     ("Positive", Class::Wire, ""),
+    // Whether the two fields arrows are drawn from are a u/v pair (#1049).
+    ("VectorPairing", Class::Wire, ""),
     // The arrays a container holds and would not read, one shape for every
     // container (#709).
     ("LeftOutArray", Class::Wire, ""),
@@ -698,6 +700,7 @@ fn every_wire_type_round_trips_through_json() {
     );
     round_trip::<Vertical>("Vertical", r#"{"positive":"down","logPressure":true}"#);
     round_trip::<Positive>("Positive", r#""up""#);
+    round_trip::<VectorPairing>("VectorPairing", r#""not_a_pair""#);
     round_trip::<LeftOutArray>(
         "LeftOutArray",
         r#"{"name":"PRODUCT/sst","reason":"unsupported section: Zarr dtype \"<f2\"","cause":{"code":"unsupported_dtype","dtype":"<f2"}}"#,
@@ -830,6 +833,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "AxisValues",
     "Vertical",
     "Positive",
+    "VectorPairing",
     "VectorOptions",
     "LeftOutArray",
     "LeftOutCause",
@@ -1935,6 +1939,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<AxisValues>("AxisValues");
     check_schema::<Vertical>("Vertical");
     check_schema::<Positive>("Positive");
+    check_schema::<VectorPairing>("VectorPairing");
     check_schema::<VectorOptions>("VectorOptions");
     check_schema::<LeftOutArray>("LeftOutArray");
     check_schema::<LeftOutCause>("LeftOutCause");
@@ -1993,6 +1998,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "AxisValues",
     "Vertical",
     "Positive",
+    "VectorPairing",
     "VectorOptions",
     "LeftOutArray",
     "LeftOutCause",
@@ -2157,7 +2163,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     }
     register!(returned:
         SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, Line,
-        MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, LeftOutArray, LeftOutCause,
+        MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, VectorPairing, LeftOutArray, LeftOutCause,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
         Error, Raster,
         PlanItem, PlanRange, Address, Expect, ParameterId, LevelSpec, Surface, Candidate,

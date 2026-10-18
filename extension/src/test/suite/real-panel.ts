@@ -72,6 +72,9 @@ export interface PageState {
   overlayHidden: boolean;
   /** The Vectors row's note, `null` for a panel with no Vectors row. */
   vectorNote: string | null;
+  /** The Vectors row's note on whether the pair is a u/v pair (#1049), `null`
+   *  for a panel with no Vectors row. */
+  vectorPairNote: string | null;
   coastlines: boolean;
   graticule: boolean;
   contours: boolean;
@@ -444,6 +447,7 @@ const DRIVER = `
         compareFieldB: fieldB ? fieldB.value : null,
         overlayHidden: !!(overlays && overlays.hasAttribute('hidden')),
         vectorNote: vectors ? byId('vector-note').textContent : null,
+        vectorPairNote: vectors ? byId('vector-pair-note').textContent : null,
         coastlines: byId('overlay-coastlines').checked,
         graticule: byId('overlay-graticule').checked,
         contours: byId('overlay-contours').checked,
