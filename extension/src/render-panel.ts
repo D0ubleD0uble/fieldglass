@@ -1882,6 +1882,15 @@ export function renderImagePanelHtml(
           return (document.getElementById('picker-projection') || {}).value || 'source';
         }
 
+        // The projection the next render asks for: the picker's, or the map
+        // target held while a slice waits for its axes (#1099). What a render
+        // request carries (currentOptions(true)), and what a gesture's window
+        // is written for (#1147).
+        function requestedProjection() {
+          if (heldProjection !== null && !isCrossSection()) return heldProjection;
+          return (document.getElementById('picker-projection') || {}).value || 'source';
+        }
+
         // Place the tick labels down the left of the image and under it. A label
         // sits at the fraction of the image its index does — the centre of its
         // row or column — and reads the coordinate value there, or the index
@@ -2465,9 +2474,8 @@ export function renderImagePanelHtml(
         // up the rows are) is the one that image was drawn with (#1114), not
         // what the controls say a render on its way will have.
         function currentOptions(render) {
-          const held = render === true && heldProjection !== null && !isCrossSection();
-          const projection = held
-            ? heldProjection
+          const projection = render === true
+            ? requestedProjection()
             : (document.getElementById('picker-projection') || {}).value || 'source';
           const resampling = (document.getElementById('picker-resampling') || {}).value || 'nearest';
           const flipY = rowsFlipped();
@@ -3259,9 +3267,13 @@ export function renderImagePanelHtml(
         // The window the image on screen was rendered for, when a gesture can
         // move it: Rust echoes it for the lat/lon targets. Read in the
         // projection that image was drawn in, not the picker's, which can
-        // have moved on while its render is on its way (#1114).
+        // have moved on while its render is on its way (#1114). The render a
+        // gesture asks for is the picker's, so that must take a window too:
+        // a wheel over the old map while a Mollweide render is on its way
+        // would tick Bounds Manual for a target that ignores them (#1147).
         function currentMapWindow() {
-          if (!warpsLatLon(drawnProjection()) || !lastPayload || lastPayload.usedLatMin == null) return null;
+          if (!warpsLatLon(drawnProjection()) || !warpsLatLon(requestedProjection())) return null;
+          if (!lastPayload || lastPayload.usedLatMin == null) return null;
           return {
             latMin: lastPayload.usedLatMin,
             latMax: lastPayload.usedLatMax,
@@ -3272,6 +3284,16 @@ export function renderImagePanelHtml(
 
         function isMercator() {
           return drawnProjection() === 'web_mercator';
+        }
+
+        // A place fy of the way down the image, as zoomMapWindow takes it:
+        // down from the north edge. With the rows drawn bottom-up (Flip Y
+        // axis, flipped) the top of the image is its south, so a fraction
+        // down the image is that much up from the south (#1147). The caller
+        // passes the drawn flip, read with the window: the pointer is over
+        // the image on screen.
+        function northFraction(fy, flipped) {
+          return flipped ? 1 - fy : fy;
         }
 
         function applyMapWindow(w) {
@@ -3343,6 +3365,7 @@ export function renderImagePanelHtml(
         function onWheel(ev) {
           const w = currentMapWindow();
           if (!w) return;
+          const flipped = drawnFlipY();
           const at = imageFraction(ev.clientX, ev.clientY);
           if (!at || at.fx < 0 || at.fx > 1 || at.fy < 0 || at.fy > 1) return;
           ev.preventDefault();
@@ -3355,7 +3378,11 @@ export function renderImagePanelHtml(
           pendingZoom.timer = setTimeout(() => {
             const z = pendingZoom;
             pendingZoom = null;
-            if (z) applyMapWindow(zoomMapWindow(w, isMercator(), z.fx, z.fy, z.factor));
+            if (!z) return;
+            // The picker can have left the lat/lon targets while the wheel
+            // settled; then there is no window to write.
+            if (!currentMapWindow()) { previewTransform('', ''); return; }
+            applyMapWindow(zoomMapWindow(w, isMercator(), z.fx, northFraction(z.fy, flipped), z.factor));
           }, 250);
         }
 
@@ -3388,7 +3415,10 @@ export function renderImagePanelHtml(
           suppressNextClick = true;
           const w = currentMapWindow();
           if (!w) { previewTransform('', ''); return; }
-          applyMapWindow(panMapWindow(w, isMercator(), (ev.clientX - g.x) / g.width, (ev.clientY - g.y) / g.height));
+          // A drag down moves the map south on a north-up image and north
+          // on a flipped one: the place grabbed follows the pointer (#1147).
+          const dfy = (ev.clientY - g.y) / g.height;
+          applyMapWindow(panMapWindow(w, isMercator(), (ev.clientX - g.x) / g.width, drawnFlipY() ? -dfy : dfy));
         }
 
         function zoomButton(factor) {

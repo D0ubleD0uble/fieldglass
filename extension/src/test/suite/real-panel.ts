@@ -388,8 +388,9 @@ function panelButtons() {
  *  the panel acquires, so it can answer on the same channel, and on each
  *  `test:drive` sets the named controls, fires their `change` like a user's
  *  edit, and reports the page. `test:probe` clicks the middle of the image, as
- *  a user reads a value. A message is handled after every one posted before
- *  it, so the report follows whatever the page did with those. */
+ *  a user reads a value; `test:wheel` and `test:drag` zoom and pan it. A
+ *  message is handled after every one posted before it, so the report
+ *  follows whatever the page did with those. */
 const DRIVER = `
   (function () {
     const acquire = window.acquireVsCodeApi;
@@ -779,6 +780,27 @@ const DRIVER = `
         api.postMessage({ type: 'test:perturbed', tag: m.tag, moved: done.moved, stuck: done.stuck, unknown: done.unknown });
         return;
       }
+      // A wheel turn or a drag over the image, at fractions of its width and
+      // height from the top left, as a user zooms or pans (#1147). A drag
+      // ends with the click a browser fires after the button comes up.
+      if (m && (m.type === 'test:wheel' || m.type === 'test:drag')) {
+        const r = byId('canvas').getBoundingClientRect();
+        const at = (f) => ({ clientX: r.left + r.width * f[0], clientY: r.top + r.height * f[1] });
+        const wrap = document.querySelector('.canvas-wrap');
+        if (m.type === 'test:wheel') {
+          wrap.dispatchEvent(new WheelEvent('wheel', Object.assign(
+            { bubbles: true, cancelable: true, deltaY: m.deltaY }, at(m.at))));
+        } else {
+          const mid = [(m.from[0] + m.to[0]) / 2, (m.from[1] + m.to[1]) / 2];
+          wrap.dispatchEvent(new MouseEvent('mousedown', Object.assign({ bubbles: true, button: 0 }, at(m.from))));
+          window.dispatchEvent(new MouseEvent('mousemove', Object.assign({ bubbles: true }, at(mid))));
+          window.dispatchEvent(new MouseEvent('mousemove', Object.assign({ bubbles: true }, at(m.to))));
+          window.dispatchEvent(new MouseEvent('mouseup', Object.assign({ bubbles: true, button: 0 }, at(m.to))));
+          wrap.dispatchEvent(new MouseEvent('click', Object.assign({ bubbles: true, button: 0 }, at(m.to))));
+        }
+        api.postMessage({ type: 'test:gestured', tag: m.tag, width: r.width, height: r.height });
+        return;
+      }
       if (!m || (m.type !== 'test:drive' && m.type !== 'test:probe')) return;
       if (m.type === 'test:probe') {
         const r = byId('canvas').getBoundingClientRect();
@@ -846,6 +868,12 @@ export interface RealPanel {
    *  point `fy` of the way down it. Resolves once the page has sent the click;
    *  the reply comes after. */
   probe(fy?: number): Promise<void>;
+  /** Turn the mouse wheel by `deltaY` over the point `at` of the image, as
+   *  fractions of its width and height from the top left. */
+  wheel(at: [number, number], deltaY: number): Promise<void>;
+  /** Drag the image with the left button from `from` to `to`, fractions as
+   *  for `wheel`, ending with the click a browser fires on release. */
+  drag(from: [number, number], to: [number, number]): Promise<void>;
   /** Post `m` to the page as the provider would. */
   post(m: Msg): Promise<void>;
   /** Every control on the page, by id (radio groups as `radio:<name>`). */
@@ -954,6 +982,15 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
   const build = builders.get(panel);
   assert.ok(build, "the panel is tracked for rebuilds");
   let tag = 0;
+  const gesture = async (m: Msg) => {
+    const mine = ++tag;
+    await panel.webview.postMessage({ ...m, tag: mine });
+    const reply = await waitUntil(
+      () => received.find((r) => r.type === "test:gestured" && r.tag === mine),
+      `the page's gesture ${mine}`,
+    );
+    assert.ok(reply.width > 0 && reply.height > 0, "the image is laid out, so the gesture lands on it");
+  };
   return {
     received,
     sent,
@@ -975,6 +1012,8 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       );
       assert.ok(reply.width > 0 && reply.height > 0, "the image is laid out, so a click lands on it");
     },
+    wheel: async (at, deltaY) => gesture({ type: "test:wheel", at, deltaY }),
+    drag: async (from, to) => gesture({ type: "test:drag", from, to }),
     post: async (m) => {
       // Recorded in `sent` by the wrapper above, like the provider's own.
       await panel.webview.postMessage(m);

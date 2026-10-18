@@ -7,7 +7,9 @@
 // rows are linear in); spans stay inside the world; a window is slid back from a
 // pole rather than squashed; panning crosses the antimeridian; and a window that
 // does cross it renders through the addon. The panel markup and the script
-// wiring are checked last.
+// wiring are checked last. Then the gestures through the real panel: with Flip
+// Y axis ticked the top of the image is south, and a gesture over an image whose
+// next render cannot take a window leaves the bounds alone (#1147).
 
 import * as assert from "assert";
 import * as fs from "fs";
@@ -22,6 +24,7 @@ import {
   type MapWindow,
   type PanelField,
 } from "../../render-panel";
+import { isType, type Msg, openEditor, openReal, provider, type RealPanel, waitUntil } from "./real-panel";
 
 const MERCATOR_MAX_LAT = 85.05112877980659;
 const EPS = 1e-9;
@@ -194,11 +197,137 @@ suite("Zoom and pan", () => {
     for (const wiring of [
       /addEventListener\('wheel', onWheel, \{ passive: false \}\)/,
       /addEventListener\('mousedown', onMouseDown\)/,
-      /applyMapWindow\(zoomMapWindow\(w, isMercator\(\), z\.fx, z\.fy, z\.factor\)\)/,
+      /applyMapWindow\(zoomMapWindow\(w, isMercator\(\), z\.fx, northFraction\(z\.fy, flipped\), z\.factor\)\)/,
       /applyMapWindow\(panMapWindow\(w, isMercator\(\),/,
       /if \(suppressNextClick\)/,
     ]) {
       assert.ok(wiring.test(html), `the panel script wires ${wiring}`);
     }
+  });
+});
+
+/** The latest render the page was sent. */
+function lastDrawn(panel: RealPanel): Msg {
+  const drew = panel.sent.filter(isType("gridReady"));
+  assert.ok(drew.length > 0, "a render was drawn");
+  return drew[drew.length - 1];
+}
+
+suite("Zoom and pan through the panel (#1147)", function () {
+  this.timeout(120_000);
+
+  /** Open the committed regular lat/lon GRIB on the equirectangular target,
+   *  with Flip Y axis ticked when `flip`, and run `body` on the panel. */
+  async function onMap(flip: boolean, body: (panel: RealPanel) => Promise<void>): Promise<void> {
+    const p = await provider();
+    const file = path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2");
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let from = panel.sent.length;
+      await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+      await panel.waitSent((m) => m.type === "gridReady" && m.options.projection === "equirectangular", from, "the map");
+      if (flip) {
+        from = panel.sent.length;
+        await panel.drive([{ id: "flip-y", checked: true }]);
+        await panel.waitSent((m) => m.type === "gridReady" && m.options.flipY === true, from, "the map, flipped");
+      }
+      await body(panel);
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  }
+
+  /** The latitude a click reads in the image's middle column, `fy` of the
+   *  way down it. The probe reports the pixel's own place, not a cell's. */
+  async function latAt(panel: RealPanel, fy: number, what: string): Promise<number> {
+    const sent = panel.sent.length;
+    await panel.probe(fy);
+    const read = (await panel.waitSent(isType("probeResult"), sent, `the probe (${what})`)).result;
+    assert.ok(read && typeof read.lat === "number", `the click at ${fy} reads a latitude (${what})`);
+    return read.lat;
+  }
+
+  /** Run `gesture` and wait for the render it asks for to land. */
+  async function rendered(panel: RealPanel, gesture: () => Promise<void>, what: string): Promise<Msg> {
+    const received = panel.received.length;
+    const sent = panel.sent.length;
+    await gesture();
+    const asked = await waitUntil(
+      () => panel.received.slice(received).find(isType("rerenderRequest")),
+      `the render ${what} asks for`,
+    );
+    assert.ok(asked.boundsLatMin != null, `${what} renders a manual window`);
+    return panel.waitSent(isType("gridReady"), sent, `the render after ${what}`);
+  }
+
+  /** Two rows of `drawn`, in degrees: how close a place must stay to count
+   *  as the same one. */
+  function twoRows(drawn: Msg): number {
+    return (2 * (drawn.usedLatMax - drawn.usedLatMin)) / drawn.height;
+  }
+
+  test("a wheel at the top edge with Flip Y axis on keeps the place under the cursor", async () => {
+    await onMap(true, async (panel) => {
+      const before = lastDrawn(panel);
+      const top = await latAt(panel, 0.1, "before the zoom");
+      // The rows are bottom-up, so the top of the image is its south.
+      assert.ok(top < (await latAt(panel, 0.9, "the bottom")), "the top of a flipped map is south");
+
+      const after = await rendered(panel, () => panel.wheel([0.5, 0.1], -250), "the wheel");
+      assert.strictEqual(after.options.flipY, true, "still drawn bottom-up");
+      assert.ok(after.usedLatMax - after.usedLatMin < before.usedLatMax - before.usedLatMin, "the wheel zoomed in");
+      const still = await latAt(panel, 0.1, "after the zoom");
+      assert.ok(
+        Math.abs(still - top) <= twoRows(before),
+        `the place under the cursor stays there: ${top} before, ${still} after`,
+      );
+    });
+  });
+
+  test("a drag with Flip Y axis on moves the map the way the cursor moves", async () => {
+    await onMap(true, async (panel) => {
+      const before = lastDrawn(panel);
+      const grabbed = await latAt(panel, 0.3, "where the drag starts");
+      await rendered(panel, () => panel.drag([0.5, 0.3], [0.5, 0.5]), "the drag");
+      const dropped = await latAt(panel, 0.5, "where the cursor let go");
+      assert.ok(
+        Math.abs(dropped - grabbed) <= twoRows(before),
+        `the place grabbed is under the cursor where it let go: ${grabbed} grabbed, ${dropped} there`,
+      );
+    });
+  });
+
+  test("a wheel over the old image, while a Mollweide render is on its way, leaves Bounds on Auto", async () => {
+    await onMap(false, async (panel) => {
+      assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", "Bounds start on Auto");
+      const gate = panel.hold(isType("gridReady"));
+      try {
+        const received = panel.received.length;
+        await panel.drive([{ id: "picker-projection", value: "mollweide" }]);
+        await waitUntil(
+          () =>
+            panel.received.slice(received).find((m) => m.type === "rerenderRequest" && m.projection === "mollweide"),
+          "the Mollweide render",
+        );
+        await waitUntil(() => gate.held.find(isType("gridReady")), "that render, held back");
+        assert.strictEqual(lastDrawn(panel).options.projection, "equirectangular", "the old map is on screen");
+
+        const wheeled = panel.received.length;
+        await panel.wheel([0.5, 0.5], -250);
+        // Past the 250 ms the page waits for a wheel to settle.
+        await new Promise((r) => setTimeout(r, 750));
+        assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", "Bounds stay on Auto");
+        assert.deepStrictEqual(
+          panel.received.slice(wheeled).filter(isType("rerenderRequest")),
+          [],
+          "and the wheel asks for no render",
+        );
+      } finally {
+        await gate.release();
+      }
+    });
   });
 });
