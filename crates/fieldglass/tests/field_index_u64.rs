@@ -52,7 +52,9 @@ fn a_huge_field_probes_contours_and_warps() {
     let probe = session.probe(&field, -88.9, 0.0).expect("on the grid");
     assert_eq!(probe.value, None, "past the four values the field holds");
 
-    let lines = session.contours(&field, &[0.5]).expect("contours");
+    let lines = session
+        .contours(&field, &[0.5], &fieldglass::ContourOptions::default())
+        .expect("contours");
     assert!(
         lines.iter().all(|l| l.segments.is_empty()),
         "nothing to march"

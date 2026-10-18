@@ -278,3 +278,25 @@ fn a_center_centres_the_range() {
         (RangeRefusalReason::CenterWithBothEnds, RangeEnd::Center)
     );
 }
+
+/// A manual range spaces the automatic contour levels here as `Session`'s
+/// contours do (#1155), and a range the render refuses, contours refuse.
+#[test]
+fn a_manual_range_spaces_the_automatic_contours() {
+    let h = gfs();
+    let auto = h
+        .project_contours(0, opts("source"), None)
+        .expect("contours");
+    let manual = h
+        .project_contours(0, with_range(Some(60000.0), Some(90000.0)), None)
+        .expect("contours");
+    assert_ne!(
+        auto.xy.as_ref(),
+        manual.xy.as_ref(),
+        "the manual range moved the levels"
+    );
+    assert!(
+        h.project_contours(0, with_range(Some(90000.0), Some(60000.0)), None)
+            .is_err()
+    );
+}

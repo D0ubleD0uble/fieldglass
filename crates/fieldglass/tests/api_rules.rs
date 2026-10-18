@@ -34,13 +34,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
-    Addressing, Affine, AxisUnits, AxisValues, ColourRange, CombineOpInfo, DecodeOptions,
-    DimensionInfo, Dtype, Error, Field, FullDetail, Georef, GridSupport, Identification, Isoline,
-    LeftOutArray, LeftOutCause, Line, MessageIdentity, MessageInfo, MessageProbe, OutOfRange,
-    PaletteOptions, PixelProbe, Placement, Positive, Probe, Projected, RangeEnd, RangeRefusal,
-    RangeRefusalReason, RangeSource, Raster, RenderOptions, ResolvedOptions, SourceFormat,
-    SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo,
-    VectorOptions, VectorPairing, Vertical, WarpOptions, WarpTarget, Warped,
+    Addressing, Affine, AxisUnits, AxisValues, ColourRange, CombineOpInfo, ContourOptions,
+    DecodeOptions, DimensionInfo, Dtype, Error, Field, FullDetail, Georef, GridSupport,
+    Identification, Isoline, LeftOutArray, LeftOutCause, Line, MessageIdentity, MessageInfo,
+    MessageProbe, OutOfRange, PaletteOptions, PixelProbe, Placement, Positive, Probe, Projected,
+    RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Raster, RenderOptions,
+    ResolvedOptions, SourceFormat, SpectralTruncation, StatisticalStep, Stats, SurfaceCodes,
+    TargetKind, Values, VariableInfo, VectorOptions, VectorPairing, Vertical, WarpOptions,
+    WarpTarget, Warped,
 };
 // The window planner's (#1083), behind `zarr`, a default feature.
 use fieldglass::{ChunkRef, WindowPlan, WindowRequest};
@@ -171,6 +172,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("DecodeOptions", Class::Wire, ""),
     ("WarpOptions", Class::Wire, ""),
     ("PaletteOptions", Class::Wire, ""),
+    // The range contours are spaced over (#1155).
+    ("ContourOptions", Class::Wire, ""),
     ("Raster", Class::Wire, ""),
     (
         "PlacedSlice",
@@ -542,6 +545,7 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<DecodeOptions>();
     is_wire_shaped::<WarpOptions>();
     is_wire_shaped::<PaletteOptions>();
+    is_wire_shaped::<ContourOptions>();
     is_wire_shaped::<Raster>();
     is_wire_shaped::<RenderOptions>();
     is_wire_shaped::<CandidateOptions>();
@@ -591,6 +595,11 @@ fn every_option_type_is_constructible_from_outside_the_crate() {
     palette.min = Some(1.0);
     palette.max = Some(1000.0);
     assert_eq!(palette.colormap.as_deref(), Some("viridis"));
+
+    let mut contours = ContourOptions::default();
+    contours.min = Some(1.0);
+    contours.scale = Some("log10".to_string());
+    assert_eq!(contours.max, None);
 
     let mut render = RenderOptions::new("equirectangular", "bilinear");
     render.colormap = Some("plasma".to_string());
@@ -720,6 +729,10 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<WarpOptions>(
         "WarpOptions",
         r#"{"bilinear":true,"bounds":null,"width":512,"height":384}"#,
+    );
+    round_trip::<ContourOptions>(
+        "ContourOptions",
+        r#"{"min":1.0,"max":null,"center":null,"scale":"log10"}"#,
     );
     round_trip::<PaletteOptions>(
         "PaletteOptions",
@@ -900,6 +913,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "DecodeOptions",
     "WarpOptions",
     "PaletteOptions",
+    "ContourOptions",
     "Georef",
     "Field",
     "Line",
@@ -2015,6 +2029,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<DecodeOptions>("DecodeOptions");
     check_schema::<WarpOptions>("WarpOptions");
     check_schema::<PaletteOptions>("PaletteOptions");
+    check_schema::<ContourOptions>("ContourOptions");
     check_schema::<SourceFormat>("SourceFormat");
     check_schema::<Dtype>("Dtype");
     check_schema::<AxisUnits>("AxisUnits");
@@ -2083,6 +2098,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "DecodeOptions",
     "WarpOptions",
     "PaletteOptions",
+    "ContourOptions",
     "SourceFormat",
     "Dtype",
     "AxisUnits",
@@ -2196,6 +2212,7 @@ const SENT: &[&str] = &[
     "DecodeOptions",
     "WarpOptions",
     "PaletteOptions",
+    "ContourOptions",
     "RenderOptions",
     "VectorOptions",
     "CandidateOptions",
@@ -2275,7 +2292,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
         WindowPlan, ChunkRef,
     );
     register!(sent:
-        DecodeOptions, WarpOptions, PaletteOptions, RenderOptions, VectorOptions,
+        DecodeOptions, WarpOptions, PaletteOptions, ContourOptions, RenderOptions, VectorOptions,
         CandidateOptions, Query, SourceSpec, WindowRequest,
     );
 

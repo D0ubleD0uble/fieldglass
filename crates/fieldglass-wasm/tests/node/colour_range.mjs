@@ -178,9 +178,20 @@ for (const scale of ['linear', 'log10']) {
   equal('rule 6: the window holds a narrower range', wlo > lo && whi < hi, true);
   const p = handle.palette(field, null);
   equal('rule 6: the palette spans the whole field', [p.t0, p.t1], [lo, hi]);
-  const levels = handle.contours(field, new Float64Array([])).map((l) => l.value);
+  const levels = handle.contours(field, new Float64Array([]), null).map((l) => l.value);
   equal('rule 6: automatic contour levels', levels, [
     55000, 60000, 65000, 70000, 75000, 80000, 85000, 90000, 95000,
+  ]);
+  // A manual range spaces them, as it does in the addon; the list is the one
+  // `colour_range_rules.rs` pins for `Session`.
+  const manual = handle
+    .contours(field, new Float64Array([]), { min: 60000, max: 90000 })
+    .map((l) => l.value);
+  equal('rule 6: contour levels over a manual range', manual, [65000, 70000, 75000, 80000, 85000]);
+  const e = thrown(() => handle.contours(field, new Float64Array([]), { min: 90000, max: 60000 }));
+  equal('rule 6: contours refuse what render refuses', e && [e.code, e.rangeRefusal.reason], [
+    'invalid_option',
+    'inverted',
   ]);
 }
 

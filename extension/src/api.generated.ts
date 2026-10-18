@@ -271,8 +271,15 @@ export interface ChunkRef {
  * it does not move the range.
  *
  * The counts are taken in the pass that paints, over the painted
- * raster's cells: the source grid's for a source-projection render, the
- * output raster's for a warped one.
+ * raster's cells: `Session::render` counts the source grid's cells, and
+ * the Node addon's render counts the pixels of the raster it warped to
+ * (the source grid's again for its source projection).
+ *
+ * A present cell is counted in `below` or
+ * `above` only when it took an end's colour. Under a log10
+ * scale a zero or negative value has no logarithm, so it paints like a
+ * missing cell and is counted in neither, though it is still
+ * `present`.
  */
 export interface ColourRange {
   /**
@@ -339,6 +346,32 @@ export interface CombineOpInfo {
    * The menu label, e.g. `"A − B"`.
    */
   label: string;
+}
+
+/**
+ * The colour range contours are spaced over when no levels are named: the
+ * range fields of `PaletteOptions`, so a host sends contours the range it
+ * renders with and the two agree (#1155). Every field `None` is the field's
+ * own range on a linear scale.
+ */
+export interface ContourOptions {
+  /**
+   * A value to centre the range on, as `PaletteOptions::center`.
+   */
+  center?: number | null;
+  /**
+   * High end of the range. `None` takes the field's own maximum.
+   */
+  max?: number | null;
+  /**
+   * Low end of the range. `None` takes the field's own minimum.
+   */
+  min?: number | null;
+  /**
+   * `"linear"` (default) or `"log10"`. The levels stay evenly spaced; the
+   * scale decides which ranges are refused, as it does for a render.
+   */
+  scale?: string | null;
 }
 
 /**
@@ -1651,7 +1684,9 @@ export type OutOfRange =
   /**
    * The colour of the end it is past, as matplotlib and xarray do by
    * default. `ColourRange::below` and `ColourRange::above` count
-   * them, so a legend can say how many there are.
+   * them, so a legend can say how many there are. A value with no place
+   * on the scale at all (zero or negative under log10) is not clamped:
+   * it paints like a missing cell and is in neither count.
    */
   | "clamp";
 
@@ -2015,8 +2050,10 @@ export interface RangeRefusal {
   end: RangeEnd;
   /**
    * The value given for `end`; `null` when it is not a
-   * finite number (JSON has no spelling for one) or when the refusal is
-   * about both ends.
+   * finite number (JSON has no spelling for one), when the refusal is
+   * about both ends, or when nothing was given for that end and its
+   * value came from the data (then it is
+   * `field_min` or `field_max`).
    */
   given: number | null;
   /**

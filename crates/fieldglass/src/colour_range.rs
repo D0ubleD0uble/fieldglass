@@ -115,23 +115,18 @@ pub fn colour_range(
     // The ramp is linear in this space, so a center's symmetry is taken here.
     let to = |v: f64| if log10 { v.log10() } else { v };
     let from = |t: f64| if log10 { 10f64.powf(t) } else { t };
-    // The data's minimum as the range's low end has to have a logarithm too;
-    // `by_data` is the "(taken from the data)" the message adds when it did
-    // not come from the caller.
-    let log10_floor = |lo: f64, by_data: bool| -> Result<(), Error> {
+    // The data's minimum as the range's low end has to have a logarithm too.
+    // Nothing was given for that end, so `given` is `None`; the value is the
+    // refusal's `field_min`, and the message says where it came from.
+    let log10_floor = |lo: f64| -> Result<(), Error> {
         if log10 && lo <= 0.0 {
-            let from_data = if by_data {
-                " (taken from the data)"
-            } else {
-                ""
-            };
             return Err(refuse(
                 RangeRefusalReason::Log10NotPositive,
                 RangeEnd::Min,
-                Some(lo),
+                None,
                 format!(
                     "a log10 scale needs a finite, positive minimum; the range starts at \
-                     {lo}{from_data}; set a minimum above 0"
+                     {lo} (taken from the data); set a minimum above 0"
                 ),
             ));
         }
@@ -238,7 +233,7 @@ pub fn colour_range(
                             ),
                         ));
                     }
-                    log10_floor(data_lo, true)?;
+                    log10_floor(data_lo)?;
                     Some(data_lo)
                 }
                 (None, None) => None,
@@ -249,7 +244,7 @@ pub fn colour_range(
             let used = match extremes {
                 None => None,
                 Some((lo, hi)) => {
-                    log10_floor(lo, true)?;
+                    log10_floor(lo)?;
                     match center {
                         None => Some((lo, hi)),
                         Some(c) => {
@@ -280,6 +275,22 @@ pub fn colour_range(
             ),
         ));
     }
+    // Under log10 the mirror is `c² / end`, which can underflow to 0: a low
+    // end with no logarithm, and a domain starting at `-inf`.
+    if let (Some((lo, _)), Some(c)) = (used, center)
+        && log10
+        && lo <= 0.0
+    {
+        return Err(refuse(
+            RangeRefusalReason::NotFinite,
+            RangeEnd::Center,
+            Some(c),
+            format!(
+                "centring on {c} on a log10 scale puts the low end of the range below the \
+                 smallest number there is; set a center nearer the data"
+            ),
+        ));
+    }
 
     Ok(ColourRange {
         used_min: used.map(|(lo, _)| lo),
@@ -292,6 +303,22 @@ pub fn colour_range(
         present: 0,
         total: 0,
     })
+}
+
+/// Whether a scale name asks for log10: `None` and `"linear"` do not, and any
+/// other name is refused.
+///
+/// The one scale parser (#880 item 5). Here rather than in `render` because
+/// contours take a scale too (it decides what range they may be spaced over)
+/// and are behind `analysis` alone.
+pub(crate) fn scale_is_log10(name: Option<&str>) -> Result<bool, Error> {
+    match name {
+        None | Some("linear") => Ok(false),
+        Some("log10") => Ok(true),
+        Some(other) => Err(Error::invalid_option(format!(
+            "unknown scale mode {other:?} (expected \"linear\" or \"log10\")"
+        ))),
+    }
 }
 
 impl ColourRange {
@@ -437,7 +464,16 @@ mod tests {
         );
         assert!(msg.contains("set a minimum above 0"), "{msg}");
         let (r, msg) = refusal(colour_range(Some((-3.0, 9.0)), None, None, None, true));
-        assert_eq!((r.end, r.given), (RangeEnd::Min, Some(-3.0)));
+        // Taken from the data, so nothing was given: the value is the field's own.
+        assert_eq!(
+            (r.end, r.given, r.field_min),
+            (RangeEnd::Min, None, Some(-3.0))
+        );
+        let (r, _) = refusal(colour_range(Some((-3.0, 9.0)), None, Some(5.0), None, true));
+        assert_eq!(
+            (r.end, r.given, r.field_min),
+            (RangeEnd::Min, None, Some(-3.0))
+        );
         assert!(msg.contains("-3 (taken from the data)"), "{msg}");
         // A positive manual minimum over data that dips below zero paints.
         assert!(colour_range(Some((-3.0, 9.0)), Some(1.0), None, None, true).is_ok());
@@ -478,6 +514,18 @@ mod tests {
             (r.reason, r.end),
             (RangeRefusalReason::NotFinite, RangeEnd::Center)
         );
+        // Under log10 the mirror `c² / max` can underflow to 0, a low end with
+        // no logarithm: refused, not handed on as a `-inf` domain.
+        let (r, msg) = refusal(colour_range(DATA, None, Some(1e200), Some(1e-200), true));
+        assert_eq!(
+            (r.reason, r.end, r.given),
+            (
+                RangeRefusalReason::NotFinite,
+                RangeEnd::Center,
+                Some(1e-200)
+            )
+        );
+        assert!(msg.contains("smallest number"), "{msg}");
         let (r, _) = refusal(colour_range(DATA, None, None, Some(-1.0), true));
         assert_eq!(
             (r.reason, r.end),

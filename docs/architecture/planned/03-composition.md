@@ -241,7 +241,7 @@ classDiagram
         +render(field, opts) RGBA
         +palette(opts) Palette
         +probe(field, lat, lon)
-        +contours(field, levels)
+        +contours(field, levels, opts)
         +combine(a, b, op) Field — #579
     }
     class Field {

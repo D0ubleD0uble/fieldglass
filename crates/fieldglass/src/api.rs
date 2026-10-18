@@ -1246,8 +1246,15 @@ api_type! {
     /// it does not move the range.
     ///
     /// The counts are taken in the pass that paints, over the painted
-    /// raster's cells: the source grid's for a source-projection render, the
-    /// output raster's for a warped one.
+    /// raster's cells: `Session::render` counts the source grid's cells, and
+    /// the Node addon's render counts the pixels of the raster it warped to
+    /// (the source grid's again for its source projection).
+    ///
+    /// A present cell is counted in [`below`](Self::below) or
+    /// [`above`](Self::above) only when it took an end's colour. Under a log10
+    /// scale a zero or negative value has no logarithm, so it paints like a
+    /// missing cell and is counted in neither, though it is still
+    /// [`present`](Self::present).
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct ColourRange {
@@ -1299,7 +1306,9 @@ api_type! {
     pub enum OutOfRange {
         /// The colour of the end it is past, as matplotlib and xarray do by
         /// default. [`ColourRange::below`] and [`ColourRange::above`] count
-        /// them, so a legend can say how many there are.
+        /// them, so a legend can say how many there are. A value with no place
+        /// on the scale at all (zero or negative under log10) is not clamped:
+        /// it paints like a missing cell and is in neither count.
         Clamp,
     }
 
@@ -1317,8 +1326,10 @@ api_type! {
         /// Which option it was wrong about.
         pub end: RangeEnd,
         /// The value given for [`end`](Self::end); `null` when it is not a
-        /// finite number (JSON has no spelling for one) or when the refusal is
-        /// about both ends.
+        /// finite number (JSON has no spelling for one), when the refusal is
+        /// about both ends, or when nothing was given for that end and its
+        /// value came from the data (then it is
+        /// [`field_min`](Self::field_min) or [`field_max`](Self::field_max)).
         pub given: Option<f64>,
         /// The field's present-cell minimum, which an end left out is taken
         /// from; `null` for a field with no present cell.

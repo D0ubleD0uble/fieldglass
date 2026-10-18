@@ -220,6 +220,32 @@ impl PaletteOptions {
     }
 }
 
+/// The colour range contours are spaced over when no levels are named: the
+/// range fields of `PaletteOptions`, so a host sends contours the range it
+/// renders with and the two agree (#1155). Every field `None` is the field's
+/// own range on a linear scale.
+#[cfg(feature = "analysis")]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+#[non_exhaustive]
+pub struct ContourOptions {
+    /// Low end of the range. `None` takes the field's own minimum.
+    #[serde(default)]
+    pub min: Option<f64>,
+    /// High end of the range. `None` takes the field's own maximum.
+    #[serde(default)]
+    pub max: Option<f64>,
+    /// A value to centre the range on, as `PaletteOptions::center`.
+    #[serde(default)]
+    pub center: Option<f64>,
+    /// `"linear"` (default) or `"log10"`. The levels stay evenly spaced; the
+    /// scale decides which ranges are refused, as it does for a render.
+    #[serde(default)]
+    pub scale: Option<String>,
+}
+
 /// A painted raster: RGBA bytes plus the dimensions they cover.
 #[cfg(feature = "render")]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -2364,19 +2390,31 @@ impl Session {
 
     /// Isolines through a field, in fractional grid coordinates.
     ///
-    /// `levels` empty asks for a nice set spanning the field's own range.
+    /// `levels` empty asks for [`crate::AUTO_CONTOUR_LEVELS`] nice levels
+    /// spanning the colour range `options` chooses: the same range
+    /// [`Session::render`] colours over for the same `min`, `max`, `center`
+    /// and `scale`, so a manual range spaces the levels in this host as it
+    /// does in the Node addon's contours (#1155).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidOption`] for a range the render would refuse, with the
+    /// same `RangeRefusal`, whether or not `levels` is empty.
     #[cfg(feature = "analysis")]
-    pub fn contours(&self, field: &Field, levels: &[f64]) -> Result<Vec<Isoline>, Error> {
+    pub fn contours(
+        &self,
+        field: &Field,
+        levels: &[f64],
+        options: &ContourOptions,
+    ) -> Result<Vec<Isoline>, Error> {
+        let range = crate::colour_range(
+            field.stats.min.zip(field.stats.max),
+            options.min,
+            options.max,
+            options.center,
+            crate::colour_range::scale_is_log10(options.scale.as_deref())?,
+        )?;
         let chosen: Vec<f64> = if levels.is_empty() {
-            // The automatic range a render colours over, so the isolines and
-            // the colours agree, and the addon's level count (#1155).
-            let range = crate::colour_range(
-                field.stats.min.zip(field.stats.max),
-                None,
-                None,
-                None,
-                false,
-            )?;
             match range.used() {
                 Some((min, max)) => nice_levels(min, max, crate::AUTO_CONTOUR_LEVELS),
                 None => Vec::new(),
@@ -3242,7 +3280,7 @@ mod tests {
         let session = grib2_session();
         let levels = [4.5, 9.5];
         let bounded: usize = session
-            .contours(&field, &levels)
+            .contours(&field, &levels, &ContourOptions::default())
             .expect("contours")
             .iter()
             .map(|l| l.segments.len())

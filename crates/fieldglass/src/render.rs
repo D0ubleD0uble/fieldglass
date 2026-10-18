@@ -409,13 +409,11 @@ pub(crate) fn resolve_colormap(
 /// typo should say so, not silently paint linearly.
 #[cfg(feature = "render")]
 pub(crate) fn parse_scale(name: Option<&str>) -> Result<ScaleMode, Error> {
-    match name {
-        None | Some("linear") => Ok(ScaleMode::Linear),
-        Some("log10") => Ok(ScaleMode::Log10),
-        Some(other) => Err(Error::invalid_option(format!(
-            "unknown scale mode {other:?} (expected \"linear\" or \"log10\")"
-        ))),
-    }
+    Ok(if crate::colour_range::scale_is_log10(name)? {
+        ScaleMode::Log10
+    } else {
+        ScaleMode::Linear
+    })
 }
 
 /// The colormap a caller sent as a lookup table — [`RenderOptions::colormap_table`]

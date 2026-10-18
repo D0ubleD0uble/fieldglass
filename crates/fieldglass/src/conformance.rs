@@ -68,7 +68,7 @@ use std::borrow::Cow;
 
 use crate::api::{Dtype, Field, Line};
 use crate::error::Error;
-use crate::session::{DecodeOptions, PaletteOptions, Session, WarpOptions};
+use crate::session::{ContourOptions, DecodeOptions, PaletteOptions, Session, WarpOptions};
 
 /// The recorded suite, as it ships in the crate.
 ///
@@ -1183,6 +1183,16 @@ fn decode_options(args: &Args) -> DecodeOptions {
     }
 }
 
+/// Contour options from a case's [`Args`]: the range fields a render takes.
+fn contour_options(args: &Args) -> ContourOptions {
+    ContourOptions {
+        min: args.range_min,
+        max: args.range_max,
+        center: None,
+        scale: args.scale.clone(),
+    }
+}
+
 /// Palette options from a case's [`Args`].
 fn palette_options(args: &Args) -> PaletteOptions {
     PaletteOptions {
@@ -1394,7 +1404,7 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         Op::Contours => {
             let field = field(case.args.index)?;
             let levels = case.args.levels.clone().unwrap_or_default();
-            let lines = session.contours(&field, &levels)?;
+            let lines = session.contours(&field, &levels, &contour_options(&case.args))?;
             json!({
                 "levelCount": count(lines.len()),
                 "levels": lines.iter().map(|l| real(Some(l.value))).collect::<Vec<_>>(),

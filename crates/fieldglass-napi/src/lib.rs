@@ -7172,7 +7172,7 @@ mod planar_geolocation_tests {
             .decode(0, &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto))
             .expect("the fixture decodes");
         let expected: Vec<(f64, f64)> = session
-            .contours(&field, &levels)
+            .contours(&field, &levels, &fieldglass::ContourOptions::default())
             .expect("grid-space isolines")
             .iter()
             .flat_map(|level| level.segments.iter())

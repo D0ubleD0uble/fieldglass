@@ -85,7 +85,9 @@ fn a_sliced_field_goes_through_the_same_operations_a_message_does() {
     // a slice that reached the painter with no stats would colour flat.
     assert!(palette.t1 >= palette.t0, "the palette spans a real range");
 
-    let isolines = session.contours(&field, &[]).expect("contours");
+    let isolines = session
+        .contours(&field, &[], &fieldglass::ContourOptions::default())
+        .expect("contours");
     let combined = session
         .combine(&field, &field, CombineOp::Difference)
         .expect("a field combines with itself");

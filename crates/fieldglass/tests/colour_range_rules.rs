@@ -8,8 +8,8 @@
 //! fixture, so the three answer the same questions about the same field.
 
 use fieldglass::{
-    CombineOp, DecodeOptions, Field, PaletteOptions, RangeEnd, RangeRefusal, RangeRefusalReason,
-    RangeSource, Session, WarpOptions,
+    CombineOp, ContourOptions, DecodeOptions, Field, PaletteOptions, RangeEnd, RangeRefusal,
+    RangeRefusalReason, RangeSource, Session, WarpOptions,
 };
 
 const GFS: &[u8] = include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
@@ -204,10 +204,41 @@ fn the_range_is_the_whole_fields_and_contours_share_it() {
         .expect("palette");
     assert_eq!((palette.t0, palette.t1), (lo, hi));
 
-    let auto = session.contours(&field, &[]).expect("contours");
+    let auto = session
+        .contours(&field, &[], &ContourOptions::default())
+        .expect("contours");
     let levels: Vec<f64> = auto.iter().map(|l| l.value).collect();
     assert_eq!(levels, AUTO_LEVELS, "nice levels over {lo}..{hi}");
 }
+
+/// A manual range spaces the automatic contour levels, as it does in the
+/// addon (#1155), and a range the render refuses, contours refuse alike.
+#[test]
+fn a_manual_range_spaces_the_automatic_contours() {
+    let (session, field) = gfs();
+    let mut options = ContourOptions::default();
+    options.min = Some(60000.0);
+    options.max = Some(90000.0);
+    let levels: Vec<f64> = session
+        .contours(&field, &[], &options)
+        .expect("contours")
+        .iter()
+        .map(|l| l.value)
+        .collect();
+    assert_eq!(levels, MANUAL_LEVELS);
+
+    options.max = Some(50000.0);
+    let e = session.contours(&field, &[], &options).unwrap_err();
+    let refusal = e.range_refusal().expect("a colour-range refusal");
+    assert_eq!(
+        (refusal.reason, refusal.end),
+        (RangeRefusalReason::Inverted, RangeEnd::Both)
+    );
+}
+
+/// The automatic levels over a manual 60000..90000; the wasm node test pins
+/// the same list.
+const MANUAL_LEVELS: [f64; 5] = [65000.0, 70000.0, 75000.0, 80000.0, 85000.0];
 
 /// The automatic contour levels for GFS message 0, `nice_levels` over the
 /// field's own range at [`fieldglass::AUTO_CONTOUR_LEVELS`]. The wasm node test

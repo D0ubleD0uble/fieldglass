@@ -57,7 +57,9 @@
 //! Built with `panic = "abort"`: a decoder panic kills the Worker. The fuzz
 //! targets make that rare; treat the Worker as disposable and restart it.
 
-use fieldglass::{DecodeOptions, Field, Isoline, PaletteOptions, Session, WarpOptions};
+use fieldglass::{
+    ContourOptions, DecodeOptions, Field, Isoline, PaletteOptions, Session, WarpOptions,
+};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -538,10 +540,24 @@ impl Handle {
     }
 
     /// Isolines in fractional grid coordinates. An empty `levels` asks for a
-    /// nice set spanning the field's own range.
+    /// nice set spanning the colour range `options` chooses: `{ min?, max?,
+    /// center?, scale? }`, the range half of the options `render` takes, so
+    /// pass the same values and the isolines follow the colours (#1155). A
+    /// range `render` would refuse throws the same `invalid_option`, with
+    /// `e.rangeRefusal`.
     #[wasm_bindgen(unchecked_return_type = "Isoline[]")]
-    pub fn contours(&self, field: &WasmField, levels: &[f64]) -> Result<JsValue, JsValue> {
-        let out: Vec<Isoline> = self.session.contours(&field.field, levels).map_err(throw)?;
+    pub fn contours(
+        &self,
+        field: &WasmField,
+        levels: &[f64],
+        #[wasm_bindgen(unchecked_param_type = "ContourOptions | null | undefined")]
+        options: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let options: ContourOptions = from_js(options)?;
+        let out: Vec<Isoline> = self
+            .session
+            .contours(&field.field, levels, &options)
+            .map_err(throw)?;
         to_js(&out)
     }
 

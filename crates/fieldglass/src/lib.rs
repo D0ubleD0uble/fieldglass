@@ -189,6 +189,8 @@ pub use fieldglass_core::units::normalize_units;
 /// Which container a buffer holds, from its leading bytes — what a host asks
 /// before choosing which handle to open, and what [`Session::open`] asks too.
 pub use fieldglass_core::{Format, detect_from_bytes};
+#[cfg(feature = "analysis")]
+pub use session::ContourOptions;
 // The placement a host paints with (#659), beside the `Session` that hands it
 // over. Not in `api`: it carries a `GridGeometry`, which is the engine's own
 // shape rather than anything a host serialises.

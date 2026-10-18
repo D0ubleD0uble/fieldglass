@@ -77,7 +77,9 @@ handle.shaderMask(field, {});      // Uint8Array the shader tests
 handle.warp(field, { bounds: [24, 50, -125, -66], width: 512, height: 512 });
 handle.render(field, {}, false);   // RGBA, north up — see below
 handle.probe(field, lat, lon);
-handle.contours(field, new Float64Array([280, 290]));
+handle.contours(field, new Float64Array([280, 290]), {});
+// No levels: nice ones over the range render uses for the same min, max, center and scale.
+handle.contours(field, new Float64Array([]), { min: 270, max: 300 });
 
 // Difference maps and their siblings. `combineOps()` is the picker's list:
 // [{ value: 'a_minus_b', label: 'A − B' }, …]. Both fields must sit on the
