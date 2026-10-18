@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Assemble the `@fieldglass/wasm` npm package from a `--target web` build, and
-# produce the tarball npm would publish (#466).
+# Assemble the `@fieldglass/wasm` npm package from two `--target web` builds,
+# the default entry and `full/` (#1158), and produce the tarball npm would
+# publish (#466).
 #
 #     ./pack.sh [--no-opt]
 #
@@ -20,10 +21,19 @@ set -euo pipefail
 
 CRATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$CRATE_DIR/../.." && pwd)"
-WEB_DIR="$CRATE_DIR/pkg/web"
 OUT_DIR="$CRATE_DIR/pkg/npm"
 
+# Two entries (#1158): the default one, `@fieldglass/wasm`, and the full one,
+# `@fieldglass/wasm/full` in the package's `full/` directory, built with the
+# features below. The owner chose a second entry over growing the default one
+# (#1081, #1083) because it can later be folded into one bundle, with `full`
+# kept as an alias, without breaking anyone.
+FULL_FEATURES=fetchplan,zarr
+WEB_DIR="$CRATE_DIR/pkg/web"
+FULL_DIR="$CRATE_DIR/pkg/web-${FULL_FEATURES//,/-}"
+
 "$CRATE_DIR/build.sh" web "$@"
+"$CRATE_DIR/build.sh" web "--features=$FULL_FEATURES" "$@"
 
 version="$(grep -m1 '^version' "$REPO_ROOT/Cargo.toml" | sed 's/.*"\(.*\)".*/\1/')"
 if [ -z "$version" ]; then
@@ -34,28 +44,35 @@ fi
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
-# Exactly the four artefacts `package.json` lists under `files`, plus the two
-# documents. Copied by name rather than with a glob so that a new file appearing
-# in `pkg/web` — a `snippets/` directory, say, which wasm-bindgen emits for
-# inline JS — fails here rather than being silently left out of the package.
-for artefact in \
-  fieldglass_wasm.js \
-  fieldglass_wasm.d.ts \
-  fieldglass_wasm_bg.wasm \
-  fieldglass_wasm_bg.wasm.d.ts
-do
-  if [ ! -f "$WEB_DIR/$artefact" ]; then
-    echo "missing build artefact: $WEB_DIR/$artefact" >&2
+# Exactly the four artefacts `package.json` lists under `files` for each entry,
+# plus the two documents. Copied by name rather than with a glob so that a new
+# file appearing in a build — a `snippets/` directory, say, which wasm-bindgen
+# emits for inline JS — fails here rather than being silently left out of the
+# package.
+copy_entry() {
+  local from="$1" to="$2" artefact
+  mkdir -p "$to"
+  for artefact in \
+    fieldglass_wasm.js \
+    fieldglass_wasm.d.ts \
+    fieldglass_wasm_bg.wasm \
+    fieldglass_wasm_bg.wasm.d.ts
+  do
+    if [ ! -f "$from/$artefact" ]; then
+      echo "missing build artefact: $from/$artefact" >&2
+      exit 1
+    fi
+    cp "$from/$artefact" "$to/"
+  done
+
+  if [ -e "$from/snippets" ]; then
+    echo "wasm-bindgen emitted $from/snippets/, which package.json does not ship." >&2
+    echo "Add it to \`files\` and \`exports\` before publishing." >&2
     exit 1
   fi
-  cp "$WEB_DIR/$artefact" "$OUT_DIR/"
-done
-
-if [ -e "$WEB_DIR/snippets" ]; then
-  echo "wasm-bindgen emitted snippets/, which package.json does not ship." >&2
-  echo "Add it to \`files\` and \`exports\` before publishing." >&2
-  exit 1
-fi
+}
+copy_entry "$WEB_DIR" "$OUT_DIR"
+copy_entry "$FULL_DIR" "$OUT_DIR/full"
 
 cp "$CRATE_DIR/npm/NOTICE" "$OUT_DIR/NOTICE"
 cp "$CRATE_DIR/npm/README.md" "$OUT_DIR/README.md"

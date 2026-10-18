@@ -17,7 +17,10 @@
 //     resolves and what a consumer needs to hand to `init` in a Worker;
 //   * `types` pointing somewhere that is not in the tarball;
 //   * the version not matching the workspace, since `pack.sh` reads it from
-//     `Cargo.toml` rather than being told.
+//     `Cargo.toml` rather than being told;
+//   * the `@fieldglass/wasm/full` subpath (#1158) not resolving, and either
+//     entry's `.d.ts` declaring what its module does not contain: the default
+//     one is held to having none of the planner's or Zarr's names.
 //
 // # What it is not
 //
@@ -30,6 +33,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -199,32 +203,36 @@ try {
       '',
     ].join('\n'),
   );
-  let tscOutput = '';
-  try {
-    execFileSync(
-      join(project, 'node_modules', '.bin', 'tsc'),
-      [
-        '--noEmit',
-        '--strict',
-        '--skipLibCheck',
-        'false',
-        '--module',
-        'nodenext',
-        '--moduleResolution',
-        'nodenext',
-        // `esnext`, not a dated target: wasm-bindgen declares each handle's
-        // `[Symbol.dispose]()`, which TypeScript types only from the
-        // `esnext.disposable` lib. A consumer on an older `lib` sees two
-        // errors in this file that are wasm-bindgen's, not this package's.
-        '--target',
-        'esnext',
-        'consumer.ts',
-      ],
-      { cwd: project, stdio: 'pipe' },
-    );
-  } catch (e) {
-    tscOutput = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim();
-  }
+  // What `tsc` says about one consumer file, or '' when it type-checks.
+  const typeCheck = (file) => {
+    try {
+      execFileSync(
+        join(project, 'node_modules', '.bin', 'tsc'),
+        [
+          '--noEmit',
+          '--strict',
+          '--skipLibCheck',
+          'false',
+          '--module',
+          'nodenext',
+          '--moduleResolution',
+          'nodenext',
+          // `esnext`, not a dated target: wasm-bindgen declares each handle's
+          // `[Symbol.dispose]()`, which TypeScript types only from the
+          // `esnext.disposable` lib. A consumer on an older `lib` sees two
+          // errors in this file that are wasm-bindgen's, not this package's.
+          '--target',
+          'esnext',
+          file,
+        ],
+        { cwd: project, stdio: 'pipe' },
+      );
+      return '';
+    } catch (e) {
+      return `${e.stdout ?? ''}${e.stderr ?? ''}`.trim();
+    }
+  };
+  const tscOutput = typeCheck('consumer.ts');
   check(
     `the published declarations type-check under tsc ${tscVersion} --strict`,
     tscOutput === '',
@@ -300,6 +308,130 @@ try {
   );
   slice.free();
   dataset.free();
+
+  // -------------------------------------------------------------------------
+  // The full entry, `@fieldglass/wasm/full` (#1158)
+  // -------------------------------------------------------------------------
+
+  // Resolved through the installed package's `exports`, as a consumer's import
+  // is, so a map that names the wrong file or none fails here.
+  const resolve = createRequire(join(project, 'consumer.js')).resolve;
+  check(
+    'the default entry resolves to the root module',
+    resolve('@fieldglass/wasm') === join(modules, 'fieldglass_wasm.js'),
+    resolve('@fieldglass/wasm'),
+  );
+  let fullEntry = '';
+  try {
+    fullEntry = resolve('@fieldglass/wasm/full');
+  } catch (e) {
+    fullEntry = `does not resolve: ${e.message}`;
+  }
+  check(
+    '@fieldglass/wasm/full resolves to the full module',
+    fullEntry === join(modules, 'full', 'fieldglass_wasm.js'),
+    fullEntry,
+  );
+  check(
+    'its .wasm has an exports subpath',
+    packed.exports['./full/fieldglass_wasm_bg.wasm'] === './full/fieldglass_wasm_bg.wasm',
+  );
+  check('its declarations are what the subpath names', packed.exports['./full']?.types === './full/fieldglass_wasm.d.ts');
+
+  // Each entry declares only what it contains. The planner's and Zarr's names
+  // are read off the generated files the full build embeds, so a type added to
+  // either is covered without a list here to keep in step; the functions and
+  // classes are wasm-bindgen's own, so they are named.
+  const featureTypes = ['api.fetchplan.generated.d.ts', 'api.zarr.generated.d.ts'].flatMap((file) =>
+    [
+      ...readFileSync(join(repoRoot, 'crates/fieldglass-wasm/src', file), 'utf8').matchAll(
+        /^export (?:interface|type) (\w+)/gm,
+      ),
+    ].map((m) => m[1]),
+  );
+  check(
+    'the planner and Zarr declarations are found',
+    ['PlanItem', 'Query', 'SourceSpec', 'Dialect', 'WindowPlan', 'WindowRequest', 'ChunkRef'].every((n) =>
+      featureTypes.includes(n),
+    ),
+    featureTypes.join(', '),
+  );
+  const fullDts = await readFile(join(modules, 'full', 'fieldglass_wasm.d.ts'), 'utf8');
+  const declares = (text, name) =>
+    new RegExp(`^export (?:interface|type|class|function) ${name}\\b`, 'm').test(text);
+  const bindings = ['parseWgrib2Idx', 'parseEcmwfIndex', 'verifyEnvelope', 'candidates', 'MessageManifest', 'openStore'];
+  for (const name of [...featureTypes, ...bindings]) {
+    check(`the default .d.ts does not declare ${name}`, !declares(dts, name));
+    check(`the full .d.ts declares ${name}`, declares(fullDts, name));
+  }
+  check('the full .d.ts declares the default one\'s types too', declares(fullDts, 'MessageInfo'));
+
+  // The same two facts as a TypeScript consumer meets them: the full entry's
+  // names type-check, and asking the default entry for them is an error.
+  writeFileSync(
+    join(project, 'full.ts'),
+    [
+      "import init, { open, openStore, parseWgrib2Idx, httpRangeHeader, type MessageInfo, type PlanItem, type WindowPlan, type WindowRequest } from '@fieldglass/wasm/full';",
+      '',
+      '// The planner, Zarr and the decoder, from the one entry.',
+      'export async function use(',
+      '  idx: string,',
+      '  metadata: Uint8Array,',
+      '  grib: Uint8Array,',
+      '  request: WindowRequest,',
+      '): Promise<[PlanItem[], string | null, WindowPlan, MessageInfo]> {',
+      '  await init();',
+      "  const items = parseWgrib2Idx('key', idx).select({ abbreviation: 'TMP' });",
+      "  const plan = openStore(new Map([['zarr.json', metadata]])).planWindow(request);",
+      '  return [items, httpRangeHeader(items[0].range), plan, open(grib).message(0)];',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const fullTsc = typeCheck('full.ts');
+  check(`the full entry's declarations type-check under tsc ${tscVersion} --strict`, fullTsc === '', `\n${fullTsc}`);
+  writeFileSync(
+    join(project, 'default_has_no_planner.ts'),
+    "import { openStore, parseWgrib2Idx, type PlanItem, type WindowPlan } from '@fieldglass/wasm';\nexport type T = [typeof openStore, typeof parseWgrib2Idx, PlanItem, WindowPlan];\n",
+  );
+  const defaultTsc = typeCheck('default_has_no_planner.ts');
+  for (const name of ['openStore', 'parseWgrib2Idx', 'PlanItem', 'WindowPlan']) {
+    check(
+      `importing ${name} from the default entry is a type error`,
+      defaultTsc.includes(`has no exported member '${name}'`) ||
+        defaultTsc.includes(`has no exported member named '${name}'`),
+      `\n${defaultTsc}`,
+    );
+  }
+
+  // And it runs: a plan from the committed GFS sidecar, and a store opened
+  // from its metadata, through the installed tree.
+  const full = await import(pathToFileURL(fullEntry).href);
+  await full.default({ module_or_path: await readFile(join(modules, 'full', 'fieldglass_wasm_bg.wasm')) });
+  const sidecar = full.parseWgrib2Idx(
+    'gfs.t00z.pgrb2.0p25.f000',
+    readFileSync(join(repoRoot, 'crates/fieldglass-fetchplan/tests/fixtures/gfs_0p25.idx'), 'utf8'),
+  );
+  const [rh] = sidecar.select({ abbreviation: 'RH', levelText: '2 mb' });
+  const header = rh === undefined ? 'no RH 2 mb record' : full.httpRangeHeader(rh.range);
+  check('the full entry plans a fetch', header === 'bytes=76032983-76033192', header);
+  sidecar.free();
+  const store = full.openStore(
+    new Map([
+      [
+        'zarr.json',
+        new Uint8Array(
+          readFileSync(join(repoRoot, 'crates/fieldglass-zarr/tests/fixtures/windows/window_v3/zarr.json')),
+        ),
+      ],
+    ]),
+  );
+  check(
+    'the full entry opens a Zarr store',
+    store.variables().some((v) => v.name === 't2m'),
+    store.variables().map((v) => v.name).join(', '),
+  );
+  store.free();
 } finally {
   rmSync(project, { recursive: true, force: true });
 }

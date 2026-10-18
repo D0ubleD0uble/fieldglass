@@ -27,7 +27,12 @@
       "types": "./fieldglass_wasm.d.ts",
       "default": "./fieldglass_wasm.js"
     },
+    "./full": {
+      "types": "./full/fieldglass_wasm.d.ts",
+      "default": "./full/fieldglass_wasm.js"
+    },
     "./fieldglass_wasm_bg.wasm": "./fieldglass_wasm_bg.wasm",
+    "./full/fieldglass_wasm_bg.wasm": "./full/fieldglass_wasm_bg.wasm",
     "./package.json": "./package.json"
   },
   "files": [
@@ -35,6 +40,10 @@
     "fieldglass_wasm.d.ts",
     "fieldglass_wasm_bg.wasm",
     "fieldglass_wasm_bg.wasm.d.ts",
+    "full/fieldglass_wasm.js",
+    "full/fieldglass_wasm.d.ts",
+    "full/fieldglass_wasm_bg.wasm",
+    "full/fieldglass_wasm_bg.wasm.d.ts",
     "NOTICE",
     "README.md"
   ],

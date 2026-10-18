@@ -1,6 +1,6 @@
 // The fetch planner in the browser module (#1081).
 //
-//   crates/fieldglass-wasm/build.sh nodejs
+//   crates/fieldglass-wasm/build.sh nodejs --features=fetchplan,zarr
 //   node crates/fieldglass-wasm/tests/node/fetchplan.mjs
 //
 // One GFS field, planned the way a Worker plans it: parse the committed `.idx`,
@@ -24,8 +24,9 @@
 // serde-wasm-bindgen's conversion, `null` for every absent key, the error
 // mapping.
 //
-// A CI gate, like `conformance.mjs`: it needs only committed files and a built
-// `pkg/nodejs`, and it fails loudly when either is missing.
+// A CI gate, like `conformance.mjs`: it needs only committed files and the
+// full entry built for Node (`pkg/nodejs-fetchplan-zarr`, the package's
+// `@fieldglass/wasm/full`, #1158), and it fails loudly when either is missing.
 
 import { createRequire } from 'node:module';
 import { readFileSync, existsSync } from 'node:fs';
@@ -38,12 +39,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..', '..', '..');
 
 const pkgArg = process.argv.indexOf('--pkg');
-const pkgDir = pkgArg === -1 ? 'crates/fieldglass-wasm/pkg/nodejs' : process.argv[pkgArg + 1];
+const pkgDir = pkgArg === -1 ? 'crates/fieldglass-wasm/pkg/nodejs-fetchplan-zarr' : process.argv[pkgArg + 1];
 const WASM = join(repoRoot, pkgDir, 'fieldglass_wasm.js');
 const RECORDING = join(repoRoot, 'crates/fieldglass/tests/fetch_plan_wire.json');
 
 for (const [path, how] of [
-  [WASM, 'crates/fieldglass-wasm/build.sh nodejs'],
+  [WASM, 'crates/fieldglass-wasm/build.sh nodejs --features=fetchplan,zarr'],
   [RECORDING, 'it is committed; check out the repository'],
 ]) {
   if (!existsSync(path)) {
@@ -168,6 +169,24 @@ stale[0] = 0x58; // 'X': a mid-message offset lands in packed data.
 check(
   'bytes that are not the message are decode, a stale sidecar',
   codeOf(() => wasm.verifyEnvelope(item, stale)) === 'decode',
+);
+
+// An HTTP error page is not a message either, and verifyEnvelope cannot tell
+// it from one: it reads as decode or short_read by its length alone. That is
+// why the README checks the status before calling it (#1081's review).
+const errorPage = (length) => {
+  const text = '<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code>';
+  return new TextEncoder().encode(text.padEnd(length, ' '));
+};
+check(
+  'a 403 body as long as the range reads as decode, the stale-sidecar code',
+  codeOf(() => wasm.verifyEnvelope(item, errorPage(item.range.length))) === 'decode',
+  codeOf(() => wasm.verifyEnvelope(item, errorPage(item.range.length))),
+);
+check(
+  'a shorter one reads as short_read, the retry code',
+  codeOf(() => wasm.verifyEnvelope(item, errorPage(100))) === 'short_read',
+  codeOf(() => wasm.verifyEnvelope(item, errorPage(100))),
 );
 
 // The whole object is one fetch with no header.

@@ -82,7 +82,7 @@ class ParseTable(unittest.TestCase):
     def test_the_real_readme_parses(self) -> None:
         # Guards the marker and the table shape in the file CI actually reads.
         rows = chk.parse_readme_table(chk.DEFAULT_README)
-        self.assertEqual(set(rows), {"baseline", "+simd128"})
+        self.assertEqual(set(rows), {"baseline", "+simd128", "full"})
 
 
 class Gzip(unittest.TestCase):

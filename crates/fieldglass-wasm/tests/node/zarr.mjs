@@ -1,7 +1,7 @@
 // Zarr stores in the browser module (#1083).
 //
-//   crates/fieldglass-wasm/build.sh nodejs --features=zarr
-//   node crates/fieldglass-wasm/tests/node/zarr.mjs --pkg crates/fieldglass-wasm/pkg/nodejs-zarr
+//   crates/fieldglass-wasm/build.sh nodejs --features=fetchplan,zarr
+//   node crates/fieldglass-wasm/tests/node/zarr.mjs
 //
 // One window of a forecast-shaped store, read the way a Worker reads a remote
 // store: open the metadata alone, fetch the coordinate chunks it names, plan a
@@ -18,8 +18,9 @@
 // xarray, not anything recorded from this project's Rust.
 //
 // A CI gate, like `fetchplan.mjs`: it needs only committed files and a build
-// with the `zarr` feature, and it fails loudly when either is missing. Against
-// the default build it fails at the first call, `openStore is not a function`.
+// of the full entry (`@fieldglass/wasm/full`, #1158), and it fails loudly when
+// either is missing. Against the default build it fails at the first call,
+// `openStore is not a function`.
 
 import { createRequire } from 'node:module';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
@@ -32,13 +33,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..', '..', '..');
 
 const pkgArg = process.argv.indexOf('--pkg');
-const pkgDir = pkgArg === -1 ? 'crates/fieldglass-wasm/pkg/nodejs-zarr' : process.argv[pkgArg + 1];
+const pkgDir = pkgArg === -1 ? 'crates/fieldglass-wasm/pkg/nodejs-fetchplan-zarr' : process.argv[pkgArg + 1];
 const WASM = join(repoRoot, pkgDir, 'fieldglass_wasm.js');
 const FIXTURES = join(repoRoot, 'crates/fieldglass-zarr/tests/fixtures');
 const ORACLE = join(FIXTURES, 'windows_oracle.json');
 
 for (const [path, how] of [
-  [WASM, 'crates/fieldglass-wasm/build.sh nodejs --features=zarr'],
+  [WASM, 'crates/fieldglass-wasm/build.sh nodejs --features=fetchplan,zarr'],
   [ORACLE, 'it is committed; check out the repository'],
 ]) {
   if (!existsSync(path)) {

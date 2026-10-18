@@ -52,14 +52,12 @@ wasm-bindgen = "0.2"
 # they should hold out, so an app keeps no sidecar parser of its own. `src/
 # fetchplan.rs` is the binding.
 #
-# **Off by default, pending the owner's choice of where it ships.** Measured
-# against binaryen 132, it adds about 93 KB gzipped (+15.0%) to this module,
-# and a module of its own would be about 226 KB gzipped, mostly the GRIB2
-# parameter tables this one already carries (107 KB without the table-backed
-# resolver). Whether every page that decodes pays the first or a page that
-# plans pays the second is a product decision, recorded on
-# #1081; until then the shipped bundle is unchanged and CI builds this feature
-# separately (`build.sh nodejs --features=fetchplan`) to run its test.
+# **Off by default.** It ships in the package's second entry,
+# `@fieldglass/wasm/full`, built with this and `zarr` (`pack.sh`), and the
+# default entry leaves it out: the owner's choice on #1081, implemented by
+# #1158. Measured against binaryen 132, it adds about 93 KB gzipped (+15.0%) to
+# this module, and a module of its own would have been about 226 KB gzipped,
+# mostly the GRIB2 parameter tables this one already carries.
 fetchplan = ["fieldglass/fetchplan", "dep:serde_json"]
 
 # Zarr stores (#1083): `openStore` over the objects a page fetched, and the
@@ -71,14 +69,13 @@ fetchplan = ["fieldglass/fetchplan", "dep:serde_json"]
 # resolver, so a page that reads stores and plans no GRIB fetches carries
 # neither.
 #
-# **Off by default, pending the owner's choice of where it ships**, as
-# `fetchplan` is. It brings the Zarr walker and its codecs: blosc with its five
-# inner compressors, LZ4 and BloscLZ, zstd (already here for NetCDF), and v3
-# sharding, and `serde_json` for the metadata documents. Measured locally against
-# binaryen 132 it adds about 106 KB gzipped (+16.8%) to this module, or about
-# 68 KB beside `fetchplan`, which already carries `serde_json`; the README has
-# the figures and #1083 the decision. CI builds it separately (`build.sh nodejs
-# --features=zarr`) to run its test.
+# **Off by default**, and in the `@fieldglass/wasm/full` entry, as `fetchplan`
+# is (#1083, #1158). It brings the Zarr walker and its codecs: blosc with its
+# five inner compressors, LZ4 and BloscLZ, zstd (already here for NetCDF), and
+# v3 sharding, and `serde_json` for the metadata documents. Measured locally
+# against binaryen 132 it adds about 106 KB gzipped (+16.8%) to this module, or
+# about 68 KB beside `fetchplan`, which already carries `serde_json`. The README
+# gates the full entry's size.
 #
 # `dep:serde_json` because a window request is read through a JSON value so an
 # unknown key is refused, as the planner's query is.

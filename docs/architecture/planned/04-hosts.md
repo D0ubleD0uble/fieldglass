@@ -63,8 +63,8 @@ code the read fetches with (`ZarrStore::chunk_keys`), so fetching exactly them
 is enough. A key the Worker does not pass reads as the fill value, as an absent
 chunk does. Windows are planned over slices placed on a regular lat/lon grid,
 as 1-D latitude and longitude coordinates place them; any other placement is
-refused. Built behind `fieldglass-wasm`'s
-`zarr` feature until where it ships is decided.
+refused. Built behind `fieldglass-wasm`'s `zarr` feature, and shipped in the
+package's `@fieldglass/wasm/full` entry (#1158).
 
 ## One field, from a bucket to a texture
 
@@ -149,10 +149,11 @@ Notes that shape the two hosts:
 - **Trust.** A `.idx` range is a claim. `verifyEnvelope` checks the fetched
   bytes against it (magic, edition, length) before they are opened, and throws
   `short_read` for a short transfer and `decode` for bytes that are not the
-  message, which is what a stale sidecar produces (#1081). The planner calls are
-  built behind `fieldglass-wasm`'s `fetchplan` feature and are not in the
-  shipped bundle until where they ship is decided: inside this module, or as a
-  module of their own. `verifyMessage` then checks the opened message's
+  message, which is what a stale sidecar produces (#1081). It assumes a
+  successful ranged response, so the Worker checks the HTTP status first. The
+  planner calls are built behind `fieldglass-wasm`'s `fetchplan` feature and
+  ship in the package's second entry, `@fieldglass/wasm/full`, beside Zarr; the
+  default entry leaves both out (#1158). `verifyMessage` then checks the opened message's
   level and reference time against the sidecar line, and its parameter on a
   wgrib2 line (an ECMWF line names it in MARS, which nothing here maps to WMO
   codes yet), comparing

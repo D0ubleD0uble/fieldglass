@@ -43,14 +43,26 @@ Bindings and support:
   bitflags         2.11.0   MIT OR Apache-2.0
   once_cell        1.21.4   MIT OR Apache-2.0
 
+The `full/` entry (`@fieldglass/wasm/full`) is the same module built with the
+fetch planner and Zarr stores, and links these as well:
+
+  serde_json       1.0.151  MIT OR Apache-2.0    Zarr metadata and the
+                                                 planner's queries
+  itoa             1.0.18   MIT OR Apache-2.0    serde_json's integer output
+  zmij             1.0.21   MIT                  serde_json's float output
+  memchr           2.8.0    Unlicense OR MIT     serde_json's string scanning
+
 The Fieldglass crates themselves — `fieldglass`, `fieldglass-core`,
 `fieldglass-grib1`, `fieldglass-grib2`, `fieldglass-netcdf`, and
-`fieldglass-aec`, which decodes GRIB2 §5.42 CCSDS / AEC packing — are part of
-this project and carry the same MIT OR Apache-2.0 terms as the package.
+`fieldglass-aec`, which decodes GRIB2 §5.42 CCSDS / AEC packing, and in the
+`full/` entry `fieldglass-fetchplan` and `fieldglass-zarr`, whose blosc, LZ4
+and BloscLZ decoders are written in Rust here — are part of this project and
+carry the same MIT OR Apache-2.0 terms as the package.
 
 This list is generated from the module's own dependency graph
-(`cargo tree -p fieldglass-wasm --target wasm32-unknown-unknown -e normal`) and
-is regenerated when that graph changes. `cargo deny check` holds the whole
+(`cargo tree -p fieldglass-wasm --target wasm32-unknown-unknown -e normal`,
+and with `--features fetchplan,zarr` for the `full/` entry) and is regenerated
+when that graph changes. `cargo deny check` holds the whole
 workspace to an allowed-licence set on every pull request, so a crate whose
 terms this project cannot ship never reaches a release.
 
