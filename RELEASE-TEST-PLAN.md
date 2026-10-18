@@ -406,7 +406,7 @@ palette, picking the store's folder.
 The five blosc compressors and the other codecs are checked value for value in
 CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 
-## 3. Animate through a dimension (#170)
+## 3. Animate through a dimension (#170, #1118)
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, variable `air`
 
@@ -422,6 +422,16 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       CSV and the zoom buttons match. Failure looks like `⏮`/`⏭` drawn
       small and above the middle, or a back arrow with no bar (#1042), or
       light-grey buttons in a dark theme (#1118).
+- [ ] Keyboard and high contrast (#1118). In the Dark Modern theme, click
+      Export PNG… and press Tab along the toolbar: each button shows a ring
+      while it has focus. At `time` 0 the first and back buttons are
+      disabled and look faded next to the others. Switch to the High
+      Contrast theme (Ctrl+K Ctrl+T): every button has a clear border.
+      Failure looks like a light-grey button, no ring on Tab, a disabled
+      button that looks like the rest, or a button with no border in High
+      Contrast. `panel-button-theme.test.ts` (`every button takes the
+      theme's colours in light, dark and high-contrast themes, and the
+      themes differ`) checks the same in all four themes.
 - [ ] Press play: the label beside Loop counts `2024-01-02 (step 1 of
       0–365)`, `2024-01-03 (step 2 of 0–365)`, …, the `time` stepper and its
       date follow, and so does the date at the end of the line under the
@@ -464,6 +474,18 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 - [ ] Play from step 0. Every step but 7 and 119 has no data and shows "no
       values" with no colour bar (#871). Step 7 shows bands of latitude; step
       119 the same bands 100 higher. Playback does not stall or queue frames.
+
+**`S: samples/gfs.grib2`**, the file's metadata view (the page that opens
+first)
+
+- [ ] The file page's buttons (Render, Export CSV…) in the Dark Modern theme
+      take the theme's button colours, with no light-grey button (#1118).
+      Press Tab: each button shows a ring while it has focus. In the High
+      Contrast theme each has a clear border. The NetCDF page's Render
+      buttons use the same style and are not opened separately;
+      `panel-button-theme.test.ts` (`the dump page's buttons take the
+      theme's colours in the same themes`) reads the GRIB and NetCDF pages in
+      all four themes.
 
 ## 4. Click a cell for a line plot (#172, #1037, #1043)
 
@@ -1432,6 +1454,13 @@ python3 -m http.server 8001
   `crates/fieldglass/tests/non_finite_geometry.rs`
   (`two_declined_grids_combine_only_when_they_declare_the_same_grid`,
   `two_declined_geostationary_slices_combine_only_when_they_declare_the_same_grid`).
+- **A level in the dimensionless unit `1` shows no stray `1` (#1115).** No
+  sample has a level coordinate with units of `1` (a sigma level); the stepper,
+  Animate label and subtitle can only be seen on a store built for it.
+  `extension/src/test/suite/slice-coordinates.test.ts` builds one: `a sigma
+  level with units "1" shows no stray 1 in the stepper, the Animate label or
+  the subtitle`, and `CF's dimensionless unit "1" is left out, and only exactly
+  that` holds the rule.
 - **A click while a Flip Y axis redraw is pending (#1114), and a cross-section's
   axis labels turning over before the image (#1114).** A slice redraws too
   fast to click inside by eye; the §7 projection check on `mrms.grib2` is the

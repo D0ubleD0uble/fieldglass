@@ -65,7 +65,7 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 ### Fixed
 
 - **The render panel's buttons follow the VS Code theme.** Export PNG, Export CSV, the Animate buttons, the zoom buttons and the file page's Render and Export CSV buttons drew as the browser's light-grey default in dark themes. They now use the theme's secondary button colors, a focus ring and a dimmed look when disabled, and the theme's contrast border in a high-contrast theme. Closes #1118.
-- **A level in the dimensionless unit `1` no longer shows a stray `1`.** A sigma level read `0.995 1` in the slice steppers, the Animate label, the subtitle and the exported PNG name. Units of `1` are now left out there, and from the probe readout, the wind arrow key, the panel heading and the plot captions.
+- **A level in the dimensionless unit `1` no longer shows a stray `1`.** A sigma level read `0.995 1` in the slice steppers, the Animate label, the subtitle and the exported PNG name. Units of `1` are now left out there, and from the probe readout, the wind arrow key, the panel heading and the plot captions. Closes #1115.
 
 - **A click while the panel redraws reads the image on screen.** After ticking Flip Y axis or picking another projection, the old image stays up until the new one arrives. A click in that time read the cell under the same point of the new image, and a cross-section's axis labels could turn over before the image did. The readout and the axis labels now follow the image shown: which way up its rows are, and the projection and extent of a map. Zoom and pan follow the map's projection and extent. Closes #1114.
 
