@@ -2262,6 +2262,57 @@ const NOT_IN_SCHEMA: &[(&str, &str)] = &[
     ),
 ];
 
+/// The schema's top-level key that lists the root types by the umbrella feature
+/// a host needs to bind them: `{"always": [...], "fetchplan": [...], "zarr":
+/// [...]}`, where `always` is every build.
+///
+/// The browser package ships two entries (#1158): the default one, without the
+/// planner and Zarr stores, and `@fieldglass/wasm/full` with both. Each entry's
+/// `.d.ts` declares only what it contains, so `tools/gen_api_declarations.py`
+/// splits the declarations along this list: the default file holds what the
+/// `always` roots reach, and a feature's file what its own roots reach beyond
+/// that. Nested definitions such as `Dialect` follow the roots that reach them.
+///
+/// The list is not taken on trust: each root is held to the module its type is
+/// declared in ([`feature_of_module`]).
+const FEATURE_ROOTS_KEY: &str = "x-fieldglass-feature-roots";
+
+/// The feature whose module declares `T`: `"fetchplan"`, `"zarr"`, or
+/// `"always"` for one every build has. Each root's registration is held to it,
+/// so a planner or Zarr type registered as one every build binds fails instead
+/// of reaching the default package's declarations, and the reverse.
+///
+/// The planner's types are declared in `fieldglass-fetchplan` or the umbrella's
+/// `fetchplan` module, both behind `fetchplan`; the window planner's in the
+/// umbrella's `session::window`, behind `zarr`. The path is
+/// [`std::any::type_name`]'s, whose exact text Rust does not promise. A
+/// toolchain that changed it fails the registration loudly, which is the safe
+/// direction.
+fn feature_of_module<T: ?Sized>() -> &'static str {
+    let path = std::any::type_name::<T>();
+    if path.starts_with("fieldglass_fetchplan::") || path.starts_with("fieldglass::fetchplan::") {
+        "fetchplan"
+    } else if path.starts_with("fieldglass::session::window::") {
+        "zarr"
+    } else {
+        "always"
+    }
+}
+
+/// [`feature_of_module`] tells the three kinds apart, so the registration check
+/// in [`api_schema`] can fail. Without the `zarr` answer a Zarr type registered
+/// for every build would pass it.
+#[test]
+fn the_feature_of_a_root_is_read_off_its_module() {
+    assert_eq!(feature_of_module::<PlanItem>(), "fetchplan");
+    assert_eq!(feature_of_module::<Candidate>(), "fetchplan");
+    assert_eq!(feature_of_module::<CandidateOptions>(), "fetchplan");
+    assert_eq!(feature_of_module::<WindowPlan>(), "zarr");
+    assert_eq!(feature_of_module::<WindowRequest>(), "zarr");
+    assert_eq!(feature_of_module::<MessageInfo>(), "always");
+    assert_eq!(feature_of_module::<Error>(), "always");
+}
+
 /// Rebuild every object with its keys in sorted order.
 ///
 /// Not cosmetic. `serde_json`'s map keeps insertion order when any crate in
@@ -2301,25 +2352,41 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
         .for_deserialize()
         .into_generator();
     let mut roots: Vec<&'static str> = Vec::new();
+    // The roots by the feature a host needs to bind them; see
+    // [`FEATURE_ROOTS_KEY`].
+    let mut by_feature: BTreeMap<&'static str, Vec<&'static str>> = BTreeMap::new();
 
     macro_rules! register {
-        ($generator:ident: $($t:ident),* $(,)?) => {$(
+        ($generator:ident [$feature:literal]: $($t:ident),* $(,)?) => {$(
             $generator.subschema_for::<$t>();
             roots.push(stringify!($t));
+            assert_eq!(
+                feature_of_module::<$t>(), $feature,
+                "{} ({}) is registered for feature {:?}, but the module that declares \
+                 it belongs to another",
+                stringify!($t), std::any::type_name::<$t>(), $feature,
+            );
+            by_feature.entry($feature).or_default().push(stringify!($t));
         )*};
     }
-    register!(returned:
+    register!(returned ["always"]:
         SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, DisplayField, Line,
         MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, VectorPairing, LeftOutArray, LeftOutCause,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
         Error, Raster, ColourRange, RangeSource, OutOfRange, RangeRefusal, RangeRefusalReason, RangeEnd,
+    );
+    register!(returned ["fetchplan"]:
         PlanItem, PlanRange, Address, Expect, ParameterId, LevelSpec, Surface, Candidate,
-        WindowPlan, ChunkRef,
     );
-    register!(sent:
+    register!(returned ["zarr"]: WindowPlan, ChunkRef);
+    register!(sent ["always"]:
         DecodeOptions, DisplayDecodeOptions, WarpOptions, PaletteOptions, ContourOptions, RenderOptions, VectorOptions,
-        CandidateOptions, Query, SourceSpec, WindowRequest,
     );
+    register!(sent ["fetchplan"]: CandidateOptions, Query, SourceSpec);
+    register!(sent ["zarr"]: WindowRequest);
+    for names in by_feature.values_mut() {
+        names.sort_unstable();
+    }
 
     let mut defs = sent.take_definitions(true);
     let returned_defs = returned.take_definitions(true);
@@ -2345,6 +2412,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
             for none); an option type a host sends is the deserialize contract (a key left \
             out takes its default).",
         "$defs": defs,
+        FEATURE_ROOTS_KEY: by_feature,
     });
     (canonical(document), roots, returned_names)
 }

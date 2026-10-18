@@ -85,6 +85,11 @@ pub use zarr::open_store;
 /// and checked against it in CI. wasm-bindgen copies this into the package's
 /// `.d.ts`, which is what lets the methods below name `MessageInfo` rather than
 /// `any`.
+///
+/// Every build embeds this file, and `RENDERED_RASTER` below. The planner's and
+/// Zarr's types are in the two feature-gated sections after that,
+/// which only a build with that feature embeds, so the default package's
+/// `.d.ts` declares nothing it does not contain (#1158).
 #[wasm_bindgen(typescript_custom_section)]
 const API_DECLARATIONS: &str = include_str!("api.generated.d.ts");
 
@@ -105,6 +110,18 @@ export interface RenderedRaster {
   range: ColourRange;
 }
 "#;
+
+/// The fetch planner's wire types (`PlanItem`, `Query`, `SourceSpec` and the
+/// rest), split out of `api.generated.d.ts` by the same generator.
+#[cfg(feature = "fetchplan")]
+#[wasm_bindgen(typescript_custom_section)]
+const FETCHPLAN_DECLARATIONS: &str = include_str!("api.fetchplan.generated.d.ts");
+
+/// The Zarr window planner's wire types (`WindowRequest`, `WindowPlan`,
+/// `ChunkRef`), split out the same way.
+#[cfg(feature = "zarr")]
+#[wasm_bindgen(typescript_custom_section)]
+const ZARR_DECLARATIONS: &str = include_str!("api.zarr.generated.d.ts");
 
 /// The shader snippet a GPU host pastes into its own fragment program.
 ///

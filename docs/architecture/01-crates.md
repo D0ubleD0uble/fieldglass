@@ -169,7 +169,10 @@ contract, the option types a host sends in its deserialize contract.
 `tools/gen_api_declarations.py` turns that file into the TypeScript both hosts
 ship, `extension/src/api.generated.ts` for the addon and
 `crates/fieldglass-wasm/src/api.generated.d.ts`, which the browser host embeds in
-wasm-bindgen's `.d.ts`. Both hosts put the same bytes on the wire: every key of
+wasm-bindgen's `.d.ts`. The browser's declarations are split by feature
+(`api.fetchplan.generated.d.ts`, `api.zarr.generated.d.ts`, embedded only in a
+build with that feature), along the root lists the schema records, so the
+default package entry declares no planner or Zarr type (#1158). Both hosts put the same bytes on the wire: every key of
 a returned object present, `null` for a Rust `None` (serde-wasm-bindgen with
 `serialize_missing_as_null`, and napi's `serde_json::Value` conversion), so an
 optional field is declared `T | null`. The `api-declarations` pre-commit hook
