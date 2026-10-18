@@ -288,10 +288,16 @@ small, and it is *not* a substitute for the per-feature sections below it.
       and the probe at one point reads u minus v there, not u.
 - [ ] **Export PNG** from one render; the file opens and matches what was on
       screen.
-- [ ] On the `gfs.grib2` panel, Export CSV… sits beside Export PNG… (#1039;
-      until 0.6.0 a GRIB field's CSV came only from the metadata table). Its
-      dialog opens in the file's folder on the PNG's name with `.csv`,
-      `gfs_<parameter>_message-<n>.csv`, and the file holds the field.
+- [ ] On the `gfs.grib2` render panel, Export CSV… sits beside Export PNG…
+      (#1039). In 0.5.0 a GRIB field's CSV could be exported only from the
+      metadata table. The save dialog opens in the file's folder on the PNG's
+      name with `.csv`, `gfs_<parameter>_message-<n>.csv`, and the file holds
+      the field.
+- [ ] On the GRIB difference map above, hover Export CSV…: the tooltip says
+      that with Compare on it exports Field A. Click it: the layout prompt
+      starts "Compare is on: the CSV holds Field A, not the difference.", and
+      the CSV holds message 0's values (u), not u minus v. A CSV of the
+      difference is #1111.
 
 ---
 
@@ -323,8 +329,8 @@ palette, picking the store's folder.
       per cell of 144 × 73. The matrix layout exports too.
 - [ ] With `time` at 14, Export CSV…: the save dialog opens inside the store's
       folder on `air_v2_air_time-2024-01-15.csv`. Type `out` and save: the
-      file is `out.csv`. In 0.5.0 the dialog suggested nothing and saved `out`
-      with no extension.
+      file is `out.csv`. In 0.5.0 the dialog suggested nothing, and on Linux
+      it saved `out` with no extension.
 - [ ] Export PNG: the save dialog opens inside the store's folder on
       `air_v2_air_time-2024-01-15.png`. Step `time` to 15: it offers
       `air_v2_air_time-2024-01-16.png`, not the same name again (#1112).
