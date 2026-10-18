@@ -402,6 +402,11 @@ palette, picking the store's folder.
       no stores in it, such as `crates/fieldglass-zarr/src`: the message
       says it isn't a Zarr store and to pick the folder that holds the
       store's data.
+- [ ] Make a folder with 210 empty subfolders (`d000` to `d209`) and a Zarr
+      store named `zzzz` beside them, and open it: the message says it isn't a
+      Zarr store and that Fieldglass looked at only the first 200 folders in
+      it and found no Zarr store. Details adds that only the first 200, in
+      name order, were checked (#1135).
 
 The five blosc compressors and the other codecs are checked value for value in
 CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.

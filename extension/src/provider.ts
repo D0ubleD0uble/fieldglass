@@ -269,7 +269,7 @@ export class FieldglassEditorProvider
     if (!native.ZarrHandle.isStore(storeUri.fsPath)) {
       // A folder of stores is the likely mistake, so name the stores in it.
       const inside = await childStores(storeUri, (p) => native.ZarrHandle.isStore(p));
-      await reportProblem("error", notAStore(storeUri.fsPath, name, inside.stores, inside.partial));
+      await reportProblem("error", notAStore(storeUri.fsPath, name, inside.stores, inside.partial, MAX_FOLDERS_EXAMINED));
       return;
     }
     let handle: ZarrHandle;

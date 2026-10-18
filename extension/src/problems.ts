@@ -59,13 +59,14 @@ export function errorText(err: unknown): string {
 /** A folder picked as a Zarr store that is not one. `childStores` are the names
  *  of the folders directly inside it that are stores, in the order to list
  *  them; the toast names them so the user can pick the one they meant.
- *  `partial` says only some of its folders were looked at, so the count is a
- *  floor. */
+ *  `partial` says only the first `examined` of its folders were looked at, so
+ *  a count is a floor, and no store found does not mean it holds none. */
 export function notAStore(
   folderPath: string,
   folderName: string,
   childStores: readonly string[],
   partial = false,
+  examined = 0,
 ): Problem {
   const lead = `Fieldglass: "${toastName(folderName)}" isn't a Zarr store.`;
   const names = childStores.map(toastName);
@@ -77,16 +78,26 @@ export function notAStore(
     summary =
       `${lead} It contains ${atLeast}${names.length} Zarr stores: ${listNames(names)}. ` +
       "Pick one of those.";
+  } else if (partial) {
+    summary =
+      `${lead} Fieldglass looked at only the first ${examined} folders in it, by name, and ` +
+      "found no Zarr store. Pick the folder that holds the store's data, often one whose " +
+      "name ends in .zarr.";
   } else {
     summary =
       `${lead} Pick the folder that holds the store's data, often one whose name ends in .zarr.`;
   }
+  const limit =
+    partial && names.length === 0
+      ? ` It holds more folders than Fieldglass looks inside, so only the first ${examined}, ` +
+        "in name order, were checked for a store."
+      : "";
   return {
     summary,
     details:
       `${folderPath} holds none of the files that start a Zarr store: zarr.json, ` +
       ".zmetadata, .zgroup or .zarray. Fieldglass looks for these, not for a .zarr " +
-      "name, so a store without the suffix still opens.",
+      `name, so a store without the suffix still opens.${limit}`,
   };
 }
 
