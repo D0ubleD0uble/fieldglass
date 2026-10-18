@@ -90,6 +90,8 @@ export interface PageState {
   /** The focused element as `tag#id.class`, suffixed ` in #unavailable` when
    *  it is inside the line. */
   focused: string | null;
+  /** `document.hasFocus()`: false when the window behind the page is not focused. */
+  docHasFocus: boolean;
   projection: string;
   /** Whether the projection `<select>` itself is disabled. */
   projectionDisabled: boolean;
@@ -541,6 +543,7 @@ const DRIVER = `
         controlDisplay: controlsBy((el) => getComputedStyle(el).display),
         controlShown: controlsBy((el) => el.getClientRects().length > 0),
         unavailable: unavailableLine(),
+        docHasFocus: document.hasFocus(),
         focused: document.activeElement ? describe(document.activeElement) + (document.activeElement.closest('#unavailable') ? ' in #unavailable' : '') : null,
         projection: picker.value,
         projectionDisabled: picker.disabled,

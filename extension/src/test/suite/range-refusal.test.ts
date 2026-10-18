@@ -14,6 +14,7 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as vscode from "vscode";
 
 import { extensionPath, isType, type Msg, openEditor, openReal, provider, type RealPanel } from "./real-panel";
 
@@ -214,6 +215,11 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
     const p = await provider();
     const editor = await openEditor(p, FIXTURE);
     const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    // The last step exports for real: answer the save dialog, which would
+    // otherwise stay open and keep the window's focus for every later suite.
+    const savedDialog = vscode.window.showSaveDialog;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       await answer(
@@ -236,6 +242,7 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       await panel.drive([{ id: "export-png", click: true }]);
       assert.ok(panel.received.slice(before).some(isType("exportPng")), "export works once the range holds");
     } finally {
+      vscode.window.showSaveDialog = savedDialog;
       panel.dispose();
       editor.close();
     }

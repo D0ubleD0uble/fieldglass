@@ -55,7 +55,11 @@ async function assertFocusRing(panel: RealPanel, theme: string): Promise<void> {
     const state = await panel.drive([{ id, focus: true }]);
     const b = state.panelButtons.find((x) => x.id === id);
     assert.ok(b?.focused, `#${id} takes focus in ${theme}`);
-    assert.notStrictEqual(b.focusOutlineStyle, "none", `#${id} has a focus ring in ${theme}`);
+    assert.notStrictEqual(
+      b.focusOutlineStyle,
+      "none",
+      `#${id} has a focus ring in ${theme} (document.hasFocus()=${state.docHasFocus}, activeElement=${state.focused})`,
+    );
     assert.strictEqual(b.focusOutlineColor, b.wantFocus, `#${id}'s ring is --vscode-focusBorder in ${theme}`);
   }
 }
