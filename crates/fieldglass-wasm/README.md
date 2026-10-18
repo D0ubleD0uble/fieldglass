@@ -449,12 +449,22 @@ The 0.6.0 release prep (#854) re-recorded it from the `ci.yml` run on
 figures (3.1%), and 33,276 and 19,471 above `+simd128`'s (3.3%). That is the
 growth of the merges since #929.
 
+#1155 re-recorded it from the `ci.yml` run on its PR (#1167, `22ad0823` merged
+onto `3bc0c205`), whose drift read 5.3% gzipped for the baseline and 5.0% for
+`+simd128`: 58,842 raw bytes and 32,719 gzipped above the previous baseline
+figures, and 59,035 and 30,901 above `+simd128`'s. Master at `3bc0c205`
+already measured 1,637,153 and 643,516 (4.6%), and 1,623,582 and 638,372
+(4.2%), so 8,921 raw and 4,431 gzipped of the baseline's growth, and 9,273 and
+5,005 of `+simd128`'s, are #1155's: the one colour-range rule, its range
+result and refusal types, and the contour options. The rest is the merges since
+#854.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,587,232 | 615,228 |
-| `+simd128` | 1,573,820 | 612,476 |
+| baseline | 1,646,074 | 647,947 |
+| `+simd128` | 1,632,855 | 643,377 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
