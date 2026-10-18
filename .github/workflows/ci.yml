@@ -241,6 +241,9 @@ jobs:
           crates/fieldglass-wasm/build.sh nodejs
           crates/fieldglass-wasm/build.sh web --features=fetchplan
           crates/fieldglass-wasm/build.sh nodejs --features=fetchplan
+          crates/fieldglass-wasm/build.sh web --features=zarr
+          crates/fieldglass-wasm/build.sh nodejs --features=zarr
+          crates/fieldglass-wasm/build.sh web --features=fetchplan,zarr
           crates/fieldglass-wasm/build.sh web --simd
           crates/fieldglass-wasm/build.sh nodejs --simd
 
@@ -315,6 +318,34 @@ jobs:
           print("|---|---:|---:|")
           print(f"| baseline | {base[0]:,} | {base[1]:,} |")
           print(f"| baseline + `fetchplan` | {plan[0]:,} ({(plan[0] / base[0] - 1) * 100:+.1f}%) | {plan[1]:,} ({(plan[1] / base[1] - 1) * 100:+.1f}%) |")
+          EOF
+
+      # Zarr stores in the browser module (#1083): the committed v2 and v3
+      # window stores opened from their metadata, the coordinate chunks and then
+      # exactly the chunks each plan names fetched from the committed files, and
+      # each window decoded from those alone against `windows_oracle.json`.
+      #
+      # Against the `zarr` feature build, for the reason the planner's step is:
+      # it is not in the shipped bundle until where it ships is decided. Its
+      # size, alone and beside the planner, is printed beside the gated table
+      # and not gated.
+      - name: Zarr stores through the browser host
+        run: |
+          node crates/fieldglass-wasm/tests/node/zarr.mjs \
+            --pkg crates/fieldglass-wasm/pkg/nodejs-zarr
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import gzip
+          def size(p):
+              d = open(p, "rb").read()
+              return len(d), len(gzip.compress(d, compresslevel=9, mtime=0))
+          base = size("crates/fieldglass-wasm/pkg/web/fieldglass_wasm_bg.wasm")
+          print("\n### Bundle with Zarr stores (#1083, not gated)\n")
+          print("| Build | `.wasm` bytes | gzipped bytes |")
+          print("|---|---:|---:|")
+          print(f"| baseline | {base[0]:,} | {base[1]:,} |")
+          for label, kind in (("`zarr`", "web-zarr"), ("`fetchplan,zarr`", "web-fetchplan-zarr")):
+              b = size(f"crates/fieldglass-wasm/pkg/{kind}/fieldglass_wasm_bg.wasm")
+              print(f"| baseline + {label} | {b[0]:,} ({(b[0] / base[0] - 1) * 100:+.1f}%) | {b[1]:,} ({(b[1] / base[1] - 1) * 100:+.1f}%) |")
           EOF
 
       - name: Native decode baseline
