@@ -321,15 +321,7 @@ impl ParameterResolver for TableResolver {
 /// * **Abbreviation**, on a wgrib2 `.idx`: equal, ignoring case and
 ///   surrounding whitespace, to the short name the message's own codes have in
 ///   its centre's table — the forward lookup, so two codes sharing a name both
-///   pass. When that table gives the message no short name, the promised name
-///   is resolved through NCEP's tables instead and its codes compared with the
-///   message's; only a name that does not resolve either goes unchecked.
-///
-/// **An ECMWF `.index` line gets no parameter check at all.** Its `param` is a
-/// MARS short name (`2t`), no table here maps those to WMO codes, and the line
-/// states no codes of its own, so only its level and reference time are
-/// compared. A stale ECMWF index pointing at another field on the same level
-/// passes.
+///   pass.
 /// * **Level**: the line's [`LevelSpec`] against one built from the message's
 ///   fixed surfaces (GRIB2 Code Table 4.5, GRIB1 Table 3), in the line's units
 ///   — hectopascals for pressure, so `2 mb` and 200 Pa are the same level. A
@@ -341,6 +333,16 @@ impl ParameterResolver for TableResolver {
 ///   `sfc`), so it is refused only for a message on a surface ECMWF lists
 ///   levels of (`pl`, `ml`, `pt`, `pv`, `sol`).
 /// * **Reference time**: the ten digits `YYYYMMDDHH` both spellings carry.
+///
+/// **Two records get no parameter check at all.** An ECMWF `.index` line's
+/// `param` is a MARS short name (`2t`), no table here maps those to WMO codes,
+/// and the line states no codes of its own. And a wgrib2 line whose message's
+/// codes have no short name in this build's tables has nothing to compare its
+/// name with: resolving the name to codes instead would refuse a correct
+/// record whenever the name also belongs to other codes (`REFD` is both
+/// 0.16.4 and NCEP's 0.16.195). For both, only the level and the reference
+/// time are compared, so a stale sidecar pointing at another field on the same
+/// level passes.
 ///
 /// The forecast step and an ensemble qualifier (`ENS=+1`) are not compared.
 pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatch> {
@@ -362,32 +364,16 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
         // A numeric fallback name is not an abbreviation the decoder can match;
         // the `parameter` check above is the one that applies to it.
         && !promised.starts_with("var ")
+        // No short name means this build's tables do not name the message's
+        // codes, so there is nothing to compare with (see above).
+        && let Some(actual) = info.abbreviation.as_deref()
+        && !equivalent(promised, actual)
     {
-        match info.abbreviation.as_deref() {
-            Some(actual) if !equivalent(promised, actual) => {
-                return Err(Mismatch::Field {
-                    field: "abbreviation",
-                    expected: promised.to_string(),
-                    actual: actual.to_string(),
-                });
-            }
-            Some(_) => {}
-            // This build's tables give the message's codes no short name, so
-            // there is no name to compare. The promised name may still
-            // resolve to codes, and those are compared instead.
-            None => {
-                if let Some(wanted) = ncep_resolver().resolve(promised, "")
-                    && let Some(actual) = grib2_parameter(&info.identity)
-                    && wanted != actual
-                {
-                    return Err(Mismatch::Field {
-                        field: "abbreviation",
-                        expected: format!("{promised} ({})", codes(wanted)),
-                        actual: codes(actual),
-                    });
-                }
-            }
-        }
+        return Err(Mismatch::Field {
+            field: "abbreviation",
+            expected: promised.to_string(),
+            actual: actual.to_string(),
+        });
     }
 
     if let Some(promised) = promised_level(expect, ecmwf)
@@ -430,12 +416,6 @@ fn equivalent(a: &str, b: &str) -> bool {
 fn ten_digit_reference_time(rfc3339: &str) -> Option<String> {
     let digits: String = rfc3339.chars().filter(char::is_ascii_digit).collect();
     (digits.len() >= 10).then(|| digits[..10].to_string())
-}
-
-/// NCEP's tables inverted, built once: the vocabulary a wgrib2 `.idx` is in.
-fn ncep_resolver() -> &'static TableResolver {
-    static RESOLVER: OnceLock<TableResolver> = OnceLock::new();
-    RESOLVER.get_or_init(TableResolver::ncep)
 }
 
 /// `discipline.category.number`, for a mismatch message.
@@ -1047,28 +1027,15 @@ mod tests {
     }
 
     /// A message whose codes this build's tables do not name has no short name
-    /// to compare with, so the promised name is resolved to codes instead and
-    /// those are compared. Only a name that resolves to nothing goes unchecked.
+    /// to compare with, so its name is not compared. Resolving the promised
+    /// name to codes instead would refuse a correct record whose name another
+    /// triple also carries.
     #[test]
-    fn a_message_without_a_short_name_is_compared_by_codes() {
-        // Temperature's codes, (0, 0, 0), with the name taken away.
+    fn a_message_without_a_short_name_is_not_compared_by_name() {
         let mut unnamed = info("TMP", TWO_METRES);
         unnamed.abbreviation = None;
-
-        assert_eq!(
-            verify_message(&Expect::new().with_abbreviation("TMP"), &unnamed),
-            Ok(())
-        );
         assert_eq!(
             verify_message(&Expect::new().with_abbreviation("RH"), &unnamed),
-            Err(Mismatch::Field {
-                field: "abbreviation",
-                expected: "RH (0.1.1)".into(),
-                actual: "0.0.0".into()
-            })
-        );
-        assert_eq!(
-            verify_message(&Expect::new().with_abbreviation("NOTAPARAMETER"), &unnamed),
             Ok(())
         );
     }
@@ -1078,7 +1045,7 @@ mod tests {
     #[test]
     fn a_value_matches_to_the_precision_it_was_printed_at() {
         // 0.995 as an `f32`, which is what wgrib2 formats, is not 0.995.
-        assert!(holds("0.995 sigma level", (104, 10, 9_950_000_476), None));
+        assert!(holds("0.995 sigma level", (104, 9, 995_000_005), None));
         // `%g` of 1000.004 hPa is `1000`.
         assert!(holds("1000 mb", (100, 1, 1_000_004), None));
         assert!(!holds("1.00001 sigma level", (104, 0, 1), None));
