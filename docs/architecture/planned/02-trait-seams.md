@@ -221,8 +221,8 @@ classDiagram
         sparse map of fetched ranges; read() outside them is an error
     }
     class PrefetchedObjects {
-        <<planned #680>>
-        map of key to bytes the host filled
+        <<shipped #1124, crate fieldglass-core>>
+        map of key to bytes or absent the host filled; names keys never given
     }
     ByteSource <|.. Vec
     ByteSource <|.. PrefetchedRanges

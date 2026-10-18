@@ -964,6 +964,18 @@ fn read<O: ObjectSource>(
 
     let keys = keys_of(array, &covering)?;
     let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+    // A chunk the source was never given is not one the store left unwritten,
+    // so it is not the fill value either (#1124). Named, all of them, so a host
+    // fetches them in one round.
+    let unfetched = objects.unfetched(&refs);
+    if !unfetched.is_empty() {
+        let named: Vec<String> = unfetched.iter().map(|k| format!("{k:?}")).collect();
+        return Err(FieldglassError::Parse(format!(
+            "this read needs {}, which the store's source was never given: fetch them, and \
+             give one the store does not hold (a 404) as absent",
+            named.join(", ")
+        )));
+    }
     objects.prefetch(&refs)?;
 
     let mut out = vec![fill; count];

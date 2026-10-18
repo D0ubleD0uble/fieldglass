@@ -236,6 +236,12 @@ impl<O: ObjectSource> ObjectSource for Recording<O> {
             .push(keys.iter().map(|k| (*k).to_string()).collect());
         self.inner.prefetch(keys)
     }
+
+    /// Forwards, or a recorded `PrefetchedObjects` would answer that it was
+    /// given everything, and a read over it would fill what nobody fetched.
+    fn unfetched(&self, keys: &[&str]) -> Vec<String> {
+        self.inner.unfetched(keys)
+    }
 }
 
 /// Serves fewer bytes than it was asked for, from an address onward.
