@@ -5,7 +5,9 @@
 // the spacing between sampled cells on that map. Now the key is an arrow drawn
 // on the map at the length a full-length arrow is drawn there, in the arrows'
 // colour and weight, labelled with the speed it stands for, and it goes out
-// with the arrows in an exported PNG.
+// with the arrows in an exported PNG. Arrows are drawn at one on-screen length
+// per speed (#1159), so the key is also the longest arrow on the map, on
+// Equirectangular as on a globe.
 //
 // Driven through the real panel: the page asks for the arrows, the provider
 // answers through the real addon, and the key is read back off the overlay
@@ -184,6 +186,12 @@ function assertKeyMatches(d: Drawn, file: string, what: string): void {
     Math.abs(fastest.speed - d.result.referenceSpeed) < 1e-6 * fastest.speed,
     `${what}: the fastest cell drawn is ${fastest.speed}, the key says ${d.result.referenceSpeed}`,
   );
+  // And the longest arrow on the map, whatever the projection does to
+  // distance: one on-screen length per speed (#1159).
+  assert.ok(
+    Math.abs(longestDrawn(d) - d.key.drawn.length) <= 1,
+    `${what}: the longest arrow is ${longestDrawn(d)} px, the key ${d.key.drawn.length} px`,
+  );
   // In the arrows' colour and weight.
   assert.strictEqual(d.key.drawn.colour.toLowerCase(), INK);
   assert.strictEqual(d.key.drawn.lineWidth, WEIGHT * d.key.dpr);
@@ -328,7 +336,7 @@ async function exportPng(panel: RealPanel): Promise<{ image: ReturnType<typeof d
 }
 
 suite("Vector key (#1046)", () => {
-  test("the key is the fastest arrow as drawn, follows spacing and projection, and is in the PNG", async function () {
+  test("the key matches the longest arrow, follows spacing and projection, and is in the PNG", async function () {
     this.timeout(120_000);
     const p = await provider();
     const file = pairFile();
@@ -444,11 +452,9 @@ suite("Vector key (#1046)", () => {
       );
       await panel.drive([{ id: "body", width: "" }]);
 
-      // Orthographic, centred on the equator: the same rule, and here, where
-      // a globe only shortens what is off-centre, the key is also the longest
-      // arrow on the map to within a pixel. (On Equirectangular it need not
-      // be: that map stretches a parallel by 1 / cos(lat), so a slower arrow
-      // near a pole can be drawn longer than the fastest.)
+      // Orthographic, centred on the equator: the same rule, and the key is
+      // the longest arrow there too, as on Equirectangular, though a globe
+      // squeezes distance towards its limb.
       from = mark(panel);
       await panel.drive([
         { id: "vector-spacing", value: "" },
@@ -457,10 +463,6 @@ suite("Vector key (#1046)", () => {
       const globe = await renderAfter(panel, from, "Orthographic");
       assert.strictEqual(globe.request.options.projection, "orthographic");
       assertKeyMatches(globe, file, "Orthographic");
-      assert.ok(
-        Math.abs(longestDrawn(globe) - globe.key.drawn.length) <= 1,
-        `Orthographic: the longest arrow is ${longestDrawn(globe)} px, the key ${globe.key.drawn.length} px`,
-      );
 
       // Arrows off: no key.
       const off = await panel.drive([{ id: "overlay-vectors", checked: false }]);
