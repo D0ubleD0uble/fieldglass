@@ -624,7 +624,7 @@ A depth axis with fill values used to fail to draw; no file here has one.
       both messages are temperature (#1049).
 - [ ] The refusal from message 1 is gone as soon as message 2 is picked (#1051).
       Picking message 1 again brings it back. Unticking Arrows clears it. With
-      Contours ticked, neither one's message clears the other's.
+      Contours ticked, the contours drawing leaves the arrow refusal in place.
 
 **`B: samples/0.6.0/two_grids.grib2`**
 

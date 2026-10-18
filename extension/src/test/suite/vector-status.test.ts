@@ -101,4 +101,46 @@ suite("Arrow refusal has its own status line (#1051)", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("a reply in flight does not write after untick or after the message is gone", async function () {
+    this.timeout(120_000);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-vector-status-"));
+    const file = path.join(dir, "frames.grib2");
+    fs.writeFileSync(file, Buffer.concat([gfs(false), gfs(true), gfs(false)]));
+    const p = await provider();
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await panel.drive([
+        { id: "vector-field-v", value: 1 },
+        { id: "overlay-vectors", checked: true },
+      ]);
+      await reply(panel, "vectorRequest", "vectorResult", "the refusal");
+      const old = latest(panel, "vectorRequest").seq;
+      let state = await panel.drive([{ id: "overlay-vectors", checked: false }]);
+      assert.strictEqual(state.vectorStatus, "");
+      // The answer to the request made before the untick arrives late.
+      await panel.post({ type: "vectorResult", seq: old, error: "late refusal" });
+      state = await panel.drive([]);
+      assert.strictEqual(state.vectorStatus, "", "a stale reply does not print after untick");
+
+      // Ticked again, then the message goes: nothing from before prints under it.
+      await panel.drive([{ id: "overlay-vectors", checked: true }]);
+      await reply(panel, "vectorRequest", "vectorResult", "the refusal again");
+      const pending = latest(panel, "vectorRequest").seq;
+      await panel.post({
+        type: "gridError",
+        error: "gone",
+        pickMessages: [{ index: 0, label: "#0" }],
+      });
+      await panel.post({ type: "vectorResult", seq: pending, error: "late refusal" });
+      state = await panel.drive([]);
+      assert.strictEqual(state.vectorStatus, "", "a stale reply does not print under no message");
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

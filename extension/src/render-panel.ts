@@ -2382,7 +2382,11 @@ export function renderImagePanelHtml(
         }
         function setVectorStatus(text) { setLine('vector-status', text); }
         function setOverlayStatus(text) { setLine('overlay-status', text); }
-        function setExportStatus(text) { setLine('export-status', text); }
+        function setExportStatus(text) {
+          setLine('export-status', text);
+          const el = document.getElementById('export-status');
+          if (el) el.classList.toggle('failed', /^(Export failed|Render the field)/.test(text));
+        }
 
         // The warped lat/lon targets (equirectangular + Web Mercator) both
         // render a lat/lon window: they accept a manual bounds box and show the
@@ -2740,6 +2744,9 @@ export function renderImagePanelHtml(
           lastPayload = null;
           lastContour = null;
           lastVectors = null;
+          // Replies in flight were asked of the file this one replaces.
+          vectorSeq += 1;
+          overlaySeq += 1;
           clearVectorPairNote();
           setVectorStatus('');
           setOverlayStatus('');
@@ -3029,6 +3036,8 @@ export function renderImagePanelHtml(
         function requestVectors() {
           if (!lastPayload || !vectorsEnabled()) {
             lastVectors = null;
+            // A reply still in flight was asked for arrows no longer wanted.
+            vectorSeq += 1;
             // No arrows, so no key for them (#871), and nothing to say about
             // their pair (#1049).
             const scale = document.getElementById('vector-scale');
@@ -3040,6 +3049,7 @@ export function renderImagePanelHtml(
           }
           const v = Number((document.getElementById('vector-field-v') || {}).value);
           if (!Number.isFinite(v)) {
+            vectorSeq += 1;
             clearVectorPairNote();
             setVectorStatus('');
             return;
@@ -4662,6 +4672,9 @@ export function renderImagePanelHtml(
       margin-bottom: 0.5rem;
     }
     .contour-status:empty { display: none; }
+    #export-status { font-size: 0.85rem; margin-bottom: 0.5rem; }
+    #export-status:empty { display: none; }
+    #export-status.failed { color: var(--vscode-editorWarning-foreground, #cca700); }
     .probe-readout {
       font-size: 0.85rem;
       font-variant-numeric: tabular-nums;
