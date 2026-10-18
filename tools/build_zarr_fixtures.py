@@ -715,6 +715,17 @@ def write_store_fixtures() -> None:
 # its seam; 8 x 12 cells in 3 x 4 chunks, ragged on latitude. Everything
 # expected is computed here from the coordinate values and read back through
 # xarray, never from the crate under test.
+#
+# A second dataset, `window_s2n_v*` (#1163), runs latitude the other way, south
+# to north from -60 to 0, so a grid stored south-up is planned and decoded too.
+# Its latitude is chunked by three, which leaves the equator alone in the last
+# chunk. In v3 that coordinate's `fill_value` is 0.0, the value zarr-python
+# gives a float array when nothing says otherwise, so zarr-python does not
+# write that chunk at all (`write_empty_chunks=False`): a coordinate chunk the
+# store never wrote, which a reader takes as the fill value and so as the
+# equator. v2 cannot state a `fill_value` apart from xarray's `_FillValue`
+# (which would mask the equator), so its latitude keeps NaN and every chunk is
+# written.
 
 WINDOWS = ZARR_FIXTURES / "windows"
 
@@ -738,18 +749,32 @@ WINDOW_CASES = [
     ("one_cell_at_the_corner", [-1.0, 1.0, 329.0, 331.0], 0),
 ]
 
+# The south-to-north store's boxes (#1163). Same rule; rows still count from
+# the first one stored, which is now the southernmost.
+WINDOW_CASES_S2N = [
+    # Latitudes -40, -30 and -20 (rows 2..5, two latitude chunks); longitudes
+    # 60, 90 and 120 (two longitude chunks).
+    ("crosses_chunk_edges", [-45.0, -15.0, 50.0, 130.0], 1),
+    # The southernmost two rows, either side of the seam.
+    ("crosses_the_seam", [-60.0, -50.0, -75.0, 75.0], 2),
+    ("whole_grid", [-90.0, 90.0, -180.0, 180.0], 0),
+    # The equator, the one row in the latitude chunk v3 never wrote: it is
+    # there only as the fill value. One row, the last, so the window takes the
+    # row before it too.
+    ("the_unwritten_coordinate_chunk", [-5.0, 5.0, 0.0, 60.0], 1),
+]
 
-def window_dataset():
+
+def window_dataset(lat):
     import xarray as xr
 
-    lat = np.arange(70.0, -1.0, -10.0)
     lon = np.arange(0.0, 360.0, 30.0)
     time = np.array([0, 6, 12], dtype="<i8")
     # Distinct and exact in float32: thousands are the step, hundreds the row,
     # units the column, so a misplaced cell is a wrong number.
     t2m = (
         np.arange(3)[:, None, None] * 1000
-        + np.arange(8)[None, :, None] * 100
+        + np.arange(len(lat))[None, :, None] * 100
         + np.arange(12)[None, None, :]
     ).astype("<f4")
     return xr.Dataset(
@@ -808,61 +833,104 @@ def write_window_fixtures() -> None:
     if WINDOWS.exists():
         shutil.rmtree(WINDOWS)
     WINDOWS.mkdir(parents=True)
-    dataset = window_dataset()
     chunks = (1, 3, 4)
+    # Each layout: the store-name prefix, its latitudes, its boxes, and what
+    # latitude is encoded with per edition beyond xarray's default.
+    layouts = [
+        ("window", np.arange(70.0, -1.0, -10.0), WINDOW_CASES, {2: {}, 3: {}}),
+        (
+            "window_s2n",
+            np.arange(-60.0, 1.0, 10.0),
+            WINDOW_CASES_S2N,
+            {2: {"chunks": (3,)}, 3: {"chunks": (3,), "fill_value": 0.0}},
+        ),
+    ]
     oracle: dict[str, dict] = {}
-    for edition in (2, 3):
-        name = f"window_v{edition}"
-        root = WINDOWS / name
-        # v2 through blosc (lz4, byte shuffle) and v3 through zstd, so both
-        # families of codec the browser has to carry are on the decoded path.
-        encoding = {"t2m": {"chunks": chunks}}
-        if edition == 2:
-            encoding["t2m"]["compressor"] = numcodecs.Blosc(cname="lz4", clevel=5, shuffle=1)
-        dataset.to_zarr(str(root), zarr_format=edition, consolidated=True, encoding=encoding, mode="w")
-
-        def key(array, index):
+    for prefix, latitudes, cases, latitude_encoding in layouts:
+        dataset = window_dataset(latitudes)
+        for edition in (2, 3):
+            name = f"{prefix}_v{edition}"
+            root = WINDOWS / name
+            # v2 through blosc (lz4, byte shuffle) and v3 through zstd, so both
+            # families of codec the browser has to carry are on the decoded
+            # path.
+            encoding = {"t2m": {"chunks": chunks}}
             if edition == 2:
-                return f"{array}/" + ".".join(str(i) for i in index)
-            return f"{array}/c/" + "/".join(str(i) for i in index)
+                encoding["t2m"]["compressor"] = numcodecs.Blosc(cname="lz4", clevel=5, shuffle=1)
+            if latitude_encoding[edition]:
+                encoding["latitude"] = dict(latitude_encoding[edition])
+            # `write_empty_chunks=False` is zarr-python's default, stated here
+            # because the south-to-north v3 store depends on it.
+            dataset.to_zarr(
+                str(root),
+                zarr_format=edition,
+                consolidated=True,
+                encoding=encoding,
+                mode="w",
+                write_empty_chunks=False,
+            )
 
-        reread = xr.open_zarr(str(root), zarr_format=edition, consolidated=True)
-        lat = reread["latitude"].values
-        lon = reread["longitude"].values
-        windows = []
-        for label, bounds, step in WINDOW_CASES:
-            rows, cols = window_selection(lat, lon, bounds)
-            planned = sorted(
-                {(step // chunks[0], j // chunks[1], i // chunks[2]) for j in rows for i in cols}
-            )
-            values = reread["t2m"].isel(time=step, latitude=rows, longitude=cols).values
-            windows.append(
-                {
-                    "name": label,
-                    "bounds": bounds,
-                    "time": step,
-                    "rows": [rows[0], rows[-1] + 1],
-                    "columns": runs(cols),
-                    "chunks": [
-                        {"array": "t2m", "key": key("t2m", list(c)), "index": list(c)} for c in planned
-                    ],
-                    "latitude": [float(v) for v in lat[rows]],
-                    "longitude": [float(v) for v in lon[cols]],
-                    "values": [json_number(v) for v in values.ravel()],
-                }
-            )
-        oracle[name] = {
-            "edition": edition,
-            "variable": "t2m",
-            "dimensions": ["time", "latitude", "longitude"],
-            # The coordinate arrays of the variable's axes, in its axis order,
-            # each one chunk.
-            "coordinate_chunks": [
-                {"array": axis, "key": key(axis, [0]), "index": [0]}
-                for axis in ("time", "latitude", "longitude")
-            ],
-            "windows": windows,
-        }
+            def key(array, index, edition=edition):
+                if edition == 2:
+                    return f"{array}/" + ".".join(str(i) for i in index)
+                return f"{array}/c/" + "/".join(str(i) for i in index)
+
+            reread = xr.open_zarr(str(root), zarr_format=edition, consolidated=True)
+            lat = reread["latitude"].values
+            lon = reread["longitude"].values
+            # The latitudes as written, the unwritten equator included, so
+            # the oracle below is computed from the true coordinates.
+            assert np.array_equal(lat, latitudes), (name, lat)
+            windows = []
+            for label, bounds, step in cases:
+                rows, cols = window_selection(lat, lon, bounds)
+                planned = sorted(
+                    {(step // chunks[0], j // chunks[1], i // chunks[2]) for j in rows for i in cols}
+                )
+                values = reread["t2m"].isel(time=step, latitude=rows, longitude=cols).values
+                windows.append(
+                    {
+                        "name": label,
+                        "bounds": bounds,
+                        "time": step,
+                        "rows": [rows[0], rows[-1] + 1],
+                        "columns": runs(cols),
+                        "chunks": [
+                            {"array": "t2m", "key": key("t2m", list(c)), "index": list(c)}
+                            for c in planned
+                        ],
+                        "latitude": [float(v) for v in lat[rows]],
+                        "longitude": [float(v) for v in lon[cols]],
+                        "values": [json_number(v) for v in values.ravel()],
+                    }
+                )
+            # The coordinate arrays of the variable's axes, in its axis order:
+            # every chunk of each, from the chunking zarr-python wrote.
+            group = zarr.open_group(str(root), mode="r", zarr_format=edition)
+            coordinates = []
+            for axis in ("time", "latitude", "longitude"):
+                (length,), (chunk,) = group[axis].shape, group[axis].chunks
+                coordinates += [
+                    {"array": axis, "key": key(axis, [c]), "index": [c]}
+                    for c in range(-(-length // chunk))
+                ]
+            oracle[name] = {
+                "edition": edition,
+                "variable": "t2m",
+                "dimensions": ["time", "latitude", "longitude"],
+                "coordinate_chunks": coordinates,
+                # The coordinate chunks zarr-python did not write, because they
+                # hold only the array's fill value. A host's fetch of one is a
+                # 404.
+                "unwritten_coordinate_chunks": [
+                    c["key"] for c in coordinates if not (root / c["key"]).exists()
+                ],
+                "windows": windows,
+            }
+    # What the south-to-north v3 store exists for; a zarr-python that wrote the
+    # chunk after all would quietly stop testing it.
+    unwritten = oracle["window_s2n_v3"]["unwritten_coordinate_chunks"]
+    assert unwritten == ["latitude/c/2"], unwritten
     (ZARR_FIXTURES / "windows_oracle.json").write_text(
         json.dumps(oracle, indent=1, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
     )
