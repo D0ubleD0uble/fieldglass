@@ -2392,7 +2392,7 @@ impl Session {
     ///
     /// `levels` empty asks for [`crate::AUTO_CONTOUR_LEVELS`] nice levels
     /// spanning the colour range `options` chooses: the same range
-    /// [`Session::render`] colours over for the same `min`, `max`, `center`
+    /// `Session::render` colours over for the same `min`, `max`, `center`
     /// and `scale`, so a manual range spaces the levels in this host as it
     /// does in the Node addon's contours (#1155).
     ///
