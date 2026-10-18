@@ -185,11 +185,15 @@ export interface ParsedColorTable {
 
 /** Projected vector arrows plus the speed a full-length arrow stands for
  *  (#241). The runs are the overlay's shape — five vertices per arrow.
- *  `referenceSpeed` is `null` when no arrow was drawn (#871). */
+ *  `referenceSpeed` is `null` when no arrow was drawn (#871).
+ *  `referenceLength` is how long a full-length arrow is drawn, in the same
+ *  raster pixels as `xy`, for the key (#1046); `null` when no arrow is drawn
+ *  whole on the raster. */
 export interface ProjectedVectors {
   xy: Float64Array;
   segLengths: Uint32Array;
   referenceSpeed: number | null;
+  referenceLength: number | null;
 }
 
 export interface RenderedGrid {

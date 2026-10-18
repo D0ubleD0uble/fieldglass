@@ -1333,12 +1333,20 @@ export function composeRangeText(usedMin: number | null, usedMax: number | null)
   return "range " + usedMin.toPrecision(4) + " … " + usedMax.toPrecision(4);
 }
 
-/** The arrow key beside the Vectors row: what a full-length arrow stands for,
- *  or nothing when no arrow was drawn (`ProjectedVectors.referenceSpeed` is
- *  `null`, #871). Serialized into the panel script like `composeRangeText`. */
+/** The arrow key's label: the speed a full-length arrow stands for, with its
+ *  units, or nothing when no arrow was drawn (`ProjectedVectors.referenceSpeed`
+ *  is `null`, #871). The key itself is an arrow drawn on the map at that
+ *  length (#1046); the Vectors row repeats the label in words. Serialized into
+ *  the panel script like `composeRangeText`. */
 export function composeVectorScale(referenceSpeed: number | null | undefined, units: string): string {
   if (referenceSpeed == null) return "";
-  return "\u27F6 " + Number(referenceSpeed).toPrecision(3) + (units ? " " + units : "");
+  return Number(referenceSpeed).toPrecision(3) + (units ? " " + units : "");
+}
+
+/** The Vectors row's text for the key: the label, said in words, for a reader
+ *  who does not see the map. Serialized into the panel script. */
+export function composeVectorScaleNote(label: string): string {
+  return label ? "Full-length arrow: " + label : "";
 }
 
 export function renderImagePanelHtml(
@@ -1517,6 +1525,7 @@ export function renderImagePanelHtml(
         ${composeProbeValue.toString()}
         ${composeRangeText.toString()}
         ${composeVectorScale.toString()}
+        ${composeVectorScaleNote.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -2789,6 +2798,16 @@ export function renderImagePanelHtml(
           }
           return overlayFg;
         }
+        // The editor's background, read and cached the same way: the arrow
+        // key's backing (#1046).
+        let overlayBg = null;
+        function themedBackground() {
+          if (!overlayBg) {
+            overlayBg = (getComputedStyle(document.documentElement)
+              .getPropertyValue('--vscode-editor-background') || '#000000').trim() || '#000000';
+          }
+          return overlayBg;
+        }
 
         // Seed each themed layer's colour input from the editor foreground. Only
         // touches an input the user (or restored state) hasn't already set, so a
@@ -2978,10 +2997,12 @@ export function renderImagePanelHtml(
           lastVectors = msg.error ? null : msg;
           if (msg.error) setContourStatus('Vectors: ' + msg.error);
           // What a full-length arrow stands for, in the field's own units: the
-          // reference a reader needs to take a speed off the picture.
+          // reference a reader needs to take a speed off the picture. The key
+          // on the map draws it (drawVectorKey); the row says it in words.
           const scale = document.getElementById('vector-scale');
           if (scale) {
-            scale.textContent = composeVectorScale(lastVectors && lastVectors.referenceSpeed, UNITS);
+            scale.textContent = composeVectorScaleNote(
+              composeVectorScale(lastVectors && lastVectors.referenceSpeed, UNITS));
           }
           drawOverlay();
         }
@@ -3683,21 +3704,90 @@ export function renderImagePanelHtml(
             strokeRuns(lastContour.xy || [], lastContour.segLengths || []);
             ctx.restore();
           }
-          if (!lastOverlay || !lastOverlay.layers || !overlaysOffered()) return;
-          const styles = overlayStrokeStyles();
-          for (const layer of lastOverlay.layers) {
-            // The provider labels each run with the layer id the styles key on;
-            // an unknown label falls back to the coastline's style rather than
-            // going unstroked.
-            const style = styles[layer.name] || styles.coastline;
-            ctx.save();
-            ctx.globalAlpha = style.alpha || 1;
-            ctx.strokeStyle = style.color;
-            ctx.lineWidth = style.width * dpr;
-            // Tolerate either typed arrays or plain arrays from the serializer.
-            strokeRuns(layer.xy || [], layer.segLengths || []);
-            ctx.restore();
+          if (lastOverlay && lastOverlay.layers && overlaysOffered()) {
+            const styles = overlayStrokeStyles();
+            for (const layer of lastOverlay.layers) {
+              // The provider labels each run with the layer id the styles key
+              // on; an unknown label falls back to the coastline's style rather
+              // than going unstroked.
+              const style = styles[layer.name] || styles.coastline;
+              ctx.save();
+              ctx.globalAlpha = style.alpha || 1;
+              ctx.strokeStyle = style.color;
+              ctx.lineWidth = style.width * dpr;
+              // Tolerate either typed arrays or plain arrays from the serializer.
+              strokeRuns(layer.xy || [], layer.segLengths || []);
+              ctx.restore();
+            }
           }
+          // The arrow key goes on top of every layer, so nothing hides it.
+          drawVectorKey(ctx, sx, dpr);
+        }
+
+        // The arrow key (#1046): one full-length arrow, in the arrows' colour
+        // and weight, labelled with the speed it stands for, in the map's
+        // lower-left corner. Its length is not worked out here: Rust measures
+        // it off a drawn arrow (\`referenceLength\`, in raster pixels) and it is
+        // scaled onto the canvas by the same \`sx\` the arrows are, so a change
+        // of spacing, zoom or projection moves both together. The key is on the
+        // overlay canvas, so Export PNG carries it with the arrows.
+        function drawVectorKey(ctx, sx, dpr) {
+          const o = ctx.canvas;
+          delete o.dataset.vectorKey;
+          if (!lastVectors || !vectorsEnabled()) return;
+          const full = Number(lastVectors.referenceLength);
+          const label = composeVectorScale(lastVectors.referenceSpeed, UNITS);
+          if (!label || !Number.isFinite(full) || full <= 0) return;
+          const colour = (document.getElementById('color-vectors') || {}).value
+            || themedForeground();
+          const vw = Number((document.getElementById('width-vectors') || {}).value);
+          const lineWidth = (Number.isFinite(vw) && vw > 0 ? vw : 1) * dpr;
+          const length = full * sx;
+          // The head is the one Rust gives each arrow: barbs a third of the
+          // shaft long (HEAD_FRACTION), turned 155° from it (HEAD_ANGLE_DEG).
+          const barb = 0.32 * length;
+          const turn = 155 * Math.PI / 180;
+          const pad = 6 * dpr;
+          const inset = 8 * dpr;
+          const fontPx = 11 * dpr;
+          ctx.save();
+          ctx.font = fontPx + 'px sans-serif';
+          const textW = ctx.measureText(label).width;
+          const headH = barb * Math.sin(turn);
+          const boxW = pad + length + pad + textW + pad;
+          const boxH = Math.max(fontPx, 2 * headH + lineWidth) + 2 * pad;
+          const boxX = inset;
+          const boxY = o.height - inset - boxH;
+          // A backing in the editor's own background, so the key reads over
+          // any field, and the default arrow colour (the foreground) on it.
+          ctx.globalAlpha = 0.8;
+          ctx.fillStyle = themedBackground();
+          ctx.fillRect(boxX, boxY, boxW, boxH);
+          ctx.globalAlpha = 1;
+          const tail = boxX + pad;
+          const tip = tail + length;
+          const y = boxY + boxH / 2;
+          ctx.strokeStyle = colour;
+          ctx.lineWidth = lineWidth;
+          ctx.lineJoin = 'round';
+          // Tail, tip, one barb, back to the tip, the other: the arrows' stroke.
+          ctx.beginPath();
+          ctx.moveTo(tail, y);
+          ctx.lineTo(tip, y);
+          ctx.lineTo(tip + barb * Math.cos(turn), y - barb * Math.sin(turn));
+          ctx.lineTo(tip, y);
+          ctx.lineTo(tip + barb * Math.cos(turn), y + barb * Math.sin(turn));
+          ctx.stroke();
+          ctx.fillStyle = themedForeground();
+          ctx.textBaseline = 'middle';
+          ctx.textAlign = 'left';
+          ctx.fillText(label, tip + pad, y);
+          ctx.restore();
+          // What was drawn, in canvas pixels, for a test to measure against.
+          o.dataset.vectorKey = JSON.stringify({
+            tail: tail, tip: tip, y: y, length: length, lineWidth: lineWidth,
+            colour: colour, label: label, box: [boxX, boxY, boxW, boxH],
+          });
         }
 
         // Show only the controls the active projection actually uses: the
