@@ -3,8 +3,9 @@
 //! The sequence `docs/architecture/planned/04-hosts.md` draws: the Worker
 //! fetches a sidecar's text, the planner turns it into byte ranges plus what
 //! the bytes should be, the Worker fetches one range and checks the bytes
-//! against the plan before it opens them. Every call here is synchronous and
-//! does no I/O; the network is the Worker's.
+//! against the plan before it opens them, then checks the message it opened
+//! against the field the plan named. Every call here is synchronous and does no
+//! I/O; the network is the Worker's.
 //!
 //! Like the rest of this crate it forwards and converts, nothing more. The
 //! plan items, queries and sources are `fieldglass-fetchplan`'s own serde types,
@@ -13,6 +14,7 @@
 
 use std::sync::OnceLock;
 
+use fieldglass::api::MessageInfo;
 use fieldglass::fetchplan::{
     CandidateOptions, EcmwfIndex, PlanItem, PlanRange, Query, SourceSpec, TableResolver, Wgrib2Idx,
 };
@@ -183,6 +185,32 @@ pub fn verify_envelope(
     // exact one whose length disagrees. So this conversion is exact for every
     // value that reaches it.
     Ok(declared as f64)
+}
+
+/// Check an opened message against what a plan item promised: the parameter,
+/// the level and the reference time. The second half of trusting a plan, after
+/// `verifyEnvelope`: the bytes are a whole message, and this says whether they
+/// are the field the sidecar named or a valid message that is simply another
+/// one, which is what a sidecar regenerated against a newer object points at.
+///
+/// Pass the item back whole, as `select` returned it, and `info` as the
+/// handle's `message(0)` returned it. The sidecar's words are compared by
+/// meaning, not as text: `2 mb` is the message's 200 Pa, and an ECMWF `sfc` is
+/// any single-level field. Throws `decode`, naming the field and both sides,
+/// when they disagree (worth refetching the sidecar), and `invalid_option` for
+/// an argument that does not read.
+#[wasm_bindgen(js_name = verifyMessage)]
+pub fn verify_message(
+    #[wasm_bindgen(unchecked_param_type = "PlanItem")] item: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "MessageInfo")] info: JsValue,
+) -> Result<(), JsValue> {
+    let item: PlanItem = required(item, "plan item")?;
+    let info: MessageInfo = required(info, "message info")?;
+    fieldglass::fetchplan::verify_message(&item.expect, &info).map_err(|m| {
+        throw(fieldglass::Error::Decode {
+            detail: format!("the message is not the one the plan promised: {m}"),
+        })
+    })
 }
 
 /// Check a catalog entry before it is used. Throws `invalid_option` naming what

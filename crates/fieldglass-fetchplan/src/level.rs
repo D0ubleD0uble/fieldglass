@@ -46,10 +46,17 @@ pub enum Surface {
     HybridLevel,
     /// A sigma level or layer.
     SigmaLevel,
-    /// An isentropic (potential-temperature) level, in kelvin (ECMWF `pt`).
+    /// An isentropic (potential-temperature) level, in kelvin
+    /// (`320 K isentropic level`, ECMWF `pt`; WMO Code Table 4.5 type 107).
     PotentialTemperature,
-    /// An isotherm, in degrees Celsius (`0C isotherm`).
+    /// The 0 °C isotherm, valued in degrees Celsius (`0C isotherm`; Code
+    /// Table 4.5 type 4, which states no value of its own).
     Isotherm,
+    /// An isothermal level, valued in kelvin (`263 K level`; Code Table 4.5
+    /// type 20). Not [`Self::PotentialTemperature`]: wgrib2 writes that one
+    /// `K isentropic level`, and HRRR publishes reflectivity at 263 K, which is
+    /// a temperature and not a potential temperature (#1093).
+    Isothermal,
     /// The whole atmosphere as one layer.
     EntireAtmosphere,
     /// Cloud top.
@@ -74,9 +81,9 @@ pub enum Surface {
 ///
 /// `value` and `value2` are in the surface's own unit — hectopascals for
 /// [`Surface::Isobaric`], metres for the height and depth surfaces, kelvin for
-/// [`Surface::PotentialTemperature`]. A layer between two bounds fills both, in
-/// the order the manifest wrote them (`30-0 mb above ground` is
-/// `value = 30`, `value2 = 0`).
+/// [`Surface::PotentialTemperature`] and [`Surface::Isothermal`]. A layer
+/// between two bounds fills both, in the order the manifest wrote them
+/// (`30-0 mb above ground` is `value = 30`, `value2 = 0`).
 ///
 /// An unknown key is refused when one is read, for the reason [`Query`](crate::Query)
 /// refuses one: a level inside a query with a misspelt `valeu` would otherwise
@@ -212,9 +219,15 @@ const UNITS: &[(&str, Surface)] = &[
     ("m below ground", Surface::DepthBelowLand),
     ("m underground", Surface::DepthBelowLand),
     ("hybrid level", Surface::HybridLevel),
+    ("hybrid layer", Surface::HybridLevel),
     ("sigma level", Surface::SigmaLevel),
     ("sigma layer", Surface::SigmaLevel),
-    ("k level", Surface::PotentialTemperature),
+    // wgrib2's `Level.c` spells type 107 `%g K isentropic level` (and its
+    // layer `%g-%g K isentropic layer`) and type 20 `%g K level`, so the
+    // short phrase is the isothermal one.
+    ("k isentropic level", Surface::PotentialTemperature),
+    ("k isentropic layer", Surface::PotentialTemperature),
+    ("k level", Surface::Isothermal),
     ("c isotherm", Surface::Isotherm),
     ("mb", Surface::Isobaric),
 ];
@@ -332,9 +345,19 @@ mod tests {
             parse_ncep_level("0C isotherm"),
             LevelSpec::at(Surface::Isotherm, 0.0)
         );
+        // Type 20, a temperature: `hrrr_conus_wrfsfc.idx` carries `REFD:263 K level`.
         assert_eq!(
-            parse_ncep_level("320 K level"),
+            parse_ncep_level("263 K level"),
+            LevelSpec::at(Surface::Isothermal, 263.0)
+        );
+        // Type 107, a potential temperature, as wgrib2 spells it.
+        assert_eq!(
+            parse_ncep_level("320 K isentropic level"),
             LevelSpec::at(Surface::PotentialTemperature, 320.0)
+        );
+        assert_eq!(
+            parse_ncep_level("320 K isentropic level"),
+            parse_ecmwf_level("pt", Some("320"))
         );
     }
 

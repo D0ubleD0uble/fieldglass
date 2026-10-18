@@ -141,6 +141,7 @@ fn to_item(
             reference_time,
             total_length: Some(length),
             qualifiers,
+            dialect: Some(DIALECT),
         },
     })
 }

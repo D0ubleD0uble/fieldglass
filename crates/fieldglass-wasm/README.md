@@ -106,7 +106,7 @@ which has to carry its own copy of the GRIB2 parameter tables.
 
 ```js
 import init, {
-  open, parseWgrib2Idx, httpRangeHeader, verifyEnvelope, candidates,
+  open, parseWgrib2Idx, httpRangeHeader, verifyEnvelope, verifyMessage, candidates,
 } from './pkg/web-fetchplan/fieldglass_wasm.js';
 await init();
 
@@ -132,6 +132,7 @@ const bytes = new Uint8Array(await response.arrayBuffer());
 
 verifyEnvelope(item, bytes);   // throws short_read (retry) or decode (stale sidecar)
 const handle = open(bytes);
+verifyMessage(item, handle.message(0));   // throws decode if it is another field
 idx.free();
 ```
 
@@ -472,8 +473,9 @@ lookup-table entry at a bin edge and nothing else.
 **`tests/node/fetchplan.mjs`** — the planner, against a `--features=fetchplan`
 build (`--pkg crates/fieldglass-wasm/pkg/nodejs-fetchplan`). It plans one GFS
 field from a committed `.idx`, checks the `Range` header and the envelope of the
-committed bytes that range fetched, and replays every answer the Rust planner
-recorded in `crates/fieldglass/tests/fetch_plan_wire.json`.
+committed bytes that range fetched, checks with `verifyMessage` that they are the
+field the line named (and that a neighbouring line's GFS and ECMWF records are
+refused), and replays every answer the Rust planner recorded in `crates/fieldglass/tests/fetch_plan_wire.json`.
 
 **`tests/node/parity.mjs`** — the cross-target check. `node
 crates/fieldglass-wasm/tests/node/parity.mjs` decodes the real sample files with

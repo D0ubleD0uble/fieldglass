@@ -12,6 +12,7 @@
         },
         "expect": {
           "abbreviation": "nsss",
+          "dialect": "ecmwf_index",
           "forecast": "0",
           "level": "sfc",
           "levelSpec": {
@@ -46,6 +47,7 @@
         },
         "expect": {
           "abbreviation": "u",
+          "dialect": "ecmwf_index",
           "forecast": "0",
           "level": "pl 500",
           "levelSpec": {
@@ -83,6 +85,7 @@
               },
               "expect": {
                 "abbreviation": "2t",
+                "dialect": "ecmwf_index",
                 "forecast": "0",
                 "level": "sfc",
                 "levelSpec": {
@@ -126,6 +129,7 @@
               },
               "expect": {
                 "abbreviation": "t",
+                "dialect": "ecmwf_index",
                 "forecast": "0",
                 "level": "pl 500",
                 "levelSpec": {
@@ -177,6 +181,7 @@
       },
       "expect": {
         "abbreviation": "RH",
+        "dialect": "wgrib2_idx",
         "forecast": "anl",
         "level": "2 mb",
         "levelSpec": {
@@ -270,6 +275,7 @@
         },
         "expect": {
           "abbreviation": "PRMSL",
+          "dialect": "wgrib2_idx",
           "forecast": "anl",
           "level": "mean sea level",
           "levelSpec": {
@@ -298,6 +304,7 @@
         },
         "expect": {
           "abbreviation": "VWSH",
+          "dialect": "wgrib2_idx",
           "forecast": "anl",
           "level": "PV=-2e-06 (Km^2/kg/s) surface",
           "levelSpec": {
@@ -330,6 +337,7 @@
               },
               "expect": {
                 "abbreviation": "RH",
+                "dialect": "wgrib2_idx",
                 "forecast": "anl",
                 "level": "2 mb",
                 "levelSpec": {
@@ -368,6 +376,7 @@
               },
               "expect": {
                 "abbreviation": "RH",
+                "dialect": "wgrib2_idx",
                 "forecast": "anl",
                 "level": "2 mb",
                 "levelSpec": {
@@ -414,6 +423,7 @@
               },
               "expect": {
                 "abbreviation": "TMP",
+                "dialect": "wgrib2_idx",
                 "forecast": "anl",
                 "level": "2 m above ground",
                 "levelSpec": {
@@ -452,6 +462,7 @@
               },
               "expect": {
                 "abbreviation": "TMP",
+                "dialect": "wgrib2_idx",
                 "forecast": "anl",
                 "level": "2 m above ground",
                 "levelSpec": {
@@ -498,6 +509,7 @@
               },
               "expect": {
                 "abbreviation": "VWSH",
+                "dialect": "wgrib2_idx",
                 "forecast": "anl",
                 "level": "PV=-2e-06 (Km^2/kg/s) surface",
                 "levelSpec": {

@@ -54,6 +54,10 @@ sequenceDiagram
     W->>P: verifyEnvelope(item, bytes)
     Note over P: GRIB magic, edition and §0 length against the plan
     W->>H: open(bytes)
+    W->>H: message(0)
+    H-->>W: MessageInfo
+    W->>P: verifyMessage(item, info)
+    Note over P: parameter, level and reference time against the plan
     W->>H: decode(0, { reduce, dtype })
     H-->>W: Field { values, mask, georef, stats }
     W->>H: palette(opts)
@@ -111,9 +115,10 @@ Notes that shape the two hosts:
   message, which is what a stale sidecar produces (#1081). The planner calls are
   built behind `fieldglass-wasm`'s `fetchplan` feature and are not in the
   shipped bundle until where they ship is decided: inside this module, or as a
-  module of their own. The parameter check,
-  `fieldglass::fetchplan::verify_message`, is not bound in the browser module
-  yet.
+  module of their own. `verifyMessage` then checks the opened message's
+  parameter, level and reference time against the sidecar line, comparing
+  values rather than wording (`2 mb` is a message coded at 200 Pa), and throws
+  `decode` for a valid message that is another field (#1093).
 - **The extension later.** "Open URL…" in VS Code (#247) is the same
   `fetchplan` call from TypeScript with `fetch()` in the extension host, then
   the existing napi path. Nothing new in Rust.
