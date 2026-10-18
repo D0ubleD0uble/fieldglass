@@ -372,7 +372,7 @@ palette, picking the store's folder.
       zarr-python.
 - [ ] `v2_problems` holds nothing that can be drawn: opening it shows a
       warning that starts "Nothing in this store can be drawn as a map." and
-      names `names` and `x2` as the arrays it couldn't read. The warning has
+      names `names` and `x2` as the arrays it left out. The warning has
       no codec or data type names such as `<U4`. Click Details: a dialog
       gives the store's path and each array's reason (`names` holds `<U4`
       text, `x2` gives `x` a second length). No empty panel opens (#1040).
