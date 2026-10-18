@@ -360,8 +360,9 @@ suite("Slice panel projection picker", () => {
     // The export is named for the variable drawn, not the one the panel opened
     // on — the same frozen-at-open shape as the picker.
     // Named for the file too, and with no "message", a GRIB word (#1038).
-    assert.match(panel.html(), /DEFAULT_PNG_NAME = "netcdf4_dimscale-lat_bnds\.png"/);
-    assert.strictEqual(onTemperature.defaultPngName, "netcdf4_dimscale-temperature.png");
+    assert.match(panel.html(), /DEFAULT_PNG_NAME = "netcdf4_dimscale_lat_bnds\.png"/);
+    // The slice drawn is in the name too (#1112): time 0 is 2020-01-01.
+    assert.strictEqual(onTemperature.defaultPngName, "netcdf4_dimscale_temperature_time-2020-01-01.png");
 
     // …and they draw.
     picker.choose("equirectangular");

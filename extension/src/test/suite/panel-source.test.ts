@@ -93,7 +93,7 @@ suite("A render panel names its file or store (#1038)", function () {
         `the line under the heading names the file, then the level: "${state.subtitle}"`,
       );
       assert.ok(
-        ready.defaultPngName.startsWith("regular_latlon_surface-") && ready.defaultPngName.endsWith("-message-0.png"),
+        ready.defaultPngName.startsWith("regular_latlon_surface_") && ready.defaultPngName.endsWith("_message-0.png"),
         `the PNG is named for the file: ${ready.defaultPngName}`,
       );
     } finally {
@@ -144,7 +144,7 @@ suite("A render panel names its file or store (#1038)", function () {
         assert.strictEqual(state.title, ready.titleLine, "the page shows the heading the render sent");
         assert.ok(state.title === "a" || state.title.startsWith("a ("), `the heading names the variable alone: "${state.title}"`);
         assert.strictEqual(state.subtitle, source, "the line under the heading names the source");
-        assert.strictEqual(ready.defaultPngName, `${source.replace(/\.nc$/, "")}-a.png`);
+        assert.strictEqual(ready.defaultPngName, `${source.replace(/\.nc$/, "")}_a.png`);
         assertNoMessage(state, `the ${source} panel`);
       }
       assert.strictEqual(new Set(titles).size, 3, `three tabs, three titles: ${titles.join(" | ")}`);
@@ -157,7 +157,7 @@ suite("A render panel names its file or store (#1038)", function () {
         const ready = await panel.waitSent(drawn(ti), from, `${source} drawing t`);
         assert.strictEqual(panel.title(), `t · ${source}`, "the tab follows the variable");
         assert.strictEqual(await tabLabel(panel), panel.title(), "the tab a user sees");
-        assert.strictEqual(ready.defaultPngName, `${source.replace(/\.nc$/, "")}-t.png`);
+        assert.strictEqual(ready.defaultPngName, `${source.replace(/\.nc$/, "")}_t.png`);
         const state = await panel.drive([]);
         assert.match(state.title, /^t\b/, `the heading follows: "${state.title}"`);
         assert.strictEqual(state.subtitle, source);
@@ -221,21 +221,21 @@ suite("A render panel names its file or store (#1038)", function () {
     const meta = { index: 4, parameter: "Temperature" };
     assert.strictEqual(
       composeDefaultPngName(meta, { kind: "message", name: "gfs.grib2" }),
-      "gfs-temperature-message-4.png",
+      "gfs_temperature_message-4.png",
     );
     assert.strictEqual(
       composeDefaultPngName({ index: 0, parameter: "air" }, { kind: "variable", name: "air_v2.zarr" }),
-      "air_v2-air.png",
+      "air_v2_air.png",
     );
     assert.strictEqual(
       composeDefaultPngName({ index: 0, parameter: "air" }, { kind: "variable", name: "ncep_air_daily_2024.nc" }),
-      "ncep_air_daily_2024-air.png",
+      "ncep_air_daily_2024_air.png",
     );
     // Only an extension Fieldglass opens by is dropped: this one's last dot
     // is the forecast hour.
     assert.strictEqual(
       composeDefaultPngName(meta, { kind: "message", name: "gfs.t00z.pgrb2.0p25.f000" }),
-      "gfs.t00z.pgrb2.0p25.f000-temperature-message-4.png",
+      "gfs.t00z.pgrb2.0p25.f000_temperature_message-4.png",
     );
     // A separator inside a name used to leave only what followed it, the
     // source's stem lost with the rest.
@@ -244,23 +244,23 @@ suite("A render panel names its file or store (#1038)", function () {
         { index: 7, parameter: "Covariance of geopotential/temperature" },
         { kind: "message", name: "era.grib1" },
       ),
-      "era-covariance-of-geopotential-temperature-message-7.png",
+      "era_covariance-of-geopotential-temperature_message-7.png",
     );
     assert.strictEqual(
       composeDefaultPngName({ index: 1, parameter: "u\\v" }, { kind: "variable", name: "a/b.nc" }),
-      "a-b-u-v.png",
+      "a-b_u-v.png",
     );
     // A name with no ASCII letter or digit sanitises to nothing; the
     // variable's index keeps two such variables apart.
     const cp = (...c: number[]) => String.fromCodePoint(...c);
     const temp = composeDefaultPngName({ index: 2, parameter: cp(0x6e29, 0x5ea6) }, { kind: "variable", name: "obs.nc" });
     const rain = composeDefaultPngName({ index: 3, parameter: cp(0x964d, 0x6c34) }, { kind: "variable", name: "obs.nc" });
-    assert.strictEqual(temp, "obs-2.png");
-    assert.strictEqual(rain, "obs-3.png");
+    assert.strictEqual(temp, "obs_2.png");
+    assert.strictEqual(rain, "obs_3.png");
     // A GRIB name already carries its message index.
     assert.strictEqual(
       composeDefaultPngName({ index: 5, parameter: cp(0x6e29, 0x5ea6) }, { kind: "message", name: "obs.grib2" }),
-      "obs-message-5.png",
+      "obs_message-5.png",
     );
   });
 

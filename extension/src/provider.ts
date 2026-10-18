@@ -39,19 +39,25 @@ import {
 import {
   cleanTitlePart,
   composeDefaultPngName,
+  composeExportName,
   composeTabTitle,
   composeTitleLine,
   composeTruncationNote,
+  CSV_FIELD_A_NOTE,
+  heldSliceParts,
   NO_LONG_CSV_NOTE,
   NO_SUPPORT,
   UNPLACED_LONG_CSV_NOTE,
   offersOverlays,
   renderImagePanelHtml,
+  sanitizeExportName,
   sanitizePngName,
   unavailableControls,
   type CompareFieldOption,
+  type ExportExtension,
   type PanelField,
   type PanelSource,
+  type SliceNotePart,
   type SlicePanelData,
   type SliceSpec,
   type UnavailableGroup,
@@ -330,6 +336,9 @@ export class FieldglassEditorProvider
    * its selections from `vscode.setState` on load, so a rebuild repaints what
    * was on screen. */
   private readonly _renderPanelBuilders = new Map<vscode.WebviewPanel, () => void>();
+  /** The CSV export a page last asked for, which a message handler starts and
+   *  does not wait on; a test waits on it to read the outcome (#1039). */
+  private _csvExport: Promise<void> = Promise.resolve();
 
   /** Build `panel`'s HTML now, and again whenever the colormaps change. */
   private trackRenderPanel(panel: vscode.WebviewPanel, build: () => void): void {
@@ -509,7 +518,7 @@ export class FieldglassEditorProvider
         return;
       case "exportCsv":
         if (!isNonNegativeInt(msg.messageIndex)) return;
-        void this.handleExportCsv(document, msg.messageIndex);
+        this._csvExport = this.handleExportCsv(document, msg.messageIndex);
         return;
       case "renderVariable":
         if (!isNonNegativeInt(msg.variableIndex)) return;
@@ -578,7 +587,9 @@ export class FieldglassEditorProvider
    *  whole field is serialized to a `Buffer` in one pass — not streamed.) */
   private async handleExportCsv(
     document: FieldglassDocument,
-    messageIndex: number
+    messageIndex: number,
+    // Asked from a render panel with Compare on: the CSV is Field A's.
+    fieldA = false,
   ): Promise<void> {
     const handle = this._handlesByDoc.get(document.uri.toString());
     if (!handle) {
@@ -593,14 +604,18 @@ export class FieldglassEditorProvider
     // offered the matrix.
     let longCsv = false;
     let placed = false;
+    // Named as its PNG is (#1039), from the file the message is in.
+    const source: PanelSource = { kind: "message", name: sourceName(document.uri) };
+    let name = composeExportName({ index: messageIndex, parameter: null }, source, "csv");
     try {
       const meta = handle.message(messageIndex);
       longCsv = meta.supports.longCsv;
       placed = offersOverlays(meta.placement);
+      name = composeExportName(meta, source, "csv");
     } catch {
       // The export below reports what is wrong with the message.
     }
-    const format = await this.pickCsvFormat(longCsv, placed);
+    const format = await this.pickCsvFormat(longCsv, placed, fieldA);
     if (!format) return;
 
     let csv: Buffer;
@@ -613,7 +628,7 @@ export class FieldglassEditorProvider
       return;
     }
 
-    await this.saveCsv(csv);
+    await this.saveCsv(csv, vscode.Uri.joinPath(document.uri, ".."), name);
   }
 
   /** Ask for a CSV layout (long / matrix). Returns the chosen format, or
@@ -625,24 +640,29 @@ export class FieldglassEditorProvider
    *  offered and then refused. `placed` picks the reason: a field nothing
    *  places has no position anywhere, where a placed one is only not yet
    *  supported for its family. */
-  private async pickCsvFormat(longCsv: boolean, placed: boolean): Promise<string | undefined> {
+  private async pickCsvFormat(longCsv: boolean, placed: boolean, fieldA = false): Promise<string | undefined> {
     const matrix = { label: "Matrix — a 2-D grid of values", format: "matrix" };
     const pick = await vscode.window.showQuickPick(
       longCsv
         ? [{ label: "Long — one lat,lon,value row per grid point", format: "long" }, matrix]
         : [matrix],
       {
-        placeHolder: longCsv
-          ? "CSV layout"
-          : `CSV layout. ${placed ? NO_LONG_CSV_NOTE : UNPLACED_LONG_CSV_NOTE}`,
+        // With Compare on the panel shows the combined map, but the CSV
+        // holds Field A (#1039), and the prompt says so before anything is
+        // written.
+        placeHolder: [
+          fieldA ? CSV_FIELD_A_NOTE : "",
+          longCsv ? "CSV layout" : `CSV layout. ${placed ? NO_LONG_CSV_NOTE : UNPLACED_LONG_CSV_NOTE}`,
+        ].filter((s) => !!s).join(" "),
       }
     );
     return pick?.format;
   }
 
   /** Confirm a large export, prompt for a destination, and write the CSV.
-   *  Shared by the GRIB and NetCDF export commands. */
-  private async saveCsv(csv: Buffer): Promise<void> {
+   *  Shared by the GRIB and NetCDF export commands. The dialog starts in
+   *  `exportDir` on `defaultName`, as the PNG export's does (#1039). */
+  private async saveCsv(csv: Buffer, exportDir: vscode.Uri, defaultName: string): Promise<void> {
     // Guard a large export: writing tens of megabytes is slow and easy to do
     // by accident on a big grid, so confirm above ~50 MB. `csv` already holds
     // the UTF-8 bytes (from napi), so this is the exact write size — no scan or
@@ -658,10 +678,14 @@ export class FieldglassEditorProvider
       if (proceed !== "Export") return;
     }
 
-    const dest = await vscode.window.showSaveDialog({
-      filters: { "CSV files": ["csv"] },
-      saveLabel: "Export CSV",
-    });
+    const dest = await saveDestination(
+      await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(exportDir, sanitizeExportName(defaultName, "csv")),
+        filters: { "CSV files": ["csv"] },
+        saveLabel: "Export CSV",
+      }),
+      "csv",
+    );
     if (!dest) return;
 
     try {
@@ -681,7 +705,9 @@ export class FieldglassEditorProvider
    *  "Export CSV…" button). `spec` is the live slice the panel drives. */
   public async handleExportSliceCsv(
     subject: SlicePanelSubject,
-    spec: { variableIndex: number; yDim: number; xDim: number; sliceIndices: number[] }
+    spec: { variableIndex: number; yDim: number; xDim: number; sliceIndices: number[] },
+    // Asked with Compare on: the CSV is Field A's slice.
+    fieldA = false,
   ): Promise<void> {
     const handle = subject.handle();
     if (!handle) {
@@ -702,7 +728,7 @@ export class FieldglassEditorProvider
     } catch {
       // The export below reports what is wrong with the slice.
     }
-    const format = await this.pickCsvFormat(longCsv, placed);
+    const format = await this.pickCsvFormat(longCsv, placed, fieldA);
     if (!format) return;
 
     let csv: Buffer;
@@ -721,7 +747,15 @@ export class FieldglassEditorProvider
       return;
     }
 
-    await this.saveCsv(csv);
+    // Named as the PNG of this slice is (#1039, #1112).
+    let variable: NetcdfVariableMeta | undefined;
+    try {
+      variable = handle.variables().find((v) => v.variableIndex === spec.variableIndex);
+    } catch {
+      // Named by the variable's index below.
+    }
+    const name = sliceExportName(variable, spec, subject.source, "csv", axisReader(handle, spec.variableIndex));
+    await this.saveCsv(csv, subject.exportDir, name);
   }
 
   /** Save a PNG the render panel composited (#243). The webview sends a
@@ -757,11 +791,14 @@ export class FieldglassEditorProvider
     const name = sanitizePngName(
       typeof msg.defaultName === "string" ? msg.defaultName : "render.png"
     );
-    const dest = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.joinPath(exportDir, name),
-      filters: { "PNG image": ["png"] },
-      saveLabel: "Export PNG",
-    });
+    const dest = await saveDestination(
+      await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(exportDir, name),
+        filters: { "PNG image": ["png"] },
+        saveLabel: "Export PNG",
+      }),
+      "png",
+    );
     if (!dest) return { status: "cancelled" };
     try {
       await vscode.workspace.fs.writeFile(dest, buffer);
@@ -1152,6 +1189,12 @@ export class FieldglassEditorProvider
           zonal();
           return;
         }
+        // Export CSV beside Export PNG (#1039): the message the panel draws,
+        // which until then only the message table could export.
+        if (m.type === "exportCsv") {
+          this._csvExport = this.handleExportCsv(document, shown.index, (m as { fieldA?: unknown }).fieldA === true);
+          return;
+        }
         if (m.type === "exportPng") {
           // The Export PNG button lives in the panel HTML both render panels
           // share, so a GRIB render offers it exactly like a NetCDF slice —
@@ -1454,6 +1497,21 @@ export class FieldglassEditorProvider
       }
       return known.get(key) ?? null;
     };
+    // The axis values the export name reads each held dimension's coordinate
+    // from (#1112), per handle and asked for once: every animation frame
+    // renders, and a coordinate array does not change under one handle.
+    const axes = new WeakMap<SlicePanelHandle, Map<string, AxisValues | null>>();
+    const axisOf = (h: SlicePanelHandle, variableIndex: number) => {
+      let known = axes.get(h);
+      if (!known) axes.set(h, (known = new Map()));
+      const cache = known;
+      const read = axisReader(h, variableIndex);
+      return (dim: number): AxisValues | null => {
+        const key = `${variableIndex}:${dim}`;
+        if (!cache.has(key)) cache.set(key, read(dim));
+        return cache.get(key) ?? null;
+      };
+    };
     const openedGrid = gridOf(handle, initial);
     // What a rebuilt panel is written from. The slice drawn last rather than the
     // one the panel opened on: a rebuild restores the picker's saved selection,
@@ -1577,12 +1635,19 @@ export class FieldglassEditorProvider
         // variable changed.
         const title = titleOf(renderedVar(spec));
         if (panel.title !== title) panel.title = title;
+        // The slice drawn, in the PNG name as in the subtitle (#1112).
+        const held = heldSliceParts(
+          renderedVar(spec).dims.map((d) => d.name),
+          spec,
+          axisOf(docHandle, spec.variableIndex),
+        );
         panel.webview.postMessage({
           ...buildGridReadyMessage(
             rendered,
             sliceTitle(renderedVar(spec), spec.variableIndex),
             options,
             { kind: "variable", name: subject.source },
+            held ?? [],
           ),
           sliceGrid: sliceAnswer(grid),
           // The slice drawn, which the subtitle names (#1041), and Field B's
@@ -1840,7 +1905,7 @@ export class FieldglassEditorProvider
             Array.isArray(spec.sliceIndices) &&
             spec.sliceIndices.every((n) => isNonNegativeInt(n))
           ) {
-            void this.handleExportSliceCsv(subject, spec);
+            this._csvExport = this.handleExportSliceCsv(subject, spec, (m as { fieldA?: unknown }).fieldA === true);
           }
         }
         if (m.type === "exportPng") {
@@ -2358,6 +2423,9 @@ export function buildGridReadyMessage(
   // What the panel draws from: a GRIB message or a variable, and the file or
   // store's name, for the heading and the PNG name (#1038).
   source: PanelSource,
+  // The dimensions a slice holds, which the PNG name states (#1112); none
+  // for a GRIB message.
+  slice: ReadonlyArray<SliceNotePart> = [],
 ): GridReadyMessage {
   const rgbaView = new Uint8Array(
     rendered.rgba.buffer,
@@ -2380,9 +2448,66 @@ export function buildGridReadyMessage(
     options,
     titleLine: composeTitleLine(meta, source.kind),
     parameterUnits: meta.units ?? "",
-    defaultPngName: composeDefaultPngName(meta, source),
+    defaultPngName: composeDefaultPngName(meta, source, slice),
     truncationNote: composeTruncationNote(rendered),
   };
+}
+
+/** Reads one variable's axis values for {@link heldSliceParts}: `null` for an
+ *  axis the handle cannot give values for, which is then named by index. */
+function axisReader(handle: SlicePanelHandle, variableIndex: number): (dim: number) => AxisValues | null {
+  return (dim) => {
+    try {
+      return handle.axisValues(variableIndex, dim);
+    } catch {
+      return null;
+    }
+  };
+}
+
+/** The default export name of a slice, PNG or CSV (#1039, #1112): the
+ *  variable, then each dimension the slice holds by its coordinate, as
+ *  {@link composeExportName} writes it. `variable` is `undefined` when the
+ *  handle no longer lists it, and the name then carries the index. */
+function sliceExportName(
+  variable: Pick<NetcdfVariableMeta, "name" | "dims"> | undefined,
+  spec: SliceSpec,
+  source: string,
+  ext: ExportExtension,
+  axisOf: (dim: number) => AxisValues | null,
+): string {
+  const parts = variable ? heldSliceParts(variable.dims.map((d) => d.name), spec, axisOf) : null;
+  return composeExportName(
+    { index: spec.variableIndex, parameter: variable?.name ?? null },
+    { kind: "variable", name: source },
+    ext,
+    parts ?? [],
+  );
+}
+
+/** The file a save dialog's answer names, with `.<ext>` added when the name
+ *  typed lacks it (#1039). On Linux the dialog saves a name as typed, so
+ *  `out` was written with no extension. The name it gains can be a file the
+ *  dialog never asked about replacing, so that is asked here. `undefined`
+ *  when the dialog was dismissed, or the user keeps the file. */
+async function saveDestination(
+  dest: vscode.Uri | undefined,
+  ext: ExportExtension,
+): Promise<vscode.Uri | undefined> {
+  if (!dest) return undefined;
+  if (dest.path.toLowerCase().endsWith(`.${ext}`)) return dest;
+  const named = dest.with({ path: `${dest.path}.${ext}` });
+  try {
+    await vscode.workspace.fs.stat(named);
+  } catch {
+    return named;
+  }
+  const replace = await vscode.window.showWarningMessage(
+    `${path.posix.basename(named.path)} already exists. Replace it?`,
+    { modal: true },
+    "Replace",
+  );
+  return replace === "Replace" ? named : undefined;
 }
 
 // ---------------------------------------------------------------------------
