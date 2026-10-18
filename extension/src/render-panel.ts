@@ -1354,7 +1354,9 @@ export function composeVectorScaleNote(label: string): string {
  *  or are one in the wrong order (#1049). `pairing` is the addon's
  *  `ProjectedVectors.pairing`, which Rust reads from the parameter tables;
  *  `u` is this panel's message and `v` the V component pick. The arrows are
- *  drawn either way. Serialized into the panel script. */
+ *  drawn either way. `"unknown"`, a pair whose parameters no table names, gets
+ *  no note: there is nothing to say either way (#1142). Serialized into the
+ *  panel script. */
 export function composeVectorPairingNote(pairing: string | null | undefined, u: string, v: string): string {
   if (pairing === "not_a_pair") {
     return "These messages aren't a u/v pair (" + u + ", " + v + "). The arrows treat them as the u and v components.";
