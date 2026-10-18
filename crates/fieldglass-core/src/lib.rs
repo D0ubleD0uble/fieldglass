@@ -40,9 +40,11 @@
 //! builds the three format crate libraries against a `core` with every feature
 //! off, so reaching for gated code fails there rather than at a consumer — and
 //! checks the list above against what those libraries actually name, which is
-//! the stronger claim the sentence is making. `units` and
-//! `spatial_index` (which `cf` builds over a swath's coordinates) are ungated
-//! too and are deliberately not on it: no format crate library uses them, and
+//! the stronger claim the sentence is making. `units`,
+//! `spatial_index` (which `cf` builds over a swath's coordinates) and
+//! `vector_pair` (which the umbrella asks whether two fields are a u/v pair)
+//! are ungated too and are deliberately not on it: no format crate library
+//! uses them, and
 //! a list that quietly grows says nothing about how small the surface is.
 //!
 //! # Feature flags

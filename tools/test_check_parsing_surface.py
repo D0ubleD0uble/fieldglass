@@ -389,12 +389,14 @@ class TheRepoItselfPasses(unittest.TestCase):
         # placement into core's `cf`, so `spatial_index` is back: `cf` uses it,
         # no format crate library names it. `detect` left this list with #936:
         # `fieldglass-netcdf` shares its HDF5 signature search, so detection
-        # and the reader find the same files.
+        # and the reader find the same files. `vector_pair` (#1049) joined it
+        # ungated: the umbrella reads it, and the format crates name it only
+        # from their integration tests.
         lib = (chk.CORE / "src" / "lib.rs").read_text(encoding="utf-8")
         modules = chk.core_modules(lib)
         ungated = {m for m, feature in modules.items() if feature is None}
         listed = {n for n in chk.documented_surface(lib) if n in modules}
-        self.assertEqual(sorted(ungated - listed), ["spatial_index", "units"])
+        self.assertEqual(sorted(ungated - listed), ["spatial_index", "units", "vector_pair"])
 
 
 if __name__ == "__main__":
