@@ -201,7 +201,7 @@
         "offset": 76032983
       }
     },
-    "path": "crates/fieldglass-fetchplan/tests/fixtures/gfs_0p25_rh_2mb.grib2",
+    "path": "crates/fieldglass/tests/fixtures/gfs_0p25_rh_2mb.grib2",
     "staleCode": "decode",
     "truncatedCode": "short_read",
     "truncatedTo": 100

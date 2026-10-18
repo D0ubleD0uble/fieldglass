@@ -228,7 +228,7 @@ idx.free();
   const [r50] = index.select({ abbreviation: 'r', levelText: 'pl 50' });
   const [r10] = index.select({ abbreviation: 'r', levelText: 'pl 10' });
   const r50bytes = new Uint8Array(
-    committed('crates/fieldglass-fetchplan/tests/fixtures/ecmwf_ifs_0p25_r_50hpa.grib2'),
+    committed('crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_r_50hpa.grib2'),
   );
   check('the ECMWF envelope holds', wasm.verifyEnvelope(r50, r50bytes) === 81768);
   const h = wasm.open(r50bytes);
