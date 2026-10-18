@@ -708,7 +708,8 @@ A depth axis with fill values used to fail to draw; no file here has one.
       window; typing a window by hand still works.
 - [ ] Zoom into Europe, then Export PNG: the image is the zoomed window, not
       the whole globe.
-- [ ] A click without a drag probes the value under the pointer.
+- [ ] A click without a drag probes the value under the pointer. Drag the map
+      and let go off the image, then click the map: that click probes too.
 - [ ] On Mollweide and Orthographic, scrolling and dragging leave the map
       where it is.
 - [ ] Tick Flip Y axis (the map turns upside down, south at the top). Scroll

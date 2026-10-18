@@ -782,7 +782,9 @@ const DRIVER = `
       }
       // A wheel turn or a drag over the image, at fractions of its width and
       // height from the top left, as a user zooms or pans (#1147). A drag
-      // ends with the click a browser fires after the button comes up.
+      // ends with the click a browser fires after the button comes up, or,
+      // released outside the image (m.outside), with none: the browser fires
+      // a click on what the press and the release share, not on the image.
       if (m && (m.type === 'test:wheel' || m.type === 'test:drag')) {
         const r = byId('canvas').getBoundingClientRect();
         const at = (f) => ({ clientX: r.left + r.width * f[0], clientY: r.top + r.height * f[1] });
@@ -795,8 +797,9 @@ const DRIVER = `
           wrap.dispatchEvent(new MouseEvent('mousedown', Object.assign({ bubbles: true, button: 0 }, at(m.from))));
           window.dispatchEvent(new MouseEvent('mousemove', Object.assign({ bubbles: true }, at(mid))));
           window.dispatchEvent(new MouseEvent('mousemove', Object.assign({ bubbles: true }, at(m.to))));
-          window.dispatchEvent(new MouseEvent('mouseup', Object.assign({ bubbles: true, button: 0 }, at(m.to))));
-          wrap.dispatchEvent(new MouseEvent('click', Object.assign({ bubbles: true, button: 0 }, at(m.to))));
+          const up = m.outside ? document.body : wrap;
+          up.dispatchEvent(new MouseEvent('mouseup', Object.assign({ bubbles: true, button: 0 }, at(m.to))));
+          if (!m.outside) wrap.dispatchEvent(new MouseEvent('click', Object.assign({ bubbles: true, button: 0 }, at(m.to))));
         }
         api.postMessage({ type: 'test:gestured', tag: m.tag, width: r.width, height: r.height });
         return;
@@ -804,12 +807,18 @@ const DRIVER = `
       if (!m || (m.type !== 'test:drive' && m.type !== 'test:probe')) return;
       if (m.type === 'test:probe') {
         const r = byId('canvas').getBoundingClientRect();
-        document.querySelector('.canvas-wrap').dispatchEvent(new MouseEvent('click', {
+        const point = {
           bubbles: true,
+          button: 0,
           clientX: r.left + r.width / 2,
           // Halfway down unless the test names a fraction of the height.
           clientY: r.top + r.height * (typeof m.fy === 'number' ? m.fy : 0.5),
-        }));
+        };
+        // A press, a release and the click, as a user's click arrives.
+        const wrap = document.querySelector('.canvas-wrap');
+        wrap.dispatchEvent(new MouseEvent('mousedown', point));
+        wrap.dispatchEvent(new MouseEvent('mouseup', point));
+        wrap.dispatchEvent(new MouseEvent('click', point));
         api.postMessage({ type: 'test:probed', tag: m.tag, width: r.width, height: r.height });
         return;
       }
@@ -872,8 +881,9 @@ export interface RealPanel {
    *  fractions of its width and height from the top left. */
   wheel(at: [number, number], deltaY: number): Promise<void>;
   /** Drag the image with the left button from `from` to `to`, fractions as
-   *  for `wheel`, ending with the click a browser fires on release. */
-  drag(from: [number, number], to: [number, number]): Promise<void>;
+   *  for `wheel`, ending with the click a browser fires on release. With
+   *  `outside`, the button comes up off the image, and no click follows. */
+  drag(from: [number, number], to: [number, number], outside?: boolean): Promise<void>;
   /** Post `m` to the page as the provider would. */
   post(m: Msg): Promise<void>;
   /** Every control on the page, by id (radio groups as `radio:<name>`). */
@@ -1013,7 +1023,7 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       assert.ok(reply.width > 0 && reply.height > 0, "the image is laid out, so a click lands on it");
     },
     wheel: async (at, deltaY) => gesture({ type: "test:wheel", at, deltaY }),
-    drag: async (from, to) => gesture({ type: "test:drag", from, to }),
+    drag: async (from, to, outside) => gesture({ type: "test:drag", from, to, outside: outside === true }),
     post: async (m) => {
       // Recorded in `sent` by the wrapper above, like the provider's own.
       await panel.webview.postMessage(m);

@@ -3387,6 +3387,10 @@ export function renderImagePanelHtml(
         }
 
         function onMouseDown(ev) {
+          // A press starts a new click. A drag released outside the image
+          // fires no click to use up the suppression its release set, which
+          // would otherwise swallow this press's click and its probe.
+          suppressNextClick = false;
           if (ev.button !== 0 || !currentMapWindow()) return;
           const at = imageFraction(ev.clientX, ev.clientY);
           if (!at) return;
