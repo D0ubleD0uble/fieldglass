@@ -15,6 +15,7 @@ import * as vscode from "vscode";
 import { escapeHtml, nonce } from "./html";
 import type { PickerColormap } from "./color-tables";
 import type {
+  AxisValues,
   CombineOpInfo,
   Georef,
   GridSupport,
@@ -274,27 +275,36 @@ ${compareOpSelectHtml(combineOps)}
 `;
 }
 
-/** Reduce an export filename to a safe basename ending in `.png`: strip any
- *  path, keep only `[A-Za-z0-9._-]`, and default to `render.png` when nothing
- *  usable remains. Shared by the panel (default name) and the provider (final
- *  name before writing), so a hostile webview string can't steer the write. */
-/** Longest stem `sanitizePngName` will produce, before `.png`. Comfortably
+/** Longest stem an export's file name has, before its extension. Comfortably
  *  inside every filesystem's 255-byte component limit, and short enough that
  *  the save dialog shows the whole name. */
-const MAX_PNG_NAME_STEM = 96;
+const MAX_EXPORT_NAME_STEM = 96;
 
-export function sanitizePngName(name: string): string {
-  const base = (name.split(/[\\/]/).pop() ?? "").replace(/\.png$/i, "");
+/** The file types the render panel exports. */
+export type ExportExtension = "png" | "csv";
+
+/** Reduce an export filename to a safe basename ending in `.<ext>`: strip any
+ *  path, keep only `[A-Za-z0-9._-]`, and fall back to `render` when nothing
+ *  usable remains. Shared by the panel (default name) and the provider (final
+ *  name before writing), so a hostile webview string can't steer the write.
+ *  No `:` or `/` survives, so the name is valid on Windows, macOS and Linux. */
+export function sanitizeExportName(name: string, ext: ExportExtension): string {
+  const last = name.split(/[\\/]/).pop() ?? "";
+  const base = last.toLowerCase().endsWith(`.${ext}`) ? last.slice(0, -(ext.length + 1)) : last;
   const cleaned = base
     .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "")
-    // WMO parameter names run to 127 characters ("Shape factor with respect to
-    // temperature profile in thermocline"), so since the master tables landed
-    // the default name can be longer than is comfortable to read in a save
-    // dialog. Cap the stem and trim any separator the cut left dangling.
-    .slice(0, MAX_PNG_NAME_STEM)
-    .replace(/[-.]+$/g, "");
-  return `${(cleaned || "render").toLowerCase()}.png`;
+    .replace(/^[-.]+|[-._]+$/g, "")
+    // A last resort: `composeExportName` already fits its name under the cap
+    // by shortening the parameter, so this cut only lands on a name from
+    // elsewhere. Trim any separator it leaves dangling.
+    .slice(0, MAX_EXPORT_NAME_STEM)
+    .replace(/[-._]+$/g, "");
+  return `${(cleaned || "render").toLowerCase()}.${ext}`;
+}
+
+/** {@link sanitizeExportName} for a PNG. */
+export function sanitizePngName(name: string): string {
+  return sanitizeExportName(name, "png");
 }
 
 /** Width of the exported PNG (#243).
@@ -740,6 +750,36 @@ export function composeSliceNote(
   return note.join(" · ");
 }
 
+/** The dimensions a slice holds still, as {@link composeSliceNote} and the
+ *  export name ({@link composeExportName}) state them: every dimension but
+ *  the two image axes, by `dims` name, at its index in `sliceIndices`, with
+ *  the coordinate there as {@link formatCoordinate} writes it, or `null` where
+ *  the axis has none. `axisOf(dim)` gives an axis's values, `null` for none,
+ *  or `undefined` while they are not yet known, which makes the answer `null`
+ *  so a slice is never named by index and then by value.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself but the helpers injected beside it. */
+export function heldSliceParts(
+  dims: ReadonlyArray<string>,
+  slice: { yDim: number; xDim: number; sliceIndices: ReadonlyArray<number> },
+  axisOf: (dim: number) => Pick<AxisValues, "coordinates" | "units"> | null | undefined,
+): SliceNotePart[] | null {
+  const out: SliceNotePart[] = [];
+  let known = true;
+  dims.forEach((name, i) => {
+    if (i === slice.yDim || i === slice.xDim) return;
+    const axis = axisOf(i);
+    if (axis === undefined) known = false;
+    const [held] = slice.sliceIndices.slice(i, i + 1);
+    const index = held || 0;
+    const [value] = axis && axis.coordinates ? axis.coordinates.slice(index, index + 1) : [];
+    const text = axis && value !== undefined ? formatCoordinate(value, axis.units) : "";
+    out.push({ name: name, index: index, coordinate: text || null });
+  });
+  return known ? out : null;
+}
+
 /** A number's text with a true minus sign (U+2212) for each hyphen, as a tick
  *  label and the line plot's caption write it (#1037, #1043): `−90`, not
  *  `-90`, and `1.5e−7`. A value that reads as zero is not negative, so `-0`
@@ -1049,29 +1089,90 @@ export function sourceStem(name: string): string {
   return name.replace(SOURCE_EXTENSIONS, "");
 }
 
-/** The PNG export's default filename (#243): the source's stem, the parameter
- *  and, for a GRIB message, its index (`gfs-temperature-message-0.png`,
- *  `air_v2-air.png`); the provider sanitises it again before writing. Sent with
- *  every render for the reason {@link composeTitleLine} is. */
+/** One part of an export name: anything outside `[A-Za-z0-9._-]` becomes `-`,
+ *  so a space, a `/` or a `:` inside a name stays inside its part, then the
+ *  part is trimmed and lowercased. A `/` used to cut the name at it, the
+ *  source's stem with it ("Covariance of geopotential/temperature"). */
+function exportNamePart(s: string | null | undefined): string {
+  return (s ?? "")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[-._]+|[-._]+$/g, "")
+    .toLowerCase();
+}
+
+/** Longest a slice part of an export name gets. A time whose reference cannot
+ *  be read keeps its units (`1963872 hours since …`); its value comes first,
+ *  and that is what tells two slices apart. */
+const MAX_SLICE_NAME_PART = 40;
+
+/** The parameter, then the stem, is shortened to fit the cap, but neither
+ *  below this. */
+const MIN_CUT_NAME_PART = 16;
+
+/** One held dimension as an export name states it (#1112): the subtitle's
+ *  words for it (see {@link composeSliceNote}) made a filename part,
+ *  `time-2024-01-15`, `level-500-millibar`, `phony_dim_0-index-3`. A time of
+ *  day loses its colon, `2020-01-01-0600`, and a minus sign reads `minus`
+ *  rather than becoming a separator and losing the sign. */
+function sliceNamePart(p: SliceNotePart): string {
+  const value = (p.coordinate !== null ? p.coordinate : "index " + p.index)
+    .replace(/(\d{4}-\d\d-\d\d) (\d\d):(\d\d)/, "$1-$2$3")
+    // formatCoordinate writes a number's minus as U+2212; a date's hyphens
+    // are ASCII.
+    .replace(/−/g, "minus");
+  return exportNamePart(`${p.name} ${value}`).slice(0, MAX_SLICE_NAME_PART).replace(/[-._]+$/, "");
+}
+
+/** An export's default filename, one rule for the PNG and the CSV (#243,
+ *  #1038, #1039, #1112): the source's stem, the parameter, then what tells two
+ *  exports of one source apart, joined by `_`:
+ *
+ *  - a GRIB message's index, `gfs_temperature_message-4.png`;
+ *  - each dimension a slice holds, by its coordinate,
+ *    `ncep_air_daily_2024_air_time-2024-01-15.csv`, or by its index where the
+ *    axis has no coordinates, `k_k_phony_dim_0-index-3.png`;
+ *  - a variable's index, when its name keeps no letter or digit.
+ *
+ *  Inside a part a space or a symbol becomes `-`. The name is capped at
+ *  `MAX_EXPORT_NAME_STEM` characters by shortening the parameter, then the
+ *  stem, and never the tail, so two messages with one long name still get two
+ *  names. The provider sanitises it again before writing. */
+export function composeExportName(
+  meta: Pick<PanelField, "index" | "parameter">,
+  source: PanelSource,
+  ext: ExportExtension,
+  slice: ReadonlyArray<SliceNotePart> = [],
+): string {
+  // A name with no ASCII letter or digit leaves nothing once cleaned, and two
+  // such variables would share one name; the variable's index tells them
+  // apart. A GRIB name already carries its message index.
+  const cleaned = exportNamePart(meta.parameter);
+  const named = /[a-z0-9]/.test(cleaned);
+  let parameter = named ? cleaned : "";
+  let stem = exportNamePart(sourceStem(source.name));
+  const tail = [
+    source.kind === "message" ? `message-${meta.index}` : named ? "" : String(meta.index),
+    ...slice.map(sliceNamePart),
+  ];
+  const join = () => [stem, parameter, ...tail].filter((s) => !!s).join("_");
+  const shorten = (part: string) => {
+    const over = join().length - MAX_EXPORT_NAME_STEM;
+    if (over <= 0) return part;
+    return part.slice(0, Math.max(MIN_CUT_NAME_PART, part.length - over)).replace(/[-._]+$/, "");
+  };
+  parameter = shorten(parameter);
+  stem = shorten(stem);
+  return sanitizeExportName(`${join()}.${ext}`, ext);
+}
+
+/** {@link composeExportName} for a PNG, which every render sends for the
+ *  reason {@link composeTitleLine} is. */
 export function composeDefaultPngName(
   meta: Pick<PanelField, "index" | "parameter">,
   source: PanelSource,
+  slice: ReadonlyArray<SliceNotePart> = [],
 ): string {
-  // `sanitizePngName` keeps only what follows the last separator, so a
-  // separator inside a part ("Covariance of geopotential/temperature") would
-  // drop everything before it, the source's stem included.
-  const part = (s: string | null | undefined) => (s ?? "").replace(/[\\/]+/g, "-");
-  // A name with no ASCII letter or digit leaves nothing once sanitised, and two
-  // such variables would share one name; the variable's index tells them
-  // apart. A GRIB name already carries its message index.
-  const parameter = part(meta.parameter);
-  const named = /[A-Za-z0-9]/.test(parameter);
-  const parts = [
-    part(sourceStem(source.name)),
-    named ? parameter : "",
-    source.kind === "message" ? `message-${meta.index}` : named ? "" : String(meta.index),
-  ].filter((s) => !!s);
-  return sanitizePngName(`${parts.join("-")}.png`);
+  return composeExportName(meta, source, "png", slice);
 }
 
 /** The panel's heading: which message or variable is drawn, and in what
@@ -1354,6 +1455,7 @@ export function renderImagePanelHtml(
         ${formatAxisValue.toString()}
         ${formatCoordinate.toString()}
         ${composeSliceNote.toString()}
+        ${heldSliceParts.toString()}
         ${typesetMinus.toString()}
         ${niceTicks.toString()}
         ${layoutAxisLabels.toString()}
@@ -2401,21 +2503,15 @@ export function renderImagePanelHtml(
 
         // The subtitle's slice part: each held dimension of the drawn slice by
         // its coordinate. Left out until every one of its axes is known, so
-        // the line never names a slice by index and then by value.
+        // the line never names a slice by index and then by value. The export
+        // name is built host-side from the same parts (heldSliceParts).
         function drawnSliceNote() {
           const v = drawnSlice && sliceVariable(drawnSlice.variableIndex);
           if (!v) return '';
-          const parts = (indices) => {
-            const out = [];
-            for (let i = 0; i < v.dims.length; i++) {
-              if (i === drawnSlice.yDim || i === drawnSlice.xDim) continue;
-              const axis = axisCache[drawnSlice.variableIndex + ':' + i];
-              if (axis === undefined) return null;
-              const index = indices[i] || 0;
-              out.push({ name: v.dims[i].name, index: index, coordinate: coordinateText(axis, index) });
-            }
-            return out;
-          };
+          const names = v.dims.map((d) => d.name);
+          const axisOf = (i) => axisCache[drawnSlice.variableIndex + ':' + i];
+          const parts = (indices) => heldSliceParts(
+            names, { yDim: drawnSlice.yDim, xDim: drawnSlice.xDim, sliceIndices: indices }, axisOf);
           const a = parts(drawnSlice.sliceIndices);
           const b = drawnSliceB ? parts(drawnSliceB) : null;
           if (!a || (drawnSliceB && !b)) return '';
@@ -4181,12 +4277,16 @@ export function renderImagePanelHtml(
             toolbar.addEventListener('change', snapshotState);
             toolbar.addEventListener('input', snapshotState);
           }
-          // NetCDF panels only: export the live slice as CSV. Carries the
-          // current {variableIndex, yDim, xDim, sliceIndices} via sliceFields().
-          const exportCsvBtn = document.getElementById('export-slice-csv');
+          // Export CSV sits beside Export PNG in every panel (#1039). A slice
+          // panel exports the live slice, carrying the current {variableIndex,
+          // yDim, xDim, sliceIndices} via sliceFields(); a GRIB panel exports
+          // the message it draws, which the provider knows.
+          const exportCsvBtn = document.getElementById('export-csv');
           if (exportCsvBtn) {
             exportCsvBtn.addEventListener('click', () => {
-              vscode.postMessage(Object.assign({ type: 'exportSliceCsv' }, sliceFields()));
+              vscode.postMessage(SLICE
+                ? Object.assign({ type: 'exportSliceCsv' }, sliceFields())
+                : { type: 'exportCsv' });
             });
           }
           const exportPngBtn = document.getElementById('export-png');
@@ -4511,6 +4611,7 @@ export function renderImagePanelHtml(
   <div class="toolbar" role="toolbar" aria-label="Render settings">
     <div class="toolbar-row">
       <button type="button" id="export-png">Export PNG…</button>
+      <button type="button" id="export-csv">Export CSV…</button>
     </div>
 ${slice
     ? `    <div class="toolbar-row" id="slice-row">
@@ -4518,7 +4619,6 @@ ${slice
       <label>Y axis (rows) <select id="slice-y"></select></label>
       <label>X axis (cols) <select id="slice-x"></select></label>
       <span id="slice-dims" class="slice-steppers"></span>
-      <button type="button" id="export-slice-csv">Export CSV…</button>
     </div>
     <div class="toolbar-row" id="animate-row" hidden>
       <label>Animate <select id="animate-dim"></select></label>

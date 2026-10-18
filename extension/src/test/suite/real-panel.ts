@@ -136,6 +136,10 @@ export interface PageState {
   /** The Animate row's transport buttons (#1042), `null` for a panel with no
    *  Animate row. */
   transport: TransportButton[] | null;
+  /** Every toolbar button whose label starts `Export` (#1039): its id, its
+   *  label, the toolbar row it sits in counted from the top (-1 for none),
+   *  and whether it is shown. */
+  exports: Array<{ id: string; text: string; row: number; shown: boolean }>;
   /** The theme the page is drawn in, as VS Code tells it: `vscode-light`,
    *  `vscode-dark`, `vscode-high-contrast`… */
   themeKind: string;
@@ -422,6 +426,14 @@ const DRIVER = `
         steppers: steppers(),
         animateLabel: byId('anim-frame') ? byId('anim-frame').textContent : null,
         transport: transport(),
+        exports: Array.from(document.querySelectorAll('.toolbar button'))
+          .filter((b) => /^Export /.test(b.textContent.trim()))
+          .map((b) => ({
+            id: b.id,
+            text: b.textContent.trim(),
+            row: Array.from(document.querySelectorAll('.toolbar-row')).indexOf(b.closest('.toolbar-row')),
+            shown: b.getClientRects().length > 0,
+          })),
         themeKind: document.body.getAttribute('data-vscode-theme-kind') || document.body.className,
       };
     }
