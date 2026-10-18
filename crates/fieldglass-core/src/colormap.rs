@@ -162,9 +162,10 @@ pub struct PaintCounts {
     /// range is taken over.
     pub present: u64,
     /// Present cells below the palette's domain, which paint the low end's
-    /// colour. Under [`ScaleMode::Log10`] a non-positive value is below every
-    /// positive minimum and is counted here, although it has no logarithm and
-    /// paints as missing.
+    /// colour. Under [`ScaleMode::Log10`] a non-positive value has no
+    /// logarithm and paints as missing rather than clamped, so it is counted
+    /// in neither this nor [`above`](Self::above), only in
+    /// [`present`](Self::present).
     pub below: u64,
     /// Present cells above the palette's domain, which paint the high end's
     /// colour.
@@ -501,12 +502,9 @@ impl Palette {
                 counts.above += u64::from(tv > self.t1);
                 self.entry_rgba(entry(clamped_position(tv, self.t0, self.t1)))
             }
-            // Finite and with no logarithm: non-positive under `Log10`, which
-            // is below any positive minimum.
-            None => {
-                counts.below += 1;
-                self.masked_rgba
-            }
+            // Finite and with no logarithm: non-positive under `Log10`. It
+            // paints as missing, not clamped, so it is not counted as below.
+            None => self.masked_rgba,
         }
     }
 
@@ -755,12 +753,12 @@ mod tests {
         assert_eq!(&rgba[0..4], &p.rgba(1.0));
         assert_eq!(&rgba[16..20], &p.rgba(2.0));
 
-        // Under log10 a non-positive present cell is below every positive
-        // minimum, and still paints as missing.
+        // Under log10 a non-positive present cell paints as missing, so it is
+        // present but neither below nor above: only clamped cells are.
         let log = Palette::build(viridis, false, 1.0, 100.0, ScaleMode::Log10);
-        let (rgba, counts) = log.paint_counted(&[-1.0, 0.0, 10.0, 1000.0], None, 4, 1, false);
-        assert_eq!(counts.present, 4);
-        assert_eq!((counts.below, counts.above), (2, 1));
+        let (rgba, counts) = log.paint_counted(&[-1.0, 0.0, 0.5, 10.0, 1000.0], None, 5, 1, false);
+        assert_eq!(counts.present, 5);
+        assert_eq!((counts.below, counts.above), (1, 1));
         assert_eq!(&rgba[0..4], &log.masked_rgba);
 
         // A constant field's zero-width domain has nothing outside it.
