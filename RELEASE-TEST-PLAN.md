@@ -210,7 +210,7 @@ Each file is opened once; this is where its checks are.
 |---|---|
 | `S: samples/gfs.grib2` | 1, 7, 8, 38 |
 | `S: samples/hrrr.grib2` | 8, 21 |
-| `S: samples/mrms.grib2` | 28 |
+| `S: samples/mrms.grib2` | 7, 28 |
 | `S: samples/ecmwf.grib2` | 17 |
 | `S: samples/goes.nc` | 21 |
 | `S: samples/rtofs_ice.nc` | 41 |
@@ -550,7 +550,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 A depth axis with fill values used to fail to draw; no file here has one.
 `crates/fieldglass/tests/cross_section_placement.rs` covers it.
 
-## 6. Wind and current arrows (#241, #793, #805, #1049)
+## 6. Wind and current arrows (#241, #793, #805, #1049, #1051, #1142)
 
 **`B: samples/0.6.0/gfs_wind.grib2`** (earth-relative)
 
@@ -643,13 +643,25 @@ A depth axis with fill values used to fail to draw; no file here has one.
 - [ ] The refusal from message 1 is gone as soon as message 2 is picked (#1051).
       Picking message 1 again brings it back. Unticking Arrows clears it. With
       Contours ticked, the contours drawing leaves the arrow refusal in place.
+- [ ] The refusal sits on a line of its own below the render summary, not in the
+      render summary line. With the refusal showing, change the colour map or
+      the message: the summary line updates and the refusal stays until the
+      pair changes. Failure looks like the summary text and the refusal
+      replacing each other (#1051).
+- [ ] **`B: samples/0.6.0/gfs_wind.grib2`**: Export PNG and cancel the save
+      dialog. "PNG export cancelled." shows on the export line, below the
+      render summary, and the summary is still there. Export again and save:
+      "Exported PNG to <path>". Change a control so the map redraws: the
+      export line empties, since it spoke of the previous image. Failure looks
+      like the export result replacing the render summary, or still showing
+      after the map changed (#1051).
 
 **`B: samples/0.6.0/two_grids.grib2`**
 
 - [ ] Message 0 with message 1 is refused as two different grids, not as a
       frame difference.
 
-## 7. Zoom and pan (#245)
+## 7. Zoom and pan (#245, #1114)
 
 **`S: samples/gfs.grib2`**, Equirectangular, then Web Mercator
 
@@ -665,6 +677,20 @@ A depth axis with fill values used to fail to draw; no file here has one.
 - [ ] A click without a drag probes the value under the pointer.
 - [ ] On Mollweide and Orthographic, scrolling and dragging leave the map
       where it is.
+
+**`S: samples/mrms.grib2`** (7000 × 3500, the slowest render in the samples)
+
+- [ ] **priority** On Equirectangular, pick Mollweide and click the map
+      straight away, while the old image is still up. The readout describes
+      the equirectangular image you clicked: the latitude and longitude of
+      the point under the pointer on that image, not the same screen point
+      read on a Mollweide disc. Click a corner of the image, outside the
+      Mollweide disc: while the old image is up the readout gives the corner's
+      latitude and longitude, since the old image has a cell there. Once the
+      Mollweide render lands, a click at that corner leaves the readout empty.
+      The window is short, so repeat a few times. Failure looks like a
+      readout that matches neither image, or an empty readout over the old
+      image's corner while it is still up (#1114).
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, Equirectangular, coastlines, contours and arrows on
 
@@ -1403,6 +1429,17 @@ python3 -m http.server 8001
   `crates/fieldglass/tests/non_finite_geometry.rs`
   (`two_declined_grids_combine_only_when_they_declare_the_same_grid`,
   `two_declined_geostationary_slices_combine_only_when_they_declare_the_same_grid`).
+- **A click while a Flip Y axis redraw is pending (#1114), and a cross-section's
+  axis labels turning over before the image (#1114).** A slice redraws too
+  fast to click inside by eye; the §7 projection check on `mrms.grib2` is the
+  one case slow enough. `extension/src/test/suite/axes.test.ts` holds the
+  render back and clicks (`after Flip Y axis, with an axis answer landing
+  before the render`, `a restored section, before its turned-over render
+  arrives`, `a GRIB map, after picking a projection, before its render
+  arrives`).
+- **The overlay error line (#1051).** It shows only when the provider fails to
+  project a coastline or graticule layer, which no sample does. No automated
+  test checks that line's text either. The arrow and export lines are in §6.
 - **Rust API** (breaking changes and additions) and **Internal**: no user
   interface, except the error kinds they add, which reach a user as the
   messages §32 checks. Those that change what a user sees have tests: a dense
