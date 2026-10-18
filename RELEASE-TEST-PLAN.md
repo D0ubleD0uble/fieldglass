@@ -444,7 +444,11 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       heading. The Northern Hemisphere warms towards July (#1041).
 - [ ] With the colour range on automatic, the colour bar's numbers do **not**
       change during playback: the range of the step playback started from is
-      held, so frames stay comparable.
+      held, so frames stay comparable. A start frame with one value in every
+      cell has no range to hold and each frame sets its own (#1155). No sample
+      has such a frame and no test drives it; `extension/src/test/suite/animation.test.ts`
+      (`a range locked for playback holds across frames with different
+      extremes`) covers the hold itself.
 - [ ] Faster and slower speeds change the frame rate. With Loop on (the
       default), step 365 (2024-12-31) is followed by step 0; with Loop off,
       playback stops on step 365.
@@ -1448,7 +1452,7 @@ python3 -m http.server 8001
       the shader and the CPU painter. The verdict reads `PASS — N pixels
       compared, M off by one lookup entry, 0 mismatched.`
 
-## 45. One colour-range rule in both hosts (#1155)
+## 45. One colour-range rule in both hosts (#1155, #1149)
 
 **`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
 (temperature, about 270 to 312 K)
@@ -1469,6 +1473,21 @@ python3 -m http.server 8001
       the min field is outlined.
 - [ ] Min `280`. The map draws from 280 to the maximum, and the note and the
       outlines go.
+
+**`B: samples/0.6.0/gfs_wind.grib2`**, message 0 (UGRD), Equirectangular
+(#1149)
+
+- [ ] **Priority.** Set Colour range to Manual, min `-30`, max `30`, and tick
+      Contours: isolines of the wind's east-west speed lie over the map. Under
+      Compare, pick `A − B` and Field B `#1 · VGRD …` (north-south speed). The
+      map becomes the difference, and the isolines redraw to follow it: they
+      bend where the colours change, and none are left over from the first
+      picture. Pick another Field B, or set Compare back to off, and the
+      isolines follow again each time. Failure looks like isolines that stay
+      where they were while the colours underneath change.
+      `extension/src/test/suite/contour-compare.test.ts` (`under a manual
+      range, Compare on and a new Field B each ask for contours with the
+      rider`) checks the requests, not the picture.
 
 ---
 
@@ -1521,6 +1540,19 @@ python3 -m http.server 8001
   before the render`, `a restored section, before its turned-over render
   arrives`, `a GRIB map, after picking a projection, before its render
   arrives`).
+- **A late probe, line or zonal reply for an older click or render (#1146).**
+  The reply has to land after a newer render or in the wrong order, which a
+  person cannot arrange by clicking. `extension/src/test/suite/probe-seq.test.ts`
+  holds the reply back and delivers it late (`a reply held past a newer render
+  fills neither the readout nor the line`, `two quick probes answered in
+  reverse order show the second`).
+- **Zarr windows planned and decoded in the browser package (#1083, #1163,
+  #1124).** `planWindow`, `decodeWindow` and `coordinateChunks` are not in the
+  npm package yet, so no page can call them. The tests are
+  `crates/fieldglass/tests/zarr_window.rs` (for example
+  `a_left_out_coordinate_is_named_with_why`,
+  `a_coordinate_chunk_the_store_never_wrote_is_its_fill_value`) and
+  `crates/fieldglass-wasm/tests/node/zarr.mjs`.
 - **The overlay error line (#1051).** It shows only when the provider fails to
   project a coastline or graticule layer, which no sample does. No automated
   test checks that line's text either. The arrow and export lines are in §6.

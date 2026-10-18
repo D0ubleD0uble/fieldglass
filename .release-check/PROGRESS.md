@@ -143,4 +143,6 @@ Checks to run again once the issue's fix has merged and the addon and extension 
 | #1051 | `hrrr_frames.grib2`: V #1 refused, then V #2 draws and the refusal is gone. Unticking Arrows clears the message. | in plan §6 (refusal line, export line; PR #1143) |
 | #1091 | `gfs.grib2` on Source projection: no Resampling picker. Equirectangular: it shows. Bilinear, then Source and back: still Bilinear and the map is unchanged. | in plan §1 (PR #1097) |
 | #1099 | `ncep_air_daily_2024.nc` `air`: Mollweide with Bilinear, then a time × lat cross-section, then back to lon × lat: Mollweide and Bilinear come back. The same through `netcdf4_dimscale.nc` temperature → lat_bnds → temperature. | in plan §5, §18 (PR #1107) |
+| #1149 | `gfs_wind.grib2` message 0, Range Manual -30 to 30, Contours on, Compare A − B against VGRD: the isolines redraw to follow the difference, and again for another Field B. | in plan §45 |
+| #1146 | Stale probe, line and zonal replies dropped. | No manual check (`probe-seq.test.ts`), in plan's list |
 | #1114 | `mrms.grib2`: pick Mollweide and click at once; the readout matches the image still up. The Flip Y cross-section case is covered by tests only. | in plan §7, No manual check |
