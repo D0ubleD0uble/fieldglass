@@ -134,6 +134,22 @@ all of it from the coordinate values, independently of the Rust under test.
 `crates/fieldglass/tests/zarr_window.rs` and
 `crates/fieldglass-wasm/tests/node/zarr.mjs` read it.
 
+`windows/window_s2n_v2` and `windows/window_s2n_v3` (#1163) are the same
+dataset with latitude running south to north, -60 to 0 in 10-degree steps
+(3 x 7 x 12 values, same chunks), and latitude chunked by three so the equator
+sits alone in the last chunk. In v3 the latitude's `fill_value` is 0.0, which
+is zarr-python's own default for a float array, so zarr-python skips that chunk
+(`write_empty_chunks=False`, its default) and `latitude/c/2` does not exist: a
+coordinate chunk the store never wrote, which reads as the fill value and so as
+the equator, as the Zarr spec has it. xarray reads it back as 0.0. Written by
+the same script with `--windows-only` (zarr-python 3.3.0, numcodecs 0.16.5,
+xarray 2026.7.0), and reproducible byte for byte. v2 cannot
+state a `fill_value` apart from `_FillValue` through xarray, and a `_FillValue`
+of 0 would mask the equator, so the v2 store keeps NaN and writes every chunk.
+The oracle lists each store's unwritten coordinate chunks, and the script fails
+if `latitude/c/2` is ever written. Four windows: across chunk edges, across the
+seam, the whole grid, and the equator row (widened to the row before it).
+
 ## zstd wide-window store (`zstd_wide_window/`)
 
 A v2 `uint8` array of `(64, 64)` in one 4 KiB chunk under the `zstd`

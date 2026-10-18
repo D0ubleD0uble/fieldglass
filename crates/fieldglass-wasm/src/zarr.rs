@@ -21,7 +21,7 @@
 //! `decodeSlice`, `decodeLine`) works on a store as on a NetCDF file, reading
 //! whatever chunks the call covers.
 
-use fieldglass::{DecodeOptions, MemoryObjects, Session, WindowRequest};
+use fieldglass::{DecodeOptions, PrefetchedObjects, Session, WindowRequest};
 use js_sys::{Map, Object, Uint8Array};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -35,13 +35,24 @@ use crate::{Handle, WasmField, from_js, strict, throw, to_js};
 /// editions, consolidated or not. Every buffer is copied into linear memory;
 /// the caller may reuse its own at once.
 ///
-/// **A key that is not there reads as absent**, and an absent chunk is the
-/// array's fill value: that is how a sparse store works, and it is also what a
-/// chunk you forgot to fetch looks like. Pass every key a plan names. A key
-/// whose fetch came back 404 can be left out or passed as `null`.
+/// **Pass a key whose fetch came back 404 as `null`.** That says the store
+/// holds no such object, and a chunk it never wrote is the array's fill value:
+/// how a sparse store works, and how zarr-python leaves a chunk that is all
+/// fill, coordinates included. A key that is **not passed at all** is one you
+/// have not fetched, and a read that needs it throws rather than filling it:
+/// `planWindow` and `decodeWindow` throw `invalid_option` naming every such
+/// key of the coordinates or of the plan, and any other read (`decodeSlice`,
+/// `decodeLine`, `axisValues`) throws `decode` naming the chunks it needed.
+/// `undefined` counts as not passed, so a fetch helper that returns nothing
+/// on a network error is refused rather than read as fill. An unconsolidated
+/// v2 store also needs each array's and group's `.zattrs`, as bytes or as
+/// `null` for a 404: opening without it throws `decode` naming it, since it
+/// holds the dimension names and the CF scale and fill. Any other metadata
+/// document is asked for speculatively and may be left out.
 ///
 /// Throws `decode` when the objects hold no Zarr root document, or one that
-/// does not parse, and `invalid_option` for a value that is not a `Uint8Array`.
+/// does not parse, and `invalid_option` for a value that is not a `Uint8Array`
+/// or `null`.
 #[wasm_bindgen(js_name = openStore)]
 pub fn open_store(
     #[wasm_bindgen(
@@ -53,8 +64,10 @@ pub fn open_store(
     Ok(Handle { session })
 }
 
-/// The JS map as the in-memory store the session reads.
-fn read_objects(objects: &JsValue) -> Result<MemoryObjects, JsValue> {
+/// The JS map as the in-memory store the session reads: bytes for an object,
+/// absent for `null`, and every key not in the map, or mapped to `undefined`,
+/// one the host has not fetched (#1124).
+fn read_objects(objects: &JsValue) -> Result<PrefetchedObjects, JsValue> {
     let entries: Vec<(JsValue, JsValue)> = if let Some(map) = objects.dyn_ref::<Map>() {
         let mut out = Vec::with_capacity(map.size() as usize);
         map.for_each(&mut |value, key| out.push((key, value)));
@@ -72,14 +85,20 @@ fn read_objects(objects: &JsValue) -> Result<MemoryObjects, JsValue> {
             "the store's objects must be a Map or an object of key to Uint8Array".to_string(),
         ));
     };
-    let mut store = MemoryObjects::new();
+    let mut store = PrefetchedObjects::new();
     for (key, value) in entries {
         let Some(key) = key.as_string() else {
             return Err(invalid(
                 "every key of the store's objects must be a string".to_string(),
             ));
         };
-        if value.is_null() || value.is_undefined() {
+        // Only `null` says "the store holds none". `undefined` is what a
+        // helper returns when it fetched nothing, so it is not passed.
+        if value.is_undefined() {
+            continue;
+        }
+        if value.is_null() {
+            store.insert_absent(key);
             continue;
         }
         let Some(bytes) = value.dyn_ref::<Uint8Array>() else {
@@ -128,10 +147,13 @@ impl Handle {
     /// A window is at least two cells each way, since one row or column cannot
     /// be placed: a box that holds one takes the next one too.
     ///
-    /// Throws `invalid_option`, naming the keys, when the map lacks a chunk of
-    /// the coordinates `coordinateChunks` named, and `unsupported` for a slice
-    /// not placed on a regular lat/lon grid, as 1-D latitude and longitude
-    /// coordinates place one. A sharded array's plan names whole shards.
+    /// Throws `invalid_option`, naming the keys, when the map was not passed a
+    /// chunk of the coordinates `coordinateChunks` named (pass one that came
+    /// back 404 as `null`: it reads as the fill value), and `unsupported` for a
+    /// slice not placed on a regular lat/lon grid, as 1-D latitude and
+    /// longitude coordinates place one. That refusal names a coordinate the
+    /// store left out and why, and coordinate chunks passed as `null` whose
+    /// fill value placed nothing. A sharded array's plan names whole shards.
     #[wasm_bindgen(js_name = planWindow, unchecked_return_type = "WindowPlan")]
     pub fn plan_window(
         &self,
@@ -148,7 +170,9 @@ impl Handle {
     /// The field is a slice like any other, `ni` by `nj`, placed at the
     /// window's own corners, so `warp`, `palette`, `render`, `probe` and
     /// `contours` take it. It is yours; free it. Throws `invalid_option` for a
-    /// box that holds no cell.
+    /// box that holds no cell, and, naming them, for planned chunks the map
+    /// was not passed. A planned chunk passed as `null` reads as the fill
+    /// value.
     #[wasm_bindgen(js_name = decodeWindow)]
     pub fn decode_window(
         &self,

@@ -208,6 +208,26 @@ impl Window<'_> {
         self.ni() == 0 || self.nj() == 0
     }
 
+    /// Every chunk of the variable the window's cells sit in, in row-major
+    /// order of their index, each once; `None` for a container not stored as
+    /// keyed objects.
+    fn planned_chunks(&self) -> Result<Option<Vec<ChunkRef>>, FieldglassError> {
+        if self.is_empty() {
+            return Ok(self.arrays.is_keyed().then(Vec::new));
+        }
+        let mut planned: Vec<ChunkRef> = Vec::new();
+        let mut keyed = true;
+        for run in &self.columns {
+            match self.arrays.chunk_refs(&self.var.name, &self.region(run))? {
+                Some(chunks) => planned.extend(chunks),
+                None => keyed = false,
+            }
+        }
+        planned.sort_by(|a, b| a.index.cmp(&b.index));
+        planned.dedup_by(|a, b| a.index == b.index);
+        Ok(keyed.then_some(planned))
+    }
+
     /// The region one column run reads, in the variable's declared axis order.
     fn region(&self, run: &Range<u64>) -> Vec<Range<u64>> {
         (0..self.var.dims.len())
@@ -271,31 +291,17 @@ impl Session {
     /// [`variables`](Self::variables); [`Error::InvalidOption`] for axes that
     /// are the same or outside the variable, a `slice_indices` of the wrong
     /// length or past an axis, a box that is not finite or has an edge below
-    /// its opposite, and a store that holds no object for a chunk of the two
-    /// horizontal coordinates (named, so the host knows what to fetch);
-    /// [`Error::Unsupported`] for a slice placed on
-    /// anything but a regular lat/lon grid running west to east; and a decode
-    /// failure reading the coordinates.
+    /// its opposite, and a source that was not given a chunk of the two
+    /// horizontal coordinates (named, so the host knows what to fetch; see
+    /// [`ObjectSource::unfetched`]);
+    /// [`Error::Unsupported`] for a slice placed on anything but a regular
+    /// lat/lon grid running west to east, naming a horizontal coordinate the
+    /// store left out and why, and any chunk of them the store never wrote (it
+    /// reads as the fill value, which places nothing unless that is the
+    /// coordinate's value); and a decode failure reading the coordinates.
     pub fn plan_window(&self, request: &WindowRequest) -> Result<WindowPlan, Error> {
         let window = self.window(request, "plan_window")?;
-        let chunks = if window.is_empty() {
-            window.arrays.is_keyed().then(Vec::new)
-        } else {
-            let mut planned: Vec<ChunkRef> = Vec::new();
-            let mut keyed = true;
-            for run in &window.columns {
-                match window
-                    .arrays
-                    .chunk_refs(&window.var.name, &window.region(run))?
-                {
-                    Some(chunks) => planned.extend(chunks),
-                    None => keyed = false,
-                }
-            }
-            planned.sort_by(|a, b| a.index.cmp(&b.index));
-            planned.dedup_by(|a, b| a.index == b.index);
-            keyed.then_some(planned)
-        };
+        let chunks = window.planned_chunks()?;
         Ok(WindowPlan {
             rows: if window.is_empty() {
                 [0, 0]
@@ -330,14 +336,18 @@ impl Session {
     /// them, and a lat/lon georef for the window's own corners. Every other
     /// operation takes it as it takes any field.
     ///
-    /// A chunk the host did not pass reads as the fill value, exactly as one
-    /// the store never wrote: an object map cannot tell the two apart. Pass
-    /// every key the plan names.
+    /// A planned chunk the store never wrote is the fill value. Over a
+    /// [`PrefetchedObjects`](crate::PrefetchedObjects), one the host was given as
+    /// absent (a 404) is that, and one it was not given at all is refused,
+    /// since a chunk nobody fetched is not known to be unwritten. A
+    /// [`MemoryObjects`](crate::MemoryObjects) is a whole store, so a key it
+    /// lacks is unwritten.
     ///
     /// # Errors
     ///
     /// Those of [`plan_window`](Self::plan_window), plus
-    /// [`Error::InvalidOption`] for a box that holds no cell, and a decode
+    /// [`Error::InvalidOption`] for a box that holds no cell and, naming them,
+    /// for planned chunks the store's source was not given; and a decode
     /// failure reading a chunk.
     pub fn decode_window(
         &self,
@@ -350,6 +360,20 @@ impl Session {
                 "the box {:?} holds no cell centre of `{}`, so there is no window to decode",
                 request.bounds, window.var.name
             )));
+        }
+        // Every planned chunk the host has not fetched, named in one refusal
+        // rather than read as the fill value (#1124).
+        if let Some(planned) = window.planned_chunks()? {
+            let keys: Vec<&str> = planned.iter().map(|c| c.key.as_str()).collect();
+            let unfetched = window.arrays.source.unfetched(&keys);
+            if !unfetched.is_empty() {
+                return Err(Error::invalid_option(format!(
+                    "the store was not given {}: fetch every chunk `plan_window` names \
+                         before decoding the window, and give one the store does not hold \
+                         (a 404) as absent",
+                    ticked(&unfetched)
+                )));
+            }
         }
         let source = window.arrays.source.as_ref();
         let (ni, nj) = (window.ni(), window.nj());
@@ -480,26 +504,25 @@ impl Session {
             )));
         }
 
-        // A box is matched against the two horizontal coordinates, and a
-        // coordinate chunk the host has not fetched reads as the fill value,
-        // which places nothing or places it wrong. Named instead, so the host
-        // knows what to fetch.
-        let mut absent = Vec::new();
+        // A box is matched against the two horizontal coordinates. A chunk of
+        // them the host has not fetched yet is named, so the host knows what to
+        // fetch; one it fetched and the store never wrote is the fill value,
+        // as the Zarr spec has it, and is read as such (#1163).
+        let mut unfetched = Vec::new();
+        let mut unwritten = Vec::new();
         for d in [y, x] {
             if let Some(chunks) = arrays.coordinate_refs(&var, d)? {
                 let keys: Vec<&str> = chunks.iter().map(|c| c.key.as_str()).collect();
-                absent.extend(arrays.source.absent(&keys)?);
+                unfetched.extend(arrays.source.unfetched(&keys));
+                unwritten.extend(arrays.source.unwritten(&keys)?);
             }
         }
-        if !absent.is_empty() {
+        if !unfetched.is_empty() {
             return Err(Error::invalid_option(format!(
-                "the store holds no {}: fetch the coordinate chunks `coordinate_chunks` \
-                     names before planning a window",
-                absent
-                    .iter()
-                    .map(|k| format!("`{k}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                "the store was not given {}: fetch the coordinate chunks \
+                     `coordinate_chunks` names before planning a window, and give one the \
+                     store does not hold (a 404) as absent",
+                ticked(&unfetched)
             )));
         }
 
@@ -511,9 +534,10 @@ impl Session {
                 return Err(Error::Unsupported {
                     detail: format!(
                         "a window is planned over a slice placed on a regular lat/lon grid \
-                         running west to east; `{}` on these axes is placed as `{}`",
+                         running west to east; `{}` on these axes is placed as `{}`{}",
                         var.name,
-                        other.label()
+                        other.label(),
+                        arrays.why_not_placed(&var, [y, x], &unwritten)
                     ),
                 });
             }
@@ -521,6 +545,23 @@ impl Session {
         let forward = placement.geometry.forward_at();
         let lats: Vec<Option<f64>> = (0..whole.nj).map(|j| forward(0, j).map(|p| p.0)).collect();
         let lons: Vec<Option<f64>> = (0..whole.ni).map(|i| forward(i, 0).map(|p| p.1)).collect();
+        // A coordinate that is not a number everywhere, as one read from
+        // chunks the store never wrote is when its fill value is NaN, places
+        // no cell, and a box over it would plan nothing without saying why.
+        if !lats
+            .iter()
+            .chain(&lons)
+            .all(|v| v.is_some_and(f64::is_finite))
+        {
+            return Err(Error::Unsupported {
+                detail: format!(
+                    "`{}` on these axes is placed by coordinates that are not all finite \
+                     numbers, so a box cannot be matched against them{}",
+                    var.name,
+                    arrays.why_not_placed(&var, [y, x], &unwritten)
+                ),
+            });
+        }
         // A billionth of a cell, so an edge on a centre holds it.
         let slack = |a: Option<f64>, b: Option<f64>| match (a, b) {
             (Some(a), Some(b)) => (b - a).abs() * 1e-9,
@@ -619,6 +660,45 @@ impl Arrays {
         let whole = 0..axis.length;
         self.chunk_refs(&axis.name, std::slice::from_ref(&whole))
     }
+
+    /// What a refusal to window `var` adds about its horizontal axes' own
+    /// coordinates (#1163): each one the container left out, with why, and
+    /// the chunks of them the store never wrote, which read as the fill
+    /// value and so place nothing. Empty when neither applies.
+    fn why_not_placed(
+        &self,
+        var: &RenderableArray,
+        axes: [usize; 2],
+        unwritten: &[String],
+    ) -> String {
+        let left_out = self.source.left_out();
+        let mut notes: Vec<String> = axes
+            .iter()
+            .filter_map(|&d| var.dims.get(d))
+            .filter_map(|axis| left_out.iter().find(|l| l.name == axis.name))
+            .map(|l| {
+                format!(
+                    "its coordinate `{}` is left out of this store: {}",
+                    l.name, l.reason
+                )
+            })
+            .collect();
+        if !unwritten.is_empty() {
+            notes.push(format!(
+                "the store holds no {}, so those coordinates are their array's fill value",
+                ticked(unwritten)
+            ));
+        }
+        notes.iter().map(|n| format!("; {n}")).collect()
+    }
+}
+
+/// Keys as a refusal names them: `a`, `b`.
+fn ticked(keys: &[String]) -> String {
+    keys.iter()
+        .map(|k| format!("`{k}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The refusal for a window larger than this target can address.
@@ -757,9 +837,15 @@ pub(super) trait Keyed: ArraySource {
     /// Whether [`chunk_keys`](Self::chunk_keys) answers at all.
     fn is_keyed(&self) -> bool;
 
-    /// Which of `keys` the container holds no object for. Empty for a
-    /// container not stored as keyed objects.
-    fn absent(&self, keys: &[&str]) -> Result<Vec<String>, FieldglassError>;
+    /// Which of `keys` the host never gave the container's source
+    /// ([`ObjectSource::unfetched`]). Empty for a container not stored as
+    /// keyed objects.
+    fn unfetched(&self, keys: &[&str]) -> Vec<String>;
+
+    /// Which of `keys` the store holds no object for, among those its source
+    /// was given: chunks it never wrote, which read as the fill value. Empty
+    /// for a container not stored as keyed objects.
+    fn unwritten(&self, keys: &[&str]) -> Result<Vec<String>, FieldglassError>;
 }
 
 impl<O: ObjectSource> Keyed for fieldglass_zarr::ZarrStore<O> {
@@ -771,11 +857,16 @@ impl<O: ObjectSource> Keyed for fieldglass_zarr::ZarrStore<O> {
         true
     }
 
-    fn absent(&self, keys: &[&str]) -> Result<Vec<String>, FieldglassError> {
+    fn unfetched(&self, keys: &[&str]) -> Vec<String> {
+        self.objects().unfetched(keys)
+    }
+
+    fn unwritten(&self, keys: &[&str]) -> Result<Vec<String>, FieldglassError> {
         let objects = self.objects();
+        let unfetched = objects.unfetched(keys);
         let mut out = Vec::new();
         for key in keys {
-            if objects.get(key)?.is_none() {
+            if !unfetched.iter().any(|k| k == key) && objects.get(key)?.is_none() {
                 out.push((*key).to_string());
             }
         }
@@ -796,7 +887,11 @@ where
         false
     }
 
-    fn absent(&self, _keys: &[&str]) -> Result<Vec<String>, FieldglassError> {
+    fn unfetched(&self, _keys: &[&str]) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn unwritten(&self, _keys: &[&str]) -> Result<Vec<String>, FieldglassError> {
         Ok(Vec::new())
     }
 }

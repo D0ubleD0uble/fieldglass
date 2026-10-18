@@ -146,6 +146,17 @@ groups live in and never enumerates a chunk. A key cannot escape the root: keys
 come out of documents somebody else wrote, so `..` in one is refused by never
 building the path.
 
+`PrefetchedObjects` is the fourth, and the map a browser fills (#1124, #1163):
+what a host has fetched so far, each key bytes or absent (a 404). It differs from
+`MemoryObjects` in one answer. A key it was never given is *unfetched*, which
+the provided `unfetched(keys)` names, and that is not absent: absent is a
+sparse array's fill value, and a chunk nobody fetched read as fill would put
+fill values on a screen and call them data. `get` still answers `None` for it,
+so a store's walk, which asks for documents a store may not have, opens on the
+metadata alone; `ZarrStore`'s region read asks `unfetched` before it reads a
+chunk and refuses, naming every key. `MemoryObjects` and `DirectoryObjects` hold
+a whole store, so the provided default, nothing unfetched, is their answer.
+
 `ArraySource` is the rung above both (#658, ADR-0010's amendment to decision
 3). The byte seams answer "give me these bytes"; this answers "give me this
 array's values": a container's `Group` tree and a raw region read, with the CF
@@ -182,6 +193,7 @@ classDiagram
         +prefetch(keys) (advisory)
         +require(key) Cow (provided)
         +list_children(prefix) (provided, #708)
+        +unfetched(keys) (provided, #1124)
     }
 
     class ArraySource {
@@ -195,6 +207,7 @@ classDiagram
     ByteSource <|.. Vec
     ByteSource <|.. Addressed
     ObjectSource <|.. MemoryObjects
+    ObjectSource <|.. PrefetchedObjects
     ObjectSource <|.. KerchunkObjects
     ObjectSource <|.. DirectoryObjects
     ArraySource <|.. ZarrStore

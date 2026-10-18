@@ -220,12 +220,12 @@ pub use session::{axis_values, line_through};
 // depending on `fieldglass` alone has to be enough to use it, and
 // `fieldglass-wasm` depends on nothing else.
 //
-// `MemoryObjects` comes with them because it is the implementation a host that
-// has already fetched everything wants, and `FieldglassError` because it is what
-// every method of both traits returns. Ungated: a host implements the seam
-// whether or not it paints.
+// `MemoryObjects` (a whole store) and `PrefetchedObjects` (what a host fetched
+// so far, which knows what it was not given) are the maps a host fills, and
+// `FieldglassError` is what every method of both traits returns. Ungated: a
+// host implements the seam whether or not it paints.
 pub use fieldglass_core::FieldglassError;
-pub use fieldglass_core::bytes::{ByteSource, MemoryObjects, ObjectSource};
+pub use fieldglass_core::bytes::{ByteSource, MemoryObjects, ObjectSource, PrefetchedObjects};
 /// `core`'s colour type, re-exported: a host consumes the painter's own table
 /// rather than implementing a second colour path (ADR-0006 decision 3).
 #[cfg(feature = "render")]

@@ -26,7 +26,7 @@ use std::path::Path;
 use fieldglass_core::array::{
     ArraySource, AttributeValue, ElementType, Group, LeftOutCause, PhonyDimensions,
 };
-use fieldglass_core::bytes::{MemoryObjects, ObjectSource};
+use fieldglass_core::bytes::{MemoryObjects, ObjectSource, PrefetchedObjects};
 use fieldglass_core::testing::Recording;
 use fieldglass_zarr::ZarrStore;
 use serde_json::{Value, json};
@@ -37,6 +37,11 @@ use serde_json::{Value, json};
 /// Wrapped in a recorder, because what several of these tests say is what the
 /// walk *asked the store for* and not only what it returned.
 fn load(dir: &str) -> Recording<MemoryObjects> {
+    Recording::new(MemoryObjects::from_iter(files(dir)))
+}
+
+/// Every file of a fixture directory, keyed as [`load`] keys them.
+fn files(dir: &str) -> Vec<(String, Vec<u8>)> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) {
         for entry in std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{dir:?}: {e}")) {
             let path = entry.expect("entry").path();
@@ -57,7 +62,7 @@ fn load(dir: &str) -> Recording<MemoryObjects> {
     let root = Path::new(dir);
     let mut entries = Vec::new();
     walk(root, root, &mut entries);
-    Recording::new(MemoryObjects::from_iter(entries))
+    entries
 }
 
 fn oracle(name: &str) -> Value {
@@ -941,4 +946,100 @@ fn a_hostile_shape_is_refused_rather_than_allocated() {
 
     // And a region past the shape is the array model's refusal, not a panic.
     assert!(source.read_region("huge", &[0..1_000_001, 0..1]).is_err());
+}
+
+#[test]
+fn a_read_names_the_chunks_its_source_was_never_given() {
+    // #1124: over what a host fetched, a chunk it was never given is not one
+    // the store left unwritten, so it is refused, not read as the fill value.
+    // The walk itself asks for documents speculatively, so it still opens on
+    // the metadata alone, unconsolidated v2 included.
+    let is_metadata = |k: &str| {
+        ["zarr.json", ".zmetadata", ".zgroup", ".zarray", ".zattrs"]
+            .iter()
+            .any(|d| k == *d || k.ends_with(&format!("/{d}")))
+    };
+    for (store, array, region, given, absent) in [
+        (
+            "windows/window_v2",
+            "t2m",
+            vec![0..1, 0..3, 0..8],
+            "t2m/0.0.0",
+            "t2m/0.0.1",
+        ),
+        (
+            "stores/v2_slash",
+            "temp",
+            vec![0..2, 0..6],
+            "temp/0/0",
+            "temp/0/1",
+        ),
+    ] {
+        let all = files(&format!("tests/fixtures/{store}"));
+        let mut objects = PrefetchedObjects::new();
+        for (key, bytes) in &all {
+            if is_metadata(key) || key == given {
+                objects.insert(key.clone(), bytes.clone());
+            }
+        }
+        let recorded = Recording::new(objects);
+        let zarr = ZarrStore::open(&recorded).expect("opens on the metadata");
+        let planned: Vec<String> = zarr
+            .chunk_keys(array, &region)
+            .expect("plans")
+            .into_iter()
+            .map(|(_, k)| k)
+            .collect();
+        assert!(planned.iter().any(|k| k == given) && planned.iter().any(|k| k == absent));
+        recorded.clear();
+        let err = zarr
+            .read_region(array, &region)
+            .expect_err("one chunk owed");
+        let message = err.to_string();
+        assert!(
+            message.contains(&format!("`{absent}`")),
+            "{store}: {message}"
+        );
+        assert!(
+            !message.contains(&format!("`{given}`")),
+            "{store}: {message}"
+        );
+        assert!(
+            recorded.gets().is_empty(),
+            "{store}: refused before any chunk is read"
+        );
+    }
+}
+
+#[test]
+fn an_unconsolidated_node_whose_zattrs_was_never_given_is_refused() {
+    // `temp/.zattrs` holds the array's dimension names and CF attributes, so a
+    // store opened without it would read `temp` without them. Never given, it
+    // is refused naming the key; given as absent (a 404), the array has none.
+    let all = files("tests/fixtures/stores/v2_slash");
+    let build = |zattrs_absent: bool| {
+        let mut objects = PrefetchedObjects::new();
+        for (key, bytes) in &all {
+            if key == "temp/.zattrs" {
+                if zattrs_absent {
+                    objects.insert_absent(key.clone());
+                }
+            } else if V2_DOCS.iter().any(|doc| key.ends_with(doc)) {
+                objects.insert(key.clone(), bytes.clone());
+            }
+        }
+        objects
+    };
+    let Err(err) = ZarrStore::open(build(false)) else {
+        panic!("a .zattrs is owed, so the store must not open");
+    };
+    assert!(err.to_string().contains("`temp/.zattrs`"), "{err}");
+    let zarr = ZarrStore::open(build(true)).expect("opens");
+    assert!(
+        zarr.group()
+            .arrays_qualified()
+            .into_iter()
+            .any(|(name, _)| name == "temp"),
+        "temp opens, with no attributes"
+    );
 }

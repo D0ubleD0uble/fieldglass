@@ -434,6 +434,28 @@ pub trait ObjectSource {
             FieldglassError::Parse(format!("this store holds no object under {key:?}"))
         })
     }
+
+    /// Which of `keys` this source was never given, so it cannot say whether
+    /// the store holds them (#1124, #1163).
+    ///
+    /// A source over what a host fetched ([`PrefetchedObjects`]) knows one of
+    /// three things about a key: its bytes; that the store holds none, because
+    /// the host's fetch was a 404; or nothing, because the host never fetched
+    /// it. [`get`](Self::get) answers the third as it answers the second,
+    /// `None`, so a walk that asks for documents a store may not have still
+    /// opens on the metadata alone. A read about to take `None` as a chunk's
+    /// fill value asks this first: a chunk nobody fetched is not one the store
+    /// left unwritten, and filling it would show fill values as data.
+    ///
+    /// Empty by default: a whole map or a directory answers every key itself.
+    ///
+    /// **A wrapper must forward this.** One that wraps another source and
+    /// takes the default answers "nothing unfetched" for whatever it wraps, and
+    /// a read through it fills the keys nobody fetched with fill values.
+    fn unfetched(&self, keys: &[&str]) -> Vec<String> {
+        let _ = keys;
+        Vec::new()
+    }
 }
 
 /// An [`ObjectSource`] over a map.
@@ -500,6 +522,10 @@ impl<O: ObjectSource + ?Sized> ObjectSource for &O {
     fn prefetch(&self, keys: &[&str]) -> Result<(), FieldglassError> {
         (**self).prefetch(keys)
     }
+
+    fn unfetched(&self, keys: &[&str]) -> Vec<String> {
+        (**self).unfetched(keys)
+    }
 }
 
 impl ObjectSource for MemoryObjects {
@@ -516,6 +542,96 @@ impl ObjectSource for MemoryObjects {
             .filter(|key| key.starts_with(prefix))
             .cloned()
             .collect())
+    }
+}
+
+/// An [`ObjectSource`] over the objects a host has fetched so far, which knows
+/// the keys it was never given (#1124).
+///
+/// A page reading a remote store fetches a few objects at a time and opens the
+/// store over what it holds. Each key it fetched is either bytes or absent (a
+/// 404), and an absent chunk is the array's fill value. Every other key is one
+/// it has not fetched, which [`MemoryObjects`] cannot tell from absent: a chunk
+/// the host forgot would read as fill values. This source names those keys
+/// through [`unfetched`](ObjectSource::unfetched), and a region read refuses
+/// them rather than filling them.
+///
+/// [`get`](ObjectSource::get) answers `None` for a key never given, as for an
+/// absent one, so the store's walk, which asks for documents a store may not
+/// have, opens on the metadata alone.
+///
+/// ```
+/// use fieldglass_core::bytes::{ObjectSource, PrefetchedObjects};
+///
+/// let mut store = PrefetchedObjects::new();
+/// store.insert("temp/0.0", b"chunk".to_vec());
+/// store.insert_absent("temp/0.1"); // fetched, and a 404: the fill value
+///
+/// assert!(store.get("temp/0.1")?.is_none());
+/// assert_eq!(store.list("temp/")?, ["temp/0.0"]);
+/// assert_eq!(store.unfetched(&["temp/0.0", "temp/0.1", "temp/0.2"]), ["temp/0.2"]);
+/// # Ok::<(), fieldglass_core::FieldglassError>(())
+/// ```
+#[derive(Debug, Default)]
+pub struct PrefetchedObjects {
+    /// `None` for a key the host fetched and the store does not hold.
+    objects: BTreeMap<String, Option<Vec<u8>>>,
+}
+
+impl PrefetchedObjects {
+    /// A source given nothing yet.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// An object the host fetched, replacing anything given under that key.
+    pub fn insert(&mut self, key: impl Into<String>, bytes: Vec<u8>) {
+        self.objects.insert(key.into(), Some(bytes));
+    }
+
+    /// A key the host fetched and the store does not hold (a 404), replacing
+    /// anything given under it. A chunk given this way reads as its array's
+    /// fill value.
+    pub fn insert_absent(&mut self, key: impl Into<String>) {
+        self.objects.insert(key.into(), None);
+    }
+
+    /// How many keys the source was given, absent ones included.
+    pub fn len(&self) -> usize {
+        self.objects.len()
+    }
+
+    /// Whether it was given none.
+    pub fn is_empty(&self) -> bool {
+        self.objects.is_empty()
+    }
+}
+
+impl ObjectSource for PrefetchedObjects {
+    fn get(&self, key: &str) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
+        Ok(self
+            .objects
+            .get(key)
+            .and_then(Option::as_deref)
+            .map(Cow::Borrowed))
+    }
+
+    fn list(&self, prefix: &str) -> Result<Vec<String>, FieldglassError> {
+        // The objects the store holds; an absent key is not one. `BTreeMap`
+        // keeps them in key order, which the sorted contract asks for.
+        Ok(self
+            .objects
+            .iter()
+            .filter(|(key, bytes)| bytes.is_some() && key.starts_with(prefix))
+            .map(|(key, _)| key.clone())
+            .collect())
+    }
+
+    fn unfetched(&self, keys: &[&str]) -> Vec<String> {
+        keys.iter()
+            .filter(|key| !self.objects.contains_key(**key))
+            .map(|key| (*key).to_string())
+            .collect()
     }
 }
 
