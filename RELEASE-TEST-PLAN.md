@@ -544,22 +544,26 @@ A depth axis with fill values used to fail to draw; no file here has one.
       component (it starts on message 0, the u field itself), then tick
       Arrows: arrows over the field, and a key in the map's lower-left corner:
       an arrow in the arrows' colour and weight, labelled `… m s⁻¹`, as long
-      as the fastest arrow on the map (#1046). The Vectors row reads
+      as an arrow at that speed is drawn: the fastest arrow, when it is on
+      the map (#1046). The Vectors row reads
       "Full-length arrow: … m s⁻¹". A larger "every N cells" draws fewer,
       longer arrows, and the key lengthens with them. No note about grid axes
       shows: GFS states earth-relative components.
 - [ ] Change the arrow colour and weight: the arrows and the key redraw in
       them. Export PNG: the arrows and the key are in the image, the key at
-      the same length beside the arrows as on screen (#1046). Untick Arrows:
-      the arrows, the key and the row's "Full-length arrow" text all go.
+      the same length beside the arrows as on screen and its label readable
+      however large the panel is (#1046). Untick Arrows: the arrows, the key
+      and the row's "Full-length arrow" text all go.
 - [ ] Zoom in twice with +, then switch to Orthographic: each time the key's
       length changes with the arrows' (#1046). Back on Equirectangular, zoom
       in until the arrows are longer than the map is wide: the key is cut to
-      half (or a quarter) with its speed, so it still fits. On
-      Equirectangular, arrows near the poles can be drawn longer than the
-      key: that map stretches east–west distance by 1/cos(latitude), and the
-      key is the fastest arrow's own length where it is drawn. Failure looks
-      like a key that keeps one length while the arrows grow or shrink.
+      half (or a quarter) with its speed, so it still fits. Zoomed into a
+      window without the fastest arrow, or on a globe with it on the far
+      side, the key is as long as an arrow at its speed would be drawn on
+      that view. On Equirectangular, arrows near the poles can be drawn
+      longer than the key: that map stretches east–west distance by
+      1/cos(latitude). Failure looks like a key that keeps one length while
+      the arrows grow or shrink.
 - [ ] Turn arrows back on, spacing 4, colour red. Click another editor tab in
       the same group and come back, then import `batlow.cpt` (§9): both times
       the arrows, V component, spacing and colour are as you left them
