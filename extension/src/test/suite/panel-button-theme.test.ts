@@ -170,7 +170,8 @@ suite("Render panel buttons follow the theme (#1118)", function () {
           // Focus each shown button, as the Tab key would, and keep its ring.
           all.forEach((b, i) => {
             if (!b.getClientRects().length) return;
-            b.focus();
+            window.focus();
+            b.focus({ focusVisible: true });
             const s = getComputedStyle(b);
             buttons[i].focused = document.activeElement === b;
             buttons[i].focusOutlineColor = s.outlineColor;

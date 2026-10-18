@@ -841,7 +841,13 @@ const DRIVER = `
         if (!el) throw new Error('no ' + (a.selector || '#' + a.id));
         // A disclosure opens the way a click on its summary opens it.
         if ('open' in a) { if (el.open !== a.open) el.querySelector('summary').click(); continue; }
-        if ('focus' in a) { el.focus(); continue; }
+        if ('focus' in a) {
+          // As the Tab key moves focus: the page has focus, and the focus is
+          // keyboard-visible whatever the pointer did last, so a ring shows.
+          window.focus();
+          el.focus({ focusVisible: true });
+          continue;
+        }
         // A button pressed as a user presses it.
         if ('click' in a) { el.click(); continue; }
         // A narrower or wider panel, as a user drags its edge.
