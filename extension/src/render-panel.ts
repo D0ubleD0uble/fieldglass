@@ -4938,6 +4938,28 @@ export function renderImagePanelHtml(
       color: var(--vscode-descriptionForeground);
       font-size: 0.78rem;
     }
+    /* Every button on the panel takes the theme's secondary button colours
+       (#1118): Export, the transport row and the zoom buttons. Without this
+       a dark theme draws the browser's light-grey default. In a
+       high-contrast theme the border is the theme's contrast border. */
+    button {
+      background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+      color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+      border: 1px solid var(--vscode-button-border, var(--vscode-contrastBorder, transparent));
+      padding: 0.15rem 0.6rem;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: inherit;
+      border-radius: 2px;
+    }
+    button:hover:not(:disabled) {
+      background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+    }
+    button:focus {
+      outline: 1px solid var(--vscode-focusBorder);
+      outline-offset: 1px;
+    }
+    button:disabled { opacity: 0.4; cursor: default; }
     /* The transport buttons hold drawn icons (#1042), not font glyphs, so
        every icon is the same size and sits in the middle of its button. Play
        holds both play and pause and shows one, so it keeps its size as they

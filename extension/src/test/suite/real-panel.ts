@@ -144,6 +144,9 @@ export interface PageState {
   /** The Animate row's transport buttons (#1042), `null` for a panel with no
    *  Animate row. */
   transport: TransportButton[] | null;
+  /** Every `<button>` on the page as drawn (#1118), with the theme's own
+   *  colours resolved beside what the button computed. */
+  panelButtons: PanelButton[];
   /** Every toolbar button whose label starts `Export` (#1039): its id, its
    *  label, the toolbar row it sits in counted from the top (-1 for none),
    *  whether it is shown, and its tooltip. */
@@ -197,6 +200,30 @@ export interface VectorKeyState {
   canvas: { width: number; height: number };
   /** The page's device pixel ratio, which the canvas is drawn at. */
   dpr: number;
+}
+
+/** One panel button as drawn (#1118). `want*` are the theme variables the
+ *  button should take, resolved by a probe element on the same page. */
+export interface PanelButton {
+  id: string;
+  text: string;
+  shown: boolean;
+  background: string;
+  color: string;
+  borderColor: string;
+  borderWidth: string;
+  wantBackground: string;
+  wantColor: string;
+  wantBorder: string;
+  /** Computed opacity of a disabled copy of it. */
+  disabledOpacity: string;
+  /** Computed opacity as found. */
+  opacity: string;
+  /** Whether it is the page's focused element, and its computed outline. */
+  focused: boolean;
+  focusOutlineColor: string;
+  focusOutlineStyle: string;
+  wantFocus: string;
 }
 
 /** One transport button as drawn (#1042). */
@@ -485,6 +512,7 @@ const DRIVER = `
         steppers: steppers(),
         animateLabel: byId('anim-frame') ? byId('anim-frame').textContent : null,
         transport: transport(),
+        panelButtons: panelButtons(),
         exports: Array.from(document.querySelectorAll('.toolbar button'))
           .filter((b) => /^Export /.test(b.textContent.trim()))
           .map((b) => ({
@@ -565,6 +593,51 @@ const DRIVER = `
             }),
           })),
       }));
+    }
+    // Every button on the page (#1118): what it computed, beside the theme
+    // variables it should take, resolved by a probe element so the test needs
+    // no copy of the theme's colours. A high-contrast theme sets no secondary
+    // colours, so the primary button's are the ones it should take.
+    function panelButtons() {
+      const probe = document.createElement('span');
+      probe.style.display = 'none';
+      document.body.appendChild(probe);
+      const resolve = (prop, value) => {
+        probe.style[prop] = '';
+        probe.style[prop] = value;
+        return getComputedStyle(probe)[prop];
+      };
+      const out = Array.from(document.querySelectorAll('button')).map((b) => {
+        const s = getComputedStyle(b);
+        const opacity = s.opacity;
+        // A disabled copy beside it: toggling the real button would blur it.
+        const copy = b.cloneNode(true);
+        copy.disabled = true;
+        b.after(copy);
+        const disabledOpacity = getComputedStyle(copy).opacity;
+        copy.remove();
+        const f = s;
+        return {
+          id: b.id || b.className,
+          text: b.textContent.trim(),
+          shown: b.getClientRects().length > 0,
+          background: s.backgroundColor,
+          color: s.color,
+          borderColor: s.borderTopColor,
+          borderWidth: s.borderTopWidth,
+          wantBackground: resolve('backgroundColor', 'var(--vscode-button-secondaryBackground, var(--vscode-button-background))'),
+          wantColor: resolve('color', 'var(--vscode-button-secondaryForeground, var(--vscode-button-foreground))'),
+          wantBorder: resolve('borderTopColor', 'var(--vscode-button-border, var(--vscode-contrastBorder, transparent))'),
+          disabledOpacity,
+          opacity,
+          focused: document.activeElement === b,
+          focusOutlineColor: f.outlineColor,
+          focusOutlineStyle: f.outlineStyle,
+          wantFocus: resolve('color', 'var(--vscode-focusBorder)'),
+        };
+      });
+      probe.remove();
+      return out;
     }
     // A slice panel's index steppers, Field A's and Field B's (#1041).
     function steppers() {
