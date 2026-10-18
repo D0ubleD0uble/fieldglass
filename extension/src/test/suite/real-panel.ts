@@ -129,6 +129,35 @@ export interface PageState {
   linePlot: LinePlotState | null;
   /** A slice panel's axis rails (#171, #1043), `null` for a GRIB panel. */
   rails: RailsState | null;
+  /** A slice panel's index steppers (#1041), `null` for a GRIB panel. */
+  steppers: SteppersState | null;
+  /** The Animate row's label, `null` for a panel with no Animate row. */
+  animateLabel: string | null;
+}
+
+/** One index stepper as a user sees it (#1041). */
+export interface StepperState {
+  /** The dimension it holds. */
+  dim: number;
+  /** Its text, whitespace collapsed: name, coordinate and range. */
+  text: string;
+  /** The coordinate shown beside it, `""` for none. */
+  coordinate: string | null;
+  /** The index in its number box. */
+  index: string;
+  box: Box;
+}
+
+/** Field A's steppers and the Compare row's Field B steppers (#1041). */
+export interface SteppersState {
+  main: StepperState[];
+  fieldB: StepperState[];
+  /** Each container's whole text, separators included. */
+  mainText: string;
+  fieldBText: string;
+  /** Each container's left rule and background, as computed. */
+  mainStyle: string;
+  fieldBStyle: string;
 }
 
 /** The line plot as a user sees it (#1037). */
@@ -361,6 +390,37 @@ const DRIVER = `
         canvasVisibility: byId('canvas').style.visibility,
         linePlot: linePlot(),
         rails: rails(),
+        steppers: steppers(),
+        animateLabel: byId('anim-frame') ? byId('anim-frame').textContent : null,
+      };
+    }
+    // A slice panel's index steppers, Field A's and Field B's (#1041).
+    function steppers() {
+      const main = byId('slice-dims');
+      if (!main) return null;
+      const read = (root) => Array.from(root.querySelectorAll('.slice-index')).map((el) => {
+        const coord = el.querySelector('.slice-coord');
+        const number = el.querySelector('.slice-number');
+        return {
+          dim: Number(number.dataset.dim),
+          text: el.textContent.replace(/\\s+/g, ' ').trim(),
+          coordinate: coord ? coord.textContent : null,
+          index: number.value,
+          box: boxOf(el),
+        };
+      });
+      const fieldB = byId('compare-dims');
+      const style = (el) => {
+        const s = getComputedStyle(el);
+        return s.borderLeftStyle + ' ' + s.borderLeftWidth + ' ' + s.backgroundColor;
+      };
+      return {
+        main: read(main),
+        fieldB: fieldB ? read(fieldB) : [],
+        mainText: main.textContent,
+        fieldBText: fieldB ? fieldB.textContent : '',
+        mainStyle: style(main),
+        fieldBStyle: fieldB ? style(fieldB) : '',
       };
     }
     // Every control on the page with an id, by id, and each radio group's
@@ -486,8 +546,9 @@ const DRIVER = `
       // fitted the rails and the plot to the sizes they now have (#1043).
       let resized = false;
       for (const a of m.actions) {
-        const el = a.id === 'body' ? document.body : byId(a.id);
-        if (!el) throw new Error('no #' + a.id);
+        // A control with no id (a slice stepper) is named by a selector.
+        const el = a.selector ? document.querySelector(a.selector) : a.id === 'body' ? document.body : byId(a.id);
+        if (!el) throw new Error('no ' + (a.selector || '#' + a.id));
         // A disclosure opens the way a click on its summary opens it.
         if ('open' in a) { if (el.open !== a.open) el.querySelector('summary').click(); continue; }
         if ('focus' in a) { el.focus(); continue; }
@@ -516,7 +577,16 @@ export interface RealPanel {
   sent: Msg[];
   /** Set controls as a user would, then read the page back. */
   drive(
-    actions: Array<{ id: string; value?: string | number; checked?: boolean; open?: boolean; focus?: boolean; width?: string }>,
+    actions: Array<{
+      /** The control's id; or `selector`, for one with no id. */
+      id?: string;
+      selector?: string;
+      value?: string | number;
+      checked?: boolean;
+      open?: boolean;
+      focus?: boolean;
+      width?: string;
+    }>,
   ): Promise<PageState>;
   /** Click the middle of the image, as a user reads the value there, or the
    *  point `fy` of the way down it. Resolves once the page has sent the click;

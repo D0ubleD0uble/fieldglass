@@ -114,7 +114,7 @@ suite("Time animation", () => {
       /blit\(msg\);\s*updateLogAvailability\(\);\s*animationFrameArrived\(\);/,
       /function handleGridError\(msg\) \{[\s\S]{0,200}stopAnimation\(\);/,
       /options\.rangeMin = animation\.lock\[0\];/,
-      /wrap\.innerHTML = dimStepperHtml\([^)]*\);\s*buildAnimationControls\(\);/,
+      /wrap\.innerHTML = dimStepperHtml\([^)]*\);\s*requestStepperAxes\(\);\s*fillSliceCoordinates\(\);\s*buildAnimationControls\(\);/,
     ]) {
       assert.ok(wiring.test(html), `the panel script wires ${wiring}`);
     }

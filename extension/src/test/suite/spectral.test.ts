@@ -330,8 +330,15 @@ suite("Compare map band-limit label (#814)", () => {
     const handler = /\n( *)function handleGridReady\(msg\) \{\n( *)lastPayload = msg;/.exec(html);
     assert.ok(handler, "the panel script defines handleGridReady");
     assert.ok(
-      html.includes("\n" + handler[2] + "SUB_LINE = composeSubtitle(SUB_BASE, msg.truncationNote ?? null);\n"),
+      html.includes("\n" + handler[2] + "drawnTruncation = msg.truncationNote ?? null;\n") &&
+        html.includes("\n" + handler[2] + "updateSubtitle();\n"),
       "handleGridReady recomposes SUB_LINE on every render, null included",
+    );
+    // The slice drawn goes between the base and the note (#1041); a GRIB
+    // panel has none, so its line is the base and the note.
+    assert.ok(
+      /function updateSubtitle\(\) \{\s*SUB_LINE = composeSubtitle\(composeSubtitle\(SUB_BASE, drawnSliceNote\(\)\), drawnTruncation\);/.test(html),
+      "updateSubtitle composes SUB_LINE from the base, the slice and the note",
     );
     const subtitle = /<div class="subtitle">([^<]*)<\/div>/.exec(html);
     assert.ok(subtitle && subtitle[1].endsWith("shown at T359 of T383"), subtitle?.[1] ?? "no subtitle");
