@@ -551,7 +551,7 @@ A depth axis with fill values used to fail to draw; no file here has one.
       shows: GFS states earth-relative components.
 - [ ] Change the arrow colour and weight: the arrows and the key redraw in
       them. Export PNG: the arrows and the key are in the image, the key at
-      the same length beside the arrows as on screen and its label readable
+      the right length for its label beside the arrows, and its label readable
       however large the panel is (#1046). Untick Arrows: the arrows, the key
       and the row's "Full-length arrow" text all go.
 - [ ] Zoom in twice with +, then switch to Orthographic: each time the key's
