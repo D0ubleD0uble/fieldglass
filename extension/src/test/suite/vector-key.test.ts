@@ -271,21 +271,6 @@ function longestInkRun(image: { width: number; height: number; rgba: Uint8Array 
   return longest;
 }
 
-/** When `FIELDGLASS_SHOTS` names a folder, the screen as it is now, saved
- *  there as `name`: the before-and-after pictures for the owner. */
-async function shot(name: string): Promise<void> {
-  const dir = process.env.FIELDGLASS_SHOTS;
-  if (!dir) return;
-  // Long enough for the panel to paint what the test just read.
-  await new Promise((r) => setTimeout(r, 400));
-  const { execFileSync } = await import("child_process");
-  try {
-    execFileSync("import", ["-window", "root", path.join(dir, name)]);
-  } catch (e) {
-    console.warn(`no screenshot ${name}: ${e}`);
-  }
-}
-
 suite("Vector key (#1046)", () => {
   test("the key is the fastest arrow as drawn, follows spacing and projection, and is in the PNG", async function () {
     this.timeout(120_000);
@@ -308,7 +293,6 @@ suite("Vector key (#1046)", () => {
         { id: "overlay-vectors", checked: true },
       ]);
       const equirect = await arrowsAfter(panel, from, "Equirectangular");
-      await shot("after-equirectangular.png");
       assertKeyMatches(equirect, file, "Equirectangular");
 
       // The label: the speed and units the arrows were drawn to, on the map
@@ -380,8 +364,6 @@ suite("Vector key (#1046)", () => {
         );
         const png = Buffer.from(String(exported.dataUrl).replace(/^data:image\/png;base64,/, ""), "base64");
         const image = decodePng(png);
-        const dir = process.env.FIELDGLASS_SHOTS;
-        if (dir) fs.writeFileSync(path.join(dir, "after-export.png"), png);
         // The map is exported at the raster's own size, so the overlay, key
         // and all, is scaled by raster over canvas.
         const toExport = wide.rasterWidth / wide.key.canvas.width;
@@ -403,7 +385,6 @@ suite("Vector key (#1046)", () => {
         { id: "picker-projection", value: "orthographic" },
       ]);
       const globe = await renderAfter(panel, from, "Orthographic");
-      await shot("after-orthographic.png");
       assert.strictEqual(globe.request.options.projection, "orthographic");
       assertKeyMatches(globe, file, "Orthographic");
       assert.ok(
@@ -412,7 +393,6 @@ suite("Vector key (#1046)", () => {
       );
 
       // Arrows off: no key.
-      from = mark(panel);
       const off = await panel.drive([{ id: "overlay-vectors", checked: false }]);
       assert.strictEqual(off.vectorKey, null, "no arrows, no key");
     } finally {
