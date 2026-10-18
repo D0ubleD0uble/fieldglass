@@ -695,7 +695,7 @@ A depth axis with fill values used to fail to draw; no file here has one.
 - [ ] Message 0 with message 1 is refused as two different grids, not as a
       frame difference.
 
-## 7. Zoom and pan (#245, #1114)
+## 7. Zoom and pan (#245, #1114, #1147)
 
 **`S: samples/gfs.grib2`**, Equirectangular, then Web Mercator
 
@@ -708,9 +708,15 @@ A depth axis with fill values used to fail to draw; no file here has one.
       window; typing a window by hand still works.
 - [ ] Zoom into Europe, then Export PNG: the image is the zoomed window, not
       the whole globe.
-- [ ] A click without a drag probes the value under the pointer.
+- [ ] A click without a drag probes the value under the pointer. Drag the map
+      and let go off the image, then click the map: that click probes too.
 - [ ] On Mollweide and Orthographic, scrolling and dragging leave the map
       where it is.
+- [ ] Tick Flip Y axis (the map turns upside down, south at the top). Scroll
+      near the top edge: the zoom stays on the place under the pointer. Drag
+      down: the map moves down with the pointer. Failure looks like a zoom
+      that slides toward the other edge, or a map moving against the drag
+      (#1147).
 
 **`S: samples/mrms.grib2`** (7000 × 3500, the slowest render in the samples)
 
@@ -725,6 +731,10 @@ A depth axis with fill values used to fail to draw; no file here has one.
       The window is short, so repeat a few times. Failure looks like a
       readout that matches neither image, or an empty readout over the old
       image's corner while it is still up (#1114).
+- [ ] On Equirectangular with Bounds on Auto, pick Mollweide and scroll over
+      the map straight away, while the old image is still up. Bounds stays on
+      Auto. Pick Equirectangular again: the whole map is drawn, not a zoomed
+      window. Failure looks like Bounds turning to Manual (#1147).
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, Equirectangular, coastlines, contours and arrows on
 
