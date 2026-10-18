@@ -189,7 +189,7 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
     }
   });
 
-  test("a GRIB grid nothing places hides the projection, overlays, arrows and zonal average, for one reason", async () => {
+  test("a GRIB grid nothing places hides the projection, overlays, arrows, zonal average and long CSV, for one reason", async () => {
     const p = await provider();
     const { file, done } = tempFile("tiny_earth_pair.grib2", tinyEarthPair());
     const native = loadNative();
@@ -205,8 +205,14 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       assertHides(state, ["projection", "resampling", "overlay", "arrows", "zonal"], [], ["contours"]);
       assertLine(
         state,
-        ["Projection", "Resampling", "Overlay", "Vectors", "Zonal average"],
-        [{ kind: "structural", text: `Projection, Resampling, Overlay, Vectors, Zonal average: ${UNPLACED_REASON}` }],
+        // A GRIB panel has Export CSV too (#1039), so its long layout is listed.
+        ["Projection", "Resampling", "Overlay", "Vectors", "Zonal average", "Long layout (Export CSV)"],
+        [
+          {
+            kind: "structural",
+            text: `Projection, Resampling, Overlay, Vectors, Zonal average, Long layout (Export CSV): ${UNPLACED_REASON}`,
+          },
+        ],
       );
       assert.doesNotMatch(panel.html(), /satellite-view/, "nothing blames a satellite view");
 

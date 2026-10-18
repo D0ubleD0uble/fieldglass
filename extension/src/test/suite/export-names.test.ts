@@ -20,7 +20,14 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
-import { composeDefaultPngName, composeExportName } from "../../render-panel";
+import {
+  composeDefaultPngName,
+  composeExportName,
+  CSV_FIELD_A_NOTE,
+  EXPORT_CSV_TITLE,
+  sanitizeExportName,
+  sanitizePngName,
+} from "../../render-panel";
 import {
   extensionPath,
   isType,
@@ -60,9 +67,10 @@ async function withDialogs(
   act: () => Promise<void>,
   done: (seen: { calls: SaveCall[]; warnings: string[] }) => boolean,
   replace?: string,
-): Promise<{ calls: SaveCall[]; warnings: string[] }> {
+): Promise<{ calls: SaveCall[]; warnings: string[]; prompts: string[] }> {
   const calls: SaveCall[] = [];
   const warnings: string[] = [];
+  const prompts: string[] = [];
   const w = vscode.window as unknown as Record<string, unknown>;
   const saved = {
     showSaveDialog: w.showSaveDialog,
@@ -74,8 +82,10 @@ async function withDialogs(
     calls.push(opts);
     return Promise.resolve(answer);
   };
-  w.showQuickPick = (items: Array<{ format?: string }>) =>
-    Promise.resolve(Array.isArray(items) ? items.find((i) => i.format === "matrix") : undefined);
+  w.showQuickPick = (items: Array<{ format?: string }>, opts?: { placeHolder?: string }) => {
+    prompts.push(opts?.placeHolder ?? "");
+    return Promise.resolve(Array.isArray(items) ? items.find((i) => i.format === "matrix") : undefined);
+  };
   w.showInformationMessage = () => Promise.resolve(undefined);
   w.showWarningMessage = (message: string) => {
     warnings.push(message);
@@ -84,10 +94,14 @@ async function withDialogs(
   try {
     await act();
     await waitUntil(() => (done({ calls, warnings }) ? true : undefined), "the export to finish");
+    // And the CSV export the click started has settled, so nothing it does
+    // later can land after the test has read the result.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await ((await provider()) as any)._csvExport;
   } finally {
     Object.assign(w, saved);
   }
-  return { calls, warnings };
+  return { calls, warnings, prompts };
 }
 
 /** The two export buttons, asserted shown and in one toolbar row. */
@@ -339,6 +353,104 @@ suite("Export names, folders and buttons (#1039, #1112)", function () {
       assert.strictEqual(path.basename(asked.fsPath), "cf_v2_a.csv");
     } finally {
       panel.dispose();
+    }
+  });
+
+  test("a 5-D tail keeps every value: units and names are shortened first", () => {
+    // A long stem and parameter at their floor, a time whose reference cannot
+    // be read, a level, and an ensemble member with no coordinates: the cut
+    // used to land on the member's index, so members 12 and 13 shared a name.
+    const src = { kind: "variable" as const, name: "a_rather_long_ensemble_forecast_archive_name.nc" };
+    const v = { index: 0, parameter: "air_temperature_at_isobaric_levels" };
+    const tail = (member: number) => [
+      { name: "time", index: 4, coordinate: "1963872 hours since the flood of 1800/01/01 12:00" },
+      { name: "level", index: 5, coordinate: "500 millibar" },
+      { name: "ensemble_member", index: member, coordinate: null },
+    ];
+    const twelve = composeExportName(v, src, "png", tail(12));
+    const thirteen = composeExportName(v, src, "png", tail(13));
+    assert.notStrictEqual(twelve, thirteen);
+    assert.ok(twelve.length <= 100, `capped: ${twelve.length} characters: ${twelve}`);
+    assert.match(twelve, /-index-12\.png$/, twelve);
+    assert.match(twelve, /_time-1963872/, `the time's value is kept: ${twelve}`);
+    assert.match(twelve, /_lev[a-z]*-500[-_]/, `the level's value is kept: ${twelve}`);
+  });
+
+  test("a long dimension name is shortened, never its index or value", () => {
+    const src = { kind: "variable" as const, name: "f.nc" };
+    const v = { index: 0, parameter: "v" };
+    const long = "number_of_layers_in_vertical_profile_of_the_retrieval";
+    const indexed = composeExportName(v, src, "csv", [{ name: long, index: 3, coordinate: null }]);
+    assert.match(indexed, /-index-3\.csv$/, indexed);
+    const part = indexed.slice("f_v_".length, -".csv".length);
+    assert.ok(part.length <= 40, `the slice part is capped: ${part}`);
+    const valued = composeExportName(v, src, "csv", [{ name: long, index: 3, coordinate: "1013.25 hectopascal" }]);
+    assert.match(valued, /-1013\.25(-|\.csv$)/, valued);
+  });
+
+  test("a Windows device name gets a suffix, with or without an extension", () => {
+    for (const reserved of ["con", "NUL", "aux", "prn", "com1", "COM9", "lpt1", "lpt9"]) {
+      const lower = reserved.toLowerCase();
+      assert.strictEqual(sanitizeExportName(reserved, "csv"), `${lower}-.csv`);
+      assert.strictEqual(sanitizePngName(`${reserved}.png`), `${lower}-.png`);
+      assert.strictEqual(sanitizePngName(`${reserved}.tar`), `${lower}-.tar.png`);
+    }
+    // Only the device name itself: these are ordinary names.
+    assert.strictEqual(sanitizeExportName("console", "csv"), "console.csv");
+    assert.strictEqual(sanitizeExportName("com10", "csv"), "com10.csv");
+    assert.strictEqual(sanitizeExportName("aux_air", "csv"), "aux_air.csv");
+    assert.strictEqual(
+      composeExportName({ index: 0, parameter: null }, { kind: "variable", name: "nul.nc" }, "csv"),
+      "nul_0.csv",
+    );
+  });
+
+  test("with Compare on, a GRIB panel's Export CSV says it holds Field A, in the tooltip and the layout prompt", async () => {
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1039-"));
+    const file = path.join(dir, "pair.grib2");
+    const bytes = fs.readFileSync(fixture(path.join(FIXTURES(), "regular_latlon_surface.grib2")));
+    fs.writeFileSync(file, Buffer.concat([bytes, bytes]));
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const state = await panel.drive([]);
+      const ids = exportButtons(state, "the GRIB panel");
+      assert.strictEqual(state.exports.find((b) => b.id === ids.csv)?.title, EXPORT_CSV_TITLE);
+      assert.match(EXPORT_CSV_TITLE, /Field A/);
+
+      const plain = await withDialogs(undefined, () => click(panel, ids.csv), (d) => d.calls.length > 0);
+      assert.ok(!plain.prompts[0].includes(CSV_FIELD_A_NOTE), `no Compare, no note: ${plain.prompts[0]}`);
+
+      const from = panel.sent.length;
+      await panel.drive([
+        { id: "compare-op", value: "a_minus_b" },
+        { id: "compare-field-b", value: 1 },
+      ]);
+      await panel.waitSent(drawn, from, "the difference map");
+      const compared = await withDialogs(undefined, () => click(panel, ids.csv), (d) => d.calls.length > 0);
+      assert.ok(compared.prompts[0].startsWith(CSV_FIELD_A_NOTE), `the prompt says Field A: ${compared.prompts[0]}`);
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("with Compare on, a NetCDF panel's Export CSV says it holds Field A", async () => {
+    const { panel, close } = await openDimscale();
+    try {
+      const state = await panel.drive([]);
+      const ids = exportButtons(state, "the NetCDF panel");
+      assert.strictEqual(state.exports.find((b) => b.id === ids.csv)?.title, EXPORT_CSV_TITLE);
+      const from = panel.sent.length;
+      await panel.drive([{ id: "compare-op", value: "a_minus_b" }]);
+      await panel.waitSent(drawn, from, "the difference map");
+      const { prompts } = await withDialogs(undefined, () => click(panel, ids.csv), (d) => d.calls.length > 0);
+      assert.ok(prompts[0].startsWith(CSV_FIELD_A_NOTE), `the prompt says Field A: ${prompts[0]}`);
+    } finally {
+      close();
     }
   });
 });

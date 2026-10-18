@@ -280,6 +280,13 @@ ${compareOpSelectHtml(combineOps)}
  *  the save dialog shows the whole name. */
 const MAX_EXPORT_NAME_STEM = 96;
 
+/** Export CSV's tooltip (#1039). The CSV holds one field's values; with
+ *  Compare on, the PNG shows the combined map but the CSV is Field A's. */
+export const EXPORT_CSV_TITLE = "Export the values as CSV. With Compare on, this exports Field A, not the difference.";
+
+/** What the CSV layout prompt adds with Compare on (#1039). */
+export const CSV_FIELD_A_NOTE = "Compare is on: the CSV holds Field A, not the difference.";
+
 /** The file types the render panel exports. */
 export type ExportExtension = "png" | "csv";
 
@@ -295,11 +302,16 @@ export function sanitizeExportName(name: string, ext: ExportExtension): string {
     .replace(/[^A-Za-z0-9._-]+/g, "-")
     .replace(/^[-.]+|[-._]+$/g, "")
     // A last resort: `composeExportName` already fits its name under the cap
-    // by shortening the parameter, so this cut only lands on a name from
-    // elsewhere. Trim any separator it leaves dangling.
+    // by shortening the parameter, the stem and the slice parts' units and
+    // names, so this cut lands only on a name from elsewhere or one whose
+    // values alone pass the cap. Trim any separator it leaves dangling.
     .slice(0, MAX_EXPORT_NAME_STEM)
-    .replace(/[-._]+$/g, "");
-  return `${(cleaned || "render").toLowerCase()}.${ext}`;
+    .replace(/[-._]+$/g, "")
+    .toLowerCase()
+    // Windows reserves its device names as a file's name, with any extension
+    // or none (`aux.csv` is the AUX device), so one gets a `-` after it.
+    .replace(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?=\.|$)/, "$1-");
+  return `${cleaned || "render"}.${ext}`;
 }
 
 /** {@link sanitizeExportName} for a PNG. */
@@ -1100,27 +1112,63 @@ function exportNamePart(s: string | null | undefined): string {
     .toLowerCase();
 }
 
-/** Longest a slice part of an export name gets. A time whose reference cannot
- *  be read keeps its units (`1963872 hours since …`); its value comes first,
- *  and that is what tells two slices apart. */
+/** Longest a slice part of an export name gets, its units and then its
+ *  dimension's name shortened to fit; its value is never cut. A time whose
+ *  reference cannot be read keeps its units (`1963872 hours since …`). */
 const MAX_SLICE_NAME_PART = 40;
 
 /** The parameter, then the stem, is shortened to fit the cap, but neither
  *  below this. */
 const MIN_CUT_NAME_PART = 16;
 
+/** A slice part's dimension name is shortened, but not below this. */
+const MIN_CUT_DIM_NAME = 3;
+
+/** One held dimension of an export name, in three pieces: the dimension's
+ *  name and the coordinate's units, which may be shortened, and the value or
+ *  `index-N` between them, which tells two slices apart and is never cut. */
+interface SliceNamePieces {
+  name: string;
+  value: string;
+  units: string;
+}
+
 /** One held dimension as an export name states it (#1112): the subtitle's
- *  words for it (see {@link composeSliceNote}) made a filename part,
+ *  words for it (see {@link composeSliceNote}) as filename pieces,
  *  `time-2024-01-15`, `level-500-millibar`, `phony_dim_0-index-3`. A time of
  *  day loses its colon, `2020-01-01-0600`, and a minus sign reads `minus`
  *  rather than becoming a separator and losing the sign. */
-function sliceNamePart(p: SliceNotePart): string {
-  const value = (p.coordinate !== null ? p.coordinate : "index " + p.index)
+function sliceNamePieces(p: SliceNotePart): SliceNamePieces {
+  if (p.coordinate === null) return { name: exportNamePart(p.name), value: `index-${p.index}`, units: "" };
+  const text = p.coordinate
     .replace(/(\d{4}-\d\d-\d\d) (\d\d):(\d\d)/, "$1-$2$3")
     // formatCoordinate writes a number's minus as U+2212; a date's hyphens
     // are ASCII.
-    .replace(/−/g, "minus");
-  return exportNamePart(`${p.name} ${value}`).slice(0, MAX_SLICE_NAME_PART).replace(/[-._]+$/, "");
+    .replace(/−/g, "minus")
+    .trim();
+  // formatCoordinate writes the value, then a space and its units.
+  const space = text.search(/\s/);
+  return {
+    name: exportNamePart(p.name),
+    value: exportNamePart(space < 0 ? text : text.slice(0, space)),
+    units: space < 0 ? "" : exportNamePart(text.slice(space)),
+  };
+}
+
+const slicePieceText = (q: SliceNamePieces) => [q.name, q.value, q.units].filter((s) => !!s).join("-");
+
+/** `s` shortened by `over` characters, but not below `floor`, with no
+ *  separator left dangling. */
+function cutNamePart(s: string, over: number, floor: number): string {
+  if (over <= 0 || s.length <= floor) return s;
+  return s.slice(0, Math.max(floor, s.length - over)).replace(/[-._]+$/, "");
+}
+
+/** Shorten `pieces` until `length()` is at most `limit`: every units first,
+ *  then every name, never a value. */
+function fitSlicePieces(pieces: SliceNamePieces[], length: () => number, limit: number): void {
+  for (const q of pieces) q.units = cutNamePart(q.units, length() - limit, 0);
+  for (const q of pieces) q.name = cutNamePart(q.name, length() - limit, MIN_CUT_DIM_NAME);
 }
 
 /** An export's default filename, one rule for the PNG and the CSV (#243,
@@ -1135,8 +1183,11 @@ function sliceNamePart(p: SliceNotePart): string {
  *
  *  Inside a part a space or a symbol becomes `-`. The name is capped at
  *  `MAX_EXPORT_NAME_STEM` characters by shortening the parameter, then the
- *  stem, and never the tail, so two messages with one long name still get two
- *  names. The provider sanitises it again before writing. */
+ *  stem, then each slice part's units and dimension name. The message index
+ *  and the slice values are not cut, so two messages with one long name, or
+ *  two ensemble members of a 5-D variable, still get two names; only a name
+ *  whose values alone pass the cap reaches `sanitizeExportName`'s last-resort
+ *  cut. The provider sanitises it again before writing. */
 export function composeExportName(
   meta: Pick<PanelField, "index" | "parameter">,
   source: PanelSource,
@@ -1150,18 +1201,18 @@ export function composeExportName(
   const named = /[a-z0-9]/.test(cleaned);
   let parameter = named ? cleaned : "";
   let stem = exportNamePart(sourceStem(source.name));
-  const tail = [
-    source.kind === "message" ? `message-${meta.index}` : named ? "" : String(meta.index),
-    ...slice.map(sliceNamePart),
-  ];
-  const join = () => [stem, parameter, ...tail].filter((s) => !!s).join("_");
-  const shorten = (part: string) => {
-    const over = join().length - MAX_EXPORT_NAME_STEM;
-    if (over <= 0) return part;
-    return part.slice(0, Math.max(MIN_CUT_NAME_PART, part.length - over)).replace(/[-._]+$/, "");
-  };
-  parameter = shorten(parameter);
-  stem = shorten(stem);
+  const index = source.kind === "message" ? `message-${meta.index}` : named ? "" : String(meta.index);
+  const pieces = slice.map(sliceNamePieces);
+  // Each slice part fits its own cap first, by its units and then its name.
+  for (const q of pieces) fitSlicePieces([q], () => slicePieceText(q).length, MAX_SLICE_NAME_PART);
+  const join = () => [stem, parameter, index, ...pieces.map(slicePieceText)].filter((s) => !!s).join("_");
+  const over = () => join().length - MAX_EXPORT_NAME_STEM;
+  // Then the whole name fits the cap: the parameter, the stem, then the slice
+  // parts' units and names. The message index and every value are kept, so
+  // what tells two exports apart is never what is cut.
+  parameter = cutNamePart(parameter, over(), MIN_CUT_NAME_PART);
+  stem = cutNamePart(stem, over(), MIN_CUT_NAME_PART);
+  fitSlicePieces(pieces, () => join().length, MAX_EXPORT_NAME_STEM);
   return sanitizeExportName(`${join()}.${ext}`, ext);
 }
 
@@ -1351,7 +1402,9 @@ export function renderImagePanelHtml(
         label: meta.grid ? meta.grid.label : null,
         supports,
       },
-      { arrows: !slice && (compareFields ?? []).length >= 2, csv: !!slice },
+      // Every panel has Export CSV (#1039), so every panel can list its long
+      // layout as unavailable.
+      { arrows: !slice && (compareFields ?? []).length >= 2, csv: true },
     );
   const hides = (key: UnavailableKey) => unavailable.some((g) => g.controls.some((c) => c.key === key));
 
@@ -4280,13 +4333,16 @@ export function renderImagePanelHtml(
           // Export CSV sits beside Export PNG in every panel (#1039). A slice
           // panel exports the live slice, carrying the current {variableIndex,
           // yDim, xDim, sliceIndices} via sliceFields(); a GRIB panel exports
-          // the message it draws, which the provider knows.
+          // the message it draws, which the provider knows. With Compare on,
+          // either exports Field A, not the difference, and the layout prompt
+          // says so (fieldA).
           const exportCsvBtn = document.getElementById('export-csv');
           if (exportCsvBtn) {
             exportCsvBtn.addEventListener('click', () => {
+              const fieldA = !!compareRequest().compare;
               vscode.postMessage(SLICE
-                ? Object.assign({ type: 'exportSliceCsv' }, sliceFields())
-                : { type: 'exportCsv' });
+                ? Object.assign({ type: 'exportSliceCsv', fieldA: fieldA }, sliceFields())
+                : { type: 'exportCsv', fieldA: fieldA });
             });
           }
           const exportPngBtn = document.getElementById('export-png');
@@ -4611,7 +4667,7 @@ export function renderImagePanelHtml(
   <div class="toolbar" role="toolbar" aria-label="Render settings">
     <div class="toolbar-row">
       <button type="button" id="export-png">Export PNG…</button>
-      <button type="button" id="export-csv">Export CSV…</button>
+      <button type="button" id="export-csv" title="${escapeHtml(EXPORT_CSV_TITLE)}">Export CSV…</button>
     </div>
 ${slice
     ? `    <div class="toolbar-row" id="slice-row">

@@ -138,8 +138,8 @@ export interface PageState {
   transport: TransportButton[] | null;
   /** Every toolbar button whose label starts `Export` (#1039): its id, its
    *  label, the toolbar row it sits in counted from the top (-1 for none),
-   *  and whether it is shown. */
-  exports: Array<{ id: string; text: string; row: number; shown: boolean }>;
+   *  whether it is shown, and its tooltip. */
+  exports: Array<{ id: string; text: string; row: number; shown: boolean; title: string | null }>;
   /** The theme the page is drawn in, as VS Code tells it: `vscode-light`,
    *  `vscode-dark`, `vscode-high-contrast`… */
   themeKind: string;
@@ -433,6 +433,7 @@ const DRIVER = `
             text: b.textContent.trim(),
             row: Array.from(document.querySelectorAll('.toolbar-row')).indexOf(b.closest('.toolbar-row')),
             shown: b.getClientRects().length > 0,
+            title: b.getAttribute('title'),
           })),
         themeKind: document.body.getAttribute('data-vscode-theme-kind') || document.body.className,
       };
