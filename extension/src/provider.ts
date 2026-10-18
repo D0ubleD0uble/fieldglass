@@ -2028,6 +2028,13 @@ export interface GridReadyMessage {
   usedLonMin: number | null;
   usedLonMax: number | null;
   projectionSummary: string;
+  /** The options this render was drawn with, after the provider's own
+   *  fallback to the source view. The panel reads the image's geometry from
+   *  it (#1114): `flipY` for which way up the rows are, and `projection`,
+   *  `projectionPreset`, `centerLat`, `centerLon` and the `bounds*` edges for
+   *  where its pixels fall. The rails, the probe, the overlays and the zoom
+   *  and pan gestures follow the image drawn, not the controls, which a
+   *  render still on its way will follow. */
   options: RenderOptions;
   /** The panel heading for the field actually drawn, composed by
    *  {@link composeTitleLine}. Sent with every render because a NetCDF panel

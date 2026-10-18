@@ -29,6 +29,7 @@ import {
   openReal,
   provider,
   type PageState,
+  type RailsState,
   type RealPanel,
   waitUntil,
 } from "./real-panel";
@@ -549,6 +550,217 @@ suite("A cross-section restored over a reopened or changed file (#1043)", functi
         const bottom = (await panel.waitSent(isType("probeResult"), from, "the probe")).result;
         assert.strictEqual(bottom?.value, AIR[0] + offset, `${what}: the bottom row is the surface`);
       }
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/** Open {@link levelsFile} in the editor and draw `air` as a level × latitude
+ *  section: 3 × 17, the ground at the bottom. */
+async function levelsSection(): Promise<{ panel: RealPanel; close: () => void }> {
+  const p = await provider();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1114-"));
+  const file = path.join(dir, "levels.nc");
+  fs.writeFileSync(file, levelsFile(0));
+  const native = loadNative();
+  assert.ok(native, "native binding required");
+  const air = native.NetcdfHandle.fromBytes(fs.readFileSync(file)).variables().find((v) => v.name === "air");
+  assert.ok(air, "air is renderable");
+  const editor = await openEditor(p, file);
+  const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.variableIndex }));
+  const close = () => {
+    panel.dispose();
+    editor.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  };
+  try {
+    await panel.waitSent(isType("gridReady"), 0, "the first render");
+    await rerender(panel, [{ id: "slice-y", value: 0 }, { id: "slice-x", value: 1 }], sized(3, LEVELS.length));
+  } catch (err) {
+    close();
+    throw err;
+  }
+  return { panel, close };
+}
+
+/** The level a Y rail label names, as an index into {@link LEVELS}. */
+function levelOf(label: AxisLabel): number {
+  const at = LEVELS.indexOf(Number(label.text));
+  assert.ok(at >= 0, `"${label.text}" is a level`);
+  return at;
+}
+
+/** Click near the top and near the bottom of the image, and require each
+ *  click to read the level the rail beside it names, and its request to say
+ *  the rows are the way the image on screen has them. Returns the rails. */
+async function readsAsLabelled(panel: RealPanel, flipY: boolean, what: string): Promise<RailsState> {
+  const state = await panel.drive([]);
+  const rails = state.rails;
+  assert.ok(rails?.shown, `${what}: the rails are shown`);
+  const top = rails.y[0];
+  const bottom = rails.y[rails.y.length - 1];
+  // The ends are labelled, so a click there has a label to agree with.
+  assert.deepStrictEqual(
+    [top.text, bottom.text],
+    flipY ? ["10", "1000"] : ["1000", "10"],
+    `${what}: the rails label the image on screen`,
+  );
+  for (const [fy, label] of [[0.02, top], [0.98, bottom]] as const) {
+    const received = panel.received.length;
+    const sent = panel.sent.length;
+    await panel.probe(fy);
+    const asked = await waitUntil(
+      () => panel.received.slice(received).find(isType("probeRequest")),
+      `the click at ${fy} (${what})`,
+    );
+    assert.strictEqual(asked.options.flipY, flipY, `${what}: the click asks for the rows the image has`);
+    const read = (await panel.waitSent(isType("probeResult"), sent, `the probe at ${fy} (${what})`)).result;
+    assert.strictEqual(read?.value, AIR[levelOf(label)], `${what}: the click by "${label.text}" reads that level`);
+  }
+  return rails;
+}
+
+/** The last render the page drew. */
+function lastDrawn(panel: RealPanel): Msg {
+  const drew = panel.sent.filter(isType("gridReady"));
+  assert.ok(drew.length > 0, "a render was drawn");
+  return drew[drew.length - 1];
+}
+
+suite("The rails and the probe follow the image drawn, not the one on its way (#1114)", function () {
+  this.timeout(120_000);
+
+  test("a restored section, before its turned-over render arrives", async () => {
+    // A restored page paints in storage order (1000 mb at the top), then asks
+    // for the Y axis and draws again turned over. Until that render lands,
+    // the image on screen is still the first one.
+    const { panel, close } = await levelsSection();
+    try {
+      const gate = panel.hold((m) => m.type === "gridReady" && m.options.flipY === true);
+      const received = panel.received.length;
+      const sent = panel.sent.length;
+      panel.rebuild();
+      const ready = await waitUntil(() => panel.received.slice(received).find(isType("ready")), "the restored page");
+      assert.strictEqual(ready.flipY, false, "the ready paints in storage order");
+      await panel.waitSent(isType("gridReady"), sent, "the restored page's render");
+      const again = await waitUntil(
+        () => panel.received.slice(received).find(isType("rerenderRequest")),
+        "the render once the Y axis answers",
+      );
+      assert.strictEqual(again.flipY, true, "the Y axis turns the rows over");
+      await waitUntil(() => gate.held.find(isType("gridReady")), "that render, held back");
+      assert.strictEqual(lastDrawn(panel).options.flipY, false, "the image on screen is in storage order");
+      await readsAsLabelled(panel, false, "while the turned-over render is on its way");
+
+      await gate.release();
+      await waitUntil(() => (lastDrawn(panel).options.flipY === true ? true : undefined), "the turned-over render");
+      await readsAsLabelled(panel, true, "once it arrives");
+    } finally {
+      close();
+    }
+  });
+
+  test("after Flip Y axis, with an axis answer landing before the render", async () => {
+    // A restored page asks for its X axis and stepper axis as well. Those
+    // answers are held, Flip Y axis is ticked, and one lands while the
+    // render the box asked for is still on its way: it redraws the rails.
+    const { panel, close } = await levelsSection();
+    try {
+      let toggled = false;
+      const gate = panel.hold((m) => (m.type === "axisResult" && m.dim !== 0) || (toggled && m.type === "gridReady"));
+      const received = panel.received.length;
+      const sent = panel.sent.length;
+      panel.rebuild();
+      await waitUntil(() => panel.received.slice(received).find(isType("ready")), "the restored page");
+      await panel.waitSent((m) => m.type === "gridReady" && m.options.flipY === true, sent, "the turned-over render");
+      await waitUntil(() => (gate.held.length >= 2 ? true : undefined), "the X and stepper axes' answers, held");
+      await readsAsLabelled(panel, true, "before the box is ticked");
+
+      toggled = true;
+      const asked = panel.received.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      const flip = await waitUntil(
+        () => panel.received.slice(asked).find(isType("rerenderRequest")),
+        "the render Flip Y axis asks for",
+      );
+      assert.strictEqual(flip.flipY, false, "the box asks for storage order");
+      await waitUntil(() => gate.held.find(isType("gridReady")), "that render, held back");
+      // An axis answer lands first.
+      const axisAt = panel.sent.length;
+      await gate.deliver(isType("axisResult"));
+      await panel.waitSent(isType("axisResult"), axisAt, "the axis answers");
+      assert.strictEqual(lastDrawn(panel).options.flipY, true, "the image on screen is still turned over");
+      await readsAsLabelled(panel, true, "after the axis answer, before the render");
+
+      await gate.release();
+      await waitUntil(() => (lastDrawn(panel).options.flipY === false ? true : undefined), "the render Flip Y asked for");
+      await readsAsLabelled(panel, false, "once it arrives");
+    } finally {
+      close();
+    }
+  });
+
+  test("a GRIB map, after picking a projection, before its render arrives", async () => {
+    // A Lambert conformal grid, drawn as stored, then on Equirectangular:
+    // the same point of the image is another cell of the grid. Until the
+    // equirectangular render lands, a click reads the source view's cell.
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1114-"));
+    const file = path.join(dir, "lambert.grib2");
+    fs.copyFileSync(
+      path.join(extensionPath(), "..", "crates", "fieldglass-grib2", "tests", "fixtures", "eta_lambert_msg0.grib2"),
+      file,
+    );
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      const first = await panel.waitSent(isType("gridReady"), 0, "the first render");
+      assert.strictEqual(first.options.projection, "source", "drawn as stored");
+      // A point near the top middle of the image, as a click there reads.
+      const click = async (what: string): Promise<{ asked: Msg; read: Msg }> => {
+        const received = panel.received.length;
+        const sent = panel.sent.length;
+        await panel.probe(0.15);
+        const asked = await waitUntil(() => panel.received.slice(received).find(isType("probeRequest")), `the click (${what})`);
+        const read = (await panel.waitSent(isType("probeResult"), sent, `the probe (${what})`)).result;
+        return { asked, read };
+      };
+      const source = await click("the source view");
+      assert.ok(source.read, "the click lands on the grid");
+
+      const gate = panel.hold(isType("gridReady"));
+      const received = panel.received.length;
+      await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+      const render = await waitUntil(
+        () => panel.received.slice(received).find(isType("rerenderRequest")),
+        "the render the picker asks for",
+      );
+      assert.strictEqual(render.projection, "equirectangular", "the render asks for the new target");
+      await waitUntil(() => gate.held.find(isType("gridReady")), "that render, held back");
+      const waiting = await click("while the map is on its way");
+      assert.strictEqual(waiting.asked.options.projection, "source", "the click asks in the projection on screen");
+      assert.deepStrictEqual(
+        [waiting.read?.gridI, waiting.read?.gridJ, waiting.read?.value],
+        [source.read.gridI, source.read.gridJ, source.read.value],
+        "and reads the cell on screen",
+      );
+
+      await gate.release();
+      await waitUntil(
+        () => (lastDrawn(panel).options.projection === "equirectangular" ? true : undefined),
+        "the map",
+      );
+      const mapped = await click("on the map");
+      assert.strictEqual(mapped.asked.options.projection, "equirectangular", "the click follows the map once drawn");
+      // Otherwise the check above could not tell the two projections apart.
+      assert.notDeepStrictEqual(
+        [mapped.read?.gridI, mapped.read?.gridJ],
+        [source.read.gridI, source.read.gridJ],
+        "the same point of the map is another cell",
+      );
     } finally {
       panel.dispose();
       editor.close();
