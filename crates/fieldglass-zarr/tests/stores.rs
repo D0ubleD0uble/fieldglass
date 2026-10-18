@@ -997,11 +997,11 @@ fn a_read_names_the_chunks_its_source_was_never_given() {
             .expect_err("one chunk owed");
         let message = err.to_string();
         assert!(
-            message.contains(&format!("{absent:?}")),
+            message.contains(&format!("`{absent}`")),
             "{store}: {message}"
         );
         assert!(
-            !message.contains(&format!("{given:?}")),
+            !message.contains(&format!("`{given}`")),
             "{store}: {message}"
         );
         assert!(
@@ -1009,4 +1009,37 @@ fn a_read_names_the_chunks_its_source_was_never_given() {
             "{store}: refused before any chunk is read"
         );
     }
+}
+
+#[test]
+fn an_unconsolidated_node_whose_zattrs_was_never_given_is_refused() {
+    // `temp/.zattrs` holds the array's dimension names and CF attributes, so a
+    // store opened without it would read `temp` without them. Never given, it
+    // is refused naming the key; given as absent (a 404), the array has none.
+    let all = files("tests/fixtures/stores/v2_slash");
+    let build = |zattrs_absent: bool| {
+        let mut objects = PrefetchedObjects::new();
+        for (key, bytes) in &all {
+            if key == "temp/.zattrs" {
+                if zattrs_absent {
+                    objects.insert_absent(key.clone());
+                }
+            } else if V2_DOCS.iter().any(|doc| key.ends_with(doc)) {
+                objects.insert(key.clone(), bytes.clone());
+            }
+        }
+        objects
+    };
+    let Err(err) = ZarrStore::open(build(false)) else {
+        panic!("a .zattrs is owed, so the store must not open");
+    };
+    assert!(err.to_string().contains("`temp/.zattrs`"), "{err}");
+    let zarr = ZarrStore::open(build(true)).expect("opens");
+    assert!(
+        zarr.group()
+            .arrays_qualified()
+            .into_iter()
+            .any(|(name, _)| name == "temp"),
+        "temp opens, with no attributes"
+    );
 }

@@ -43,8 +43,12 @@ use crate::{Handle, WasmField, from_js, strict, throw, to_js};
 /// `planWindow` and `decodeWindow` throw `invalid_option` naming every such
 /// key of the coordinates or of the plan, and any other read (`decodeSlice`,
 /// `decodeLine`, `axisValues`) throws `decode` naming the chunks it needed.
-/// Metadata documents are asked for speculatively when the store opens, so a
-/// missing `.zgroup` or `.zattrs` needs neither.
+/// `undefined` counts as not passed, so a fetch helper that returns nothing
+/// on a network error is refused rather than read as fill. An unconsolidated
+/// v2 store also needs each array's and group's `.zattrs`, as bytes or as
+/// `null` for a 404: opening without it throws `decode` naming it, since it
+/// holds the dimension names and the CF scale and fill. Any other metadata
+/// document is asked for speculatively and may be left out.
 ///
 /// Throws `decode` when the objects hold no Zarr root document, or one that
 /// does not parse, and `invalid_option` for a value that is not a `Uint8Array`
@@ -61,8 +65,8 @@ pub fn open_store(
 }
 
 /// The JS map as the in-memory store the session reads: bytes for an object,
-/// absent for `null` (or `undefined`), and every key not in the map one the
-/// host has not fetched (#1124).
+/// absent for `null`, and every key not in the map, or mapped to `undefined`,
+/// one the host has not fetched (#1124).
 fn read_objects(objects: &JsValue) -> Result<PrefetchedObjects, JsValue> {
     let entries: Vec<(JsValue, JsValue)> = if let Some(map) = objects.dyn_ref::<Map>() {
         let mut out = Vec::with_capacity(map.size() as usize);
@@ -88,7 +92,12 @@ fn read_objects(objects: &JsValue) -> Result<PrefetchedObjects, JsValue> {
                 "every key of the store's objects must be a string".to_string(),
             ));
         };
-        if value.is_null() || value.is_undefined() {
+        // Only `null` says "the store holds none". `undefined` is what a
+        // helper returns when it fetched nothing, so it is not passed.
+        if value.is_undefined() {
+            continue;
+        }
+        if value.is_null() {
             store.insert_absent(key);
             continue;
         }

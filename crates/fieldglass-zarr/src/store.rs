@@ -523,7 +523,9 @@ fn read_v2_level<O: ObjectSource>(
         .flat_map(|dir| V2_DOCS.iter().map(move |doc| format!("{dir}{doc}")))
         .collect();
     prefetch_keys(objects, &keys)?;
+    let mut owed = Vec::new();
     for (dir, chunk) in dirs.iter().zip(keys.chunks(V2_DOCS.len())) {
+        let mut node = false;
         for key in chunk {
             let Some(value) = document(objects, key)? else {
                 continue;
@@ -531,8 +533,26 @@ fn read_v2_level<O: ObjectSource>(
             if key.ends_with(".zarray") {
                 arrays.insert(dir.trim_end_matches('/').to_string());
             }
+            node |= key.ends_with(".zarray") || key.ends_with(".zgroup");
             documents.push((key.clone(), value));
         }
+        // A node's `.zattrs` holds its dimension names and CF attributes
+        // (`scale_factor`, `_FillValue`), so a source that was never given it
+        // would open the node without them and show packed values unscaled.
+        // Absent, it is a node with no attributes; never given, it is refused
+        // (#1124).
+        let zattrs = format!("{dir}.zattrs");
+        if node {
+            owed.extend(objects.unfetched(&[zattrs.as_str()]));
+        }
+    }
+    if !owed.is_empty() {
+        let named: Vec<String> = owed.iter().map(|k| format!("`{k}`")).collect();
+        return Err(FieldglassError::Parse(format!(
+            "this store's source was never given {}, which holds a node's dimension names and \
+             CF attributes: fetch it, and give it as absent (a 404) when the store has none",
+            named.join(", ")
+        )));
     }
     Ok(())
 }
@@ -969,7 +989,7 @@ fn read<O: ObjectSource>(
     // fetches them in one round.
     let unfetched = objects.unfetched(&refs);
     if !unfetched.is_empty() {
-        let named: Vec<String> = unfetched.iter().map(|k| format!("{k:?}")).collect();
+        let named: Vec<String> = unfetched.iter().map(|k| format!("`{k}`")).collect();
         return Err(FieldglassError::Parse(format!(
             "this read needs {}, which the store's source was never given: fetch them, and \
              give one the store does not hold (a 404) as absent",

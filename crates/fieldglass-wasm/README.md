@@ -207,13 +207,16 @@ holds no such object. A chunk the store never wrote is its array's fill value,
 which is how a sparse store works and how zarr-python leaves any chunk that is
 all fill, coordinate chunks included: a coordinate chunk passed as `null` reads
 as its fill value, and when that value places no grid (NaN, say) `planWindow`
-throws `unsupported` naming the chunk. A key you do **not** pass at all is one
-you have not fetched, and it is never read as fill: `planWindow` and
+throws `unsupported` naming the chunk. A key you do **not** pass at all, or
+pass as `undefined`, is one you have not fetched, and it is never read as fill: `planWindow` and
 `decodeWindow` throw `invalid_option` naming every such coordinate or planned
 chunk, and any other read that needs one (`decodeSlice`, `decodeLine`,
 `axisValues`) throws `decode` naming it. A window over a coordinate the store
 leaves out (an element type this build does not read, say) throws
-`unsupported` naming the coordinate and why.
+`unsupported` naming the coordinate and why. An unconsolidated v2 store needs
+each array's and group's `.zattrs` too, or `null` for a 404: it holds the
+dimension names and the CF scale and fill, so `openStore` throws `decode`
+naming one it was not given.
 
 **A sharded array plans whole shards.** In a v3 store with `sharding_indexed`,
 each planned key is a shard, and a window fetches every shard it touches in

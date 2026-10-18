@@ -141,7 +141,9 @@ sits alone in the last chunk. In v3 the latitude's `fill_value` is 0.0, which
 is zarr-python's own default for a float array, so zarr-python skips that chunk
 (`write_empty_chunks=False`, its default) and `latitude/c/2` does not exist: a
 coordinate chunk the store never wrote, which reads as the fill value and so as
-the equator, as the Zarr spec has it. xarray reads it back as 0.0. v2 cannot
+the equator, as the Zarr spec has it. xarray reads it back as 0.0. Written by
+the same script with `--windows-only` (zarr-python 3.3.0, numcodecs 0.16.5,
+xarray 2026.7.0), and reproducible byte for byte. v2 cannot
 state a `fill_value` apart from `_FillValue` through xarray, and a `_FillValue`
 of 0 would mask the equator, so the v2 store keeps NaN and writes every chunk.
 The oracle lists each store's unwritten coordinate chunks, and the script fails

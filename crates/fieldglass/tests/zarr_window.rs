@@ -799,7 +799,10 @@ fn a_planned_chunk_the_host_did_not_fetch_is_named_not_filled() {
         .decode_slice(t2m, 1, 2, &[time, 0, 0], &DecodeOptions::default())
         .expect_err("the plane needs it");
     assert_eq!(err.code(), "decode", "{err}");
-    assert!(err.message().contains(&forgotten.key), "{err}");
+    assert!(
+        err.message().contains(&format!("`{}`", forgotten.key)),
+        "{err}"
+    );
 
     // Given as absent, it is the fill value, NaN: its cells are masked and
     // every other cell is xarray's.

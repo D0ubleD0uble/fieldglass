@@ -233,8 +233,18 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
       } catch (e) {
         slice = e;
       }
+      // `undefined`, what a fetch helper returns when it got nothing, is not
+      // passed either: refused the same way, never read as fill.
+      owed.set(gone.key, undefined);
+      const undef = wasm.openStore(owed);
+      same(
+        `${name}: a planned chunk passed as undefined is not passed`,
+        codeOf(() => undef.decodeWindow(request)),
+        'invalid_option',
+      );
+      undef.free();
       same(`${name}: decodeSlice over it is decode`, slice?.code, 'decode');
-      check(`${name}: and names the key`, slice?.message?.includes(gone.key), slice?.message);
+      check(`${name}: and names the key`, slice?.message?.includes(`\`${gone.key}\``), slice?.message);
       forgot.free();
     }
   }
@@ -339,6 +349,26 @@ same(
   ),
   'did not throw',
 );
+// An unconsolidated v2 store: an array's `.zattrs` holds its dimension names
+// and CF attributes, so one never passed is refused naming it, and one passed
+// as `null` (a 404) is an array with no attributes.
+{
+  const root = join(FIXTURES, 'stores', 'v2_slash');
+  const docs = listing(root).filter((k) => ['.zgroup', '.zarray', '.zattrs'].some((d) => k.endsWith(d)));
+  const without = new Map(
+    docs.filter((k) => k !== 'temp/.zattrs').map((k) => [k, new Uint8Array(readFileSync(join(root, ...k.split('/'))))]),
+  );
+  let refused;
+  try {
+    wasm.openStore(without).free();
+  } catch (e) {
+    refused = e;
+  }
+  same('an unconsolidated array whose .zattrs was not passed is decode', refused?.code, 'decode');
+  check('and names it', refused?.message?.includes('`temp/.zattrs`'), refused?.message);
+  without.set('temp/.zattrs', null);
+  same('passed as null, the store opens', codeOf(() => wasm.openStore(without).free()), 'did not throw');
+}
 // A message stream has no windows to plan.
 const grib = wasm.open(
   new Uint8Array(readFileSync(join(repoRoot, 'crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2'))),
