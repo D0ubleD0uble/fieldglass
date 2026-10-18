@@ -786,6 +786,54 @@ api_type! {
         pub units: Option<String>,
     }
 
+    /// A field decoded to **draw**, possibly at a reduced resolution (#1082):
+    /// what [`crate::Session::decode_display`] returns.
+    ///
+    /// Above reduction zero its values are a JPEG 2000 wavelet low-pass, which
+    /// no GRIB message holds, on a grid derived from the message's own
+    /// (`GridGeometry::subsampled`). They are right to look at and wrong to
+    /// measure, so this is a type of its own rather than a [`Field`] with a
+    /// flag. `render_display`, `warp_display` and `palette_display` take it;
+    /// [`crate::Session::probe`], contours, combine and a CSV export take only a
+    /// `Field`, so handing them one of these does not compile (and is a type
+    /// error in the hosts' TypeScript). For the numbers, decode the message
+    /// again with [`crate::Session::decode`].
+    ///
+    /// No [`Stats`] either. A wavelet low-pass is not bounded by the field it
+    /// came from: it trims some extremes and overshoots others (the RAP
+    /// fixture's maximum by 0.69 K at reduction 1), so a range taken from these
+    /// values would not be the file's, and would differ between viewers at
+    /// different reductions. The drawing calls take the full
+    /// field's stats from the caller instead.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct DisplayField {
+        /// The values to draw, in scan order, `ni * nj` of them. Read `mask`
+        /// before a value. Above reduction zero these are wavelet averages,
+        /// not the message's values.
+        pub values: Values,
+        /// One byte per cell: `1` present, `0` absent. Same length as `values`.
+        pub mask: Vec<u8>,
+        /// Grid columns: `ceil(ni / 2^reduction)` of the message's.
+        pub ni: u32,
+        /// Grid rows: `ceil(nj / 2^reduction)` of the message's.
+        pub nj: u32,
+        /// Where the cells sit. Above reduction zero this is the **derived**
+        /// grid, every `2^reduction`-th point of the message's, never the
+        /// message's own.
+        pub georef: Georef,
+        /// How many of the finest wavelet levels were discarded: `0` is the
+        /// message's own field, `1` half the size on each axis, `2` a quarter.
+        pub reduction: u8,
+        /// As [`Field::truncation`]. Only a reduction-zero field can carry one,
+        /// since a spectral message has no pyramid.
+        pub truncation: Option<SpectralTruncation>,
+        /// As [`Field::parameter`].
+        pub parameter: Option<String>,
+        /// As [`Field::units`].
+        pub units: Option<String>,
+    }
+
     /// One message's metadata, built on demand.
     ///
     /// Lazy by design: a thousand-message file should not serialise a thousand

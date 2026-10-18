@@ -87,6 +87,19 @@ handle.contours(field, new Float64Array([]), { min: 270, max: 300 });
 const other = handle.decode(1, {});
 const diff = handle.combine(field, other, 'a_minus_b');
 
+// A zoomed-out map at a coarser JPEG 2000 level (#1082). `reduce: 1` is half
+// the size on each axis. The values are not the file's, so this is a
+// WasmDisplayField: only the three *Display calls take it, and TypeScript
+// refuses it to probe, contours and combine. The colour range is the full
+// field's, from its stats; pass `null` only with both `min` and `max` set.
+// A message with no coarse field throws `unsupported`; ask again at 0.
+const coarse = handle.decodeDisplay(0, { reduce: 1 });
+coarse.grid();                     // the derived grid: every second point
+handle.renderDisplay(coarse, field.stats(), {}, false);
+handle.warpDisplay(coarse, { bounds: [24, 50, -125, -66], width: 512, height: 512 });
+handle.paletteDisplay(coarse, field.stats(), {});
+
+coarse.free();
 diff.free();
 other.free();
 field.free();
@@ -243,7 +256,8 @@ that where it lines the two pictures up.
 Linear memory never shrinks and an animation holds many fields at once, so
 **the façade keeps no decode cache**. `decode()` hands a field to JS and JS owns
 it; `warp`, `render`, `probe`, `contours`, `combine`, and the shader accessors take it back
-by reference. Call `free()` on a field and on the handle when you are done —
+by reference; `decodeDisplay()` hands over a display field the same way. Call
+`free()` on a field and on the handle when you are done —
 a dropped JS reference does not release the wasm allocation until the host's
 `FinalizationRegistry` runs, if it runs at all.
 

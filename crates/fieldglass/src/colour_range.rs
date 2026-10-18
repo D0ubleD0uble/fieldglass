@@ -34,7 +34,7 @@
 
 use crate::Error;
 use crate::api::{
-    ColourRange, OutOfRange, RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource,
+    ColourRange, OutOfRange, RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Stats,
 };
 
 /// How many levels contours aim for when the caller names neither levels nor
@@ -42,6 +42,66 @@ use crate::api::{
 /// count is one number too (#880 item 8: the browser's was 10 and the addon's
 /// 8).
 pub const AUTO_CONTOUR_LEVELS: usize = 8;
+
+/// The present-cell range a **display** field is coloured over: the full
+/// field's, from stats the caller supplies, checked (#1082).
+///
+/// A field decoded at a reduced resolution is a wavelet low-pass, which trims
+/// some of the field's extremes and overshoots others, so its own range is not
+/// the file's and would differ between viewers at different reductions. Rule 6
+/// says the automatic range is the whole decoded field's, so a display field's
+/// is taken from that field's [`Stats`] (`full`), held from an earlier full
+/// decode, and handed to [`colour_range`] as its `extremes`. Both hosts call
+/// this: `Session::render_display` and `palette_display`, and the Node addon's
+/// display render.
+///
+/// `full` may be `None` when `min` and `max` are both given, since the rule
+/// reads no data then. `display_has_values` is whether the display field has a
+/// present cell.
+///
+/// # Errors
+///
+/// [`Error::InvalidOption`] when an end is left to the data and `full` is
+/// `None`; when `full` states no present cell and the display field has some
+/// (it would paint transparent and say nothing); and when `full` is not a
+/// range: one end missing, an end not finite, or the minimum above the
+/// maximum.
+pub fn full_field_extremes(
+    full: Option<&Stats>,
+    display_has_values: bool,
+    min: Option<f64>,
+    max: Option<f64>,
+) -> Result<Option<(f64, f64)>, Error> {
+    let both_manual = min.is_some() && max.is_some();
+    let Some(stats) = full else {
+        if both_manual {
+            return Ok(None);
+        }
+        return Err(Error::invalid_option(
+            "a display field's automatic colour range is the full field's, and no full-field \
+             stats were given; pass the stats of the same message decoded at reduction 0, or \
+             set both a minimum and a maximum"
+                .to_string(),
+        ));
+    };
+    match (stats.min, stats.max) {
+        (Some(lo), Some(hi)) if lo.is_finite() && hi.is_finite() && lo <= hi => Ok(Some((lo, hi))),
+        (None, None) => {
+            if !both_manual && display_has_values {
+                return Err(Error::invalid_option(
+                    "the full-field stats state no present cell, and this display field has \
+                     some; pass the stats of the same message decoded at reduction 0"
+                        .to_string(),
+                ));
+            }
+            Ok(None)
+        }
+        (lo, hi) => Err(Error::invalid_option(format!(
+            "the full-field stats are not a range (minimum {lo:?}, maximum {hi:?}); pass the \
+             stats of the same message decoded at reduction 0"
+        ))),
+    }
+}
 
 /// The colour range a render uses, by the one rule every host follows.
 ///

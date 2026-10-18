@@ -21,7 +21,7 @@ import * as path from "path";
 
 import { nativeNotLoaded, reportProblem } from "./problems";
 
-import type { AxisValues, ColourRange, GridSupport, LeftOutArray, MessageInfo, Placement, VectorPairing, Vertical } from "./api.generated";
+import type { AxisValues, ColourRange, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, MessageInfo, Placement, Stats, VectorPairing, Vertical } from "./api.generated";
 
 export type {
   AxisValues,
@@ -493,6 +493,16 @@ export interface Grib2Handle {
     options: RenderOptions,
     interval?: number,
   ): ProjectedOverlay;
+  /** Decode a message to draw, at a reduced resolution (#1082): `reduce`
+   *  discards that many of a JPEG 2000 message's finest wavelet levels. The
+   *  values are not the file's, so the result is a {@link DisplayGrid}, which
+   *  only `renderDisplay` takes. Throws `unsupported` above `reduce: 0` for a
+   *  message with no coarse field. */
+  decodeDisplay(messageIndex: number, options?: DisplayDecodeOptions | null): DisplayGrid;
+  /** Paint a {@link DisplayGrid} through the `renderGrid` pipeline. The
+   *  automatic colour range is the full field's, from `fullStats`; `null` is
+   *  allowed only when both range ends are set. */
+  renderDisplay(field: DisplayGrid, fullStats: Stats | null, options: RenderOptions): RenderedGrid;
 }
 
 export interface Grib1HandleCtor {
@@ -501,6 +511,18 @@ export interface Grib1HandleCtor {
 
 export interface Grib2HandleCtor {
   fromBytes(bytes: Uint8Array): Grib2Handle;
+}
+
+/** A message decoded to draw, from {@link Grib2Handle.decodeDisplay} (#1082).
+ *  It carries no values or stats to measure with, and the handle's measuring
+ *  calls take message indices, so it cannot reach them. */
+export interface DisplayGrid {
+  /** Wavelet levels discarded; `0` is the message's own field. */
+  reduction(): number;
+  width(): number;
+  height(): number;
+  /** The derived grid above reduction zero, never the message's own. */
+  grid(): Georef;
 }
 
 // ---------------------------------------------------------------------------

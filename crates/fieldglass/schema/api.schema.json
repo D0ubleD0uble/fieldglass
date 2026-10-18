@@ -470,6 +470,104 @@
       ],
       "type": "object"
     },
+    "DisplayDecodeOptions": {
+      "description": "How a decode to **draw** should be shaped: [`Session::decode_display`]'s\noptions (#1082).\n\nA type of its own rather than a field on [`DecodeOptions`], because the two\ndecodes return different types: `decode` a [`Field`], whose values are the\nfile's, and `decode_display` a [`DisplayField`], whose values may not be.",
+      "properties": {
+        "dtype": {
+          "$ref": "#/$defs/Dtype",
+          "default": "auto",
+          "description": "Element type to decode into, as [`DecodeOptions::dtype`]."
+        },
+        "reduce": {
+          "default": 0,
+          "description": "How many of the finest JPEG 2000 wavelet levels to discard: `0` (the\ndefault) is the message's own field, `1` half the size on each axis, `2`\na quarter. Only a GRIB2 message packed as JPEG 2000 (§5.40) honours a\nnon-zero value, and only on a regular grid with no bitmap; every other\nmessage refuses one as [`Error::Unsupported`] rather than decoding in\nfull and pretending.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "DisplayField": {
+      "description": "A field decoded to **draw**, possibly at a reduced resolution (#1082):\nwhat [`crate::Session::decode_display`] returns.\n\nAbove reduction zero its values are a JPEG 2000 wavelet low-pass, which\nno GRIB message holds, on a grid derived from the message's own\n(`GridGeometry::subsampled`). They are right to look at and wrong to\nmeasure, so this is a type of its own rather than a [`Field`] with a\nflag. `render_display`, `warp_display` and `palette_display` take it;\n[`crate::Session::probe`], contours, combine and a CSV export take only a\n`Field`, so handing them one of these does not compile (and is a type\nerror in the hosts' TypeScript). For the numbers, decode the message\nagain with [`crate::Session::decode`].\n\nNo [`Stats`] either. A wavelet low-pass is not bounded by the field it\ncame from: it trims some extremes and overshoots others (the RAP\nfixture's maximum by 0.69 K at reduction 1), so a range taken from these\nvalues would not be the file's, and would differ between viewers at\ndifferent reductions. The drawing calls take the full\nfield's stats from the caller instead.",
+      "properties": {
+        "georef": {
+          "$ref": "#/$defs/Georef",
+          "description": "Where the cells sit. Above reduction zero this is the **derived**\ngrid, every `2^reduction`-th point of the message's, never the\nmessage's own."
+        },
+        "mask": {
+          "description": "One byte per cell: `1` present, `0` absent. Same length as `values`.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "ni": {
+          "description": "Grid columns: `ceil(ni / 2^reduction)` of the message's.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nj": {
+          "description": "Grid rows: `ceil(nj / 2^reduction)` of the message's.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parameter": {
+          "description": "As [`Field::parameter`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reduction": {
+          "description": "How many of the finest wavelet levels were discarded: `0` is the\nmessage's own field, `1` half the size on each axis, `2` a quarter.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "truncation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpectralTruncation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "As [`Field::truncation`]. Only a reduction-zero field can carry one,\nsince a spectral message has no pyramid."
+        },
+        "units": {
+          "description": "As [`Field::units`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "values": {
+          "$ref": "#/$defs/Values",
+          "description": "The values to draw, in scan order, `ni * nj` of them. Read `mask`\nbefore a value. Above reduction zero these are wavelet averages,\nnot the message's values."
+        }
+      },
+      "required": [
+        "values",
+        "mask",
+        "ni",
+        "nj",
+        "georef",
+        "reduction",
+        "truncation",
+        "parameter",
+        "units"
+      ],
+      "type": "object"
+    },
     "Dtype": {
       "description": "Which element type a caller wants back from a decode.",
       "oneOf": [

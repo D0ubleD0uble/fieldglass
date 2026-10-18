@@ -33,6 +33,9 @@ mod conformance_host;
 // The colour-range rule through this host's render path (#1155).
 #[cfg(test)]
 mod range_rule_tests;
+// A reduced-resolution decode through the GRIB2 handle (#1082).
+#[cfg(test)]
+mod display_tests;
 
 /// Bridge a foreign crate's error into a [`napi::Error`] by its `Display` text.
 ///
@@ -1749,6 +1752,99 @@ impl Grib2Handle {
         self.stream.session.count()
     }
 
+    /// Decode one message to **draw**, at a reduced resolution (#1082):
+    /// `options` is `{ reduce?: number, dtype?: "auto" | "f32" | "f64" }`, the
+    /// browser module's `decodeDisplay` options.
+    ///
+    /// `reduce` discards that many of a JPEG 2000 message's finest wavelet
+    /// levels, so `1` is a field half the size on each axis. Those values are a
+    /// low-pass the file does not hold, on every `2^reduce`-th point of its
+    /// grid, so this returns a [`DisplayGrid`] and not a message index: only
+    /// [`render_display`](Self::render_display_for_js) takes it, and the probe,
+    /// contours, CSV and combined calls take message indices, so a display
+    /// grid cannot reach them. `reduce: 0` is the message's own field. Above
+    /// zero, a message with no coarse field throws with `code: "unsupported"`;
+    /// ask again at `0`. Not cached: the object is the caller's.
+    #[napi(js_name = "decodeDisplay")]
+    pub fn decode_display_for_js(
+        &self,
+        env: Env,
+        message_index: u32,
+        #[napi(ts_arg_type = "DisplayDecodeOptions | null | undefined")] options: Option<
+            serde_json::Value,
+        >,
+    ) -> napi::Result<DisplayGrid> {
+        self.decode_display(message_index, options)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// [`decode_display_for_js`](Self::decode_display_for_js), keeping the
+    /// engine's refusal rather than throwing it, for this crate's tests.
+    pub(crate) fn decode_display(
+        &self,
+        message_index: u32,
+        options: Option<serde_json::Value>,
+    ) -> Result<DisplayGrid, RenderError> {
+        let options: fieldglass::DisplayDecodeOptions = match options {
+            None | Some(serde_json::Value::Null) => fieldglass::DisplayDecodeOptions::default(),
+            Some(v) => serde_json::from_value(v).map_err(|e| {
+                fieldglass::Error::invalid_option(format!("could not read the options object: {e}"))
+            })?,
+        };
+        let field = self
+            .stream
+            .session
+            .decode_display(message_index, &options)?;
+        Ok(DisplayGrid::new(field))
+    }
+
+    /// Paint a [`DisplayGrid`] under `options`, through the same projection
+    /// pipeline as `renderGrid`: `projection: "source"` paints the coarse grid
+    /// as stored, and a reprojection target warps it from the coarse grid's
+    /// own geometry (#1082).
+    ///
+    /// The automatic colour range is **the full field's**, from `fullStats`:
+    /// the stats of the same message at full resolution, which the caller
+    /// holds. Never the display grid's own values, which a wavelet low-pass
+    /// moves. `fullStats` may be `null` when `rangeMin` and `rangeMax` are both
+    /// set; otherwise a missing or malformed one throws `invalid_option`.
+    #[napi(js_name = "renderDisplay")]
+    pub fn render_display_for_js(
+        &self,
+        env: Env,
+        field: &DisplayGrid,
+        #[napi(ts_arg_type = "Stats | null")] full_stats: Option<serde_json::Value>,
+        options: RenderOptions,
+    ) -> napi::Result<RenderedGrid> {
+        self.render_display(field, full_stats, &options)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// [`render_display_for_js`](Self::render_display_for_js), keeping the
+    /// engine's refusal rather than throwing it, for this crate's tests.
+    pub(crate) fn render_display(
+        &self,
+        field: &DisplayGrid,
+        full_stats: Option<serde_json::Value>,
+        options: &RenderOptions,
+    ) -> Result<RenderedGrid, RenderError> {
+        let full: Option<fieldglass::Stats> = match full_stats {
+            None | Some(serde_json::Value::Null) => None,
+            Some(v) => Some(serde_json::from_value(v).map_err(|e| {
+                fieldglass::Error::invalid_option(format!(
+                    "could not read the full-field stats: {e}"
+                ))
+            })?),
+        };
+        let extremes = fieldglass::full_field_extremes(
+            full.as_ref(),
+            field.values.iter().any(Option::is_some),
+            options.range_min,
+            options.range_max,
+        )?;
+        render_over(&field.placed.source(), &field.values, options, extremes)
+    }
+
     /// One message's metadata as the fieldglass API states it — see
     /// [`Grib1Handle::message`].
     #[napi(ts_return_type = "MessageInfo")]
@@ -2005,6 +2101,67 @@ impl Grib2Handle {
     #[cfg(test)]
     fn resolved_georef(&self, message_index: u32) -> napi::Result<fieldglass::Georef> {
         self.stream.resolved_georef(message_index)
+    }
+}
+
+/// A GRIB2 message decoded to draw, at a reduced resolution (#1082): what
+/// `Grib2Handle.decodeDisplay` returns and `renderDisplay` takes.
+///
+/// A class rather than a plain object for the reason the browser module's
+/// `WasmDisplayField` is one: its values are a wavelet low-pass on a derived
+/// grid, so it carries no values, mask or stats to measure with, and the
+/// handle's measuring calls take message indices, which this is not. The
+/// placement is `fieldglass::DisplayField`'s, the derived grid above reduction
+/// zero, and it is what both the source view and a reprojection paint from.
+#[napi]
+#[derive(Debug)]
+pub struct DisplayGrid {
+    /// The display values, in scan order, `None` where absent.
+    values: Vec<Option<f64>>,
+    /// Where they sit: the derived grid above reduction zero.
+    placed: Placed,
+    /// The same placement as the API states it, for `grid()`.
+    georef: fieldglass::Georef,
+    /// How many wavelet levels were discarded.
+    reduction: u8,
+}
+
+impl DisplayGrid {
+    fn new(field: fieldglass::DisplayField) -> Self {
+        Self {
+            values: cell_values(&field.values, &field.mask),
+            placed: Placed::from_georef(field.georef.clone()),
+            georef: field.georef,
+            reduction: field.reduction,
+        }
+    }
+}
+
+#[napi]
+impl DisplayGrid {
+    /// How many wavelet levels were discarded: `0` is the message's own field.
+    #[napi]
+    pub fn reduction(&self) -> u32 {
+        u32::from(self.reduction)
+    }
+
+    /// Raster columns: `ceil(ni / 2^reduction)` of the message's.
+    #[napi]
+    pub fn width(&self) -> u32 {
+        self.placed.ni
+    }
+
+    /// Raster rows: `ceil(nj / 2^reduction)` of the message's.
+    #[napi]
+    pub fn height(&self) -> u32 {
+        self.placed.nj
+    }
+
+    /// Where the grid sits, as the API states it: above reduction zero the
+    /// **derived** grid, never the message's own.
+    #[napi(ts_return_type = "Georef")]
+    pub fn grid(&self) -> napi::Result<serde_json::Value> {
+        to_js(serde_json::to_value(&self.georef))
     }
 }
 
@@ -3570,7 +3727,12 @@ impl SliceGrid {
 /// `Vec<Option<f64>>` has no efficient JSON form; the engine takes them back
 /// together. One place, so a host cannot rejoin them two ways.
 fn field_values(field: &fieldglass::Field) -> Vec<Option<f64>> {
-    let dense: Vec<f64> = match &field.values {
+    cell_values(&field.values, &field.mask)
+}
+
+/// [`field_values`] over the two parts, for a display field as well (#1082).
+fn cell_values(values: &fieldglass::Values, mask: &[u8]) -> Vec<Option<f64>> {
+    let dense: Vec<f64> = match values {
         fieldglass::Values::F64(v) => v.clone(),
         fieldglass::Values::F32(v) => v.iter().map(|x| f64::from(*x)).collect(),
         // `Values` is `#[non_exhaustive]`; a width added later must be handled
@@ -3580,9 +3742,7 @@ fn field_values(field: &fieldglass::Field) -> Vec<Option<f64>> {
             Vec::new()
         }
     };
-    field
-        .mask
-        .iter()
+    mask.iter()
         .zip(dense)
         .map(|(&present, value)| (present == 1).then_some(value))
         .collect()
@@ -3751,10 +3911,27 @@ fn render_from_source(
     raw: &[Option<f64>],
     options: &RenderOptions,
 ) -> Result<RenderedGrid, RenderError> {
+    render_over(
+        source,
+        raw,
+        options,
+        fieldglass::min_max_ignoring_mask(raw.iter().copied()),
+    )
+}
+
+/// [`render_from_source`] with the present-cell range the colour range is
+/// taken from given, rather than read off `raw`: a display grid's is the full
+/// field's (#1082), which `raw` is not.
+fn render_over(
+    source: &fieldglass::Source<'_>,
+    raw: &[Option<f64>],
+    options: &RenderOptions,
+    extremes: Option<(f64, f64)>,
+) -> Result<RenderedGrid, RenderError> {
     let engine = engine_options(options);
     let resolved = ResolvedOptions::parse(&engine)?;
     let range = fieldglass::colour_range(
-        fieldglass::min_max_ignoring_mask(raw.iter().copied()),
+        extremes,
         resolved.range_min,
         resolved.range_max,
         resolved.range_center,

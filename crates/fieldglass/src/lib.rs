@@ -144,8 +144,8 @@ pub use align::component_frame;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{
-    Addressing, Affine, AxisUnits, AxisValues, ColourRange, DimensionInfo, Dtype, Field,
-    FullDetail, Georef, GridSupport, Identification, LeftOutArray, LeftOutCause, Line,
+    Addressing, Affine, AxisUnits, AxisValues, ColourRange, DimensionInfo, DisplayField, Dtype,
+    Field, FullDetail, Georef, GridSupport, Identification, LeftOutArray, LeftOutCause, Line,
     MessageIdentity, MessageInfo, MessageProbe, OutOfRange, Placement, Positive, Probe, RangeEnd,
     RangeRefusal, RangeRefusalReason, RangeSource, Scan, SourceFormat, SpectralTruncation,
     StatisticalStep, Stats, SurfaceCodes, Values, VariableInfo, VectorPairing, Vertical,
@@ -153,9 +153,10 @@ pub use api::{
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};
 /// The colour range every host paints over, chosen by one rule (#1155), and
-/// the contour level count both hosts space their automatic levels with.
+/// the contour level count both hosts space their automatic levels with, and
+/// the full-field range a display field is coloured over (#1082).
 #[cfg(any(feature = "render", feature = "analysis"))]
-pub use colour_range::{AUTO_CONTOUR_LEVELS, colour_range};
+pub use colour_range::{AUTO_CONTOUR_LEVELS, colour_range, full_field_extremes};
 #[cfg(feature = "analysis")]
 pub use combine::{
     CombineOp, combine_cell, combine_ops, combine_truncation, combine_values, op_from_wire,
@@ -204,7 +205,7 @@ pub use session::PlacedSlice;
 /// decoded from them alone (#1083).
 #[cfg(feature = "zarr")]
 pub use session::{ChunkRef, WindowPlan, WindowRequest};
-pub use session::{DecodeOptions, Session};
+pub use session::{DecodeOptions, DisplayDecodeOptions, Session};
 #[cfg(feature = "render")]
 pub use session::{PaletteOptions, Raster, WarpOptions};
 /// One line through a named array, and one axis of it with its coordinates, for

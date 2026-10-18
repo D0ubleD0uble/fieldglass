@@ -298,6 +298,13 @@ jobs:
       - name: Colour range through the browser host
         run: node crates/fieldglass-wasm/tests/node/colour_range.mjs
 
+      # A JPEG 2000 message decoded at a coarser level (#1082): the derived grid
+      # crosses as `grid()`, the display field renders and warps, its colour
+      # range is the full field's stats passed back in, and a refusal arrives
+      # with its `code`. Committed fixtures only; fails rather than skips.
+      - name: Reduced-resolution decode through the browser host
+        run: node crates/fieldglass-wasm/tests/node/reduced.mjs
+
       # The fetch planner in the browser module (#1081): one GFS field from the
       # committed `.idx`, its Range header, and the envelope check on the
       # committed bytes that range fetched; then every answer the Rust planner
