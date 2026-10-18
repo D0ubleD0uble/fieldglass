@@ -35,11 +35,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
     Addressing, Affine, AxisUnits, AxisValues, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype,
-    Error, Field, FullDetail, Georef, GridSupport, Identification, Isoline, LeftOutArray, Line,
-    MessageIdentity, MessageInfo, MessageProbe, PaletteOptions, PixelProbe, Placement, Positive,
-    Probe, Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat, SpectralTruncation,
-    StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo, VectorOptions,
-    Vertical, WarpOptions, WarpTarget, Warped,
+    Error, Field, FullDetail, Georef, GridSupport, Identification, Isoline, LeftOutArray,
+    LeftOutCause, Line, MessageIdentity, MessageInfo, MessageProbe, PaletteOptions, PixelProbe,
+    Placement, Positive, Probe, Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat,
+    SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo,
+    VectorOptions, Vertical, WarpOptions, WarpTarget, Warped,
 };
 // The planner's wire types (#1081). `fetchplan` is a default feature, so this
 // suite names them unconditionally: a build without it is not one this file is
@@ -143,6 +143,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     // The arrays a container holds and would not read, one shape for every
     // container (#709).
     ("LeftOutArray", Class::Wire, ""),
+    // Why an array is left out or no map, as a code a host words (#1129).
+    ("LeftOutCause", Class::Wire, ""),
     ("CombineOpInfo", Class::Wire, ""),
     ("Warped", Class::Wire, ""),
     ("Probe", Class::Wire, ""),
@@ -698,8 +700,22 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<Positive>("Positive", r#""up""#);
     round_trip::<LeftOutArray>(
         "LeftOutArray",
-        r#"{"name":"PRODUCT/sst","reason":"unsupported section: codec bz2"}"#,
+        r#"{"name":"PRODUCT/sst","reason":"unsupported section: Zarr dtype \"<f2\"","cause":{"code":"unsupported_dtype","dtype":"<f2"}}"#,
     );
+    // Every variant, because the tag spelling is per variant (#1129).
+    round_trip::<LeftOutCause>(
+        "LeftOutCause",
+        r#"{"code":"unsupported_dtype","dtype":"compound"}"#,
+    );
+    round_trip::<LeftOutCause>("LeftOutCause", r#"{"code":"text"}"#);
+    round_trip::<LeftOutCause>(
+        "LeftOutCause",
+        r#"{"code":"dimension_clash","dimension":"x"}"#,
+    );
+    round_trip::<LeftOutCause>("LeftOutCause", r#"{"code":"unsupported"}"#);
+    round_trip::<LeftOutCause>("LeftOutCause", r#"{"code":"unreadable_metadata"}"#);
+    round_trip::<LeftOutCause>("LeftOutCause", r#"{"code":"too_few_dimensions","rank":1}"#);
+    round_trip::<LeftOutCause>("LeftOutCause", r#"{"code":"coordinate"}"#);
     round_trip::<RenderOptions>("RenderOptions", RENDER_OPTIONS_JSON);
     round_trip::<CandidateOptions>(
         "CandidateOptions",
@@ -816,6 +832,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "Positive",
     "VectorOptions",
     "LeftOutArray",
+    "LeftOutCause",
     "CandidateOptions",
     "PlanItem",
     "PlanRange",
@@ -1920,6 +1937,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<Positive>("Positive");
     check_schema::<VectorOptions>("VectorOptions");
     check_schema::<LeftOutArray>("LeftOutArray");
+    check_schema::<LeftOutCause>("LeftOutCause");
     check_schema::<CandidateOptions>("CandidateOptions");
     check_schema::<PlanItem>("PlanItem");
     check_schema::<PlanRange>("PlanRange");
@@ -1977,6 +1995,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "Positive",
     "VectorOptions",
     "LeftOutArray",
+    "LeftOutCause",
     "CandidateOptions",
     "PlanItem",
     "PlanRange",
@@ -2138,7 +2157,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     }
     register!(returned:
         SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, Line,
-        MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, LeftOutArray,
+        MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, LeftOutArray, LeftOutCause,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
         Error, Raster,
         PlanItem, PlanRange, Address, Expect, ParameterId, LevelSpec, Surface, Candidate,

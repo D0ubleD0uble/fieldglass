@@ -939,12 +939,15 @@ export interface Isoline {
 }
 
 /**
- * One array a container holds and this build will not read, and why.
+ * One array a container holds that `Session::variables` does not
+ * offer, and why.
  *
  * Beside `Session::variables` rather than inside it: a host shows
  * these so a user can see *why* a name is absent from the list, instead of
- * wondering whether the file has it. Not an error — a container reads every
- * array it can and leaves the rest here (#709).
+ * wondering whether the file has it. Not an error. A container reads every
+ * array it can and leaves the rest in `Session::left_out` (#709);
+ * the readable arrays no map is drawn from are in
+ * `Session::undrawable` (#1129).
  */
 export interface LeftOutArray {
   /**
@@ -953,10 +956,85 @@ export interface LeftOutArray {
    */
   name: string;
   /**
-   * Why, as the reader phrased it.
+   * Why, as the reader phrased it: the prose a bug report needs, with
+   * the reader's own dtype spellings. It may be reworded.
    */
   reason: string;
+  /**
+   * Why, as a code a host words for itself (#1129). This is what to
+   * branch on, where `reason` is for showing.
+   */
+  cause: LeftOutCause;
 }
+
+/**
+ * Why an array is not one a map can be drawn from, as a code (#1129):
+ * `{"code": "unsupported_dtype", "dtype": "<f2"}` on the wire.
+ *
+ * The first five are why a container left an array out; `text`,
+ * `unsupported_dtype` and the last two are why a readable array is no
+ * map. A host should keep a fallback wording, since a later release may
+ * add a code.
+ */
+export type LeftOutCause =
+  /**
+   * An element type this build does not decode: a compound or
+   * variable-length HDF5 type, a 16-bit float, a complex number.
+   */
+  | {
+    code: "unsupported_dtype";
+    /**
+     * The type as the container spells it (`"compound"`, `"<f2"`).
+     */
+    dtype: string;
+  }
+  /**
+   * Text rather than numbers.
+   */
+  | {
+    code: "text";
+  }
+  /**
+   * The array gives a dimension another array of its group gives a
+   * different length, so the two cannot share one axis.
+   */
+  | {
+    code: "dimension_clash";
+    /**
+     * The dimension, as the array names it.
+     */
+    dimension: string;
+  }
+  /**
+   * The description is valid but uses something this build does not
+   * read, such as a Zarr chunk grid other than `regular`.
+   */
+  | {
+    code: "unsupported";
+  }
+  /**
+   * The array's description does not parse.
+   */
+  | {
+    code: "unreadable_metadata";
+  }
+  /**
+   * Readable, but with fewer than the two dimensions a map has.
+   */
+  | {
+    code: "too_few_dimensions";
+    /**
+     * How many it has: 0 for a single value, 1 for a line of them.
+     */
+    rank: number;
+  }
+  /**
+   * Readable, but a coordinate: the values along another array's
+   * axis, or the latitude or longitude of another array's grid.
+   */
+  | {
+    code: "coordinate";
+  };
 
 /**
  * A level, parsed as far as the grammar goes.

@@ -43,7 +43,7 @@ use crate::classic::NcType;
 // The netCDF-C naming rule for anonymous axes, in core since #704 so the Zarr
 // walker names an unnamed axis the same way.
 use fieldglass_core::FieldglassError;
-use fieldglass_core::array::PhonyDimensions;
+use fieldglass_core::array::{LeftOutCause, PhonyDimensions};
 use fieldglass_core::bytes::{ByteSource, checked_usize};
 
 /// The `NAME` prefix netCDF-4 writes on a dimension scale that has **no**
@@ -117,6 +117,10 @@ pub struct UnsupportedVariable {
     /// Why it was skipped, as the decoder phrased it (e.g.
     /// `"unsupported section: HDF5 datatype class 6 (compound)"`).
     pub reason: String,
+    /// Why, as a code a host can word for itself (#1129): the datatype, when
+    /// that is what was declined, and [`LeftOutCause::Unsupported`] for
+    /// anything else.
+    pub cause: LeftOutCause,
 }
 
 /// The fully resolved metadata for a NetCDF-4 / HDF5 file — every group,
@@ -200,7 +204,7 @@ pub fn resolve<S: ByteSource + ?Sized>(
     // An object reached by two hard links is one object, described once and
     // listed under each name. Described again, its attribute storage would
     // be claimed twice.
-    let mut seen: HashMap<u64, Result<usize, String>> = HashMap::new();
+    let mut seen: HashMap<u64, Result<usize, (String, LeftOutCause)>> = HashMap::new();
     let mut datasets: Vec<Option<DatasetInfo>> = Vec::new();
     let children = group::all_children(source, probe)?;
     for child in children.iter().filter(|c| c.kind == ChildKind::Dataset) {
@@ -208,10 +212,11 @@ pub fn resolve<S: ByteSource + ?Sized>(
             Some(Ok(first)) => datasets[*first]
                 .clone()
                 .map(|info| info.renamed(&child.name)),
-            Some(Err(reason)) => {
+            Some(Err((reason, cause))) => {
                 unsupported.push(UnsupportedVariable {
                     name: child.name.clone(),
                     reason: reason.clone(),
+                    cause: cause.clone(),
                 });
                 None
             }
@@ -222,10 +227,17 @@ pub fn resolve<S: ByteSource + ?Sized>(
                 }
                 Err(e @ FieldglassError::UnsupportedSection(_)) => {
                     let reason = e.to_string();
-                    seen.insert(child.object_header_address, Err(reason.clone()));
+                    let cause =
+                        dataset::unsupported_cause(source, child.object_header_address, probe)
+                            .unwrap_or(LeftOutCause::Unsupported);
+                    seen.insert(
+                        child.object_header_address,
+                        Err((reason.clone(), cause.clone())),
+                    );
                     unsupported.push(UnsupportedVariable {
                         name: child.name.clone(),
                         reason,
+                        cause,
                     });
                     None
                 }

@@ -1028,6 +1028,66 @@ pub struct LeftOut {
     /// Why, as the reader phrased it: a document that does not parse, a type
     /// this build does not read, a dimension given two lengths.
     pub reason: String,
+    /// Why, as a code a host can put in its own words (#1129). `reason` is
+    /// the reader's prose, with the dtype spellings a bug report needs; this
+    /// is what a host branches on.
+    pub cause: LeftOutCause,
+}
+
+/// Why an array is not one a map can be drawn from, as a code (#1129).
+///
+/// Two kinds of answer share it. An array a container **left out**, one this
+/// build does not read, gets one of the first five, from the reader that
+/// declined it ([`ArraySource::left_out`]). A **readable** array that is no
+/// map gets [`Text`](Self::Text), [`UnsupportedDtype`](Self::UnsupportedDtype)
+/// or one of the last two, from [`crate::cf::undrawable_arrays`]. One
+/// vocabulary, so a host words each case once.
+///
+/// A code carries what names the thing at fault: the element type as the
+/// container spells it, the dimension, the rank. `#[non_exhaustive]`, so a
+/// host keeps a fallback wording for a code it has not met.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(
+        tag = "code",
+        rename_all = "snake_case",
+        rename_all_fields = "camelCase"
+    )
+)]
+#[non_exhaustive]
+pub enum LeftOutCause {
+    /// An element type this build does not decode: a compound or
+    /// variable-length HDF5 type, a 16-bit float, a complex number.
+    UnsupportedDtype {
+        /// The type as the container spells it (`"compound"`, `"<f2"`).
+        dtype: String,
+    },
+    /// Text rather than numbers: a Zarr string type, or a NetCDF `char` or
+    /// string variable.
+    Text,
+    /// The array gives a dimension it shares with the rest of its group a
+    /// length another array of the group does not, so the two cannot share
+    /// one axis.
+    DimensionClash {
+        /// The dimension, as the array names it.
+        dimension: String,
+    },
+    /// The description is valid but uses something this build does not read,
+    /// such as a Zarr chunk grid other than `regular`.
+    Unsupported,
+    /// The array's description does not parse.
+    UnreadableMetadata,
+    /// Readable, but with fewer than the two dimensions a map has.
+    TooFewDimensions {
+        /// How many it has: 0 for a single value, 1 for a line of them.
+        rank: u32,
+    },
+    /// Readable, but a coordinate: the values along another array's axis, or
+    /// the latitude or longitude of another array's grid, rather than a field
+    /// of its own.
+    Coordinate,
 }
 
 /// Where a container's arrays are read from: the array-level IO seam (#658).

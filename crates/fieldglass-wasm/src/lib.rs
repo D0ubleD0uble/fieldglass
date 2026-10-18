@@ -205,6 +205,22 @@ impl Handle {
         to_js(&self.session.variables())
     }
 
+    /// The arrays the file holds and this build will not read, each with the
+    /// reader's reason and a `cause` code to word it by (#709, #1129). Empty
+    /// for a message container.
+    #[wasm_bindgen(js_name = leftOut, unchecked_return_type = "LeftOutArray[]")]
+    pub fn left_out(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.session.left_out())
+    }
+
+    /// The arrays the file reads that no map can be drawn from, each with why
+    /// (#1129): text, a coordinate, fewer than two dimensions. With
+    /// [`Handle::left_out`] and [`Handle::variables`], every array once.
+    #[wasm_bindgen(unchecked_return_type = "LeftOutArray[]")]
+    pub fn undrawable(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.session.undrawable())
+    }
+
     /// Decode one 2-D slice of a variable into the same field
     /// [`Handle::decode`] returns.
     ///

@@ -124,19 +124,65 @@ api_type! {
         pub length: u64,
     }
 
-    /// One array a container holds and this build will not read, and why.
+    /// One array a container holds that [`crate::Session::variables`] does not
+    /// offer, and why.
     ///
     /// Beside [`crate::Session::variables`] rather than inside it: a host shows
     /// these so a user can see *why* a name is absent from the list, instead of
-    /// wondering whether the file has it. Not an error — a container reads every
-    /// array it can and leaves the rest here (#709).
+    /// wondering whether the file has it. Not an error. A container reads every
+    /// array it can and leaves the rest in [`crate::Session::left_out`] (#709);
+    /// the readable arrays no map is drawn from are in
+    /// [`crate::Session::undrawable`] (#1129).
     #[serde(rename_all = "camelCase")]
     pub struct LeftOutArray {
         /// The array's name, spelled as a readable one would be, so a host can
         /// match it against the list it did get.
         pub name: String,
-        /// Why, as the reader phrased it.
+        /// Why, as the reader phrased it: the prose a bug report needs, with
+        /// the reader's own dtype spellings. It may be reworded.
         pub reason: String,
+        /// Why, as a code a host words for itself (#1129). This is what to
+        /// branch on, where `reason` is for showing.
+        pub cause: LeftOutCause,
+    }
+
+    /// Why an array is not one a map can be drawn from, as a code (#1129):
+    /// `{"code": "unsupported_dtype", "dtype": "<f2"}` on the wire.
+    ///
+    /// The first five are why a container left an array out; `text`,
+    /// `unsupported_dtype` and the last two are why a readable array is no
+    /// map. A host should keep a fallback wording, since a later release may
+    /// add a code.
+    #[derive(Eq)]
+    #[serde(tag = "code", rename_all = "snake_case", rename_all_fields = "camelCase")]
+    pub enum LeftOutCause {
+        /// An element type this build does not decode: a compound or
+        /// variable-length HDF5 type, a 16-bit float, a complex number.
+        UnsupportedDtype {
+            /// The type as the container spells it (`"compound"`, `"<f2"`).
+            dtype: String,
+        },
+        /// Text rather than numbers.
+        Text,
+        /// The array gives a dimension another array of its group gives a
+        /// different length, so the two cannot share one axis.
+        DimensionClash {
+            /// The dimension, as the array names it.
+            dimension: String,
+        },
+        /// The description is valid but uses something this build does not
+        /// read, such as a Zarr chunk grid other than `regular`.
+        Unsupported,
+        /// The array's description does not parse.
+        UnreadableMetadata,
+        /// Readable, but with fewer than the two dimensions a map has.
+        TooFewDimensions {
+            /// How many it has: 0 for a single value, 1 for a line of them.
+            rank: u32,
+        },
+        /// Readable, but a coordinate: the values along another array's
+        /// axis, or the latitude or longitude of another array's grid.
+        Coordinate,
     }
 
     /// One renderable variable of an array dataset.

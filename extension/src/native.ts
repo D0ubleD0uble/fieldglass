@@ -21,9 +21,19 @@ import * as path from "path";
 
 import { nativeNotLoaded, reportProblem } from "./problems";
 
-import type { AxisValues, GridSupport, MessageInfo, Placement, Vertical } from "./api.generated";
+import type { AxisValues, GridSupport, LeftOutArray, MessageInfo, Placement, Vertical } from "./api.generated";
 
-export type { AxisValues, Georef, GridSupport, Identification, MessageInfo, Placement, Vertical } from "./api.generated";
+export type {
+  AxisValues,
+  Georef,
+  GridSupport,
+  Identification,
+  LeftOutArray,
+  LeftOutCause,
+  MessageInfo,
+  Placement,
+  Vertical,
+} from "./api.generated";
 
 // ---------------------------------------------------------------------------
 // NetCDF dataset types (returned from the native module)
@@ -729,12 +739,6 @@ export interface SlicePanelHandle {
   ): ProjectedOverlay;
 }
 
-/** One array a store holds that this build will not read, and why (#709). */
-export interface ZarrLeftOut {
-  name: string;
-  reason: string;
-}
-
 /** A Zarr store, opened from a directory (#659).
  *
  *  A store is a folder rather than a file, so this is the one handle that takes
@@ -742,9 +746,13 @@ export interface ZarrLeftOut {
  *  answers the same question a NetCDF file does, which is what lets the existing
  *  slice picker drive it unchanged. */
 export interface ZarrHandle extends SlicePanelHandle {
-  /** The arrays the store holds and this build will not read. Shown beside the
-   *  variable list so a user sees *why* a name is absent. */
-  leftOut(): ZarrLeftOut[];
+  /** The arrays the store holds and this build will not read (#709), each with
+   *  the reader's reason and a `cause` code (#1129). Shown so a user sees *why*
+   *  a name is absent from the variable list. */
+  leftOut(): LeftOutArray[];
+  /** The arrays the store reads that no map can be drawn from, each with why
+   *  (#1129). With {@link leftOut} and the variable list, every array once. */
+  undrawable(): LeftOutArray[];
 }
 
 export interface ZarrHandleCtor {

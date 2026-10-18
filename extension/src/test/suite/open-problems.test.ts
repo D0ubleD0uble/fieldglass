@@ -14,6 +14,7 @@ import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import { MAX_FOLDERS_EXAMINED, type FieldglassDocument, type FieldglassEditorProvider } from "../../provider";
+import type { LeftOutCause } from "../../api.generated";
 import { couldNotOpen, DETAILS, nativeNotLoaded, nothingToDraw, notAStore, toastName } from "../../problems";
 import { extensionPath, provider } from "./real-panel";
 
@@ -86,7 +87,22 @@ function assertNoNewTab(before: readonly vscode.Tab[], why: string): void {
 }
 
 /** Toast text that only someone who knows the format can read. */
-const TECHNICAL = [/zarr\.json/, /\.zmetadata/, /\.zgroup/, /\.zarray/, /convention/, /<U4/, /dtype/, /parse error/, /offset/];
+const TECHNICAL = [
+  /zarr\.json/,
+  /\.zmetadata/,
+  /\.zgroup/,
+  /\.zarray/,
+  /convention/,
+  /<U4/,
+  /dtype/,
+  /parse error/,
+  /offset/,
+  // Codec and type names a reader reason carries (#1129).
+  /bz2/,
+  /blosc/,
+  /compound/,
+  /unsupported/,
+];
 
 function assertPlain(message: string): void {
   for (const t of TECHNICAL) assert.doesNotMatch(message, t, `technical text in the toast: ${message}`);
@@ -164,16 +180,52 @@ suite("Open problems (#1040)", () => {
       toast.message.startsWith("Fieldglass: Nothing in this store can be drawn as a map."),
       toast.message,
     );
-    // The arrays left out are named, and nothing about why: x2 is readable,
-    // it just gives `x` a second length, so "couldn't read" would be wrong.
-    assert.match(toast.message, /left out 2 of its arrays: names, x2\. Details says why\.$/);
+    // Every array is named with why, in plain words from its code (#1129):
+    // the two the reader left out, and the three it read that are lines.
+    // x2 is readable and only gives `x` a second length, so "couldn't read"
+    // would be wrong for it.
+    assert.strictEqual(
+      toast.message,
+      "Fieldglass: Nothing in this store can be drawn as a map. A map needs an array of numbers " +
+        "with at least two dimensions, such as latitude and longitude. In this store, names holds " +
+        'text, not numbers; x2 gives dimension "x" a different length from another array; and ' +
+        "bz, ok and x1 have only one dimension.",
+    );
     assert.doesNotMatch(toast.message, /couldn't read/);
     assertPlain(toast.message);
     // The reader's reasons are behind Details, word for word.
     assert.ok(dialog.detail?.includes(store), String(dialog.detail));
     assert.match(dialog.detail ?? "", /- names: .*"<U4"/);
     assert.match(dialog.detail ?? "", /- x2: dimension "x" has length 5/);
+    assert.match(dialog.detail ?? "", /Arrays read but not drawable as a map:\n- bz: has 1 dimension/);
     assertNoNewTab(before, "no empty panel should have opened");
+  });
+
+  test("every reason code has plain words", () => {
+    const cases: [LeftOutCause, string][] = [
+      [{ code: "unsupported_dtype", dtype: "<f2" }, "holds a kind of number or value Fieldglass doesn't read"],
+      [{ code: "text" }, "holds text, not numbers"],
+      [{ code: "dimension_clash", dimension: "time" }, 'gives dimension "time" a different length from another array'],
+      [{ code: "unsupported" }, "is stored in a way Fieldglass doesn't read yet"],
+      [{ code: "unreadable_metadata" }, "has a description Fieldglass couldn't read"],
+      [{ code: "too_few_dimensions", rank: 0 }, "is a single value"],
+      [{ code: "too_few_dimensions", rank: 1 }, "has only one dimension"],
+      [{ code: "coordinate" }, "is a coordinate, the positions along another array's axes"],
+      // A code a later build adds still reads as a sentence.
+      [{ code: "from_the_future" } as unknown as LeftOutCause, "can't be drawn as a map"],
+    ];
+    for (const [cause, words] of cases) {
+      const { summary } = nothingToDraw("/x", [{ name: "v", reason: "the reader's <f2 prose", cause }]);
+      assert.ok(summary.endsWith(`In this store, v ${words}.`), summary);
+      assertPlain(summary);
+      assert.doesNotMatch(summary, /<f2|prose/);
+    }
+    // Two arrays with one reason share a sentence and its plural.
+    const two = nothingToDraw("/x", [], [
+      { name: "lat", reason: "r", cause: { code: "coordinate" } },
+      { name: "lon", reason: "r", cause: { code: "coordinate" } },
+    ]).summary;
+    assert.match(two, /In this store, lat and lon are coordinates, /);
   });
 
   // A GRIB or NetCDF file the reader refuses, opened as a user opens it.
@@ -267,15 +319,21 @@ suite("Open problems (#1040)", () => {
       toastName(hostile),
       "［click］（" + "command" + ":workbench.action.quit）",
     );
+    const leftOut = [
+      { name: hostile, reason: "r", cause: { code: "text" } as const },
+      // A dimension name comes from the store too, and reaches the toast.
+      { name: "a", reason: "r", cause: { code: "dimension_clash", dimension: hostile } as const },
+    ];
     const summaries = [
       notAStore("/x", hostile, [hostile, "ok"]).summary,
       notAStore("/x", hostile, []).summary,
-      nothingToDraw("/x", [{ name: hostile, reason: "r" }]).summary,
+      nothingToDraw("/x", leftOut).summary,
+      nothingToDraw("/x", [], leftOut).summary,
       couldNotOpen("GRIB file", hostile, "/x", new Error("e")).summary,
     ];
     for (const summary of summaries) assert.doesNotMatch(summary, /[[\]()]/, summary);
     // Details is plain text, and keeps the name as written.
-    assert.ok(nothingToDraw("/x", [{ name: hostile, reason: "r" }]).details.includes(hostile));
+    assert.ok(nothingToDraw("/x", leftOut).details.includes(hostile));
   });
 
   test("reinstalling is offered only when the module is missing", () => {

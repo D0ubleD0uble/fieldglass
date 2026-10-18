@@ -10,7 +10,8 @@
 
 use crate::FieldglassError;
 use crate::array::{
-    ArrayDescription, Attribute, AttributeValue, Dimension, ElementType, Group, attribute,
+    ArrayDescription, Attribute, AttributeValue, Dimension, ElementType, Group, LeftOut,
+    LeftOutCause, attribute,
 };
 use crate::bytes::checked_usize;
 
@@ -277,14 +278,6 @@ fn axis_from_name(name: &str) -> Option<AxisKind> {
     }
 }
 
-/// Whether an element type is one a decode turns into numbers.
-fn is_numeric(element_type: &ElementType) -> bool {
-    matches!(
-        element_type,
-        ElementType::Int(_) | ElementType::Uint(_) | ElementType::Float(_)
-    )
-}
-
 /// Join a group path and a name the way [`Group::arrays_qualified`] does.
 fn qualify(path: &str, name: &str) -> String {
     if path.is_empty() {
@@ -511,22 +504,93 @@ pub struct RenderableArray {
     pub detected_time_dim: Option<usize>,
 }
 
+/// Every array some *other* array names as its 2-D lat/lon pair. These are
+/// coordinates, not fields, and a picker offering them puts a picture of
+/// latitude in front of the user before anything else — RTOFS lists
+/// `Latitude` first, so it was the default a file opened on (#218).
+fn coordinate_planes(catalog: &Catalog<'_>) -> Vec<String> {
+    catalog
+        .entries
+        .iter()
+        .filter_map(|e| catalog.curvilinear(e))
+        .flat_map(|pair| [pair.lat, pair.lon])
+        .collect()
+}
+
+/// Why `entry` is not an array a map can be drawn from, or `None` when it is
+/// one. The one rule [`renderable_arrays`] and [`undrawable_arrays`] both
+/// apply, so every readable array is in exactly one of the two.
+///
+/// The order is the more useful answer first: text is text whatever its
+/// rank, and a 1-D `lat(lat)` is better called a coordinate than a line.
+/// The prose is the reason a [`LeftOut`] carries beside the code.
+fn undrawable(entry: &Entry<'_>, coordinate_planes: &[String]) -> Option<(LeftOutCause, String)> {
+    match &entry.array.element_type {
+        ElementType::Int(_) | ElementType::Uint(_) | ElementType::Float(_) => {}
+        ElementType::Text => {
+            return Some((LeftOutCause::Text, "holds text, not numbers".to_string()));
+        }
+        ElementType::Other(dtype) => {
+            return Some((
+                LeftOutCause::UnsupportedDtype {
+                    dtype: dtype.clone(),
+                },
+                format!("its element type {dtype:?} is not one a decode turns into numbers"),
+            ));
+        }
+    }
+    if entry.is_coordinate() {
+        let why = format!("a coordinate: the values along the {:?} axis", entry.name);
+        return Some((LeftOutCause::Coordinate, why));
+    }
+    if coordinate_planes.contains(&entry.name) {
+        let why = "a coordinate: the latitude or longitude of another array's grid";
+        return Some((LeftOutCause::Coordinate, why.to_string()));
+    }
+    if entry.dims.len() < 2 {
+        let rank = entry.dims.len();
+        return Some((
+            LeftOutCause::TooFewDimensions {
+                rank: u32::try_from(rank).unwrap_or(u32::MAX),
+            },
+            format!("has {rank} dimension(s), and a map needs two"),
+        ));
+    }
+    None
+}
+
+/// The readable arrays a map cannot be drawn from, each with why (#1129): the
+/// complement of [`renderable_arrays`] within the container's
+/// [`Group`] tree, in the order the container lists them.
+///
+/// Text, a type no decode turns into numbers, a coordinate, or fewer than two
+/// dimensions. An array the container did not read at all is not here; that
+/// is [`ArraySource::left_out`](crate::array::ArraySource::left_out), and the
+/// two lists together name every array a picker does not offer.
+pub fn undrawable_arrays(root: &Group) -> Vec<LeftOut> {
+    let catalog = Catalog::new(root);
+    let coordinate_planes = coordinate_planes(&catalog);
+    catalog
+        .entries
+        .iter()
+        .filter_map(|e| {
+            let (cause, reason) = undrawable(e, &coordinate_planes)?;
+            Some(LeftOut {
+                name: e.name.clone(),
+                reason,
+                cause,
+            })
+        })
+        .collect()
+}
+
 /// The arrays a slice picker can draw: numeric, at least 2-D, and neither a
 /// coordinate array nor half of another array's 2-D coordinate pair. Each
 /// carries the detected horizontal axis positions so the picker can pre-fill
 /// its X / Y selectors. In the order the container lists them.
 pub fn renderable_arrays(root: &Group) -> Vec<RenderableArray> {
     let catalog = Catalog::new(root);
-    // Every array some *other* array names as its 2-D lat/lon pair. These are
-    // coordinates, not fields, and a picker offering them puts a picture of
-    // latitude in front of the user before anything else — RTOFS lists
-    // `Latitude` first, so it was the default a file opened on (#218).
-    let coordinate_planes: Vec<String> = catalog
-        .entries
-        .iter()
-        .filter_map(|e| catalog.curvilinear(e))
-        .flat_map(|pair| [pair.lat, pair.lon])
-        .collect();
+    let coordinate_planes = coordinate_planes(&catalog);
     let axes = catalog.axis_by_dim();
     let lat_dim = axes
         .iter()
@@ -546,12 +610,7 @@ pub fn renderable_arrays(root: &Group) -> Vec<RenderableArray> {
     catalog
         .entries
         .iter()
-        .filter(|e| {
-            is_numeric(&e.array.element_type)
-                && e.dims.len() >= 2
-                && !e.is_coordinate()
-                && !coordinate_planes.contains(&e.name)
-        })
+        .filter(|e| undrawable(e, &coordinate_planes).is_none())
         .map(|e| {
             let position = |dim: Option<&str>| dim.and_then(|d| e.dim_names().position(|n| n == d));
             // An array placed by a 2-D pair has no 1-D coordinate to detect, so
@@ -966,5 +1025,87 @@ mod tests {
         ] {
             assert_eq!(vertical_axis(&coordinate(attrs)), None, "{attrs:?}");
         }
+    }
+
+    fn array(name: &str, element_type: ElementType, dims: &[&str]) -> ArrayDescription {
+        ArrayDescription {
+            name: name.to_string(),
+            element_type,
+            dimensions: dims.iter().map(|d| (*d).to_string()).collect(),
+            attributes: Vec::new(),
+            chunk_grid: None,
+        }
+    }
+
+    /// Every readable array is either drawable or named with why, and the
+    /// two lists never share a name (#1129).
+    #[test]
+    fn every_array_a_picker_does_not_offer_is_named_with_why() {
+        let mut swath = array("swath", ElementType::Float(32), &["row", "col"]);
+        swath
+            .attributes
+            .push(Attribute::text("coordinates", "plane_lat plane_lon"));
+        let mut plane_lat = array("plane_lat", ElementType::Float(32), &["row", "col"]);
+        plane_lat
+            .attributes
+            .push(Attribute::text("units", "degrees_north"));
+        let mut plane_lon = array("plane_lon", ElementType::Float(32), &["row", "col"]);
+        plane_lon
+            .attributes
+            .push(Attribute::text("units", "degrees_east"));
+        let dim = |name: &str, length| Dimension {
+            name: name.to_string(),
+            length,
+        };
+        let root = Group {
+            dimensions: vec![dim("lat", 3), dim("lon", 4), dim("row", 2), dim("col", 2)],
+            arrays: vec![
+                array("lat", ElementType::Float(64), &["lat"]),
+                array("t", ElementType::Float(32), &["lat", "lon"]),
+                array("names", ElementType::Text, &["lat"]),
+                array(
+                    "packed",
+                    ElementType::Other("compound".into()),
+                    &["lat", "lon"],
+                ),
+                array("series", ElementType::Int(16), &["lon"]),
+                array("scalar", ElementType::Float(64), &[]),
+                swath,
+                plane_lat,
+                plane_lon,
+            ],
+            ..Group::default()
+        };
+
+        let drawable: Vec<String> = renderable_arrays(&root)
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
+        assert_eq!(drawable, ["t", "swath"]);
+        let undrawable: Vec<(String, LeftOutCause)> = undrawable_arrays(&root)
+            .into_iter()
+            .map(|l| {
+                assert!(!l.reason.is_empty(), "{}: a reason", l.name);
+                (l.name, l.cause)
+            })
+            .collect();
+        let named = |name: &str, cause| (name.to_string(), cause);
+        assert_eq!(
+            undrawable,
+            [
+                named("lat", LeftOutCause::Coordinate),
+                named("names", LeftOutCause::Text),
+                named(
+                    "packed",
+                    LeftOutCause::UnsupportedDtype {
+                        dtype: "compound".into()
+                    }
+                ),
+                named("series", LeftOutCause::TooFewDimensions { rank: 1 }),
+                named("scalar", LeftOutCause::TooFewDimensions { rank: 0 }),
+                named("plane_lat", LeftOutCause::Coordinate),
+                named("plane_lon", LeftOutCause::Coordinate),
+            ]
+        );
     }
 }

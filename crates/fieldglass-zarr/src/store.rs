@@ -59,7 +59,7 @@ use std::ops::Range;
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::{
     ArrayDescription, ArraySource, Attribute, AttributeValue, Dimension, ElementType, Group,
-    LeftOut, PhonyDimensions,
+    LeftOut, LeftOutCause, PhonyDimensions,
 };
 use fieldglass_core::bytes::ObjectSource;
 use serde_json::{Map, Value};
@@ -125,7 +125,7 @@ pub struct ZarrStore<O> {
     objects: O,
     root: Group,
     arrays: BTreeMap<String, StoredArray>,
-    problems: Vec<(String, String)>,
+    problems: Vec<LeftOut>,
 }
 
 /// What a region read needs of one array, beyond its description.
@@ -195,7 +195,7 @@ impl<O: ObjectSource> ZarrStore<O> {
     /// The arrays left out of [`ArraySource::group`], each with why: a
     /// document that does not parse, a type this crate does not read, or a
     /// dimension given two lengths.
-    pub fn problems(&self) -> &[(String, String)] {
+    pub fn problems(&self) -> &[LeftOut] {
         &self.problems
     }
 }
@@ -210,13 +210,7 @@ impl<O: ObjectSource> ArraySource for ZarrStore<O> {
     /// struct in `fieldglass-netcdf` — which left a host reading both to guess
     /// which string was which.
     fn left_out(&self) -> Vec<LeftOut> {
-        self.problems
-            .iter()
-            .map(|(name, reason)| LeftOut {
-                name: name.clone(),
-                reason: reason.clone(),
-            })
-            .collect()
+        self.problems.clone()
     }
 
     fn read_region(
@@ -228,8 +222,8 @@ impl<O: ObjectSource> ArraySource for ZarrStore<O> {
             let why = self
                 .problems
                 .iter()
-                .find(|(name, _)| name == array)
-                .map_or_else(String::new, |(_, why)| format!(": {why}"));
+                .find(|l| l.name == array)
+                .map_or_else(String::new, |l| format!(": {}", l.reason));
             FieldglassError::Parse(format!("this store holds no readable array {array:?}{why}"))
         })?;
         read(&self.objects, stored, region)
@@ -530,9 +524,7 @@ fn ensure_groups(groups: &mut BTreeMap<String, GroupParts>, path: &str) {
 }
 
 /// The tree, the readable arrays, and the arrays left out, from the nodes.
-fn build(
-    nodes: BTreeMap<String, Node>,
-) -> (Group, BTreeMap<String, StoredArray>, Vec<(String, String)>) {
+fn build(nodes: BTreeMap<String, Node>) -> (Group, BTreeMap<String, StoredArray>, Vec<LeftOut>) {
     let mut groups: BTreeMap<String, GroupParts> = BTreeMap::new();
     let mut arrays = BTreeMap::new();
     let mut problems = Vec::new();
@@ -566,7 +558,11 @@ fn build(
         {
             Ok(described) => described,
             Err(why) => {
-                problems.push((path, why.to_string()));
+                problems.push(LeftOut {
+                    cause: cause_of(&why, &document, edition),
+                    reason: why.to_string(),
+                    name: path,
+                });
                 continue;
             }
         };
@@ -584,16 +580,20 @@ fn build(
                     .dimensions
                     .iter()
                     .find(|d| &d.name == name && d.length != *length)
-                    .map(|d| {
-                        format!(
+                    .map(|d| LeftOut {
+                        name: path.clone(),
+                        reason: format!(
                             "dimension {name:?} has length {length} here and {} in \
                              another array of this group",
                             d.length
-                        )
+                        ),
+                        cause: LeftOutCause::DimensionClash {
+                            dimension: name.clone(),
+                        },
                     })
             });
-        if let Some(why) = clash {
-            problems.push((path, why));
+        if let Some(left_out) = clash {
+            problems.push(left_out);
             continue;
         }
         for (name, length) in description.dimensions.iter().zip(shape) {
@@ -691,6 +691,64 @@ fn describe(
         },
         meta,
     ))
+}
+
+/// Why [`describe`] refused an array's document, as a code (#1129).
+///
+/// The metadata reader says which of its rules failed only in prose, so the
+/// code is worked out here from the document itself. An element type this
+/// crate does not decode is named, and text is told apart from the rest; any
+/// other "not implemented" refusal is something else this crate does not
+/// read; a document that does not parse is unreadable.
+fn cause_of(error: &FieldglassError, document: &Value, edition: u8) -> LeftOutCause {
+    let stated = document.get(if edition == 3 { "data_type" } else { "dtype" });
+    match stated {
+        Some(Value::String(dtype)) => {
+            let parsed = if edition == 3 {
+                DType::parse_v3(dtype)
+            } else {
+                DType::parse_v2(dtype)
+            };
+            if matches!(parsed, Err(FieldglassError::UnsupportedSection(_))) {
+                return if is_text(dtype, edition) {
+                    LeftOutCause::Text
+                } else {
+                    LeftOutCause::UnsupportedDtype {
+                        dtype: dtype.clone(),
+                    }
+                };
+            }
+        }
+        // A v2 structured dtype is a list of fields, and a v3 extension type
+        // an object naming itself: both valid, neither a number.
+        Some(Value::Array(_)) if edition == 2 => {
+            return LeftOutCause::UnsupportedDtype {
+                dtype: "structured".to_string(),
+            };
+        }
+        Some(Value::Object(spec)) if edition == 3 => {
+            let name = spec.get("name").and_then(Value::as_str);
+            return LeftOutCause::UnsupportedDtype {
+                dtype: name.unwrap_or("extension").to_string(),
+            };
+        }
+        _ => {}
+    }
+    if matches!(error, FieldglassError::UnsupportedSection(_)) {
+        LeftOutCause::Unsupported
+    } else {
+        LeftOutCause::UnreadableMetadata
+    }
+}
+
+/// Whether a dtype spelling names text: NumPy's `U` (unicode) and `S` / `a`
+/// (bytes) kinds in v2, and the `string` type in v3.
+fn is_text(dtype: &str, edition: u8) -> bool {
+    if edition == 3 {
+        dtype == "string"
+    } else {
+        matches!(dtype.chars().nth(1), Some('U' | 'S' | 'a'))
+    }
 }
 
 /// The two ways xarray keeps `_FillValue` somewhere core's CF rule would not

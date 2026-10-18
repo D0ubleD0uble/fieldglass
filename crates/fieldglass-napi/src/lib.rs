@@ -2969,17 +2969,20 @@ impl ZarrHandle {
     /// The arrays the store holds and this build will not read, each with why.
     ///
     /// Shown beside the variable list so a user sees why a name is absent rather
-    /// than wondering whether the store has it (#709).
-    #[napi]
-    pub fn left_out(&self) -> Vec<ZarrLeftOut> {
-        self.session
-            .left_out()
-            .into_iter()
-            .map(|l| ZarrLeftOut {
-                name: l.name,
-                reason: l.reason,
-            })
-            .collect()
+    /// than wondering whether the store has it (#709). The API's own
+    /// `LeftOutArray`, so the code beside each reason (#1129) has the shape
+    /// the schema states.
+    #[napi(ts_return_type = "LeftOutArray[]")]
+    pub fn left_out(&self) -> napi::Result<serde_json::Value> {
+        to_js(serde_json::to_value(self.session.left_out()))
+    }
+
+    /// The arrays the store reads that no map can be drawn from, each with why
+    /// (#1129): text, a coordinate, fewer than two dimensions. With
+    /// [`Self::left_out`] and the variable list, every array in the store once.
+    #[napi(ts_return_type = "LeftOutArray[]")]
+    pub fn undrawable(&self) -> napi::Result<serde_json::Value> {
+        to_js(serde_json::to_value(self.session.undrawable()))
     }
 
     /// Paint one slice, through the same pipeline every other handle paints
@@ -3364,16 +3367,6 @@ impl SliceGrid {
             supports: grid_support(&placed.geometry),
         }
     }
-}
-
-/// One array a store holds and this build will not read.
-#[derive(Debug)]
-#[napi(object)]
-pub struct ZarrLeftOut {
-    /// The array's name, spelled as a readable one would be.
-    pub name: String,
-    /// Why, as the reader phrased it.
-    pub reason: String,
 }
 
 /// A decoded field's values as the engine's own `Option<f64>` per cell.
@@ -4711,7 +4704,51 @@ mod zarr_handle_tests {
         let (lo, hi) = grid.used();
         assert!(hi > lo, "a real range was resolved");
         // Nothing was left out of this store, and the accessor says so.
-        assert!(handle.left_out().is_empty());
+        assert_eq!(
+            handle.left_out().expect("serialises"),
+            serde_json::json!([])
+        );
+    }
+
+    /// The two lists cross as the API's `LeftOutArray`, every key present and
+    /// the code tagged the way the schema states it (#1129).
+    #[test]
+    fn what_a_store_does_not_offer_crosses_with_its_code() {
+        let handle = ZarrHandle::from_directory(
+            "../fieldglass-zarr/tests/fixtures/stores/v2_problems".to_string(),
+        )
+        .expect("the store opens even so");
+        let left = handle.left_out().expect("serialises");
+        assert_eq!(left[0]["name"], "names");
+        assert!(
+            left[0]["reason"]
+                .as_str()
+                .is_some_and(|r| r.contains("<U4"))
+        );
+        assert_eq!(left[0]["cause"], serde_json::json!({ "code": "text" }));
+        assert_eq!(
+            left[1]["cause"],
+            serde_json::json!({ "code": "dimension_clash", "dimension": "x" })
+        );
+        let undrawable = handle.undrawable().expect("serialises");
+        let names: Vec<&str> = undrawable
+            .as_array()
+            .expect("a list")
+            .iter()
+            .map(|l| {
+                assert_eq!(
+                    l["cause"],
+                    serde_json::json!({ "code": "too_few_dimensions", "rank": 1 })
+                );
+                l["name"].as_str().expect("a name")
+            })
+            .collect();
+        assert_eq!(names, ["bz", "ok", "x1"]);
+        // And it parses back as the wire type, so nothing on the way out
+        // renamed a key.
+        let back: Vec<fieldglass::LeftOutArray> =
+            serde_json::from_value(left).expect("the API's LeftOutArray");
+        assert_eq!(back.len(), 2);
     }
 
     /// A directory that is not a store is refused in words a user can act on,

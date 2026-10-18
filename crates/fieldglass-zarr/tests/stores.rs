@@ -23,7 +23,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::Path;
 
-use fieldglass_core::array::{ArraySource, AttributeValue, ElementType, Group, PhonyDimensions};
+use fieldglass_core::array::{
+    ArraySource, AttributeValue, ElementType, Group, LeftOutCause, PhonyDimensions,
+};
 use fieldglass_core::bytes::{MemoryObjects, ObjectSource};
 use fieldglass_core::testing::Recording;
 use fieldglass_zarr::ZarrStore;
@@ -278,7 +280,7 @@ fn every_store_lists_what_zarr_python_lists() {
             arrays_checked += 1;
         }
 
-        let left_out: BTreeSet<String> = store.problems().iter().map(|(p, _)| p.clone()).collect();
+        let left_out: BTreeSet<String> = store.problems().iter().map(|l| l.name.clone()).collect();
         let want_left_out: BTreeSet<String> = want["left_out"]
             .as_array()
             .unwrap()
@@ -461,12 +463,112 @@ fn an_undecodable_codec_fails_only_its_array() {
     let why: BTreeMap<&str, &str> = store
         .problems()
         .iter()
-        .map(|(p, w)| (p.as_str(), w.as_str()))
+        .map(|l| (l.name.as_str(), l.reason.as_str()))
         .collect();
     assert!(why["x2"].contains("dimension \"x\""), "{}", why["x2"]);
     assert!(!why["names"].is_empty());
     let err = source.read_region("x2", &[0..5]).expect_err("left out");
     assert!(err.to_string().contains("dimension"), "{err}");
+}
+
+/// Each array `v2_problems` leaves out says why as a code as well as in prose
+/// (#1129): `names` is text, and `x2` gives `x` a second length.
+#[test]
+fn each_array_left_out_says_why_in_a_code() {
+    let objects = load("tests/fixtures/stores/v2_problems");
+    let store = ZarrStore::open(&objects).expect("the store opens");
+    let causes: BTreeMap<String, LeftOutCause> = store
+        .left_out()
+        .into_iter()
+        .map(|l| (l.name, l.cause))
+        .collect();
+    assert_eq!(
+        causes,
+        BTreeMap::from([
+            ("names".to_string(), LeftOutCause::Text),
+            (
+                "x2".to_string(),
+                LeftOutCause::DimensionClash {
+                    dimension: "x".to_string()
+                }
+            ),
+        ])
+    );
+}
+
+/// The codes `v2_problems` does not reach, each from the one document that
+/// earns it: a type this crate does not decode, a valid feature it does not
+/// read, and a document that does not parse (#1129).
+#[test]
+fn every_kind_of_refused_document_gets_its_own_code() {
+    let v2 = |dtype: &str| {
+        format!(
+            r#"{{"zarr_format": 2, "shape": [4], "chunks": [4], "dtype": {dtype},
+                "fill_value": 0, "compressor": null, "filters": null, "order": "C"}}"#
+        )
+        .into_bytes()
+    };
+    let v3 = |data_type: &str, grid: &str| {
+        format!(
+            r#"{{"zarr_format": 3, "node_type": "array", "shape": [4], "data_type": {data_type},
+                "chunk_grid": {{"name": "{grid}", "configuration": {{"chunk_shape": [4]}}}},
+                "chunk_key_encoding": {{"name": "default"}}, "fill_value": 0,
+                "codecs": [{{"name": "bytes", "configuration": {{"endian": "little"}}}}]}}"#
+        )
+        .into_bytes()
+    };
+    let dtype = |d: &str| LeftOutCause::UnsupportedDtype {
+        dtype: d.to_string(),
+    };
+    let cases: Vec<(&str, Vec<u8>, u8, LeftOutCause)> = vec![
+        ("half", v2(r#""<f2""#), 2, dtype("<f2")),
+        ("complex", v2(r#""<c8""#), 2, dtype("<c8")),
+        ("bytes", v2(r#""|S4""#), 2, LeftOutCause::Text),
+        ("record", v2(r#"[["a", "<f4"]]"#), 2, dtype("structured")),
+        ("odd_order", v2(r#""=f4""#), 2, dtype("=f4")),
+        (
+            "no_dtype",
+            br#"{"zarr_format": 2, "shape": [4], "chunks": [4]}"#.to_vec(),
+            2,
+            LeftOutCause::UnreadableMetadata,
+        ),
+        ("text3", v3(r#""string""#, "regular"), 3, LeftOutCause::Text),
+        (
+            "ext3",
+            v3(r#"{"name": "numpy.datetime64"}"#, "regular"),
+            3,
+            dtype("numpy.datetime64"),
+        ),
+        (
+            "ragged",
+            v3(r#""float32""#, "rectilinear"),
+            3,
+            LeftOutCause::Unsupported,
+        ),
+    ];
+    for (name, document, edition, want) in cases {
+        let (root, key) = if edition == 3 {
+            (
+                (
+                    "zarr.json".to_string(),
+                    br#"{"zarr_format": 3, "node_type": "group"}"#.to_vec(),
+                ),
+                format!("{name}/zarr.json"),
+            )
+        } else {
+            (
+                (".zgroup".to_string(), br#"{"zarr_format": 2}"#.to_vec()),
+                format!("{name}/.zarray"),
+            )
+        };
+        let objects = MemoryObjects::from_iter([root, (key, document)]);
+        let store = ZarrStore::open(&objects).expect("one bad array does not fail the store");
+        let left = store.left_out();
+        assert_eq!(left.len(), 1, "{name}: {left:?}");
+        assert_eq!(left[0].name, name);
+        assert!(!left[0].reason.is_empty(), "{name}: and the prose");
+        assert_eq!(left[0].cause, want, "{name}: {}", left[0].reason);
+    }
 }
 
 /// Opening a consolidated store reads its root documents and nothing else, in
