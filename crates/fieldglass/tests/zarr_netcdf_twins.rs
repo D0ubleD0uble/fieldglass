@@ -15,7 +15,7 @@
 
 use std::path::Path;
 
-use fieldglass::{DecodeOptions, Session, SourceFormat, VariableInfo};
+use fieldglass::{DecodeOptions, LeftOutCause, Session, SourceFormat, VariableInfo};
 use fieldglass_core::bytes::MemoryObjects;
 
 const FIXTURES: &str = "../fieldglass-zarr/tests/fixtures";
@@ -125,7 +125,7 @@ fn a_cf_zarr_store_and_its_netcdf_twin_read_the_same() {
 /// only reason to have the list at all.
 ///
 /// The Zarr store used is `v2_problems`, whose whole purpose is to hold arrays
-/// this build declines: one with an undecodable codec, one whose dimension is
+/// this build declines: one of text, one whose dimension is
 /// given two lengths. A container that leaves nothing out reports an empty list,
 /// and both twins do — which is the other half of the claim.
 #[test]
@@ -173,6 +173,60 @@ fn both_containers_report_what_they_left_out_in_one_shape() {
     )
     .expect("opens");
     assert!(grib.left_out().is_empty());
+    assert!(grib.undrawable().is_empty());
+}
+
+/// Every array `v2_problems` holds is accounted for, with a code (#1129): none
+/// is drawable, two are left out, and the three it reads are lines rather than
+/// maps. Before #1129 `bz`, `ok` and `x1` were in none of the lists.
+#[test]
+fn every_array_a_store_does_not_offer_says_why_in_a_code() {
+    let problems = Session::open_store(load(&format!("{FIXTURES}/stores/v2_problems")))
+        .expect("the store opens even so");
+    assert!(problems.variables().is_empty());
+    let codes = |list: Vec<fieldglass::LeftOutArray>| -> Vec<(String, LeftOutCause)> {
+        list.into_iter().map(|l| (l.name, l.cause)).collect()
+    };
+    let x2 = LeftOutCause::DimensionClash {
+        dimension: "x".to_string(),
+    };
+    assert_eq!(
+        codes(problems.left_out()),
+        [
+            ("names".to_string(), LeftOutCause::Text),
+            ("x2".to_string(), x2)
+        ]
+    );
+    let line = LeftOutCause::TooFewDimensions { rank: 1 };
+    assert_eq!(
+        codes(problems.undrawable()),
+        [
+            ("bz".to_string(), line.clone()),
+            ("ok".to_string(), line.clone()),
+            ("x1".to_string(), line),
+        ]
+    );
+}
+
+/// The twins say the same about the arrays they do not offer: the
+/// coordinates, by the same names and codes, whichever container holds them.
+#[test]
+fn the_twins_name_the_same_undrawable_arrays() {
+    let zarr = Session::open_store(load(&format!("{FIXTURES}/stores/cf_v3"))).expect("opens");
+    let netcdf = Session::open(std::fs::read(format!("{FIXTURES}/cf_twin.nc")).expect("the twin"))
+        .expect("opens");
+    let mut zarr_list = zarr.undrawable();
+    let mut netcdf_list = netcdf.undrawable();
+    zarr_list.sort_by(|a, b| a.name.cmp(&b.name));
+    netcdf_list.sort_by(|a, b| a.name.cmp(&b.name));
+    assert!(!zarr_list.is_empty(), "the twins carry coordinates");
+    assert!(
+        zarr_list
+            .iter()
+            .all(|l| l.cause == LeftOutCause::Coordinate),
+        "{zarr_list:?}"
+    );
+    assert_eq!(zarr_list, netcdf_list);
 }
 
 /// The slice itself is right, not only the same: the packed `t` decodes to the

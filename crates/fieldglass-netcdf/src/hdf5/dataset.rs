@@ -8,6 +8,7 @@ use super::Hdf5Probe;
 use super::dataspace::{self, Dataspace};
 use super::datatype::{self, Datatype};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::LeftOutCause;
 use fieldglass_core::bytes::ByteSource;
 
 const MSG_DATASPACE: u16 = 0x0001;
@@ -44,4 +45,31 @@ pub fn describe<S: ByteSource + ?Sized>(
         dataspace,
         datatype,
     })
+}
+
+/// Why [`describe`] declined the dataset at `object_header_address` as
+/// unimplemented, as a code, when what declined it is the datatype (#1129).
+/// `refused` is the error `describe` returned.
+///
+/// The dataspace is decoded first, so a dataset whose dataspace and datatype
+/// are both outside the subset was refused for its dataspace; the datatype's
+/// own refusal must be the one `describe` returned for its code to apply.
+/// Asked only of a dataset already declined, so the header is read again
+/// here rather than every describe carrying the datatype's bytes out.
+pub(crate) fn unsupported_cause<S: ByteSource + ?Sized>(
+    source: &S,
+    object_header_address: u64,
+    probe: &Hdf5Probe,
+    refused: &FieldglassError,
+) -> Option<LeftOutCause> {
+    let header = probe.header(source, object_header_address).ok()?;
+    let message = header
+        .messages
+        .iter()
+        .find(|m| m.msg_type == MSG_DATATYPE)?;
+    let declined = datatype::decode(&message.body).err()?;
+    if declined.to_string() != refused.to_string() {
+        return None;
+    }
+    datatype::unsupported_cause(&message.body)
 }

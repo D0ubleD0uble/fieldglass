@@ -687,6 +687,29 @@ fn dtype_name(element_type: &ElementType) -> String {
     }
 }
 
+/// A reader's left-out or undrawable array, as the wire states it (#1129).
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn left_out_wire(l: fieldglass_core::LeftOut) -> LeftOutArray {
+    use crate::api::LeftOutCause;
+    use fieldglass_core::LeftOutCause as Core;
+    let cause = match l.cause {
+        Core::UnsupportedDtype { dtype } => LeftOutCause::UnsupportedDtype { dtype },
+        Core::Text => LeftOutCause::Text,
+        Core::DimensionClash { dimension } => LeftOutCause::DimensionClash { dimension },
+        Core::Unsupported => LeftOutCause::Unsupported,
+        Core::UnreadableMetadata => LeftOutCause::UnreadableMetadata,
+        Core::TooFewDimensions { rank } => LeftOutCause::TooFewDimensions { rank },
+        Core::Coordinate => LeftOutCause::Coordinate,
+        // No wildcard: core's enum is exhaustive so that a new code fails to
+        // build here, where its wire spelling has to be decided.
+    };
+    LeftOutArray {
+        name: l.name,
+        reason: l.reason,
+        cause,
+    }
+}
+
 /// One line through the array named `array` in `source` — the implementation
 /// behind [`Session::decode_line`], for a host that holds an [`ArraySource`]
 /// rather than a `Session` (#172).
@@ -1492,6 +1515,9 @@ impl Session {
     /// Empty for a message stream, which has no arrays to leave out, and for a
     /// container that reads everything it can describe. **Never an error**: one
     /// unreadable array does not fail a container.
+    ///
+    /// Each carries a [`LeftOutCause`](crate::LeftOutCause) beside the
+    /// reader's prose (#1129), so a host can say why in its own words.
     pub fn left_out(&self) -> Vec<LeftOutArray> {
         match &self.reader {
             #[cfg(feature = "grib1")]
@@ -1499,14 +1525,28 @@ impl Session {
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => Vec::new(),
             #[cfg(any(feature = "netcdf", feature = "zarr"))]
-            Reader::Arrays(a) => a
-                .source
-                .left_out()
+            Reader::Arrays(a) => a.source.left_out().into_iter().map(left_out_wire).collect(),
+        }
+    }
+
+    /// The arrays this container reads that no map can be drawn from, each
+    /// with why (#1129): text, a type no decode turns into numbers, a
+    /// coordinate, or fewer than two dimensions.
+    ///
+    /// [`Session::variables`], [`Session::left_out`] and this name every array
+    /// in the container once between them, so a host that finds nothing to
+    /// draw can say why for each array rather than only that there is
+    /// nothing. Empty for a message stream.
+    pub fn undrawable(&self) -> Vec<LeftOutArray> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => Vec::new(),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => Vec::new(),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => fieldglass_core::cf::undrawable_arrays(a.source.group())
                 .into_iter()
-                .map(|l| LeftOutArray {
-                    name: l.name,
-                    reason: l.reason,
-                })
+                .map(left_out_wire)
                 .collect(),
         }
     }

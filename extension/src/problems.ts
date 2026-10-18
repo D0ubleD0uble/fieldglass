@@ -7,6 +7,8 @@
 
 import * as vscode from "vscode";
 
+import type { LeftOutArray, LeftOutCause } from "./api.generated";
+
 /** One thing to tell the user: a plain toast, and the technical text behind it. */
 export interface Problem {
   /** The toast. Plain words; no reader error text, no file-format terms. */
@@ -21,11 +23,18 @@ export const DETAILS = "Details";
 /** How many names a toast lists before it says "and N more". */
 const MAX_NAMES = 8;
 
-/** `a, b, c`, or `a, b and 3 more` past {@link MAX_NAMES}. */
-export function listNames(names: readonly string[]): string {
-  if (names.length <= MAX_NAMES) return names.join(", ");
-  return `${names.slice(0, MAX_NAMES).join(", ")} and ${names.length - MAX_NAMES} more`;
+/** `a, b, c`, or `a, b and 3 more` past {@link MAX_NAMES}. With `and`, a
+ *  list that fits ends `b and c`, as in a sentence. */
+export function listNames(names: readonly string[], { and = false } = {}): string {
+  if (names.length > MAX_NAMES) {
+    return `${names.slice(0, MAX_NAMES).join(", ")} and ${names.length - MAX_NAMES} more`;
+  }
+  if (!and || names.length <= 1) return names.join(", ");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
+
+/** How many reasons a toast gives before it says there are others. */
+const MAX_REASONS = 4;
 
 /** A name from the disk or a store, made safe to put in a toast.
  *
@@ -81,40 +90,91 @@ export function notAStore(
   };
 }
 
-/** One array a store holds and this build will not read, as the reader
- *  reported it. */
-export interface LeftOutArray {
-  name: string;
-  reason: string;
+/** Why an array is no map, in plain words: what follows its name, as `[one,
+ *  many]` for one array or several. `cause` is the reader's code (#1129); the
+ *  words never repeat a dtype or codec spelling, which stay in Details. A code
+ *  this build does not know yet gets a plain fallback rather than nothing. */
+function plainReason(cause: LeftOutCause): [string, string] {
+  switch (cause.code) {
+    case "text":
+      return ["holds text, not numbers", "hold text, not numbers"];
+    case "unsupported_dtype":
+      return [
+        "holds a kind of number or value Fieldglass doesn't read",
+        "hold a kind of number or value Fieldglass doesn't read",
+      ];
+    case "dimension_clash": {
+      const dim = toastName(cause.dimension);
+      return [
+        `gives dimension "${dim}" a different length from another array`,
+        `give dimension "${dim}" a different length from another array`,
+      ];
+    }
+    case "unsupported":
+      return [
+        "is stored in a way Fieldglass doesn't read yet",
+        "are stored in a way Fieldglass doesn't read yet",
+      ];
+    case "unreadable_metadata":
+      return ["has a description Fieldglass couldn't read", "have descriptions Fieldglass couldn't read"];
+    case "too_few_dimensions":
+      return cause.rank === 0
+        ? ["is a single value", "are single values"]
+        : ["has only one dimension", "have only one dimension"];
+    case "coordinate":
+      return [
+        "is a coordinate, the positions along another array's axes",
+        "are coordinates, the positions along other arrays' axes",
+      ];
+    default:
+      return ["can't be drawn as a map", "can't be drawn as a map"];
+  }
 }
 
 /** A store that opened but holds nothing a map can be drawn from.
  *
- *  The reasons the reader gives are technical text with no code beside them,
- *  and they are not all "could not read": two arrays giving one dimension two
- *  lengths is one. So the toast names the arrays left out and leaves the
- *  reasons to Details rather than guessing at what each string means. */
-export function nothingToDraw(storePath: string, leftOut: readonly LeftOutArray[]): Problem {
+ *  `leftOut` are the arrays the reader did not read, `undrawable` the ones it
+ *  read that are no map. Between them they are every array in the store, so
+ *  the toast says why for each, grouped by reason in plain words from each
+ *  array's code (#1129). The reader's own reasons, with their dtype and codec
+ *  spellings, are in Details. */
+export function nothingToDraw(
+  storePath: string,
+  leftOut: readonly LeftOutArray[],
+  undrawable: readonly LeftOutArray[] = [],
+): Problem {
   const lead =
     "Fieldglass: Nothing in this store can be drawn as a map. A map needs an array " +
     "of numbers with at least two dimensions, such as latitude and longitude";
-  const names = leftOut.map((l) => toastName(l.name));
+  // Grouped by the words, in the order a reason first appears.
+  const groups = new Map<string, { words: [string, string]; names: string[] }>();
+  for (const a of [...leftOut, ...undrawable]) {
+    const words = plainReason(a.cause);
+    const group = groups.get(words[0]) ?? { words, names: [] };
+    group.names.push(toastName(a.name));
+    groups.set(words[0], group);
+  }
+  const reasons = [...groups.values()]
+    .slice(0, MAX_REASONS)
+    .map(({ words, names }) => `${listNames(names, { and: true })} ${names.length === 1 ? words[0] : words[1]}`);
+  // Past the cap, the rest are one clause, and Details has every array.
+  if (groups.size > MAX_REASONS) reasons.push("other arrays can't be drawn for other reasons; Details says why");
+  if (reasons.length > 1) reasons[reasons.length - 1] = `and ${reasons[reasons.length - 1]}`;
   const summary =
-    names.length === 0
-      ? `${lead}, and this store has none.`
-      : names.length === 1
-        ? `${lead}. Fieldglass left out one of its arrays, ${names[0]}; Details says why.`
-        : `${lead}. Fieldglass left out ${names.length} of its arrays: ${listNames(names)}. ` +
-          "Details says why.";
+    reasons.length === 0 ? `${lead}, and this store has none.` : `${lead}. In this store, ${reasons.join("; ")}.`;
+
   const lines = [`Store: ${storePath}`];
   if (leftOut.length > 0) {
     lines.push("Arrays left out, with the reader's reason:");
     for (const l of leftOut) lines.push(`- ${l.name}: ${l.reason}`);
   }
-  lines.push(
-    "No other array in the store is an array of numbers with at least two " +
-      "dimensions that is not the coordinates of another array.",
-  );
+  if (undrawable.length > 0) {
+    lines.push("Arrays read but not drawable as a map:");
+    for (const l of undrawable) lines.push(`- ${l.name}: ${l.reason}`);
+  }
+  if (leftOut.length === 0 && undrawable.length === 0) {
+    lines.push("The store holds no arrays.");
+  }
   return { summary, details: lines.join("\n") };
 }
 

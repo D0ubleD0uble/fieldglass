@@ -17,7 +17,9 @@
 use std::collections::BTreeMap;
 
 use fieldglass_core::FieldglassError;
-use fieldglass_netcdf::{DatasetView, Hdf5Metadata, NetcdfReader};
+use fieldglass_core::array::{ArraySource, LeftOutCause};
+use fieldglass_core::cf::undrawable_arrays;
+use fieldglass_netcdf::{DatasetView, Hdf5Metadata, NetcdfArrays, NetcdfReader};
 use serde_json::Value;
 
 const MIXED: &[u8] = include_bytes!("fixtures/netcdf4_unsupported_type.nc");
@@ -170,6 +172,62 @@ fn the_dataset_view_carries_the_report() {
             .map(|u| u.name.as_str())
             .collect::<Vec<_>>(),
         ["station_info", "visits"]
+    );
+}
+
+/// Every variable a picker does not offer says why as a code (#1129). The two
+/// datasets the reader declines are named by their HDF5 class, and the two it
+/// reads are no map: `time` is a coordinate and `temperature` has one
+/// dimension.
+#[test]
+fn each_variable_not_offered_says_why_in_a_code() {
+    let arrays = NetcdfArrays::open(reader()).expect("view resolves");
+    let codes = |list: Vec<fieldglass_core::LeftOut>| -> Vec<(String, LeftOutCause)> {
+        list.into_iter()
+            .map(|l| {
+                assert!(!l.reason.is_empty(), "{}: and the prose", l.name);
+                (l.name, l.cause)
+            })
+            .collect()
+    };
+    let dtype = |d: &str| LeftOutCause::UnsupportedDtype {
+        dtype: d.to_string(),
+    };
+    assert_eq!(
+        codes(arrays.left_out()),
+        [
+            ("station_info".to_string(), dtype("compound")),
+            ("visits".to_string(), dtype("variable-length")),
+        ]
+    );
+    assert_eq!(
+        codes(undrawable_arrays(arrays.group())),
+        [
+            (
+                "temperature".to_string(),
+                LeftOutCause::TooFewDimensions { rank: 1 }
+            ),
+            ("time".to_string(), LeftOutCause::Coordinate),
+        ]
+    );
+}
+
+/// A fixed-length string dataset is readable, and is no map because it holds
+/// text; a scalar is no map because it is one value (#1129).
+#[test]
+fn a_readable_string_dataset_is_named_as_text() {
+    let bytes = include_bytes!("fixtures/hdf5_v2_linkinfo.h5");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised HDF5");
+    let arrays = NetcdfArrays::open(reader).expect("view resolves");
+    let causes: BTreeMap<String, LeftOutCause> = undrawable_arrays(arrays.group())
+        .into_iter()
+        .map(|l| (l.name, l.cause))
+        .collect();
+    assert_eq!(causes.get("label"), Some(&LeftOutCause::Text), "{causes:?}");
+    assert_eq!(
+        causes.get("scalar_i32"),
+        Some(&LeftOutCause::TooFewDimensions { rank: 0 }),
+        "{causes:?}"
     );
 }
 

@@ -232,6 +232,13 @@ fn a_non_ieee_float_is_refused_not_misread() {
     assert_eq!(skipped.len(), 1, "{skipped:?}");
     assert_eq!(skipped[0].0, "f32_prec24");
     assert!(skipped[0].1.contains("non-IEEE"), "{}", skipped[0].1);
+    // And as a code, naming the layout rather than the width (#1129).
+    assert_eq!(
+        meta.unsupported[0].cause,
+        fieldglass_core::array::LeftOutCause::UnsupportedDtype {
+            dtype: "non-IEEE floating-point".to_string()
+        }
+    );
 
     let decoded = decode_all();
     let err = decoded["f32_prec24"].as_ref().unwrap_err();

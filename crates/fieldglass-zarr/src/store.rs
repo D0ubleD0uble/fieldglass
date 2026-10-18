@@ -59,7 +59,7 @@ use std::ops::Range;
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::{
     ArrayDescription, ArraySource, Attribute, AttributeValue, Dimension, ElementType, Group,
-    LeftOut, PhonyDimensions,
+    LeftOut, LeftOutCause, PhonyDimensions,
 };
 use fieldglass_core::bytes::ObjectSource;
 use serde_json::{Map, Value};
@@ -125,7 +125,7 @@ pub struct ZarrStore<O> {
     objects: O,
     root: Group,
     arrays: BTreeMap<String, StoredArray>,
-    problems: Vec<(String, String)>,
+    problems: Vec<LeftOut>,
 }
 
 /// What a region read needs of one array, beyond its description.
@@ -195,7 +195,7 @@ impl<O: ObjectSource> ZarrStore<O> {
     /// The arrays left out of [`ArraySource::group`], each with why: a
     /// document that does not parse, a type this crate does not read, or a
     /// dimension given two lengths.
-    pub fn problems(&self) -> &[(String, String)] {
+    pub fn problems(&self) -> &[LeftOut] {
         &self.problems
     }
 }
@@ -210,13 +210,7 @@ impl<O: ObjectSource> ArraySource for ZarrStore<O> {
     /// struct in `fieldglass-netcdf` — which left a host reading both to guess
     /// which string was which.
     fn left_out(&self) -> Vec<LeftOut> {
-        self.problems
-            .iter()
-            .map(|(name, reason)| LeftOut {
-                name: name.clone(),
-                reason: reason.clone(),
-            })
-            .collect()
+        self.problems.clone()
     }
 
     fn read_region(
@@ -228,8 +222,8 @@ impl<O: ObjectSource> ArraySource for ZarrStore<O> {
             let why = self
                 .problems
                 .iter()
-                .find(|(name, _)| name == array)
-                .map_or_else(String::new, |(_, why)| format!(": {why}"));
+                .find(|l| l.name == array)
+                .map_or_else(String::new, |l| format!(": {}", l.reason));
             FieldglassError::Parse(format!("this store holds no readable array {array:?}{why}"))
         })?;
         read(&self.objects, stored, region)
@@ -530,9 +524,7 @@ fn ensure_groups(groups: &mut BTreeMap<String, GroupParts>, path: &str) {
 }
 
 /// The tree, the readable arrays, and the arrays left out, from the nodes.
-fn build(
-    nodes: BTreeMap<String, Node>,
-) -> (Group, BTreeMap<String, StoredArray>, Vec<(String, String)>) {
+fn build(nodes: BTreeMap<String, Node>) -> (Group, BTreeMap<String, StoredArray>, Vec<LeftOut>) {
     let mut groups: BTreeMap<String, GroupParts> = BTreeMap::new();
     let mut arrays = BTreeMap::new();
     let mut problems = Vec::new();
@@ -566,7 +558,11 @@ fn build(
         {
             Ok(described) => described,
             Err(why) => {
-                problems.push((path, why.to_string()));
+                problems.push(LeftOut {
+                    cause: cause_of(&why, &document, edition),
+                    reason: why.to_string(),
+                    name: path,
+                });
                 continue;
             }
         };
@@ -584,16 +580,20 @@ fn build(
                     .dimensions
                     .iter()
                     .find(|d| &d.name == name && d.length != *length)
-                    .map(|d| {
-                        format!(
+                    .map(|d| LeftOut {
+                        name: path.clone(),
+                        reason: format!(
                             "dimension {name:?} has length {length} here and {} in \
                              another array of this group",
                             d.length
-                        )
+                        ),
+                        cause: LeftOutCause::DimensionClash {
+                            dimension: name.clone(),
+                        },
                     })
             });
-        if let Some(why) = clash {
-            problems.push((path, why));
+        if let Some(left_out) = clash {
+            problems.push(left_out);
             continue;
         }
         for (name, length) in description.dimensions.iter().zip(shape) {
@@ -691,6 +691,128 @@ fn describe(
         },
         meta,
     ))
+}
+
+/// Why [`describe`] refused an array's document, as a code (#1129).
+///
+/// The metadata reader says which of its rules failed only in prose, so the
+/// code is worked out here, and from the rule that refused the document
+/// rather than from everything wrong with it. The reader checks in a fixed
+/// order, so the element type is what refused it exactly when putting a type
+/// it does decode in its place changes the answer. Then the type is named,
+/// and text is told apart from the rest. Otherwise the refusal's own kind
+/// decides: "not implemented" is something else this crate does not read,
+/// and anything else is a document that does not parse.
+fn cause_of(error: &FieldglassError, document: &Value, edition: u8) -> LeftOutCause {
+    let key = if edition == 3 { "data_type" } else { "dtype" };
+    if dtype_refused(error, document, edition, key) {
+        return dtype_cause(document, edition, key);
+    }
+    if matches!(error, FieldglassError::UnsupportedSection(_)) {
+        LeftOutCause::Unsupported
+    } else {
+        LeftOutCause::UnreadableMetadata
+    }
+}
+
+/// Whether the element type is the rule that refused `document`: the same
+/// document with a type this crate decodes in its place is refused
+/// differently, or not at all.
+fn dtype_refused(error: &FieldglassError, document: &Value, edition: u8, key: &str) -> bool {
+    let Value::Object(fields) = document else {
+        return false;
+    };
+    let mut replaced = fields.clone();
+    let decoded = if edition == 3 { "float32" } else { "<f4" };
+    replaced.insert(key.to_string(), Value::String(decoded.to_string()));
+    match ArrayMetadata::from_value(&Value::Object(replaced), edition) {
+        Ok(_) => true,
+        Err(other) => other.to_string() != error.to_string(),
+    }
+}
+
+/// The code for an element type that refused its document.
+fn dtype_cause(document: &Value, edition: u8, key: &str) -> LeftOutCause {
+    let named = |dtype: &str| {
+        if is_text(dtype, edition, document) {
+            LeftOutCause::Text
+        } else {
+            LeftOutCause::UnsupportedDtype {
+                dtype: dtype.to_string(),
+            }
+        }
+    };
+    match document.get(key) {
+        Some(Value::String(dtype)) => {
+            let parsed = if edition == 3 {
+                DType::parse_v3(dtype)
+            } else {
+                DType::parse_v2(dtype)
+            };
+            // NumPy spells an object array `|O`, with no width, so the grammar
+            // refuses it as malformed; it is a real type, and with a string
+            // codec it is text. Any other spelling the grammar cannot read is
+            // a broken document, not a type this crate leaves alone.
+            let object = edition == 2 && dtype.chars().nth(1) == Some('O');
+            if object || matches!(parsed, Err(FieldglassError::UnsupportedSection(_))) {
+                named(dtype)
+            } else {
+                LeftOutCause::UnreadableMetadata
+            }
+        }
+        // A v2 structured dtype is a list of fields, and a v3 type with
+        // parameters an object naming itself: both valid, neither a number.
+        Some(Value::Array(_)) if edition == 2 => LeftOutCause::UnsupportedDtype {
+            dtype: "structured".to_string(),
+        },
+        Some(Value::Object(spec)) if edition == 3 => named(
+            spec.get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("extension"),
+        ),
+        _ => LeftOutCause::UnreadableMetadata,
+    }
+}
+
+/// The v3 data types that hold text or bytes: zarr-python 3's
+/// `variable_length_utf8` (written `string` before 3.1),
+/// `fixed_length_utf32`, `variable_length_bytes` and `null_terminated_bytes`.
+/// `raw_bytes` is opaque bytes rather than text, and is left a type.
+const V3_TEXT: &[&str] = &[
+    "string",
+    "variable_length_utf8",
+    "fixed_length_utf32",
+    "variable_length_bytes",
+    "null_terminated_bytes",
+];
+
+/// The v2 object codecs that make an `|O` array strings, as zarr-python 2 and
+/// xarray write them.
+const V2_TEXT_CODECS: &[&str] = &["vlen-utf8", "vlen-bytes"];
+
+/// Whether a dtype spelling names text: NumPy's `U` (unicode) and `S` / `a`
+/// (bytes) kinds in v2, or its `O` kind with a string object codec, and
+/// [`V3_TEXT`] in v3.
+fn is_text(dtype: &str, edition: u8, document: &Value) -> bool {
+    if edition == 3 {
+        return V3_TEXT.contains(&dtype);
+    }
+    match dtype.chars().nth(1) {
+        Some('U' | 'S' | 'a') => true,
+        Some('O') => {
+            let codec = |c: &Value| {
+                c.get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| V2_TEXT_CODECS.contains(&id))
+            };
+            document
+                .get("filters")
+                .and_then(Value::as_array)
+                .is_some_and(|filters| filters.iter().any(codec))
+                || document.get("compressor").is_some_and(codec)
+        }
+        _ => false,
+    }
 }
 
 /// The two ways xarray keeps `_FillValue` somewhere core's CF rule would not

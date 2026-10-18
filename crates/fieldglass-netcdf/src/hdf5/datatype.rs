@@ -33,6 +33,7 @@
 use super::object_header::read_uint_le;
 use crate::classic::NcType;
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::LeftOutCause;
 
 /// Byte order of a numeric datatype.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -390,6 +391,30 @@ fn unsupported_class(class: u8) -> FieldglassError {
         "HDF5 datatype class {class} ({})",
         class_name(class)
     ))
+}
+
+/// Why [`decode`] declines this datatype message body, as a code, or `None`
+/// when it does not decline it as unimplemented (#1129).
+///
+/// A variable-length string is text, the `NC_STRING` netCDF-4 writes. Any other
+/// type is named the way the refusal names it: a class (`"compound"`), or a
+/// width or layout of a class this reader does decode in other widths.
+pub(crate) fn unsupported_cause(body: &[u8]) -> Option<LeftOutCause> {
+    if !matches!(decode(body), Err(FieldglassError::UnsupportedSection(_))) {
+        return None;
+    }
+    let class = class_of(body).ok()?;
+    let bits = read_uint_le(body, 4, 4).ok()?.saturating_mul(8);
+    let dtype = match class {
+        CLASS_FLOATING_POINT if matches!(bits, 32 | 64) => "non-IEEE floating-point".to_string(),
+        CLASS_FLOATING_POINT => format!("{bits}-bit floating-point"),
+        CLASS_FIXED_POINT => format!("{bits}-bit fixed-point"),
+        CLASS_VARIABLE_LENGTH if decode_vlen(body).is_ok_and(|v| !v.is_sequence) => {
+            return Some(LeftOutCause::Text);
+        }
+        other => class_name(other).to_string(),
+    };
+    Some(LeftOutCause::UnsupportedDtype { dtype })
 }
 
 impl Datatype {
@@ -899,6 +924,40 @@ mod tests {
             decode(&datatype(CLASS_FIXED_POINT, 0x08, 3)).unwrap_err(),
             FieldglassError::UnsupportedSection(_)
         ));
+    }
+
+    /// Each refusal is named as a code: the width or the class, and a
+    /// variable-length string as text (#1129). A type that decodes has none.
+    #[test]
+    fn an_unsupported_datatype_is_named_as_a_code() {
+        let dtype = |d: &str| {
+            Some(LeftOutCause::UnsupportedDtype {
+                dtype: d.to_string(),
+            })
+        };
+        assert_eq!(
+            unsupported_cause(&datatype(CLASS_FLOATING_POINT, 0x00, 2)),
+            dtype("16-bit floating-point")
+        );
+        assert_eq!(
+            unsupported_cause(&datatype(CLASS_FIXED_POINT, 0x08, 3)),
+            dtype("24-bit fixed-point")
+        );
+        assert_eq!(
+            unsupported_cause(&datatype(8, 0x00, 4)),
+            dtype("enumeration")
+        );
+        // A vlen string (type nibble 1) over a one-byte string base type.
+        let mut vlen_string = datatype(CLASS_VARIABLE_LENGTH, 0x01, 16);
+        vlen_string.extend_from_slice(&datatype(CLASS_STRING, 0x00, 1));
+        assert_eq!(unsupported_cause(&vlen_string), Some(LeftOutCause::Text));
+        let mut vlen_sequence = datatype(CLASS_VARIABLE_LENGTH, 0x00, 16);
+        vlen_sequence.extend_from_slice(&datatype(CLASS_FIXED_POINT, 0x08, 4));
+        assert_eq!(unsupported_cause(&vlen_sequence), dtype("variable-length"));
+        assert_eq!(
+            unsupported_cause(&datatype(CLASS_FLOATING_POINT, 0x00, 4)),
+            None
+        );
     }
 
     #[test]

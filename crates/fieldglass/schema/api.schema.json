@@ -965,22 +965,140 @@
       "type": "object"
     },
     "LeftOutArray": {
-      "description": "One array a container holds and this build will not read, and why.\n\nBeside [`crate::Session::variables`] rather than inside it: a host shows\nthese so a user can see *why* a name is absent from the list, instead of\nwondering whether the file has it. Not an error — a container reads every\narray it can and leaves the rest here (#709).",
+      "description": "One array a container holds that [`crate::Session::variables`] does not\noffer, and why.\n\nBeside [`crate::Session::variables`] rather than inside it: a host shows\nthese so a user can see *why* a name is absent from the list, instead of\nwondering whether the file has it. Not an error. A container reads every\narray it can and leaves the rest in [`crate::Session::left_out`] (#709);\nthe readable arrays no map is drawn from are in\n[`crate::Session::undrawable`] (#1129).",
       "properties": {
+        "cause": {
+          "$ref": "#/$defs/LeftOutCause",
+          "description": "Why, as a code a host words for itself (#1129). This is what to\nbranch on, where `reason` is for showing."
+        },
         "name": {
           "description": "The array's name, spelled as a readable one would be, so a host can\nmatch it against the list it did get.",
           "type": "string"
         },
         "reason": {
-          "description": "Why, as the reader phrased it.",
+          "description": "Why, as the reader phrased it: the prose a bug report needs, with\nthe reader's own dtype spellings. It may be reworded.",
           "type": "string"
         }
       },
       "required": [
         "name",
-        "reason"
+        "reason",
+        "cause"
       ],
       "type": "object"
+    },
+    "LeftOutCause": {
+      "description": "Why an array is not one a map can be drawn from, as a code (#1129):\n`{\"code\": \"unsupported_dtype\", \"dtype\": \"<f2\"}` on the wire.\n\nThe first five are why a container left an array out; `text`,\n`unsupported_dtype` and the last two are why a readable array is no\nmap. A host should keep a fallback wording, since a later release may\nadd a code.",
+      "oneOf": [
+        {
+          "description": "An element type this build does not decode: a compound or\nvariable-length HDF5 type, a 16-bit float, a complex number.",
+          "properties": {
+            "code": {
+              "const": "unsupported_dtype",
+              "type": "string"
+            },
+            "dtype": {
+              "description": "The type as the container spells it (`\"compound\"`, `\"<f2\"`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "dtype"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Text rather than numbers.",
+          "properties": {
+            "code": {
+              "const": "text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The array gives a dimension another array of its group gives a\ndifferent length, so the two cannot share one axis.",
+          "properties": {
+            "code": {
+              "const": "dimension_clash",
+              "type": "string"
+            },
+            "dimension": {
+              "description": "The dimension, as the array names it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "dimension"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The description is valid but uses something this build does not\nread, such as a Zarr chunk grid other than `regular`.",
+          "properties": {
+            "code": {
+              "const": "unsupported",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The array's description does not parse.",
+          "properties": {
+            "code": {
+              "const": "unreadable_metadata",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Readable, but with fewer than the two dimensions a map has.",
+          "properties": {
+            "code": {
+              "const": "too_few_dimensions",
+              "type": "string"
+            },
+            "rank": {
+              "description": "How many it has: 0 for a single value, 1 for a line of them.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "rank"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Readable, but a coordinate: the values along another array's\naxis, or the latitude or longitude of another array's grid.",
+          "properties": {
+            "code": {
+              "const": "coordinate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "LevelSpec": {
       "additionalProperties": false,

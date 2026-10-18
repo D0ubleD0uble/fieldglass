@@ -49,10 +49,16 @@ const FIXTURE = join(
   repoRoot,
   'crates/fieldglass-netcdf/tests/fixtures/cf_packed_data.nc',
 );
+// Two datasets the reader declines beside two it reads (#550, #1129).
+const MIXED = join(
+  repoRoot,
+  'crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc',
+);
 
 for (const [path, how] of [
   [WASM, 'crates/fieldglass-wasm/build.sh nodejs'],
   [FIXTURE, 'it is committed; check out the repository'],
+  [MIXED, 'it is committed; check out the repository'],
 ]) {
   if (!existsSync(path)) {
     console.error(`missing: ${path}\n  ${how}`);
@@ -178,6 +184,44 @@ try {
 } catch (e) {
   check('a short sliceIndices throws invalid_option', e.code === 'invalid_option', `code was ${e.code}`);
 }
+
+// What the picker does not offer, and why (#1129). Nothing in this file is
+// left out, and `lat` and `lon` are coordinates. The code is the wire's tag,
+// so a page words it from `cause.code` rather than from the prose.
+equal('nothing left out', handle.leftOut(), []);
+equal(
+  'the coordinates are named as such',
+  handle.undrawable().map((l) => [l.name, l.cause]),
+  [
+    ['lat', { code: 'coordinate' }],
+    ['lon', { code: 'coordinate' }],
+  ],
+);
+
+// A file with datasets the reader declines: each left out with its HDF5 class
+// as the code's dtype, and the two it reads named for why they are no map.
+const mixed = wasm.open(new Uint8Array(readFileSync(MIXED)));
+equal(
+  'declined datasets carry their class',
+  mixed.leftOut().map((l) => [l.name, l.cause]),
+  [
+    ['station_info', { code: 'unsupported_dtype', dtype: 'compound' }],
+    ['visits', { code: 'unsupported_dtype', dtype: 'variable-length' }],
+  ],
+);
+check(
+  'and the prose beside the code',
+  mixed.leftOut().every((l) => typeof l.reason === 'string' && l.reason.length > 0),
+);
+equal(
+  'readable but no map',
+  mixed.undrawable().map((l) => [l.name, l.cause]),
+  [
+    ['temperature', { code: 'too_few_dimensions', rank: 1 }],
+    ['time', { code: 'coordinate' }],
+  ],
+);
+mixed.free();
 
 field.free();
 handle.free();

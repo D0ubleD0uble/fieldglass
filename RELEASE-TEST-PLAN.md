@@ -372,10 +372,14 @@ palette, picking the store's folder.
       zarr-python.
 - [ ] `v2_problems` holds nothing that can be drawn: opening it shows a
       warning that starts "Nothing in this store can be drawn as a map." and
-      names `names` and `x2` as the arrays it left out. The warning has
-      no codec or data type names such as `<U4`. Click Details: a dialog
-      gives the store's path and each array's reason (`names` holds `<U4`
-      text, `x2` gives `x` a second length). No empty panel opens (#1040).
+      then says why for each of its five arrays: `names holds text, not
+      numbers; x2 gives dimension "x" a different length from another
+      array; and bz, ok and x1 have only one dimension.` The warning has
+      no codec or data type names such as `<U4` or `bz2`. Click Details: a
+      dialog gives the store's path and each array's reason in the reader's
+      words (`names` holds `<U4` text, `x2` gives `x` a second length, and
+      the three it read have 1 dimension). No empty panel opens (#1040,
+      #1129).
 - [ ] Open `crates/fieldglass-zarr/tests/fixtures/stores`, a folder of
       stores: the message reads `"stores" isn't a Zarr store. It contains 8
       Zarr stores: cf_v2, cf_v3, v2_nested, v2_problems, v2_slash, v3_nested,

@@ -281,9 +281,13 @@ export class FieldglassEditorProvider
     }
     const variables = handle.variables();
     if (variables.length === 0) {
-      // A store that opened but holds nothing drawable. `leftOut` is why, and
+      // A store that opened but holds nothing drawable. `leftOut` and
+      // `undrawable` say why for each of its arrays (#1129), and
       // saying so beats a panel with an empty picker.
-      await reportProblem("warning", nothingToDraw(storeUri.fsPath, handle.leftOut()));
+      await reportProblem(
+        "warning",
+        nothingToDraw(storeUri.fsPath, handle.leftOut(), handle.undrawable()),
+      );
       return;
     }
     this._zarrHandlesByStore.set(storeUri.toString(), handle);

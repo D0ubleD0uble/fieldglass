@@ -610,6 +610,8 @@ class TheRepoItselfPasses(unittest.TestCase):
                 # `ArraySource` seam. Zarr's `problems()` stated the same fact as
                 # a tuple of two strings.
                 "LeftOut",
+                # Why, as a code, on `UnsupportedVariable::cause` (#1129).
+                "LeftOutCause",
                 "SlicePlacement",
                 # What `hdf5::Addressed`, the superblock-relative view of a
                 # file, answers for its memo identity (#936).

@@ -125,6 +125,7 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> ArraySou
             .map(|v| LeftOut {
                 name: presented(&v.name).to_string(),
                 reason: v.reason.clone(),
+                cause: v.cause.clone(),
             })
             .collect()
     }
