@@ -3032,7 +3032,8 @@ export function renderImagePanelHtml(
         // track, the manual interval, and the field being sliced. Returns null
         // when contours are off or there is no field, so an off-to-off render
         // compares equal and skips. A palette/colormap change moves none of
-        // this, so the cached runs stay valid (#336).
+        // this, so the cached runs stay valid (#336). It also holds the compare
+        // rider, since a difference map is a different field (#1149).
         function contourKey() {
           if (!contoursEnabled() || !lastPayload) return null;
           const o = currentOptions();
@@ -3044,6 +3045,10 @@ export function renderImagePanelHtml(
             lastPayload.usedMin, lastPayload.usedMax,
             Number.isFinite(iv) && iv > 0 ? iv : null,
             sliceFields(),
+            // The rider requestContours sends: contours follow the combined
+            // field, and under a manual range nothing above moves when
+            // Compare or Field B does (#1149).
+            compareRequest(),
           ]);
         }
 
