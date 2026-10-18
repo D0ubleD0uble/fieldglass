@@ -258,6 +258,7 @@ ${options}
         gridRelative && !hidden ? "This file states its components along the grid's axes; they are rotated to true north." : ""
       }</span>
       <span class="picker-note" id="vector-pair-note" aria-live="polite"></span>
+      <span class="picker-note" id="vector-key-note" aria-live="polite"></span>
     </fieldset>
 `;
 }
@@ -1366,6 +1367,11 @@ export function composeVectorScaleNote(label: string): string {
   return label ? "Full-length arrow: " + label : "";
 }
 
+/** What the panel says when the map is too small for the arrow key and its
+ *  label (#1168): in the Vectors row for the map on screen, and after the
+ *  export result for a PNG. Serialized into the panel script. */
+export const VECTOR_KEY_LEFT_OFF = "No arrow key: the map is too small to fit one.";
+
 /** The Vectors row's note when the arrows' two messages are not a u/v pair,
  *  or are one in the wrong order (#1049). `pairing` is the addon's
  *  `ProjectedVectors.pairing`, which Rust reads from the parameter tables;
@@ -1499,6 +1505,7 @@ export function renderImagePanelHtml(
         // frozen at the variable the panel opened on, which put that
         // variable's unit against another variable's numbers.
         let UNITS = ${scriptString(meta.units || "")};
+        const VECTOR_KEY_LEFT_OFF = ${scriptString(VECTOR_KEY_LEFT_OFF)};
         // Title / subtitle / default filename for the PNG export (#243).
         // TITLE_LINE tracks the drawn field for the same reason as UNITS.
         let TITLE_LINE = ${scriptString(titleLine)};
@@ -3199,6 +3206,8 @@ export function renderImagePanelHtml(
             // their pair (#1049).
             const scale = document.getElementById('vector-scale');
             if (scale) scale.textContent = '';
+            const keyNote = document.getElementById('vector-key-note');
+            if (keyNote) keyNote.textContent = '';
             clearVectorPairNote();
             setVectorStatus('');
             drawOverlay();
@@ -3932,7 +3941,12 @@ export function renderImagePanelHtml(
         function drawOverlay(skipKey) {
           const o = document.getElementById('overlay');
           const ctx = o && o.getContext('2d');
-          if (!o || !ctx || !lastPayload) return;
+          if (!o || !ctx || !lastPayload) {
+            // Nothing is drawn, so no key, and nothing to say about one.
+            const keyNote = document.getElementById('vector-key-note');
+            if (keyNote) keyNote.textContent = '';
+            return;
+          }
           const dpr = window.devicePixelRatio || 1;
           // Size the backing store to the overlay's *content* box (the canvas
           // bitmap fills the content box, inside its border) so a raster pixel
@@ -4018,15 +4032,23 @@ export function renderImagePanelHtml(
           const vw = Number((document.getElementById('width-vectors') || {}).value);
           const drawn = paintVectorKey(ctx, [0, 0, o.width, o.height], sx,
             (Number.isFinite(vw) && vw > 0 ? vw : 1) * dpr, dpr);
+          // A map too small for the key says so, rather than showing none
+          // without a word (#1168). A canvas not laid out yet has no size to
+          // be too small for, and is drawn again once it has one.
+          const note = document.getElementById('vector-key-note');
+          if (note) {
+            note.textContent = drawn && drawn.leftOff && o.clientWidth > 0 ? VECTOR_KEY_LEFT_OFF : '';
+          }
           // What was drawn, in canvas pixels, for a test to measure against.
-          if (drawn) o.dataset.vectorKey = JSON.stringify(drawn);
+          if (drawn && !drawn.leftOff) o.dataset.vectorKey = JSON.stringify(drawn);
         }
 
         // Paint the arrow key into the map at \`region\` ([x, y, width, height]
         // of \`ctx\`), where one raster pixel is \`scale\` pixels, with the shaft
         // \`lineWidth\` wide and the label and spacing sized in units of \`unit\`
         // pixels: a CSS pixel on screen, a PNG pixel in an export. Returns what
-        // it drew, or null when there is no key to draw.
+        // it drew, \`{ leftOff: true }\` when the key does not fit the region,
+        // or null when there is no key to draw.
         function paintVectorKey(ctx, region, scale, lineWidth, unit) {
           if (!lastVectors || !vectorsEnabled()) return null;
           // No arrow drawn, so no scale: Rust reports neither a speed nor a
@@ -4043,25 +4065,25 @@ export function renderImagePanelHtml(
           const fontPx = 11 * unit;
           ctx.save();
           ctx.font = fontPx + 'px sans-serif';
-          // An arrow's length is in proportion to its speed, so a key too long
-          // for the map (a wide spacing, a deep zoom) is halved with its speed
-          // until it fits, rather than run off the edge.
-          let share = 1;
-          let label = composeVectorScale(speed, UNITS);
-          while (share > 1 / 64 &&
-            full * scale * share + ctx.measureText(label).width + 3 * pad > rw - 2 * inset) {
-            share /= 2;
-            label = composeVectorScale(speed * share, UNITS);
-          }
-          const length = full * scale * share;
           // The head is the one Rust gives each arrow: barbs a third of the
           // shaft long (HEAD_FRACTION), turned 155° from it (HEAD_ANGLE_DEG).
-          const barb = 0.32 * length;
           const turn = 155 * Math.PI / 180;
+          // Always a full-length arrow, so the label is the reference speed the
+          // Vectors row gives. Rust holds a full-length arrow to a quarter of
+          // the map's shorter side (#1168), so it fits beside its label on any
+          // map but a very small one, which has no key and says so rather
+          // than run the key off its edge.
+          const label = composeVectorScale(speed, UNITS);
+          const length = full * scale;
+          const barb = 0.32 * length;
           const textW = ctx.measureText(label).width;
           const headH = barb * Math.sin(turn);
           const boxW = pad + length + pad + textW + pad;
           const boxH = Math.max(fontPx, 2 * headH + lineWidth) + 2 * pad;
+          if (boxW > rw - 2 * inset || boxH > rh - 2 * inset) {
+            ctx.restore();
+            return { leftOff: true };
+          }
           const boxX = rx + inset;
           const boxY = ry + rh - inset - boxH;
           // A backing in the editor's own background, so the key reads over
@@ -4091,9 +4113,9 @@ export function renderImagePanelHtml(
           ctx.fillText(label, tip + pad, y);
           ctx.restore();
           return {
-            tail: tail, tip: tip, y: y, length: length, share: share, lineWidth: lineWidth,
+            tail: tail, tip: tip, y: y, length: length, lineWidth: lineWidth,
             colour: colour, label: label, labelColour: labelColour, fontPx: fontPx,
-            box: [boxX, boxY, boxW, boxH],
+            box: [boxX, boxY, boxW, boxH], region: [rx, ry, rw, rh],
           };
         }
 
@@ -4135,7 +4157,11 @@ export function renderImagePanelHtml(
         // colorbar and title are redrawn (their on-screen form is DOM/CSS).
         // The arrow key the last export drew, in PNG pixels, for a test.
         let exportedKey = null;
+        // Whether the last export's map was too small for the key (#1168),
+        // which the export's result line then says.
+        let exportKeyLeftOff = false;
         function exportPng() {
+          exportKeyLeftOff = false;
           if (!lastPayload || !lastPayload.width) {
             setExportStatus('Render the field before exporting a PNG.');
             return;
@@ -4195,7 +4221,8 @@ export function renderImagePanelHtml(
             const weight = (Number.isFinite(vw) && vw > 0 ? vw : 1)
               * (window.devicePixelRatio || 1) * (W / overlay.width);
             const key = paintVectorKey(g, [margin, mapY, W, H], 1, weight, 1);
-            exportedKey = key;
+            exportedKey = key && !key.leftOff ? key : null;
+            exportKeyLeftOff = !!(key && key.leftOff);
             drawOverlay();
           }
           // Colorbar: gradient (bottom = min, top = max) + min/mid/max labels.
@@ -4249,7 +4276,8 @@ export function renderImagePanelHtml(
         function handleExportPngDone(msg) {
           const outcome = msg.outcome || {};
           if (outcome.status === 'saved') {
-            setExportStatus('Exported PNG to ' + outcome.path);
+            setExportStatus('Exported PNG to ' + outcome.path
+              + (exportKeyLeftOff ? '. ' + VECTOR_KEY_LEFT_OFF : ''));
           } else if (outcome.status === 'cancelled') {
             setExportStatus('PNG export cancelled.');
           } else {

@@ -2200,6 +2200,20 @@ const HEAD_FRACTION: f64 = 0.32;
 #[cfg(feature = "render")]
 const HEAD_ANGLE_DEG: f64 = 155.0;
 
+/// The longest a full-length arrow is drawn, as a share of the raster's
+/// shorter side (#1168). A full-length arrow is the spacing between arrows on
+/// screen, which a zoom spreads without limit: 0.01° into a 2.5° grid at the
+/// automatic spacing, it was some 1,500 map widths, drawn as a headless line
+/// across the map, with a key too long to fit. Capped, it stays on the map
+/// with its head, as matplotlib's quiver keeps its arrows a share of the axes'
+/// width whatever the data's scale. A quarter leaves the whole-map views of
+/// the automatic spacing untouched: there a full-length arrow is about a
+/// twelfth of the shorter side on every target (0.066 to 0.086 on the GFS
+/// fixture), so the cap first holds at about three times that spacing, or
+/// two clicks of the panel's zoom in.
+#[cfg(feature = "render")]
+const MAX_FULL_ARROW_SHARE: f64 = 0.25;
+
 /// How near a pole, in degrees of latitude, a cell must be for no arrow to be
 /// drawn from it. A pole row's latitude comes back as exactly ±90 from a
 /// regular grid and to within about 1e-13° through a rotation, so this only
@@ -2327,8 +2341,10 @@ pub struct VectorArrows {
     /// sampled neighbours span on screen. So a full-speed arrow reaches about
     /// as far as its neighbour's tail, as it did when arrows were measured on
     /// the Earth, and a sparser spacing, a zoom or a projection that spreads
-    /// the cells lengthens every arrow and the key together. `None` when no
-    /// arrow is drawn.
+    /// the cells lengthens every arrow and the key together, up to a quarter
+    /// of the raster's shorter side (#1168): past that, a zoom spreads the
+    /// arrows apart without lengthening them, so they stay on the map with
+    /// their heads. `None` when no arrow is drawn.
     pub reference_length: Option<f64>,
 }
 
@@ -2668,7 +2684,10 @@ struct Neighbourhood {
 /// Only cells on the raster are counted, so a zoomed window or a globe sizes
 /// its arrows by the spacing a reader sees there, not by the far side of the
 /// map; when none is (the window lies between sampled cells), every cell that
-/// projects is. `None` when no cell has a neighbour that projects.
+/// projects is. The result is capped at [`MAX_FULL_ARROW_SHARE`] of the
+/// raster's shorter side, so a deep zoom or a sparse spacing draws arrows that
+/// fit on the map with their heads, and a key that fits beside them (#1168).
+/// `None` when no cell has a neighbour that projects.
 #[cfg(feature = "render")]
 fn full_arrow_pixels(
     place: &impl Fn((f64, f64)) -> Option<(f64, f64)>,
@@ -2706,7 +2725,10 @@ fn full_arrow_pixels(
     }
     let mut spacings = if seen.is_empty() { all } else { seen };
     spacings.sort_by(f64::total_cmp);
-    spacings.get(spacings.len() / 2).copied()
+    let longest = MAX_FULL_ARROW_SHARE * width.min(height);
+    spacings
+        .get(spacings.len() / 2)
+        .map(|&spacing| spacing.min(longest))
 }
 
 /// Which way an arrow points on screen: a unit vector in pixel space, the

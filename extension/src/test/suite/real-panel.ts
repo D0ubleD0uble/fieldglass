@@ -172,12 +172,13 @@ export interface ExportedKey {
   tip: number;
   y: number;
   length: number;
-  share: number;
   lineWidth: number;
   label: string;
   labelColour: string;
   fontPx: number;
   box: [number, number, number, number];
+  /** `[x, y, width, height]` of the map in the PNG. */
+  region: [number, number, number, number];
 }
 
 /** The arrow key as the page drew it (#1046), in overlay canvas pixels. */
@@ -188,14 +189,13 @@ export interface VectorKeyState {
     tip: number;
     y: number;
     length: number;
-    /** The share of a full-length arrow drawn: 1, or halved until the key
-     *  fits the map. */
-    share: number;
     lineWidth: number;
     colour: string;
     label: string;
     /** `[x, y, width, height]` of the key's backing. */
     box: [number, number, number, number];
+    /** `[x, y, width, height]` of the map the key was fitted into. */
+    region: [number, number, number, number];
   };
   /** The shaft read off the canvas's own pixels, along the row through its
    *  middle: the first pixel at least half the arrow's colour, and one past

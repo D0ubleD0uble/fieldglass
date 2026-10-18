@@ -25,7 +25,7 @@ import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import { resolveRerenderOptions } from "../../provider";
-import { composeVectorScale, composeVectorScaleNote } from "../../render-panel";
+import { composeVectorScale, composeVectorScaleNote, VECTOR_KEY_LEFT_OFF } from "../../render-panel";
 import {
   extensionPath,
   isType,
@@ -70,15 +70,15 @@ function pairFile(): string {
 }
 
 /** The tail and tip of every arrow the result drew whole, in raster pixels. */
-function wholeArrows(result: Msg): Array<{ tail: [number, number]; length: number }> {
+function wholeArrows(result: Msg): Array<{ tail: [number, number]; tip: [number, number]; length: number }> {
   const xy: ArrayLike<number> = result.xy;
   const segs: ArrayLike<number> = result.segLengths;
-  const out: Array<{ tail: [number, number]; length: number }> = [];
+  const out: Array<{ tail: [number, number]; tip: [number, number]; length: number }> = [];
   let at = 0;
   for (let s = 0; s < segs.length; s++) {
     if (segs[s] === ARROW_VERTICES) {
       const [x0, y0, x1, y1] = [xy[at * 2], xy[at * 2 + 1], xy[at * 2 + 2], xy[at * 2 + 3]];
-      out.push({ tail: [x0, y0], length: Math.hypot(x1 - x0, y1 - y0) });
+      out.push({ tail: [x0, y0], tip: [x1, y1], length: Math.hypot(x1 - x0, y1 - y0) });
     }
     at += segs[s];
   }
@@ -128,11 +128,17 @@ interface Drawn {
   result: Msg;
   /** The raster's width, which the overlay is scaled from. */
   rasterWidth: number;
+  rasterHeight: number;
 }
 
 /** Wait for the arrows the page asks for after `from`, until it has stopped
  *  asking, then read the page. */
-async function arrowsAfter(panel: RealPanel, from: { sent: number; received: number }, what: string): Promise<Drawn> {
+async function arrowsAfter(
+  panel: RealPanel,
+  from: { sent: number; received: number },
+  what: string,
+  keyed = true,
+): Promise<Drawn> {
   await panel.waitSent(isType("vectorResult"), from.sent, `the arrows for ${what}`);
   for (;;) {
     // A round trip through the page: everything sent before it is handled.
@@ -145,15 +151,27 @@ async function arrowsAfter(panel: RealPanel, from: { sent: number; received: num
     }
     assert.ok(!result.error, `${what}: ${result.error}`);
     const grid = panel.sent.filter(isType("gridReady")).pop();
-    assert.ok(state.vectorKey, `${what}: a key is drawn`);
-    return { state, key: state.vectorKey, request, result, rasterWidth: grid.width };
+    if (keyed) assert.ok(state.vectorKey, `${what}: a key is drawn`);
+    return {
+      state,
+      key: state.vectorKey as VectorKeyState,
+      request,
+      result,
+      rasterWidth: grid.width,
+      rasterHeight: grid.height,
+    };
   }
 }
 
 /** Wait for the render the page asks for after `from`, then for its arrows. */
-async function renderAfter(panel: RealPanel, from: { sent: number; received: number }, what: string): Promise<Drawn> {
+async function renderAfter(
+  panel: RealPanel,
+  from: { sent: number; received: number },
+  what: string,
+  keyed = true,
+): Promise<Drawn> {
   const grid = await panel.waitSent(isType("gridReady"), from.sent, `the ${what} render`);
-  return arrowsAfter(panel, { sent: panel.sent.indexOf(grid) + 1, received: from.received }, what);
+  return arrowsAfter(panel, { sent: panel.sent.indexOf(grid) + 1, received: from.received }, what, keyed);
 }
 
 const mark = (panel: RealPanel) => ({ sent: panel.sent.length, received: panel.received.length });
@@ -165,7 +183,8 @@ function assertKeyMatches(d: Drawn, file: string, what: string): void {
   const reference = d.result.referenceLength;
   assert.ok(typeof reference === "number" && reference > 0, `${what}: a reference length, got ${reference}`);
   // The page drew what it was given, scaled as the arrows are.
-  assert.strictEqual(d.key.drawn.share, 1, `${what}: the key fits the map at full length`);
+  const [bx, by, bw, bh] = d.key.drawn.box;
+  assert.ok(bx + bw <= d.key.canvas.width && by + bh <= d.key.canvas.height, `${what}: the key fits the map`);
   assert.ok(
     Math.abs(d.key.drawn.length - reference * scale) < 1e-6,
     `${what}: drawn ${d.key.drawn.length} px for ${reference} raster px × ${scale}`,
@@ -327,6 +346,12 @@ async function exportPng(panel: RealPanel): Promise<{ image: ReturnType<typeof d
     await panel.drive([{ id: "export-png", click: true }]);
     const exported = await waitUntil(() => panel.received.slice(from).find(isType("exportPng")), "the exported PNG");
     const png = Buffer.from(String(exported.dataUrl).replace(/^data:image\/png;base64,/, ""), "base64");
+    // Kept for a reviewer to look at, when asked for: FIELDGLASS_SHOTS_DIR.
+    const shots = process.env.FIELDGLASS_SHOTS_DIR;
+    if (shots) {
+      fs.mkdirSync(shots, { recursive: true });
+      fs.writeFileSync(path.join(shots, `vector-key-${Date.now()}.png`), png);
+    }
     const state = await panel.drive([]);
     assert.ok(state.exportedKey, "the export drew a key");
     return { image: decodePng(png), key: state.exportedKey };
@@ -382,43 +407,76 @@ suite("Vector key (#1046)", () => {
       );
       assert.ok(longestDrawn(sparse) > longestDrawn(equirect), "and so do the arrows");
 
-      // Zoomed in, the window is a few sampled cells across, and a
-      // full-length arrow would run off the map: the key is halved, speed and
-      // all, until it fits.
+      // Zoomed in, the window is a few sampled cells across. A full-length
+      // arrow lengthens with the zoom until it is a quarter of the map's
+      // shorter side, and holds there (#1168): the arrows spread apart
+      // rather than run off the map, and the key stays on it.
       let zoomed: Drawn | undefined;
-      const lengths: string[] = [];
-      for (let k = 0; k < 6 && !(zoomed && zoomed.key.drawn.share < 1); k++) {
+      const lengths: number[] = [sparse.result.referenceLength];
+      for (let k = 0; k < 6; k++) {
         from = mark(panel);
         await panel.drive([{ id: "zoom-in", click: true }]);
         zoomed = await renderAfter(panel, from, `zoom ${k + 1}`);
-        lengths.push(`${zoomed.key.drawn.length.toFixed(1)} of ${zoomed.key.canvas.width}`);
+        const length = zoomed.result.referenceLength;
+        assert.ok(
+          length >= lengths[lengths.length - 1] - 1e-9,
+          `zooming in never shortens it: ${lengths.join(", ")}, ${length}`,
+        );
+        lengths.push(length);
+        const [bx, , bw] = zoomed.key.drawn.box;
+        assert.ok(bx + bw <= zoomed.key.canvas.width, `zoom ${k + 1}: the key is on the map`);
       }
       assert.ok(zoomed);
-      const half = zoomed.key;
-      assert.ok(half.drawn.share < 1, `the key is cut to fit: ${lengths.join(", ")}`);
-      assert.ok(half.drawn.tip < half.canvas.width, "and its arrow is on the map");
-      assert.strictEqual(half.drawn.label, composeVectorScale(zoomed.result.referenceSpeed * half.drawn.share, "Pa"));
+      const capped = 0.25 * Math.min(zoomed.rasterWidth, zoomed.rasterHeight);
       assert.ok(
-        Math.abs(
-          half.drawn.length -
-            zoomed.result.referenceLength * (half.canvas.width / zoomed.rasterWidth) * half.drawn.share,
-        ) < 1e-6,
-        `the cut key is that share of a full-length arrow: ${half.drawn.length} px`,
+        Math.abs(zoomed.result.referenceLength - capped) < 1e-9,
+        `held at a quarter of the ${zoomed.rasterWidth} × ${zoomed.rasterHeight} map: ${lengths.join(", ")}`,
       );
-      assert.ok(
-        zoomed.result.referenceLength > sparse.result.referenceLength * 4,
-        `zooming in lengthens a full-length arrow: ${sparse.result.referenceLength} → ${zoomed.result.referenceLength} px`,
-      );
+      assert.ok(longestDrawn(zoomed) <= zoomed.key.drawn.length + 1, "and no arrow is longer than the key");
+
+      // A panel narrowed step by step: the key stays a full-length arrow
+      // labelled with the reference speed, on the map, until the map is too
+      // small for it and its label; then there is no key and the Vectors row
+      // says why. (The overlay is redrawn when arrows arrive, so each width
+      // asks for them again, at a spacing whose arrows are all held to the
+      // same full length at this zoom.)
+      let leftOff = false;
+      for (let px = 300; px >= 60 && !leftOff; px -= 8) {
+        await panel.drive([{ id: "body", width: `${px}px` }]);
+        from = mark(panel);
+        await panel.drive([{ id: "vector-spacing", value: px % 16 === 0 ? 6 : 7 }]);
+        const { state, result } = await arrowsAfter(panel, from, `a ${px}px panel`, false);
+        assert.ok(Math.abs(result.referenceLength - capped) < 1e-9, `${px}px: still held at a quarter of the map`);
+        const k = state.vectorKey;
+        if (!k) {
+          assert.ok(state.text.includes(VECTOR_KEY_LEFT_OFF), `${px}px: no key, and the row says why`);
+          leftOff = true;
+          continue;
+        }
+        assert.ok(!state.text.includes(VECTOR_KEY_LEFT_OFF), `${px}px: a key, and no note`);
+        const [bx, by, bw, bh] = k.drawn.box;
+        assert.ok(bx + bw <= k.canvas.width && by + bh <= k.canvas.height, `${px}px: the key is on the map`);
+        assert.strictEqual(k.drawn.label, composeVectorScale(result.referenceSpeed, "Pa"));
+        assert.ok(
+          Math.abs(k.drawn.length - result.referenceLength * (k.canvas.width / zoomed.rasterWidth)) < 1e-6,
+          `${px}px: the key is a full-length arrow`,
+        );
+      }
+      assert.ok(leftOff, "a panel too small for the key leaves it off");
+      await panel.drive([{ id: "body", width: "" }]);
       from = mark(panel);
-      await panel.drive([{ id: "zoom-reset", click: true }]);
+      await panel.drive([
+        { id: "zoom-reset", click: true },
+        { id: "vector-spacing", value: 12 },
+      ]);
       const wide = await renderAfter(panel, from, "Reset view");
-      assert.strictEqual(wide.key.drawn.share, 1, "and full length again on the whole map");
+      assertKeyMatches(wide, file, "Reset view");
+      assert.ok(!wide.state.text.includes(VECTOR_KEY_LEFT_OFF), "and the note goes with it");
 
       // The export carries the key, drawn at the PNG's own resolution: the
       // map is the raster's size there, so a full-length arrow is
       // `referenceLength` PNG pixels, beside arrows exported at that scale.
       const exported = await exportPng(panel);
-      assert.strictEqual(exported.key.share, 1);
       assert.ok(
         Math.abs(exported.key.length - wide.result.referenceLength) < 1e-6,
         `the exported key is ${exported.key.length} px for ${wide.result.referenceLength} raster px`,
@@ -447,7 +505,7 @@ suite("Vector key (#1046)", () => {
       assert.ok(height >= 7, `the label is ${height} px tall in the PNG`);
       assert.strictEqual(shrunk.key.fontPx, 11, "the label is the colour bar's size in the PNG");
       assert.ok(
-        Math.abs(shrunk.key.length - large.result.referenceLength * shrunk.key.share) < 1e-6,
+        Math.abs(shrunk.key.length - large.result.referenceLength) < 1e-6,
         "and the key is still a full-length arrow at the PNG's scale",
       );
       await panel.drive([{ id: "body", width: "" }]);
@@ -467,6 +525,109 @@ suite("Vector key (#1046)", () => {
       // Arrows off: no key.
       const off = await panel.drive([{ id: "overlay-vectors", checked: false }]);
       assert.strictEqual(off.vectorKey, null, "no arrows, no key");
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(path.dirname(file), { recursive: true, force: true });
+    }
+  });
+
+  // #1168: a full-length arrow is the spacing between arrows on screen, which
+  // a zoom spreads without limit. At the deepest zoom (a hundredth of a
+  // degree) on this 2.5° grid it was some 1,500 map widths: a headless line
+  // across the map, and a key whose halving stopped at 1/64 and ran its label
+  // off the map. Now a full-length arrow is held to a quarter of the map's
+  // shorter side, the arrows stay on it with their heads, and the key is a
+  // whole full-length arrow beside its speed.
+  test("at the deepest zoom the arrows keep their heads and the key fits, in the panel and the PNG", async function () {
+    this.timeout(240_000);
+    const p = await provider();
+    const file = pairFile();
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let from = mark(panel);
+      await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+      await panel.waitSent(isType("gridReady"), from.sent, "the equirectangular render");
+      from = mark(panel);
+      await panel.drive([
+        { id: "color-vectors", value: INK },
+        { id: "width-vectors", value: WEIGHT },
+        { id: "vector-field-v", value: 1 },
+        { id: "overlay-vectors", checked: true },
+      ]);
+      await arrowsAfter(panel, from, "Equirectangular");
+
+      // Zoom in with + to the panel's floor of 0.01°: 360° halves to it in
+      // sixteen steps. A click at the floor renders nothing new. + zooms about
+      // the map's centre, which is a sampled cell (the equator, at a column
+      // the automatic spacing of 6 samples), so one arrow starts in view.
+      let deep: Drawn | undefined;
+      let span = Infinity;
+      for (let k = 0; k < 24 && span > 0.01 + 1e-9; k++) {
+        from = mark(panel);
+        await panel.drive([{ id: "zoom-in", click: true }]);
+        deep = await renderAfter(panel, from, `zoom ${k + 1}`, false);
+        const o = deep.request.options;
+        span = o.boundsLonMax - o.boundsLonMin;
+      }
+      assert.ok(deep);
+      assert.ok(Math.abs(span - 0.01) < 1e-9, `the window is at the floor: ${span}°`);
+      // Exported before anything is checked, so a failure still leaves the
+      // PNG for FIELDGLASS_SHOTS_DIR.
+      const exported = await exportPng(panel);
+
+      // The arrows: a full-length one fits on the map, and an arrow drawn from
+      // a cell in view is there whole, head and all.
+      const [w, h] = [deep.rasterWidth, deep.rasterHeight];
+      const full = deep.result.referenceLength;
+      assert.ok(typeof full === "number" && full > 0, `a full-length arrow, got ${full}`);
+      assert.ok(full <= Math.min(w, h), `a full-length arrow is ${full} px on a ${w} × ${h} map`);
+      const onMap = (x: number, y: number) => x >= -0.5 && x <= w - 0.5 && y >= -0.5 && y <= h - 0.5;
+      const whole = wholeArrows(deep.result).filter((a) => onMap(...a.tail) && onMap(...a.tip));
+      assert.ok(whole.length >= 1, `an arrow is on the map with its head: ${wholeArrows(deep.result).length} drawn`);
+
+      // The key inside the map, and true to its label.
+      const inside = (box: number[], region: number[], what: string) => {
+        const [bx, by, bw, bh] = box;
+        const [rx, ry, rw, rh] = region;
+        assert.ok(
+          bx >= rx && by >= ry && bx + bw <= rx + rw + 1e-6 && by + bh <= ry + rh + 1e-6,
+          `${what}: the key [${box.map((v) => v.toFixed(1))}] is inside the map [${region.map((v) => v.toFixed(1))}]`,
+        );
+      };
+      const key = deep.state.vectorKey;
+      assert.ok(key, "a key is drawn");
+      {
+        inside(key.drawn.box, key.drawn.region, "the panel");
+        const scale = key.canvas.width / w;
+        assert.ok(
+          Math.abs(key.drawn.length - full * scale) < 1e-6,
+          "the key is a full-length arrow",
+        );
+        assert.strictEqual(key.drawn.label, composeVectorScale(deep.result.referenceSpeed, "Pa"));
+        assert.ok(key.measured, "the shaft is on the canvas");
+        assert.ok(!deep.state.text.includes(VECTOR_KEY_LEFT_OFF), "and the row does not say it was left off");
+      }
+
+      // The PNG, decoded: the key's shaft and label are in it, inside the map.
+      {
+        inside(exported.key.box, exported.key.region, "the PNG");
+        assert.ok(
+          Math.abs(exported.key.length - full) < 1e-6,
+          `the exported key is ${exported.key.length} px for a full-length arrow of ${full} px`,
+        );
+        assert.strictEqual(
+          exported.key.label,
+          composeVectorScale(deep.result.referenceSpeed, "Pa"),
+        );
+        const [bx, by, bw, bh] = exported.key.box;
+        assert.ok(bx + bw <= exported.image.width && by + bh <= exported.image.height, "the key is inside the image");
+        const run = longestInkRun(exported.image);
+        assert.ok(run >= exported.key.length, `the key's shaft is ${run} px in the PNG, for ${exported.key.length}`);
+        assert.ok(labelHeight(exported.image, exported.key) >= 7, "its label is drawn in the PNG");
+      }
     } finally {
       panel.dispose();
       editor.close();
