@@ -114,7 +114,7 @@ which is the refusal §39 expects.
 - **F14** (§6): the speed key `⟶ 18.1 m s⁻¹` is a fixed glyph, so a reader can't see what a full-length arrow looks like. Filed as #1046 (draw a real reference arrow). #1045 is also confirmed as a half-fan at the South Pole in Orthographic −90.
 - **F15** (§6, discussion): arrows over u-only colours, the from/to wind-direction conventions, derived fields and layering. Filed #1049 (0.6.0: warn on a non-u/v pair), #1047 (0.7.0: derived speed and direction with from/to), #1048 (0.7.0, needs-decision: arrows over any coloured field, plus the ROADMAP "manage layers" wording).
 - **F16** (§6.7): Borders draws country lines only (NE 1:110m admin-0), with no state lines, and is coarse when zoomed in. Filed as 0.7.0 feature #1050.
-- **F17** (§6.9): the arrow refusal ("component frame differs") stays on screen after a valid pair draws, because it shares the contour status line and is never cleared. Filed as #1051.
+- **F17** (§6, `hrrr_frames.grib2`): the arrow refusal ("component frame differs") stays on screen after a valid pair draws, because it shares the contour status line and is never cleared. Filed as #1051.
 
 - **Note** (§7): after panning, lon reached 171 to 394 on `gfs.grib2`. The window runs past 360 and folds back once it is fully past. The owner finds this reasonable. Not filed; the §1 open question is closed.
 - **F18** (§7, feature): with the colour scale on auto, zooming or panning rescales it to the values in the window. So the colours change even though the data didn't. Filed as #1079 (0.7.0): lock the auto range by default from the full view, with a Lock toggle.
@@ -138,6 +138,7 @@ Checks to run again once the issue's fix has merged and the addon and extension 
 | #1045 | `gfs_wind.grib2` arrows: no band along the top or bottom edge in Equirectangular, and no starburst at either pole in Orthographic ±90. | in plan §6, plus arrowheads square on their shafts (PR #1089) |
 | #1046 | `gfs_wind.grib2` arrows: the key is an arrow as long as an arrow at its speed is drawn (the fastest arrow, when it is on the map), follows spacing, zoom and projection changes, and is in an exported PNG with a readable label. On Equirectangular, arrows near the poles can be longer than the key (the map stretches them). | in plan §6 |
 | #1049 | `gfs_wind.grib2` UGRD+VGRD: no note. `cmc_pair.grib`: the not-a-u/v-pair note, and arrows still draw. VGRD as u: the swapped-order note. With #1142: `gfs_unnamed_pair.grib2` (two parameters no table names): arrows, and no pair note. | in plan §6 |
-| #1051 | `hrrr_frames.grib2`: V #1 refused, then V #2 draws and the refusal is gone. Unticking Arrows clears the message. | in plan §6.9 |
+| #1051 | `hrrr_frames.grib2`: V #1 refused, then V #2 draws and the refusal is gone. Unticking Arrows clears the message. | in plan §6 (refusal line, export line; PR #1143) |
 | #1091 | `gfs.grib2` on Source projection: no Resampling picker. Equirectangular: it shows. Bilinear, then Source and back: still Bilinear and the map is unchanged. | in plan §1 (PR #1097) |
 | #1099 | `ncep_air_daily_2024.nc` `air`: Mollweide with Bilinear, then a time × lat cross-section, then back to lon × lat: Mollweide and Bilinear come back. The same through `netcdf4_dimscale.nc` temperature → lat_bnds → temperature. | in plan §5, §18 (PR #1107) |
+| #1114 | `mrms.grib2`: pick Mollweide and click at once; the readout matches the image still up. Cross-section Flip Y axis: labels and readout turn over with the image. | in plan §7, No manual check |
