@@ -240,7 +240,11 @@ suite("Vector arrows", () => {
     );
     assert.match(noArrows, /<fieldset id="vector-fieldset" hidden>/, "the Vectors row is hidden");
     assert.match(noArrows, /<li data-kind="notYet">[^<]*\bVectors\b[^<]*: ([^<]*)<\/li>/, "with a not-yet reason");
-    assert.ok(noArrows.includes(`Vectors: ${SATELLITE_NOT_YET_REASON}`), "the satellite-view one (#979)");
+    // The long CSV layout shares the reason: a GRIB panel has Export CSV too (#1039).
+    assert.ok(
+      noArrows.includes(`Vectors, Long layout (Export CSV): ${SATELLITE_NOT_YET_REASON}`),
+      "the satellite-view one (#979)",
+    );
     assert.doesNotMatch(SATELLITE_NOT_YET_REASON, /position|none/);
     assert.ok(!noArrows.includes(UNPLACED_REASON), "not the not-placed one: this grid is placed");
     assert.doesNotMatch(noArrows, /rotated to true north/);
