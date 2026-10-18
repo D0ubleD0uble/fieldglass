@@ -20,7 +20,9 @@ flowchart LR
     end
     subgraph browser["fieldglass-app (planned, milestone 11)"]
         cat["sources.json<br/>(catalog is data)"] --> plan["fetchplan in wasm, built behind a feature (#1081)<br/>.idx → ranges + expect"]
+        cat --> zplan["Zarr windows in wasm, built behind a feature (#1083)<br/>store metadata → chunk keys"]
         plan --> fetch["fetch() with Range<br/>public bucket, CORS"]
+        zplan --> fetch
         fetch --> wb["wasm handle<br/>no cache"]
         wb --> gpu["values + mask textures<br/>+ Palette LUT texture<br/>shipped shader snippet"]
         wb -. CPU fallback .-> canvas2["RGBA → canvas"]
@@ -28,6 +30,41 @@ flowchart LR
     classDef planned stroke-dasharray: 6 4
     class cat,fetch,gpu,canvas2 planned
 ```
+
+## One window of a Zarr store
+
+A store is many objects, and the browser fetches only the ones a view needs.
+The store says which, in three rounds, each synchronous and reading only the
+objects already handed over (#1083):
+
+```mermaid
+sequenceDiagram
+    participant W as Worker (JS)
+    participant B as bucket (HTTPS)
+    participant H as wasm handle
+
+    W->>B: GET zarr.json (or .zmetadata)
+    W->>H: openStore(objects)
+    W->>H: coordinateChunks(variable)
+    H-->>W: ChunkRef[] for the coordinate arrays
+    W->>B: GET each coordinate chunk
+    W->>H: openStore(objects + coordinates)
+    W->>H: planWindow({ variable, yDim, xDim, bounds, sliceIndices })
+    H-->>W: WindowPlan { rows, columns, chunks }
+    W->>B: GET each planned chunk
+    W->>H: openStore(objects + chunks)
+    W->>H: decodeWindow(request)
+    H-->>W: Field over the window, placed at its own corners
+```
+
+A cell is in the box when its centre is, and a box across the seam of a global
+grid is two column runs read as one window. The plan's keys are spelled by the
+code the read fetches with (`ZarrStore::chunk_keys`), so fetching exactly them
+is enough. A key the Worker does not pass reads as the fill value, as an absent
+chunk does. Windows are planned over slices placed on a regular lat/lon grid,
+as 1-D latitude and longitude coordinates place them; any other placement is
+refused. Built behind `fieldglass-wasm`'s
+`zarr` feature until where it ships is decided.
 
 ## One field, from a bucket to a texture
 

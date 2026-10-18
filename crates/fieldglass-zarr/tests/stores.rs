@@ -685,6 +685,76 @@ fn reads_are_what_they_should_be() {
     );
 }
 
+/// `chunk_keys` names exactly the objects a read of the same region fetches,
+/// in the same order, for every key spelling and for shards (#1083). A host
+/// that plans with it and fetches only what it names holds everything the read
+/// will ask for.
+#[test]
+fn the_planned_keys_are_the_ones_a_read_fetches() {
+    for (store, array, region) in [
+        // `c/` keys, v3.
+        ("stores/v3_nested", "temp", vec![1..3, 2..5]),
+        // `.` keys, v2, ragged at both far edges.
+        ("stores/v2_nested", "temp", vec![3..5, 4..7]),
+        // `/` keys under the v2 encoding.
+        ("stores/v2_slash", "temp", vec![0..5, 0..7]),
+        // v3 with v2 keys.
+        ("stores/v3_v2keys", "k", vec![0..4, 2..4]),
+        // Shards: the objects are the shards, one of them never written.
+        ("stores/v3_sharded", "s", vec![0..5, 3..5]),
+        // The window store: three axes, one step of the leading one.
+        ("windows/window_v3", "t2m", vec![1..2, 3..7, 2..5]),
+    ] {
+        let objects = load(&format!("tests/fixtures/{store}"));
+        let zarr = ZarrStore::open(&objects).expect("opens");
+        let planned = zarr.chunk_keys(array, &region).expect("plans");
+        objects.clear();
+        let source: &dyn ArraySource = &zarr;
+        source.read_region(array, &region).expect("reads");
+        let keys: Vec<String> = planned.iter().map(|(_, key)| key.clone()).collect();
+        assert_eq!(objects.gets(), keys, "{store}: the read fetched other keys");
+        for (index, key) in &planned {
+            let rebuilt = zarr.chunk_keys(array, &chunk_region(source, array, index));
+            assert_eq!(
+                rebuilt.expect("plans").first().map(|(_, k)| k),
+                Some(key),
+                "{store}: chunk {index:?}"
+            );
+        }
+    }
+
+    let zarr = ZarrStore::open(load("tests/fixtures/windows/window_v2")).expect("opens");
+    let planned = zarr.chunk_keys("t2m", &[2..3, 0..2, 8..12]).expect("plans");
+    assert_eq!(
+        planned,
+        vec![(vec![2, 0, 2], "t2m/2.0.2".to_string())],
+        "the v2 spelling, from the store's root"
+    );
+    assert!(zarr.chunk_keys("missing", &[0..1]).is_err());
+    assert!(
+        zarr.chunk_keys("t2m", &[0..1, 0..1]).is_err(),
+        "a region of the wrong rank"
+    );
+    assert!(
+        zarr.chunk_keys("t2m", &[0..1, 0..9, 0..1]).is_err(),
+        "a region past the shape"
+    );
+}
+
+/// The element region one chunk covers, from its index.
+fn chunk_region(source: &dyn ArraySource, array: &str, index: &[u64]) -> Vec<Range<u64>> {
+    let grid = source
+        .array(array)
+        .and_then(|a| a.chunk_grid.clone())
+        .expect("a chunked array");
+    index
+        .iter()
+        .zip(grid.chunk_shape())
+        .zip(grid.shape())
+        .map(|((i, c), n)| i * c..((i + 1) * c).min(*n))
+        .collect()
+}
+
 /// The v2 metadata documents, which is all an unconsolidated walk ever fetches.
 const V2_DOCS: [&str; 3] = [".zgroup", ".zarray", ".zattrs"];
 

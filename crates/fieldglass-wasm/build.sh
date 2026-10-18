@@ -14,7 +14,8 @@
 #     --simd     add `-C target-feature=+simd128`, into `pkg/<kind>-simd`
 #     --features=<name>
 #                build with one of this crate's cargo features, into
-#                `pkg/<kind>-<name>`: `fetchplan` is the only one (#1081)
+#                `pkg/<kind>-<name>`: `fetchplan` (#1081) or `zarr`
+#                (#1083), or both as `fetchplan,zarr`
 #
 # Output lands in `pkg/`, which is gitignored: it is a build product, and
 # publishing it to npm is #466.

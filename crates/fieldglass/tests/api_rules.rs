@@ -41,6 +41,8 @@ use fieldglass::{
     SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo,
     VectorOptions, VectorPairing, Vertical, WarpOptions, WarpTarget, Warped,
 };
+// The window planner's (#1083), behind `netcdf` or `zarr`, both default.
+use fieldglass::{ChunkRef, WindowPlan, WindowRequest};
 // The planner's wire types (#1081). `fetchplan` is a default feature, so this
 // suite names them unconditionally: a build without it is not one this file is
 // meant to pass, and a compile error says so louder than a skipped check would.
@@ -175,6 +177,10 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
         Class::Handle,
         "owns the parsed message index; a host holds it, never sends it",
     ),
+    // --- session/window.rs: a lat/lon box over a variable (#1083) -----------
+    ("WindowRequest", Class::Wire, ""),
+    ("WindowPlan", Class::Wire, ""),
+    ("ChunkRef", Class::Wire, ""),
     // --- render.rs ----------------------------------------------------------
     ("RenderOptions", Class::Wire, ""),
     (
@@ -525,6 +531,9 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<Raster>();
     is_wire_shaped::<RenderOptions>();
     is_wire_shaped::<CandidateOptions>();
+    is_wire_shaped::<WindowRequest>();
+    is_wire_shaped::<WindowPlan>();
+    is_wire_shaped::<ChunkRef>();
 
     // The planner's (#1081), declared in `fieldglass-fetchplan`.
     is_wire_shaped::<PlanItem>();
@@ -577,6 +586,10 @@ fn every_option_type_is_constructible_from_outside_the_crate() {
     let mut at = CandidateOptions::new(1_788_500_000);
     at.step_hours = 6;
     assert_eq!(at.now_unix_secs, 1_788_500_000);
+
+    let mut window = WindowRequest::new(0, 1, 2, [0.0, 10.0, 350.0, 370.0], vec![0, 0, 0]);
+    window.slice_indices[0] = 4;
+    assert_eq!(window.bounds[3], 370.0);
 
     let mut query = Query::abbreviation("TMP").at_level_text("2 m above ground");
     query.unqualified = true;
@@ -724,6 +737,24 @@ fn every_wire_type_round_trips_through_json() {
         "CandidateOptions",
         r#"{"nowUnixSecs":1788500000,"stepHours":6}"#,
     );
+    // The window planner's (#1083): a plan over a store, and one over a file
+    // read by range, whose `chunks` is null.
+    round_trip::<WindowRequest>(
+        "WindowRequest",
+        r#"{"variable":0,"yDim":1,"xDim":2,"bounds":[55.0,75.0,-75.0,75.0],"sliceIndices":[2,0,0]}"#,
+    );
+    round_trip::<ChunkRef>(
+        "ChunkRef",
+        r#"{"array":"t2m","key":"t2m/c/2/0/2","index":[2,0,2]}"#,
+    );
+    round_trip::<WindowPlan>(
+        "WindowPlan",
+        r#"{"rows":[0,2],"columns":[[10,12],[0,3]],"ni":5,"nj":2,"chunks":[{"array":"t2m","key":"t2m/2.0.0","index":[2,0,0]}]}"#,
+    );
+    round_trip::<WindowPlan>(
+        "WindowPlan",
+        r#"{"rows":[1,3],"columns":[[1,4]],"ni":3,"nj":2,"chunks":null}"#,
+    );
 
     // The planner's (#1081). Every variant of each tagged enum, because the tag
     // spelling is per variant.
@@ -838,6 +869,9 @@ const ROUND_TRIPPED: &[&str] = &[
     "LeftOutArray",
     "LeftOutCause",
     "CandidateOptions",
+    "WindowRequest",
+    "WindowPlan",
+    "ChunkRef",
     "PlanItem",
     "PlanRange",
     "Address",
@@ -968,6 +1002,11 @@ const MODULES: &[(&str, &str)] = &[
     ("combine.rs", include_str!("../src/combine.rs")),
     ("error.rs", include_str!("../src/error.rs")),
     ("session.rs", include_str!("../src/session.rs")),
+    // The window planner (#1083), a child module of the session's.
+    (
+        "session/window.rs",
+        include_str!("../src/session/window.rs"),
+    ),
     ("render.rs", include_str!("../src/render.rs")),
     // A `pub mod` under a published feature, so its types are public surface
     // even though no host reads them.
@@ -1944,6 +1983,9 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<LeftOutArray>("LeftOutArray");
     check_schema::<LeftOutCause>("LeftOutCause");
     check_schema::<CandidateOptions>("CandidateOptions");
+    check_schema::<WindowRequest>("WindowRequest");
+    check_schema::<WindowPlan>("WindowPlan");
+    check_schema::<ChunkRef>("ChunkRef");
     check_schema::<PlanItem>("PlanItem");
     check_schema::<PlanRange>("PlanRange");
     check_schema::<Address>("Address");
@@ -2003,6 +2045,9 @@ const SCHEMA_CHECKED: &[&str] = &[
     "LeftOutArray",
     "LeftOutCause",
     "CandidateOptions",
+    "WindowRequest",
+    "WindowPlan",
+    "ChunkRef",
     "PlanItem",
     "PlanRange",
     "Address",
@@ -2167,10 +2212,11 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
         Error, Raster,
         PlanItem, PlanRange, Address, Expect, ParameterId, LevelSpec, Surface, Candidate,
+        WindowPlan, ChunkRef,
     );
     register!(sent:
         DecodeOptions, WarpOptions, PaletteOptions, RenderOptions, VectorOptions,
-        CandidateOptions, Query, SourceSpec,
+        CandidateOptions, Query, SourceSpec, WindowRequest,
     );
 
     let mut defs = sent.take_definitions(true);

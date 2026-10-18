@@ -20,7 +20,7 @@ use fieldglass::fetchplan::{
 };
 use wasm_bindgen::prelude::*;
 
-use crate::{throw, to_js};
+use crate::{strict, throw, to_js, unreadable};
 
 /// The table-backed resolver, built once per Worker.
 ///
@@ -38,27 +38,6 @@ fn resolver() -> &'static TableResolver {
 /// defaults" but a mistake, and is refused as one.
 fn required<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<T, JsValue> {
     serde_wasm_bindgen::from_value(value).map_err(|e| unreadable(what, &e))
-}
-
-/// Read an argument whose type refuses unknown keys, so that it does.
-///
-/// serde-wasm-bindgen reads a struct by asking the object for each field the
-/// struct names, so a key it does not name is never looked at and
-/// `deny_unknown_fields` cannot fire: `{ levelTxt: "2 mb" }` would read as an
-/// empty query and select every record. Reading the object into a JSON value
-/// first enumerates every key it has, and the type's own rule then applies.
-fn strict<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<T, JsValue> {
-    let json: serde_json::Value =
-        serde_wasm_bindgen::from_value(value).map_err(|e| unreadable(what, &e))?;
-    serde_json::from_value(json).map_err(|e| unreadable(what, &e))
-}
-
-/// An argument that did not read is the caller's to fix, so it is
-/// `invalid_option`, with serde's own message naming the key.
-fn unreadable(what: &str, e: &dyn std::fmt::Display) -> JsValue {
-    throw(fieldglass::Error::InvalidOption {
-        detail: format!("could not read the {what}: {e}"),
-    })
 }
 
 #[derive(Debug)]

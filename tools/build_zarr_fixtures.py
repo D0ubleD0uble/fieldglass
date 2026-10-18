@@ -26,6 +26,7 @@ Run from the repo root. Needs ``zarr`` and ``numcodecs``:
 
     python3 tools/build_zarr_fixtures.py                # the whole corpus
     python3 tools/build_zarr_fixtures.py --plan-only    # the planner's half
+    python3 tools/build_zarr_fixtures.py --windows-only # the window stores (#1083)
 
 ``--plan-only`` rebuilds the ``fieldglass-fetchplan`` fixtures from the
 committed stores without rewriting the corpus, which matters because gzip
@@ -260,6 +261,10 @@ def main() -> None:
     if "--twin-only" in sys.argv:
         write_cf_twin()
         return
+    # The window stores (#1083), likewise on their own.
+    if "--windows-only" in sys.argv:
+        write_window_fixtures()
+        return
 
     clean(ZARR_FIXTURES)
     clean(PLAN_FIXTURES)
@@ -421,6 +426,7 @@ def main() -> None:
 
     write_plan_fixtures()
     write_store_fixtures()
+    write_window_fixtures()
 
     print(f"wrote {len(oracle)} store fixtures to {ZARR_FIXTURES}")
     print(f"wrote the planner's addressing fixtures to {PLAN_FIXTURES}")
@@ -698,6 +704,148 @@ def write_store_fixtures() -> None:
         json.dumps(oracle, indent=1, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
     )
     print(f"wrote {len(oracle)} whole-store fixtures to {STORES}")
+
+
+# --- Window stores (#1083) ----------------------------------------------------
+#
+# One small forecast-shaped dataset — `t2m` over (time, latitude, longitude) —
+# written in each edition, for planning a lat/lon box and a time index into the
+# chunks it touches and decoding just those. Latitude runs north to south and
+# longitude 0..330 in 30-degree steps, so the grid is global and a box can cross
+# its seam; 8 x 12 cells in 3 x 4 chunks, ragged on latitude. Everything
+# expected is computed here from the coordinate values and read back through
+# xarray, never from the crate under test.
+
+WINDOWS = ZARR_FIXTURES / "windows"
+
+# The boxes, each `[lat_min, lat_max, lon_min, lon_max]` with `lon_max >=
+# lon_min` (the workspace convention: a box over the antimeridian runs past
+# 180 or below -180 rather than wrapping its bounds), plus the time index.
+WINDOW_CASES = [
+    # Two chunks on each horizontal axis, edges between cell centres.
+    ("crosses_chunk_edges", [5.0, 45.0, 50.0, 130.0], 1),
+    # Columns 300, 330, 0, 30, 60: two runs either side of the grid's seam, and
+    # the longitude chunk between them is not needed.
+    ("crosses_the_seam", [55.0, 75.0, -75.0, 75.0], 2),
+    # Every cell: the grid's own column order, not one starting at -180.
+    ("whole_grid", [-90.0, 90.0, -180.0, 180.0], 0),
+]
+
+
+def window_dataset():
+    import xarray as xr
+
+    lat = np.arange(70.0, -1.0, -10.0)
+    lon = np.arange(0.0, 360.0, 30.0)
+    time = np.array([0, 6, 12], dtype="<i8")
+    # Distinct and exact in float32: thousands are the step, hundreds the row,
+    # units the column, so a misplaced cell is a wrong number.
+    t2m = (
+        np.arange(3)[:, None, None] * 1000
+        + np.arange(8)[None, :, None] * 100
+        + np.arange(12)[None, None, :]
+    ).astype("<f4")
+    return xr.Dataset(
+        {"t2m": (("time", "latitude", "longitude"), t2m, {"units": "K"})},
+        coords={
+            "time": ("time", time, {"units": "hours since 2026-01-01 00:00:00", "standard_name": "time"}),
+            "latitude": ("latitude", lat, {"units": "degrees_north", "standard_name": "latitude"}),
+            "longitude": ("longitude", lon, {"units": "degrees_east", "standard_name": "longitude"}),
+        },
+    )
+
+
+def window_selection(lat, lon, bounds):
+    """The cells a box holds, by their centres: the rows whose latitude is in
+    `[lat_min, lat_max]`, and the columns whose longitude is in the eastward arc
+    from `lon_min` to `lon_max`, ordered eastward from `lon_min` — or every
+    column in storage order when the arc is the whole circle."""
+    lat_min, lat_max, lon_min, lon_max = bounds
+    rows = [j for j, v in enumerate(lat) if lat_min <= v <= lat_max]
+    span = lon_max - lon_min
+    if span >= 360.0:
+        return rows, list(range(len(lon)))
+    east = [((v - lon_min) % 360.0, i) for i, v in enumerate(lon)]
+    cols = [i for offset, i in sorted(east) if offset <= span]
+    return rows, cols
+
+
+def runs(indices):
+    """`indices` as half-open runs of consecutive values, in order."""
+    out = []
+    for i in indices:
+        if out and out[-1][1] == i:
+            out[-1][1] = i + 1
+        else:
+            out.append([i, i + 1])
+    return out
+
+
+def write_window_fixtures() -> None:
+    import xarray as xr
+
+    if WINDOWS.exists():
+        shutil.rmtree(WINDOWS)
+    WINDOWS.mkdir(parents=True)
+    dataset = window_dataset()
+    chunks = (1, 3, 4)
+    oracle: dict[str, dict] = {}
+    for edition in (2, 3):
+        name = f"window_v{edition}"
+        root = WINDOWS / name
+        # v2 through blosc (lz4, byte shuffle) and v3 through zstd, so both
+        # families of codec the browser has to carry are on the decoded path.
+        encoding = {"t2m": {"chunks": chunks}}
+        if edition == 2:
+            encoding["t2m"]["compressor"] = numcodecs.Blosc(cname="lz4", clevel=5, shuffle=1)
+        dataset.to_zarr(str(root), zarr_format=edition, consolidated=True, encoding=encoding, mode="w")
+
+        def key(array, index):
+            if edition == 2:
+                return f"{array}/" + ".".join(str(i) for i in index)
+            return f"{array}/c/" + "/".join(str(i) for i in index)
+
+        reread = xr.open_zarr(str(root), zarr_format=edition, consolidated=True)
+        lat = reread["latitude"].values
+        lon = reread["longitude"].values
+        windows = []
+        for label, bounds, step in WINDOW_CASES:
+            rows, cols = window_selection(lat, lon, bounds)
+            planned = sorted(
+                {(step // chunks[0], j // chunks[1], i // chunks[2]) for j in rows for i in cols}
+            )
+            values = reread["t2m"].isel(time=step, latitude=rows, longitude=cols).values
+            windows.append(
+                {
+                    "name": label,
+                    "bounds": bounds,
+                    "time": step,
+                    "rows": [rows[0], rows[-1] + 1],
+                    "columns": runs(cols),
+                    "chunks": [
+                        {"array": "t2m", "key": key("t2m", list(c)), "index": list(c)} for c in planned
+                    ],
+                    "latitude": [float(v) for v in lat[rows]],
+                    "longitude": [float(v) for v in lon[cols]],
+                    "values": [json_number(v) for v in values.ravel()],
+                }
+            )
+        oracle[name] = {
+            "edition": edition,
+            "variable": "t2m",
+            "dimensions": ["time", "latitude", "longitude"],
+            # The coordinate arrays of the variable's axes, in its axis order,
+            # each one chunk.
+            "coordinate_chunks": [
+                {"array": axis, "key": key(axis, [0]), "index": [0]}
+                for axis in ("time", "latitude", "longitude")
+            ],
+            "windows": windows,
+        }
+    (ZARR_FIXTURES / "windows_oracle.json").write_text(
+        json.dumps(oracle, indent=1, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {len(oracle)} window stores to {WINDOWS}")
 
 
 # The object the kerchunk fixtures address. Chunks are laid end to end with a

@@ -254,6 +254,34 @@
       ],
       "type": "object"
     },
+    "ChunkRef": {
+      "description": "One stored object a read needs: which array it belongs to, the key it is\nstored under from the store's root, and its index on that array's chunk\ngrid.\n\nThe key is what a host fetches, relative to the store's own URL, and what it\npasses back as the object's name. For a sharded array it is a shard.",
+      "properties": {
+        "array": {
+          "description": "The array, path-qualified as [`Session::variables`] names it.",
+          "type": "string"
+        },
+        "index": {
+          "description": "The chunk's position on the array's chunk grid, one entry per axis.",
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "key": {
+          "description": "The object's key from the store's root: `t2m/c/1/2/0`, `t2m/1.2.0`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "array",
+        "key",
+        "index"
+      ],
+      "type": "object"
+    },
     "CombineOpInfo": {
       "description": "One entry of the field-combine vocabulary: what a host's Compare picker\nshows and what it sends back.\n\n[`crate::combine_ops`] builds the whole list from\n[`CombineOp::ALL`](fieldglass_core::CombineOp::ALL), so both hosts offer\nthe same operations in the same order and an op added to the enum\nreaches each picker without either being edited (#342).",
       "properties": {
@@ -2896,6 +2924,117 @@
         "width",
         "height",
         "bounds"
+      ],
+      "type": "object"
+    },
+    "WindowPlan": {
+      "description": "Which cells a window holds and which chunks hold them.",
+      "properties": {
+        "chunks": {
+          "description": "Every chunk of the variable the window's cells sit in, in row-major\norder of their index, each once. Fetch these, and only these, before\n[`Session::decode_window`]. `null` for a container that is not stored\nas keyed objects — a NetCDF file, which a host reads by range.",
+          "items": {
+            "$ref": "#/$defs/ChunkRef"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "columns": {
+          "description": "The columns, as `[start, end)` runs along the request's X axis in the order the\nwindow holds them: one run, or two when the box crosses the seam of a\ngrid that closes on itself (the run east of the seam second). Empty when\nthe box holds no column.",
+          "items": {
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "ni": {
+          "description": "Columns in the window, the sum of the runs.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nj": {
+          "description": "Rows in the window.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rows": {
+          "description": "The rows the box holds, `[start, end)` along the request's Y axis, in\nstorage order.\n`[0, 0]` when it holds none.",
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "rows",
+        "columns",
+        "ni",
+        "nj",
+        "chunks"
+      ],
+      "type": "object"
+    },
+    "WindowRequest": {
+      "additionalProperties": false,
+      "description": "A window to plan or decode: a lat/lon box over two axes of a variable, and a\nposition on every other one.\n\nThe arguments [`Session::decode_slice`] takes, with the box added. The two\naxes are positions in the variable's own axes, and the slice indices hold\none entry per axis in the same order, the two horizontal ones ignored\nrather than absent, so a host passes the vector it already holds for the\nslice on screen.\n\n**On the wire** a host sends one as a camelCase object. Every key is\nrequired and an unknown one is refused: a misspelt `sliceIndex` dropped\nsilently would plan the first time step and label it the one asked for.",
+      "properties": {
+        "bounds": {
+          "description": "The box, `[latMin, latMax, lonMin, lonMax]` in degrees, the order a\nwarp's `bounds` uses. A cell is in it when its centre is, edges\nincluded. Longitude runs east from `lonMin` to `lonMax`, which may not\nbe smaller: a box over the antimeridian runs past 180 (`[.., 170, 190]`)\nrather than wrapping, and a span of 360 or more holds every column.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "sliceIndices": {
+          "description": "A position on every axis of the variable, the two horizontal ones\nignored: the time step, the level, the member.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "variable": {
+          "description": "Which variable, as a position in [`Session::variables`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "xDim": {
+          "description": "Which of its axes runs across the columns: a longitude.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "yDim": {
+          "description": "Which of its axes runs down the rows: a latitude.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "variable",
+        "yDim",
+        "xDim",
+        "bounds",
+        "sliceIndices"
       ],
       "type": "object"
     }

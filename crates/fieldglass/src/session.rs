@@ -297,7 +297,7 @@ struct Arrays {
     /// The container's structure and values. For NetCDF the dataset view is
     /// resolved once, on open: for a NetCDF-4 backing it walks the whole object
     /// model, and every variable and slice question is asked of it afterwards.
-    source: Box<dyn ArraySource>,
+    source: Box<Source>,
     /// What [`Session::format`] reports.
     format: SourceFormat,
     /// Slice placements already derived, keyed by what determines them
@@ -364,7 +364,7 @@ impl std::fmt::Debug for Arrays {
 impl Arrays {
     /// A container of arrays with an empty memo, which is how every arm that
     /// opens one starts.
-    fn new(source: Box<dyn ArraySource>, format: SourceFormat) -> Self {
+    fn new(source: Box<Source>, format: SourceFormat) -> Self {
         Self {
             source,
             format,
@@ -3541,3 +3541,21 @@ mod grib2_compiled_out {
         }
     }
 }
+
+// A lat/lon box planned into the chunks of a Zarr store it touches, and decoded
+// from them (#1083). A child module so it reaches the arrays arm without
+// widening it, and written below everything else so the rest of this file is
+// unchanged by it: a build without `zarr`, which is what the browser bundle is,
+// compiles exactly what it did before.
+#[cfg(feature = "zarr")]
+mod window;
+#[cfg(feature = "zarr")]
+pub use window::{ChunkRef, WindowPlan, WindowRequest};
+
+/// The container [`Arrays`] holds. With `zarr` it is the array seam plus the
+/// one question a window plan asks of a store and not of a file, which objects
+/// a region read fetches (`window::Keyed`); without it, the seam alone.
+#[cfg(feature = "zarr")]
+type Source = dyn window::Keyed;
+#[cfg(all(feature = "netcdf", not(feature = "zarr")))]
+type Source = dyn ArraySource;
