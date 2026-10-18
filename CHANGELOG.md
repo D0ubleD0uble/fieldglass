@@ -4,12 +4,6 @@ All notable changes to Fieldglass are documented here. The format roughly follow
 
 Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and every release is a stable one. Pre-1.0, a minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` → `0.3.1`) does not. The extension and the library crates share one version number.
 
-## [Unreleased]
-
-### Fixed
-
-- **A level in the dimensionless unit `1` no longer shows a stray `1`.** A sigma level read `0.995 1` in the slice steppers, the Animate label, the subtitle and the exported PNG name. Units of `1` are now left out there, and from the probe readout, the wind arrow key, the panel heading and the plot captions.
-
 ## [0.6.0] — 2026-10-12
 
 This release opens Zarr stores, adds animation, line plots, cross-sections, wind arrows, a zonal average, imported color tables, and zoom and pan to the viewer, reads szip-compressed HDF5, and names every ECMWF GRIB1 parameter. Fieldglass also runs in a browser as `@fieldglass/wasm`, and four more library crates join crates.io. The Rust API has breaking changes, listed under **Rust API**.
@@ -69,6 +63,8 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 - **GRIB2 fields are capped at 64 Mi points**, the same as GRIB1, down from 200 M. Real grids top out around 25 M points. A whole NetCDF or HDF5 variable read in one call is now capped at 2 GiB of memory rather than 200 M elements (see Fixed).
 
 ### Fixed
+
+- **A level in the dimensionless unit `1` no longer shows a stray `1`.** A sigma level read `0.995 1` in the slice steppers, the Animate label, the subtitle and the exported PNG name. Units of `1` are now left out there, and from the probe readout, the wind arrow key, the panel heading and the plot captions.
 
 - **A click while the panel redraws reads the image on screen.** After ticking Flip Y axis or picking another projection, the old image stays up until the new one arrives. A click in that time read the cell under the same point of the new image, and a cross-section's axis labels could turn over before the image did. The readout and the axis labels now follow the image shown: which way up its rows are, and the projection and extent of a map. Zoom and pan follow the map's projection and extent. Closes #1114.
 
