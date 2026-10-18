@@ -1003,8 +1003,8 @@ api_type! {
             parameter_category: Option<u8>,
             /// The parameter number (Code Table 4.2), `None` likewise.
             parameter_number: Option<u8>,
-            /// The level, or a layer's top. `None` for a product template that
-            /// carries no surface.
+            /// The level, or a layer's top. `None` for a product template the
+            /// reader does not parse.
             first_surface: Option<SurfaceCodes>,
             /// A layer's bottom: type 255 for a single level. `None` likewise.
             second_surface: Option<SurfaceCodes>,

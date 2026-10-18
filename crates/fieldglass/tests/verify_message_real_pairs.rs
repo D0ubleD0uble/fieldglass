@@ -15,7 +15,7 @@
 //! `verify_message` that accepted everything fails here too.
 
 use fieldglass::Session;
-use fieldglass::api::MessageInfo;
+use fieldglass::api::{MessageIdentity, MessageInfo};
 use fieldglass::fetchplan::{
     EcmwfIndex, Manifest, MessageManifest, Mismatch, NoResolver, PlanItem, Query, Wgrib2Idx,
     verify_envelope, verify_message,
@@ -62,6 +62,14 @@ fn refused_field(result: Result<(), Mismatch>) -> (&'static str, String) {
 fn gfs() -> Wgrib2Idx {
     Wgrib2Idx::parse("gfs.t00z.pgrb2.0p25.f000", &text("gfs_0p25.idx"))
         .expect("the committed sidecar parses")
+}
+
+fn gefs_chem() -> Wgrib2Idx {
+    Wgrib2Idx::parse(
+        "gefs.chem.t00z.a2d_0p25.f000.grib2",
+        &text("gefs_chem_a2d_0p25.idx"),
+    )
+    .expect("the committed sidecar parses")
 }
 
 fn ecmwf() -> EcmwfIndex {
@@ -154,5 +162,52 @@ fn an_ecmwf_record_for_another_level_is_refused() {
     assert_eq!(
         refused_field(verify_message(&mx2t3.expect, &info)),
         ("level", "sfc".to_string())
+    );
+}
+
+/// GEFS-aerosol record 22, `PMTC:surface:anl:aerosol=Dust dry:…`, against the
+/// 216,548 bytes at its offset (#1126). Its §4 is template 4.48 (optical
+/// properties of aerosol), which the reader does not parse, so the message's
+/// surfaces are unknown and the line's level has nothing to be compared with.
+#[test]
+fn a_gefs_aerosol_record_is_what_its_idx_line_promised() {
+    let idx = gefs_chem();
+    let item = idx.items()[21].clone();
+    assert_eq!(item.expect.abbreviation.as_deref(), Some("PMTC"));
+    assert_eq!(item.expect.level.as_deref(), Some("surface"));
+
+    let info = message(&item, read("gefs_chem_0p25_pmtc_sfc.grib2"));
+    let MessageIdentity::Grib2 {
+        product_template,
+        parameter_number,
+        first_surface,
+        ..
+    } = &info.identity
+    else {
+        panic!("a GRIB2 message");
+    };
+    // The reader does not parse 4.48, so the parameter and the surfaces are
+    // unread and only the reference time is left to check.
+    assert_eq!(*product_template, 48);
+    assert_eq!(*parameter_number, None);
+    assert_eq!(info.abbreviation, None);
+    assert_eq!(*first_surface, None);
+
+    verify_message(&item.expect, &info).expect("record 22 is the message at its offset");
+}
+
+/// What a message on an unparsed template is still checked on: the reference
+/// time. Record 22's line with another cycle's date is refused.
+#[test]
+fn a_gefs_aerosol_record_from_another_cycle_is_refused() {
+    let idx = gefs_chem();
+    let item = idx.items()[21].clone();
+    let info = message(&item, read("gefs_chem_0p25_pmtc_sfc.grib2"));
+
+    let mut stale = item.expect.clone();
+    stale.reference_time = Some("2026090312".to_string());
+    assert_eq!(
+        refused_field(verify_message(&stale, &info)),
+        ("referenceTime", "2026090312".to_string())
     );
 }

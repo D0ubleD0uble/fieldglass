@@ -1307,7 +1307,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The level, or a layer's top. `None` for a product template that\ncarries no surface."
+              "description": "The level, or a layer's top. `None` for a product template the\nreader does not parse."
             },
             "forecastTime": {
               "description": "The forecast step, or the start of a statistical range.",

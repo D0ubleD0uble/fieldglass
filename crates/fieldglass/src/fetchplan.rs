@@ -344,6 +344,13 @@ impl ParameterResolver for TableResolver {
 /// time are compared, so a stale sidecar pointing at another field on the same
 /// level passes.
 ///
+/// **A message on a product template the reader does not parse** (for
+/// example the chemistry and aerosol templates 4.40–4.48, such as
+/// GEFS-Aerosols' 4.48 `AOTK` and `PMTC` records) is checked on its reference time alone. Its
+/// parameter codes, short name and fixed surfaces are all unread, so the level
+/// is not compared, as for a level the grammar did not understand. Every
+/// message on a parsed template is compared on its surfaces as above.
+///
 /// The forecast step and an ensemble qualifier (`ENS=+1`) are not compared.
 pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatch> {
     let ecmwf = expect.dialect == Some(Dialect::EcmwfIndex);
@@ -469,9 +476,32 @@ fn level_holds(promised: &LevelSpec, ecmwf: bool, identity: &MessageIdentity) ->
         // no surface to compare. Comparing the text with the message's would
         // refuse every such record, which is the defect this replaces.
         Surface::Named(_) => true,
+        // The reader did not parse the message's product template (the
+        // chemistry and aerosol templates 4.40-4.48, say), so its surfaces
+        // are unknown and there is nothing to compare with either (#1126).
+        _ if surfaces_unknown(identity) => true,
         Surface::Surface if ecmwf => !on_an_ecmwf_level_list(identity),
         _ => message_level(identity).is_some_and(|have| same_level(promised, &have)),
     }
+}
+
+/// Whether the message is GRIB2 on a product template the reader does not
+/// parse, which leaves its fixed surfaces unread.
+///
+/// The identity states that as the parameter and the first surface both
+/// absent: they are read from the one common block every parsed template
+/// has, so a parsed template states both and an unparsed one neither. An
+/// identity missing only one of them is not that message, and its level is
+/// still compared (and refused, having no surface to match).
+fn surfaces_unknown(identity: &MessageIdentity) -> bool {
+    matches!(
+        identity,
+        MessageIdentity::Grib2 {
+            parameter_category: None,
+            first_surface: None,
+            ..
+        }
+    )
 }
 
 /// How far apart, relative to the larger, a sidecar's value and the message's
@@ -980,6 +1010,60 @@ mod tests {
             (245, 0, 0),
             None
         ));
+    }
+
+    /// A message whose product template the reader does not parse (the
+    /// chemistry and aerosol templates 4.40–4.48) has no known surfaces, so a
+    /// level, in either dialect, is not compared with it (#1126). A message
+    /// whose surfaces are known is still refused on a different one.
+    #[test]
+    fn a_level_is_not_compared_with_an_unparsed_template() {
+        let mut unparsed = info("AOTK", (10, 0, 0));
+        unparsed.abbreviation = None;
+        unparsed.level = None;
+        unparsed.level_type = None;
+        if let crate::api::MessageIdentity::Grib2 {
+            product_template,
+            parameter_category,
+            parameter_number,
+            first_surface,
+            second_surface,
+            ..
+        } = &mut unparsed.identity
+        {
+            *product_template = 48;
+            *parameter_category = None;
+            *parameter_number = None;
+            *first_surface = None;
+            *second_surface = None;
+        }
+        for text in ["entire atmosphere", "surface", "2 mb", "2 m above ground"] {
+            assert_eq!(verify_message(&level(text), &unparsed), Ok(()), "{text}");
+        }
+        for record in [
+            r#"{"param": "r", "levtype": "pl", "levelist": "50", "_offset": 0, "_length": 1}"#,
+            r#"{"param": "2t", "levtype": "sfc", "_offset": 0, "_length": 1}"#,
+        ] {
+            assert_eq!(
+                verify_message(&ecmwf(record), &unparsed),
+                Ok(()),
+                "{record}"
+            );
+        }
+
+        // An identity with parameter codes but no surface is not an unparsed
+        // template, so its level is still compared, and has nothing to match.
+        let mut no_surface = unparsed.clone();
+        if let crate::api::MessageIdentity::Grib2 {
+            parameter_category, ..
+        } = &mut no_surface.identity
+        {
+            *parameter_category = Some(0);
+        }
+        assert!(verify_message(&level("surface"), &no_surface).is_err());
+
+        assert!(!holds("surface", (10, 0, 0), None));
+        assert!(!holds("2 mb", (1, 0, 0), None));
     }
 
     /// An expectation that promises nothing checks nothing, rather than

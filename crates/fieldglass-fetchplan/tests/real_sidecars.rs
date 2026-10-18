@@ -1,4 +1,4 @@
-//! The parser against real, unmodified sidecars from five NCEP products and
+//! The parser against real, unmodified sidecars from six NCEP products and
 //! ECMWF.
 //!
 //! The unit tests in `src/` pin behaviour against hand-written lines, which is
@@ -30,13 +30,14 @@ fn fixture(name: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"))
 }
 
-/// The five NCEP sidecars, by fixture name.
+/// The six NCEP sidecars, by fixture name.
 const NCEP: &[&str] = &[
     "gfs_0p25.idx",
     "hrrr_conus_wrfsfc.idx",
     "nam_awip12.idx",
     "nbm_core_co.idx",
     "gefs_p01_0p50.idx",
+    "gefs_chem_a2d_0p25.idx",
 ];
 
 /// Every non-blank line becomes exactly one record.
@@ -115,7 +116,7 @@ fn message_ranges_ascend_and_never_overlap() {
     }
     let idx = EcmwfIndex::parse("ifs.grib2", &fixture("ecmwf_ifs_0p25_oper.index")).unwrap();
     assert_ascending_disjoint(&idx.messages(), "ecmwf");
-    assert_eq!(checked, 5);
+    assert_eq!(checked, 6);
 }
 
 fn assert_ascending_disjoint(items: &[PlanItem], name: &str) {

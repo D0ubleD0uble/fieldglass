@@ -1198,8 +1198,8 @@ export type MessageIdentity =
      */
     parameterNumber: number | null;
     /**
-     * The level, or a layer's top. `None` for a product template that
-     * carries no surface.
+     * The level, or a layer's top. `None` for a product template the
+     * reader does not parse.
      */
     firstSurface: SurfaceCodes | null;
     /**

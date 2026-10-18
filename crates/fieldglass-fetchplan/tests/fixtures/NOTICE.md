@@ -14,9 +14,13 @@ discovered by reading these files, not by reading a specification.
 No credentials are needed for any of these endpoints. A sidecar carries offsets
 and labels, not data.
 
-**Three GRIB messages** are the bytes a record of a committed sidecar points
+One sidecar, `gefs_chem_a2d_0p25.idx`, was fetched later, on 2026-10-17, for
+the same cycle; its section says so.
+
+**Four GRIB messages** are the bytes a record of a committed sidecar points
 at, so a plan can be checked against what it fetches: `gfs_0p25_rh_2mb.grib2`
-from `gfs_0p25.idx`, and `ecmwf_ifs_0p25_r_50hpa.grib2` and
+from `gfs_0p25.idx`, `gefs_chem_0p25_pmtc_sfc.grib2` from
+`gefs_chem_a2d_0p25.idx`, and `ecmwf_ifs_0p25_r_50hpa.grib2` and
 `ecmwf_ifs_0p25_mx2t3.grib2` from `ecmwf_ifs_0p25_oper.index`. Their sections
 below say how each was taken.
 
@@ -92,6 +96,40 @@ GEFS ensemble member 1, 0.5°, analysis. 71 records, every one carrying the
 **member qualifier** `ENS=+1`. It is also the one product here whose lines have
 **no trailing colon**, which is why the parser drops empty trailing fields
 rather than assuming a terminator.
+
+### `gefs_chem_a2d_0p25.idx`
+
+`https://noaa-gefs-pds.s3.amazonaws.com/gefs.20260904/00/chem/pgrb2ap25/gefs.chem.t00z.a2d_0p25.f000.grib2.idx`
+
+GEFS-Aerosols 0.25° two-dimensional fields, analysis. Fetched on 2026-10-17,
+unmodified, 3,833 bytes, SHA-256
+`acd2463f31ae0b58e578cf0d78f16a2caf2009311b308587b995d374ee5552bd`. 32 records,
+each carrying wgrib2's aerosol qualifiers (`aerosol=Dust dry`,
+`aerosol_size <1e-05`, `aerosol_wavelength …`). eccodes 2.34.1 (`grib_get -p
+productDefinitionTemplateNumber`) reads every one of its messages as product
+template 4.48 (optical properties of aerosol), which the reader does not parse.
+
+### `gefs_chem_0p25_pmtc_sfc.grib2`
+
+Record 22 of `gefs_chem_a2d_0p25.idx` (`PMTC:surface:anl:aerosol=Dust dry:aerosol_size <1e-05:`),
+fetched on 2026-10-17 from the object that sidecar describes,
+`https://noaa-gefs-pds.s3.amazonaws.com/gefs.20260904/00/chem/pgrb2ap25/gefs.chem.t00z.a2d_0p25.f000.grib2`,
+with `Range: bytes=13921007-14137554`: from the record's offset to one byte
+before record 23's. Unmodified, 216,548 bytes, SHA-256
+`411c4d3228ebe1df466fe4782cd097eda7731e8a82ef2a7799747e15d89ce9b4`. It is the
+smallest record in the product; the whole object was read once to find it and
+was not kept.
+
+eccodes 2.34.1 (`grib_dump -O`, `grib_get`) reads it as product template 4.48,
+discipline 0, category 13 (aerosols), NCEP-local number 192 (`pmtc`,
+particulate matter coarse), constituent type 62001, size below 10 × 10⁻⁶ m,
+no wavelength interval, first fixed surface 1 (ground or water surface), second
+surface missing, 2026-09-04 00Z, step 0, 1,038,240 values, minimum 0.000127789,
+maximum 1359.05. Packing is complex with spatial differencing (5.3).
+
+It is the aerosol half of `crates/fieldglass/tests/verify_message_real_pairs.rs`
+(#1126): a correct line on a template the reader does not parse, whose level
+was refused as a stale sidecar before that issue.
 
 ## ECMWF sidecar (CC-BY-4.0)
 
