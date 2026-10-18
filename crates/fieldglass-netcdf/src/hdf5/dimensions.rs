@@ -204,7 +204,11 @@ pub fn resolve<S: ByteSource + ?Sized>(
     // An object reached by two hard links is one object, described once and
     // listed under each name. Described again, its attribute storage would
     // be claimed twice.
-    let mut seen: HashMap<u64, Result<usize, (String, LeftOutCause)>> = HashMap::new();
+    let mut seen: HashMap<u64, Result<usize, String>> = HashMap::new();
+    // The code beside each declined object's reason (#1129). A map of its own
+    // rather than a wider `seen` entry, so a file that declines nothing pays
+    // nothing for it: `seen` is sized for every object, and this stays empty.
+    let mut declined: HashMap<u64, LeftOutCause> = HashMap::new();
     let mut datasets: Vec<Option<DatasetInfo>> = Vec::new();
     let children = group::all_children(source, probe)?;
     for child in children.iter().filter(|c| c.kind == ChildKind::Dataset) {
@@ -212,11 +216,14 @@ pub fn resolve<S: ByteSource + ?Sized>(
             Some(Ok(first)) => datasets[*first]
                 .clone()
                 .map(|info| info.renamed(&child.name)),
-            Some(Err((reason, cause))) => {
+            Some(Err(reason)) => {
                 unsupported.push(UnsupportedVariable {
                     name: child.name.clone(),
                     reason: reason.clone(),
-                    cause: cause.clone(),
+                    cause: declined
+                        .get(&child.object_header_address)
+                        .cloned()
+                        .unwrap_or(LeftOutCause::Unsupported),
                 });
                 None
             }
@@ -230,10 +237,8 @@ pub fn resolve<S: ByteSource + ?Sized>(
                     let cause =
                         dataset::unsupported_cause(source, child.object_header_address, probe, &e)
                             .unwrap_or(LeftOutCause::Unsupported);
-                    seen.insert(
-                        child.object_header_address,
-                        Err((reason.clone(), cause.clone())),
-                    );
+                    seen.insert(child.object_header_address, Err(reason.clone()));
+                    declined.insert(child.object_header_address, cause.clone());
                     unsupported.push(UnsupportedVariable {
                         name: child.name.clone(),
                         reason,

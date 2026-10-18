@@ -517,46 +517,78 @@ fn coordinate_planes(catalog: &Catalog<'_>) -> Vec<String> {
         .collect()
 }
 
+/// Which rule keeps an array off the map. Plain and `Copy`, so
+/// [`renderable_arrays`] asks it of every array without allocating; only
+/// [`undrawable_arrays`] turns one into a code and prose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Undrawable {
+    Text,
+    OtherType,
+    Coordinate,
+    CoordinatePlane,
+    TooFewDimensions,
+}
+
 /// Why `entry` is not an array a map can be drawn from, or `None` when it is
 /// one. The one rule [`renderable_arrays`] and [`undrawable_arrays`] both
 /// apply, so every readable array is in exactly one of the two.
 ///
 /// The order is the more useful answer first: text is text whatever its
 /// rank, and a 1-D `lat(lat)` is better called a coordinate than a line.
-/// The prose is the reason a [`LeftOut`] carries beside the code.
-fn undrawable(entry: &Entry<'_>, coordinate_planes: &[String]) -> Option<(LeftOutCause, String)> {
+fn undrawable(entry: &Entry<'_>, coordinate_planes: &[String]) -> Option<Undrawable> {
     match &entry.array.element_type {
         ElementType::Int(_) | ElementType::Uint(_) | ElementType::Float(_) => {}
-        ElementType::Text => {
-            return Some((LeftOutCause::Text, "holds text, not numbers".to_string()));
-        }
-        ElementType::Other(dtype) => {
-            return Some((
-                LeftOutCause::UnsupportedDtype {
-                    dtype: dtype.clone(),
-                },
-                format!("its element type {dtype:?} is not one a decode turns into numbers"),
-            ));
-        }
+        ElementType::Text => return Some(Undrawable::Text),
+        ElementType::Other(_) => return Some(Undrawable::OtherType),
     }
     if entry.is_coordinate() {
-        let why = format!("a coordinate: the values along the {:?} axis", entry.name);
-        return Some((LeftOutCause::Coordinate, why));
+        return Some(Undrawable::Coordinate);
     }
     if coordinate_planes.contains(&entry.name) {
-        let why = "a coordinate: the latitude or longitude of another array's grid";
-        return Some((LeftOutCause::Coordinate, why.to_string()));
+        return Some(Undrawable::CoordinatePlane);
     }
     if entry.dims.len() < 2 {
-        let rank = entry.dims.len();
-        return Some((
-            LeftOutCause::TooFewDimensions {
-                rank: u32::try_from(rank).unwrap_or(u32::MAX),
-            },
-            format!("has {rank} dimension(s), and a map needs two"),
-        ));
+        return Some(Undrawable::TooFewDimensions);
     }
     None
+}
+
+/// The code and the prose a [`LeftOut`] carries for `entry`, kept off the map
+/// by `rule`.
+fn undrawable_left_out(entry: &Entry<'_>, rule: Undrawable) -> LeftOut {
+    let (cause, reason) = match rule {
+        Undrawable::Text => (LeftOutCause::Text, "holds text, not numbers".to_string()),
+        Undrawable::OtherType => {
+            let dtype = match &entry.array.element_type {
+                ElementType::Other(dtype) => dtype.clone(),
+                other => format!("{other:?}"),
+            };
+            let why = format!("its element type {dtype:?} is not one a decode turns into numbers");
+            (LeftOutCause::UnsupportedDtype { dtype }, why)
+        }
+        Undrawable::Coordinate => (
+            LeftOutCause::Coordinate,
+            format!("a coordinate: the values along the {:?} axis", entry.name),
+        ),
+        Undrawable::CoordinatePlane => (
+            LeftOutCause::Coordinate,
+            "a coordinate: the latitude or longitude of another array's grid".to_string(),
+        ),
+        Undrawable::TooFewDimensions => {
+            let rank = entry.dims.len();
+            (
+                LeftOutCause::TooFewDimensions {
+                    rank: u32::try_from(rank).unwrap_or(u32::MAX),
+                },
+                format!("has {rank} dimension(s), and a map needs two"),
+            )
+        }
+    };
+    LeftOut {
+        name: entry.name.clone(),
+        reason,
+        cause,
+    }
 }
 
 /// The readable arrays a map cannot be drawn from, each with why (#1129): the
@@ -573,14 +605,7 @@ pub fn undrawable_arrays(root: &Group) -> Vec<LeftOut> {
     catalog
         .entries
         .iter()
-        .filter_map(|e| {
-            let (cause, reason) = undrawable(e, &coordinate_planes)?;
-            Some(LeftOut {
-                name: e.name.clone(),
-                reason,
-                cause,
-            })
-        })
+        .filter_map(|e| Some(undrawable_left_out(e, undrawable(e, &coordinate_planes)?)))
         .collect()
 }
 
