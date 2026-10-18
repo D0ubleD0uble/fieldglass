@@ -19,6 +19,7 @@ import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import {
+  classicNetcdf,
   type AxisLabel,
   type Box,
   extensionPath,
@@ -475,55 +476,6 @@ suite("Line-plot and cross-section axes (#1043)", function () {
     }
   });
 });
-
-/** A classic NetCDF (CDF-1) file, written by hand: `dims` by name and length,
- *  and float64 variables over them with text attributes, in that order. Enough
- *  of the format for a test file the editor opens like any other. */
-function classicNetcdf(
-  dims: Array<[string, number]>,
-  vars: Array<{ name: string; dims: string[]; attrs: Record<string, string>; values: number[] }>,
-): Buffer {
-  const parts: Buffer[] = [];
-  const int = (v: number) => {
-    const b = Buffer.alloc(4);
-    b.writeInt32BE(v);
-    return b;
-  };
-  const name = (s: string) => {
-    const text = Buffer.from(s, "utf8");
-    return Buffer.concat([int(text.length), text, Buffer.alloc((4 - (text.length % 4)) % 4)]);
-  };
-  const header = (begins: number[]) => {
-    const out: Buffer[] = [Buffer.from("CDF\x01", "latin1"), int(0)];
-    out.push(int(0x0a), int(dims.length));
-    for (const [n, len] of dims) out.push(name(n), int(len));
-    out.push(int(0), int(0)); // no global attributes
-    out.push(int(0x0b), int(vars.length));
-    vars.forEach((v, k) => {
-      out.push(name(v.name), int(v.dims.length));
-      for (const d of v.dims) out.push(int(dims.findIndex(([n]) => n === d)));
-      const attrs = Object.entries(v.attrs);
-      out.push(int(0x0c), int(attrs.length));
-      for (const [an, av] of attrs) out.push(name(an), int(2), name(av)); // NC_CHAR
-      out.push(int(6), int(v.values.length * 8), int(begins[k])); // NC_DOUBLE
-    });
-    return Buffer.concat(out);
-  };
-  // The header's length does not depend on the offsets in it.
-  let at = header(vars.map(() => 0)).length;
-  const begins = vars.map((v) => {
-    const b = at;
-    at += v.values.length * 8;
-    return b;
-  });
-  parts.push(header(begins));
-  for (const v of vars) {
-    const data = Buffer.alloc(v.values.length * 8);
-    v.values.forEach((x, i) => data.writeDoubleBE(x, i * 8));
-    parts.push(data);
-  }
-  return Buffer.concat(parts);
-}
 
 /** The pressure-level profile store, as a classic NetCDF file: `air(level,
  *  lat, lon)` on {@link LEVELS}, stored surface first, `offset` added. */

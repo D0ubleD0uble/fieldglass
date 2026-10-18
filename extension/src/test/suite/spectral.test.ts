@@ -329,9 +329,14 @@ suite("Compare map band-limit label (#814)", () => {
     // which would keep a label only field B carried after Compare is off.
     const handler = /\n( *)function handleGridReady\(msg\) \{\n( *)lastPayload = msg;/.exec(html);
     assert.ok(handler, "the panel script defines handleGridReady");
+    // The handler's own body: up to the brace at its indentation, so a call
+    // elsewhere (handleAxisResult makes one too) does not count.
+    const end = html.indexOf("\n" + handler[1] + "}\n", handler.index + 1);
+    assert.ok(end > handler.index, "handleGridReady's body ends");
+    const body = html.slice(handler.index, end);
     assert.ok(
-      html.includes("\n" + handler[2] + "drawnTruncation = msg.truncationNote ?? null;\n") &&
-        html.includes("\n" + handler[2] + "updateSubtitle();\n"),
+      body.includes("\n" + handler[2] + "drawnTruncation = msg.truncationNote ?? null;\n") &&
+        body.includes("\n" + handler[2] + "updateSubtitle();\n"),
       "handleGridReady recomposes SUB_LINE on every render, null included",
     );
     // The slice drawn goes between the base and the note (#1041); a GRIB

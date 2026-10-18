@@ -29,6 +29,7 @@ import * as vscode from "vscode";
 import { loadNative } from "../../native";
 import { composeSliceNote, formatCoordinate } from "../../render-panel";
 import {
+  classicNetcdf,
   extensionPath,
   isType,
   type Msg,
@@ -38,6 +39,7 @@ import {
   provider,
   type RealPanel,
   type StepperState,
+  waitUntil,
 } from "./real-panel";
 
 /** The 17 pressure levels of the NCEP/NCAR reanalysis, in millibar. */
@@ -339,6 +341,61 @@ suite("Slice coordinates (#1041)", () => {
       assert.strictEqual(stepper(steppers(state).main, 1).coordinate, "1000 millibar");
     } finally {
       close();
+    }
+  });
+
+  test("a page written again over a reopened file still names its slice", async () => {
+    // A page written again (#839, #959) has every request before its ready
+    // dropped, the stepper axes' too, so they are asked for again after it.
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1041-"));
+    const file = path.join(dir, "levels.nc");
+    fs.writeFileSync(
+      file,
+      classicNetcdf(
+        [["level", LEVELS.length], ["lat", 3], ["lon", 4]],
+        [
+          { name: "level", dims: ["level"], attrs: { units: "millibar" }, values: LEVELS },
+          { name: "lat", dims: ["lat"], attrs: { units: "degrees_north" }, values: GRID.lat.values },
+          { name: "lon", dims: ["lon"], attrs: { units: "degrees_east" }, values: GRID.lon.values },
+          { name: "air", dims: ["level", "lat", "lon"], attrs: { units: "degC" }, values: planes(LEVELS.length) },
+        ],
+      ),
+    );
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const air = native.NetcdfHandle.fromBytes(fs.readFileSync(file)).variables().find((v) => v.name === "air");
+    assert.ok(air, "air is renderable");
+    let editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.variableIndex }));
+    try {
+      await panel.waitSent(drawn, 0, "the first render");
+      await withAxes(panel, [0]);
+      let state = await step(panel, 0, 5);
+      assert.strictEqual(stepper(steppers(state).main, 0).coordinate, "500 millibar");
+
+      editor.close();
+      editor = await openEditor(p, file);
+      const sent = panel.sent.length;
+      const received = panel.received.length;
+      const rewritten = new Promise<void>((resolve) => panel.onNextWrite(resolve));
+      // A click is a request too, which finds the file reopened.
+      await panel.probe();
+      await rewritten;
+      await waitUntil(() => panel.received.slice(received).find(isType("ready")), "the new page's ready");
+      await panel.waitSent(drawn, sent, "the rewritten page's render");
+      await panel.waitSent(answered(0), sent, "the level axis, asked for again");
+      state = await panel.drive([]);
+      const s = steppers(state);
+      assert.strictEqual(stepper(s.main, 0).index, "5", "the page is restored at level 5");
+      assert.strictEqual(stepper(s.main, 0).coordinate, "500 millibar");
+      assert.strictEqual(stepper(s.fieldB, 0).coordinate, "1000 millibar", "Field B's stepper too");
+      assert.strictEqual(state.animateLabel, "500 millibar (step 5 of 0–16)");
+      assert.strictEqual(state.subtitle, "levels.nc · level 500 millibar");
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

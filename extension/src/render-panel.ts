@@ -1495,7 +1495,9 @@ export function renderImagePanelHtml(
           if (!wrap || !sliceState) return;
           const v = sliceVariable(sliceState.variableIndex);
           if (!v) return;
-          wrap.innerHTML = dimStepperHtml(v, sliceState.yDim, sliceState.xDim, compareIndices, true);
+          // A variable with no dimension to hold still has no steppers, and
+          // the row still says which field is B.
+          wrap.innerHTML = dimStepperHtml(v, sliceState.yDim, sliceState.xDim, compareIndices, true) || 'Field B';
           fillSliceCoordinates();
         }
 
@@ -4217,6 +4219,9 @@ export function renderImagePanelHtml(
           requestAxis(sliceState.yDim);
           requestAxis(sliceState.xDim);
         }
+        // The steppers' axes too (#1041), for their coordinates, the Animate
+        // label and the subtitle. Field B's steppers hold the same axes.
+        requestStepperAxes();
       })();
     </script>
   `;

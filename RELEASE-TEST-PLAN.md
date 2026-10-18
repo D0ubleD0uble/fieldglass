@@ -390,16 +390,18 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       for the first month, where the file means `0001-01-01`: a date before
       1582 is counted on the proleptic Gregorian calendar, not the CF
       standard one. That is a known gap, beside #1033; note it, not a fail.
+      Step with the forward button rather than Play, so each level takes its
+      own range. Probe a point on the equator: about −80 °C at 100 hPa,
+      warmer again above (about −45 °C at 10 hPa). This file is in `degC`.
+      During Play the first level's range is held, so the upper levels paint
+      in the bottom colour; that is intended.
 - [ ] Choose Compare `A − B` and set Field B's `level` to 2. Field B's
       steppers read `Field B · time …` and `Field B · level` with `850
       millibar`, sit in a tinted box with a coloured rule down its left, and
       have a `·` and a gap between them. Failure looks like steppers that
       match the main ones, or `0–11level` run together. The line under the
-      heading ends `· Field B at level 850 millibar` (#1041). Step with the forward button rather than Play, so each level takes
-      its own range. Probe a point on the equator: about −80 °C at 100 hPa,
-      warmer again above (about −45 °C at 10 hPa). This file is in `degC`.
-      During Play the first level's range is held, so the upper levels paint
-      in the bottom colour; that is intended.
+      heading ends `· Field B at level 850 millibar` (#1041). Set Compare
+      back to off.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc`**, `t2m`
 
