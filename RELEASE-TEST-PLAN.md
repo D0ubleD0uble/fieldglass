@@ -586,8 +586,9 @@ A depth axis with fill values used to fail to draw; no file here has one.
       component (it starts on message 0, the u field itself), then tick
       Arrows: arrows over the field, and a key in the map's lower-left corner:
       an arrow in the arrows' colour and weight, labelled `… m s⁻¹`, as long
-      as an arrow at that speed is drawn: the fastest arrow, when it is on
-      the map (#1046). The Vectors row reads
+      as the longest arrow on the map (#1046, #1159). Arrows of about the
+      same speed are about the same length everywhere, near the poles as at
+      the equator. The Vectors row reads
       "Full-length arrow: … m s⁻¹". A larger "every N cells" draws fewer,
       longer arrows, and the key lengthens with them. No note about grid axes
       shows: GFS states earth-relative components. No note about the pair
@@ -607,11 +608,12 @@ A depth axis with fill values used to fail to draw; no file here has one.
       in until the arrows are longer than the map is wide: the key is cut to
       half (or a quarter) with its speed, so it still fits. Zoomed into a
       window without the fastest arrow, or on a globe with it on the far
-      side, the key is as long as an arrow at its speed would be drawn on
-      that view. On Equirectangular, arrows near the poles can be drawn
-      longer than the key: that map stretches east–west distance by
-      1/cos(latitude). Failure looks like a key that keeps one length while
-      the arrows grow or shrink.
+      side, the key is still as long as an arrow at its speed is drawn on
+      that view, and longer than every arrow shown. On Equirectangular and
+      on Orthographic, no arrow is longer than the key, the polar ones
+      included (#1159). Failure looks like a key that keeps one length while
+      the arrows grow or shrink, or polar arrows on Equirectangular stretched
+      east–west past the key's length.
 - [ ] Turn arrows back on, spacing 4, colour red. Click another editor tab in
       the same group and come back, then import `batlow.cpt` (§9): both times
       the arrows, V component, spacing and colour are as you left them
@@ -626,9 +628,10 @@ A depth axis with fill values used to fail to draw; no file here has one.
       stereographic for each hemisphere: arrows keep
       following the flow around the pole rather than all pointing one screen
       direction, and no fan of arrows radiates from the pole itself (#1045).
-      Each arrowhead sits square on the end of its own shaft, even on the
-      long, curved arrows nearest the pole. Arrows are projected like a
-      coastline, so a wrong bearing shows up here first.
+      Each arrowhead sits square on the end of its own shaft. Each arrow
+      points the way the flow runs on the map, so a wrong bearing shows up
+      here first. Arrows nearest the globe's edge are drawn whole, running
+      past the edge rather than cut off (#1159).
 
 **`B: samples/0.6.0/hrrr_wind.grib2`** (grid-relative, Lambert)
 
