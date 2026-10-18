@@ -1102,15 +1102,16 @@ export class FieldglassEditorProvider
     // The field's zonal mean (#240). A refusal travels with the reply, because
     // the reason — a rotated or projected grid has no latitude circles to average
     // along — is what the panel should say instead of an empty plot.
-    const zonal = () => {
+    const zonal = (seq?: number) => {
       const docHandle = this._handlesByDoc.get(key);
       if (!docHandle) return;
       try {
         const result = docHandle.zonalMean(shown.index);
-        panel.webview.postMessage({ type: "zonalResult", messageIndex: shown.index, result, error: null });
+        panel.webview.postMessage({ type: "zonalResult", seq, messageIndex: shown.index, result, error: null });
       } catch (err) {
         panel.webview.postMessage({
           type: "zonalResult",
+          seq,
           messageIndex: shown.index,
           result: null,
           error: `${err}`.replace(/^Error:\s*/, ""),
@@ -1132,10 +1133,10 @@ export class FieldglassEditorProvider
           ? docHandle.probeCombined(
               shown.index, compare.messageIndexB, compare.op, options, px, py)
           : docHandle.probe(shown.index, options, px, py);
-        panel.webview.postMessage({ type: "probeResult", messageIndex: shown.index, result });
+        panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: shown.index, result });
       } catch {
         // A probe never blocks the user; swallow and report nothing.
-        panel.webview.postMessage({ type: "probeResult", messageIndex: shown.index, result: null });
+        panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: shown.index, result: null });
       }
     };
 
@@ -1189,7 +1190,7 @@ export class FieldglassEditorProvider
           return;
         }
         if (m.type === "zonalRequest") {
-          zonal();
+          zonal((m as { seq?: number }).seq);
           return;
         }
         // Export CSV beside Export PNG (#1039): the message the panel draws,
@@ -1752,16 +1753,17 @@ export class FieldglassEditorProvider
 
     // The slice's zonal mean (#240), with the refusal passed through as on the
     // GRIB panel.
-    const zonal = (req: { slice?: SliceSpec }) => {
+    const zonal = (req: { slice?: SliceSpec; seq?: number }) => {
       const docHandle = subject.handle();
       if (!docHandle) return;
       const spec = req.slice ?? initial;
       try {
         const result = docHandle.zonalMean(spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices);
-        panel.webview.postMessage({ type: "zonalResult", messageIndex: spec.variableIndex, result, error: null });
+        panel.webview.postMessage({ type: "zonalResult", seq: req.seq, messageIndex: spec.variableIndex, result, error: null });
       } catch (err) {
         panel.webview.postMessage({
           type: "zonalResult",
+          seq: req.seq,
           messageIndex: spec.variableIndex,
           result: null,
           error: `${err}`.replace(/^Error:\s*/, ""),
@@ -1779,14 +1781,14 @@ export class FieldglassEditorProvider
       const spec = req.slice ?? initial;
       const indices = lineIndices(spec, req.gridI, req.gridJ);
       if (!indices || !isNonNegativeInt(req.alongDim)) {
-        panel.webview.postMessage({ type: "lineResult", messageIndex: spec.variableIndex, result: null });
+        panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
         return;
       }
       try {
         const result = docHandle.line(spec.variableIndex, req.alongDim, indices);
-        panel.webview.postMessage({ type: "lineResult", messageIndex: spec.variableIndex, result });
+        panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result });
       } catch {
-        panel.webview.postMessage({ type: "lineResult", messageIndex: spec.variableIndex, result: null });
+        panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
       }
     };
 
@@ -1838,9 +1840,9 @@ export class FieldglassEditorProvider
               compare.variableIndexB, compare.sliceIndicesB, compare.op, options, px, py)
           : docHandle.probe(
               spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices, options, px, py);
-        panel.webview.postMessage({ type: "probeResult", messageIndex: spec.variableIndex, result });
+        panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: spec.variableIndex, result });
       } catch {
-        panel.webview.postMessage({ type: "probeResult", messageIndex: spec.variableIndex, result: null });
+        panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
       }
     };
 
@@ -1900,7 +1902,7 @@ export class FieldglassEditorProvider
           return;
         }
         if (m.type === "zonalRequest") {
-          zonal(m as { slice?: SliceSpec });
+          zonal(m as { slice?: SliceSpec; seq?: number });
           return;
         }
         if (m.type === "exportSliceCsv") {
@@ -2178,6 +2180,8 @@ export interface ContourRequest {
  *  render options (for the projection), and the NetCDF slice when applicable. */
 export interface ProbeRequest {
   type: "probeRequest";
+  /** Echoed in `probeResult`, so the page can drop a reply for an older click or render. */
+  seq?: number;
   px: number;
   py: number;
   options?: Partial<RenderOptions>;
@@ -2188,6 +2192,8 @@ export interface ProbeRequest {
  *  (#172): plot the variable through that cell along `alongDim`. */
 export interface LineRequest {
   type: "lineRequest";
+  /** Echoed in `lineResult` (and `zonalResult`), as `ProbeRequest.seq`. */
+  seq?: number;
   alongDim: number;
   gridI: number;
   gridJ: number;

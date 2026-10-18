@@ -129,6 +129,13 @@ suite("Arrow refusal has its own status line (#1051)", () => {
       await panel.drive([{ id: "overlay-vectors", checked: true }]);
       await reply(panel, "vectorRequest", "vectorResult", "the refusal again");
       const pending = latest(panel, "vectorRequest").seq;
+      // A contour refusal is on screen too (#1146).
+      await panel.drive([{ id: "overlay-contours", checked: true }]);
+      await reply(panel, "contourRequest", "contourReady", "the contours");
+      const contourSeq = latest(panel, "contourRequest").seq;
+      await panel.post({ type: "contourError", seq: contourSeq, error: "no isolines here" });
+      state = await panel.drive([]);
+      assert.strictEqual(state.contourStatus, "Contours: no isolines here");
       await panel.post({
         type: "gridError",
         error: "gone",
@@ -137,6 +144,10 @@ suite("Arrow refusal has its own status line (#1051)", () => {
       await panel.post({ type: "vectorResult", seq: pending, error: "late refusal" });
       state = await panel.drive([]);
       assert.strictEqual(state.vectorStatus, "", "a stale reply does not print under no message");
+      assert.strictEqual(state.contourStatus, "", "the old contour refusal goes with the message");
+      await panel.post({ type: "contourError", seq: contourSeq, error: "late refusal" });
+      state = await panel.drive([]);
+      assert.strictEqual(state.contourStatus, "", "a stale contour reply does not print under no message");
     } finally {
       panel.dispose();
       editor.close();

@@ -2722,7 +2722,10 @@ export function renderImagePanelHtml(
           updateLogAvailability();
           animationFrameArrived();
           syncCrossSectionMode();
-          // The old probe readout referred to the previous field; clear it.
+          // The old probe readout referred to the previous field; clear it,
+          // and drop a reply still on its way for it (#1146), as a line reply.
+          probeSeq += 1;
+          lineSeq += 1;
           const probeEl = document.getElementById('probe');
           if (probeEl) probeEl.textContent = '';
           // And the line through the probed cell, for the same reason (#172) —
@@ -2812,8 +2815,13 @@ export function renderImagePanelHtml(
           // Replies in flight were asked of the file this one replaces.
           vectorSeq += 1;
           overlaySeq += 1;
+          contourSeq += 1;
+          probeSeq += 1;
+          lineSeq += 1;
+          lastContourKey = null;
           clearVectorPairNote();
           setVectorStatus('');
+          setContourStatus('');
           setOverlayStatus('');
           setExportStatus('');
           clearOverlay();
@@ -2875,6 +2883,11 @@ export function renderImagePanelHtml(
         let lastVectors = null;
         let vectorSeq = 0;
         let contourSeq = 0;
+        // The point probe's request id (#1146), bumped by each click and each
+        // render, and the same for the line plot's two requests (a cell's line
+        // and a zonal mean draw into one plot, so they share one id).
+        let probeSeq = 0;
+        let lineSeq = 0;
         // The state the cached contour runs correspond to (geometry + used range
         // + interval + field). A palette-only repaint leaves it unchanged, so we
         // skip re-running marching squares + projection (#336). null = no runs.
@@ -3394,11 +3407,12 @@ export function renderImagePanelHtml(
           // Carry the compare rider so a click on a difference map reads the
           // combined field, not field A (#329).
           vscode.postMessage(Object.assign(
-            { type: 'probeRequest', px: px, py: py, options: currentOptions() },
+            { type: 'probeRequest', seq: ++probeSeq, px: px, py: py, options: currentOptions() },
             sliceFields(), compareRequest()));
         }
 
         function handleProbeResult(msg) {
+          if (msg.seq !== probeSeq) return; // stale: an older click or render
           const el = document.getElementById('probe');
           if (!el) return;
           const r = msg.result;
@@ -3517,6 +3531,7 @@ export function renderImagePanelHtml(
           if (!lineCell || !sel || sel.value === '') return;
           vscode.postMessage({
             type: 'lineRequest',
+            seq: ++lineSeq,
             alongDim: Number(sel.value),
             gridI: lineCell.gridI,
             gridJ: lineCell.gridJ,
@@ -3563,6 +3578,7 @@ export function renderImagePanelHtml(
         }
 
         function handleLineResult(msg) {
+          if (msg.seq !== lineSeq) return;
           if (!lineCell) return;
           const alongDim = Number(document.getElementById('line-axis').value);
           const here = sliceState ? sliceState.sliceIndices[alongDim] : null;
@@ -3583,7 +3599,7 @@ export function renderImagePanelHtml(
 
         function requestZonal() {
           if (awaitingPick) return;
-          vscode.postMessage(Object.assign({ type: 'zonalRequest' }, sliceFields()));
+          vscode.postMessage(Object.assign({ type: 'zonalRequest', seq: ++lineSeq }, sliceFields()));
         }
 
         {
@@ -3602,6 +3618,7 @@ export function renderImagePanelHtml(
         }
 
         function handleZonalResult(msg) {
+          if (msg.seq !== lineSeq) return;
           if (!zonalOn()) return;
           setAxisPickerHidden(true);
           // A refusal says why — a rotated or projected grid has no latitude

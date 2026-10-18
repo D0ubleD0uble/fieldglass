@@ -423,7 +423,8 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       const drawnFirst = await plotted(panel);
       assert.ok((drawnFirst.linePlot?.plot.points.length ?? 0) > 0, "a profile is drawn first");
       // The provider's answer when a cell has no line.
-      await panel.post({ type: "lineResult", messageIndex: 0, result: null });
+      const seq = panel.received.filter(isType("lineRequest")).pop()?.seq;
+      await panel.post({ type: "lineResult", seq, messageIndex: 0, result: null });
       let state = await panel.drive([]);
       assert.strictEqual(state.linePlot?.caption, "No line through this cell.");
       assert.deepStrictEqual(state.linePlot?.plot.points, [], "and nothing is drawn");
