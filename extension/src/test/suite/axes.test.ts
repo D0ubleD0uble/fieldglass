@@ -702,4 +702,69 @@ suite("The rails and the probe follow the image drawn, not the one on its way (#
       close();
     }
   });
+
+  test("a GRIB map, after picking a projection, before its render arrives", async () => {
+    // A Lambert conformal grid, drawn as stored, then on Equirectangular:
+    // the same point of the image is another cell of the grid. Until the
+    // equirectangular render lands, a click reads the source view's cell.
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1114-"));
+    const file = path.join(dir, "lambert.grib2");
+    fs.copyFileSync(
+      path.join(extensionPath(), "..", "crates", "fieldglass-grib2", "tests", "fixtures", "eta_lambert_msg0.grib2"),
+      file,
+    );
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      const first = await panel.waitSent(isType("gridReady"), 0, "the first render");
+      assert.strictEqual(first.options.projection, "source", "drawn as stored");
+      // A point near the top middle of the image, as a click there reads.
+      const click = async (what: string): Promise<{ asked: Msg; read: Msg }> => {
+        const received = panel.received.length;
+        const sent = panel.sent.length;
+        await panel.probe(0.15);
+        const asked = await waitUntil(() => panel.received.slice(received).find(isType("probeRequest")), `the click (${what})`);
+        const read = (await panel.waitSent(isType("probeResult"), sent, `the probe (${what})`)).result;
+        return { asked, read };
+      };
+      const source = await click("the source view");
+      assert.ok(source.read, "the click lands on the grid");
+
+      const gate = panel.hold(isType("gridReady"));
+      const received = panel.received.length;
+      await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+      const render = await waitUntil(
+        () => panel.received.slice(received).find(isType("rerenderRequest")),
+        "the render the picker asks for",
+      );
+      assert.strictEqual(render.projection, "equirectangular", "the render asks for the new target");
+      await waitUntil(() => gate.held.find(isType("gridReady")), "that render, held back");
+      const waiting = await click("while the map is on its way");
+      assert.strictEqual(waiting.asked.options.projection, "source", "the click asks in the projection on screen");
+      assert.deepStrictEqual(
+        [waiting.read?.gridI, waiting.read?.gridJ, waiting.read?.value],
+        [source.read.gridI, source.read.gridJ, source.read.value],
+        "and reads the cell on screen",
+      );
+
+      await gate.release();
+      await waitUntil(
+        () => (lastDrawn(panel).options.projection === "equirectangular" ? true : undefined),
+        "the map",
+      );
+      const mapped = await click("on the map");
+      assert.strictEqual(mapped.asked.options.projection, "equirectangular", "the click follows the map once drawn");
+      // Otherwise the check above could not tell the two projections apart.
+      assert.notDeepStrictEqual(
+        [mapped.read?.gridI, mapped.read?.gridJ],
+        [source.read.gridI, source.read.gridJ],
+        "the same point of the map is another cell",
+      );
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

@@ -1836,16 +1836,33 @@ export function renderImagePanelHtml(
           return box !== verticalAxisFlips(axisCache[axisKey(sliceState.yDim)]);
         }
 
-        // Whether the image on screen has its rows bottom-up, as its render
-        // says (#1114): the provider echoes the options it drew with. Between
+        // The options the image on screen was drawn with, as its render
+        // echoes them (#1114), or null before the first render. Between a
+        // change and the render it asks for, the controls already say the
+        // new image while the old one is still shown, so what reads the
+        // image on screen reads these.
+        function drawnOptions() {
+          return (lastPayload && lastPayload.options) || null;
+        }
+
+        // Whether the image on screen has its rows bottom-up (#1114). Between
         // a Flip Y toggle or a Y axis answer and the render that follows,
         // rowsFlipped() already says the new way while the old image is
         // still shown, so the rails, the probe and the overlays read this.
         // Before the first render there is no image, and the request is for
         // the one to come.
         function drawnFlipY() {
-          const drawn = lastPayload && lastPayload.options;
+          const drawn = drawnOptions();
           return drawn && typeof drawn.flipY === 'boolean' ? drawn.flipY : rowsFlipped();
+        }
+
+        // The projection of the image on screen (#1114): the provider's own
+        // answer, which is the source view when the slice could not take the
+        // target asked for. The picker's value until the first render.
+        function drawnProjection() {
+          const drawn = drawnOptions();
+          if (drawn && typeof drawn.projection === 'string') return drawn.projection;
+          return (document.getElementById('picker-projection') || {}).value || 'source';
         }
 
         // Place the tick labels down the left of the image and under it. A label
@@ -2426,15 +2443,16 @@ export function renderImagePanelHtml(
         // offers only the source view until the answer comes back. The
         // provider draws a slice that can't take it in the source view, and
         // says so. Every other request (overlays, a probe) is about the image
-        // on screen, so it asks for what the picker shows, and for the rows
-        // the way that image has them (#1114).
+        // on screen, so its geometry (projection, centre, bounds, which way
+        // up the rows are) is the one that image was drawn with (#1114), not
+        // what the controls say a render on its way will have.
         function currentOptions(render) {
           const held = render === true && heldProjection !== null && !isCrossSection();
           const projection = held
             ? heldProjection
             : (document.getElementById('picker-projection') || {}).value || 'source';
           const resampling = (document.getElementById('picker-resampling') || {}).value || 'nearest';
-          const flipY = render === true ? rowsFlipped() : drawnFlipY();
+          const flipY = rowsFlipped();
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const options = { projection, resampling, flipY };
           // Colours. The name is a registry name the Rust side knows; reverse
@@ -2499,6 +2517,18 @@ export function renderImagePanelHtml(
               options.boundsLatMax = laMax;
               options.boundsLonMin = loMin;
               options.boundsLonMax = loMax;
+            }
+          }
+          // The options that place the image's pixels on the field, which a
+          // request about the image on screen takes from its render.
+          const drawn = render === true ? null : drawnOptions();
+          if (drawn) {
+            for (const key of [
+              'projection', 'projectionPreset', 'centerLat', 'centerLon', 'flipY',
+              'boundsLatMin', 'boundsLatMax', 'boundsLonMin', 'boundsLonMax',
+            ]) {
+              if (drawn[key] === undefined || drawn[key] === null) delete options[key];
+              else options[key] = drawn[key];
             }
           }
           return options;
@@ -3182,8 +3212,8 @@ export function renderImagePanelHtml(
         }
 
         // A click maps to an output-raster pixel; ask the provider for the field
-        // there. currentOptions() carries the projection so the readout matches
-        // exactly what is on screen.
+        // there. currentOptions() carries the geometry the image was drawn
+        // with (#1114), so the readout matches exactly what is on screen.
         // --- Zoom and pan (#245) ---------------------------------------------
         // Only the lat/lon targets render a window a gesture can move. A gesture
         // computes the new window with zoomMapWindow / panMapWindow, writes it
@@ -3196,10 +3226,11 @@ export function renderImagePanelHtml(
         let pendingZoom = null;
 
         // The window the image on screen was rendered for, when a gesture can
-        // move it: Rust echoes it for the lat/lon targets.
+        // move it: Rust echoes it for the lat/lon targets. Read in the
+        // projection that image was drawn in, not the picker's, which can
+        // have moved on while its render is on its way (#1114).
         function currentMapWindow() {
-          const projection = (document.getElementById('picker-projection') || {}).value;
-          if (!warpsLatLon(projection) || !lastPayload || lastPayload.usedLatMin == null) return null;
+          if (!warpsLatLon(drawnProjection()) || !lastPayload || lastPayload.usedLatMin == null) return null;
           return {
             latMin: lastPayload.usedLatMin,
             latMax: lastPayload.usedLatMax,
@@ -3209,7 +3240,7 @@ export function renderImagePanelHtml(
         }
 
         function isMercator() {
-          return (document.getElementById('picker-projection') || {}).value === 'web_mercator';
+          return drawnProjection() === 'web_mercator';
         }
 
         function applyMapWindow(w) {
