@@ -45,6 +45,8 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
     try {
       const first = await panel.waitSent(isType("gridReady"), 0, "the first render");
       const hi: number = first.usedMax;
+      // Contours on, so a refused range has a second place it could be said.
+      await answer(panel, [{ id: "overlay-contours", checked: true }], isType("contourReady"), "the contours");
 
       // Both ends typed, the wrong way round: refused naming both, and both
       // fields marked.
@@ -62,6 +64,20 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       let state = await panel.drive([]);
       assert.strictEqual(state.rangeNote, "minimum 300 is not below maximum 200; set a minimum below the maximum");
       assert.deepStrictEqual(state.rangeInvalid, ["range-min", "range-max"]);
+      // Said once: the status line points at the fields, and contours, which
+      // share the range, are dropped rather than refused in the same words,
+      // even when their own control asks for them again.
+      assert.strictEqual(state.status, "Colour range not drawn: see the range fields");
+      const asked = panel.received.length;
+      const told = panel.sent.length;
+      state = await panel.drive([{ id: "contour-interval", value: 5 }]);
+      assert.strictEqual(state.contourStatus, "", "no contour error repeats the refusal");
+      assert.ok(
+        !panel.received.slice(asked).some(isType("contourRequest")),
+        "no contours are asked for over a refused range",
+      );
+      assert.ok(!panel.sent.slice(told).some(isType("contourError")));
+      await panel.drive([{ id: "contour-interval", value: "" }]);
 
       // A minimum past the data's maximum, with the maximum left blank: the
       // other end came from the data, and the message says so.

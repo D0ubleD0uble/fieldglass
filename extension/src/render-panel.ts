@@ -2792,7 +2792,11 @@ export function renderImagePanelHtml(
           stopAnimation();
           const err = msg.error || 'render failed';
           mountAnswered = true;
-          setStatus('Error: ' + err);
+          // A refused colour range is said once, at the fields it is about
+          // (showRangeRefusal); the status line only points there (#1155).
+          setStatus(msg.rangeRefusal
+            ? 'Colour range not drawn: see the range fields'
+            : 'Error: ' + err);
           applySliceAnswer(msg.sliceGrid, msg.handleGone === true);
           // The variable the panel was showing is gone from its file, and the
           // picker is left with nothing chosen: whichever variable is picked
@@ -2839,6 +2843,17 @@ export function renderImagePanelHtml(
             if (marked.includes(id)) el.setAttribute('aria-invalid', 'true');
             else el.removeAttribute('aria-invalid');
           });
+          rangeRefused = !!refusal;
+          // Contours share the range, so they would be refused in the same
+          // words: drop them rather than say it a third time. The next drawn
+          // image asks for them again (its contour key has moved).
+          if (rangeRefused) {
+            contourSeq += 1;
+            lastContour = null;
+            lastContourKey = null;
+            setContourStatus('');
+            drawOverlay();
+          }
           if (!note) return;
           note.textContent = refusal ? (message || '') : '';
           note.hidden = !refusal;
@@ -2877,6 +2892,9 @@ export function renderImagePanelHtml(
           setContourStatus('');
           setOverlayStatus('');
           setExportStatus('');
+          // A refused range was said of the image that went; the next render
+          // over these fields says it again if it still does not hold (#1155).
+          showRangeRefusal(null);
           clearOverlay();
           const canvas = document.getElementById('canvas');
           const ctx = canvas && canvas.getContext('2d');
@@ -2941,6 +2959,9 @@ export function renderImagePanelHtml(
         // and a zonal mean draw into one plot, so they share one id).
         let probeSeq = 0;
         let lineSeq = 0;
+        // Whether the range on the fields now is one Rust refused (#1155):
+        // contours are not asked for over it.
+        let rangeRefused = false;
         // The state the cached contour runs correspond to (geometry + used range
         // + interval + field). A palette-only repaint leaves it unchanged, so we
         // skip re-running marching squares + projection (#336). null = no runs.
@@ -3237,7 +3258,7 @@ export function renderImagePanelHtml(
           // contours off (below) and issuing a fresh request — a failure gets
           // re-reported by handleContourError when the response comes back.
           setContourStatus('');
-          if (!lastPayload || !contoursEnabled()) {
+          if (!lastPayload || !contoursEnabled() || rangeRefused) {
             // As for the overlay: a reply in flight is for the field replaced.
             contourSeq += 1;
             lastContour = null;
