@@ -10,7 +10,11 @@
 //! `cargo test -p fieldglass-grib2 --test vector_pairs -- --nocapture` prints
 //! every pair the sweep finds.
 
-use fieldglass_core::vector_pair::{VectorPairing, pairing_of_parameter_names};
+use std::collections::BTreeSet;
+
+use fieldglass_core::vector_pair::{
+    VectorPairing, mentions_a_direction, pairing_of_parameter_names,
+};
 use fieldglass_grib2::{Originator, lookup_parameter};
 
 const WMO: Originator = Originator {
@@ -76,6 +80,24 @@ fn wind_currents_storm_motion_and_their_variants_pair() {
 }
 
 #[test]
+fn per_axis_statistics_are_not_pairs() {
+    // NCEP's latitude and longitude of the u and v points: positions, not
+    // a vector.
+    for (u, v) in [((0, 2, 198), (0, 2, 200)), ((0, 2, 199), (0, 2, 201))] {
+        assert_eq!(
+            pairing(NCEP, u, v),
+            VectorPairing::NotAPair,
+            "{u:?} / {v:?}"
+        );
+        assert_eq!(
+            pairing(NCEP, v, u),
+            VectorPairing::NotAPair,
+            "{v:?} / {u:?}"
+        );
+    }
+}
+
+#[test]
 fn neighbours_that_are_not_a_pair() {
     for (u, v) in [
         // Wind speed with wind direction.
@@ -130,7 +152,7 @@ fn sweep(originator: Originator) -> Vec<((u8, u8, u8), (u8, u8, u8), &'static st
         for c in 0..=255u8 {
             for n in 0..=255u8 {
                 if let Some((_, name, _)) = lookup_parameter(originator, d, c, n)
-                    && has_direction_word(name)
+                    && mentions_a_direction(name)
                 {
                     named.push(((d, c, n), name));
                 }
@@ -149,17 +171,6 @@ fn sweep(originator: Originator) -> Vec<((u8, u8, u8), (u8, u8, u8), &'static st
         }
     }
     pairs
-}
-
-/// A cheap filter ahead of the sweep's quadratic step: whether a name holds a
-/// word the rule could read as a direction.
-fn has_direction_word(name: &str) -> bool {
-    name.split(|c: char| !c.is_alphanumeric()).any(|w| {
-        matches!(
-            w.to_lowercase().as_str(),
-            "u" | "v" | "eastward" | "northward" | "zonal" | "meridional" | "x" | "y"
-        )
-    })
 }
 
 #[test]
@@ -181,4 +192,113 @@ fn every_pair_the_tables_define() {
         }
         assert!(pairs.len() >= 13, "{label}: the master pairs at least");
     }
+}
+
+/// Every name the four originators' tables hold that mentions a direction.
+fn directional_names() -> BTreeSet<&'static str> {
+    let mut names = BTreeSet::new();
+    for originator in [WMO, NCEP, ECMWF, DWD] {
+        for d in 0..=255u8 {
+            for c in 0..=255u8 {
+                for n in 0..=255u8 {
+                    if let Some((_, name, _)) = lookup_parameter(originator, d, c, n)
+                        && mentions_a_direction(name)
+                    {
+                        names.insert(name);
+                    }
+                }
+            }
+        }
+    }
+    names
+}
+
+/// The names that mention a direction and pair with nothing, reviewed one by
+/// one (#1049). Each is either no component at all or a component whose
+/// partner no table carries.
+const UNPARTNERED: &[&str] = &[
+    // Both axes in one name: a cross-covariance or product of u with v, not one component.
+    "Covariance between Meridional and Zonal Components of the wind",
+    "Covariance between zonal and meridional components of the wind. Defined as [uv]-[u][v], where [] indicates the mean over the indicated time span",
+    "Covariance of V component and U component",
+    "Covariance of v component/u component",
+    "U*V product",
+    "UV - U~V~",
+    // A scalar statistic of one component, which the rule stops on purpose (see `fieldglass_core::vector_pair`).
+    "East-West component of sub-gridscale orographic variance",
+    "East-West component of sub-gridscale orographic variance anomaly",
+    "East-West component of sub-gridscale orographic variance difference",
+    "East-West component of sub-gridscale orographic variance gradient",
+    "North-South component of sub-gridscale orographic variance",
+    "North-South component of sub-gridscale orographic variance anomaly",
+    "North-South component of sub-gridscale orographic variance difference",
+    "North-South component of sub-gridscale orographic variance gradient",
+    "Latitude of U Wind Component of Velocity",
+    "Latitude of V Wind Component of Velocity",
+    "Longitude of U Wind Component of Velocity",
+    "Longitude of V Wind Component of Velocity",
+    "Standard deviation of U velocity",
+    "Standard deviation of V component",
+    "Variance of u component",
+    "Variance of v component",
+    "U*T product",
+    "U*U product",
+    "V*T product",
+    "V*V product",
+    "Zonal Lagrangian time scale (direct) (Hanna)",
+    "Meridional Lagrangian time scale (direct) (Hanna)",
+    "Zonal velocity fluctuation (Hanna)",
+    "Meridional velocity fluctuation (Hanna)",
+    // ECMWF's eddy products and covariances, whose u and v spellings differ inside a word (`UT` and `VT`, `[uT]` and `[vT]`). Not drawn as arrows; left unpaired.
+    "UT - U~T~",
+    "UU - U~U~",
+    "VT - V~T~",
+    "VV - V~V~",
+    "Covariance between meridional and meridional components of the wind. Defined as [vv]-[v][v], where [] indicates the mean over the indicated time span",
+    "Covariance between zonal and zonal components of the wind. Defined as [uu]-[u][u], where [] indicates the mean over the indicated time span",
+    "Covariance between meridional component of the wind and temperature. Defined as [vT]-[v][T], where [] indicates the mean over the indicated time span",
+    "Covariance between zonal component of the wind and temperature. Defined as [uT]-[u][T], where [] indicates the mean over the indicated time span",
+    "Covariance between specific humidity and meridional components of the wind. Defined as [vq]-[v][q], where [] indicates the mean over the indicated time span",
+    "Covariance between specific humidity and zonal components of the wind. Defined as [uq]-[u][q], where [] indicates the mean over the indicated time span",
+    // A component whose partner no table carries.
+    "Amplitude function for Rossby wave envelope for meridional wind",
+    "Meridional overturning stream function",
+    "U velocity maximum",
+    // A letter or phrase that is not a direction here.
+    "Solar X-ray flux (XRS long)",
+    "Solar X-ray flux (XRS short)",
+    "X-ray radiance",
+    "Volumetric heat capacity of urban material (capacity x density)",
+    "Gauss Boaga Coordinates West to East, West Sector",
+    "Surface exchange coefficients for U and V divided by delta z",
+];
+
+/// Every name that mentions a direction either finds its partner or is on
+/// [`UNPARTNERED`]: a table regeneration that adds a spelling the rule does
+/// not read fails here instead of drawing arrows with no note.
+#[test]
+fn every_directional_name_pairs_or_is_reviewed() {
+    let names = directional_names();
+    let unpartnered: Vec<&str> = names
+        .iter()
+        .copied()
+        .filter(|&a| {
+            !names
+                .iter()
+                .any(|&b| pairing_of_parameter_names(Some(a), Some(b)) != VectorPairing::NotAPair)
+        })
+        .collect();
+    for name in &unpartnered {
+        println!("UNPARTNERED {name:?}");
+    }
+    let unpartnered: BTreeSet<&str> = unpartnered.into_iter().collect();
+    let reviewed: BTreeSet<&str> = UNPARTNERED.iter().copied().collect();
+    assert_eq!(reviewed.len(), UNPARTNERED.len(), "a name is listed twice");
+    let new: Vec<_> = unpartnered.difference(&reviewed).collect();
+    let stale: Vec<_> = reviewed.difference(&unpartnered).collect();
+    assert!(
+        new.is_empty() && stale.is_empty(),
+        "names that pair with nothing and are not reviewed: {new:?}; \
+         reviewed names that now pair or are gone: {stale:?}"
+    );
 }

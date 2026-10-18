@@ -199,8 +199,8 @@ fn cf_standard_names_on_a_store() {
     let s = Session::open_store(store(&[
         ("u10", Some("eastward_wind")),
         ("v10", Some("northward_wind")),
-        ("uc", Some("x_sea_water_velocity")),
-        ("vc", Some("y_sea_water_velocity")),
+        ("uc", Some("sea_water_x_velocity")),
+        ("vc", Some("sea_water_y_velocity")),
         ("t", Some("air_temperature")),
         ("plain", None),
     ]))
