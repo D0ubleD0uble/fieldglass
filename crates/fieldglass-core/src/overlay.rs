@@ -120,7 +120,7 @@ pub struct ProjectedPolylines {
 ///
 /// `latlon` is flat `[lat, lon, lat, lon, …]`; `ring_lengths[k]` is the
 /// vertex count of ring `k`. See the module docs for the run-splitting rules.
-pub fn project_polylines<P: ForwardMap>(
+pub fn project_polylines<P: ForwardMap + ?Sized>(
     prepared: &P,
     width: u32,
     height: u32,

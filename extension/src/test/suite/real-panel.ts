@@ -143,6 +143,52 @@ export interface PageState {
   /** The theme the page is drawn in, as VS Code tells it: `vscode-light`,
    *  `vscode-dark`, `vscode-high-contrast`… */
   themeKind: string;
+  /** The arrow key on the map (#1046), `null` when none is drawn. */
+  vectorKey: VectorKeyState | null;
+  /** The arrow key the last Export PNG drew, in PNG pixels (#1046), `null`
+   *  when it drew none or nothing was exported. */
+  exportedKey: ExportedKey | null;
+}
+
+/** The arrow key as an export drew it, in the PNG's own pixels. */
+export interface ExportedKey {
+  tail: number;
+  tip: number;
+  y: number;
+  length: number;
+  share: number;
+  lineWidth: number;
+  label: string;
+  labelColour: string;
+  fontPx: number;
+  box: [number, number, number, number];
+}
+
+/** The arrow key as the page drew it (#1046), in overlay canvas pixels. */
+export interface VectorKeyState {
+  /** What the page says it drew. */
+  drawn: {
+    tail: number;
+    tip: number;
+    y: number;
+    length: number;
+    /** The share of a full-length arrow drawn: 1, or halved until the key
+     *  fits the map. */
+    share: number;
+    lineWidth: number;
+    colour: string;
+    label: string;
+    /** `[x, y, width, height]` of the key's backing. */
+    box: [number, number, number, number];
+  };
+  /** The shaft read off the canvas's own pixels, along the row through its
+   *  middle: the first pixel at least half the arrow's colour, and one past
+   *  the last. `null` when no pixel on that row is. */
+  measured: { from: number; to: number } | null;
+  /** The overlay canvas's backing size. */
+  canvas: { width: number; height: number };
+  /** The page's device pixel ratio, which the canvas is drawn at. */
+  dpr: number;
 }
 
 /** One transport button as drawn (#1042). */
@@ -436,6 +482,48 @@ const DRIVER = `
             title: b.getAttribute('title'),
           })),
         themeKind: document.body.getAttribute('data-vscode-theme-kind') || document.body.className,
+        vectorKey: vectorKey(),
+        exportedKey: document.body.dataset.exportedKey ? JSON.parse(document.body.dataset.exportedKey) : null,
+      };
+    }
+    // The arrow key (#1046): what the page says it drew, and the shaft as the
+    // canvas holds it. A pixel counts as the shaft's when it is at least half
+    // way from the key's backing to the arrow's colour, and on the line
+    // between the two: the label beside it is another colour.
+    function vectorKey() {
+      const o = byId('overlay');
+      if (!o || !o.dataset.vectorKey) return null;
+      const drawn = JSON.parse(o.dataset.vectorKey);
+      const ctx = o.getContext('2d');
+      const [bx, by, bw] = drawn.box;
+      const x0 = Math.max(0, Math.floor(bx));
+      const x1 = Math.min(o.width, Math.ceil(bx + bw));
+      const row = ctx.getImageData(x0, Math.floor(drawn.y), x1 - x0, 1).data;
+      const back = ctx.getImageData(Math.floor(bx) + 1, Math.floor(by) + 1, 1, 1).data;
+      const hex = drawn.colour.replace('#', '');
+      const ink = [0, 2, 4].map((k) => parseInt(hex.slice(k, k + 2), 16));
+      const span = ink.reduce((sum, c, k) => sum + (c - back[k]) * (c - back[k]), 0);
+      let from = -1;
+      let to = -1;
+      for (let x = 0; x < x1 - x0; x++) {
+        let dot = 0;
+        for (let k = 0; k < 3; k++) dot += (row[x * 4 + k] - back[k]) * (ink[k] - back[k]);
+        const t = span > 0 ? dot / span : 0;
+        let off = 0;
+        for (let k = 0; k < 3; k++) {
+          const d = row[x * 4 + k] - back[k] - t * (ink[k] - back[k]);
+          off += d * d;
+        }
+        if (t >= 0.5 && Math.sqrt(off) < 60) {
+          if (from < 0) from = x;
+          to = x + 1;
+        }
+      }
+      return {
+        drawn: drawn,
+        measured: from < 0 ? null : { from: x0 + from, to: x0 + to },
+        canvas: { width: o.width, height: o.height },
+        dpr: window.devicePixelRatio || 1,
       };
     }
     // The Animate row's transport buttons as drawn (#1042): each button's box

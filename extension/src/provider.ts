@@ -1076,6 +1076,7 @@ export class FieldglassEditorProvider
           xy: arrows.xy,
           segLengths: arrows.segLengths,
           referenceSpeed: arrows.referenceSpeed,
+          referenceLength: arrows.referenceLength,
         });
       } catch (err) {
         panel.webview.postMessage({

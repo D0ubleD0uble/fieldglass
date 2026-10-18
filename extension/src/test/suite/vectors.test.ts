@@ -133,7 +133,9 @@ suite("Vector arrows", () => {
     );
     const speed = handle.projectVectors(0, 0, SOURCE, 8, true).referenceSpeed;
     assert.ok(speed != null && speed > 0, `got ${speed}`);
-    assert.strictEqual(composeVectorScale(speed, "kt"), `\u27F6 ${speed.toPrecision(3)} kt`);
+    // The key's label: the speed and its units. The key itself is an arrow
+    // drawn on the map (#1046), so no glyph stands in for one.
+    assert.strictEqual(composeVectorScale(speed, "kt"), `${speed.toPrecision(3)} kt`);
   });
 
   test("the two conventions point differently on a projected grid", () => {
