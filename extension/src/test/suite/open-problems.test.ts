@@ -313,6 +313,32 @@ suite("Open problems (#1040)", () => {
     );
   });
 
+  test("past the folder limit with no store found, the toast and Details say so", async () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-limit-"));
+    for (let i = 0; i < MAX_FOLDERS_EXAMINED + 10; i += 1) {
+      fs.mkdirSync(path.join(dir, `d${String(i).padStart(4, "0")}`));
+    }
+    // The only store sorts last, past the folders looked at.
+    fs.mkdirSync(path.join(dir, "zzzz"));
+    fs.writeFileSync(path.join(dir, "zzzz", ".zgroup"), '{"zarr_format": 2}');
+    assert.ok(native.ZarrHandle.isStore(path.join(dir, "zzzz")));
+
+    const p = await provider();
+    const shown = await capture(DETAILS, () => p.openZarrStore(vscode.Uri.file(dir)));
+    assert.strictEqual(shown.length, 2, JSON.stringify(shown));
+    assert.match(shown[1].detail ?? "", new RegExp(`only the first ${MAX_FOLDERS_EXAMINED}, in name order`));
+    assert.strictEqual(
+      shown[0].message,
+      `Fieldglass: "${path.basename(dir)}" isn't a Zarr store. Fieldglass looked at only the ` +
+        `first ${MAX_FOLDERS_EXAMINED} folders in it, by name, and found no Zarr store. Pick the ` +
+        "folder that holds the store's data, often one whose name ends in .zarr.",
+    );
+    assertPlain(shown[0].message);
+    assert.doesNotMatch(notAStore(dir, "x", [], false).details, /in name order/);
+  });
+
   test("a throw while opening reaches the command", async () => {
     const p = await provider();
     const w = vscode.window as unknown as Record<string, unknown>;
