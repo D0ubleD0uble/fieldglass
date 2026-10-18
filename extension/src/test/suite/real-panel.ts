@@ -790,6 +790,15 @@ export interface RealPanel {
   /** Run `cb` once, as the provider next writes the page, before the new page
    *  can send anything. */
   onNextWrite(cb: () => void): void;
+  /** Keep back what the provider posts that `pred` accepts, as if it were
+   *  still on its way. `deliver` posts the held messages `which` accepts, in
+   *  order, and keeps holding; `release` posts the rest and stops. Held
+   *  messages are in `sent` only once delivered. */
+  hold(pred: (m: Msg) => boolean): {
+    held: Msg[];
+    deliver: (which: (m: Msg) => boolean) => Promise<void>;
+    release: () => Promise<void>;
+  };
   dispose(): void;
 }
 
@@ -810,6 +819,9 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
   const sent: Msg[] = [];
   let made: vscode.WebviewPanel | undefined;
   let nextWrite: (() => void) | undefined;
+  let holding: ((m: Msg) => boolean) | undefined;
+  const held: Msg[] = [];
+  let deliver: ((m: Msg) => Thenable<boolean>) | undefined;
   const origCreate = vscode.window.createWebviewPanel;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (vscode.window as any).createWebviewPanel = (...args: Parameters<typeof origCreate>) => {
@@ -834,7 +846,15 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       },
     });
     const post = webview.postMessage.bind(webview);
+    deliver = (m: Msg) => {
+      sent.push(m);
+      return post(m);
+    };
     webview.postMessage = (m: Msg) => {
+      if (holding?.(m)) {
+        held.push(m);
+        return Promise.resolve(true);
+      }
       sent.push(m);
       return post(m);
     };
@@ -910,6 +930,25 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
     title: () => panel.title,
     onNextWrite: (cb) => {
       nextWrite = cb;
+    },
+    hold: (pred) => {
+      assert.ok(!holding, "one hold at a time");
+      holding = pred;
+      const post = async (which: (m: Msg) => boolean) => {
+        const send = deliver;
+        assert.ok(send, "the panel was made");
+        const go = held.filter(which);
+        held.splice(0, held.length, ...held.filter((m) => !go.includes(m)));
+        for (const m of go) await send(m);
+      };
+      return {
+        held,
+        deliver: post,
+        release: async () => {
+          holding = undefined;
+          await post(() => true);
+        },
+      };
     },
     dispose: () => panel.dispose(),
   };

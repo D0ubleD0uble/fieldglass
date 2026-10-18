@@ -1824,15 +1824,28 @@ export function renderImagePanelHtml(
           requestAxis(sliceState.yDim);
         }
 
-        // Whether the rows are drawn bottom-up: Flip Y axis, turned over once
-        // more for a cross-section whose vertical Y axis storage order puts
-        // the wrong way up (#1043). So the box stays the user's override of
-        // the default, on either orientation. One answer for the render, the
-        // probe that reads it and the rails that label it.
+        // Whether the next render should draw the rows bottom-up: Flip Y axis,
+        // turned over once more for a cross-section whose vertical Y axis
+        // storage order puts the wrong way up (#1043). So the box stays the
+        // user's override of the default, on either orientation. This is what
+        // a render asks for, read from the box and the Y axis as they are
+        // now; the image on screen can be an older render (see drawnFlipY).
         function rowsFlipped() {
           const box = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
           if (!isCrossSection()) return box;
           return box !== verticalAxisFlips(axisCache[axisKey(sliceState.yDim)]);
+        }
+
+        // Whether the image on screen has its rows bottom-up, as its render
+        // says (#1114): the provider echoes the options it drew with. Between
+        // a Flip Y toggle or a Y axis answer and the render that follows,
+        // rowsFlipped() already says the new way while the old image is
+        // still shown, so the rails, the probe and the overlays read this.
+        // Before the first render there is no image, and the request is for
+        // the one to come.
+        function drawnFlipY() {
+          const drawn = lastPayload && lastPayload.options;
+          return drawn && typeof drawn.flipY === 'boolean' ? drawn.flipY : rowsFlipped();
         }
 
         // Place the tick labels down the left of the image and under it. A label
@@ -1889,8 +1902,9 @@ export function renderImagePanelHtml(
           }
           const v = sliceVariable(sliceState.variableIndex);
           if (!v) return;
-          // The orientation the image on screen was drawn with.
-          const flip = rowsFlipped();
+          // The orientation the image on screen was drawn with, not the one
+          // a render on its way will have (#1114).
+          const flip = drawnFlipY();
           const axisY = axisCache[axisKey(sliceState.yDim)];
           const axisX = axisCache[axisKey(sliceState.xDim)];
           const rows = lastPayload.height;
@@ -1904,7 +1918,7 @@ export function renderImagePanelHtml(
           railY.innerHTML = axisTickIndices(rows, 6)
             .map((row) => {
               // Which index that row shows: the renderer draws row 0 first, and
-              // the flip-y toggle turns the plane over.
+              // a render drawn flipped turns the plane over.
               const index = flip ? rows - 1 - row : row;
               const at = ((row + 0.5) / rows) * 100;
               return '<span data-at="' + at + '" style="top:' + at + '%">' + escapeAttr(label(axisY, index)) + '</span>';
@@ -2412,14 +2426,15 @@ export function renderImagePanelHtml(
         // offers only the source view until the answer comes back. The
         // provider draws a slice that can't take it in the source view, and
         // says so. Every other request (overlays, a probe) is about the image
-        // on screen, so it asks for what the picker shows.
+        // on screen, so it asks for what the picker shows, and for the rows
+        // the way that image has them (#1114).
         function currentOptions(render) {
           const held = render === true && heldProjection !== null && !isCrossSection();
           const projection = held
             ? heldProjection
             : (document.getElementById('picker-projection') || {}).value || 'source';
           const resampling = (document.getElementById('picker-resampling') || {}).value || 'nearest';
-          const flipY = rowsFlipped();
+          const flipY = render === true ? rowsFlipped() : drawnFlipY();
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const options = { projection, resampling, flipY };
           // Colours. The name is a registry name the Rust side knows; reverse
