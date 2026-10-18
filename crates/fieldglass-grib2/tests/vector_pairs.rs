@@ -13,7 +13,7 @@
 use std::collections::BTreeSet;
 
 use fieldglass_core::vector_pair::{
-    VectorPairing, mentions_a_direction, pairing_of_parameter_names,
+    VectorPairing, is_placeholder_name, mentions_a_direction, pairing_of_parameter_names,
 };
 use fieldglass_grib2::{Originator, lookup_parameter};
 
@@ -194,16 +194,14 @@ fn every_pair_the_tables_define() {
     }
 }
 
-/// Every name the four originators' tables hold that mentions a direction.
-fn directional_names() -> BTreeSet<&'static str> {
+/// Every name the WMO, NCEP, ECMWF and DWD tables give.
+fn all_names() -> BTreeSet<&'static str> {
     let mut names = BTreeSet::new();
     for originator in [WMO, NCEP, ECMWF, DWD] {
         for d in 0..=255u8 {
             for c in 0..=255u8 {
                 for n in 0..=255u8 {
-                    if let Some((_, name, _)) = lookup_parameter(originator, d, c, n)
-                        && mentions_a_direction(name)
-                    {
+                    if let Some((_, name, _)) = lookup_parameter(originator, d, c, n) {
                         names.insert(name);
                     }
                 }
@@ -211,6 +209,14 @@ fn directional_names() -> BTreeSet<&'static str> {
         }
     }
     names
+}
+
+/// Every name the four originators' tables hold that mentions a direction.
+fn directional_names() -> BTreeSet<&'static str> {
+    all_names()
+        .into_iter()
+        .filter(|n| mentions_a_direction(n))
+        .collect()
 }
 
 /// The names that mention a direction and pair with nothing, reviewed one by
@@ -300,5 +306,83 @@ fn every_directional_name_pairs_or_is_reviewed() {
         new.is_empty() && stale.is_empty(),
         "names that pair with nothing and are not reviewed: {new:?}; \
          reviewed names that now pair or are gone: {stale:?}"
+    );
+}
+
+/// Words a table uses for a code it reserves or leaves open (#1142).
+const PLACEHOLDER_WORDS: &[&str] = &[
+    "experimental",
+    "local",
+    "missing",
+    "reserved",
+    "spare",
+    "undefined",
+    "unknown",
+    "unused",
+];
+
+/// The names [`is_placeholder_name`] reads as placeholders here, reviewed one
+/// by one (#1142), so a real name it would swallow fails the sweep.
+const PLACEHOLDERS: &[&str] = &[
+    // None: these tables hold no placeholder names.
+];
+
+/// Names that hold a [`PLACEHOLDER_WORDS`] word and still name a quantity,
+/// reviewed one by one (#1142).
+const NAMED_DESPITE_THE_WORD: &[&str] = &[
+    // DWD: "local" names the table the codes come from.
+    "Soil type (1...9, local soilType.table)",
+];
+
+/// Every name that holds a word tables use for a reserved or open code is
+/// either read as a placeholder (no name, so a pair with it is `Unknown`) or
+/// reviewed as a real name: a table regeneration that adds a new placeholder
+/// spelling fails here instead of being reported as not a pair (#1142).
+#[test]
+fn every_placeholder_spelling_is_read_as_no_name() {
+    let mut named = BTreeSet::new();
+    let mut placeholders = BTreeSet::new();
+    for name in all_names() {
+        let words: Vec<String> = name
+            .split(|c: char| !c.is_alphanumeric())
+            .map(str::to_lowercase)
+            .collect();
+        if !words
+            .iter()
+            .any(|w| PLACEHOLDER_WORDS.contains(&w.as_str()))
+        {
+            continue;
+        }
+        if is_placeholder_name(name) {
+            placeholders.insert(name);
+        } else {
+            named.insert(name);
+        }
+    }
+    for name in &placeholders {
+        println!("PLACEHOLDER {name:?}");
+    }
+    let expected: BTreeSet<&str> = PLACEHOLDERS.iter().copied().collect();
+    assert_eq!(
+        expected.len(),
+        PLACEHOLDERS.len(),
+        "a placeholder is listed twice"
+    );
+    assert_eq!(
+        placeholders, expected,
+        "the names read as placeholders are not the reviewed ones"
+    );
+    let reviewed: BTreeSet<&str> = NAMED_DESPITE_THE_WORD.iter().copied().collect();
+    assert_eq!(
+        reviewed.len(),
+        NAMED_DESPITE_THE_WORD.len(),
+        "a name is listed twice"
+    );
+    let new: Vec<_> = named.difference(&reviewed).collect();
+    let stale: Vec<_> = reviewed.difference(&named).collect();
+    assert!(
+        new.is_empty() && stale.is_empty(),
+        "names with a placeholder word that are neither placeholders nor reviewed: {new:?}; \
+         reviewed names that are now placeholders or gone: {stale:?}"
     );
 }

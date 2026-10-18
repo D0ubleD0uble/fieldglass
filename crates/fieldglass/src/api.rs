@@ -293,6 +293,11 @@ api_type! {
         Swapped,
         /// The two are not the components of one vector.
         NotAPair,
+        /// Can't tell: a field has no name to read (a GRIB parameter no
+        /// table names or one its table names only with a placeholder, or a
+        /// variable with no usable `standard_name`), and its partner's name
+        /// does not settle it. A host says nothing beside the arrows for it.
+        Unknown,
     }
 
     /// Which element type a caller wants back from a decode.
@@ -1349,6 +1354,7 @@ impl From<fieldglass_core::vector_pair::VectorPairing> for VectorPairing {
             fieldglass_core::vector_pair::VectorPairing::Recognised => Self::Recognised,
             fieldglass_core::vector_pair::VectorPairing::Swapped => Self::Swapped,
             fieldglass_core::vector_pair::VectorPairing::NotAPair => Self::NotAPair,
+            fieldglass_core::vector_pair::VectorPairing::Unknown => Self::Unknown,
         }
     }
 }
@@ -1356,16 +1362,22 @@ impl From<fieldglass_core::vector_pair::VectorPairing> for VectorPairing {
 impl VectorPairing {
     /// Every value, in declaration order: the vocabulary the napi binding's
     /// hand-declared field is held to, as [`Placement::ALL`] is.
-    pub const ALL: [Self; 3] = [Self::Recognised, Self::Swapped, Self::NotAPair];
+    pub const ALL: [Self; 4] = [
+        Self::Recognised,
+        Self::Swapped,
+        Self::NotAPair,
+        Self::Unknown,
+    ];
 
     /// The wire spelling, for a host that declares the field as a string
-    /// rather than serialising it: `"recognised"`, `"swapped"` or
-    /// `"not_a_pair"`. A test holds it to the serde tag.
+    /// rather than serialising it: `"recognised"`, `"swapped"`,
+    /// `"not_a_pair"` or `"unknown"`. A test holds it to the serde tag.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Recognised => "recognised",
             Self::Swapped => "swapped",
             Self::NotAPair => "not_a_pair",
+            Self::Unknown => "unknown",
         }
     }
 }
@@ -1950,7 +1962,10 @@ mod tests {
     fn vector_pairing_as_str_is_the_serde_tag() {
         for p in VectorPairing::ALL {
             match p {
-                VectorPairing::Recognised | VectorPairing::Swapped | VectorPairing::NotAPair => {}
+                VectorPairing::Recognised
+                | VectorPairing::Swapped
+                | VectorPairing::NotAPair
+                | VectorPairing::Unknown => {}
             }
             assert_eq!(
                 serde_json::to_value(p).expect("serialises"),

@@ -200,7 +200,8 @@ export interface ParsedColorTable {
  *  `referenceLength` is how long a full-length arrow is drawn, in the same
  *  raster pixels as `xy`, for the key (#1046); `null` when no arrow is drawn
  *  whole. `pairing` says whether the two messages are a u/v pair at all, by
- *  the parameter each names (#1049); the arrows are drawn either way. */
+ *  the parameter each names (#1049), or `"unknown"` when a parameter has no
+ *  name to read (#1142); the arrows are drawn either way. */
 export interface ProjectedVectors {
   xy: Float64Array;
   segLengths: Uint32Array;

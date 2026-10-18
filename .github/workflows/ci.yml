@@ -283,6 +283,11 @@ jobs:
           node crates/fieldglass-wasm/tests/node/netcdf.mjs \
             --pkg crates/fieldglass-wasm/pkg/nodejs-simd
 
+      # `vectorPairing()` answers each of its wire strings through the bundle
+      # (#1049, #1142), on rewritten copies of a committed GRIB2 message.
+      - name: Vector pairing through the browser host
+        run: node crates/fieldglass-wasm/tests/node/vector_pairing.mjs
+
       # The fetch planner in the browser module (#1081): one GFS field from the
       # committed `.idx`, its Range header, and the envelope check on the
       # committed bytes that range fetched; then every answer the Rust planner

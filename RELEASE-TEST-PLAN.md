@@ -143,6 +143,15 @@ def write(name, *messages):
 cmc = (g1 / "cmc_wind_300_2010052400_p012.grib").read_bytes()
 write("cmc_pair.grib", cmc, cmc)
 
+# The committed GFS message as NCEP local parameters 0-2-250 and 0-2-251,
+# which no table names (eccodes reads both as `unknown`): a pair whose names
+# say nothing (#1142).
+gfs = (g2 / "gfs_c255_latlon.grib2").read_bytes()
+s4 = section(gfs, 4)
+write("gfs_unnamed_pair.grib2",
+      patched(gfs, [(s4 + 9, 2), (s4 + 10, 250)]),
+      patched(gfs, [(s4 + 9, 2), (s4 + 10, 251)]))
+
 # HRRR temperature stating grid-relative, earth-relative, grid-relative
 # components (template 3.30 flags, bit 5), and against a lat/lon grid.
 hrrr = (g2 / "hrrr_complex_spd_lambert.grib2").read_bytes()
@@ -211,6 +220,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/air_v2.zarr`, `air_v3.zarr` | 2, 5 |
 | `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21 |
 | `B: samples/0.6.0/cmc_pair.grib` | 6, 24 |
+| `B: samples/0.6.0/gfs_unnamed_pair.grib2` | 6 |
 | `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6 |
 | `B: samples/0.6.0/spectral_pair.grib2` | 16 |
 | `B: samples/0.6.0/grib1_names.grib1` | 11, 12, 13, 15 |
@@ -614,6 +624,14 @@ A depth axis with fill values used to fail to draw; no file here has one.
       pair (WIND, WIND). The arrows treat them as the u and v components.",
       under the note about the grid's axes (#1049). Failure looks like
       arrows with no note, or a refusal instead of arrows.
+
+**`B: samples/0.6.0/gfs_unnamed_pair.grib2`**
+
+- [ ] The message table lists `Parameter 0/2/250` and `Parameter 0/2/251`:
+      no table names either (eccodes calls both `unknown`). Open message 0,
+      pick message #1 as V component and tick Arrows: the arrows draw, and
+      the Vectors row shows no note about the pair, since nothing says what
+      the two are (#1142). Failure looks like "These messages aren't a u/v pair".
 
 **`B: samples/0.6.0/hrrr_frames.grib2`**
 

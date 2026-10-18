@@ -1597,11 +1597,18 @@ impl Session {
     /// drawn from a pair that is not one.
     ///
     /// `u` and `v` index what [`Self::addressing`] says this container is
-    /// addressed by: messages for GRIB, compared by the parameter names
-    /// [`Self::message`] reports, and the [`Self::variables`] list for NetCDF
-    /// and Zarr, compared by each variable's CF `standard_name`. A variable
-    /// with no `standard_name` pairs with nothing. The rule, and every table
-    /// it covers, is [`fieldglass_core::vector_pair`]'s.
+    /// addressed by: messages for GRIB, compared by the names their
+    /// parameter tables give them, and the [`Self::variables`] list for
+    /// NetCDF and Zarr, compared by each variable's CF `standard_name`. The
+    /// rule, and every table it covers, is [`fieldglass_core::vector_pair`]'s.
+    ///
+    /// [`VectorPairing::Unknown`] when a field has no name to read and its
+    /// partner does not settle it: a GRIB parameter no table names (the
+    /// `Parameter 0/2/250` [`Self::message`] shows is a stand-in, not a
+    /// name), one its table names only with a placeholder such as
+    /// `Experimental product`, a message with no parameter codes, or a
+    /// variable with no `standard_name`. A variable's `long_name` is not
+    /// read: it is free text, and two unrelated ones can read as a pair.
     ///
     /// Not a gate. `render::vector_polylines` draws a pair that is not one,
     /// and the answer here is what a host says beside it. It is about the
@@ -1635,12 +1642,11 @@ impl Session {
                     )
                 };
                 let (u, v) = (standard_name(u)?, standard_name(v)?);
-                Ok(match (u, v) {
-                    (Some(u), Some(v)) => {
-                        fieldglass_core::vector_pair::pairing_of_standard_names(&u, &v).into()
-                    }
-                    _ => VectorPairing::NotAPair,
-                })
+                Ok(fieldglass_core::vector_pair::pairing_of_standard_names(
+                    u.as_deref(),
+                    v.as_deref(),
+                )
+                .into())
             }
         }
     }
@@ -1648,11 +1654,37 @@ impl Session {
     /// [`Self::vector_pairing`] for a message container.
     #[cfg(any(feature = "grib1", feature = "grib2"))]
     fn message_vector_pairing(&self, u: u32, v: u32) -> Result<VectorPairing, Error> {
-        let (u, v) = (self.message(u)?.parameter, self.message(v)?.parameter);
-        Ok(
-            fieldglass_core::vector_pair::pairing_of_parameter_names(u.as_deref(), v.as_deref())
-                .into(),
-        )
+        let (u, v) = (self.table_name(u)?, self.table_name(v)?);
+        Ok(fieldglass_core::vector_pair::pairing_of_parameter_names(u, v).into())
+    }
+
+    /// The name message `index`'s parameter table gives its parameter, or
+    /// `None` when no table names it or it has no parameter codes. Unlike
+    /// [`MessageInfo::parameter`], never the `Parameter d/c/n` placeholder,
+    /// and it builds no [`MessageInfo`].
+    #[cfg(any(feature = "grib1", feature = "grib2"))]
+    fn table_name(&self, index: u32) -> Result<Option<&'static str>, Error> {
+        let i = self.check_index(index)?;
+        let name = match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(r) => grib1_entry(&r.messages[i]).map(|p| p.name),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(r) => {
+                let msg = &r.messages[i];
+                msg.pds.common().and_then(|common| {
+                    fieldglass_grib2::lookup_parameter(
+                        msg.ids.originator(),
+                        msg.is.discipline,
+                        common.parameter_category,
+                        common.parameter_number,
+                    )
+                    .map(|(_, long, _)| long)
+                })
+            }
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(_) => None,
+        };
+        Ok(name.filter(|n| !n.is_empty()))
     }
 
     /// Decode one 2-D slice of a variable into the same [`Field`]
@@ -2634,12 +2666,7 @@ fn stated(abbreviation: &str, name: &str, units: &str) -> ParameterNames {
 /// per edge.
 #[cfg(feature = "grib1")]
 fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> ParameterNames {
-    match fieldglass_grib1::tables::lookup_parameter(
-        msg.pds.parameter_id,
-        msg.pds.table_version,
-        msg.pds.originating_centre,
-        msg.pds.sub_centre,
-    ) {
+    match grib1_entry(msg) {
         // Units are normalised at the display seam, the same way the napi host
         // does it: the ECMWF local tables are generated from eccodes'
         // Fortran-style exponents and ON388 chains solidi, so the raw strings
@@ -2657,6 +2684,19 @@ fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> ParameterNames {
             None,
         ),
     }
+}
+
+/// One GRIB1 message's parameter table entry, `None` when no table names it.
+#[cfg(feature = "grib1")]
+fn grib1_entry(
+    msg: &fieldglass_grib1::Grib1Message,
+) -> Option<fieldglass_grib1::tables::ParameterEntry> {
+    fieldglass_grib1::tables::lookup_parameter(
+        msg.pds.parameter_id,
+        msg.pds.table_version,
+        msg.pds.originating_centre,
+        msg.pds.sub_centre,
+    )
 }
 
 /// Where a synthesised family's values land, as

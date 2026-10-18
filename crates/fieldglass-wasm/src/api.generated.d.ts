@@ -2432,7 +2432,14 @@ export type VectorPairing =
   /**
    * The two are not the components of one vector.
    */
-  | "not_a_pair";
+  | "not_a_pair"
+  /**
+   * Can't tell: a field has no name to read (a GRIB parameter no
+   * table names or one its table names only with a placeholder, or a
+   * variable with no usable `standard_name`), and its partner's name
+   * does not settle it. A host says nothing beside the arrows for it.
+   */
+  | "unknown";
 
 /**
  * A vertical axis, as CF §4.3 identifies one: by a `positive` attribute,

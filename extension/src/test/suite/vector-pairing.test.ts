@@ -45,6 +45,13 @@ function gfsAs(category: number, number: number): Buffer {
   return msg;
 }
 
+/** A GRIB1 message with its PDS parameter (octet 9) rewritten. */
+function grib1As(msg: Buffer, parameter: number): Buffer {
+  const out = Buffer.from(msg);
+  out[8 + 8] = parameter;
+  return out;
+}
+
 function file(name: string, ...messages: Buffer[]): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-vector-pairing-"));
   const out = path.join(dir, name);
@@ -130,6 +137,35 @@ suite("Vector pairing note (#1049)", () => {
       assert.strictEqual(wind.off.vectorPairNote, "", "unticking Arrows clears the note");
     } finally {
       fs.rmSync(path.dirname(pair), { recursive: true, force: true });
+    }
+  });
+
+  // A parameter no table names is shown as `Parameter 0/2/250`, a placeholder
+  // that says nothing about whether it is a component, so the row says
+  // nothing either (#1142). A named pair that is not one still gets its note.
+  test("two unnamed local parameters: no note; WIND with WDIR: the not-a-pair note", async function () {
+    this.timeout(120_000);
+    const unnamed = file("gfs_unnamed.grib2", gfsAs(2, 250), gfsAs(2, 251));
+    const cmc = fixture("fieldglass-grib1", "cmc_wind_300_2010052400_p012.grib");
+    const named = file("cmc_wind_wdir.grib", cmc, grib1As(cmc, 31));
+    try {
+      assert.strictEqual(composeVectorPairingNote("unknown", "a", "b"), "");
+      const unknown = await arrows(unnamed, 0, 1);
+      assert.strictEqual(unknown.result.pairing, "unknown");
+      assert.deepStrictEqual(unknown.result.pairNames, ["Parameter 0/2/250", "Parameter 0/2/251"]);
+      assert.strictEqual(unknown.state.vectorPairNote, "", "an unnamed pair gets no note");
+      assert.ok(!unknown.state.text.includes("u/v pair"), "and no pair text is shown");
+      assert.ok(unknown.result.segLengths.length > 0, "its arrows draw");
+
+      const wind = await arrows(named, 0, 1);
+      assert.strictEqual(wind.result.pairing, "not_a_pair");
+      const note = composeVectorPairingNote("not_a_pair", "WIND", "WDIR");
+      assert.strictEqual(note, "These messages aren't a u/v pair (WIND, WDIR). The arrows treat them as the u and v components.");
+      assert.strictEqual(wind.state.vectorPairNote, note);
+      assert.ok(wind.state.text.includes(note), "the note is shown");
+    } finally {
+      fs.rmSync(path.dirname(unnamed), { recursive: true, force: true });
+      fs.rmSync(path.dirname(named), { recursive: true, force: true });
     }
   });
 });

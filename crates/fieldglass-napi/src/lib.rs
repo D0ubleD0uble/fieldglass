@@ -902,8 +902,9 @@ pub struct ProjectedVectors {
     /// Whether u and v are the two components of one vector, by the parameter
     /// each message names: `fieldglass::Session::vector_pairing`, in the wire
     /// spelling of the API's own `VectorPairing` (#1049). The arrows are drawn
-    /// whichever it is; a host says so beside them when it is not
-    /// `"recognised"`.
+    /// whichever it is; a host says so beside them when it is `"swapped"` or
+    /// `"not_a_pair"`, and says nothing for `"unknown"`, a pair whose names
+    /// can't be read.
     #[napi(ts_type = "VectorPairing")]
     pub pairing: String,
 }
@@ -9331,6 +9332,14 @@ mod vector_pairing_tests {
             assert_eq!(arrows.pairing, pairing, "#{u} with #{v}");
             assert!(!arrows.xy.is_empty(), "#{u} with #{v} still draws");
         }
+
+        // NCEP local codes no table names: can't tell (#1142).
+        let unnamed =
+            Grib2Handle::from_vec([gfs_as(2, 250), gfs_as(2, 251)].concat()).expect("opens");
+        let arrows = unnamed
+            .project_vectors(0, 1, opts("source"), Some(8), None)
+            .expect("draws");
+        assert_eq!(arrows.pairing, "unknown");
 
         // CMC's wind speed against itself, as `samples/0.6.0/cmc_pair.grib`.
         let g1 = Grib1Handle::from_vec([CMC, CMC].concat()).expect("opens");
