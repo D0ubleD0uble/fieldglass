@@ -121,7 +121,8 @@ Notes that shape the two hosts:
   codes yet), comparing
   values rather than wording (`2 mb` is a message coded at 200 Pa), and throws
   `decode` for a valid message that is another field (#1093). A message on a
-  product template the reader does not parse (the aerosol templates 4.40-4.48)
+  product template the reader does not parse (for example the chemistry and
+  aerosol templates 4.40–4.48)
   is checked on its reference time alone (#1126).
 - **The extension later.** "Open URL…" in VS Code (#247) is the same
   `fetchplan` call from TypeScript with `fetch()` in the extension host, then

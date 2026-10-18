@@ -344,9 +344,9 @@ impl ParameterResolver for TableResolver {
 /// time are compared, so a stale sidecar pointing at another field on the same
 /// level passes.
 ///
-/// **A message on a product template the reader does not parse** (the
-/// chemistry and aerosol templates 4.40–4.48, such as GEFS-aerosol's 4.48
-/// `AOTK` and `PMTC` records) is checked on its reference time alone. Its
+/// **A message on a product template the reader does not parse** (for
+/// example the chemistry and aerosol templates 4.40–4.48, such as
+/// GEFS-Aerosols' 4.48 `AOTK` and `PMTC` records) is checked on its reference time alone. Its
 /// parameter codes, short name and fixed surfaces are all unread, so the level
 /// is not compared, as for a level the grammar did not understand. Every
 /// message on a parsed template is compared on its surfaces as above.
@@ -486,12 +486,18 @@ fn level_holds(promised: &LevelSpec, ecmwf: bool, identity: &MessageIdentity) ->
 }
 
 /// Whether the message is GRIB2 on a product template the reader does not
-/// parse, which leaves its fixed surfaces unread. A parsed template always
-/// states its first surface, so this is not a message on no surface.
+/// parse, which leaves its fixed surfaces unread.
+///
+/// The identity states that as the parameter and the first surface both
+/// absent: they are read from the one common block every parsed template
+/// has, so a parsed template states both and an unparsed one neither. An
+/// identity missing only one of them is not that message, and its level is
+/// still compared (and refused, having no surface to match).
 fn surfaces_unknown(identity: &MessageIdentity) -> bool {
     matches!(
         identity,
         MessageIdentity::Grib2 {
+            parameter_category: None,
             first_surface: None,
             ..
         }
@@ -1044,6 +1050,17 @@ mod tests {
                 "{record}"
             );
         }
+
+        // An identity with parameter codes but no surface is not an unparsed
+        // template, so its level is still compared, and has nothing to match.
+        let mut no_surface = unparsed.clone();
+        if let crate::api::MessageIdentity::Grib2 {
+            parameter_category, ..
+        } = &mut no_surface.identity
+        {
+            *parameter_category = Some(0);
+        }
+        assert!(verify_message(&level("surface"), &no_surface).is_err());
 
         assert!(!holds("surface", (10, 0, 0), None));
         assert!(!holds("2 mb", (1, 0, 0), None));
