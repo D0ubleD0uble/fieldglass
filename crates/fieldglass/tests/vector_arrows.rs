@@ -1,11 +1,15 @@
 //! Vector arrows, and the thing that makes them hard: rotation (#241).
 //!
-//! An arrow is built as a geographic segment — from the cell, along the flow's
-//! bearing — and projected like a coastline, so the target does the rotating.
-//! What is checked here is that the rotation comes out right on targets that
-//! turn the map by different amounts, that grid-relative components are turned
-//! through the grid's own north rather than drawn as if they were east and
-//! north, and that the spacing and missing-value rules hold.
+//! An arrow points the way the flow does *on the map*: its direction is a
+//! short geographic step along the flow's bearing, projected, so the target
+//! does the rotating. Its length is set on screen, one length per speed
+//! (#1159), so a full-speed arrow is the same length anywhere on any map and
+//! the key beside them is that length. What is checked here is that the
+//! rotation comes out right on targets that turn the map by different amounts,
+//! that each arrow's direction is its projected step's, that equal speeds draw
+//! equal lengths, that grid-relative components are turned through the grid's
+//! own north rather than drawn as if they were east and north, and that the
+//! spacing and missing-value rules hold.
 //!
 //! The oracle is a field whose direction is known everywhere: solid-body
 //! rotation about the Earth's axis, `u = cos(lat)`, `v = 0` — due east at every
@@ -114,10 +118,13 @@ fn an_eastward_field_points_east_on_an_equirectangular_map() {
     assert!(shafts.len() > 20, "only {} arrows", shafts.len());
     for ((x0, y0), (x1, y1)) in shafts {
         assert!(x1 > x0, "an eastward arrow points right: {x0} → {x1}");
-        // A great circle leaving due east bends poleward, so the shaft is not
-        // exactly horizontal — but it is within a few degrees of it.
+        // Due east is along the parallel, which this map draws horizontal,
+        // and the shaft is straight on screen. (An arrow on the map's left
+        // edge reads its direction from the step ahead alone, the one behind
+        // being over the seam, and a great circle's few metres lean off the
+        // parallel by about 1e-7.)
         assert!(
-            (y1 - y0).abs() < 0.1 * (x1 - x0).abs(),
+            (y1 - y0).abs() < 1e-6 * (x1 - x0).abs(),
             "and runs along its parallel: {y0} → {y1} over {x0} → {x1}"
         );
     }
@@ -164,8 +171,8 @@ fn the_same_field_runs_around_the_pole_on_an_orthographic_globe() {
         if r < 20.0 || a < 1.0 {
             continue; // too near the centre for the angle to mean much
         }
-        // Perpendicular to the radius, within a few degrees: the arrow is a
-        // chord of a small circle, not a ray from the pole.
+        // Perpendicular to the radius, within a few degrees: the arrow is the
+        // small circle's tangent, not a ray from the pole.
         let cosine = (radius.0 * along.0 + radius.1 * along.1) / (r * a);
         assert!(
             cosine.abs() < 0.2,
@@ -388,62 +395,12 @@ fn the_reference_speed_is_the_scale_the_arrows_were_drawn_to() {
     assert_eq!(none.reference_speed, None);
 }
 
-/// The length a key draws its arrow at (#1046) is a drawn arrow's, not a
-/// figure worked out beside the arrows: with the scale taken from the field,
-/// the fastest arrow on the map is drawn at exactly that length.
-///
-/// `u = cos(lat)` is fastest on the equator, where both targets here draw an
-/// arrow at the centre of the map.
-#[test]
-fn the_reference_length_is_the_fastest_arrow_as_drawn() {
-    let geometry = global();
-    let (u, v) = solid_rotation();
-    let mut globe = options("orthographic");
-    globe.center_lat = Some(0.0);
-    globe.center_lon = Some(0.0);
-    for options in [options("equirectangular"), globe] {
-        let arrows = one_grid(
-            &source(&geometry, "latlon"),
-            &u,
-            &v,
-            &options,
-            &VectorOptions::new(),
-        )
-        .expect("arrows");
-        let key = arrows.reference_length.expect("arrows were drawn");
-        let lengths: Vec<f64> = shafts(&arrows)
-            .into_iter()
-            .map(|((x0, y0), (x1, y1))| (x1 - x0).hypot(y1 - y0))
-            .collect();
-        assert!(
-            lengths.iter().any(|l| (l - key).abs() < 1e-9),
-            "{}: the key's {key} px is one drawn arrow's length",
-            options.projection
-        );
-        // On these two maps the fastest arrow is also the longest drawn, to
-        // within a pixel: `cos(lat)` slows the wind exactly as Equirectangular
-        // stretches a parallel, and a globe only shortens what is off-centre.
-        let longest = lengths.iter().copied().fold(0.0, f64::max);
-        assert!(
-            (longest - key).abs() < 1.0,
-            "{}: the longest arrow is {longest} px, the key {key} px",
-            options.projection
-        );
-    }
-}
-
 /// Every target the overlay projects onto, and the source view, each the
-/// right way up and flipped: the key is one drawn arrow's own length.
-///
-/// A uniform flow makes every arrow full length (a share of 1), so the key
-/// must equal the tail-to-tip length of some arrow on the map, to the bit
-/// pattern's rounding. It is measured from the same projection the runs come
-/// back through, whichever target that is.
-#[test]
-fn the_reference_length_is_a_drawn_arrow_on_every_target() {
-    let geometry = global();
-    let cells = (NI * NJ) as usize;
-    let (u, v) = (vec![Some(3.0); cells], vec![Some(4.0); cells]);
+/// right way up and flipped, plus the views that put the arrows near a
+/// globe's edge or a polar disc's other hemisphere: an off-centre globe and a
+/// south polar view.
+fn every_view() -> Vec<(String, RenderOptions)> {
+    let mut views = Vec::new();
     for projection in [
         "source",
         "equirectangular",
@@ -457,33 +414,430 @@ fn the_reference_length_is_a_drawn_arrow_on_every_target() {
         for flip_y in [false, true] {
             let mut o = options(projection);
             o.flip_y = flip_y;
-            let what = format!("{projection}, flip_y {flip_y}");
-            let arrows = one_grid(
+            views.push((format!("{projection}, flip_y {flip_y}"), o));
+        }
+    }
+    let mut tilted = options("orthographic");
+    tilted.center_lat = Some(40.0);
+    tilted.center_lon = Some(60.0);
+    views.push(("orthographic at (40, 60)".to_string(), tilted));
+    let mut south = options("polar_stereographic");
+    south.center_lat = Some(-90.0);
+    views.push(("south polar stereographic".to_string(), south));
+    views
+}
+
+/// Every whole arrow's five vertices in pixels: tail, tip, barb, tip, barb.
+fn whole_arrows(arrows: &fieldglass::render::VectorArrows) -> Vec<[(f64, f64); 5]> {
+    let p = &arrows.runs;
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    for &len in &p.seg_lengths {
+        if len == fieldglass::render::ARROW_VERTICES {
+            let v = |k: usize| (p.xy[(at + k) * 2], p.xy[(at + k) * 2 + 1]);
+            out.push([v(0), v(1), v(2), v(3), v(4)]);
+        }
+        at += len as usize;
+    }
+    out
+}
+
+/// A flow whose direction turns with longitude and whose speed is the same
+/// everywhere: `(u, v) = (cos λ, sin λ)`, so every arrow is full length and
+/// the arrows point every way between them.
+fn turning() -> (Vec<Option<f64>>, Vec<Option<f64>>) {
+    let (mut u, mut v) = (Vec::new(), Vec::new());
+    for _ in 0..NJ {
+        for i in 0..NI {
+            let lon = (5.0 * f64::from(i)).to_radians();
+            u.push(Some(lon.cos()));
+            v.push(Some(lon.sin()));
+        }
+    }
+    (u, v)
+}
+
+/// The point `metres` from `(lat, lon)` along `bearing` (radians clockwise
+/// from north), on the sphere: the test's own formula, not the library's.
+fn step_along(lat: f64, lon: f64, bearing: f64, metres: f64) -> (f64, f64) {
+    let d = metres / fieldglass_core::DEFAULT_EARTH_RADIUS_M;
+    let (p1, l1) = (lat.to_radians(), lon.to_radians());
+    let p2 = (p1.sin() * d.cos() + p1.cos() * d.sin() * bearing.cos()).asin();
+    let l2 = l1 + (bearing.sin() * d.sin() * p1.cos()).atan2(d.cos() - p1.sin() * p2.sin());
+    (p2.to_degrees(), l2.to_degrees())
+}
+
+/// The pixels a cell may be at, and which way its flow runs on screen there.
+type Flow = (Vec<(f64, f64)>, (f64, f64));
+
+/// Where each sampled cell lands and which way its flow runs there, from
+/// `p`, the projection of one three-vertex ring per cell: the point a short
+/// step behind it, the cell, and the point a step ahead. A whole ring gives
+/// the chord from behind to ahead; a ring cut at the seam or a disc's edge
+/// leaves a two-vertex run on one side of the cell, which gives that side's
+/// step, and either of its ends may be the cell.
+fn flows(p: &fieldglass::ProjectedPolylines) -> Vec<Flow> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    for &len in &p.seg_lengths {
+        let n = len as usize;
+        let v = |k: usize| (p.xy[(at + k) * 2], p.xy[(at + k) * 2 + 1]);
+        let (first, last) = (v(0), v(n - 1));
+        let along = (last.0 - first.0, last.1 - first.1);
+        match n {
+            3 => out.push((vec![v(1)], along)),
+            2 => out.push((vec![first, last], along)),
+            _ => {}
+        }
+        at += n;
+    }
+    out
+}
+
+/// Each arrow points the way a short step along its flow goes on the map.
+///
+/// The oracle is the overlay pipeline itself, asked for a 20 m chord through
+/// each sampled cell along the flow's bearing. Where the chord is cut, at the
+/// seam or off a globe's disc, the half left on the map stands in. Each arrow
+/// is paired with its cell by its tail, which is the cell's own pixel. The
+/// shaft must run the chord's way to within a hundredth of a degree.
+#[test]
+fn every_arrow_points_along_its_projected_flow_on_every_target() {
+    let geometry = global();
+    let (u, v) = turning();
+    let step = (NI / 24) as usize;
+    let mut rings = Vec::new();
+    for j in (step..NJ as usize - 1).step_by(step) {
+        for i in (0..NI as usize).step_by(step) {
+            let (lat, lon) = (90.0 - 5.0 * j as f64, 5.0 * i as f64);
+            // `(cos λ, sin λ)` as (u, v): a bearing of `atan2(u, v)`.
+            let bearing = lon.to_radians().cos().atan2(lon.to_radians().sin());
+            let to = step_along(lat, lon, bearing, 10.0);
+            let from = step_along(lat, lon, bearing + std::f64::consts::PI, 10.0);
+            rings.extend_from_slice(&[from.0, from.1, lat, lon, to.0, to.1]);
+        }
+    }
+    let lengths = vec![3u32; rings.len() / 6];
+    for (what, o) in every_view() {
+        let arrows = one_grid(
+            &source(&geometry, "latlon"),
+            &u,
+            &v,
+            &o,
+            &VectorOptions::new(),
+        )
+        .unwrap_or_else(|e| panic!("{what}: {e}"));
+        let drawn = whole_arrows(&arrows);
+        assert!(drawn.len() > 20, "{what}: only {} arrows", drawn.len());
+        let flows = flows(
+            &fieldglass::render::overlay_polylines(
                 &source(&geometry, "latlon"),
-                &u,
-                &v,
                 &o,
-                &VectorOptions::new(),
+                &rings,
+                &lengths,
             )
-            .unwrap_or_else(|e| panic!("{what}: {e}"));
-            assert_eq!(arrows.reference_speed, Some(5.0), "{what}");
-            let key = arrows
-                .reference_length
-                .unwrap_or_else(|| panic!("{what}: a key length"));
-            let shafts = shafts(&arrows);
-            assert!(!shafts.is_empty(), "{what}: arrows drawn whole");
+            .unwrap_or_else(|e| panic!("{what}: {e}")),
+        );
+        let near = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).hypot(a.1 - b.1) < 1e-6;
+        let mut checked = 0;
+        for [tail, tip, ..] in &drawn {
+            let Some((_, along)) = flows
+                .iter()
+                .find(|(cells, _)| cells.iter().any(|c| near(*c, *tail)))
+            else {
+                continue;
+            };
+            let shaft = (tip.0 - tail.0, tip.1 - tail.1);
+            let turn = (shaft.0 * along.1 - shaft.1 * along.0)
+                .atan2(shaft.0 * along.0 + shaft.1 * along.1)
+                .to_degrees();
             assert!(
-                shafts
-                    .iter()
-                    .any(|((x0, y0), (x1, y1))| ((x1 - x0).hypot(y1 - y0) - key).abs() < 1e-9),
-                "{what}: the key's {key} px is one drawn arrow's tail-to-tip length"
+                turn.abs() < 0.01,
+                "{what}: the arrow at {tail:?} is {turn}° off its projected flow"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked * 10 >= drawn.len() * 9,
+            "{what}: only {checked} of {} arrows checked",
+            drawn.len()
+        );
+    }
+}
+
+/// One length per speed, everywhere: with every cell at the same speed, every
+/// arrow on every view is drawn whole, its shaft is exactly the key's length,
+/// and its head is the same shape on screen: two barbs `0.32` of the shaft
+/// long, at 155° either side of it.
+#[test]
+fn equal_speeds_draw_equal_arrows_on_every_target() {
+    let geometry = global();
+    let (u, v) = turning();
+    for (what, o) in every_view() {
+        let arrows = one_grid(
+            &source(&geometry, "latlon"),
+            &u,
+            &v,
+            &o,
+            &VectorOptions::new(),
+        )
+        .unwrap_or_else(|e| panic!("{what}: {e}"));
+        let key = arrows
+            .reference_length
+            .unwrap_or_else(|| panic!("{what}: a key length"));
+        assert!(
+            arrows
+                .runs
+                .seg_lengths
+                .iter()
+                .all(|&n| n == fieldglass::render::ARROW_VERTICES),
+            "{what}: every arrow is drawn whole, none split at a seam or a disc's edge"
+        );
+        let drawn = whole_arrows(&arrows);
+        assert!(drawn.len() > 20, "{what}: only {} arrows", drawn.len());
+        for [tail, tip, left, again, right] in drawn {
+            let shaft = (tip.0 - tail.0, tip.1 - tail.1);
+            let length = shaft.0.hypot(shaft.1);
+            assert!(
+                (length - key).abs() < 1e-9 * key,
+                "{what}: an arrow at {tail:?} is {length} px, the key {key} px"
+            );
+            assert_eq!(tip, again, "{what}: the stroke returns to the tip");
+            for (barb, side) in [(left, -1.0), (right, 1.0)] {
+                let b = (barb.0 - tip.0, barb.1 - tip.1);
+                assert!(
+                    (b.0.hypot(b.1) - 0.32 * length).abs() < 1e-9 * key,
+                    "{what}: a barb is {} px of a {length} px shaft",
+                    b.0.hypot(b.1)
+                );
+                let angle = (shaft.0 * b.1 - shaft.1 * b.0)
+                    .atan2(shaft.0 * b.0 + shaft.1 * b.1)
+                    .to_degrees();
+                assert!(
+                    (angle - side * 155.0).abs() < 1e-6,
+                    "{what}: a barb leaves the tip at {angle}°"
+                );
+            }
+        }
+    }
+}
+
+/// The case #1046 found: Equirectangular stretches a parallel by `1 / cos φ`,
+/// and an arrow drawn as a geographic segment was stretched with it, twice as
+/// long at lat 60 as on the equator. On screen, an eastward arrow is as long
+/// at lat 60 as at lat 0.
+#[test]
+fn equal_speeds_are_equal_lengths_at_every_latitude_on_equirectangular() {
+    let geometry = global();
+    let cells = (NI * NJ) as usize;
+    let (u, v) = (vec![Some(10.0); cells], vec![Some(0.0); cells]);
+    let o = options("equirectangular");
+    let arrows = one_grid(
+        &source(&geometry, "latlon"),
+        &u,
+        &v,
+        &o,
+        &VectorOptions::new(),
+    )
+    .expect("arrows");
+    let row = |lat: f64| {
+        let at = fieldglass::render::overlay_polylines(
+            &source(&geometry, "latlon"),
+            &o,
+            &[lat, 0.0, lat, 0.0],
+            &[2],
+        )
+        .expect("a row projects");
+        at.xy[1]
+    };
+    let lengths_on = |lat: f64| -> Vec<f64> {
+        let y = row(lat);
+        whole_arrows(&arrows)
+            .into_iter()
+            .filter(|a| (a[0].1 - y).abs() < 1e-6)
+            .map(|[tail, tip, ..]| (tip.0 - tail.0).hypot(tip.1 - tail.1))
+            .collect()
+    };
+    let (equator, sixty) = (lengths_on(0.0), lengths_on(60.0));
+    assert_eq!(equator.len(), 24, "every column of the equator draws");
+    assert_eq!(sixty.len(), 24, "and of lat 60");
+    for (a, b) in equator.iter().zip(&sixty) {
+        assert!(
+            (a - b).abs() < 1e-9,
+            "{a} px on the equator, {b} px at lat 60"
+        );
+    }
+}
+
+/// The key is the longest arrow on the map, within a pixel, whatever the map
+/// does to distance (#1046's acceptance): `u = cos(lat)` is fastest on the
+/// equator, and no arrow anywhere is longer than the key. Where the equator is
+/// on the map, the arrows there are the key's length.
+#[test]
+fn the_key_is_the_longest_arrow_on_every_target() {
+    let geometry = global();
+    let (u, v) = solid_rotation();
+    for (what, o) in every_view() {
+        let arrows = one_grid(
+            &source(&geometry, "latlon"),
+            &u,
+            &v,
+            &o,
+            &VectorOptions::new(),
+        )
+        .unwrap_or_else(|e| panic!("{what}: {e}"));
+        let key = arrows.reference_length.expect("arrows were drawn");
+        let longest = whole_arrows(&arrows)
+            .into_iter()
+            .map(|[tail, tip, ..]| (tip.0 - tail.0).hypot(tip.1 - tail.1))
+            .fold(0.0, f64::max);
+        assert!(
+            longest <= key * (1.0 + 1e-12),
+            "{what}: an arrow is {longest} px, longer than the key's {key} px"
+        );
+        // The equator is a polar view's rim and is not drawn on it.
+        if !what.contains("polar") {
+            assert!(
+                key - longest < 1.0,
+                "{what}: the longest arrow is {longest} px, the key {key} px"
+            );
+        }
+    }
+}
+
+/// The #1046 fixture, as the panel's test pairs it: `gfs_c255_latlon.grib2`
+/// against itself, so every arrow points north-east at √2 × the cell's value.
+/// On Equirectangular, Orthographic, both polar views and the source view, the
+/// key is the longest arrow drawn, within a pixel.
+#[test]
+fn the_key_is_the_longest_arrow_on_the_gfs_fixture() {
+    /// Embedded rather than read, so the test runs under wasm32 too.
+    const GFS: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
+    let session = fieldglass::Session::open(GFS.to_vec()).expect("the fixture opens");
+    let field = session
+        .decode(0, &fieldglass::DecodeOptions::default())
+        .expect("the fixture decodes");
+    let values: Vec<Option<f64>> = (0..field.values.len())
+        .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
+        .collect();
+    let source = field.source();
+    let mut views = Vec::new();
+    for projection in [
+        "source",
+        "equirectangular",
+        "orthographic",
+        "polar_stereographic",
+    ] {
+        views.push((
+            projection.to_string(),
+            RenderOptions::new(projection, "nearest"),
+        ));
+    }
+    let mut south = RenderOptions::new("polar_stereographic", "nearest");
+    south.center_lat = Some(-90.0);
+    views.push(("south polar stereographic".to_string(), south));
+    for (what, o) in views {
+        let arrows = vector_polylines(
+            &source,
+            &values,
+            &source,
+            &values,
+            &o,
+            &VectorOptions::new(),
+        )
+        .unwrap_or_else(|e| panic!("{what}: {e}"));
+        let key = arrows.reference_length.expect("arrows were drawn");
+        let longest = whole_arrows(&arrows)
+            .into_iter()
+            .map(|[tail, tip, ..]| (tip.0 - tail.0).hypot(tip.1 - tail.1))
+            .fold(0.0, f64::max);
+        assert!(
+            (key - longest).abs() <= 1.0 && longest <= key * (1.0 + 1e-12),
+            "{what}: the longest arrow is {longest} px, the key {key} px"
+        );
+    }
+}
+
+/// An arrow is drawn on screen from its cell, so one at the map's seam or a
+/// globe's edge is drawn whole: it runs off the edge of the map, or past the
+/// limb, rather than being cut in two or dropped. On a whole-world map every
+/// sampled cell draws; on a globe every cell whose tail is on the near side.
+#[test]
+fn arrows_at_the_seam_and_the_limb_are_drawn_whole() {
+    let geometry = global();
+    let cells = (NI * NJ) as usize;
+    // Due east, so the arrows on lon 180 point across the seam.
+    let (u, v) = (vec![Some(1.0); cells], vec![Some(0.0); cells]);
+    // Auto spacing samples every 3rd cell: 24 columns, and 11 rows once the
+    // two pole rows are left out.
+    let sampled: Vec<(f64, f64)> = (3..NJ - 1)
+        .step_by(3)
+        .flat_map(|j| {
+            (0..NI)
+                .step_by(3)
+                .map(move |i| (90.0 - 5.0 * f64::from(j), 5.0 * f64::from(i)))
+        })
+        .collect();
+    assert_eq!(sampled.len(), 24 * 11);
+    let latlon: Vec<f64> = sampled
+        .iter()
+        .flat_map(|&(lat, lon)| [lat, lon, lat, lon])
+        .collect();
+    let mut globe = options("orthographic");
+    globe.center_lat = Some(20.0);
+    globe.center_lon = Some(100.0);
+    for (what, o) in [
+        ("equirectangular", options("equirectangular")),
+        ("mollweide", options("mollweide")),
+        ("robinson", options("robinson")),
+        ("source", options("source")),
+        ("orthographic", globe),
+    ] {
+        let arrows = one_grid(
+            &source(&geometry, "latlon"),
+            &u,
+            &v,
+            &o,
+            &VectorOptions::new(),
+        )
+        .unwrap_or_else(|e| panic!("{what}: {e}"));
+        // How many of the sampled cells land on this map at all.
+        let placed = fieldglass::render::overlay_polylines(
+            &source(&geometry, "latlon"),
+            &o,
+            &latlon,
+            &vec![2; sampled.len()],
+        )
+        .expect("the cells project")
+        .seg_lengths
+        .len();
+        assert!(
+            arrows
+                .runs
+                .seg_lengths
+                .iter()
+                .all(|&n| n == fieldglass::render::ARROW_VERTICES),
+            "{what}: no arrow is split"
+        );
+        assert_eq!(
+            arrows.runs.seg_lengths.len(),
+            placed,
+            "{what}: every cell on the map draws its arrow"
+        );
+        if what != "orthographic" {
+            assert_eq!(
+                placed,
+                sampled.len(),
+                "{what}: the whole world is on the map"
             );
         }
     }
 }
 
 /// A pinned scale draws every arrow at a share of full length, and the key is
-/// still a full-length arrow: the drawn arrow over its share.
+/// still a full-length arrow, the same length as with the field's own scale:
+/// the full length is set by the spacing, not by the speeds.
 #[test]
 fn a_pinned_reference_speed_keeps_the_key_at_full_length() {
     let geometry = global();
@@ -504,23 +858,22 @@ fn a_pinned_reference_speed_keeps_the_key_at_full_length() {
         auto.reference_length.expect("drawn"),
         held.reference_length.expect("drawn"),
     );
-    // The same spacing gives the same full length; the shaft is a great
-    // circle, so a quarter of it is not quite a quarter on the map.
-    assert!((a - h).abs() < 0.02 * a, "{a} px against {h} px");
+    assert_eq!(a, h, "the same spacing gives the same full length");
+    // The fastest cell is speed 1 against a scale of 4: a quarter of the key.
     let longest = shafts(&held)
         .into_iter()
         .map(|((x0, y0), (x1, y1))| (x1 - x0).hypot(y1 - y0))
         .fold(0.0, f64::max);
     assert!(
-        longest < h / 3.0,
-        "the arrows are short: {longest} px of {h}"
+        (longest - h / 4.0).abs() < 1e-9 * h,
+        "the fastest arrow is a quarter of the key: {longest} px of {h}"
     );
 }
 
 /// A sparser spacing puts the sampled cells further apart, and a full-length
-/// arrow is that far, so the key lengthens with it. Not exactly in proportion:
-/// the full length is the mean distance between sampled neighbours along a
-/// row, and each spacing samples a different set of rows.
+/// arrow is that far apart on screen, so the key lengthens with it. Not
+/// exactly in proportion: the last sampled row and column sit at a different
+/// distance from the grid's edge at each spacing.
 #[test]
 fn spacing_moves_the_reference_length_with_the_arrows() {
     let geometry = global();
@@ -541,10 +894,54 @@ fn spacing_moves_the_reference_length_with_the_arrows() {
     );
 }
 
-/// Zoomed into a window that leaves out the fastest cell, the key is taken
-/// from the arrows still on the map: none is full length there, so the key is
-/// longer than any of them, at the length a full-speed arrow would be drawn
-/// in that window.
+/// A spacing wider than the grid samples one cell, which has no sampled
+/// neighbour to be spaced from. It still draws, at the length to the grid's
+/// last column and row, as it did when arrows were measured on the Earth.
+#[test]
+fn a_spacing_wider_than_the_grid_still_draws_one_arrow() {
+    let geometry = global();
+    let (u, v) = solid_rotation();
+    let mut vectors = VectorOptions::new();
+    vectors.spacing = Some(1000);
+    let arrows = one_grid(
+        &source(&geometry, "latlon"),
+        &u,
+        &v,
+        &options("equirectangular"),
+        &vectors,
+    )
+    .expect("arrows");
+    // On the global grid the one sampled cell is (0, 0), the north pole,
+    // which has no direction to draw (#1045). A band stopping short of the
+    // poles has a cell to draw from.
+    assert!(arrows.runs.seg_lengths.is_empty());
+    let band = GridGeometry::LatLon(LatLonParams {
+        ni: NI,
+        nj: NJ,
+        lat_first: 60.0,
+        lon_first: 0.0,
+        lat_last: -60.0,
+        lon_last: 355.0,
+    });
+    let arrows = one_grid(
+        &source(&band, "latlon"),
+        &u,
+        &v,
+        &options("equirectangular"),
+        &vectors,
+    )
+    .expect("arrows");
+    assert_eq!(
+        arrows.runs.seg_lengths,
+        vec![fieldglass::render::ARROW_VERTICES]
+    );
+    let key = arrows.reference_length.expect("a key length");
+    assert!(key > 100.0, "the arrow spans the grid: {key} px");
+}
+
+/// Zoomed into a window that leaves out the fastest cell, no arrow on the map
+/// is full length, so the key is longer than any of them: the length a
+/// full-speed arrow is drawn at in that window.
 #[test]
 fn a_window_without_the_fastest_cell_still_has_a_key() {
     let geometry = global();

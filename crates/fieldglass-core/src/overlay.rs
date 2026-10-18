@@ -109,6 +109,44 @@ pub struct ProjectedPolylines {
     pub seg_lengths: Vec<u32>,
 }
 
+impl ProjectedPolylines {
+    /// Append one pixel-space run (flat `[x0, y0, x1, y1, …]`) if it is worth
+    /// stroking on a `width × height` raster, and say whether it was kept.
+    ///
+    /// The rule [`project_polylines`] applies to every run it emits, for a
+    /// caller that builds its runs in pixel space itself (the vector arrows):
+    /// at least two vertices, and a bounding box that overlaps the viewport
+    /// expanded by one raster on each side. Testing the *box*, not single
+    /// vertices, keeps a run whose ends both fall outside the margin but whose
+    /// chord crosses the screen (a long coastline segment on a heavily zoomed
+    /// window), while runs entirely off to one side are not marshalled and
+    /// stroked for nothing.
+    pub fn push_visible(&mut self, run: &[f64], width: u32, height: u32) -> bool {
+        let (w, h) = (f64::from(width), f64::from(height));
+        let (mut min_x, mut max_x) = (f64::INFINITY, f64::NEG_INFINITY);
+        let (mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY);
+        let vertices = run.as_chunks::<2>().0;
+        for &[x, y] in vertices {
+            min_x = min_x.min(x);
+            max_x = max_x.max(x);
+            min_y = min_y.min(y);
+            max_y = max_y.max(y);
+        }
+        let keep = vertices.len() >= 2
+            && min_x <= 2.0 * w
+            && max_x >= -w
+            && min_y <= 2.0 * h
+            && max_y >= -h;
+        if keep {
+            // Vertex count of one run, bounded by the overlay vector the host
+            // handed in; the render surface counts segments in `u32`.
+            self.seg_lengths.push(vertices.len() as u32);
+            self.xy.extend_from_slice(&run[..2 * vertices.len()]);
+        }
+        keep
+    }
+}
+
 /// Project `(lat, lon)` rings onto the raster described by `prepared`, of
 /// size `width × height`. When `flip_y` is set the output Y is flipped to
 /// match a vertically-flipped render (the `paint_grid_rgba` flip).
@@ -138,41 +176,14 @@ pub fn project_polylines<P: ForwardMap + ?Sized>(
     // `PixelHalfWidth` (source) target.
     let wrap_threshold = w / 2.0;
     let y_top = h - 1.0;
-    // A run is kept only if its bounding box overlaps the viewport expanded by
-    // one raster on each side. Testing the *box* (not just individual vertices)
-    // keeps a run whose endpoints both fall outside the margin but whose chord
-    // crosses the screen — a long coastline segment on a heavily-zoomed window —
-    // while still culling runs that project entirely off to one side, so we
-    // don't marshal and stroke thousands of invisible points.
-    let keeps = |run: &[f64]| -> bool {
-        let (mut min_x, mut max_x) = (f64::INFINITY, f64::NEG_INFINITY);
-        let (mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY);
-        let mut k = 0;
-        while k + 1 < run.len() {
-            let (x, y) = (run[k], run[k + 1]);
-            min_x = min_x.min(x);
-            max_x = max_x.max(x);
-            min_y = min_y.min(y);
-            max_y = max_y.max(y);
-            k += 2;
-        }
-        min_x <= 2.0 * w && max_x >= -w && min_y <= 2.0 * h && max_y >= -h
-    };
-
     let mut cursor = 0usize; // Index into `latlon`, in floats (2 per vertex).
     let mut run: Vec<f64> = Vec::new();
 
+    // Runs too short to stroke, or wholly off the viewport and its margin, are
+    // dropped: see [`ProjectedPolylines::push_visible`].
     let flush = |run: &mut Vec<f64>, out: &mut ProjectedPolylines| {
-        // Two floats per vertex; a run needs ≥ 2 vertices to stroke and its
-        // bounding box must reach the viewport to be worth keeping.
-        if run.len() >= 4 && keeps(run) {
-            // Vertex count of one polyline run, bounded by the overlay vector
-            // the host handed in; the render surface counts segments in `u32`.
-            out.seg_lengths.push((run.len() / 2) as u32);
-            out.xy.append(run);
-        } else {
-            run.clear();
-        }
+        out.push_visible(run, width, height);
+        run.clear();
     };
 
     for &len in ring_lengths {

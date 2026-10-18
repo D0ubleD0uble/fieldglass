@@ -3885,8 +3885,9 @@ export function renderImagePanelHtml(
 
         // The arrow key (#1046): one full-length arrow, in the arrows' colour
         // and weight, labelled with the speed it stands for, in the map's
-        // lower-left corner. Its length is not worked out here: Rust measures
-        // it off a drawn arrow (\`referenceLength\`, in raster pixels) and it is
+        // lower-left corner. Its length is not worked out here: Rust draws
+        // every arrow at one on-screen length per speed and reports a
+        // full-speed arrow's (\`referenceLength\`, in raster pixels), and it is
         // scaled onto the canvas by the same \`sx\` the arrows are, so a change
         // of spacing, zoom or projection moves both together.
         function drawVectorKey(ctx, sx, dpr) {
@@ -3906,10 +3907,8 @@ export function renderImagePanelHtml(
         // it drew, or null when there is no key to draw.
         function paintVectorKey(ctx, region, scale, lineWidth, unit) {
           if (!lastVectors || !vectorsEnabled()) return null;
-          // Arrows were drawn but none whole (every one split at a seam or a
-          // globe's edge): Rust reports a speed and no length, so the Vectors
-          // row still says the speed and the map draws no key, rather than one
-          // at a length no arrow has.
+          // No arrow drawn, so no scale: Rust reports neither a speed nor a
+          // length, and the map draws no key.
           if (lastVectors.referenceSpeed == null || lastVectors.referenceLength == null) return null;
           const full = Number(lastVectors.referenceLength);
           const speed = Number(lastVectors.referenceSpeed);
