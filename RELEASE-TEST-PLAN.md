@@ -370,11 +370,24 @@ palette, picking the store's folder.
       sharded values are right cannot be judged by eye; `fieldglass-zarr`'s
       `tests/real_stores.rs` and `tests/stores.rs` check them against
       zarr-python.
-- [ ] `v2_problems` holds only 1-D arrays: opening it says the store holds
-      nothing this build can draw. It does not open an empty panel or show a
-      raw error.
-- [ ] `crates/fieldglass-zarr/tests/fixtures` is a folder of stores, not a
-      store: opening it says so, and nothing opens.
+- [ ] `v2_problems` holds nothing that can be drawn: opening it shows a
+      warning that starts "Nothing in this store can be drawn as a map." and
+      names `names` and `x2` as the arrays it couldn't read. The warning has
+      no codec or data type names such as `<U4`. Click Details: a dialog
+      gives the store's path and each array's reason (`names` holds `<U4`
+      text, `x2` gives `x` a second length). No empty panel opens (#1040).
+- [ ] Open `crates/fieldglass-zarr/tests/fixtures/stores`, a folder of
+      stores: the message reads `"stores" isn't a Zarr store. It contains 8
+      Zarr stores: cf_v2, cf_v3, v2_nested, v2_problems, v2_slash, v3_nested,
+      v3_sharded, v3_v2keys. Pick one of those.` It names no metadata files.
+      Details gives the path and the files a store starts with. Nothing
+      opens. Before #1040 the message named `zarr.json`, `.zgroup` and the
+      rest and explained the format.
+- [ ] Open `crates/fieldglass-zarr/tests/fixtures`: the message counts its
+      stores, names the first 8 and says how many more. Open a folder with
+      no stores in it, such as `crates/fieldglass-zarr/src`: the message
+      says it isn't a Zarr store and to pick the folder that holds the
+      store's data.
 
 The five blosc compressors and the other codecs are checked value for value in
 CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
