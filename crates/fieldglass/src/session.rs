@@ -1604,14 +1604,11 @@ impl Session {
     ///
     /// [`VectorPairing::Unknown`] when a field has no name to read and its
     /// partner does not settle it: a GRIB parameter no table names (the
-    /// `Parameter 0/2/250` [`Self::message`] shows is a placeholder, not a
-    /// name), a message with no parameter codes, or a variable with no
-    /// `standard_name`. A variable with no `standard_name` that is one of
-    /// two whose `long_name`s pair by the GRIB rule (`U component of wind`
-    /// and `V component of wind`) is reported as pairing; two `long_name`s
-    /// that do not pair leave the answer `Unknown`, since free text that
-    /// does not match the rule is not evidence that two fields are not a
-    /// pair.
+    /// `Parameter 0/2/250` [`Self::message`] shows is a stand-in, not a
+    /// name), one its table names only with a placeholder such as
+    /// `Experimental product`, a message with no parameter codes, or a
+    /// variable with no `standard_name`. A variable's `long_name` is not
+    /// read: it is free text, and two unrelated ones can read as a pair.
     ///
     /// Not a gate. `render::vector_polylines` draws a pair that is not one,
     /// and the answer here is what a host says beside it. It is about the
@@ -1629,41 +1626,27 @@ impl Session {
             Reader::Grib2(_) => self.message_vector_pairing(u, v),
             #[cfg(any(feature = "netcdf", feature = "zarr"))]
             Reader::Arrays(a) => {
-                use fieldglass_core::vector_pair::{
-                    VectorPairing as Rule, pairing_of_parameter_names, pairing_of_standard_names,
-                };
                 let source = a.source.as_ref();
                 let vars = renderable_arrays(source.group());
-                // `(standard_name, long_name)`, each trimmed, `None` when
-                // absent or blank.
-                let names = |index: u32| {
+                let standard_name = |index: u32| {
                     let var = vars.get(index as usize).ok_or(Error::NoSuchMessage {
                         index,
                         count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
                     })?;
-                    let array = source.array(&var.name);
-                    let text = |key: &str| {
-                        array
-                            .and_then(|d| attribute(&d.attributes, key))
+                    Ok::<_, Error>(
+                        source
+                            .array(&var.name)
+                            .and_then(|d| attribute(&d.attributes, "standard_name"))
                             .and_then(AttributeValue::text)
-                            .map(|s| s.trim().to_string())
-                            .filter(|s| !s.is_empty())
-                    };
-                    Ok::<_, Error>((text("standard_name"), text("long_name")))
+                            .map(|s| s.trim().to_string()),
+                    )
                 };
-                let ((u_standard, u_long), (v_standard, v_long)) = (names(u)?, names(v)?);
-                let by_standard =
-                    pairing_of_standard_names(u_standard.as_deref(), v_standard.as_deref());
-                // A `long_name` is only read for a pair the standard names
-                // leave open, and only a match counts (see the docs above).
-                let by_long = match (by_standard, &u_long, &v_long) {
-                    (Rule::Unknown, Some(u), Some(v)) => {
-                        Some(pairing_of_parameter_names(Some(u), Some(v)))
-                            .filter(|p| matches!(p, Rule::Recognised | Rule::Swapped))
-                    }
-                    _ => None,
-                };
-                Ok(by_long.unwrap_or(by_standard).into())
+                let (u, v) = (standard_name(u)?, standard_name(v)?);
+                Ok(fieldglass_core::vector_pair::pairing_of_standard_names(
+                    u.as_deref(),
+                    v.as_deref(),
+                )
+                .into())
             }
         }
     }

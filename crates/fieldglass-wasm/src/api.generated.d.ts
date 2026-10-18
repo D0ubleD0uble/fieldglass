@@ -2435,9 +2435,9 @@ export type VectorPairing =
   | "not_a_pair"
   /**
    * Can't tell: a field has no name to read (a GRIB parameter no
-   * table names, or a variable with no `standard_name`), and its
-   * partner's name does not settle it. A host says nothing beside
-   * the arrows for it.
+   * table names or one its table names only with a placeholder, or a
+   * variable with no usable `standard_name`), and its partner's name
+   * does not settle it. A host says nothing beside the arrows for it.
    */
   | "unknown";
 

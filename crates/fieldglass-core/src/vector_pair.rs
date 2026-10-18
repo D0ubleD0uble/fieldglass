@@ -62,20 +62,29 @@
 //! component.
 //!
 //! CF standard names have per-axis statistics of their own, and the same
-//! holds for them: a standard name with a modifier after it (`eastward_wind
-//! standard_error`, `northward_wind number_of_observations`, and the
-//! `detection_minimum` and `status_flag` modifiers) names a quantity about
-//! the component rather than the component, and so does one that holds
-//! `square_of_` or `variance_of_` (`square_of_eastward_wind`).
+//! holds for them: a standard name followed by one of the four modifiers of
+//! CF 1.11 Appendix C (`eastward_wind standard_error`, `northward_wind
+//! number_of_observations`, `detection_minimum`, `status_flag`) names a
+//! quantity about the component rather than the component, and so does one
+//! that holds `square_of_` or `variance_of_` (`square_of_eastward_wind`).
 //!
 //! # Not every field has a name to read
 //!
 //! A GRIB parameter no table names, and a NetCDF or Zarr variable with no
 //! `standard_name`, give the rule nothing to read, so the answer for them is
-//! [`VectorPairing::Unknown`] rather than a claim either way. The exception is
-//! a partner whose name is read and is not a component (`Temperature`): no
-//! name for the other field makes that a vector, so the pair is
-//! [`VectorPairing::NotAPair`].
+//! [`VectorPairing::Unknown`] rather than a claim either way. So do two kinds
+//! of name that are there but say nothing:
+//!
+//! - a table's placeholder for a code it reserves or leaves open
+//!   ([`is_placeholder_name`]): `Experimental product`, `Reserved`, `Reserved
+//!   for future unbalanced components`, `Indicates a missing value`,
+//!   `Missing`, and ECMWF's `Wave experimental parameter 1` to `5`;
+//! - a `standard_name` that is not a standard name, one modifier: more than
+//!   two words, or a second word that is not a CF modifier (`eastward wind`).
+//!
+//! The exception is a partner whose name is read and is not a component
+//! (`Temperature`): no name for the other field makes that a vector, so the
+//! pair is [`VectorPairing::NotAPair`].
 //!
 //! What the rule cannot know is that the two fields are at the same level, or
 //! valid at the same time. It answers only whether their parameters pair.
@@ -101,8 +110,9 @@ pub enum VectorPairing {
     /// same component.
     NotAPair,
     /// Can't tell: a field has no name to read (a GRIB parameter no table
-    /// names, or a variable with no `standard_name`), and its partner's name
-    /// does not settle it.
+    /// names or one its table names only with a placeholder, or a variable
+    /// with no usable `standard_name`), and its partner's name does not
+    /// settle it.
     Unknown,
 }
 
@@ -228,12 +238,17 @@ fn is_per_axis_statistic(name: &str) -> bool {
         || folded.iter().any(|w| w == "variance" || w == "hanna")
 }
 
-/// Whether a CF standard name is a statistic of one component rather than a
-/// component: see the module docs.
-///
-/// A modifier is the attribute's second word, after whitespace. Every
-/// modifier CF defines (CF 1.11 Appendix C) names something other than the
-/// variable itself, so any one counts.
+/// The modifiers CF lets follow a standard name (CF 1.11 Appendix C). Each
+/// names a quantity about the variable, not the variable.
+const STANDARD_NAME_MODIFIERS: [&str; 4] = [
+    "detection_minimum",
+    "number_of_observations",
+    "standard_error",
+    "status_flag",
+];
+
+/// Whether a bare CF standard name (no modifier) is a statistic of one
+/// component rather than a component: see the module docs.
 fn is_per_axis_standard_name_statistic(name: &str) -> bool {
     let folded = words(name);
     let holds = |phrase: &[&str]| {
@@ -241,9 +256,40 @@ fn is_per_axis_standard_name_statistic(name: &str) -> bool {
             .windows(phrase.len())
             .any(|w| w.iter().zip(phrase).all(|(a, b)| a == b))
     };
-    name.split_whitespace().nth(1).is_some()
-        || holds(&["square", "of"])
-        || holds(&["variance", "of"])
+    holds(&["square", "of"]) || holds(&["variance", "of"])
+}
+
+/// Whether a GRIB parameter name is a table's placeholder for a code it
+/// reserves or leaves open, rather than the name of a quantity: see the
+/// module docs. Such a name says nothing about whether the field is a
+/// component, so it is read as no name at all.
+///
+/// The spellings are the ones the workspace's tables carry, swept by
+/// `tests/vector_pairs.rs` in `fieldglass-grib1` and `fieldglass-grib2`, so a
+/// table regeneration that adds another fails there.
+///
+/// ```
+/// use fieldglass_core::vector_pair::is_placeholder_name;
+///
+/// assert!(is_placeholder_name("Experimental product"));
+/// assert!(is_placeholder_name("Reserved for future unbalanced components"));
+/// assert!(is_placeholder_name("Wave experimental parameter 3"));
+/// assert!(!is_placeholder_name("u-component of wind"));
+/// ```
+#[must_use]
+pub fn is_placeholder_name(name: &str) -> bool {
+    let folded = words(name);
+    let w: Vec<&str> = folded.iter().map(String::as_str).collect();
+    matches!(
+        w.as_slice(),
+        [] | ["reserved", ..]
+            | ["experimental", "product"]
+            | ["missing"]
+            | ["missing", "value"]
+            | ["indicates", "a", "missing", "value"]
+    ) || w.windows(3).any(|t| {
+        t[0] == "experimental" && t[1] == "parameter" && t[2].bytes().all(|b| b.is_ascii_digit())
+    })
 }
 
 /// A name as read: `None` when the field has no name, else the component it
@@ -314,15 +360,26 @@ pub fn mentions_a_direction(name: &str) -> bool {
 /// ```
 #[must_use]
 pub fn pairing_of_parameter_names(u: Option<&str>, v: Option<&str>) -> VectorPairing {
-    pairing(u.map(parameter_component), v.map(parameter_component))
+    let read = |name: Option<&str>| {
+        name.filter(|n| !is_placeholder_name(n))
+            .map(parameter_component)
+    };
+    pairing(read(u), read(v))
 }
 
-/// A CF standard name read as a component, or `None`.
-fn standard_name_component(name: &str) -> Option<Component> {
-    if is_per_axis_standard_name_statistic(name) {
+/// A `standard_name` attribute, read: `None` when it is not one standard
+/// name with at most one CF modifier, else the component it is, if any.
+fn read_standard_name(attribute: &str) -> Read {
+    let mut parts = attribute.split_whitespace();
+    let (Some(name), modifier, None) = (parts.next(), parts.next(), parts.next()) else {
         return None;
+    };
+    match modifier {
+        None if is_per_axis_standard_name_statistic(name) => Some(None),
+        None => Some(component(name, STANDARD_NAME_WORDS)),
+        Some(m) if STANDARD_NAME_MODIFIERS.contains(&m) => Some(None),
+        Some(_) => None,
     }
-    component(name, STANDARD_NAME_WORDS)
 }
 
 /// Whether two CF standard names are a u/v pair in this order:
@@ -330,7 +387,8 @@ fn standard_name_component(name: &str) -> Option<Component> {
 /// the same.
 ///
 /// `None` is a variable with no `standard_name`, read as
-/// [`pairing_of_parameter_names`] reads a missing parameter name.
+/// [`pairing_of_parameter_names`] reads a missing parameter name; so is an
+/// attribute that is not one standard name with at most one CF modifier.
 ///
 /// ```
 /// use fieldglass_core::vector_pair::{VectorPairing, pairing_of_standard_names};
@@ -347,8 +405,8 @@ fn standard_name_component(name: &str) -> Option<Component> {
 #[must_use]
 pub fn pairing_of_standard_names(u: Option<&str>, v: Option<&str>) -> VectorPairing {
     pairing(
-        u.map(standard_name_component),
-        v.map(standard_name_component),
+        u.and_then(read_standard_name),
+        v.and_then(read_standard_name),
     )
 }
 
@@ -633,15 +691,8 @@ mod tests {
 
     #[test]
     fn cf_per_axis_statistics_are_not_components() {
-        // The modifiers of CF 1.11 Appendix C.
-        const MODIFIERS: [&str; 4] = [
-            "detection_minimum",
-            "number_of_observations",
-            "standard_error",
-            "status_flag",
-        ];
         for (u0, v0) in [("eastward_wind", "northward_wind"), ("x_wind", "y_wind")] {
-            for modifier in MODIFIERS {
+            for modifier in STANDARD_NAME_MODIFIERS {
                 let (u, v) = (format!("{u0} {modifier}"), format!("{v0} {modifier}"));
                 for (a, b) in [(&*u, &*v), (&*v, &*u), (&*u, v0), (u0, &*v)] {
                     assert_eq!(
@@ -671,5 +722,87 @@ mod tests {
             pairing_of_standard_names(Some("  eastward_wind "), Some("northward_wind\n")),
             VectorPairing::Recognised
         );
+    }
+
+    #[test]
+    fn a_standard_name_that_is_not_one_is_unknown() {
+        for (u, v) in [
+            // Words where CF writes underscores: no second word is a modifier.
+            ("eastward wind", "northward wind"),
+            ("eastward_wind anomaly", "northward_wind anomaly"),
+            // A modifier spelled with spaces, or two of them.
+            (
+                "eastward_wind standard error",
+                "northward_wind standard error",
+            ),
+            (
+                "eastward_wind standard_error status_flag",
+                "northward_wind standard_error status_flag",
+            ),
+            // A modifier is lower case, as every standard name is.
+            (
+                "eastward_wind Standard_Error",
+                "northward_wind Standard_Error",
+            ),
+        ] {
+            assert_eq!(
+                pairing_of_standard_names(Some(u), Some(v)),
+                VectorPairing::Unknown,
+                "{u} / {v}"
+            );
+        }
+        // Against a partner read as no component, still not a pair.
+        assert_eq!(
+            pairing_of_standard_names(Some("eastward wind"), Some("air_temperature")),
+            VectorPairing::NotAPair
+        );
+        // An empty or blank attribute says nothing.
+        assert_eq!(
+            pairing_of_standard_names(Some(" "), Some("northward_wind")),
+            VectorPairing::Unknown
+        );
+    }
+
+    #[test]
+    fn a_placeholder_name_is_no_name() {
+        for placeholder in [
+            "Experimental product",
+            "Reserved",
+            "Reserved for future unbalanced components",
+            "Indicates a missing value",
+            "Missing",
+            "Missing value",
+            "Wave experimental parameter 1",
+            "Wave experimental parameter 5",
+            "",
+        ] {
+            assert!(is_placeholder_name(placeholder), "{placeholder:?}");
+            // ECMWF table 128 ids 80 and 81 are both `Experimental product`.
+            assert_eq!(
+                names(placeholder, placeholder),
+                VectorPairing::Unknown,
+                "{placeholder:?} twice"
+            );
+            assert_eq!(
+                names("u-component of wind", placeholder),
+                VectorPairing::Unknown,
+                "{placeholder:?} as v"
+            );
+            assert_eq!(
+                names(placeholder, "Temperature"),
+                VectorPairing::NotAPair,
+                "{placeholder:?} with a named non-component"
+            );
+        }
+        // A real name that holds one of the words is not a placeholder.
+        for name in [
+            "Experimental product index",
+            "Probability of missing data",
+            "Wave experimental parameter",
+            "u-component of wind",
+            "Sky transparency index",
+        ] {
+            assert!(!is_placeholder_name(name), "{name:?}");
+        }
     }
 }

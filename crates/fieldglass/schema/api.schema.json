@@ -2771,7 +2771,7 @@
         },
         {
           "const": "unknown",
-          "description": "Can't tell: a field has no name to read (a GRIB parameter no\ntable names, or a variable with no `standard_name`), and its\npartner's name does not settle it. A host says nothing beside\nthe arrows for it.",
+          "description": "Can't tell: a field has no name to read (a GRIB parameter no\ntable names or one its table names only with a placeholder, or a\nvariable with no usable `standard_name`), and its partner's name\ndoes not settle it. A host says nothing beside the arrows for it.",
           "type": "string"
         }
       ]

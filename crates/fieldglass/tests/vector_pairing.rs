@@ -131,6 +131,33 @@ fn grib2_unnamed_local_parameters_are_unknown() {
     );
 }
 
+/// ECMWF table 128 names ids 80 to 120 only `Experimental product`: a
+/// placeholder, so a pair of them can't be told either (#1142).
+#[test]
+fn grib1_placeholder_names_are_unknown() {
+    use VectorPairing::{NotAPair, Unknown};
+    let s = session(&[
+        grib1_as(ECMWF, 80),  // 0 Experimental product
+        grib1_as(ECMWF, 81),  // 1 Experimental product
+        ECMWF.to_vec(),       // 2 2t
+        grib1_as(ECMWF, 166), // 3 10v
+    ]);
+    assert_eq!(
+        s.message(0).expect("0").parameter.as_deref(),
+        Some("Experimental product"),
+    );
+    assert_pairings(
+        &s,
+        &[
+            (0, 1, Unknown),
+            (1, 0, Unknown),
+            (0, 3, Unknown),
+            (2, 1, NotAPair),
+        ],
+        "ECMWF 128 placeholders",
+    );
+}
+
 /// GRIB1 the same way: ON388 Table 2 names no parameter 0 or 255.
 #[test]
 fn grib1_unnamed_parameters_are_unknown() {
@@ -269,10 +296,12 @@ fn cf_standard_names_on_a_store() {
         ("ve", Some("northward_wind standard_error"), None),
         ("u2", Some("square_of_eastward_wind"), None),
         ("v2", Some("square_of_northward_wind"), None),
-        // No standard_name: a long_name counts only when it pairs.
+        // No standard_name: the long_name is not read.
         ("ul", None, Some("U component of wind")),
         ("vl", None, Some("V component of wind")),
-        ("sl", None, Some("Wind speed")),
+        // Not a standard name and at most one CF modifier.
+        ("us", Some("eastward wind"), None),
+        ("vs", Some("northward wind"), None),
     ]))
     .expect("opens");
     let index = |name: &str| {
@@ -298,11 +327,12 @@ fn cf_standard_names_on_a_store() {
         ("plain", "plain", Unknown),
         ("u10", "plain", Unknown),
         ("t", "plain", NotAPair),
-        ("ul", "vl", Recognised),
-        ("vl", "ul", Swapped),
-        ("ul", "sl", Unknown),
-        ("ul", "plain", Unknown),
+        ("ul", "vl", Unknown),
+        ("vl", "ul", Unknown),
         ("u10", "vl", Unknown),
+        ("us", "vs", Unknown),
+        ("us", "v10", Unknown),
+        ("us", "t", NotAPair),
     ] {
         assert_eq!(
             s.vector_pairing(index(u), index(v)).expect("answers"),
