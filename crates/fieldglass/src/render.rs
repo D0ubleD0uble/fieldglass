@@ -763,50 +763,19 @@ impl BuiltTarget {
         }
     }
 
-    /// Project geographic `(lat, lon)` rings onto this target's pixel space,
-    /// applying `flip_y` to match a vertically-flipped render. Each target
+    /// Run `f` with this target's prepared forward map: the one dispatch over
+    /// the targets that every overlay projection goes through. Each target
     /// reports its own seam-split rule (`ForwardMap::seam_split`), so the only
-    /// per-variant work here is preparing the concrete map.
-    fn project(&self, flip_y: bool, latlon: &[f64], ring_lengths: &[u32]) -> ProjectedPolylines {
-        let (w, h) = self.dims();
+    /// per-variant work is preparing the concrete map.
+    fn with_map<R>(&self, f: impl FnOnce(&dyn ForwardMap) -> R) -> R {
         match self {
-            BuiltTarget::Equirect(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::Mercator(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::Ortho(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::Polar(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::Moll(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::Robin(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::EqEarth(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-        }
-    }
-
-    /// Where each `(lat, lon)` point of `latlon` lands on this target's raster,
-    /// by the same forward map and flip [`BuiltTarget::project`] uses, without
-    /// any run splitting: `None` for a point off the projection's domain.
-    fn project_points(&self, flip_y: bool, latlon: &[f64]) -> Vec<Option<(f64, f64)>> {
-        let (_, h) = self.dims();
-        match self {
-            BuiltTarget::Equirect(t) => points_on(&t.prepare(), h, flip_y, latlon),
-            BuiltTarget::Mercator(t) => points_on(&t.prepare(), h, flip_y, latlon),
-            BuiltTarget::Ortho(t) => points_on(&t.prepare(), h, flip_y, latlon),
-            BuiltTarget::Polar(t) => points_on(&t.prepare(), h, flip_y, latlon),
-            BuiltTarget::Moll(t) => points_on(&t.prepare(), h, flip_y, latlon),
-            BuiltTarget::Robin(t) => points_on(&t.prepare(), h, flip_y, latlon),
-            BuiltTarget::EqEarth(t) => points_on(&t.prepare(), h, flip_y, latlon),
+            BuiltTarget::Equirect(t) => f(&t.prepare()),
+            BuiltTarget::Mercator(t) => f(&t.prepare()),
+            BuiltTarget::Ortho(t) => f(&t.prepare()),
+            BuiltTarget::Polar(t) => f(&t.prepare()),
+            BuiltTarget::Moll(t) => f(&t.prepare()),
+            BuiltTarget::Robin(t) => f(&t.prepare()),
+            BuiltTarget::EqEarth(t) => f(&t.prepare()),
         }
     }
 
@@ -1569,10 +1538,42 @@ pub fn overlay_polylines(
     latlon: &[f64],
     ring_lengths: &[u32],
 ) -> Result<ProjectedPolylines, Error> {
+    with_overlay_map(source, options, |map, raster| {
+        project_polylines(
+            map,
+            raster.width,
+            raster.height,
+            raster.flip_y,
+            latlon,
+            ring_lengths,
+        )
+    })
+}
+
+/// The raster an overlay is projected onto: its size, and whether its rows
+/// are flipped to match the render.
+#[cfg(feature = "render")]
+#[derive(Debug, Clone, Copy)]
+struct OverlayRaster {
+    width: u32,
+    height: u32,
+    flip_y: bool,
+}
+
+/// Build the target a field's render paints into, **once**, and run `f` with
+/// its forward map and raster. The one place an overlay's projection is
+/// chosen: [`overlay_polylines`] projects runs through it, and the vector
+/// arrows project their runs and their shafts' ends through the same call, so
+/// a point and a run vertex land on the same pixel bit for bit.
+#[cfg(feature = "render")]
+fn with_overlay_map<R>(
+    source: &Source<'_>,
+    options: &RenderOptions,
+    f: impl FnOnce(&dyn ForwardMap, OverlayRaster) -> R,
+) -> Result<R, Error> {
     let resolved = ResolvedOptions::parse(options)?;
     let geometry = source.placed()?;
     require_reprojectable(geometry, source.refused_as())?;
-    let inverse = geometry.inverse_at();
     let (ni, nj) = (source.ni, source.nj);
     match resolved.target {
         // A source grid can wrap longitude (a global grid's seam, or the cut
@@ -1582,27 +1583,35 @@ pub fn overlay_polylines(
         // runs there instead.
         // The source raster is flipped to face north-up by default (#286); the
         // overlay must ride the same flip so coastlines track the field.
-        TargetKind::Source => Ok(project_polylines(
-            &SourceOverlayTarget::new(inverse.as_ref()),
-            ni,
-            nj,
-            source.scan.flips_source_rows(resolved.flip_y),
-            latlon,
-            ring_lengths,
-        )),
+        TargetKind::Source => {
+            let inverse = geometry.inverse_at();
+            let raster = OverlayRaster {
+                width: ni,
+                height: nj,
+                flip_y: source.scan.flips_source_rows(resolved.flip_y),
+            };
+            Ok(f(&SourceOverlayTarget::new(inverse.as_ref()), raster))
+        }
         TargetKind::Warp(target_kind) => {
             let (built, _used_bounds) =
                 build_warp_target(target_kind, ni, nj, geometry, &resolved)?;
-            Ok(built.project(resolved.flip_y, latlon, ring_lengths))
+            let (width, height) = built.dims();
+            let raster = OverlayRaster {
+                width,
+                height,
+                flip_y: resolved.flip_y,
+            };
+            Ok(built.with_map(|map| f(map, raster)))
         }
     }
 }
 
 /// Each flat `[lat, lon, …]` point through `map`, flipped as
-/// [`project_polylines`] flips a vertex on a raster `height` rows tall.
+/// [`project_polylines`] flips a vertex on a raster `height` rows tall, with
+/// no run splitting: `None` for a point off the projection's domain.
 #[cfg(feature = "render")]
-fn points_on<P: ForwardMap>(
-    map: &P,
+fn points_on(
+    map: &dyn ForwardMap,
     height: u32,
     flip_y: bool,
     latlon: &[f64],
@@ -1617,39 +1626,6 @@ fn points_on<P: ForwardMap>(
                 .map(|(x, y)| (x, if flip_y { y_top - y } else { y }))
         })
         .collect()
-}
-
-/// Points on a raster, `None` where one is off the projection's domain, and
-/// that raster's `(width, height)`.
-#[cfg(feature = "render")]
-type RasterPoints = (Vec<Option<(f64, f64)>>, (u32, u32));
-
-/// Single points on the raster [`overlay_polylines`] projects onto, through
-/// the same target: what that call would put at each vertex, before any run is
-/// split or culled. Returns the points and the raster's `(width, height)`.
-#[cfg(feature = "render")]
-fn overlay_points(
-    source: &Source<'_>,
-    options: &RenderOptions,
-    latlon: &[f64],
-) -> Result<RasterPoints, Error> {
-    let resolved = ResolvedOptions::parse(options)?;
-    let geometry = source.placed()?;
-    require_reprojectable(geometry, source.refused_as())?;
-    let (ni, nj) = (source.ni, source.nj);
-    match resolved.target {
-        TargetKind::Source => {
-            let inverse = geometry.inverse_at();
-            let flip = source.scan.flips_source_rows(resolved.flip_y);
-            let target = SourceOverlayTarget::new(inverse.as_ref());
-            Ok((points_on(&target, nj, flip, latlon), (ni, nj)))
-        }
-        TargetKind::Warp(target_kind) => {
-            let (built, _used_bounds) =
-                build_warp_target(target_kind, ni, nj, geometry, &resolved)?;
-            Ok((built.project_points(resolved.flip_y, latlon), built.dims()))
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2577,15 +2553,28 @@ pub fn vector_polylines(
         });
     }
 
-    let runs = overlay_polylines(source, options, &latlon, &ring_lengths)?;
+    // The runs and the shafts' ends through one build of the target.
+    let ends: Vec<f64> = shafts
+        .iter()
+        .flat_map(|s| [s.tail.0, s.tail.1, s.tip.0, s.tip.1])
+        .collect();
+    let (runs, points, raster) = with_overlay_map(source, options, |map, raster| {
+        let runs = project_polylines(
+            map,
+            raster.width,
+            raster.height,
+            raster.flip_y,
+            &latlon,
+            &ring_lengths,
+        );
+        let points = points_on(map, raster.height, raster.flip_y, &ends);
+        (runs, points, raster)
+    })?;
     // Every arrow can clip off the raster, as when the view is a window the
     // field does not reach. Then nothing was drawn to a scale.
     let reference_speed = (!runs.seg_lengths.is_empty()).then_some(fastest);
-    let reference_length = if reference_speed.is_some() {
-        full_arrow_length(source, options, &runs, &shafts)?
-    } else {
-        None
-    };
+    let reference_length =
+        reference_speed.and_then(|_| full_arrow_length(&runs, &points, raster, &shafts));
     Ok(VectorArrows {
         runs,
         reference_speed,
@@ -2607,20 +2596,20 @@ struct Shaft {
 /// [`VectorArrows::reference_length`].
 ///
 /// "Drawn" is what the canvas strokes: a five-vertex run in `runs` that starts
-/// at this arrow's projected tail and tip, so an arrow split at a seam or by
-/// the edge of a globe is not measured. The tail and tip are projected by the
-/// same target as the runs, so a drawn arrow's ends match its run's first two
-/// vertices bit for bit. An arrow with an end on the raster comes before one
+/// at this arrow's projected tail and tip (`points`, two per shaft), so an
+/// arrow split at a seam or by the edge of a globe is not measured. The tail
+/// and tip were projected by the same map as the runs ([`with_overlay_map`]),
+/// so a drawn arrow's ends match its run's first two vertices bit for bit. An arrow with an end on the raster comes before one
 /// wholly in the margin [`project_polylines`] keeps around it: zoomed in, an
 /// arrow can be longer than the window, and its length is still the one the
 /// map draws it at, but a visible arrow is the one a reader compares.
 #[cfg(feature = "render")]
 fn full_arrow_length(
-    source: &Source<'_>,
-    options: &RenderOptions,
     runs: &ProjectedPolylines,
+    points: &[Option<(f64, f64)>],
+    raster: OverlayRaster,
     shafts: &[Shaft],
-) -> Result<Option<f64>, Error> {
+) -> Option<f64> {
     let whole_run = ARROW_VERTICES as usize;
     let mut drawn = std::collections::HashSet::new();
     let mut at = 0usize;
@@ -2633,11 +2622,7 @@ fn full_arrow_length(
         }
         at += 2 * n;
     }
-    let ends: Vec<f64> = shafts
-        .iter()
-        .flat_map(|s| [s.tail.0, s.tail.1, s.tip.0, s.tip.1])
-        .collect();
-    let (points, (width, height)) = overlay_points(source, options, &ends)?;
+    let (width, height) = (raster.width, raster.height);
     // Pixel centres sit on whole numbers, so the raster spans half a pixel
     // beyond the first and last.
     let on_raster = |(x, y): (f64, f64)| {
@@ -2660,9 +2645,8 @@ fn full_arrow_length(
             best = Some((seen, shaft.share, full));
         }
     }
-    Ok(best
-        .map(|(_, _, length)| length)
-        .filter(|l| l.is_finite() && *l > 0.0))
+    best.map(|(_, _, length)| length)
+        .filter(|l| l.is_finite() && *l > 0.0)
 }
 
 // ---------------------------------------------------------------------------

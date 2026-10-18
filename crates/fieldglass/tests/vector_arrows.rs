@@ -432,6 +432,56 @@ fn the_reference_length_is_the_fastest_arrow_as_drawn() {
     }
 }
 
+/// Every target the overlay projects onto, and the source view, each the
+/// right way up and flipped: the key is one drawn arrow's own length.
+///
+/// A uniform flow makes every arrow full length (a share of 1), so the key
+/// must equal the tail-to-tip length of some arrow on the map, to the bit
+/// pattern's rounding. It is measured from the same projection the runs come
+/// back through, whichever target that is.
+#[test]
+fn the_reference_length_is_a_drawn_arrow_on_every_target() {
+    let geometry = global();
+    let cells = (NI * NJ) as usize;
+    let (u, v) = (vec![Some(3.0); cells], vec![Some(4.0); cells]);
+    for projection in [
+        "source",
+        "equirectangular",
+        "web_mercator",
+        "orthographic",
+        "polar_stereographic",
+        "mollweide",
+        "robinson",
+        "equal_earth",
+    ] {
+        for flip_y in [false, true] {
+            let mut o = options(projection);
+            o.flip_y = flip_y;
+            let what = format!("{projection}, flip_y {flip_y}");
+            let arrows = one_grid(
+                &source(&geometry, "latlon"),
+                &u,
+                &v,
+                &o,
+                &VectorOptions::new(),
+            )
+            .unwrap_or_else(|e| panic!("{what}: {e}"));
+            assert_eq!(arrows.reference_speed, Some(5.0), "{what}");
+            let key = arrows
+                .reference_length
+                .unwrap_or_else(|| panic!("{what}: a key length"));
+            let shafts = shafts(&arrows);
+            assert!(!shafts.is_empty(), "{what}: arrows drawn whole");
+            assert!(
+                shafts
+                    .iter()
+                    .any(|((x0, y0), (x1, y1))| ((x1 - x0).hypot(y1 - y0) - key).abs() < 1e-9),
+                "{what}: the key's {key} px is one drawn arrow's tail-to-tip length"
+            );
+        }
+    }
+}
+
 /// A pinned scale draws every arrow at a share of full length, and the key is
 /// still a full-length arrow: the drawn arrow over its share.
 #[test]
