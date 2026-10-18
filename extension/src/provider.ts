@@ -10,6 +10,7 @@ import {
   type PickerColormap,
 } from "./color-tables";
 import { escapeHtml, nonce } from "./html";
+import { couldNotOpen, nothingToDraw, notAStore, reportProblem } from "./problems";
 import {
   loadNative,
   nativeBinaryName,
@@ -236,13 +237,8 @@ export class FieldglassEditorProvider
    * which is the acceptance criterion behind this whole entry point.
    */
   public async promptOpenZarrStore(): Promise<void> {
-    const native = loadNative();
-    if (!native) {
-      void vscode.window.showErrorMessage(
-        `Fieldglass: native module ${nativeBinaryName()} not loaded.`,
-      );
-      return;
-    }
+    // `loadNative` has already told the user when the module would not load.
+    if (!loadNative()) return;
     const picked = await vscode.window.showOpenDialog({
       canSelectFiles: false,
       canSelectFolders: true,
@@ -252,48 +248,42 @@ export class FieldglassEditorProvider
     });
     const storeUri = picked?.[0];
     if (!storeUri) return;
-    this.openZarrStore(storeUri);
+    // Awaited, so a throw while opening reaches the command and is reported,
+    // rather than being dropped as an unhandled rejection.
+    await this.openZarrStore(storeUri);
   }
 
   /** Open a store the caller has already chosen.
    *
    * Separate from the picker so a test can drive it without a modal dialog, which
    * `@vscode/test-electron` cannot dismiss.
+   *
+   * A store that opens gets its panel before this returns. When it will not
+   * open, the user is told why, and the promise settles once they have
+   * dismissed that (#1040).
    */
-  public openZarrStore(storeUri: vscode.Uri): void {
+  public async openZarrStore(storeUri: vscode.Uri): Promise<void> {
     const native = loadNative();
     if (!native) return;
+    const name = sourceName(storeUri);
     if (!native.ZarrHandle.isStore(storeUri.fsPath)) {
-      void vscode.window.showErrorMessage(
-        `Fieldglass: ${storeUri.fsPath} is not a Zarr store — it holds no ` +
-          "zarr.json, .zmetadata, .zgroup or .zarray. A store is a directory of " +
-          "metadata documents and chunks; the .zarr suffix is a convention, not " +
-          "what this checks.",
-      );
+      // A folder of stores is the likely mistake, so name the stores in it.
+      const inside = await childStores(storeUri, (p) => native.ZarrHandle.isStore(p));
+      await reportProblem("error", notAStore(storeUri.fsPath, name, inside.stores, inside.partial));
       return;
     }
     let handle: ZarrHandle;
     try {
       handle = native.ZarrHandle.fromDirectory(storeUri.fsPath);
     } catch (err) {
-      void vscode.window.showErrorMessage(
-        `Fieldglass: could not open ${storeUri.fsPath}: ${err instanceof Error ? err.message : err}`,
-      );
+      await reportProblem("error", couldNotOpen("Zarr store", name, storeUri.fsPath, err));
       return;
     }
     const variables = handle.variables();
     if (variables.length === 0) {
       // A store that opened but holds nothing drawable. `leftOut` is why, and
       // saying so beats a panel with an empty picker.
-      const why = handle
-        .leftOut()
-        .map((l) => `${l.name} (${l.reason})`)
-        .join("; ");
-      void vscode.window.showWarningMessage(
-        why
-          ? `Fieldglass: that store holds no variable this build can draw. Left out: ${why}`
-          : "Fieldglass: that store holds no variable this build can draw.",
-      );
+      await reportProblem("warning", nothingToDraw(storeUri.fsPath, handle.leftOut()));
       return;
     }
     this._zarrHandlesByStore.set(storeUri.toString(), handle);
@@ -1378,8 +1368,10 @@ export class FieldglassEditorProvider
       }
       return handle;
     } catch (err) {
-      console.error("[Fieldglass] handle creation failed:", err);
-      vscode.window.showErrorMessage(`Fieldglass: failed to parse ${format}: ${err}`);
+      void reportProblem(
+        "error",
+        couldNotOpen("GRIB file", sourceName(document.uri), document.uri.fsPath, err),
+      );
       return undefined;
     }
   }
@@ -1398,8 +1390,11 @@ export class FieldglassEditorProvider
       this._netcdfHandlesByDoc.set(key, handle);
       return handle;
     } catch (err) {
-      console.error("[Fieldglass] NetcdfHandle creation failed:", err);
-      vscode.window.showErrorMessage(`Fieldglass: failed to parse NetCDF: ${err}`);
+      // The NetCDF reader opens HDF5 files too, and either may be the one.
+      void reportProblem(
+        "error",
+        couldNotOpen("NetCDF or HDF5 file", sourceName(document.uri), document.uri.fsPath, err),
+      );
       return undefined;
     }
   }
@@ -3219,4 +3214,38 @@ export function renderHtml(
   ${script}
 </body>
 </html>`;
+}
+
+/** How many folders {@link childStores} looks at. Each look is a few
+ *  synchronous file checks, so a folder of thousands (a home directory, a
+ *  data archive) is cut off here rather than stalling the window. */
+export const MAX_FOLDERS_EXAMINED = 200;
+
+/** The folders directly inside `folder` that are Zarr stores, by name, sorted.
+ *
+ *  One level only: a folder of stores is the mistake this answers, and a deeper
+ *  walk would be slow on a large tree for little more help. Only the first
+ *  {@link MAX_FOLDERS_EXAMINED} folders by name are looked at, and `partial`
+ *  says when there were more. A folder that cannot be listed has none to offer.
+ *  Hidden folders are skipped. */
+async function childStores(
+  folder: vscode.Uri,
+  isStore: (fsPath: string) => boolean,
+): Promise<{ stores: string[]; partial: boolean }> {
+  let entries: [string, vscode.FileType][];
+  try {
+    entries = await vscode.workspace.fs.readDirectory(folder);
+  } catch {
+    return { stores: [], partial: false };
+  }
+  const folders = entries
+    .filter(([n, type]) => (type & vscode.FileType.Directory) !== 0 && !n.startsWith("."))
+    .map(([n]) => n)
+    .sort();
+  return {
+    stores: folders
+      .slice(0, MAX_FOLDERS_EXAMINED)
+      .filter((n) => isStore(vscode.Uri.joinPath(folder, n).fsPath)),
+    partial: folders.length > MAX_FOLDERS_EXAMINED,
+  };
 }
