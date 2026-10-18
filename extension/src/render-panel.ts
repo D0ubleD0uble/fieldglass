@@ -637,7 +637,7 @@ export function axisTickIndices(length: number, count: number): number[] {
  *  label anyone can read; everything else is the number, trimmed.
  *
  *  Serialized into the panel script, so it must not reference anything outside
- *  itself. */
+ *  itself but the helpers injected beside it (it calls {@link typesetMinus}). */
 export function formatAxisValue(value: number, units: string | null): string {
   if (!Number.isFinite(value)) return "";
   // `(.+)` and a trim after, not `(.+?)\s*$`: the lazy form backtracks over
@@ -712,6 +712,18 @@ export function formatAxisValue(value: number, units: string | null): string {
   return typesetMinus(String(Number(value.toPrecision(6))));
 }
 
+/** Units as a reader sees them after a value: trimmed, and empty for none. CF's
+ *  dimensionless unit `"1"` (sigma and s coordinates, ratios) reads as none,
+ *  since `0.995 1` is a number and a stray digit. Only exactly `1` after
+ *  trimming is dropped; `1e-3` and `100 1` are real units and stay.
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself. */
+export function displayUnits(units: string | null | undefined): string {
+  const text = (units || "").trim();
+  return text === "1" ? "" : text;
+}
+
 /** One coordinate value as the slice controls and the subtitle state it
  *  (#1041): the axis label {@link formatAxisValue} writes, with the axis's
  *  units after it, `500 millibar`. A CF time reads as its date alone,
@@ -722,10 +734,11 @@ export function formatAxisValue(value: number, units: string | null): string {
  *  outside itself but the helpers injected beside it. */
 export function formatCoordinate(value: number, units: string | null): string {
   const text = formatAxisValue(value, units);
+  const shown = displayUnits(units);
   // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
   // number reads that way.
   const date = /^\d{4}-\d\d-\d\d/.test(text);
-  return text !== "" && !date && units ? text + " " + units : text;
+  return text !== "" && !date && shown ? text + " " + shown : text;
 }
 
 /** One dimension a slice holds still, as {@link composeSliceNote} takes it:
@@ -1241,7 +1254,8 @@ export function composeTitleLine(
   meta: Pick<PanelField, "index" | "parameter" | "units">,
   kind: FieldKind,
 ): string {
-  const units = meta.units ? ` (${meta.units})` : "";
+  const shownUnits = displayUnits(meta.units);
+  const units = shownUnits ? ` (${shownUnits})` : "";
   if (kind === "variable") return (meta.parameter || `Variable ${meta.index}`) + units;
   return `Message ${meta.index}` + (meta.parameter ? ` — ${meta.parameter}` : "") + units;
 }
@@ -1317,7 +1331,8 @@ export function composeProbeValue(
   r: Pick<ProbeResult, "value" | "fullDetailValue" | "fullDetailTruncation">,
   units: string,
 ): string {
-  const format = (v: number) => Number(v).toPrecision(5) + (units ? " " + units : "");
+  const shownUnits = displayUnits(units);
+  const format = (v: number) => Number(v).toPrecision(5) + (shownUnits ? " " + shownUnits : "");
   const shown = r.value == null ? "no data" : format(r.value);
   if (r.fullDetailValue == null) return shown;
   const truncation = r.fullDetailTruncation != null ? " (T" + r.fullDetailTruncation + ")" : "";
@@ -1341,7 +1356,8 @@ export function composeRangeText(usedMin: number | null, usedMax: number | null)
  *  the panel script like `composeRangeText`. */
 export function composeVectorScale(referenceSpeed: number | null | undefined, units: string): string {
   if (referenceSpeed == null) return "";
-  return Number(referenceSpeed).toPrecision(3) + (units ? " " + units : "");
+  const shown = displayUnits(units);
+  return Number(referenceSpeed).toPrecision(3) + (shown ? " " + shown : "");
 }
 
 /** The Vectors row's text for the key: the label, said in words, for a reader
@@ -1535,6 +1551,7 @@ export function renderImagePanelHtml(
         ${unavailableItemsHtml.toString()}
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
+        ${displayUnits.toString()}
         ${formatCoordinate.toString()}
         ${composeSliceNote.toString()}
         ${heldSliceParts.toString()}
@@ -1957,7 +1974,8 @@ export function renderImagePanelHtml(
           if (wrap && image) wrap.dataset.fitted = sizeKey(image.getBoundingClientRect());
           const name = (axis, dim) => {
             const base = axis ? axis.dimension : v.dims[dim].name;
-            const units = axis && axis.units && !/ since /i.test(axis.units) ? ' (' + axis.units + ')' : '';
+            const shown = axis ? displayUnits(axis.units) : '';
+            const units = shown && !/ since /i.test(shown) ? ' (' + shown + ')' : '';
             return base + units;
           };
           caption.textContent = 'x: ' + name(axisX, sliceState.xDim) + ' · y: ' + name(axisY, sliceState.yDim);
@@ -3621,8 +3639,10 @@ export function renderImagePanelHtml(
           for (let i = 0; i < n; i++) {
             if (line.mask[i] === 1 && Number.isFinite(line.values[i])) present.push(i);
           }
-          const units = line.units ? ' ' + line.units : '';
-          const along = line.dimension + (line.coordinateUnits ? ' (' + line.coordinateUnits + ')' : '');
+          const lineUnits = displayUnits(line.units);
+          const units = lineUnits ? ' ' + lineUnits : '';
+          const alongUnits = displayUnits(line.coordinateUnits);
+          const along = line.dimension + (alongUnits ? ' (' + alongUnits + ')' : '');
           // A vertical axis (CF §4.3) is drawn as a profile: the coordinate up
           // the page and the value across it, the way up its positive attribute says
           // (#1043). A pressure is spaced by its logarithm, so the upper

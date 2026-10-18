@@ -27,7 +27,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
-import { composeSliceNote, formatCoordinate } from "../../render-panel";
+import { composeProbeValue, composeSliceNote, composeTitleLine, composeVectorScale, displayUnits, formatCoordinate } from "../../render-panel";
 import {
   classicNetcdf,
   extensionPath,
@@ -194,6 +194,23 @@ suite("Slice coordinates (#1041)", () => {
     assert.match(LTM_JANUARY, /^000[01]-\d\d-\d\d$/);
   });
 
+  test("CF's dimensionless unit \"1\" is left out, and only exactly that", () => {
+    assert.strictEqual(formatCoordinate(0.995, "1"), "0.995");
+    assert.strictEqual(formatCoordinate(0.995, " 1 "), "0.995");
+    assert.strictEqual(formatCoordinate(3, "   "), "3");
+    assert.strictEqual(formatCoordinate(3, "1e-3"), "3 1e-3");
+    assert.strictEqual(formatCoordinate(3, "100 1"), "3 100 1");
+    assert.strictEqual(formatCoordinate(500, "millibar"), "500 millibar");
+    assert.strictEqual(displayUnits("1"), "");
+    assert.strictEqual(displayUnits(null), "");
+    assert.strictEqual(displayUnits(" K "), "K");
+    // The same rule wherever a value is printed with its units.
+    assert.strictEqual(composeProbeValue({ value: 0.5, fullDetailValue: null, fullDetailTruncation: null }, "1"), "0.50000");
+    assert.strictEqual(composeVectorScale(2, "1"), "2.00");
+    assert.strictEqual(composeTitleLine({ index: 0, parameter: "sigma", units: "1" }, "variable"), "sigma");
+    assert.strictEqual(composeTitleLine({ index: 0, parameter: "air", units: "K" }, "variable"), "air (K)");
+  });
+
   test("the slice note names each held axis by coordinate, or by index where it has none", () => {
     const level = { name: "level", index: 5, coordinate: "500 millibar" };
     const time = { name: "time", index: 0, coordinate: "0001-01-01" };
@@ -231,6 +248,28 @@ suite("Slice coordinates (#1041)", () => {
       state = await step(panel, 1, 6);
       assert.strictEqual(state.animateLabel, "400 millibar (step 6 of 0–16)");
       assert.strictEqual(state.subtitle, `${source} · time ${LTM_JANUARY} · level 400 millibar`);
+    } finally {
+      close();
+    }
+  });
+
+  test("a sigma level with units \"1\" shows no stray 1 in the stepper, the Animate label or the subtitle", async () => {
+    const sigma = [0.995, 0.982, 0.964];
+    const { panel, source, close } = await openStore("sigma.zarr", (root) =>
+      writeStore(root, {
+        ...GRID,
+        sigma: { dims: ["sigma"], shape: [3], values: sigma, units: "1" },
+        air: { dims: ["sigma", "lat", "lon"], shape: [3, 3, 4], values: planes(3), units: "1" },
+      }),
+    );
+    try {
+      await withAxes(panel, [0]);
+      const state = await step(panel, 0, 1);
+      const level = stepper(steppers(state).main, 0);
+      assert.strictEqual(level.coordinate, "0.982");
+      assert.strictEqual(level.text, "sigma 0.982 (0–2)");
+      assert.strictEqual(state.animateLabel, "0.982 (step 1 of 0–2)");
+      assert.strictEqual(state.subtitle, `${source} · sigma 0.982`);
     } finally {
       close();
     }
