@@ -263,12 +263,13 @@ ${options}
 /** The NetCDF Compare row: the operation selector plus a second set of index
  *  steppers for Field B, which is the same variable at a different slice (the
  *  "difference of two time steps / levels" case). The steppers are built
- *  dynamically into `#compare-dims` by the panel script, mirroring Field A's. */
+ *  dynamically into `#compare-dims` by the panel script, mirroring Field A's,
+ *  each named as Field B's and set apart from Field A's (#1041). */
 function netcdfCompareFieldsetHtml(combineOps: CombineOpInfo[]): string {
   return `    <fieldset>
       <legend>Compare:</legend>
 ${compareOpSelectHtml(combineOps)}
-      <span class="compare-b">Field B <span id="compare-dims"></span></span>
+      <span class="compare-b slice-steppers" id="compare-dims" role="group" aria-label="Field B"></span>
     </fieldset>
 `;
 }
@@ -686,6 +687,57 @@ export function formatAxisValue(value: number, units: string | null): string {
   // for zero, nor `1013` for a pressure level of `1013.25`. Signed the way the
   // line plot's caption is (#1043).
   return typesetMinus(String(Number(value.toPrecision(6))));
+}
+
+/** One coordinate value as the slice controls and the subtitle state it
+ *  (#1041): the axis label {@link formatAxisValue} writes, with the axis's
+ *  units after it, `500 millibar`. A CF time reads as its date alone,
+ *  `2024-01-15`; a time whose reference cannot be read stays a number and
+ *  keeps its units, `1963872 hours since …`, so it is never a bare count.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself but the helpers injected beside it. */
+export function formatCoordinate(value: number, units: string | null): string {
+  const text = formatAxisValue(value, units);
+  // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
+  // number reads that way.
+  const date = /^\d{4}-\d\d-\d\d/.test(text);
+  return text !== "" && !date && units ? text + " " + units : text;
+}
+
+/** One dimension a slice holds still, as {@link composeSliceNote} takes it:
+ *  its name, the index held, and the coordinate there as
+ *  {@link formatCoordinate} writes it, `null` for an axis with no
+ *  coordinates. */
+export interface SliceNotePart {
+  name: string;
+  index: number;
+  coordinate: string | null;
+}
+
+/** The slice a map shows, for the panel subtitle and so the exported PNG
+ *  (#1041): each held dimension by name and coordinate, `time 2024-01-15 ·
+ *  level 500 millibar`, or by its index where the file gives the axis no
+ *  coordinates, `phony_dim_0 index 3`. A Compare map adds where Field B
+ *  differs from it, `Field B at level 850 millibar`. Empty when nothing is
+ *  held.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself. */
+export function composeSliceNote(
+  parts: ReadonlyArray<SliceNotePart>,
+  partsB: ReadonlyArray<SliceNotePart> | null,
+): string {
+  const one = (p: SliceNotePart) => p.name + " " + (p.coordinate !== null ? p.coordinate : "index " + p.index);
+  const note = parts.map(one);
+  if (partsB) {
+    const differ = partsB.filter((b, i) => {
+      const [a] = parts.slice(i, i + 1);
+      return !a || a.index !== b.index;
+    });
+    if (differ.length > 0) note.push("Field B at " + differ.map(one).join(", "));
+  }
+  return note.join(" · ");
 }
 
 /** A number's text with a true minus sign (U+2212) for each hyphen, as a tick
@@ -1272,6 +1324,8 @@ export function renderImagePanelHtml(
         ${unavailableItemsHtml.toString()}
         ${axisTickIndices.toString()}
         ${formatAxisValue.toString()}
+        ${formatCoordinate.toString()}
+        ${composeSliceNote.toString()}
         ${typesetMinus.toString()}
         ${niceTicks.toString()}
         ${layoutAxisLabels.toString()}
@@ -1337,6 +1391,8 @@ export function renderImagePanelHtml(
           ySel.value = String(sliceState.yDim);
           xSel.value = String(sliceState.xDim);
           wrap.innerHTML = dimStepperHtml(v, sliceState.yDim, sliceState.xDim, sliceState.sliceIndices);
+          requestStepperAxes();
+          fillSliceCoordinates();
           buildAnimationControls();
           fillLineAxes();
           syncCrossSectionMode();
@@ -1346,10 +1402,19 @@ export function renderImagePanelHtml(
         // its value from the indices array. Shared by Field A (#slice-dims) and
         // the compare Field B (#compare-dims); a container-delegated listener
         // reads data-dim to drive the right index array, so both use data-dim.
-        function dimStepperHtml(v, yDim, xDim, indices) {
+        //
+        // Each stepper names the coordinate at its index beside the number
+        // (#1041), 'level 5 500 millibar', filled in by fillSliceCoordinates
+        // once the axis's values are known; an axis with none shows the index
+        // alone. Field B's are named as Field B's, since with the main
+        // steppers scrolled away they were taken for the panel's own. A
+        // separator stands between two steppers, which ran together as
+        // '0–11level'.
+        function dimStepperHtml(v, yDim, xDim, indices, fieldB) {
           let html = '';
           for (let i = 0; i < v.dims.length; i++) {
             if (i === yDim || i === xDim) continue;
+            if (html) html += '<span class="slice-sep" aria-hidden="true">·</span>';
             const len = v.dims[i].length;
             const max = Math.max(0, len - 1);
             const val = indices[i] || 0;
@@ -1367,14 +1432,59 @@ export function renderImagePanelHtml(
             // than offering a slider that cannot move.
             const single = len <= 1;
             const off = single ? ' disabled' : '';
-            const hint = single ? 'only slice' : '0\u2013' + max;
-            html += '<label class="slice-index">' + escapeAttr(v.dims[i].name) +
+            const hint = single ? '(only slice)' : '(0\u2013' + max + ')';
+            html += '<label class="slice-index">' + (fieldB ? 'Field B \u00b7 ' : '') + escapeAttr(v.dims[i].name) +
               ' <input type="range" class="slice-slider" data-dim="' + i + '" min="0" max="' + max +
               '" value="' + val + '"' + off + '>' +
               '<input type="number" class="slice-number" data-dim="' + i + '" min="0" max="' + max +
-              '" value="' + val + '"' + off + '><span class="slice-len">' + hint + '</span></label>';
+              '" value="' + val + '"' + off + '> <span class="slice-coord" data-coord-dim="' + i + '"></span>' +
+              ' <span class="slice-len">' + hint + '</span></label>';
           }
           return html;
+        }
+
+        // The coordinate at index along dimension dim of the variable on
+        // the picker, as formatCoordinate writes it: '' while its values are
+        // being asked for, null when the axis has none there (no coordinate
+        // array, one too short, or a value that is not a number).
+        function coordinateAt(dim, index) {
+          const axis = axisCache[axisKey(dim)];
+          if (axis === undefined) return '';
+          return coordinateText(axis, index);
+        }
+
+        // An axis's coordinate at index as formatCoordinate writes it, or null.
+        function coordinateText(axis, index) {
+          const values = axis && axis.coordinates;
+          if (!values || !(index < values.length)) return null;
+          return formatCoordinate(values[index], axis.units) || null;
+        }
+
+        // Ask for the values of every axis a stepper holds, so each can be
+        // named by its coordinate (#1041). Each is asked for once per
+        // variable and kept, as the cross-section rails' are.
+        function requestStepperAxes() {
+          const v = sliceState && sliceVariable(sliceState.variableIndex);
+          if (!v) return;
+          for (let i = 0; i < v.dims.length; i++) {
+            if (i !== sliceState.yDim && i !== sliceState.xDim) requestAxis(i);
+          }
+        }
+
+        // Write each stepper's coordinate beside it, Field A's and Field B's,
+        // from the index it holds now: called as an index moves (a slider
+        // drag included) and as an axis's values arrive.
+        function fillSliceCoordinates() {
+          const fill = (container, indices) => {
+            document.querySelectorAll(container + ' .slice-coord').forEach((el) => {
+              const dim = Number(el.dataset.coordDim);
+              const text = coordinateAt(dim, indices[dim] || 0);
+              el.textContent = text || '';
+            });
+          };
+          if (!sliceState) return;
+          fill('#slice-dims', sliceState.sliceIndices);
+          fill('#compare-dims', compareIndices);
         }
 
         // Field B's index steppers (the compare picker), same variable + image
@@ -1385,7 +1495,10 @@ export function renderImagePanelHtml(
           if (!wrap || !sliceState) return;
           const v = sliceVariable(sliceState.variableIndex);
           if (!v) return;
-          wrap.innerHTML = dimStepperHtml(v, sliceState.yDim, sliceState.xDim, compareIndices);
+          // A variable with no dimension to hold still has no steppers, and
+          // the row still says which field is B.
+          wrap.innerHTML = dimStepperHtml(v, sliceState.yDim, sliceState.xDim, compareIndices, true) || 'Field B';
+          fillSliceCoordinates();
         }
 
         function syncCompareIndex(dim, value) {
@@ -1396,6 +1509,7 @@ export function renderImagePanelHtml(
           document.querySelectorAll('#compare-dims [data-dim="' + dim + '"]').forEach((el) => {
             if (el.value !== String(clamped)) el.value = String(clamped);
           });
+          fillSliceCoordinates();
         }
 
         // Minimal attribute escaper for the option/label text we build in JS
@@ -1418,6 +1532,7 @@ export function renderImagePanelHtml(
           document.querySelectorAll('#slice-dims [data-dim="' + dim + '"]').forEach((el) => {
             if (el.value !== String(clamped)) el.value = String(clamped);
           });
+          fillSliceCoordinates();
         }
 
         // --- Cross-sections (#171) -------------------------------------------
@@ -1452,7 +1567,11 @@ export function renderImagePanelHtml(
         }
 
         function handleAxisResult(msg) {
-          const key = axisKey(msg.dim);
+          // Kept under the variable it was asked for, which the answer names:
+          // the picker can have moved on meanwhile, and an answer filed under
+          // the variable on it now would label that one with another's
+          // values (#1041).
+          const key = typeof msg.variableIndex === 'number' ? msg.variableIndex + ':' + msg.dim : axisKey(msg.dim);
           if (key) {
             axisPending[key] = false;
             // With the file closed (#839) nothing is known about the axis, so
@@ -1467,6 +1586,9 @@ export function renderImagePanelHtml(
             send();
           }
           drawAxisRails();
+          fillSliceCoordinates();
+          updateFrameLabel();
+          updateSubtitle();
         }
 
         // A render held until the Y axis's values arrive (#1043): which way up
@@ -1826,7 +1948,12 @@ export function renderImagePanelHtml(
           const dim = animationDim();
           const v = sliceState && sliceVariable(sliceState.variableIndex);
           if (!label || dim == null || !v) return;
-          label.textContent = 'step ' + sliceState.sliceIndices[dim] + ' of 0\u2013' + (v.dims[dim].length - 1);
+          const index = sliceState.sliceIndices[dim];
+          const step = 'step ' + index + ' of 0\u2013' + (v.dims[dim].length - 1);
+          // The coordinate first, the step after it (#1041): '500 millibar
+          // (step 5 of 0\u201316)'. An axis with no coordinates keeps the step.
+          const at = coordinateAt(dim, index);
+          label.textContent = at ? at + ' (' + step + ')' : step;
         }
 
         // Move the animated axis to the given index and render it.
@@ -2236,6 +2363,46 @@ export function renderImagePanelHtml(
           if (!ok && logEl.checked) logEl.checked = false;
         }
 
+        // The slice the image on screen was drawn from, as its render named it
+        // (#1041), and Field B's indices when it is a Compare map; null for a
+        // GRIB panel. The subtitle states the slice drawn, not the one the
+        // steppers have moved on to while that render is on its way.
+        let drawnSlice = null;
+        let drawnSliceB = null;
+        let drawnTruncation = null;
+
+        // The subtitle's slice part: each held dimension of the drawn slice by
+        // its coordinate. Left out until every one of its axes is known, so
+        // the line never names a slice by index and then by value.
+        function drawnSliceNote() {
+          const v = drawnSlice && sliceVariable(drawnSlice.variableIndex);
+          if (!v) return '';
+          const parts = (indices) => {
+            const out = [];
+            for (let i = 0; i < v.dims.length; i++) {
+              if (i === drawnSlice.yDim || i === drawnSlice.xDim) continue;
+              const axis = axisCache[drawnSlice.variableIndex + ':' + i];
+              if (axis === undefined) return null;
+              const index = indices[i] || 0;
+              out.push({ name: v.dims[i].name, index: index, coordinate: coordinateText(axis, index) });
+            }
+            return out;
+          };
+          const a = parts(drawnSlice.sliceIndices);
+          const b = drawnSliceB ? parts(drawnSliceB) : null;
+          if (!a || (drawnSliceB && !b)) return '';
+          return composeSliceNote(a, b);
+        }
+
+        // The line under the heading: the source and the field's level and
+        // times, the slice drawn (#1041), then the band-limit note of the map
+        // on screen. The PNG export draws the same line.
+        function updateSubtitle() {
+          SUB_LINE = composeSubtitle(composeSubtitle(SUB_BASE, drawnSliceNote()), drawnTruncation);
+          const subtitle = document.querySelector('.subtitle');
+          if (subtitle) subtitle.textContent = SUB_LINE;
+        }
+
         function handleGridReady(msg) {
           lastPayload = msg;
           mountAnswered = true;
@@ -2250,9 +2417,10 @@ export function renderImagePanelHtml(
           }
           // Applied when null too: turning Compare off must drop a label that
           // only field B carried.
-          SUB_LINE = composeSubtitle(SUB_BASE, msg.truncationNote ?? null);
-          const subtitle = document.querySelector('.subtitle');
-          if (subtitle) subtitle.textContent = SUB_LINE;
+          drawnTruncation = msg.truncationNote ?? null;
+          drawnSlice = msg.slice || null;
+          drawnSliceB = Array.isArray(msg.compareSliceIndicesB) ? msg.compareSliceIndicesB : null;
+          updateSubtitle();
           if (typeof msg.parameterUnits === 'string') UNITS = msg.parameterUnits;
           if (typeof msg.defaultPngName === 'string') DEFAULT_PNG_NAME = msg.defaultPngName;
           // A slice panel's picker and Overlay row follow the slice on screen.
@@ -4051,6 +4219,9 @@ export function renderImagePanelHtml(
           requestAxis(sliceState.yDim);
           requestAxis(sliceState.xDim);
         }
+        // The steppers' axes too (#1041), for their coordinates, the Animate
+        // label and the subtitle. Field B's steppers hold the same axes.
+        requestStepperAxes();
       })();
     </script>
   `;
@@ -4251,8 +4422,20 @@ export function renderImagePanelHtml(
     }
     /* NetCDF slice picker: the per-dimension index controls lay out inline and
        wrap within their row like the other groups. */
-    #slice-dims { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem; }
+    .slice-steppers { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 0.6rem; }
+    .slice-steppers:empty { display: none; }
     .slice-index { display: inline-flex; align-items: center; gap: 0.3rem; }
+    .slice-sep { color: var(--vscode-descriptionForeground); }
+    .slice-coord { font-variant-numeric: tabular-nums; }
+    .slice-coord:empty { display: none; }
+    /* Field B's steppers (#1041): set apart from Field A's by a rule and a
+       tint, so with the main steppers scrolled away they are not taken for
+       the panel's own slice. */
+    .compare-b {
+      padding: 0.15rem 0.5rem;
+      border-left: 3px solid var(--vscode-charts-orange, #d18616);
+      background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.12));
+    }
     .slice-index input[type="range"] { vertical-align: middle; }
     .slice-index input[type="number"] { width: 4.5rem; }
     .slice-len { color: var(--vscode-descriptionForeground); font-size: 0.8rem; }
@@ -4293,7 +4476,7 @@ ${slice
       <label>Variable <select id="slice-variable"></select></label>
       <label>Y axis (rows) <select id="slice-y"></select></label>
       <label>X axis (cols) <select id="slice-x"></select></label>
-      <span id="slice-dims"></span>
+      <span id="slice-dims" class="slice-steppers"></span>
       <button type="button" id="export-slice-csv">Export CSV…</button>
     </div>
     <div class="toolbar-row" id="animate-row" hidden>

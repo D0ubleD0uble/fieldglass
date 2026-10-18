@@ -308,9 +308,11 @@ palette, picking the store's folder.
       and Orthographic.
 - [ ] The slice picker lists `time` with 366 steps. Stepping to another day
       changes the map.
-- [ ] **priority** Set `time` to 14 (2024-01-15; the slice panel shows step
-      numbers, not dates) and probe 40° N 100° W. It reads about 246.6 degK.
-      Note the value.
+- [ ] **priority** Set `time` to 14 and probe 40° N 100° W. It reads about
+      246.6 degK. Note the value.
+- [ ] With `time` at 14, the stepper reads `2024-01-15` beside the number,
+      and the line under the heading ends `· time 2024-01-15` (#1041).
+      Failure looks like the index alone, or a count of hours.
 - [ ] Export CSV…, long layout: 10,512 data rows (`grep -c '^[-0-9]'`), one
       per cell of 144 × 73. The matrix layout exports too.
 - [ ] Export PNG: the save dialog opens inside the store's folder.
@@ -342,6 +344,9 @@ palette, picking the store's folder.
       `scale_factor` 0.25 and `add_offset` 200).
 - [ ] `v3_v2keys` (unconsolidated v3, no dimension names): the slice picker
       names the axes `phony_dim_0` and `phony_dim_1`, as NetCDF names them.
+      Both are image axes, so there is no stepper. A stepper on an axis with
+      no coordinate variable shows its index alone, with no value beside it;
+      `slice-coordinates.test.ts` checks one on a 3-D store (#1041).
 - [ ] `v3_sharded`: `s` draws a 7 × 5 source view with no error. Whether the
       sharded values are right cannot be judged by eye; `fieldglass-zarr`'s
       `tests/real_stores.rs` and `tests/stores.rs` check them against
@@ -361,9 +366,10 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 
 - [ ] The panel shows an Animate row with first, back, play/pause, forward and
       last buttons, a speed control and a Loop toggle. It starts on `time`.
-- [ ] Press play: the label beside Loop counts `step 1 of 0–365`, `step 2 of
-      0–365`, …, the `time` stepper follows, and the Northern Hemisphere warms
-      towards July.
+- [ ] Press play: the label beside Loop counts `2024-01-02 (step 1 of
+      0–365)`, `2024-01-03 (step 2 of 0–365)`, …, the `time` stepper and its
+      date follow, and so does the date at the end of the line under the
+      heading. The Northern Hemisphere warms towards July (#1041).
 - [ ] With the colour range on automatic, the colour bar's numbers do **not**
       change during playback: the range of the step playback started from is
       held, so frames stay comparable.
@@ -377,11 +383,25 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, variable `air`
 
 - [ ] Choose `level` as the dimension to step through: 17 levels, 1000 to 10
-      hPa. Step with the forward button rather than Play, so each level takes
-      its own range. Probe a point on the equator: about −80 °C at 100 hPa,
+      hPa. Set `level` to 5: the stepper reads `500 millibar` beside the
+      number, the Animate label `500 millibar (step 5 of 0–16)`, and the line
+      under the heading ends `· level 500 millibar`. Export PNG: the picture's
+      subtitle says the same (#1041). The `time` stepper reads `0000-12-30`
+      for the first month, where the file means `0001-01-01`: a date before
+      1582 is counted on the proleptic Gregorian calendar, not the CF
+      standard one. That is a known gap, beside #1033; note it, not a fail.
+      Step with the forward button rather than Play, so each level takes its
+      own range. Probe a point on the equator: about −80 °C at 100 hPa,
       warmer again above (about −45 °C at 10 hPa). This file is in `degC`.
       During Play the first level's range is held, so the upper levels paint
       in the bottom colour; that is intended.
+- [ ] Choose Compare `A − B` and set Field B's `level` to 2. Field B's
+      steppers read `Field B · time …` and `Field B · level` with `850
+      millibar`, sit in a tinted box with a coloured rule down its left, and
+      have a `·` and a gap between them. Failure looks like steppers that
+      match the main ones, or `0–11level` run together. The line under the
+      heading ends `· Field B at level 850 millibar` (#1041). Set Compare
+      back to off.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc`**, `t2m`
 

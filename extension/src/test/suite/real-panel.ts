@@ -129,6 +129,35 @@ export interface PageState {
   linePlot: LinePlotState | null;
   /** A slice panel's axis rails (#171, #1043), `null` for a GRIB panel. */
   rails: RailsState | null;
+  /** A slice panel's index steppers (#1041), `null` for a GRIB panel. */
+  steppers: SteppersState | null;
+  /** The Animate row's label, `null` for a panel with no Animate row. */
+  animateLabel: string | null;
+}
+
+/** One index stepper as a user sees it (#1041). */
+export interface StepperState {
+  /** The dimension it holds. */
+  dim: number;
+  /** Its text, whitespace collapsed: name, coordinate and range. */
+  text: string;
+  /** The coordinate shown beside it, `""` for none. */
+  coordinate: string | null;
+  /** The index in its number box. */
+  index: string;
+  box: Box;
+}
+
+/** Field A's steppers and the Compare row's Field B steppers (#1041). */
+export interface SteppersState {
+  main: StepperState[];
+  fieldB: StepperState[];
+  /** Each container's whole text, separators included. */
+  mainText: string;
+  fieldBText: string;
+  /** Each container's left rule and background, as computed. */
+  mainStyle: string;
+  fieldBStyle: string;
 }
 
 /** The line plot as a user sees it (#1037). */
@@ -361,6 +390,37 @@ const DRIVER = `
         canvasVisibility: byId('canvas').style.visibility,
         linePlot: linePlot(),
         rails: rails(),
+        steppers: steppers(),
+        animateLabel: byId('anim-frame') ? byId('anim-frame').textContent : null,
+      };
+    }
+    // A slice panel's index steppers, Field A's and Field B's (#1041).
+    function steppers() {
+      const main = byId('slice-dims');
+      if (!main) return null;
+      const read = (root) => Array.from(root.querySelectorAll('.slice-index')).map((el) => {
+        const coord = el.querySelector('.slice-coord');
+        const number = el.querySelector('.slice-number');
+        return {
+          dim: Number(number.dataset.dim),
+          text: el.textContent.replace(/\\s+/g, ' ').trim(),
+          coordinate: coord ? coord.textContent : null,
+          index: number.value,
+          box: boxOf(el),
+        };
+      });
+      const fieldB = byId('compare-dims');
+      const style = (el) => {
+        const s = getComputedStyle(el);
+        return s.borderLeftStyle + ' ' + s.borderLeftWidth + ' ' + s.backgroundColor;
+      };
+      return {
+        main: read(main),
+        fieldB: fieldB ? read(fieldB) : [],
+        mainText: main.textContent,
+        fieldBText: fieldB ? fieldB.textContent : '',
+        mainStyle: style(main),
+        fieldBStyle: fieldB ? style(fieldB) : '',
       };
     }
     // Every control on the page with an id, by id, and each radio group's
@@ -486,8 +546,9 @@ const DRIVER = `
       // fitted the rails and the plot to the sizes they now have (#1043).
       let resized = false;
       for (const a of m.actions) {
-        const el = a.id === 'body' ? document.body : byId(a.id);
-        if (!el) throw new Error('no #' + a.id);
+        // A control with no id (a slice stepper) is named by a selector.
+        const el = a.selector ? document.querySelector(a.selector) : a.id === 'body' ? document.body : byId(a.id);
+        if (!el) throw new Error('no ' + (a.selector || '#' + a.id));
         // A disclosure opens the way a click on its summary opens it.
         if ('open' in a) { if (el.open !== a.open) el.querySelector('summary').click(); continue; }
         if ('focus' in a) { el.focus(); continue; }
@@ -516,7 +577,16 @@ export interface RealPanel {
   sent: Msg[];
   /** Set controls as a user would, then read the page back. */
   drive(
-    actions: Array<{ id: string; value?: string | number; checked?: boolean; open?: boolean; focus?: boolean; width?: string }>,
+    actions: Array<{
+      /** The control's id; or `selector`, for one with no id. */
+      id?: string;
+      selector?: string;
+      value?: string | number;
+      checked?: boolean;
+      open?: boolean;
+      focus?: boolean;
+      width?: string;
+    }>,
   ): Promise<PageState>;
   /** Click the middle of the image, as a user reads the value there, or the
    *  point `fy` of the way down it. Resolves once the page has sent the click;
@@ -722,3 +792,52 @@ export const overlayTraffic = (m: Msg) =>
   m && ["overlayRequest", "contourRequest", "vectorRequest"].includes(m.type);
 export const refusals = (m: Msg) =>
   m && ["overlayError", "contourError", "gridError"].includes(m.type);
+
+/** A classic NetCDF (CDF-1) file, written by hand: `dims` by name and length,
+ *  and float64 variables over them with text attributes, in that order. Enough
+ *  of the format for a test file the editor opens like any other. */
+export function classicNetcdf(
+  dims: Array<[string, number]>,
+  vars: Array<{ name: string; dims: string[]; attrs: Record<string, string>; values: number[] }>,
+): Buffer {
+  const parts: Buffer[] = [];
+  const int = (v: number) => {
+    const b = Buffer.alloc(4);
+    b.writeInt32BE(v);
+    return b;
+  };
+  const name = (s: string) => {
+    const text = Buffer.from(s, "utf8");
+    return Buffer.concat([int(text.length), text, Buffer.alloc((4 - (text.length % 4)) % 4)]);
+  };
+  const header = (begins: number[]) => {
+    const out: Buffer[] = [Buffer.from("CDF\x01", "latin1"), int(0)];
+    out.push(int(0x0a), int(dims.length));
+    for (const [n, len] of dims) out.push(name(n), int(len));
+    out.push(int(0), int(0)); // no global attributes
+    out.push(int(0x0b), int(vars.length));
+    vars.forEach((v, k) => {
+      out.push(name(v.name), int(v.dims.length));
+      for (const d of v.dims) out.push(int(dims.findIndex(([n]) => n === d)));
+      const attrs = Object.entries(v.attrs);
+      out.push(int(0x0c), int(attrs.length));
+      for (const [an, av] of attrs) out.push(name(an), int(2), name(av)); // NC_CHAR
+      out.push(int(6), int(v.values.length * 8), int(begins[k])); // NC_DOUBLE
+    });
+    return Buffer.concat(out);
+  };
+  // The header's length does not depend on the offsets in it.
+  let at = header(vars.map(() => 0)).length;
+  const begins = vars.map((v) => {
+    const b = at;
+    at += v.values.length * 8;
+    return b;
+  });
+  parts.push(header(begins));
+  for (const v of vars) {
+    const data = Buffer.alloc(v.values.length * 8);
+    v.values.forEach((x, i) => data.writeDoubleBE(x, i * 8));
+    parts.push(data);
+  }
+  return Buffer.concat(parts);
+}

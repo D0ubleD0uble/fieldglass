@@ -1585,6 +1585,11 @@ export class FieldglassEditorProvider
             { kind: "variable", name: subject.source },
           ),
           sliceGrid: sliceAnswer(grid),
+          // The slice drawn, which the subtitle names (#1041), and Field B's
+          // indices when it is a difference of two slices of this variable.
+          slice: spec,
+          compareSliceIndicesB:
+            compare && compare.variableIndexB === spec.variableIndex ? compare.sliceIndicesB : null,
         } satisfies GridReadyMessage);
       } catch (err) {
         // The answers go with the error too. The picker has moved onto this
@@ -1722,13 +1727,16 @@ export class FieldglassEditorProvider
     // tells the user the file is gone.
     const axis = (req: { slice?: SliceSpec; dim?: unknown }) => {
       const docHandle = subject.handle();
+      const spec = req.slice ?? initial;
+      // The answer names the variable it is for, so a page that has moved to
+      // another variable meanwhile files it under the right one (#1041).
+      const variableIndex = spec.variableIndex;
       if (!docHandle) {
-        panel.webview.postMessage({ type: "axisResult", dim: req.dim, result: null, handleGone: true });
+        panel.webview.postMessage({ type: "axisResult", dim: req.dim, variableIndex, result: null, handleGone: true });
         return;
       }
-      const spec = req.slice ?? initial;
       const reply = (result: AxisValues | null) =>
-        panel.webview.postMessage({ type: "axisResult", dim: req.dim, result });
+        panel.webview.postMessage({ type: "axisResult", dim: req.dim, variableIndex, result });
       if (!isNonNegativeInt(req.dim)) {
         reply(null);
         return;
@@ -1978,6 +1986,13 @@ export interface GridReadyMessage {
    *  for this grid" line says (#1036). Absent for a GRIB panel, which draws
    *  one field. */
   sliceGrid?: SliceAnswer;
+  /** A slice panel's slice actually drawn, which the subtitle names by its
+   *  coordinates (#1041). Absent for a GRIB panel. */
+  slice?: SliceSpec;
+  /** Field B's indices when the map drawn is a difference of two slices of
+   *  the same variable, `null` when it is not (#1041). Absent for a GRIB
+   *  panel. */
+  compareSliceIndicesB?: number[] | null;
 }
 
 /** A slice's answers as the render panel takes them; see
