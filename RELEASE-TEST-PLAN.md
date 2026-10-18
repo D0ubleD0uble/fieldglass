@@ -208,7 +208,7 @@ Each file is opened once; this is where its checks are.
 
 | File | Sections |
 |---|---|
-| `S: samples/gfs.grib2` | 1, 7, 8, 38 |
+| `S: samples/gfs.grib2` | 1, 3, 7, 8, 38 |
 | `S: samples/hrrr.grib2` | 8, 21 |
 | `S: samples/mrms.grib2` | 7, 28 |
 | `S: samples/ecmwf.grib2` | 17 |
@@ -428,8 +428,11 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       small and above the middle, or a back arrow with no bar (#1042), or
       light-grey buttons in a dark theme (#1118).
 - [ ] Keyboard and high contrast (#1118). In the Dark Modern theme, click
-      Export PNG… and press Tab along the toolbar: each button shows a ring
-      while it has focus. Switch to the High
+      the heading (it opens nothing), then press Tab along the toolbar: focus
+      goes to Export PNG…, Export CSV…, then on through the selects to the
+      Animate buttons and the zoom buttons, and each button shows a ring
+      while it has focus. Do not click Export PNG… to place focus: it opens a
+      Save dialog. Switch to the High
       Contrast theme (Ctrl+K Ctrl+T): every button has a clear border.
       Failure looks like a light-grey button, no ring on Tab, or a button with no border in High
       Contrast. `panel-button-theme.test.ts` (`every button takes the
