@@ -198,8 +198,9 @@ export interface ParsedColorTable {
  *  (#241). The runs are the overlay's shape — five vertices per arrow.
  *  `referenceSpeed` is `null` when no arrow was drawn (#871).
  *  `referenceLength` is how long a full-length arrow is drawn, in the same
- *  raster pixels as `xy`, for the key (#1046); `null` when no arrow is drawn
- *  whole. `pairing` says whether the two messages are a u/v pair at all, by
+ *  raster pixels as `xy`, for the key (#1046): every arrow at the reference
+ *  speed, since arrows are one on-screen length per speed (#1159); `null`
+ *  when no arrow is drawn. `pairing` says whether the two messages are a u/v pair at all, by
  *  the parameter each names (#1049), or `"unknown"` when a parameter has no
  *  name to read (#1142); the arrows are drawn either way. */
 export interface ProjectedVectors {

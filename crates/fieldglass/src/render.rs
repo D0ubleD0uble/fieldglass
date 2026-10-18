@@ -1606,28 +1606,6 @@ fn with_overlay_map<R>(
     }
 }
 
-/// Each flat `[lat, lon, …]` point through `map`, flipped as
-/// [`project_polylines`] flips a vertex on a raster `height` rows tall, with
-/// no run splitting: `None` for a point off the projection's domain.
-#[cfg(feature = "render")]
-fn points_on(
-    map: &dyn ForwardMap,
-    height: u32,
-    flip_y: bool,
-    latlon: &[f64],
-) -> Vec<Option<(f64, f64)>> {
-    let y_top = f64::from(height) - 1.0;
-    latlon
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|&[lat, lon]| {
-            map.lonlat_to_pixel(lat, lon)
-                .map(|(x, y)| (x, if flip_y { y_top - y } else { y }))
-        })
-        .collect()
-}
-
 // ---------------------------------------------------------------------------
 // Forward geolocation: grid point → (lat, lon)
 // ---------------------------------------------------------------------------
@@ -2267,8 +2245,9 @@ fn no_direction_at(
 
 /// The point `distance` metres from `(lat, lon)` along `bearing` (radians,
 /// clockwise from north), on a sphere. The standard great-circle destination:
-/// arrows are drawn as geographic segments so that *the projection* bends them,
-/// rather than each target needing its own rotation.
+/// an arrow's direction on screen is a short step along its bearing, projected,
+/// so that *the projection* turns it, rather than each target needing its own
+/// rotation.
 #[cfg(feature = "render")]
 fn destination(lat: f64, lon: f64, bearing: f64, distance: f64) -> (f64, f64) {
     let angular = distance / DEFAULT_EARTH_RADIUS_M;
@@ -2324,15 +2303,16 @@ pub struct VectorArrows {
     /// as [`runs`](Self::runs): the length a key draws beside
     /// [`reference_speed`](Self::reference_speed) (#1046).
     ///
-    /// An arrow is a geographic segment, so its length on screen changes
-    /// across a map that stretches or shrinks distance (an equirectangular
-    /// map's high latitudes, a globe's limb). This is measured off one drawn
-    /// arrow, not recomputed: of the arrows drawn whole, the one
-    /// with the largest share of full length, its tail-to-tip length divided
-    /// by that share. With the scale taken from the field, that is the fastest
-    /// arrow on the map, at exactly the length it was drawn. An arrow with an
-    /// end on the raster is preferred to one only in the margin around it.
-    /// `None` when no arrow is drawn whole.
+    /// Arrows are drawn on screen at one length per speed (#1159), so this is
+    /// the length of *every* arrow at the reference speed, anywhere on the
+    /// map, and each slower arrow is its speed's share of it. It is the
+    /// spacing between arrows as drawn: the median, over the sampled cells on
+    /// the raster, of the side of the square each cell's steps to its next
+    /// sampled neighbours span on screen. So a full-speed arrow reaches about
+    /// as far as its neighbour's tail, as it did when arrows were measured on
+    /// the Earth, and a sparser spacing, a zoom or a projection that spreads
+    /// the cells lengthens every arrow and the key together. `None` when no
+    /// arrow is drawn.
     pub reference_length: Option<f64>,
 }
 
@@ -2360,17 +2340,27 @@ impl Default for VectorArrows {
 /// point whose components turn with the column, and has no east or north to
 /// draw them along (#1045). The arrows are drawn on `u`'s placement.
 ///
-/// **Each arrow is built in geographic space and projected like a coastline.**
-/// The shaft runs from the cell along the flow's own bearing, so the target
-/// projection rotates it the same way it rotates every other line, and a target
-/// that turns the map — an orthographic globe, a polar stereographic — turns the
-/// arrows with it. Nothing here knows which projection is in use.
+/// **Each arrow points the way the flow runs on the map, and is drawn on
+/// screen at one length per speed** (#1159), the convention matplotlib's and
+/// cartopy's quiver use. Its direction is a short geographic step from the cell
+/// along the flow's own bearing, projected, so the target projection turns it
+/// the same way it turns every other line: a target that turns the map — an
+/// orthographic globe, a polar stereographic — turns the arrows with it, and
+/// nothing here knows which projection is in use. Its shaft and head are then
+/// drawn straight in pixels from the cell's own pixel, the shaft
+/// `speed / reference speed` of [`VectorArrows::reference_length`] long. So two
+/// equal speeds are equal lengths anywhere on any map, where an arrow drawn as
+/// a geographic segment (as before #1159) was stretched with the map: twice as
+/// long at lat 60 as on the equator of an equirectangular one.
 ///
 /// Each arrow is **one run of five vertices** — tail, tip, one barb, back to the
 /// tip, the other barb — so that stroking it draws the whole arrow in a single
-/// path and a host can still tell one arrow from the next. (A run split for
-/// visibility or at the antimeridian comes back shorter, exactly as a coastline
-/// does.) The runs are pixel-space, for the same canvas the coastlines use.
+/// path and a host can still tell one arrow from the next. An arrow is never
+/// split: one at the map's seam or a globe's limb runs off the edge, as an
+/// arrow on paper would, and one whose cell is off the map (the far side of a
+/// globe) is not drawn. Runs wholly outside the raster and its one-raster
+/// margin are dropped, as overlay runs are. The runs are pixel-space, for the
+/// same canvas the coastlines use.
 ///
 /// # Errors
 ///
@@ -2456,14 +2446,23 @@ pub fn vector_polylines(
         return Ok(VectorArrows::default());
     };
 
-    // How long the fastest arrow is: the spacing between sampled cells, so
-    // arrows just touch at the top of the scale rather than crossing the plot.
-    let longest = sampled
+    // How far apart the sampled cells are on the Earth, on average along a row
+    // and down a column. Not an arrow's length any more (that is set on
+    // screen, below): it sizes the geographic steps an arrow's direction is
+    // read from. Both directions, because a row next to a pole is metres
+    // long, and a step sized from it alone is short enough for a projection's
+    // own solver error there to tilt the arrow.
+    let spacing_m = sampled
         .iter()
-        .filter_map(|&(i, j)| {
-            let here = at(i, j)?;
-            let along = at((i + step).min(ni as usize - 1), j)?;
-            let d = distance_between(here, along);
+        .flat_map(|&(i, j)| {
+            [
+                ((i + step).min(ni as usize - 1), j),
+                (i, (j + step).min(nj as usize - 1)),
+            ]
+            .map(|next| ((i, j), next))
+        })
+        .filter_map(|(here, next)| {
+            let d = distance_between(at(here.0, here.1)?, at(next.0, next.1)?);
             (d > 0.0).then_some(d)
         })
         .fold(None, |sum: Option<(f64, u32)>, d| {
@@ -2471,14 +2470,13 @@ pub fn vector_polylines(
         })
         .map(|(total, n)| total / f64::from(n))
         .unwrap_or(0.0);
-    if longest <= 0.0 {
+    if spacing_m <= 0.0 {
         return Ok(VectorArrows::default());
     }
 
-    let mut latlon: Vec<f64> = Vec::new();
-    let mut ring_lengths: Vec<u32> = Vec::new();
-    // Each arrow's tail and tip, and its share of full length, for the key.
-    let mut shafts: Vec<Shaft> = Vec::new();
+    // Each arrow to draw: where it starts, which way the flow points there,
+    // and its share of a full-length arrow.
+    let mut planned: Vec<PlannedArrow> = Vec::new();
     for &(i, j) in &sampled {
         let index = j * ni as usize + i;
         let (Some(u), Some(v)) = (u[index], v[index]) else {
@@ -2519,134 +2517,249 @@ pub fn vector_polylines(
         } else {
             from_north
         };
-        let length = longest * (speed / fastest).clamp(0.0, 1.0);
-        if length <= 0.0 {
+        let share = (speed / fastest).clamp(0.0, 1.0);
+        if share <= 0.0 {
             continue;
         }
-        let tip = destination(start.0, start.1, bearing, length);
-        // The head is turned from the bearing the shaft *arrives* on, not the
-        // one it left on. A great circle's bearing changes along it, most at
-        // high latitude: a 10° shaft heading west from lat 75 ends about 33°
-        // off its starting bearing, and a head drawn at that would point away
-        // from the shaft's end. Arriving is the reverse of the bearing from
-        // the tip back to the tail.
-        let arriving =
-            bearing_between(tip, start).map_or(bearing, |back| back + std::f64::consts::PI);
-        let barb = |side: f64| {
-            destination(
-                tip.0,
-                tip.1,
-                arriving + side * HEAD_ANGLE_DEG.to_radians(),
-                length * HEAD_FRACTION,
-            )
-        };
-        let (left, right) = (barb(-1.0), barb(1.0));
-        // Tail, tip, one barb, back to the tip, the other: one stroke.
-        for point in [start, tip, left, tip, right] {
-            latlon.extend_from_slice(&[point.0, point.1]);
-        }
-        ring_lengths.push(ARROW_VERTICES);
-        shafts.push(Shaft {
-            tail: start,
-            tip,
-            share: length / longest,
+        planned.push(PlannedArrow {
+            start,
+            bearing,
+            share,
         });
     }
 
-    // The runs and the shafts' ends through one build of the target.
-    let ends: Vec<f64> = shafts
+    // Each sampled cell with its next sampled neighbour along the row and down
+    // the column, whose distances apart on screen set a full-length arrow.
+    let neighbourhoods: Vec<Neighbourhood> = sampled
         .iter()
-        .flat_map(|s| [s.tail.0, s.tail.1, s.tip.0, s.tip.1])
+        .filter_map(|&(i, j)| {
+            let beside = |i: usize, j: usize| {
+                (i < ni as usize && j < nj as usize)
+                    .then(|| at(i, j))
+                    .flatten()
+            };
+            let (mut along, mut down) = (beside(i + step, j), beside(i, j + step));
+            // A spacing wider than the grid samples a cell with no sampled
+            // neighbour: the grid's last column and row stand in, so one arrow
+            // still has a length to be drawn at.
+            if along.is_none() && down.is_none() {
+                along = beside((i + step).min(ni as usize - 1), j);
+                down = beside(i, (j + step).min(nj as usize - 1));
+            }
+            Some(Neighbourhood {
+                here: at(i, j)?,
+                along,
+                down,
+            })
+        })
         .collect();
-    let (runs, points, raster) = with_overlay_map(source, options, |map, raster| {
-        let runs = project_polylines(
-            map,
-            raster.width,
-            raster.height,
-            raster.flip_y,
-            &latlon,
-            &ring_lengths,
-        );
-        let points = points_on(map, raster.height, raster.flip_y, &ends);
-        (runs, points, raster)
+
+    let built = with_overlay_map(source, options, |map, raster| {
+        let y_top = f64::from(raster.height) - 1.0;
+        // A point's pixel, flipped as `project_polylines` flips a vertex.
+        let place = |(lat, lon): (f64, f64)| {
+            map.lonlat_to_pixel(lat, lon)
+                .map(|(x, y)| (x, if raster.flip_y { y_top - y } else { y }))
+        };
+        let full = full_arrow_pixels(&place, &neighbourhoods, raster)?;
+        // The geographic steps an arrow's direction is read from: a short one
+        // for the tangent, and the spacing between arrows for a map whose
+        // pixels move in whole cells (a 2-D coordinate grid's source view
+        // answers with the nearest cell, so a short step does not move).
+        let steps = [spacing_m * DIRECTION_STEP, spacing_m];
+        let mut runs = ProjectedPolylines::default();
+        for arrow in &planned {
+            let Some(tail) = place(arrow.start) else {
+                continue;
+            };
+            let Some((dx, dy)) = screen_direction(&place, arrow, tail, steps) else {
+                continue;
+            };
+            let length = full * arrow.share;
+            let tip = (tail.0 + dx * length, tail.1 + dy * length);
+            // A barb leaves the tip at `HEAD_ANGLE_DEG` from the shaft's own
+            // direction, either side, `HEAD_FRACTION` of the shaft long.
+            let barb = |side: f64| {
+                let (sin, cos) = (side * HEAD_ANGLE_DEG.to_radians()).sin_cos();
+                let head = length * HEAD_FRACTION;
+                (
+                    tip.0 + head * (dx * cos - dy * sin),
+                    tip.1 + head * (dx * sin + dy * cos),
+                )
+            };
+            let (left, right) = (barb(-1.0), barb(1.0));
+            // Tail, tip, one barb, back to the tip, the other: one stroke.
+            let run = [tail, tip, left, tip, right].map(|(x, y)| [x, y]);
+            runs.push_visible(run.as_flattened(), raster.width, raster.height);
+        }
+        Some((runs, full))
     })?;
+    let Some((runs, full)) = built else {
+        return Ok(VectorArrows::default());
+    };
     // Every arrow can clip off the raster, as when the view is a window the
     // field does not reach. Then nothing was drawn to a scale.
-    let reference_speed = (!runs.seg_lengths.is_empty()).then_some(fastest);
-    let reference_length =
-        reference_speed.and_then(|_| full_arrow_length(&runs, &points, raster, &shafts));
+    let drawn = !runs.seg_lengths.is_empty();
     Ok(VectorArrows {
         runs,
-        reference_speed,
-        reference_length,
+        reference_speed: drawn.then_some(fastest),
+        reference_length: drawn.then_some(full),
     })
 }
 
-/// One arrow's shaft as built: tail and tip `(lat, lon)`, and the share of a
-/// full-length arrow it was drawn at (`(0, 1]`).
+/// How far along its bearing, as a share of the spacing between arrows, the
+/// geographic step an arrow's on-screen direction is read from goes. The
+/// central chord over it is the projection's tangent to well under 0.01° on
+/// every target, and it is long enough that neither rounding nor a forward
+/// projection's own iterative error (Mollweide's Newton solve for θ, which
+/// stops after 12 steps and is least converged by the poles) moves it: a
+/// thousandth of the spacing, where a millionth tilted arrows by 0.03° on a
+/// 0.01° grid at lat 89.9.
 #[cfg(feature = "render")]
-struct Shaft {
-    tail: (f64, f64),
-    tip: (f64, f64),
+const DIRECTION_STEP: f64 = 1e-3;
+
+/// One arrow before it is projected: the cell it starts from `(lat, lon)`,
+/// the flow's bearing there (radians, clockwise from north), and its share of
+/// a full-length arrow (`(0, 1]`).
+#[cfg(feature = "render")]
+struct PlannedArrow {
+    start: (f64, f64),
+    bearing: f64,
     share: f64,
 }
 
-/// The on-raster length of a full-length arrow, measured off the drawn arrow
-/// with the largest share of full length — see
-/// [`VectorArrows::reference_length`].
-///
-/// "Drawn" is what the canvas strokes: a five-vertex run in `runs` that starts
-/// at this arrow's projected tail and tip (`points`, two per shaft), so an
-/// arrow split at a seam or by the edge of a globe is not measured. The tail
-/// and tip were projected by the same map as the runs ([`with_overlay_map`]),
-/// so a drawn arrow's ends match its run's first two vertices bit for bit. An arrow with an end on the raster comes before one
-/// wholly in the margin [`project_polylines`] keeps around it: zoomed in, an
-/// arrow can be longer than the window, and its length is still the one the
-/// map draws it at, but a visible arrow is the one a reader compares.
+/// A sampled cell and its next sampled neighbours along its row and down its
+/// column, `(lat, lon)` each; a neighbour is `None` past the grid's edge or
+/// where the grid places no point.
 #[cfg(feature = "render")]
-fn full_arrow_length(
-    runs: &ProjectedPolylines,
-    points: &[Option<(f64, f64)>],
+struct Neighbourhood {
+    here: (f64, f64),
+    along: Option<(f64, f64)>,
+    down: Option<(f64, f64)>,
+}
+
+/// The length of a full-length arrow on this raster, in its pixels: the
+/// spacing between arrows as drawn, so an arrow at the reference speed reaches
+/// about as far as its neighbour's tail.
+///
+/// Each sampled cell's spacing is the side of the square with the area its
+/// two steps to the next sampled cells span on screen (the square root of
+/// their cross product): the step itself on a square grid drawn square, and
+/// the geometric mean of the two where a map stretches one way more than the
+/// other. A cell with only one neighbour, at the grid's last sampled row or
+/// column, uses that step's length. The full length is the median of these,
+/// not the mean, so the few cells whose step straddles the map's seam (drawn
+/// a map's width apart) or that a globe's limb squeezes flat do not move it.
+///
+/// Only cells on the raster are counted, so a zoomed window or a globe sizes
+/// its arrows by the spacing a reader sees there, not by the far side of the
+/// map; when none is (the window lies between sampled cells), every cell that
+/// projects is. `None` when no cell has a neighbour that projects.
+#[cfg(feature = "render")]
+fn full_arrow_pixels(
+    place: &impl Fn((f64, f64)) -> Option<(f64, f64)>,
+    neighbourhoods: &[Neighbourhood],
     raster: OverlayRaster,
-    shafts: &[Shaft],
 ) -> Option<f64> {
-    let whole_run = ARROW_VERTICES as usize;
-    let mut drawn = std::collections::HashSet::new();
-    let mut at = 0usize;
-    for &n in &runs.seg_lengths {
-        let n = n as usize;
-        if n == whole_run
-            && let Some(ends) = runs.xy.get(at..at + 4)
-        {
-            drawn.insert(ends.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
-        }
-        at += 2 * n;
-    }
-    let (width, height) = (raster.width, raster.height);
+    let (width, height) = (f64::from(raster.width), f64::from(raster.height));
     // Pixel centres sit on whole numbers, so the raster spans half a pixel
     // beyond the first and last.
     let on_raster = |(x, y): (f64, f64)| {
-        (-0.5..=f64::from(width) - 0.5).contains(&x)
-            && (-0.5..=f64::from(height) - 0.5).contains(&y)
+        (-0.5..=width - 0.5).contains(&x) && (-0.5..=height - 0.5).contains(&y)
     };
-    // (on the raster, share of full length, full length), best first.
-    let mut best: Option<(bool, f64, f64)> = None;
-    for (shaft, &[tail, tip]) in shafts.iter().zip(points.as_chunks::<2>().0) {
-        let (Some(tail), Some(tip)) = (tail, tip) else {
+    let mut seen = Vec::new();
+    let mut all = Vec::new();
+    for cell in neighbourhoods {
+        let Some(here) = place(cell.here) else {
             continue;
         };
-        let key = [tail.0, tail.1, tip.0, tip.1].map(f64::to_bits);
-        if !drawn.contains(key.as_slice()) {
+        let step = |to: Option<(f64, f64)>| {
+            let there = place(to?)?;
+            Some((there.0 - here.0, there.1 - here.1))
+        };
+        let spacing = match (step(cell.along), step(cell.down)) {
+            (Some(a), Some(d)) => (a.0 * d.1 - a.1 * d.0).abs().sqrt(),
+            (Some(s), None) | (None, Some(s)) => s.0.hypot(s.1),
+            (None, None) => continue,
+        };
+        if !spacing.is_finite() || spacing <= 0.0 {
             continue;
         }
-        let seen = on_raster(tail) || on_raster(tip);
-        let full = (tip.0 - tail.0).hypot(tip.1 - tail.1) / shaft.share;
-        if best.is_none_or(|(was_seen, share, _)| (seen, shaft.share) > (was_seen, share)) {
-            best = Some((seen, shaft.share, full));
+        if on_raster(here) {
+            seen.push(spacing);
+        }
+        all.push(spacing);
+    }
+    let mut spacings = if seen.is_empty() { all } else { seen };
+    spacings.sort_by(f64::total_cmp);
+    spacings.get(spacings.len() / 2).copied()
+}
+
+/// Which way an arrow points on screen: a unit vector in pixel space, the
+/// way a short geographic step along its bearing goes once projected.
+///
+/// The step is taken ahead of the cell and, reversed, behind it. Away from any
+/// edge the two agree, and the chord from the point behind to the point ahead
+/// is used: a great circle bends away from a parallel, and a projection bends
+/// a line, by the same amount on both sides, so the central chord is the
+/// tangent to well within rounding where a one-sided step would lean. Near an
+/// edge one side fails: a step across the map's seam lands a map's width away
+/// and a step off a globe's disc does not land at all. Then the other side
+/// answers alone, from one step and two (`4·Δ₁ − Δ₂`, which cancels the
+/// lean as the central chord does), or from one step where the second lands
+/// over the edge too. Each of `steps` (metres) is tried in turn until one
+/// moves the pixel. `None` when none does, which leaves the arrow undrawn: it
+/// has no direction here.
+#[cfg(feature = "render")]
+fn screen_direction(
+    place: &impl Fn((f64, f64)) -> Option<(f64, f64)>,
+    arrow: &PlannedArrow,
+    tail: (f64, f64),
+    steps: [f64; 2],
+) -> Option<(f64, f64)> {
+    let (lat, lon) = arrow.start;
+    // A delta on screen and its length, kept only if it moved and is finite.
+    let moved = |d: (f64, f64)| {
+        let n = d.0.hypot(d.1);
+        (n.is_finite() && n > 0.0).then_some((d, n))
+    };
+    // The screen delta `distance` along `bearing`, turned to point the way
+    // the arrow does (`sign` -1 for the side behind the cell).
+    let delta = |bearing: f64, sign: f64, distance: f64| {
+        place(destination(lat, lon, bearing, distance))
+            .and_then(|p| moved((sign * (p.0 - tail.0), sign * (p.1 - tail.1))))
+    };
+    let back = arrow.bearing + std::f64::consts::PI;
+    for step in steps {
+        let ahead = delta(arrow.bearing, 1.0, step);
+        let behind = delta(back, -1.0, step);
+        // One side alone, made second order by its point two steps out when
+        // that lands where a straight continuation would.
+        let one_sided = |(d1, n1): ((f64, f64), f64), bearing: f64, sign: f64| match delta(
+            bearing,
+            sign,
+            2.0 * step,
+        ) {
+            Some((d2, n2)) if (1.5 * n1..=2.5 * n1).contains(&n2) => {
+                moved((4.0 * d1.0 - d2.0, 4.0 * d1.1 - d2.1)).or(Some((d1, n1)))
+            }
+            _ => Some((d1, n1)),
+        };
+        let along = match (ahead, behind) {
+            // Two sides of one step: neither crossed a seam.
+            (Some((a, na)), Some((b, nb))) if na.max(nb) <= 2.0 * na.min(nb) => {
+                moved((a.0 + b.0, a.1 + b.1))
+            }
+            (Some(a), Some(b)) if a.1 <= b.1 => one_sided(a, arrow.bearing, 1.0),
+            (Some(_), Some(b)) | (None, Some(b)) => one_sided(b, back, -1.0),
+            (Some(a), None) => one_sided(a, arrow.bearing, 1.0),
+            (None, None) => None,
+        };
+        if let Some(((dx, dy), n)) = along {
+            return Some((dx / n, dy / n));
         }
     }
-    best.map(|(_, _, length)| length)
-        .filter(|l| l.is_finite() && *l > 0.0)
+    None
 }
 
 // ---------------------------------------------------------------------------
