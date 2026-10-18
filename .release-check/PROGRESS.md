@@ -138,6 +138,6 @@ Checks to run again once the issue's fix has merged and the addon and extension 
 | #1045 | `gfs_wind.grib2` arrows: no band along the top or bottom edge in Equirectangular, and no starburst at either pole in Orthographic ±90. | in plan §6, plus arrowheads square on their shafts (PR #1089) |
 | #1046 | `gfs_wind.grib2` arrows: the key is an arrow as long as an arrow at its speed is drawn (the fastest arrow, when it is on the map), follows spacing, zoom and projection changes, and is in an exported PNG with a readable label. On Equirectangular, arrows near the poles can be longer than the key (the map stretches them). | in plan §6 |
 | #1049 | `gfs_wind.grib2` UGRD+VGRD: no note. `cmc_pair.grib`: the not-a-u/v-pair note, and arrows still draw. VGRD as u: the swapped-order note. | in plan §6 |
-| #1051 | `hrrr_frames.grib2`: V #1 refused, then V #2 draws and the refusal is gone. Unticking Arrows clears the message. |  |
+| #1051 | `hrrr_frames.grib2`: V #1 refused, then V #2 draws and the refusal is gone. Unticking Arrows clears the message. | in plan §6.9 |
 | #1091 | `gfs.grib2` on Source projection: no Resampling picker. Equirectangular: it shows. Bilinear, then Source and back: still Bilinear and the map is unchanged. | in plan §1 (PR #1097) |
 | #1099 | `ncep_air_daily_2024.nc` `air`: Mollweide with Bilinear, then a time × lat cross-section, then back to lon × lat: Mollweide and Bilinear come back. The same through `netcdf4_dimscale.nc` temperature → lat_bnds → temperature. | in plan §5, §18 (PR #1107) |

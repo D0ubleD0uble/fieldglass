@@ -2371,6 +2371,23 @@ export function renderImagePanelHtml(
           if (el) el.textContent = text;
         }
 
+        // Every feature that can fail says so on a line of its own, so one
+        // feature's success or request never clears another's message (#1051):
+        // the arrows' refusal (#vector-status), the overlay layers'
+        // (#overlay-status) and the PNG export's outcome (#export-status). Each
+        // is cleared by the feature that wrote it, and none touches #status.
+        function setLine(id, text) {
+          const el = document.getElementById(id);
+          if (el) el.textContent = text;
+        }
+        function setVectorStatus(text) { setLine('vector-status', text); }
+        function setOverlayStatus(text) { setLine('overlay-status', text); }
+        function setExportStatus(text) {
+          setLine('export-status', text);
+          const el = document.getElementById('export-status');
+          if (el) el.classList.toggle('failed', /^(Export failed|Render the field)/.test(text));
+        }
+
         // The warped lat/lon targets (equirectangular + Web Mercator) both
         // render a lat/lon window: they accept a manual bounds box and show the
         // Bounds control. Keep the rule in one place so the two gates can't
@@ -2522,6 +2539,8 @@ export function renderImagePanelHtml(
             opText + payload.width + '×' + payload.height + ' · ' +
             composeRangeText(payload.usedMin, payload.usedMax),
           );
+          // The last export's outcome was said of the previous image.
+          setExportStatus('');
           // Pre-fill the manual-range inputs once so the user can switch
           // to Manual mode without typing. Nothing to offer without a range.
           const minIn = document.getElementById('range-min');
@@ -2725,7 +2744,13 @@ export function renderImagePanelHtml(
           lastPayload = null;
           lastContour = null;
           lastVectors = null;
+          // Replies in flight were asked of the file this one replaces.
+          vectorSeq += 1;
+          overlaySeq += 1;
           clearVectorPairNote();
+          setVectorStatus('');
+          setOverlayStatus('');
+          setExportStatus('');
           clearOverlay();
           const canvas = document.getElementById('canvas');
           const ctx = canvas && canvas.getContext('2d');
@@ -2764,7 +2789,7 @@ export function renderImagePanelHtml(
           if (msg.seq !== overlaySeq) return; // stale: a newer request superseded it
           lastOverlayKey = null;
           clearOverlay();
-          setStatus('Overlay error: ' + (msg.error || 'projection failed'));
+          setOverlayStatus('Overlay error: ' + (msg.error || 'projection failed'));
         }
 
         // --- Overlay layer (coastlines / graticule) --------------------------
@@ -2961,6 +2986,7 @@ export function renderImagePanelHtml(
         // options. Geometry-only on the Rust side — never re-decodes.
         function requestOverlay() {
           if (!lastPayload) return;
+          setOverlayStatus('');
           lastOverlayKey = overlayKey();
           const state = overlayState();
           if (!OVERLAY_LAYERS.some((l) => state[l.flag])) {
@@ -3010,19 +3036,27 @@ export function renderImagePanelHtml(
         function requestVectors() {
           if (!lastPayload || !vectorsEnabled()) {
             lastVectors = null;
+            // A reply still in flight was asked for arrows no longer wanted.
+            vectorSeq += 1;
             // No arrows, so no key for them (#871), and nothing to say about
             // their pair (#1049).
             const scale = document.getElementById('vector-scale');
             if (scale) scale.textContent = '';
             clearVectorPairNote();
+            setVectorStatus('');
             drawOverlay();
             return;
           }
           const v = Number((document.getElementById('vector-field-v') || {}).value);
           if (!Number.isFinite(v)) {
+            vectorSeq += 1;
             clearVectorPairNote();
+            setVectorStatus('');
             return;
           }
+          // A new pair or spacing is a new question: the last answer's refusal
+          // is not about it. A refusal is re-reported when the reply lands.
+          setVectorStatus('');
           const spacing = Number((document.getElementById('vector-spacing') || {}).value);
           vectorSeq += 1;
           vscode.postMessage({
@@ -3039,7 +3073,8 @@ export function renderImagePanelHtml(
           // An answer to a request that has since been superseded is dropped.
           if (msg.seq !== vectorSeq) return;
           lastVectors = msg.error ? null : msg;
-          if (msg.error) setContourStatus('Vectors: ' + msg.error);
+          // Its own line: a success clears a refusal, and contours can't touch it.
+          setVectorStatus(msg.error ? 'Vectors: ' + msg.error : '');
           // What a full-length arrow stands for, in the field's own units: the
           // reference a reader needs to take a speed off the picture. The key
           // on the map draws it (drawVectorKey); the row says it in words.
@@ -3913,12 +3948,12 @@ export function renderImagePanelHtml(
         let exportedKey = null;
         function exportPng() {
           if (!lastPayload || !lastPayload.width) {
-            setStatus('Render the field before exporting a PNG.');
+            setExportStatus('Render the field before exporting a PNG.');
             return;
           }
           const raster = document.getElementById('canvas');
           const overlay = document.getElementById('overlay');
-          if (!raster) { setStatus('Export failed: no image.'); return; }
+          if (!raster) { setExportStatus('Export failed: no image.'); return; }
           const W = lastPayload.width, H = lastPayload.height;
           const margin = 14, titleH = SUB_LINE ? 46 : 30, gap = 16, cbW = 18, labelW = 64;
           // No colour bar for a field with no range (#871), so no room for one.
@@ -3941,7 +3976,7 @@ export function renderImagePanelHtml(
           const out = document.createElement('canvas');
           out.width = outW; out.height = outH;
           const g = out.getContext('2d');
-          if (!g) { setStatus('Export failed: no canvas context.'); return; }
+          if (!g) { setExportStatus('Export failed: no canvas context.'); return; }
           g.fillStyle = '#ffffff';
           g.fillRect(0, 0, outW, outH);
           // Title + subtitle.
@@ -4015,7 +4050,7 @@ export function renderImagePanelHtml(
           const dataUrl = out.toDataURL('image/png');
           document.body.dataset.exportedKey = exportedKey ? JSON.stringify(exportedKey) : '';
           vscode.postMessage({ type: 'exportPng', dataUrl: dataUrl, defaultName: DEFAULT_PNG_NAME });
-          setStatus('Exporting PNG…');
+          setExportStatus('Exporting PNG…');
         }
 
         // The host owns the save dialog and the result notification, so the
@@ -4025,11 +4060,11 @@ export function renderImagePanelHtml(
         function handleExportPngDone(msg) {
           const outcome = msg.outcome || {};
           if (outcome.status === 'saved') {
-            setStatus('Exported PNG to ' + outcome.path);
+            setExportStatus('Exported PNG to ' + outcome.path);
           } else if (outcome.status === 'cancelled') {
-            setStatus('PNG export cancelled.');
+            setExportStatus('PNG export cancelled.');
           } else {
-            setStatus('Export failed: ' + (outcome.reason || 'unknown error'));
+            setExportStatus('Export failed: ' + (outcome.reason || 'unknown error'));
           }
         }
 
@@ -4637,6 +4672,9 @@ export function renderImagePanelHtml(
       margin-bottom: 0.5rem;
     }
     .contour-status:empty { display: none; }
+    #export-status { font-size: 0.85rem; margin-bottom: 0.5rem; }
+    #export-status:empty { display: none; }
+    #export-status.failed { color: var(--vscode-editorWarning-foreground, #cca700); }
     .probe-readout {
       font-size: 0.85rem;
       font-variant-numeric: tabular-nums;
@@ -4992,6 +5030,9 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
   </div>
   <div id="status">Rendering…</div>
   <div id="contour-status" class="contour-status" aria-live="polite"></div>
+  <div id="vector-status" class="contour-status" aria-live="polite"></div>
+  <div id="overlay-status" class="contour-status" aria-live="polite"></div>
+  <div id="export-status" aria-live="polite"></div>
   <div id="probe" class="probe-readout" aria-live="polite"></div>
   <label class="plot-toggle" id="zonal-control"${hides("zonal") ? " hidden" : ""}><input type="checkbox" id="zonal-toggle"> Zonal average</label>
 ${slice ? `  <label class="plot-toggle" id="line-control"><input type="checkbox" id="line-toggle"> Line plot</label>\n` : ""}  <div id="line-panel" class="line-panel" hidden>
