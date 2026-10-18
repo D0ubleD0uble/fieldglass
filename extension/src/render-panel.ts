@@ -2833,8 +2833,21 @@ export function renderImagePanelHtml(
             return;
           }
           // A range the user typed that does not hold is shown at the fields
-          // it is about, in Rust's words.
-          showRangeRefusal(refusal, msg.rangeMessage);
+          // it is about, in Rust's words. An error that is not about the range
+          // (a Compare on another grid fails before the range is read) says
+          // nothing of it, so a refusal already standing is left up: the
+          // fields still hold what was refused. It clears on a drawn image or
+          // when the range fields or mode change (#1174).
+          if (refusal) showRangeRefusal(refusal, msg.rangeMessage);
+        }
+
+        // The range fields or mode were edited: what was refused was said of
+        // the old values, and the render this change asks for answers again.
+        function rangeEdited() {
+          if (rangeRefused) {
+            setExportStatus('');
+            showRangeRefusal(null);
+          }
         }
 
         // Show a refused colour range at the min/max fields (#1155): the
@@ -4163,6 +4176,12 @@ export function renderImagePanelHtml(
         let exportKeyLeftOff = false;
         function exportPng() {
           exportKeyLeftOff = false;
+          // The picture on screen was drawn on a range the fields no longer
+          // hold, so a PNG of it would not match them: say so instead (#1174).
+          if (rangeRefused) {
+            setExportStatus('Export failed: the colour range in the fields was refused; see the range fields.');
+            return;
+          }
           if (!lastPayload || !lastPayload.width) {
             setExportStatus('Render the field before exporting a PNG.');
             return;
@@ -4618,6 +4637,7 @@ export function renderImagePanelHtml(
               if (manual) manual.toggleAttribute('hidden', !isManual);
               // Switching auto↔manual changes whether log has a positive floor.
               updateLogAvailability();
+              rangeEdited();
               requestRender();
             });
           });
@@ -4625,7 +4645,7 @@ export function renderImagePanelHtml(
             const el = document.getElementById(id);
             // A manual minimum above 0 is what enables log on a field whose auto
             // range dips to/below zero, so re-check availability as it's typed.
-            if (el) el.addEventListener('change', () => { updateLogAvailability(); requestRender(); });
+            if (el) el.addEventListener('change', () => { updateLogAvailability(); rangeEdited(); requestRender(); });
           });
           document.querySelectorAll('input[name="bounds-mode"]').forEach((el) => {
             el.addEventListener('change', () => {
