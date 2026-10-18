@@ -2408,6 +2408,33 @@ export interface VectorOptions {
 }
 
 /**
+ * Whether the u and the v a caller drew arrows from are the two
+ * components of one vector, read from the parameter each names (#1049):
+ * `Session::vector_pairing`'s answer.
+ *
+ * Never a refusal. Arrows are drawn from any two fields on one grid in
+ * one frame, and this is what a host says beside them, so wind speed
+ * paired with wind direction is drawn and labelled rather than refused.
+ * The rule, and every table it covers, is
+ * `vector_pair`'s.
+ */
+export type VectorPairing =
+  /**
+   * u is the eastward (or along-x) component and v its northward (or
+   * along-y) partner.
+   */
+  | "recognised"
+  /**
+   * The two are a pair in the wrong order: u is the northward
+   * component and v the eastward one.
+   */
+  | "swapped"
+  /**
+   * The two are not the components of one vector.
+   */
+  | "not_a_pair";
+
+/**
  * A vertical axis, as CF §4.3 identifies one: by a `positive` attribute,
  * by `units` of pressure, or as `axis = "Z"` (#1043).
  *

@@ -133,6 +133,10 @@ pub mod spatial_index;
 #[cfg(any(feature = "testing", test))]
 pub mod testing;
 pub mod units;
+// Whether two fields are the two components of one vector, read from their
+// parameter names (#1049). Ungated and dependency free; the umbrella asks it
+// for every pair a host draws arrows from.
+pub mod vector_pair;
 #[cfg(feature = "render")]
 pub mod warp;
 

@@ -884,7 +884,8 @@ impl ProjectedOverlay {
 /// same canvas code draws them. `referenceSpeed` is what a legend puts beside a
 /// full-length reference arrow, in the components' own units; `null` when no
 /// arrow was drawn (#871). `referenceLength` is how long that arrow is drawn
-/// (#1046).
+/// (#1046). `pairing` says whether the two messages are a u/v pair at all
+/// (#1049), which the arrows are drawn without.
 // `use_nullable`, like `RenderedGrid`: the key is always present.
 #[napi(object, use_nullable = true)]
 pub struct ProjectedVectors {
@@ -898,15 +899,26 @@ pub struct ProjectedVectors {
     /// length a key draws beside `referenceSpeed` (#1046), measured off a drawn
     /// arrow. `null` when no arrow is drawn whole.
     pub reference_length: Option<f64>,
+    /// Whether u and v are the two components of one vector, by the parameter
+    /// each message names: `fieldglass::Session::vector_pairing`, in the wire
+    /// spelling of the API's own `VectorPairing` (#1049). The arrows are drawn
+    /// whichever it is; a host says so beside them when it is not
+    /// `"recognised"`.
+    #[napi(ts_type = "VectorPairing")]
+    pub pairing: String,
 }
 
 impl ProjectedVectors {
-    fn from_arrows(a: fieldglass::render::VectorArrows) -> Self {
+    fn from_arrows(
+        a: fieldglass::render::VectorArrows,
+        pairing: fieldglass::VectorPairing,
+    ) -> Self {
         Self {
             xy: a.runs.xy.into(),
             seg_lengths: a.runs.seg_lengths.into(),
             reference_speed: a.reference_speed,
             reference_length: a.reference_length,
+            pairing: pairing.as_str().to_string(),
         }
     }
 }
@@ -1535,6 +1547,9 @@ impl Grib1Handle {
     /// is a pair whose two messages state different component frames (#805).
     /// `gridRelative` overrides the frame the pair states; left out, the pair's
     /// own is used.
+    ///
+    /// Two messages that are not a u/v pair at all (wind speed with wind
+    /// direction) are drawn, and `pairing` says so (#1049).
     #[napi]
     pub fn project_vectors(
         &self,
@@ -1551,6 +1566,11 @@ impl Grib1Handle {
         let grid_relative =
             self.stream
                 .component_frame(message_index_u, message_index_v, grid_relative)?;
+        let pairing = self
+            .stream
+            .session
+            .vector_pairing(message_index_u, message_index_v)
+            .into_napi()?;
         project_vectors_impl(
             (&placed_u, u.as_ref()),
             (&placed_v, v.as_ref()),
@@ -1558,7 +1578,7 @@ impl Grib1Handle {
             spacing,
             grid_relative,
         )
-        .map(ProjectedVectors::from_arrows)
+        .map(|arrows| ProjectedVectors::from_arrows(arrows, pairing))
     }
 
     /// Read the field under a rendered pixel (#172): the point-probe readout.
@@ -1796,6 +1816,11 @@ impl Grib2Handle {
         let grid_relative =
             self.stream
                 .component_frame(message_index_u, message_index_v, grid_relative)?;
+        let pairing = self
+            .stream
+            .session
+            .vector_pairing(message_index_u, message_index_v)
+            .into_napi()?;
         project_vectors_impl(
             (&placed_u, u.as_ref()),
             (&placed_v, v.as_ref()),
@@ -1803,7 +1828,7 @@ impl Grib2Handle {
             spacing,
             grid_relative,
         )
-        .map(ProjectedVectors::from_arrows)
+        .map(|arrows| ProjectedVectors::from_arrows(arrows, pairing))
     }
 
     /// Contour isolines for this message, projected onto the render raster.
@@ -9263,6 +9288,79 @@ mod component_frame_tests {
             derived.xy.to_vec() != earth.xy.to_vec(),
             "the frame changes the arrows"
         );
+    }
+}
+
+/// `ProjectedVectors::pairing`: whether the two messages are a u/v pair, by
+/// the parameter each names, from `Session::vector_pairing` (#1049). Arrows
+/// are drawn whichever it is.
+#[cfg(test)]
+mod vector_pairing_tests {
+    use super::*;
+    use crate::netcdf_slice_tests::opts;
+
+    const GFS: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
+    const CMC: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib");
+
+    /// The GFS message as discipline-0 parameter `category`-`number`.
+    fn gfs_as(category: u8, number: u8) -> Vec<u8> {
+        let mut msg = GFS.to_vec();
+        let mut at = 16;
+        while msg[at + 4] != 4 {
+            at += u32::from_be_bytes(msg[at..at + 4].try_into().unwrap()) as usize;
+        }
+        msg[at + 9] = category;
+        msg[at + 10] = number;
+        msg
+    }
+
+    #[test]
+    fn arrows_report_whether_their_messages_pair() {
+        let h = Grib2Handle::from_vec([gfs_as(2, 2), gfs_as(2, 3)].concat()).expect("opens");
+        for (u, v, pairing) in [
+            (0, 1, "recognised"),
+            (1, 0, "swapped"),
+            (0, 0, "not_a_pair"),
+        ] {
+            let arrows = h
+                .project_vectors(u, v, opts("source"), Some(8), None)
+                .expect("draws");
+            assert_eq!(arrows.pairing, pairing, "#{u} with #{v}");
+            assert!(!arrows.xy.is_empty(), "#{u} with #{v} still draws");
+        }
+
+        // CMC's wind speed against itself, as `samples/0.6.0/cmc_pair.grib`.
+        let g1 = Grib1Handle::from_vec([CMC, CMC].concat()).expect("opens");
+        let arrows = g1
+            .project_vectors(0, 1, opts("source"), Some(8), None)
+            .expect("draws");
+        assert_eq!(arrows.pairing, "not_a_pair");
+        assert!(!arrows.xy.is_empty(), "a pair that is not one still draws");
+    }
+
+    /// Declared to TypeScript as the generated `VectorPairing` union, and
+    /// written in its spelling.
+    #[test]
+    fn pairing_is_declared_as_the_generated_union() {
+        let source = include_str!("lib.rs");
+        let body = &source[source
+            .find("pub struct ProjectedVectors {")
+            .expect("ProjectedVectors")..];
+        let field = body
+            .find("pub pairing: String,")
+            .expect("ProjectedVectors::pairing");
+        assert!(
+            body[..field]
+                .trim_end()
+                .ends_with(r#"#[napi(ts_type = "VectorPairing")]"#),
+            "ProjectedVectors::pairing must be declared as the generated VectorPairing type"
+        );
+        for pairing in fieldglass::VectorPairing::ALL {
+            let wire = serde_json::to_value(pairing).expect("serialises");
+            assert_eq!(wire, pairing.as_str(), "as_str is the serde tag");
+        }
     }
 }
 

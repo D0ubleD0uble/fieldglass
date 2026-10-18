@@ -48,7 +48,7 @@ use crate::api::Warped;
 // `Georef::from_slice`.
 use crate::api::{
     Addressing, DimensionInfo, Dtype, Field, FullDetail, Georef, LeftOutArray, Line, MessageInfo,
-    MessageProbe, Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
+    MessageProbe, Probe, Scan, SourceFormat, Stats, Values, VariableInfo, VectorPairing,
 };
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use crate::api::{GridSupport, Placement};
@@ -1590,6 +1590,69 @@ impl Session {
                 })
                 .collect(),
         }
+    }
+
+    /// Whether `u` and `v` are the two components of one vector, read from
+    /// the parameter each names (#1049): the note a host puts beside arrows
+    /// drawn from a pair that is not one.
+    ///
+    /// `u` and `v` index what [`Self::addressing`] says this container is
+    /// addressed by: messages for GRIB, compared by the parameter names
+    /// [`Self::message`] reports, and the [`Self::variables`] list for NetCDF
+    /// and Zarr, compared by each variable's CF `standard_name`. A variable
+    /// with no `standard_name` pairs with nothing. The rule, and every table
+    /// it covers, is [`fieldglass_core::vector_pair`]'s.
+    ///
+    /// Not a gate. `render::vector_polylines` draws a pair that is not one,
+    /// and the answer here is what a host says beside it. It is about the
+    /// parameters alone: two fields at different levels or times still pair.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoSuchMessage`] when either index is past the end of the
+    /// messages or the variables.
+    pub fn vector_pairing(&self, u: u32, v: u32) -> Result<VectorPairing, Error> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => self.message_vector_pairing(u, v),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => self.message_vector_pairing(u, v),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => {
+                let source = a.source.as_ref();
+                let vars = renderable_arrays(source.group());
+                let standard_name = |index: u32| {
+                    let var = vars.get(index as usize).ok_or(Error::NoSuchMessage {
+                        index,
+                        count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
+                    })?;
+                    Ok::<_, Error>(
+                        source
+                            .array(&var.name)
+                            .and_then(|d| attribute(&d.attributes, "standard_name"))
+                            .and_then(AttributeValue::text)
+                            .map(|s| s.trim().to_string()),
+                    )
+                };
+                let (u, v) = (standard_name(u)?, standard_name(v)?);
+                Ok(match (u, v) {
+                    (Some(u), Some(v)) => {
+                        fieldglass_core::vector_pair::pairing_of_standard_names(&u, &v).into()
+                    }
+                    _ => VectorPairing::NotAPair,
+                })
+            }
+        }
+    }
+
+    /// [`Self::vector_pairing`] for a message container.
+    #[cfg(any(feature = "grib1", feature = "grib2"))]
+    fn message_vector_pairing(&self, u: u32, v: u32) -> Result<VectorPairing, Error> {
+        let (u, v) = (self.message(u)?.parameter, self.message(v)?.parameter);
+        Ok(
+            fieldglass_core::vector_pair::pairing_of_parameter_names(u.as_deref(), v.as_deref())
+                .into(),
+        )
     }
 
     /// Decode one 2-D slice of a variable into the same [`Field`]

@@ -296,6 +296,18 @@ impl Handle {
         to_js(&info)
     }
 
+    /// Whether `u` and `v` are the two components of one vector, by the
+    /// parameter each names (#1049): `"recognised"`, `"swapped"` (a pair in
+    /// the wrong order) or `"not_a_pair"`. The indices are messages for GRIB
+    /// and the `variables()` list for NetCDF and Zarr, whose CF
+    /// `standard_name`s are compared. Not a refusal: a page drawing arrows from
+    /// a pair that is not one says so beside them.
+    #[wasm_bindgen(js_name = vectorPairing, unchecked_return_type = "VectorPairing")]
+    pub fn vector_pairing(&self, u: u32, v: u32) -> Result<JsValue, JsValue> {
+        let pairing = self.session.vector_pairing(u, v).map_err(throw)?;
+        to_js(&pairing)
+    }
+
     /// Decode one message. `options` is `{ dtype?: "auto" | "f32" | "f64" }`.
     ///
     /// The returned field is yours; free it when you are done.

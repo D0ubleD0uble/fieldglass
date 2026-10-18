@@ -1074,6 +1074,12 @@ export class FieldglassEditorProvider
           spacing,
           req.gridRelative === true,
         );
+        // Whether the two are a u/v pair is Rust's answer (#1049); the names
+        // are what the note says it about.
+        const named = (i: number) => {
+          const m = docHandle.message(i);
+          return m.abbreviation ?? m.parameter ?? `#${i}`;
+        };
         panel.webview.postMessage({
           type: "vectorResult",
           seq: req.seq,
@@ -1081,6 +1087,8 @@ export class FieldglassEditorProvider
           segLengths: arrows.segLengths,
           referenceSpeed: arrows.referenceSpeed,
           referenceLength: arrows.referenceLength,
+          pairing: arrows.pairing,
+          pairNames: [named(shown.index), named(req.messageIndexV)],
         });
       } catch (err) {
         panel.webview.postMessage({

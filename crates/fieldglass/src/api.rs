@@ -273,6 +273,28 @@ api_type! {
         Down,
     }
 
+    /// Whether the u and the v a caller drew arrows from are the two
+    /// components of one vector, read from the parameter each names (#1049):
+    /// [`crate::Session::vector_pairing`]'s answer.
+    ///
+    /// Never a refusal. Arrows are drawn from any two fields on one grid in
+    /// one frame, and this is what a host says beside them, so wind speed
+    /// paired with wind direction is drawn and labelled rather than refused.
+    /// The rule, and every table it covers, is
+    /// [`fieldglass_core::vector_pair`]'s.
+    #[derive(Copy, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum VectorPairing {
+        /// u is the eastward (or along-x) component and v its northward (or
+        /// along-y) partner.
+        Recognised,
+        /// The two are a pair in the wrong order: u is the northward
+        /// component and v the eastward one.
+        Swapped,
+        /// The two are not the components of one vector.
+        NotAPair,
+    }
+
     /// Which element type a caller wants back from a decode.
     #[derive(Default)]
     #[serde(rename_all = "snake_case")]
@@ -1321,6 +1343,33 @@ impl From<fieldglass_core::cf::VerticalAxis> for Vertical {
     }
 }
 
+impl From<fieldglass_core::vector_pair::VectorPairing> for VectorPairing {
+    fn from(p: fieldglass_core::vector_pair::VectorPairing) -> Self {
+        match p {
+            fieldglass_core::vector_pair::VectorPairing::Recognised => Self::Recognised,
+            fieldglass_core::vector_pair::VectorPairing::Swapped => Self::Swapped,
+            fieldglass_core::vector_pair::VectorPairing::NotAPair => Self::NotAPair,
+        }
+    }
+}
+
+impl VectorPairing {
+    /// Every value, in declaration order: the vocabulary the napi binding's
+    /// hand-declared field is held to, as [`Placement::ALL`] is.
+    pub const ALL: [Self; 3] = [Self::Recognised, Self::Swapped, Self::NotAPair];
+
+    /// The wire spelling, for a host that declares the field as a string
+    /// rather than serialising it: `"recognised"`, `"swapped"` or
+    /// `"not_a_pair"`. A test holds it to the serde tag.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Recognised => "recognised",
+            Self::Swapped => "swapped",
+            Self::NotAPair => "not_a_pair",
+        }
+    }
+}
+
 impl Placement {
     /// Every value, in declaration order: the vocabulary a host that declares
     /// the field by hand (the napi binding's TypeScript union) is held to.
@@ -1893,6 +1942,20 @@ mod tests {
         assert_eq!(wire.get("affine"), Some(&serde_json::Value::Null));
         for gone in ["axisUnits", "x0", "y0", "dx", "dy"] {
             assert!(wire.get(gone).is_none(), "{gone} is not a Georef key");
+        }
+    }
+
+    /// [`VectorPairing::as_str`] is the serde tag, for every variant.
+    #[test]
+    fn vector_pairing_as_str_is_the_serde_tag() {
+        for p in VectorPairing::ALL {
+            match p {
+                VectorPairing::Recognised | VectorPairing::Swapped | VectorPairing::NotAPair => {}
+            }
+            assert_eq!(
+                serde_json::to_value(p).expect("serialises"),
+                serde_json::Value::String(p.as_str().to_string()),
+            );
         }
     }
 

@@ -144,7 +144,7 @@ pub use api::{
     Addressing, Affine, AxisUnits, AxisValues, DimensionInfo, Dtype, Field, FullDetail, Georef,
     GridSupport, Identification, LeftOutArray, LeftOutCause, Line, MessageIdentity, MessageInfo,
     MessageProbe, Placement, Positive, Probe, Scan, SourceFormat, SpectralTruncation,
-    StatisticalStep, Stats, SurfaceCodes, Values, VariableInfo, Vertical,
+    StatisticalStep, Stats, SurfaceCodes, Values, VariableInfo, VectorPairing, Vertical,
 };
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};
