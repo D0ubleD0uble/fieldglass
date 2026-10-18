@@ -38,7 +38,29 @@ fieldglass = { path = "../fieldglass", version = "=0.6.0", default-features = fa
 js-sys = "0.3"
 serde = { workspace = true }
 serde-wasm-bindgen = "0.6"
+# The planner's query and options refuse a key they do not know, and
+# serde-wasm-bindgen cannot say so: it reads a struct by asking the object for
+# each field it expects, so an extra key is never seen. Crossing through a
+# `serde_json::Value` lists every key the object has. The planner links
+# serde_json already, so this adds no crate to the bundle, only the `Value`
+# conversion code: about 7 KB gzipped of the planner's total below.
+serde_json = { workspace = true, optional = true }
 wasm-bindgen = "0.2"
+
+[features]
+# The fetch planner (#1081): `.idx` or `.index` text in, byte ranges plus what
+# they should hold out, so an app keeps no sidecar parser of its own. `src/
+# fetchplan.rs` is the binding.
+#
+# **Off by default, pending the owner's choice of where it ships.** Measured
+# against binaryen 132, it adds about 93 KB gzipped (+15.0%) to this module,
+# and a module of its own would be about 226 KB gzipped, mostly the GRIB2
+# parameter tables this one already carries (107 KB without the table-backed
+# resolver). Whether every page that decodes pays the first or a page that
+# plans pays the second is a product decision, recorded on
+# #1081; until then the shipped bundle is unchanged and CI builds this feature
+# separately (`build.sh nodejs --features=fetchplan`) to run its test.
+fetchplan = ["fieldglass/fetchplan", "dep:serde_json"]
 
 [lints]
 workspace = true

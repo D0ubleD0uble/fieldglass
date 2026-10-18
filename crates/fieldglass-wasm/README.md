@@ -91,6 +91,54 @@ field.free();
 handle.free();
 ```
 
+### Planning a fetch
+
+The planner reads a GRIB sidecar and says which bytes of the object to fetch
+for a field, so an app needs no sidecar parser of its own. Nothing here does
+I/O; the fetches are yours.
+
+**Not in the published package yet.** It is built with
+`./build.sh web --features=fetchplan` (into `pkg/web-fetchplan`), and the
+default bundle leaves it out until where it ships is decided
+([#1081](https://github.com/D0ubleD0uble/fieldglass/issues/1081)): about 93 KB
+gzipped (+15%) inside this module, or about 226 KB as a module of its own,
+which has to carry its own copy of the GRIB2 parameter tables.
+
+```js
+import init, {
+  open, parseWgrib2Idx, httpRangeHeader, verifyEnvelope, candidates,
+} from './pkg/web-fetchplan/fieldglass_wasm.js';
+await init();
+
+// Which runs should have posted by now, newest first. A guess: fetch until one exists.
+const source = {
+  keyPattern: 'gfs.{yyyy}{mm}{dd}/{HH}/atmos/gfs.t{HH}z.pgrb2.0p25.f{fff}',
+  cycleHours: [0, 6, 12, 18], latencyMinutes: 240, maxCandidates: 4,
+};
+const [run] = candidates(source, { nowUnixSecs: Math.floor(Date.now() / 1000) });
+
+const key = run.key;
+const idx = parseWgrib2Idx(key, await (await fetch(`${bucket}/${key}.idx`)).text());
+
+// By the sidecar's own words, or by WMO codes and a level. Every match comes back.
+const items = idx.select({ abbreviation: 'TMP', levelText: '2 m above ground' });
+// idx.select({ parameter: { discipline: 0, category: 0, number: 0 },
+//              level: { surface: 'height_above_ground', value: 2, value2: null } });
+
+const item = items[0];
+const header = httpRangeHeader(item.range);          // 'bytes=…' or null for the whole object
+const response = await fetch(`${bucket}/${key}`, header ? { headers: { Range: header } } : {});
+const bytes = new Uint8Array(await response.arrayBuffer());
+
+verifyEnvelope(item, bytes);   // throws short_read (retry) or decode (stale sidecar)
+const handle = open(bytes);
+idx.free();
+```
+
+`parseEcmwfIndex` reads an ECMWF `.index` the same way. Its parameters are MARS
+short names (`2t`), which no table here resolves to WMO codes, so select those
+by `abbreviation`.
+
 ### Which way up a raster comes out
 
 `render(field, options, flipY)` composes `flipY` with the message's own scan
@@ -129,9 +177,11 @@ Treat the Worker as disposable and start another.
 
 Every failure throws a JS `Error` with a stable `code` property —
 `unsupported_format`, `decode`, `no_such_message`, `unsupported`,
-`wrong_addressing`, `invalid_option`. Branch on `code`; the `message` is prose
-and may be reworded. (`short_read` is a code too, but only a ranged source
-produces it, and this binding opens from a buffer.)
+`wrong_addressing`, `invalid_option`, `short_read`. Branch on `code`; the
+`message` is prose and may be reworded. `short_read` comes only from the
+planner's `verifyEnvelope`, for a fetch that returned fewer bytes than the plan
+asked for or the message declares. A sidecar that does not parse is `decode`,
+and a source entry the planner cannot use is `invalid_option`.
 
 ## Values first, pixels second
 
@@ -418,6 +468,12 @@ decodes a committed fixture in a Worker, colours it on the CPU through
 `render()` and on the GPU through the exported shader, and compares a WebGL
 `readPixels` of the second against the first. The acceptance rule is one
 lookup-table entry at a bin edge and nothing else.
+
+**`tests/node/fetchplan.mjs`** — the planner, against a `--features=fetchplan`
+build (`--pkg crates/fieldglass-wasm/pkg/nodejs-fetchplan`). It plans one GFS
+field from a committed `.idx`, checks the `Range` header and the envelope of the
+committed bytes that range fetched, and replays every answer the Rust planner
+recorded in `crates/fieldglass/tests/fetch_plan_wire.json`.
 
 **`tests/node/parity.mjs`** — the cross-target check. `node
 crates/fieldglass-wasm/tests/node/parity.mjs` decodes the real sample files with
