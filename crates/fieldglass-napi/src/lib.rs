@@ -994,6 +994,7 @@ impl std::fmt::Debug for ProjectedVectors {
             .field("seg_lengths.len", &self.seg_lengths.len())
             .field("reference_speed", &self.reference_speed)
             .field("reference_length", &self.reference_length)
+            .field("pairing", &self.pairing)
             .finish()
     }
 }

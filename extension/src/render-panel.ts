@@ -2725,6 +2725,7 @@ export function renderImagePanelHtml(
           lastPayload = null;
           lastContour = null;
           lastVectors = null;
+          clearVectorPairNote();
           clearOverlay();
           const canvas = document.getElementById('canvas');
           const ctx = canvas && canvas.getContext('2d');
@@ -2996,6 +2997,13 @@ export function renderImagePanelHtml(
             !!v && v.value !== '';
         }
 
+        // The Vectors row's note on the pair (#1049) belongs to the arrows it
+        // was said of, so it goes whenever they do.
+        function clearVectorPairNote() {
+          const pairNote = document.getElementById('vector-pair-note');
+          if (pairNote) pairNote.textContent = '';
+        }
+
         // Ask the provider for the arrows of this message paired with the chosen
         // V component, projected onto the current raster. Re-fetched whenever the
         // raster geometry moves, like the contours.
@@ -3006,13 +3014,15 @@ export function renderImagePanelHtml(
             // their pair (#1049).
             const scale = document.getElementById('vector-scale');
             if (scale) scale.textContent = '';
-            const pairNote = document.getElementById('vector-pair-note');
-            if (pairNote) pairNote.textContent = '';
+            clearVectorPairNote();
             drawOverlay();
             return;
           }
           const v = Number((document.getElementById('vector-field-v') || {}).value);
-          if (!Number.isFinite(v)) return;
+          if (!Number.isFinite(v)) {
+            clearVectorPairNote();
+            return;
+          }
           const spacing = Number((document.getElementById('vector-spacing') || {}).value);
           vectorSeq += 1;
           vscode.postMessage({
