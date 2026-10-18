@@ -64,6 +64,8 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 
 ### Fixed
 
+- **A level in the dimensionless unit `1` no longer shows a stray `1`.** A sigma level read `0.995 1` in the slice steppers, the Animate label, the subtitle and the exported PNG name. Units of `1` are now left out there, and from the probe readout, the wind arrow key, the panel heading and the plot captions.
+
 - **A click while the panel redraws reads the image on screen.** After ticking Flip Y axis or picking another projection, the old image stays up until the new one arrives. A click in that time read the cell under the same point of the new image, and a cross-section's axis labels could turn over before the image did. The readout and the axis labels now follow the image shown: which way up its rows are, and the projection and extent of a map. Zoom and pan follow the map's projection and extent. Closes #1114.
 
 - **NetCDF-4 and HDF5 files that begin with a userblock open.** HDF5 lets a file start with a block of arbitrary bytes, 512 bytes or a larger power of two, with the HDF5 data after it; h5py writes one with `userblock_size`, and some tools put a text header there. Such a file failed with "invalid magic bytes", in the extension and the library alike. It now opens and reads exactly as the same file without a userblock. In Rust, `fieldglass_core::detect_from_bytes` finds the signature up to `DETECT_WINDOW` bytes in, and the low-level `fieldglass_netcdf::hdf5` functions take the file as `Hdf5Probe::addressed` returns it. Closes #936.
