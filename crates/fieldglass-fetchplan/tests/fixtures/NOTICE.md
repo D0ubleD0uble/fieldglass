@@ -14,9 +14,11 @@ discovered by reading these files, not by reading a specification.
 No credentials are needed for any of these endpoints. A sidecar carries offsets
 and labels, not data.
 
-**One GRIB message**, `gfs_0p25_rh_2mb.grib2`, is the bytes one record of
-`gfs_0p25.idx` points at, so a plan can be checked against what it fetches. Its
-section below says how it was taken.
+**Three GRIB messages** are the bytes a record of a committed sidecar points
+at, so a plan can be checked against what it fetches: `gfs_0p25_rh_2mb.grib2`
+from `gfs_0p25.idx`, and `ecmwf_ifs_0p25_r_50hpa.grib2` and
+`ecmwf_ifs_0p25_mx2t3.grib2` from `ecmwf_ifs_0p25_oper.index`. Their sections
+below say how each was taken.
 
 **The chunk-addressing fixtures in [`zarr/`](zarr/)** are generated, and the
 section at the end of this file says by what and from where.
@@ -105,6 +107,33 @@ the MARS key vocabulary (`class`, `stream`, `type`, `expver`, `domain`,
 ECMWF open data is published under the Creative Commons Attribution 4.0
 International licence (CC BY 4.0); see
 <https://www.ecmwf.int/en/forecasts/datasets/open-data>. Attribution: ECMWF.
+
+### `ecmwf_ifs_0p25_r_50hpa.grib2`, `ecmwf_ifs_0p25_mx2t3.grib2`
+
+Two records of `ecmwf_ifs_0p25_oper.index`, fetched on 2026-10-17 from the
+object that index describes. `data.ecmwf.int` keeps only the last few days, so
+both came from ECMWF's open-data mirror on AWS, which keeps the archive:
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/ifs/0p25/oper/20260904000000-0h-oper-fc.grib2`.
+The mirror's copy of the index
+(`…/20260904000000-0h-oper-fc.index`) was fetched the same day and is
+byte-identical to the committed one, so the offsets are the ones these
+messages sit at. Each is the record's `_offset` for its `_length`, unmodified:
+
+| File | Record | `Range` | Bytes | SHA-256 |
+|---|---|---|---|---|
+| `ecmwf_ifs_0p25_r_50hpa.grib2` | line 97, `r`, `pl` `50` | `bytes=68405631-68487398` | 81,768 | `db174329abf6972c8240f6518c28888967778943b37dd4a46c94ac491659eeb6` |
+| `ecmwf_ifs_0p25_mx2t3.grib2` | line 11, `mx2t3`, `sfc` | `bytes=5038129-5038352` | 224 | `c3d28075fff9505186bae947e95366c461a8308dcd23098f445669935db46597` |
+
+eccodes 2.34.1 (`grib_ls`) reads the first as `r` on `isobaricInhPa` level 50
+(first fixed surface 100, scaled value 5000 Pa), minimum 0.462906, maximum
+131.463, and the second as `mx2t3` on `heightAboveGround` level 2 (surface 103),
+step range 0-3, a constant field of 0. Both are CCSDS-packed (5.42), 2026-09-04
+00Z.
+
+They are the ECMWF half of `crates/fieldglass/tests/verify_message_real_pairs.rs`
+(#1093). The isobaric one is the smallest `pl` record in the index; the other
+is a single-level field that is not on the ground, which is what an ECMWF `sfc`
+means and what a reading of `sfc` as WMO surface type 1 refuses.
 
 ## Zarr and kerchunk fixtures (`zarr/`, generated)
 

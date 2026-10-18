@@ -283,6 +283,31 @@
       },
       "type": "object"
     },
+    "Dialect": {
+      "description": "Which manifest dialect a parse failure, or a plan item's claims, came from.\n\nCarried on the error rather than baked into each message so the two dialects\nshare one variant per shape of failure. Carried on an\n[`Expect`](crate::Expect) because what a sidecar's words mean depends on\nwhich sidecar wrote them (#1093): `sfc` on an ECMWF `.index` is any\nsingle-level field, 2-metre temperature included, while `surface` on a\nwgrib2 `.idx` is the ground.",
+      "oneOf": [
+        {
+          "const": "wgrib2_idx",
+          "description": "The wgrib2 `.idx` sidecar: colon-separated text, one line per record.",
+          "type": "string"
+        },
+        {
+          "const": "ecmwf_index",
+          "description": "The ECMWF `.index` sidecar: JSON lines, one object per record.",
+          "type": "string"
+        },
+        {
+          "const": "kerchunk",
+          "description": "A kerchunk reference document: one JSON object mapping a store key to\ndata or to a byte range of some object.",
+          "type": "string"
+        },
+        {
+          "const": "zarr_metadata",
+          "description": "A Zarr array metadata document — a v2 `.zarray` or a v3 `zarr.json` —\nread for the chunk grid and the key spelling, and for nothing else.",
+          "type": "string"
+        }
+      ]
+    },
     "DimensionInfo": {
       "description": "One dimension of an array dataset, as the file names it.\n\nShared: two variables that name the same dimension are on the same axis,\nwhich is what lets a host offer one time slider for a whole file rather\nthan one per variable.",
       "properties": {
@@ -494,6 +519,17 @@
             "null"
           ]
         },
+        "dialect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Dialect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Which sidecar dialect made these claims, and so whose vocabulary\n[`abbreviation`](Self::abbreviation) and [`level`](Self::level) are in.\n\nChecking a decoded message against the claims needs it (#1093). An\nECMWF `.index` names its parameters in MARS short names (`2t`), which a\ndecoder reading WMO tables names otherwise (`TMP`), and its `sfc` is\nevery single-level field, not the ground: 2-metre temperature is `sfc`.\n`None` for an expectation built by hand, whose words are read as a\nwgrib2 `.idx` would mean them, the vocabulary the builders document."
+        },
         "forecast": {
           "description": "The forecast field as the manifest renders it: `anl`, `6 hour fcst`,\n`0-1 hour acc fcst`, or an ECMWF `step` in hours.",
           "type": [
@@ -562,7 +598,8 @@
         "forecast",
         "referenceTime",
         "totalLength",
-        "qualifiers"
+        "qualifiers",
+        "dialect"
       ],
       "type": "object"
     },
@@ -947,7 +984,7 @@
     },
     "LevelSpec": {
       "additionalProperties": false,
-      "description": "A level, parsed as far as the grammar goes.\n\n`value` and `value2` are in the surface's own unit — hectopascals for\n[`Surface::Isobaric`], metres for the height and depth surfaces, kelvin for\n[`Surface::PotentialTemperature`]. A layer between two bounds fills both, in\nthe order the manifest wrote them (`30-0 mb above ground` is\n`value = 30`, `value2 = 0`).\n\nAn unknown key is refused when one is read, for the reason [`Query`](crate::Query)\nrefuses one: a level inside a query with a misspelt `valeu` would otherwise\nread as \"no value stated\", which matches every level on the surface.",
+      "description": "A level, parsed as far as the grammar goes.\n\n`value` and `value2` are in the surface's own unit — hectopascals for\n[`Surface::Isobaric`], metres for the height and depth surfaces, kelvin for\n[`Surface::PotentialTemperature`] and [`Surface::Isothermal`]. A layer\nbetween two bounds fills both, in the order the manifest wrote them\n(`30-0 mb above ground` is `value = 30`, `value2 = 0`).\n\nAn unknown key is refused when one is read, for the reason [`Query`](crate::Query)\nrefuses one: a level inside a query with a misspelt `valeu` would otherwise\nread as \"no value stated\", which matches every level on the surface.",
       "properties": {
         "surface": {
           "$ref": "#/$defs/Surface",
@@ -2344,12 +2381,17 @@
         },
         {
           "const": "potential_temperature",
-          "description": "An isentropic (potential-temperature) level, in kelvin (ECMWF `pt`).",
+          "description": "An isentropic (potential-temperature) level, in kelvin\n(`320 K isentropic level`, ECMWF `pt`; WMO Code Table 4.5 type 107).",
           "type": "string"
         },
         {
           "const": "isotherm",
-          "description": "An isotherm, in degrees Celsius (`0C isotherm`).",
+          "description": "The 0 °C isotherm, valued in degrees Celsius (`0C isotherm`; Code\nTable 4.5 type 4, which states no value of its own).",
+          "type": "string"
+        },
+        {
+          "const": "isothermal",
+          "description": "An isothermal level, valued in kelvin (`263 K level`; Code Table 4.5\ntype 20). Not [`Self::PotentialTemperature`]: wgrib2 writes that one\n`K isentropic level`, and HRRR publishes reflectivity at 263 K, which is\na temperature and not a potential temperature (#1093).",
           "type": "string"
         },
         {

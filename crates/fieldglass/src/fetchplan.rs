@@ -99,7 +99,7 @@ pub use fieldglass_fetchplan::{
     ArrayError, ArrayMetadata, ChunkGrid, ChunkKeyEncoding, KerchunkRefs,
 };
 
-use crate::api::MessageInfo;
+use crate::api::{MessageIdentity, MessageInfo, SurfaceCodes};
 use crate::error::Error;
 
 /// When to ask [`candidates`] about, as a host sends it.
@@ -308,33 +308,84 @@ impl ParameterResolver for TableResolver {
 /// nothing in it passes, which is correct rather than lax — it is what a
 /// caller gets from a manifest that stated nothing to check.
 ///
-/// Comparison is case-insensitive and ignores surrounding whitespace, and
-/// nothing else: the sidecar's `2 m above ground` and the decoder's
-/// `2 m above ground` are the same string because both come from the same WMO
-/// surface table, and normalising harder would let a real disagreement through.
+/// # What is compared with what
+///
+/// A sidecar's words and a message's codes are compared as **values**, never
+/// as two strings (#1093). A wgrib2 `.idx` writes `2 mb` for a message whose
+/// §4 states isobaric surface 200 Pa, and comparing either rendering with the
+/// other refuses every real record.
+///
+/// * **Parameter codes**, where the line states them (wgrib2's
+///   `var discipline=… parmcat=… parm=…` fallback name): equal to the GRIB2
+///   message's discipline, category and number.
+/// * **Abbreviation**, on a wgrib2 `.idx`: equal, ignoring case and
+///   surrounding whitespace, to the short name the message's own codes have in
+///   its centre's table — the forward lookup, so two codes sharing a name both
+///   pass.
+/// * **Level**: the line's [`LevelSpec`] against one built from the message's
+///   fixed surfaces (GRIB2 Code Table 4.5, GRIB1 Table 3), in the line's units
+///   — hectopascals for pressure, so `2 mb` and 200 Pa are the same level. A
+///   value matches to six significant figures, the precision wgrib2 prints
+///   with. A level the grammar kept as [`Surface::Named`] was not understood
+///   and is not compared; a level it did understand and the message is not on
+///   is refused, including a message on a surface this check does not model.
+///   An ECMWF `sfc` is every single-level field (2-metre temperature is
+///   `sfc`), so it is refused only for a message on a surface ECMWF lists
+///   levels of (`pl`, `ml`, `pt`, `pv`, `sol`).
+/// * **Reference time**: the ten digits `YYYYMMDDHH` both spellings carry.
+///
+/// **Two records get no parameter check at all.** An ECMWF `.index` line's
+/// `param` is a MARS short name (`2t`), no table here maps those to WMO codes,
+/// and the line states no codes of its own. And a wgrib2 line whose message's
+/// codes have no short name in this build's tables has nothing to compare its
+/// name with: resolving the name to codes instead would refuse a correct
+/// record whenever the name also belongs to other codes (`REFD` is both
+/// 0.16.4 and NCEP's 0.16.195). For both, only the level and the reference
+/// time are compared, so a stale sidecar pointing at another field on the same
+/// level passes.
+///
+/// The forecast step and an ensemble qualifier (`ENS=+1`) are not compared.
 pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatch> {
-    if let Some(promised) = expect.abbreviation.as_deref()
+    let ecmwf = expect.dialect == Some(Dialect::EcmwfIndex);
+
+    if let Some(promised) = expect.parameter
+        && let Some(actual) = grib2_parameter(&info.identity)
+        && promised != actual
+    {
+        return Err(Mismatch::Field {
+            field: "parameter",
+            expected: codes(promised),
+            actual: codes(actual),
+        });
+    }
+
+    if !ecmwf
+        && let Some(promised) = expect.abbreviation.as_deref()
         // A numeric fallback name is not an abbreviation the decoder can match;
-        // the `parameter` check below is the one that applies to it.
+        // the `parameter` check above is the one that applies to it.
         && !promised.starts_with("var ")
-        && !equivalent(promised, info.abbreviation.as_deref().unwrap_or(""))
+        // No short name means this build's tables do not name the message's
+        // codes, so there is nothing to compare with (see above).
+        && let Some(actual) = info.abbreviation.as_deref()
+        && !equivalent(promised, actual)
     {
         return Err(Mismatch::Field {
             field: "abbreviation",
             expected: promised.to_string(),
-            // A message with no short name is reported as the empty string it
-            // compared as: `actual` is prose for a person, not wire data.
-            actual: info.abbreviation.clone().unwrap_or_default(),
+            actual: actual.to_string(),
         });
     }
 
-    if let Some(promised) = expect.level.as_deref()
-        && !equivalent(promised, info.level.as_deref().unwrap_or(""))
+    if let Some(promised) = promised_level(expect, ecmwf)
+        && !level_holds(&promised, ecmwf, &info.identity)
     {
         return Err(Mismatch::Field {
             field: "level",
-            expected: promised.to_string(),
-            actual: info.level.clone().unwrap_or_default(),
+            expected: expect
+                .level
+                .clone()
+                .unwrap_or_else(|| format!("{promised:?}")),
+            actual: message_level_prose(info),
         });
     }
 
@@ -365,6 +416,262 @@ fn equivalent(a: &str, b: &str) -> bool {
 fn ten_digit_reference_time(rfc3339: &str) -> Option<String> {
     let digits: String = rfc3339.chars().filter(char::is_ascii_digit).collect();
     (digits.len() >= 10).then(|| digits[..10].to_string())
+}
+
+/// `discipline.category.number`, for a mismatch message.
+fn codes(p: ParameterId) -> String {
+    format!("{}.{}.{}", p.discipline, p.category, p.number)
+}
+
+/// A GRIB2 message's parameter codes. `None` for GRIB1, whose codes are not
+/// GRIB2's, and for a product template the reader does not parse.
+fn grib2_parameter(identity: &MessageIdentity) -> Option<ParameterId> {
+    match identity {
+        MessageIdentity::Grib2 {
+            discipline,
+            parameter_category: Some(category),
+            parameter_number: Some(number),
+            ..
+        } => Some(ParameterId {
+            discipline: *discipline,
+            category: *category,
+            number: *number,
+        }),
+        _ => None,
+    }
+}
+
+/// The level the line promised, parsed.
+///
+/// Both parsers fill [`Expect::level_spec`]; an expectation that came over
+/// the wire with only the text is parsed here, by its dialect's grammar, so
+/// the text is never compared as a string.
+fn promised_level(expect: &Expect, ecmwf: bool) -> Option<LevelSpec> {
+    if let Some(spec) = &expect.level_spec {
+        return Some(spec.clone());
+    }
+    let text = expect.level.as_deref()?;
+    Some(if ecmwf {
+        // `to_item` writes `levtype` alone or `levtype levelist`.
+        match text.trim().split_once(' ') {
+            Some((levtype, levelist)) => parse_ecmwf_level(levtype, Some(levelist)),
+            None => parse_ecmwf_level(text, None),
+        }
+    } else {
+        parse_ncep_level(text)
+    })
+}
+
+/// Whether the message is on the level `promised` names.
+fn level_holds(promised: &LevelSpec, ecmwf: bool, identity: &MessageIdentity) -> bool {
+    match &promised.surface {
+        // Kept verbatim because the grammar did not understand it, so there is
+        // no surface to compare. Comparing the text with the message's would
+        // refuse every such record, which is the defect this replaces.
+        Surface::Named(_) => true,
+        Surface::Surface if ecmwf => !on_an_ecmwf_level_list(identity),
+        _ => message_level(identity).is_some_and(|have| same_level(promised, &have)),
+    }
+}
+
+/// How far apart, relative to the larger, a sidecar's value and the message's
+/// may be and still be one value.
+///
+/// wgrib2 prints a level with `%g`, six significant figures, so the text is
+/// within half a unit in the sixth figure of the value: at most 5e-6 of it.
+/// It rounds an `f32`, which adds up to `f32::EPSILON` of the value more.
+/// Anything wider would let a different level through; `1.00001` and `1` are
+/// two levels at this precision.
+const PRINTED_PRECISION: f64 = 5e-6 + f32::EPSILON as f64;
+
+/// Whether `have`, the message's level, is the level `want` names.
+///
+/// [`LevelSpec::matches`] is the query rule and would accept a layer for a
+/// single level; here a stated single level must be a single level.
+fn same_level(want: &LevelSpec, have: &LevelSpec) -> bool {
+    if want.surface != have.surface {
+        return false;
+    }
+    // A surface the line names without a value (`surface`, `tropopause`)
+    // says nothing about one.
+    if want.value.is_none() {
+        return true;
+    }
+    let close = |w: Option<f64>, h: Option<f64>| match (w, h) {
+        (None, None) => true,
+        (Some(w), Some(h)) => w == h || (w - h).abs() <= PRINTED_PRECISION * w.abs().max(h.abs()),
+        _ => false,
+    };
+    close(want.value, have.value) && close(want.value2, have.value2)
+}
+
+/// Whether the message sits on a surface an ECMWF `.index` gives a `levtype`
+/// with a `levelist` (`pl`, `ml`, `pt`, `pv`, `sol`), which is what `sfc` is
+/// not.
+fn on_an_ecmwf_level_list(identity: &MessageIdentity) -> bool {
+    match identity {
+        MessageIdentity::Grib2 {
+            first_surface: Some(first),
+            ..
+        } => matches!(first.surface_type, 100 | 105 | 107 | 109 | 151),
+        // Table 3: isobaric, hybrid, isentropic, potential vorticity. Not the
+        // depth layer 112: ECMWF's GRIB1 soil fields (`swvl1`, `stl1`) are
+        // `sfc` on it.
+        MessageIdentity::Grib1 { level_type, .. } => {
+            matches!(level_type, 100 | 109 | 113 | 117)
+        }
+        _ => false,
+    }
+}
+
+/// The level, rendered for a mismatch message: the decoder's own value and
+/// surface type.
+fn message_level_prose(info: &MessageInfo) -> String {
+    match (info.level.as_deref(), info.level_type.as_deref()) {
+        (Some(level), Some(kind)) if level != kind => format!("{level} ({kind})"),
+        (Some(level), _) => level.to_string(),
+        (None, Some(kind)) => kind.to_string(),
+        (None, None) => String::new(),
+    }
+}
+
+/// How a surface's value becomes the sidecar's.
+#[derive(Clone, Copy)]
+enum Value {
+    /// The surface takes no value in the sidecar's wording.
+    None,
+    /// The wording states one value whatever the message codes (`0C
+    /// isotherm` is GRIB2 type 4, which codes none).
+    Fixed(f64),
+    /// The coded value divided by `10^shift`: 2 for pascals to hectopascals,
+    /// 0 for a value already in the sidecar's unit.
+    Shift(i32),
+}
+
+/// A GRIB2 fixed surface type (Code Table 4.5) as a [`Surface`], with how its
+/// value reads. `None` for a type this check does not model.
+///
+/// The pairing is wgrib2's own: the wording `src/Level.c` prints for each
+/// type is the wording [`parse_ncep_level`] reads back. 200, 215 and 220 are
+/// NCEP's local entries, which wgrib2 names for an NCEP message only.
+fn grib2_surface(code: u8) -> Option<(Surface, Value)> {
+    Some(match code {
+        1 => (Surface::Surface, Value::None),
+        2 => (Surface::CloudBase, Value::None),
+        3 => (Surface::CloudTop, Value::None),
+        4 => (Surface::Isotherm, Value::Fixed(0.0)),
+        6 => (Surface::MaxWind, Value::None),
+        7 => (Surface::Tropopause, Value::None),
+        8 => (Surface::TopOfAtmosphere, Value::None),
+        10 | 200 => (Surface::EntireAtmosphere, Value::None),
+        20 => (Surface::Isothermal, Value::Shift(0)),
+        100 => (Surface::Isobaric, Value::Shift(2)),
+        101 => (Surface::MeanSeaLevel, Value::None),
+        102 => (Surface::HeightAboveMeanSeaLevel, Value::Shift(0)),
+        103 => (Surface::HeightAboveGround, Value::Shift(0)),
+        104 => (Surface::SigmaLevel, Value::Shift(0)),
+        105 => (Surface::HybridLevel, Value::Shift(0)),
+        106 => (Surface::DepthBelowLand, Value::Shift(0)),
+        107 => (Surface::PotentialTemperature, Value::Shift(0)),
+        108 => (Surface::PressureAboveGround, Value::Shift(2)),
+        215 => (Surface::CloudCeiling, Value::None),
+        220 => (Surface::PlanetaryBoundaryLayer, Value::None),
+        _ => return None,
+    })
+}
+
+/// `scaled · 10^-(scale + shift)`, the one division that rounds correctly, so
+/// `995` at scale 3 is the `0.995` a sidecar's text parses to.
+fn scaled(value: Option<i64>, scale: Option<i8>, shift: i32) -> Option<f64> {
+    let exponent = i32::from(scale?) + shift;
+    let value = value? as f64;
+    Some(if exponent >= 0 {
+        value / 10f64.powi(exponent)
+    } else {
+        value * 10f64.powi(-exponent)
+    })
+}
+
+/// The message's level, as a [`LevelSpec`] in the units a sidecar writes.
+/// `None` when the message has no surface, or one this check does not model.
+fn message_level(identity: &MessageIdentity) -> Option<LevelSpec> {
+    match identity {
+        MessageIdentity::Grib2 {
+            first_surface: Some(first),
+            second_surface,
+            ..
+        } => {
+            let (surface, how) = grib2_surface(first.surface_type)?;
+            let read = |s: &SurfaceCodes| match how {
+                Value::None => None,
+                Value::Fixed(v) => Some(v),
+                Value::Shift(shift) => scaled(s.scaled_value, s.scale_factor, shift),
+            };
+            let value2 = match second_surface {
+                None => None,
+                Some(second) if second.surface_type == 255 => None,
+                // A layer between two of the same surface, `30-0 mb above
+                // ground`. Two different surfaces are a layer wgrib2 writes
+                // as two levels joined by ` - `, which the grammar keeps
+                // named, so a modelled level never names one.
+                // A surface that takes no value names no layer either, so a
+                // second surface of the same type adds nothing to compare:
+                // `surface` is the ground whatever §4 put beside it.
+                Some(second)
+                    if second.surface_type == first.surface_type
+                        && !matches!(how, Value::Shift(_)) =>
+                {
+                    None
+                }
+                Some(second) if second.surface_type == first.surface_type => Some(read(second)?),
+                Some(_) => return None,
+            };
+            let mut level = LevelSpec::named(surface);
+            level.value = read(first);
+            level.value2 = value2;
+            Some(level)
+        }
+        MessageIdentity::Grib1 {
+            level_type,
+            level_octets: [a, b],
+            ..
+        } => grib1_level(*level_type, *a, *b),
+        _ => None,
+    }
+}
+
+/// A GRIB1 level (Table 3, PDS octets 10–12) in a sidecar's units.
+fn grib1_level(code: u8, a: u8, b: u8) -> Option<LevelSpec> {
+    let both = f64::from(u16::from_be_bytes([a, b]));
+    let (a, b) = (f64::from(a), f64::from(b));
+    Some(match code {
+        1 => LevelSpec::named(Surface::Surface),
+        2 => LevelSpec::named(Surface::CloudBase),
+        3 => LevelSpec::named(Surface::CloudTop),
+        4 => LevelSpec::at(Surface::Isotherm, 0.0),
+        6 => LevelSpec::named(Surface::MaxWind),
+        7 => LevelSpec::named(Surface::Tropopause),
+        8 => LevelSpec::named(Surface::TopOfAtmosphere),
+        100 => LevelSpec::at(Surface::Isobaric, both),
+        // Top and bottom in kilopascals.
+        101 => LevelSpec::between(Surface::Isobaric, a * 10.0, b * 10.0),
+        102 => LevelSpec::named(Surface::MeanSeaLevel),
+        103 => LevelSpec::at(Surface::HeightAboveMeanSeaLevel, both),
+        105 => LevelSpec::at(Surface::HeightAboveGround, both),
+        // Top and bottom in hectometres.
+        106 => LevelSpec::between(Surface::HeightAboveGround, a * 100.0, b * 100.0),
+        107 => LevelSpec::at(Surface::SigmaLevel, both / 10_000.0),
+        108 => LevelSpec::between(Surface::SigmaLevel, a / 100.0, b / 100.0),
+        109 => LevelSpec::at(Surface::HybridLevel, both),
+        110 => LevelSpec::between(Surface::HybridLevel, a, b),
+        // Centimetres.
+        111 => LevelSpec::at(Surface::DepthBelowLand, both / 100.0),
+        112 => LevelSpec::between(Surface::DepthBelowLand, a / 100.0, b / 100.0),
+        113 => LevelSpec::at(Surface::PotentialTemperature, both),
+        116 => LevelSpec::between(Surface::PressureAboveGround, a, b),
+        200 => LevelSpec::named(Surface::EntireAtmosphere),
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -459,15 +766,31 @@ mod tests {
         assert_eq!(TableResolver::ncep().resolve("NOTAPARAMETER", ""), None);
     }
 
-    fn info(abbrev: &str, level: &str) -> MessageInfo {
+    /// One GRIB2 surface as §4 codes it: type, scale factor, scaled value.
+    type Codes = (u8, i8, i64);
+
+    fn surface((surface_type, scale, value): Codes) -> crate::api::SurfaceCodes {
+        crate::api::SurfaceCodes {
+            surface_type,
+            scale_factor: Some(scale),
+            scaled_value: Some(value),
+        }
+    }
+
+    /// A GRIB2 message with `abbrev` for its short name, on `first` (and on
+    /// `second` for a layer). The parameter codes are temperature's whatever
+    /// the name, which only the parameter-code test reads.
+    fn info_on(abbrev: &str, first: Codes, second: Option<Codes>) -> MessageInfo {
         MessageInfo {
             index: 0,
             offset_bytes: 0,
             parameter: Some("Temperature".into()),
             abbreviation: Some(abbrev.into()),
             units: Some("K".into()),
-            level: Some(level.into()),
-            level_type: Some("Specified height level above ground".into()),
+            // What the decoder renders: the bare coded value, which is what a
+            // sidecar's wording must not be compared with as text.
+            level: Some(first.2.to_string()),
+            level_type: Some(format!("Surface type {}", first.0)),
             reference_time: "2026-09-04T00:00:00Z".into(),
             forecast: Some("analysis".into()),
             packing: Some("grid_simple".into()),
@@ -477,20 +800,16 @@ mod tests {
             supports: crate::api::GridSupport::default(),
             size_label: None,
             truncation: None,
-            // Identification this helper's caller does not look at: these tests
-            // are about matching a sidecar's promise against a decoded
-            // message's parameter and level, which is the whole of
-            // `verify_message`.
+            // Identification `verify_message` does not read.
             forecast_hours: None,
             originating_centre: String::new(),
             sub_centre: None,
-            // A plan is built from an NCEP index over GRIB2.
             identification: crate::api::Identification::Grib2 {
                 discipline: String::new(),
                 production_status: String::new(),
                 data_type: String::new(),
             },
-            // Not what `verify_message` reads either (#959).
+            // The parameter and the surfaces are what it reads (#1093).
             identity: crate::api::MessageIdentity::Grib2 {
                 discipline: 0,
                 product_template: 0,
@@ -501,8 +820,15 @@ mod tests {
                 local_centre: None,
                 parameter_category: Some(0),
                 parameter_number: Some(0),
-                first_surface: None,
-                second_surface: None,
+                first_surface: Some(surface(first)),
+                second_surface: Some(second.map_or(
+                    crate::api::SurfaceCodes {
+                        surface_type: 255,
+                        scale_factor: None,
+                        scaled_value: None,
+                    },
+                    surface,
+                )),
                 reference_time: "2026-09-04T00:00:00Z".into(),
                 forecast_time_unit: None,
                 forecast_time: None,
@@ -513,10 +839,23 @@ mod tests {
                 data_points: 0,
             },
             total_length_bytes: 0,
-            // A plan is built from an index, which does not carry the
-            // resolution flags a vector plot would read (#241).
             uv_relative_to_grid: None,
         }
+    }
+
+    /// Temperature on one surface.
+    fn info(abbrev: &str, first: Codes) -> MessageInfo {
+        info_on(abbrev, first, None)
+    }
+
+    const TWO_METRES: Codes = (103, 0, 2);
+
+    fn level(text: &str) -> Expect {
+        Expect::new().with_level(text)
+    }
+
+    fn holds(text: &str, first: Codes, second: Option<Codes>) -> bool {
+        verify_message(&level(text), &info_on("TMP", first, second)).is_ok()
     }
 
     /// The check that catches a stale sidecar pointing at a valid but wrong
@@ -526,13 +865,10 @@ mod tests {
         let expect = Expect::new()
             .with_abbreviation("TMP")
             .with_level("2 m above ground");
-        assert_eq!(
-            verify_message(&expect, &info("TMP", "2 m above ground")),
-            Ok(())
-        );
+        assert_eq!(verify_message(&expect, &info("TMP", TWO_METRES)), Ok(()));
 
         assert_eq!(
-            verify_message(&expect, &info("RH", "2 m above ground")),
+            verify_message(&expect, &info("RH", TWO_METRES)),
             Err(Mismatch::Field {
                 field: "abbreviation",
                 expected: "TMP".into(),
@@ -540,13 +876,110 @@ mod tests {
             })
         );
         assert_eq!(
-            verify_message(&expect, &info("TMP", "850 mb")),
+            verify_message(&expect, &info("TMP", (100, 0, 85_000))),
             Err(Mismatch::Field {
                 field: "level",
                 expected: "2 m above ground".into(),
-                actual: "850 mb".into()
+                actual: "85000 (Surface type 100)".into()
             })
         );
+    }
+
+    /// wgrib2 writes an isobaric level in millibars and §4 codes it in
+    /// pascals; the two are one value in two units (#1093). Includes the
+    /// stratospheric levels GFS publishes below 1 mb.
+    #[test]
+    fn an_isobaric_level_is_compared_in_hectopascals() {
+        assert!(holds("2 mb", (100, 0, 200), None));
+        assert!(holds("500 mb", (100, 0, 50_000), None));
+        assert!(holds("0.01 mb", (100, 0, 1), None));
+        assert!(holds("0.4 mb", (100, 0, 40), None));
+        // A scale factor and the unit shift combine.
+        assert!(holds("2 mb", (100, -2, 2), None));
+        assert!(!holds("3 mb", (100, 0, 200), None));
+        assert!(!holds("2 mb", (108, 0, 200), None));
+    }
+
+    /// A scaled value is the decimal the sidecar wrote, and a layer is two of
+    /// them, in order.
+    #[test]
+    fn scaled_values_and_layers_are_compared_as_numbers() {
+        assert!(holds("0.995 sigma level", (104, 3, 995), None));
+        assert!(holds("1 hybrid level", (105, 0, 1), None));
+        assert!(holds(
+            "0-0.1 m below ground",
+            (106, 0, 0),
+            Some((106, 1, 1))
+        ));
+        assert!(holds(
+            "30-0 mb above ground",
+            (108, 0, 3000),
+            Some((108, 0, 0))
+        ));
+        assert!(holds(
+            "6000-0 m above ground",
+            (103, 0, 6000),
+            Some((103, 0, 0))
+        ));
+        // The bounds in the other order are another layer.
+        assert!(!holds(
+            "0-30 mb above ground",
+            (108, 0, 3000),
+            Some((108, 0, 0))
+        ));
+        // A layer is not the single level at its top, nor the reverse.
+        assert!(!holds(
+            "30 mb above ground",
+            (108, 0, 3000),
+            Some((108, 0, 0))
+        ));
+        assert!(!holds("30-0 mb above ground", (108, 0, 3000), None));
+    }
+
+    /// The surfaces wgrib2 names without a value, each against the code
+    /// `Level.c` names that way.
+    #[test]
+    fn named_surfaces_are_compared_by_their_codes() {
+        assert!(holds("surface", (1, 0, 0), None));
+        assert!(holds("mean sea level", (101, 0, 0), None));
+        assert!(holds("entire atmosphere", (10, 0, 0), None));
+        assert!(holds(
+            "entire atmosphere (considered as a single layer)",
+            (200, 0, 0),
+            None
+        ));
+        assert!(holds("cloud ceiling", (215, 0, 0), None));
+        assert!(holds("planetary boundary layer", (220, 0, 0), None));
+        assert!(holds("tropopause", (7, 0, 0), None));
+        // Type 4 codes no value; the wording's `0` is the surface's.
+        assert!(holds("0C isotherm", (4, 0, 0), None));
+        // Type 20 is a temperature, not the isentropic 107.
+        assert!(holds("263 K level", (20, 0, 263), None));
+        assert!(!holds("263 K level", (107, 0, 263), None));
+        assert!(holds("320 K isentropic level", (107, 0, 320), None));
+
+        assert!(!holds("surface", TWO_METRES, None));
+        assert!(!holds("tropopause", (6, 0, 0), None));
+    }
+
+    /// A level the grammar understood is refused on a surface this check does
+    /// not model, rather than waved through: the line said where the field is,
+    /// and the message is somewhere else.
+    #[test]
+    fn a_modelled_level_is_refused_on_an_unmodelled_surface() {
+        assert!(!holds("2 m above ground", (109, 6, 2), None));
+    }
+
+    /// A level the grammar kept verbatim was not understood, so there is
+    /// nothing to compare it with and it is not compared.
+    #[test]
+    fn a_level_the_grammar_did_not_understand_is_not_compared() {
+        assert!(holds("PV=2e-06 (Km^2/kg/s) surface", (109, 6, 2), None));
+        assert!(holds(
+            "lowest level of the wet bulb zero",
+            (245, 0, 0),
+            None
+        ));
     }
 
     /// An expectation that promises nothing checks nothing, rather than
@@ -554,21 +987,128 @@ mod tests {
     #[test]
     fn an_empty_expectation_passes() {
         assert_eq!(
-            verify_message(&Expect::default(), &info("TMP", "surface")),
+            verify_message(&Expect::default(), &info("TMP", (1, 0, 0))),
             Ok(())
         );
     }
 
-    /// A numeric fallback name is not an abbreviation and must not be compared
-    /// as one — every such message would otherwise fail verification.
+    /// A numeric fallback name is not an abbreviation and is not compared as
+    /// one; the codes it states are compared with the message's instead.
     #[test]
-    fn a_numeric_fallback_name_is_not_compared_as_an_abbreviation() {
+    fn a_numeric_fallback_name_is_checked_by_its_codes() {
         let expect = Expect::new()
-            .with_abbreviation("var discipline=0 center=7 local_table=1 parmcat=16 parm=201");
+            .with_abbreviation("var discipline=0 center=7 local_table=1 parmcat=16 parm=201")
+            .with_parameter(ParameterId {
+                discipline: 0,
+                category: 16,
+                number: 201,
+            });
+        let mut refc = info("REFC", (10, 0, 0));
+        let crate::api::MessageIdentity::Grib2 {
+            parameter_category,
+            parameter_number,
+            ..
+        } = &mut refc.identity
+        else {
+            unreachable!()
+        };
+        *parameter_category = Some(16);
+        *parameter_number = Some(201);
+        assert_eq!(verify_message(&expect, &refc), Ok(()));
+
         assert_eq!(
-            verify_message(&expect, &info("REFC", "entire atmosphere")),
+            verify_message(&expect, &info("TMP", (10, 0, 0))),
+            Err(Mismatch::Field {
+                field: "parameter",
+                expected: "0.16.201".into(),
+                actual: "0.0.0".into()
+            })
+        );
+    }
+
+    /// A message whose codes this build's tables do not name has no short name
+    /// to compare with, so its name is not compared. Resolving the promised
+    /// name to codes instead would refuse a correct record whose name another
+    /// triple also carries.
+    #[test]
+    fn a_message_without_a_short_name_is_not_compared_by_name() {
+        let mut unnamed = info("TMP", TWO_METRES);
+        unnamed.abbreviation = None;
+        assert_eq!(
+            verify_message(&Expect::new().with_abbreviation("RH"), &unnamed),
             Ok(())
         );
+    }
+
+    /// Six significant figures, the precision wgrib2 prints with, and no
+    /// wider: a value that differs in the sixth figure is another level.
+    #[test]
+    fn a_value_matches_to_the_precision_it_was_printed_at() {
+        // 0.995 as an `f32`, which is what wgrib2 formats, is not 0.995.
+        assert!(holds("0.995 sigma level", (104, 9, 995_000_005), None));
+        // `%g` of 1000.004 hPa is `1000`.
+        assert!(holds("1000 mb", (100, 1, 1_000_004), None));
+        assert!(!holds("1.00001 sigma level", (104, 0, 1), None));
+        assert!(!holds("1 sigma level", (104, 5, 100_001), None));
+    }
+
+    /// A surface that takes no value names no layer, so a second surface of
+    /// the same type beside it does not make it something else.
+    #[test]
+    fn a_valueless_surface_beside_itself_is_still_that_surface() {
+        assert!(holds("surface", (1, 0, 0), Some((1, 0, 0))));
+        assert!(holds("entire atmosphere", (10, 0, 0), Some((10, 0, 0))));
+        // A different second surface is a layer wgrib2 names otherwise.
+        assert!(!holds("surface", (1, 0, 0), Some((8, 0, 0))));
+    }
+
+    /// An ECMWF `.index` line, through the real parser so the expectation
+    /// carries its dialect.
+    fn ecmwf(record: &str) -> Expect {
+        let idx = EcmwfIndex::parse("o", record).expect("one record");
+        idx.items()[0].expect.clone()
+    }
+
+    /// MARS vocabulary: `2t` is not compared with the WMO `TMP`, and `sfc` is
+    /// any single-level surface but not one ECMWF lists levels of.
+    #[test]
+    fn an_ecmwf_line_is_read_in_its_own_vocabulary() {
+        let sfc = ecmwf(r#"{"param": "2t", "levtype": "sfc", "_offset": 0, "_length": 1}"#);
+        assert_eq!(verify_message(&sfc, &info("TMP", TWO_METRES)), Ok(()));
+        assert_eq!(verify_message(&sfc, &info("MSL", (101, 0, 0))), Ok(()));
+        assert!(verify_message(&sfc, &info("TMP", (100, 0, 50_000))).is_err());
+        assert!(verify_message(&sfc, &info("TMP", (105, 0, 137))).is_err());
+
+        let pl = ecmwf(
+            r#"{"param": "t", "levtype": "pl", "levelist": "500", "_offset": 0, "_length": 1}"#,
+        );
+        assert_eq!(verify_message(&pl, &info("TMP", (100, 0, 50_000))), Ok(()));
+        assert!(verify_message(&pl, &info("TMP", (100, 0, 85_000))).is_err());
+
+        let ml = ecmwf(
+            r#"{"param": "t", "levtype": "ml", "levelist": "137", "_offset": 0, "_length": 1}"#,
+        );
+        assert_eq!(verify_message(&ml, &info("TMP", (105, 0, 137))), Ok(()));
+    }
+
+    /// An expectation that crossed the wire with its level text and no parsed
+    /// level is parsed here rather than compared as a string.
+    #[test]
+    fn a_level_sent_as_text_alone_is_parsed() {
+        let expect: Expect = serde_json::from_value(serde_json::json!({
+            "abbreviation": null,
+            "parameter": null,
+            "level": "2 mb",
+            "levelSpec": null,
+            "forecast": null,
+            "referenceTime": null,
+            "totalLength": null,
+            "qualifiers": [],
+            "dialect": "wgrib2_idx",
+        }))
+        .expect("an expectation");
+        assert_eq!(verify_message(&expect, &info("RH", (100, 0, 200))), Ok(()));
+        assert!(verify_message(&expect, &info("RH", (100, 0, 300))).is_err());
     }
 
     /// The two reference-time spellings are compared as the ten digits both can
@@ -576,17 +1116,39 @@ mod tests {
     #[test]
     fn reference_times_are_compared_across_their_two_spellings() {
         let expect = Expect::new().with_reference_time("2026090400");
-        assert_eq!(verify_message(&expect, &info("TMP", "surface")), Ok(()));
+        assert_eq!(verify_message(&expect, &info("TMP", (1, 0, 0))), Ok(()));
 
         let stale = Expect::new().with_reference_time("2026090312");
         assert_eq!(
-            verify_message(&stale, &info("TMP", "surface")),
+            verify_message(&stale, &info("TMP", (1, 0, 0))),
             Err(Mismatch::Field {
                 field: "referenceTime",
                 expected: "2026090312".into(),
                 actual: "2026090400".into()
             })
         );
+    }
+
+    /// A GRIB1 message's level reads through Table 3 in the same units.
+    #[test]
+    fn a_grib1_level_reads_in_the_sidecars_units() {
+        assert_eq!(
+            grib1_level(100, 0x01, 0xf4),
+            Some(LevelSpec::at(Surface::Isobaric, 500.0))
+        );
+        assert_eq!(
+            grib1_level(105, 0, 2),
+            Some(LevelSpec::at(Surface::HeightAboveGround, 2.0))
+        );
+        assert_eq!(
+            grib1_level(112, 0, 10),
+            Some(LevelSpec::between(Surface::DepthBelowLand, 0.0, 0.1))
+        );
+        assert_eq!(
+            grib1_level(116, 30, 0),
+            Some(LevelSpec::between(Surface::PressureAboveGround, 30.0, 0.0))
+        );
+        assert_eq!(grib1_level(117, 0, 2), None);
     }
 }
 

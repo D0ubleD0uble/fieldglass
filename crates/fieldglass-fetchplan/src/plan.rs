@@ -8,7 +8,7 @@
 //! carries the [`Expect`] its line promised, and the consumer checks the bytes
 //! it fetched against it before decoding them.
 
-use crate::error::{FetchPlanError, Mismatch};
+use crate::error::{Dialect, FetchPlanError, Mismatch};
 use crate::level::LevelSpec;
 
 /// The GRIB §0 indicator section, which is the first thing a fetched range must
@@ -175,6 +175,16 @@ pub struct Expect {
     /// `prob fcst 3/7`. Matched verbatim by a query and otherwise passed
     /// through, because the vocabulary is per-product and open-ended.
     pub qualifiers: Vec<String>,
+    /// Which sidecar dialect made these claims, and so whose vocabulary
+    /// [`abbreviation`](Self::abbreviation) and [`level`](Self::level) are in.
+    ///
+    /// Checking a decoded message against the claims needs it (#1093). An
+    /// ECMWF `.index` names its parameters in MARS short names (`2t`), which a
+    /// decoder reading WMO tables names otherwise (`TMP`), and its `sfc` is
+    /// every single-level field, not the ground: 2-metre temperature is `sfc`.
+    /// `None` for an expectation built by hand, whose words are read as a
+    /// wgrib2 `.idx` would mean them, the vocabulary the builders document.
+    pub dialect: Option<Dialect>,
 }
 
 impl Expect {

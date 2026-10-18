@@ -745,7 +745,7 @@ fn every_wire_type_round_trips_through_json() {
 /// A level with a value, so `value` is pinned present as well as absent.
 const LEVEL_SPEC_JSON: &str = r#"{"surface":"isobaric","value":2.0,"value2":null}"#;
 /// An `Expect` with every field stated; `LEVEL` stands in for the level.
-const EXPECT_JSON: &str = r#"{"abbreviation":"RH","parameter":{"discipline":0,"category":1,"number":1},"level":"2 mb","levelSpec":LEVEL,"forecast":"anl","referenceTime":"2026090400","totalLength":210,"qualifiers":["ENS=+1"]}"#;
+const EXPECT_JSON: &str = r#"{"abbreviation":"RH","parameter":{"discipline":0,"category":1,"number":1},"level":"2 mb","levelSpec":LEVEL,"forecast":"anl","referenceTime":"2026090400","totalLength":210,"qualifiers":["ENS=+1"],"dialect":"wgrib2_idx"}"#;
 const PLAN_ITEM_JSON: &str = r#"{"key":"gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000","range":{"kind":"exact","offset":76032983,"length":210},"address":{"kind":"message","index":106,"subIndex":null},"expect":EXPECT}"#;
 /// A `Query` with every constraint stated.
 const QUERY_JSON: &str = r#"{"abbreviation":"RH","parameter":{"discipline":0,"category":1,"number":1},"levelText":"2 mb","level":LEVEL,"forecast":"anl","qualifiers":["ENS=+1"],"unqualified":false}"#;

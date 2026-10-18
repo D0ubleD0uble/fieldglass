@@ -270,6 +270,36 @@ export interface DecodeOptions {
 }
 
 /**
+ * Which manifest dialect a parse failure, or a plan item's claims, came from.
+ *
+ * Carried on the error rather than baked into each message so the two dialects
+ * share one variant per shape of failure. Carried on an
+ * `Expect` because what a sidecar's words mean depends on
+ * which sidecar wrote them (#1093): `sfc` on an ECMWF `.index` is any
+ * single-level field, 2-metre temperature included, while `surface` on a
+ * wgrib2 `.idx` is the ground.
+ */
+export type Dialect =
+  /**
+   * The wgrib2 `.idx` sidecar: colon-separated text, one line per record.
+   */
+  | "wgrib2_idx"
+  /**
+   * The ECMWF `.index` sidecar: JSON lines, one object per record.
+   */
+  | "ecmwf_index"
+  /**
+   * A kerchunk reference document: one JSON object mapping a store key to
+   * data or to a byte range of some object.
+   */
+  | "kerchunk"
+  /**
+   * A Zarr array metadata document — a v2 `.zarray` or a v3 `zarr.json` —
+   * read for the chunk grid and the key spelling, and for nothing else.
+   */
+  | "zarr_metadata";
+
+/**
  * One dimension of an array dataset, as the file names it.
  *
  * Shared: two variables that name the same dimension are on the same axis,
@@ -498,6 +528,18 @@ export interface Expect {
    * through, because the vocabulary is per-product and open-ended.
    */
   qualifiers: string[];
+  /**
+   * Which sidecar dialect made these claims, and so whose vocabulary
+   * `abbreviation` and `level` are in.
+   *
+   * Checking a decoded message against the claims needs it (#1093). An
+   * ECMWF `.index` names its parameters in MARS short names (`2t`), which a
+   * decoder reading WMO tables names otherwise (`TMP`), and its `sfc` is
+   * every single-level field, not the ground: 2-metre temperature is `sfc`.
+   * `None` for an expectation built by hand, whose words are read as a
+   * wgrib2 `.idx` would mean them, the vocabulary the builders document.
+   */
+  dialect: Dialect | null;
 }
 
 /**
@@ -921,9 +963,9 @@ export interface LeftOutArray {
  *
  * `value` and `value2` are in the surface's own unit — hectopascals for
  * `Surface::Isobaric`, metres for the height and depth surfaces, kelvin for
- * `Surface::PotentialTemperature`. A layer between two bounds fills both, in
- * the order the manifest wrote them (`30-0 mb above ground` is
- * `value = 30`, `value2 = 0`).
+ * `Surface::PotentialTemperature` and `Surface::Isothermal`. A layer
+ * between two bounds fills both, in the order the manifest wrote them
+ * (`30-0 mb above ground` is `value = 30`, `value2 = 0`).
  *
  * An unknown key is refused when one is read, for the reason `Query`
  * refuses one: a level inside a query with a misspelt `valeu` would otherwise
@@ -2109,13 +2151,22 @@ export type Surface =
    */
   | "sigma_level"
   /**
-   * An isentropic (potential-temperature) level, in kelvin (ECMWF `pt`).
+   * An isentropic (potential-temperature) level, in kelvin
+   * (`320 K isentropic level`, ECMWF `pt`; WMO Code Table 4.5 type 107).
    */
   | "potential_temperature"
   /**
-   * An isotherm, in degrees Celsius (`0C isotherm`).
+   * The 0 °C isotherm, valued in degrees Celsius (`0C isotherm`; Code
+   * Table 4.5 type 4, which states no value of its own).
    */
   | "isotherm"
+  /**
+   * An isothermal level, valued in kelvin (`263 K level`; Code Table 4.5
+   * type 20). Not `PotentialTemperature`: wgrib2 writes that one
+   * `K isentropic level`, and HRRR publishes reflectivity at 263 K, which is
+   * a temperature and not a potential temperature (#1093).
+   */
+  | "isothermal"
   /**
    * The whole atmosphere as one layer.
    */

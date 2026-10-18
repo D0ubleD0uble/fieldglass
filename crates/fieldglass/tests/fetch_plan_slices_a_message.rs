@@ -62,6 +62,13 @@ fn object() -> (Vec<u8>, Vec<u64>) {
 /// decoder's own words — which is what makes a *deliberate* corruption below
 /// mean something. A hand-written sidecar that happened to disagree with the
 /// decoder would fail verification for the wrong reason.
+///
+/// Which is also why this suite cannot hold `verify_message` to what real
+/// sidecars say: a line written from the decoder agrees with it by
+/// construction. The level it writes is the decoder's bare value (`200`), which
+/// the level grammar does not read as any surface, so the level is not checked
+/// here at all. That check, and a wgrib2 or ECMWF line against the real bytes it
+/// points at, is `verify_message_real_pairs.rs` (#1093).
 fn sidecar(offsets: &[u64], infos: &[MessageInfo]) -> String {
     offsets
         .iter()
@@ -98,7 +105,7 @@ fn described() -> (Vec<u8>, Vec<u64>, Vec<MessageInfo>) {
 /// the sidecar promised, for every message in the object.
 ///
 /// Each part is checked twice over — the envelope (magic, edition, §0 length)
-/// and then the semantics (abbreviation, level, reference time) — because those
+/// and then the semantics (abbreviation and reference time) — because those
 /// are the two halves of verification and they live in different crates.
 #[test]
 fn every_planned_range_slices_the_message_it_promised() {

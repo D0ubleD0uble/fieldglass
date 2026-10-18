@@ -130,6 +130,27 @@ check('the envelope holds, and states the length', wasm.verifyEnvelope(item, byt
 const handle = wasm.open(bytes);
 const info = handle.message(0);
 check('the message is the promised parameter', info.abbreviation === item.expect.abbreviation, info.abbreviation);
+// The parameter check, on the info as the handle returned it. The line says
+// `2 mb` and the message codes 200 Pa: one level, compared by value (#1093).
+check(
+  'verifyMessage accepts the message the line promised',
+  codeOf(() => wasm.verifyMessage(item, info)) === 'did not throw',
+  codeOf(() => wasm.verifyMessage(item, info)),
+);
+const [rh3mb] = idx.select({ abbreviation: 'RH', levelText: '3 mb' });
+check(
+  'the record for another level is decode, a stale sidecar',
+  codeOf(() => wasm.verifyMessage(rh3mb, info)) === 'decode',
+);
+const [tmp2mb] = idx.select({ abbreviation: 'TMP', levelText: '2 mb' });
+check(
+  'and so is the record for another parameter',
+  codeOf(() => wasm.verifyMessage(tmp2mb, info)) === 'decode',
+);
+check(
+  'a missing message info is invalid_option',
+  codeOf(() => wasm.verifyMessage(item, null)) === 'invalid_option',
+);
 const field = handle.decode(0, {});
 const stats = field.stats();
 check('it is the 0.25° global grid', field.ni() === 1440 && field.nj() === 721, `${field.ni()} x ${field.nj()}`);
@@ -191,6 +212,39 @@ same('an empty query selects every record', idx.select({}).length, gfs.plan.item
 same('so does none at all', idx.select().length, gfs.plan.itemCount);
 
 idx.free();
+
+// ---------------------------------------------------------------------------
+// The parameter check on an ECMWF record
+// ---------------------------------------------------------------------------
+
+// ECMWF `r` on `pl` `50` and the 81,768 bytes at its `_offset`, committed
+// beside the sidecar. The line names the MARS `r` and the message decodes to
+// WMO `RH`, so the level is what tells two records apart: `pl 50` is 5000 Pa.
+{
+  const index = wasm.parseEcmwfIndex(
+    recording.ecmwf.key,
+    committed(recording.ecmwf.path).toString('utf8'),
+  );
+  const [r50] = index.select({ abbreviation: 'r', levelText: 'pl 50' });
+  const [r10] = index.select({ abbreviation: 'r', levelText: 'pl 10' });
+  const r50bytes = new Uint8Array(
+    committed('crates/fieldglass-fetchplan/tests/fixtures/ecmwf_ifs_0p25_r_50hpa.grib2'),
+  );
+  check('the ECMWF envelope holds', wasm.verifyEnvelope(r50, r50bytes) === 81768);
+  const h = wasm.open(r50bytes);
+  const r50info = h.message(0);
+  check(
+    'verifyMessage accepts the ECMWF record for these bytes',
+    codeOf(() => wasm.verifyMessage(r50, r50info)) === 'did not throw',
+    codeOf(() => wasm.verifyMessage(r50, r50info)),
+  );
+  check(
+    'and refuses the record for 10 hPa as decode',
+    codeOf(() => wasm.verifyMessage(r10, r50info)) === 'decode',
+  );
+  h.free();
+  index.free();
+}
 
 // ---------------------------------------------------------------------------
 // Parity: the recording, replayed

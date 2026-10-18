@@ -232,6 +232,7 @@ fn parse_line(line_no: usize, line: &str) -> Result<Record, FetchPlanError> {
             // own §0 length against the fetch either way.
             total_length: None,
             qualifiers,
+            dialect: Some(DIALECT),
         },
     })
 }

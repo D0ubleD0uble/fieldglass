@@ -4,11 +4,17 @@
 //! around them, so a host can report the mismatch in its own words and a test
 //! can assert on the pair instead of on prose.
 
-/// Which manifest dialect a parse failure came from.
+/// Which manifest dialect a parse failure, or a plan item's claims, came from.
 ///
 /// Carried on the error rather than baked into each message so the two dialects
-/// share one variant per shape of failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// share one variant per shape of failure. Carried on an
+/// [`Expect`](crate::Expect) because what a sidecar's words mean depends on
+/// which sidecar wrote them (#1093): `sfc` on an ECMWF `.index` is any
+/// single-level field, 2-metre temperature included, while `surface` on a
+/// wgrib2 `.idx` is the ground.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
 pub enum Dialect {
     /// The wgrib2 `.idx` sidecar: colon-separated text, one line per record.
     Wgrib2Idx,

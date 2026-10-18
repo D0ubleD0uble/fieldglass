@@ -61,7 +61,7 @@ mod fetchplan;
 #[cfg(feature = "fetchplan")]
 pub use fetchplan::{
     MessageManifest, candidates, http_range_header, parse_ecmwf_index, parse_wgrib2_idx,
-    validate_source, verify_envelope,
+    validate_source, verify_envelope, verify_message,
 };
 
 /// The API's wire types as TypeScript, generated from
