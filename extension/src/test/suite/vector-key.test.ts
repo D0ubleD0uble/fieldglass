@@ -33,6 +33,7 @@ import {
   type PageState,
   provider,
   type RealPanel,
+  type ExportedKey,
   type VectorKeyState,
   waitUntil,
 } from "./real-panel";
@@ -271,6 +272,61 @@ function longestInkRun(image: { width: number; height: number; rgba: Uint8Array 
   return longest;
 }
 
+/** A CSS colour as the page gives it: `#rgb`, `#rrggbb(aa)` or `rgb(a)(…)`. */
+function rgbOf(css: string): [number, number, number] {
+  const c = css.trim();
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(c);
+  if (hex) {
+    const h = hex[1].length === 3 ? hex[1].replace(/./g, (d) => d + d) : hex[1];
+    return [0, 2, 4].map((k) => parseInt(h.slice(k, k + 2), 16)) as [number, number, number];
+  }
+  const fn = /^rgba?\(([^)]+)\)$/i.exec(c);
+  assert.ok(fn, `a colour: ${css}`);
+  const [r, g, b] = fn[1].split(/[ ,/]+/).map(Number);
+  return [r, g, b];
+}
+
+/** How many rows of the exported key's backing hold its label: pixels near
+ *  the label's colour, right of the arrow's tip. */
+function labelHeight(image: { width: number; height: number; rgba: Uint8Array }, key: ExportedKey): number {
+  const ink = rgbOf(key.labelColour);
+  const [bx, by, bw, bh] = key.box;
+  let top = Infinity;
+  let bottom = -Infinity;
+  // Inside the backing only: its edge rows and columns are part-covered,
+  // and show the lighter image under it.
+  for (let y = Math.ceil(by) + 1; y < Math.floor(by + bh) - 1; y++) {
+    for (let x = Math.ceil(key.tip + key.lineWidth); x < Math.floor(bx + bw) - 1; x++) {
+      const i = (y * image.width + x) * 4;
+      const d = Math.hypot(image.rgba[i] - ink[0], image.rgba[i + 1] - ink[1], image.rgba[i + 2] - ink[2]);
+      if (d < 90) {
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+    }
+  }
+  return bottom >= top ? bottom - top + 1 : 0;
+}
+
+/** Click Export PNG with the save dialog cancelled, and read back the PNG the
+ *  page made and the key it says it drew in it. */
+async function exportPng(panel: RealPanel): Promise<{ image: ReturnType<typeof decodePng>; key: ExportedKey }> {
+  const saved = vscode.window.showSaveDialog;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
+  try {
+    const from = panel.received.length;
+    await panel.drive([{ id: "export-png", click: true }]);
+    const exported = await waitUntil(() => panel.received.slice(from).find(isType("exportPng")), "the exported PNG");
+    const png = Buffer.from(String(exported.dataUrl).replace(/^data:image\/png;base64,/, ""), "base64");
+    const state = await panel.drive([]);
+    assert.ok(state.exportedKey, "the export drew a key");
+    return { image: decodePng(png), key: state.exportedKey };
+  } finally {
+    vscode.window.showSaveDialog = saved;
+  }
+}
+
 suite("Vector key (#1046)", () => {
   test("the key is the fastest arrow as drawn, follows spacing and projection, and is in the PNG", async function () {
     this.timeout(120_000);
@@ -350,29 +406,43 @@ suite("Vector key (#1046)", () => {
       const wide = await renderAfter(panel, from, "Reset view");
       assert.strictEqual(wide.key.drawn.share, 1, "and full length again on the whole map");
 
-      // The export carries the key, at the length the map's arrows are
-      // exported at.
-      const saved = vscode.window.showSaveDialog;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
-      try {
-        from = mark(panel);
-        await panel.drive([{ id: "export-png", click: true }]);
-        const exported = await waitUntil(
-          () => panel.received.slice(from.received).find(isType("exportPng")),
-          "the exported PNG",
-        );
-        const png = Buffer.from(String(exported.dataUrl).replace(/^data:image\/png;base64,/, ""), "base64");
-        const image = decodePng(png);
-        // The map is exported at the raster's own size, so the overlay, key
-        // and all, is scaled by raster over canvas.
-        const toExport = wide.rasterWidth / wide.key.canvas.width;
-        const expected = (wide.key.drawn.length + wide.key.drawn.lineWidth / 2) * toExport;
-        const run = longestInkRun(image);
-        assert.ok(Math.abs(run - expected) <= 1.5, `the key is ${run} px in the PNG, expected ${expected}`);
-      } finally {
-        vscode.window.showSaveDialog = saved;
-      }
+      // The export carries the key, drawn at the PNG's own resolution: the
+      // map is the raster's size there, so a full-length arrow is
+      // `referenceLength` PNG pixels, beside arrows exported at that scale.
+      const exported = await exportPng(panel);
+      assert.strictEqual(exported.key.share, 1);
+      assert.ok(
+        Math.abs(exported.key.length - wide.result.referenceLength) < 1e-6,
+        `the exported key is ${exported.key.length} px for ${wide.result.referenceLength} raster px`,
+      );
+      const run = longestInkRun(exported.image);
+      const expected = exported.key.length + exported.key.lineWidth / 2;
+      assert.ok(Math.abs(run - expected) <= 1.5, `the key is ${run} px in the PNG, expected ${expected}`);
+      assert.strictEqual(exported.key.label, wide.key.drawn.label);
+      assert.ok(labelHeight(exported.image, exported.key) >= 7, "its label is legible in the PNG");
+
+      // A small raster shown large: the panel's canvas is far wider than the
+      // raster the PNG is made at. The label is still drawn at a size the PNG
+      // can show, not shrunk with the overlay. (The overlay is redrawn on a
+      // window resize, which a widened body does not fire, so the arrows are
+      // asked for again.)
+      await panel.drive([{ id: "body", width: "2400px" }]);
+      from = mark(panel);
+      await panel.drive([{ id: "vector-spacing", value: 12 }]);
+      const large = await arrowsAfter(panel, from, "a large panel");
+      assert.ok(
+        large.key.canvas.width > 2 * large.rasterWidth,
+        `the canvas (${large.key.canvas.width} px) is well over the raster (${large.rasterWidth} px)`,
+      );
+      const shrunk = await exportPng(panel);
+      const height = labelHeight(shrunk.image, shrunk.key);
+      assert.ok(height >= 7, `the label is ${height} px tall in the PNG`);
+      assert.strictEqual(shrunk.key.fontPx, 11, "the label is the colour bar's size in the PNG");
+      assert.ok(
+        Math.abs(shrunk.key.length - large.result.referenceLength * shrunk.key.share) < 1e-6,
+        "and the key is still a full-length arrow at the PNG's scale",
+      );
+      await panel.drive([{ id: "body", width: "" }]);
 
       // Orthographic, centred on the equator: the same rule, and here, where
       // a globe only shortens what is off-centre, the key is also the longest

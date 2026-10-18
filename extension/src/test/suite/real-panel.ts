@@ -145,6 +145,23 @@ export interface PageState {
   themeKind: string;
   /** The arrow key on the map (#1046), `null` when none is drawn. */
   vectorKey: VectorKeyState | null;
+  /** The arrow key the last Export PNG drew, in PNG pixels (#1046), `null`
+   *  when it drew none or nothing was exported. */
+  exportedKey: ExportedKey | null;
+}
+
+/** The arrow key as an export drew it, in the PNG's own pixels. */
+export interface ExportedKey {
+  tail: number;
+  tip: number;
+  y: number;
+  length: number;
+  share: number;
+  lineWidth: number;
+  label: string;
+  labelColour: string;
+  fontPx: number;
+  box: [number, number, number, number];
 }
 
 /** The arrow key as the page drew it (#1046), in overlay canvas pixels. */
@@ -466,6 +483,7 @@ const DRIVER = `
           })),
         themeKind: document.body.getAttribute('data-vscode-theme-kind') || document.body.className,
         vectorKey: vectorKey(),
+        exportedKey: document.body.dataset.exportedKey ? JSON.parse(document.body.dataset.exportedKey) : null,
       };
     }
     // The arrow key (#1046): what the page says it drew, and the shaft as the
