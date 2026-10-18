@@ -198,6 +198,59 @@ impl<O: ObjectSource> ZarrStore<O> {
     pub fn problems(&self) -> &[LeftOut] {
         &self.problems
     }
+
+    /// The objects a region read of `array` fetches: each chunk's index on the
+    /// chunk grid and the key it is stored under, from the store's root, in
+    /// row-major order (#1083).
+    ///
+    /// The same keys [`ArraySource::read_region`] asks the source for, spelled
+    /// by the same code, so a host that fetches exactly these and nothing else
+    /// holds every object the read will want. A chunk the store never wrote is
+    /// still listed: only fetching it can tell that it is absent, and an absent
+    /// chunk is the fill value, not an error. For a sharded array the objects
+    /// are its shards.
+    ///
+    /// Metadata only, so it answers without the `codecs` feature.
+    ///
+    /// # Errors
+    ///
+    /// An array this store does not read, a region of the wrong rank or past
+    /// the array's shape, and a region touching more chunks than one plan may
+    /// hold.
+    pub fn chunk_keys(
+        &self,
+        array: &str,
+        region: &[Range<u64>],
+    ) -> Result<Vec<(Vec<u64>, String)>, FieldglassError> {
+        let stored = self.stored(array)?;
+        let covering = stored.meta.grid().chunks_covering(region)?;
+        let keys = keys_of(stored, &covering)?;
+        Ok(covering.into_iter().zip(keys).collect())
+    }
+
+    /// The array a read or a plan asks for, or why the store holds no readable
+    /// one by that name.
+    fn stored(&self, array: &str) -> Result<&StoredArray, FieldglassError> {
+        self.arrays.get(array).ok_or_else(|| {
+            let why = self
+                .problems
+                .iter()
+                .find(|l| l.name == array)
+                .map_or_else(String::new, |l| format!(": {}", l.reason));
+            FieldglassError::Parse(format!("this store holds no readable array {array:?}{why}"))
+        })
+    }
+}
+
+/// The keys `covering`'s chunks are stored under, from the store's root.
+///
+/// The one spelling both [`ZarrStore::chunk_keys`] and the region read use, so
+/// a plan and the read it plans for cannot name different objects.
+fn keys_of(array: &StoredArray, covering: &[Vec<u64>]) -> Result<Vec<String>, FieldglassError> {
+    covering
+        .iter()
+        .map(|index| Ok(format!("{}{}", array.prefix, array.meta.chunk_key(index)?)))
+        .collect()
 }
 
 impl<O: ObjectSource> ArraySource for ZarrStore<O> {
@@ -218,15 +271,7 @@ impl<O: ObjectSource> ArraySource for ZarrStore<O> {
         array: &str,
         region: &[Range<u64>],
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
-        let stored = self.arrays.get(array).ok_or_else(|| {
-            let why = self
-                .problems
-                .iter()
-                .find(|l| l.name == array)
-                .map_or_else(String::new, |l| format!(": {}", l.reason));
-            FieldglassError::Parse(format!("this store holds no readable array {array:?}{why}"))
-        })?;
-        read(&self.objects, stored, region)
+        read(&self.objects, self.stored(array)?, region)
     }
 }
 
@@ -917,10 +962,7 @@ fn read<O: ObjectSource>(
     let chunk_len = element_count(chunk_shape)?;
     let fill = meta.fill_value();
 
-    let keys = covering
-        .iter()
-        .map(|index| Ok(format!("{}{}", array.prefix, meta.chunk_key(index)?)))
-        .collect::<Result<Vec<String>, FieldglassError>>()?;
+    let keys = keys_of(array, &covering)?;
     let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
     objects.prefetch(&refs)?;
 

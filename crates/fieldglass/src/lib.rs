@@ -190,6 +190,10 @@ pub use render::{
     PixelProbe, Projected, RenderOptions, ResolvedOptions, TargetKind, VectorOptions, WarpTarget,
 };
 pub use session::PlacedSlice;
+/// A lat/lon box over a variable, planned into the chunks it touches and
+/// decoded from them alone (#1083).
+#[cfg(feature = "zarr")]
+pub use session::{ChunkRef, WindowPlan, WindowRequest};
 pub use session::{DecodeOptions, Session};
 #[cfg(feature = "render")]
 pub use session::{PaletteOptions, Raster, WarpOptions};

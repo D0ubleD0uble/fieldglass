@@ -15,6 +15,12 @@
 //! posted by now. The feature is off in the shipped bundle until where the
 //! planner ships is decided (see `Cargo.toml`).
 //!
+//! With the `zarr` feature, `openStore` opens a Zarr store from the objects a
+//! page fetched, and a handle over one says which objects a view needs:
+//! `coordinateChunks` for the coordinate arrays, then `planWindow` for the
+//! chunks a lat/lon box and a time step touch, which `decodeWindow` decodes
+//! from (#1083). Off in the shipped bundle for the same reason.
+//!
 //! # The memory contract
 //!
 //! Linear memory never shrinks, and an animation holds many fields at once, so
@@ -63,6 +69,12 @@ pub use fetchplan::{
     MessageManifest, candidates, http_range_header, parse_ecmwf_index, parse_wgrib2_idx,
     validate_source, verify_envelope, verify_message,
 };
+
+#[cfg(feature = "zarr")]
+mod zarr;
+
+#[cfg(feature = "zarr")]
+pub use zarr::open_store;
 
 /// The API's wire types as TypeScript, generated from
 /// `crates/fieldglass/schema/api.schema.json` by `tools/gen_api_declarations.py`
@@ -127,6 +139,31 @@ fn from_js<T: serde::de::DeserializeOwned + Default>(value: JsValue) -> Result<T
         .map_err(|e| js_sys::Error::new(&format!("could not read the options object: {e}")).into())
 }
 
+/// Read an argument whose type refuses unknown keys, so that it does.
+///
+/// serde-wasm-bindgen reads a struct by asking the object for each field the
+/// struct names, so a key it does not name is never looked at and
+/// `deny_unknown_fields` cannot fire: `{ levelTxt: "2 mb" }` would read as an
+/// empty query and select every record. Reading the object into a JSON value
+/// first enumerates every key it has, and the type's own rule then applies.
+///
+/// Shared by the planner's arguments and the Zarr window's (#1081, #1083).
+#[cfg(any(feature = "fetchplan", feature = "zarr"))]
+fn strict<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<T, JsValue> {
+    let json: serde_json::Value =
+        serde_wasm_bindgen::from_value(value).map_err(|e| unreadable(what, &e))?;
+    serde_json::from_value(json).map_err(|e| unreadable(what, &e))
+}
+
+/// An argument that did not read is the caller's to fix, so it is
+/// `invalid_option`, with serde's own message naming the key.
+#[cfg(any(feature = "fetchplan", feature = "zarr"))]
+fn unreadable(what: &str, e: &dyn std::fmt::Display) -> JsValue {
+    throw(fieldglass::Error::InvalidOption {
+        detail: format!("could not read the {what}: {e}"),
+    })
+}
+
 /// Every field-combine operation, in menu order: `[{ value, label }, …]`.
 ///
 /// What a Compare picker is built from. The list is
@@ -157,7 +194,7 @@ pub fn open(bytes: &[u8]) -> Result<Handle, JsValue> {
 
 #[wasm_bindgen]
 impl Handle {
-    /// `"grib1"`, `"grib2"` or `"netcdf"`.
+    /// `"grib1"`, `"grib2"`, `"netcdf"` or, from `openStore`, `"zarr"`.
     #[wasm_bindgen(unchecked_return_type = "SourceFormat")]
     pub fn format(&self) -> Result<JsValue, JsValue> {
         to_js(&self.session.format())

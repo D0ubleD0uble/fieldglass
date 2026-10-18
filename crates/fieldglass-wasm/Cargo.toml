@@ -62,5 +62,27 @@ wasm-bindgen = "0.2"
 # separately (`build.sh nodejs --features=fetchplan`) to run its test.
 fetchplan = ["fieldglass/fetchplan", "dep:serde_json"]
 
+# Zarr stores (#1083): `openStore` over the objects a page fetched, and the
+# window calls that say which objects to fetch — the coordinate chunks, then the
+# chunks a lat/lon box and a time step touch — and decode from those alone.
+# `src/zarr.rs` is the binding. Its own feature rather than part of `fetchplan`:
+# the window planner is a `Session` question answered from the store's own
+# metadata and coordinates, and needs neither the sidecar grammars nor the GRIB2
+# resolver, so a page that reads stores and plans no GRIB fetches carries
+# neither.
+#
+# **Off by default, pending the owner's choice of where it ships**, as
+# `fetchplan` is. It brings the Zarr walker and its codecs: blosc with its five
+# inner compressors, LZ4 and BloscLZ, zstd (already here for NetCDF), and v3
+# sharding, and `serde_json` for the metadata documents. Measured locally against
+# binaryen 132 it adds about 106 KB gzipped (+16.8%) to this module, or about
+# 68 KB beside `fetchplan`, which already carries `serde_json`; the README has
+# the figures and #1083 the decision. CI builds it separately (`build.sh nodejs
+# --features=zarr`) to run its test.
+#
+# `dep:serde_json` because a window request is read through a JSON value so an
+# unknown key is refused, as the planner's query is.
+zarr = ["fieldglass/zarr", "dep:serde_json"]
+
 [lints]
 workspace = true

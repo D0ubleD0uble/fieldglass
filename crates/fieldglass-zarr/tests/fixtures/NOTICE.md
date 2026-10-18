@@ -109,6 +109,31 @@ The expected attributes apply the two things xarray does to `_FillValue` — v2
 keeps it as the array's `fill_value`, and v3 writes a float one as base64 of its
 bytes — computed in the script independently of the Rust that undoes them.
 
+## Window stores (`windows/`, #1083)
+
+`windows/window_v2` and `windows/window_v3` hold one forecast-shaped xarray
+dataset in each edition: `t2m` over `(time, latitude, longitude)`, 3 x 8 x 12
+float32 values in 1 x 3 x 4 chunks (ragged on latitude), with 1-D `time`,
+`latitude` and `longitude` coordinates. Latitude runs 70 to 0 north to south and
+longitude 0 to 330 in 30-degree steps, so the grid is global and a box can cross
+its seam. v2 is consolidated and blosc-compressed (lz4, byte shuffle); v3 is
+consolidated inline and zstd-compressed. Written by the same script with
+`--windows-only` (zarr-python 3.3.0, numcodecs 0.16.5, xarray 2026.7.0), and
+reproducible byte for byte.
+
+`windows_oracle.json` records, per store, the chunks of the coordinate arrays and
+five windows (a box and a time index each): the rows and column runs the box
+holds, the chunks those cells sit in with their keys, and the window's values as
+xarray reads them back from the store. A cell is in a box when its centre is,
+edges included, and columns are ordered eastward from the box's west edge. A
+window is at least two cells each way, so a box holding one row or column takes
+the next one (wrapping in longitude, the one before at the last row). The cases
+cross chunk edges, cross the seam, cover the whole grid, put every edge on a
+centre, and hold one cell at the grid's corner. The script computes
+all of it from the coordinate values, independently of the Rust under test.
+`crates/fieldglass/tests/zarr_window.rs` and
+`crates/fieldglass-wasm/tests/node/zarr.mjs` read it.
+
 ## zstd wide-window store (`zstd_wide_window/`)
 
 A v2 `uint8` array of `(64, 64)` in one 4 KiB chunk under the `zstd`

@@ -238,6 +238,29 @@ export interface CandidateOptions {
 }
 
 /**
+ * One stored object a read needs: which array it belongs to, the key it is
+ * stored under from the store's root, and its index on that array's chunk
+ * grid.
+ *
+ * The key is what a host fetches, relative to the store's own URL, and what it
+ * passes back as the object's name. For a sharded array it is a shard.
+ */
+export interface ChunkRef {
+  /**
+   * The array, path-qualified as `Session::variables` names it.
+   */
+  array: string;
+  /**
+   * The object's key from the store's root: `t2m/c/1/2/0`, `t2m/1.2.0`.
+   */
+  key: string;
+  /**
+   * The chunk's position on the array's chunk grid, one entry per axis.
+   */
+  index: number[];
+}
+
+/**
  * One entry of the field-combine vocabulary: what a host's Compare picker
  * shows and what it sends back.
  *
@@ -2523,4 +2546,80 @@ export interface Warped {
    * `[lat_min, lat_max, lon_min, lon_max]` of the output window.
    */
   bounds: [number, number, number, number];
+}
+
+/**
+ * Which cells a window holds and which chunks hold them.
+ */
+export interface WindowPlan {
+  /**
+   * The rows the window holds, `[start, end)` along the request's Y axis,
+   * in storage order: the rows the box holds, and at least two.
+   * `[0, 0]` when it holds none.
+   */
+  rows: [number, number];
+  /**
+   * The columns, as `[start, end)` runs along the request's X axis in the order the
+   * window holds them: one run, or two when the box crosses the seam of a
+   * grid that closes on itself (the run east of the seam second). Empty when
+   * the box holds no column.
+   */
+  columns: ([number, number])[];
+  /**
+   * Columns in the window, the sum of the runs.
+   */
+  ni: number;
+  /**
+   * Rows in the window.
+   */
+  nj: number;
+  /**
+   * Every chunk of the variable the window's cells sit in, in row-major
+   * order of their index, each once. Fetch these, and only these, before
+   * `Session::decode_window`. `null` for a container that is not stored
+   * as keyed objects — a NetCDF file, which a host reads by range.
+   */
+  chunks: ChunkRef[] | null;
+}
+
+/**
+ * A window to plan or decode: a lat/lon box over two axes of a variable, and a
+ * position on every other one.
+ *
+ * The arguments `Session::decode_slice` takes, with the box added. The two
+ * axes are positions in the variable's own axes, and the slice indices hold
+ * one entry per axis in the same order, the two horizontal ones ignored
+ * rather than absent, so a host passes the vector it already holds for the
+ * slice on screen.
+ *
+ * **On the wire** a host sends one as a camelCase object. Every key is
+ * required and an unknown one is refused: a misspelt `sliceIndex` dropped
+ * silently would plan the first time step and label it the one asked for.
+ */
+export interface WindowRequest {
+  /**
+   * Which variable, as a position in `Session::variables`.
+   */
+  variable: number;
+  /**
+   * Which of its axes runs down the rows: a latitude.
+   */
+  yDim: number;
+  /**
+   * Which of its axes runs across the columns: a longitude.
+   */
+  xDim: number;
+  /**
+   * The box, `[latMin, latMax, lonMin, lonMax]` in degrees, the order a
+   * warp's `bounds` uses. A cell is in it when its centre is, edges
+   * included. Longitude runs east from `lonMin` to `lonMax`, which may not
+   * be smaller: a box over the antimeridian runs past 180 (`[.., 170, 190]`)
+   * rather than wrapping, and a span of 360 or more holds every column.
+   */
+  bounds: [number, number, number, number];
+  /**
+   * A position on every axis of the variable, the two horizontal ones
+   * ignored: the time step, the level, the member.
+   */
+  sliceIndices: number[];
 }

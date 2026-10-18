@@ -140,6 +140,75 @@ idx.free();
 short names (`2t`), which no table here resolves to WMO codes, so select those
 by `abbreviation`.
 
+### Reading a window of a Zarr store
+
+A Zarr store is many objects, and a page fetches only the ones a view needs.
+The store says which. Nothing here does I/O; the fetches are yours.
+
+**Not in the published package yet.** It is built with
+`./build.sh web --features=zarr` (into `pkg/web-zarr`), and the default bundle
+leaves it out until where it ships is decided
+([#1083](https://github.com/D0ubleD0uble/fieldglass/issues/1083)). The figures
+are under **Measured**.
+
+```js
+import init, { openStore } from './pkg/web-zarr/fieldglass_wasm.js';
+await init();
+
+// An object's bytes, or `null` for one the store does not hold: a sparse array
+// leaves chunks unwritten, and a 404 for one is its fill value, not an error.
+const get = async (key) => {
+  const response = await fetch(`${store}/${key}`);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`${key}: HTTP ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+};
+
+// 1. The metadata: `zarr.json` for v3, `.zmetadata` for a consolidated v2 store.
+const objects = new Map([['zarr.json', await get('zarr.json')]]);
+let ds = openStore(objects);
+const t2m = ds.variables().find((v) => v.name === 't2m');
+
+// 2. The coordinate arrays a box is matched against (and that label the steps).
+for (const { key } of ds.coordinateChunks(t2m.index)) objects.set(key, await get(key));
+ds.free();
+ds = openStore(objects);
+
+// 3. The chunks a box and a time step touch, and only those.
+const request = {
+  variable: t2m.index, yDim: 1, xDim: 2,
+  bounds: [20, 55, -130, -60],          // [latMin, latMax, lonMin, lonMax]
+  sliceIndices: [0, 0, 0],               // the time step; the two map axes are ignored
+};
+const plan = ds.planWindow(request);     // { rows, columns, ni, nj, chunks }
+for (const { key } of plan.chunks) objects.set(key, await get(key));
+ds.free();
+ds = openStore(objects);
+
+const field = ds.decodeWindow(request);  // a field like any other: palette, warp, probe
+```
+
+A cell is in the box when its centre is, edges included (to a billionth of a
+cell, so an edge written as a centre's coordinate holds it). A box over the
+antimeridian runs past 180 (`[.., 170, 190]`) rather than wrapping, and on a
+global grid it comes back as two column runs decoded as one window. A window is
+at least two cells each way: one row or column has no spacing to place it by,
+so a box that holds one takes the next one as well, and the plan names its
+chunks. Windows are planned over slices placed on a regular lat/lon grid, as
+1-D latitude and longitude coordinates place them; anything else throws
+`unsupported`. Planning before the coordinate chunks are in the map throws
+`invalid_option` naming the keys to fetch.
+
+**A key you do not pass reads as absent**, which for a chunk is the fill value,
+exactly like a chunk the store never wrote, so pass every key a plan names. A
+chunk whose fetch came back 404 can be left out or passed as `null`, as `get`
+above does.
+
+**A sharded array plans whole shards.** In a v3 store with `sharding_indexed`,
+each planned key is a shard, and a window fetches every shard it touches in
+full, inner chunks it does not need included. Fetching only the inner chunks
+by range, through the shard index, is not done yet.
+
 ### Which way up a raster comes out
 
 `render(field, options, flipY)` composes `flipY` with the message's own scan
@@ -400,6 +469,26 @@ toolchain differs from CI's, and so does its size. CI takes the current stable
 rustc, so a new Rust release alone can push the drift over 1.0%; the next PR
 then re-records it, saying so.
 
+**Zarr (#1083, not gated, not in the table).** The `zarr` feature is built
+beside the table's builds and its size printed beside the table in CI's run
+summary, so the decision on where it ships is made from CI's figure. Measured
+locally (rustc 1.98, wasm-bindgen 0.2.129, binaryen 132, `build.sh web`, gzip
+level 9 as the gate measures it), against this branch's default build, which is
+byte-identical to master's:
+
+| Build (local) | `.wasm` bytes | gzipped bytes | gzipped vs default |
+|---|---:|---:|---:|
+| default | 1,627,492 | 632,104 | |
+| `--features=zarr` | 1,859,338 | 738,550 | +106,446 (+16.8%) |
+| `--features=fetchplan` | 1,920,568 | 749,553 | +117,449 (+18.6%) |
+| `--features=fetchplan,zarr` | 2,092,532 | 817,175 | +185,071 (+29.3%) |
+| a Zarr-only module (`zarr`, `render`, `analysis`; no GRIB or NetCDF) | 639,242 | 280,935 | a page loads it as well as, or instead of, the default |
+
+Zarr adds the store walker, its metadata parser and `serde_json`, blosc with
+LZ4 and BloscLZ, and sharding; zstd and DEFLATE are already in the default
+build for NetCDF. Beside `fetchplan`, which already carries `serde_json`, it adds
+67,622 gzipped bytes rather than 106,446.
+
 Two things worth knowing before optimising further:
 
 - `wasm-opt -Oz` is a **raw** win and a **transfer** loss (measured locally
@@ -477,6 +566,15 @@ committed bytes that range fetched, checks with `verifyMessage` that they are th
 field the line named (and that a neighbouring line's GFS and ECMWF records are
 refused), and replays every answer the Rust planner recorded in `crates/fieldglass/tests/fetch_plan_wire.json`.
 
+**`tests/node/zarr.mjs`** — Zarr stores, against a `--features=zarr` build
+(`--pkg crates/fieldglass-wasm/pkg/nodejs-zarr`). It opens the committed v2
+(blosc) and v3 (zstd) window stores from their metadata alone, fetches the
+coordinate chunks and then the chunks each plan names from the committed files,
+and decodes each window from those alone. The rows, columns, chunks and values
+are checked against `crates/fieldglass-zarr/tests/fixtures/windows_oracle.json`,
+which the fixture script computes from the coordinates and reads back through
+xarray, and nothing unplanned may be fetched.
+
 **`tests/node/parity.mjs`** — the cross-target check. `node
 crates/fieldglass-wasm/tests/node/parity.mjs` decodes the real sample files with
 both this build and the native Node addon and compares every present value.
@@ -488,8 +586,8 @@ is worse than no parity check.
 ## Not here yet
 
 Threads (the façade is single-threaded by design — ADR-0005 — and shared memory
-needs COOP/COEP), Zarr stores, which `fieldglass` reads but this build does not
-bind, and the reduced-resolution JPEG 2000 decode `fieldglass-grib2` offers
+needs COOP/COEP), Zarr stores in the published package (bound behind the `zarr`
+feature, above), and the reduced-resolution JPEG 2000 decode `fieldglass-grib2` offers
 ([#463](https://github.com/D0ubleD0uble/fieldglass/issues/463)).
 
 `+simd128` is measured above and not enabled: it buys nothing here.
