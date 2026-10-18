@@ -880,6 +880,34 @@ export function nextFrame(index: number, length: number, step: number, loop: boo
   return ((next % length) + length) % length;
 }
 
+/** The Animate row's transport icons (#1042), drawn on one 16 × 16 grid so
+ *  they come out the same size and centred whatever font the panel has. Every
+ *  shape spans y 3 to 13 and each icon is centred on x = 8; forward and last
+ *  are back and first mirrored about the middle. One `d` per shape. */
+export const TRANSPORT_ICONS = {
+  first: ["M1.5 3h2v10h-2z", "M9.5 3 4.5 8 9.5 13z", "M14.5 3 9.5 8 14.5 13z"],
+  back: ["M3 3h2v10H3z", "M13 3 6 8 13 13z"],
+  play: ["M4 3 12 8 4 13z"],
+  pause: ["M4 3h3v10H4z", "M9 3h3v10H9z"],
+  forward: ["M3 3 10 8 3 13z", "M11 3h2v10h-2z"],
+  last: ["M1.5 3 6.5 8 1.5 13z", "M6.5 3 11.5 8 6.5 13z", "M12.5 3h2v10h-2z"],
+} as const;
+
+/** The name of one transport icon. */
+export type TransportIcon = keyof typeof TRANSPORT_ICONS;
+
+/** One transport icon as inline SVG, in the button's text colour. It is
+ *  decoration: the button's `aria-label` and `title` name it. */
+export function transportIconSvg(name: TransportIcon): string {
+  // `name` is one of the record's own keys, checked by its type.
+  // eslint-disable-next-line security/detect-object-injection
+  const shapes = TRANSPORT_ICONS[name].map((d) => `<path d="${d}"/>`).join("");
+  return (
+    `<svg class="transport-icon icon-${name}" viewBox="0 0 16 16" fill="currentColor" ` +
+    `aria-hidden="true" focusable="false">${shapes}</svg>`
+  );
+}
+
 /** Which axis a slice panel offers to animate along first: the variable's
  *  detected time axis when it can be stepped, otherwise the first other axis
  *  that can, or `null` when none can. `dims` are the variable's axis lengths;
@@ -1997,7 +2025,7 @@ export function renderImagePanelHtml(
             requestedAt: 0,
           };
           const play = document.getElementById('anim-play');
-          if (play) { play.textContent = '⏸'; play.setAttribute('aria-label', 'Pause'); play.title = 'Pause'; }
+          if (play) { play.classList.add('playing'); play.setAttribute('aria-label', 'Pause'); play.title = 'Pause'; }
           advanceAnimation();
         }
 
@@ -2024,7 +2052,7 @@ export function renderImagePanelHtml(
           clearTimeout(animation.timer);
           animation = null;
           const play = document.getElementById('anim-play');
-          if (play) { play.textContent = '▶'; play.setAttribute('aria-label', 'Play'); play.title = 'Play'; }
+          if (play) { play.classList.remove('playing'); play.setAttribute('aria-label', 'Play'); play.title = 'Play'; }
         }
 
         function setupAnimation() {
@@ -4459,7 +4487,20 @@ export function renderImagePanelHtml(
       color: var(--vscode-descriptionForeground);
       font-size: 0.78rem;
     }
-    .animate-transport button { min-width: 2rem; }
+    /* The transport buttons hold drawn icons (#1042), not font glyphs, so
+       every icon is the same size and sits in the middle of its button. Play
+       holds both play and pause and shows one, so it keeps its size as they
+       swap. */
+    .animate-transport button {
+      min-width: 2rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      vertical-align: middle;
+    }
+    .transport-icon { display: block; flex: 0 0 auto; width: 1.2em; height: 1.2em; }
+    #anim-play .icon-pause, #anim-play.playing .icon-play { display: none; }
+    #anim-play.playing .icon-pause { display: block; }
   </style>
 </head>
 <body>
@@ -4482,11 +4523,11 @@ ${slice
     <div class="toolbar-row" id="animate-row" hidden>
       <label>Animate <select id="animate-dim"></select></label>
       <span class="animate-transport">
-        <button type="button" id="anim-first" aria-label="First step" title="First step">⏮</button>
-        <button type="button" id="anim-back" aria-label="Step back" title="Step back">◀</button>
-        <button type="button" id="anim-play" aria-label="Play" title="Play">▶</button>
-        <button type="button" id="anim-forward" aria-label="Step forward" title="Step forward">▶|</button>
-        <button type="button" id="anim-last" aria-label="Last step" title="Last step">⏭</button>
+        <button type="button" id="anim-first" aria-label="First step" title="First step">${transportIconSvg("first")}</button>
+        <button type="button" id="anim-back" aria-label="Step back" title="Step back">${transportIconSvg("back")}</button>
+        <button type="button" id="anim-play" aria-label="Play" title="Play">${transportIconSvg("play")}${transportIconSvg("pause")}</button>
+        <button type="button" id="anim-forward" aria-label="Step forward" title="Step forward">${transportIconSvg("forward")}</button>
+        <button type="button" id="anim-last" aria-label="Last step" title="Last step">${transportIconSvg("last")}</button>
       </span>
       <label>Speed <select id="anim-speed">
         <option value="0.5">0.5 / s</option>

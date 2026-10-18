@@ -133,6 +133,35 @@ export interface PageState {
   steppers: SteppersState | null;
   /** The Animate row's label, `null` for a panel with no Animate row. */
   animateLabel: string | null;
+  /** The Animate row's transport buttons (#1042), `null` for a panel with no
+   *  Animate row. */
+  transport: TransportButton[] | null;
+  /** The theme the page is drawn in, as VS Code tells it: `vscode-light`,
+   *  `vscode-dark`, `vscode-high-contrast`… */
+  themeKind: string;
+}
+
+/** One transport button as drawn (#1042). */
+export interface TransportButton {
+  id: string;
+  ariaLabel: string | null;
+  title: string | null;
+  /** Its text, trimmed: `""` when it draws an icon rather than a glyph. */
+  text: string;
+  /** Its computed text colour. */
+  color: string;
+  box: Box;
+  /** The icons it shows (an icon put away is not listed). */
+  icons: Array<{
+    /** The icon's `class`. */
+    name: string | null;
+    box: Box;
+    viewBox: string | null;
+    /** Each shape's computed fill. */
+    fills: string[];
+    /** Each shape's box, in the icon's own units (`getBBox`). */
+    shapes: Array<{ x: number; y: number; width: number; height: number }>;
+  }>;
 }
 
 /** One index stepper as a user sees it (#1041). */
@@ -392,7 +421,36 @@ const DRIVER = `
         rails: rails(),
         steppers: steppers(),
         animateLabel: byId('anim-frame') ? byId('anim-frame').textContent : null,
+        transport: transport(),
+        themeKind: document.body.getAttribute('data-vscode-theme-kind') || document.body.className,
       };
+    }
+    // The Animate row's transport buttons as drawn (#1042): each button's box
+    // and labels, and the icons it shows, with every shape's box in the
+    // icon's own 16 × 16 grid.
+    function transport() {
+      const row = document.querySelector('.animate-transport');
+      if (!row) return null;
+      return Array.from(row.querySelectorAll('button')).map((b) => ({
+        id: b.id,
+        ariaLabel: b.getAttribute('aria-label'),
+        title: b.getAttribute('title'),
+        text: b.textContent.trim(),
+        color: getComputedStyle(b).color,
+        box: boxOf(b),
+        icons: Array.from(b.querySelectorAll('svg'))
+          .filter((svg) => svg.getClientRects().length > 0)
+          .map((svg) => ({
+            name: svg.getAttribute('class'),
+            box: boxOf(svg),
+            viewBox: svg.getAttribute('viewBox'),
+            fills: Array.from(svg.querySelectorAll('path')).map((p) => getComputedStyle(p).fill),
+            shapes: Array.from(svg.querySelectorAll('path')).map((p) => {
+              const r = p.getBBox();
+              return { x: r.x, y: r.y, width: r.width, height: r.height };
+            }),
+          })),
+      }));
     }
     // A slice panel's index steppers, Field A's and Field B's (#1041).
     function steppers() {
@@ -552,6 +610,8 @@ const DRIVER = `
         // A disclosure opens the way a click on its summary opens it.
         if ('open' in a) { if (el.open !== a.open) el.querySelector('summary').click(); continue; }
         if ('focus' in a) { el.focus(); continue; }
+        // A button pressed as a user presses it.
+        if ('click' in a) { el.click(); continue; }
         // A narrower or wider panel, as a user drags its edge.
         if ('width' in a) { el.style.width = a.width; resized = true; continue; }
         if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
@@ -585,6 +645,8 @@ export interface RealPanel {
       checked?: boolean;
       open?: boolean;
       focus?: boolean;
+      /** Click it, as a user presses a button. */
+      click?: boolean;
       width?: string;
     }>,
   ): Promise<PageState>;

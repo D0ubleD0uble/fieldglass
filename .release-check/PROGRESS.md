@@ -133,7 +133,7 @@ Checks to run again once the issue's fix has merged and the addon and extension 
 | #1039 | Both export buttons in one row (GRIB and slice panels). The CSV dialog opens in the file's folder with a suggested `.csv` name. Typing `out` saves `out.csv`. |  |
 | #1040 | Open Zarr Store on `fixtures/stores`: plain message listing the stores inside. On `v2_problems`: a plain lead sentence, no raw codec or dtype tokens. |  |
 | #1041 | `ncep_air_levels_ltm.nc` level 5: 500 millibar beside the stepper, in the Animate label and in the subtitle. `ncep_air_daily_2024.nc` time 14: 2024-01-15. Compare: Field B's steppers labelled and set apart, `0–11 · level` spaced. | in plan §2, §3 |
-| #1042 | Animate buttons: matching SVG icons, equal size, centred; back and forward mirror. |  |
+| #1042 | Animate buttons: matching SVG icons, equal size, centred; back and forward mirror. Play becomes pause without the button changing size; the icons stay legible in a light and a dark theme (button theming is #1118). | in plan §3 |
 | #1043 | `ncep_air_levels_ltm.nc` 30°S 25°E along `level`: an upright profile with the surface at the bottom and millibar ticks. Level × lat section: ground at the bottom by default. Time × lat on the daily file: no colliding end labels. The Siberia time plot keeps date ticks. The sparse plot still shows two unjoined points. |  |
 | #1045 | `gfs_wind.grib2` arrows: no band along the top or bottom edge in Equirectangular, and no starburst at either pole in Orthographic ±90. | in plan §6, plus arrowheads square on their shafts (PR #1089) |
 | #1046 | `gfs_wind.grib2` arrows: the key is a drawn arrow matching the longest on the map, and follows spacing and projection changes. |  |
