@@ -122,10 +122,14 @@ consolidated inline and zstd-compressed. Written by the same script with
 reproducible byte for byte.
 
 `windows_oracle.json` records, per store, the chunks of the coordinate arrays and
-three windows (a box and a time index each): the rows and column runs the box
+five windows (a box and a time index each): the rows and column runs the box
 holds, the chunks those cells sit in with their keys, and the window's values as
 xarray reads them back from the store. A cell is in a box when its centre is,
-and columns are ordered eastward from the box's west edge. The script computes
+edges included, and columns are ordered eastward from the box's west edge. A
+window is at least two cells each way, so a box holding one row or column takes
+the next one (wrapping in longitude, the one before at the last row). The cases
+cross chunk edges, cross the seam, cover the whole grid, put every edge on a
+centre, and hold one cell at the grid's corner. The script computes
 all of it from the coordinate values, independently of the Rust under test.
 `crates/fieldglass/tests/zarr_window.rs` and
 `crates/fieldglass-wasm/tests/node/zarr.mjs` read it.

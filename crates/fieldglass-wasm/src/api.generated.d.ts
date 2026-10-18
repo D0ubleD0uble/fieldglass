@@ -2552,8 +2552,8 @@ export interface Warped {
  */
 export interface WindowPlan {
   /**
-   * The rows the box holds, `[start, end)` along the request's Y axis, in
-   * storage order.
+   * The rows the window holds, `[start, end)` along the request's Y axis,
+   * in storage order: the rows the box holds, and at least two.
    * `[0, 0]` when it holds none.
    */
   rows: [number, number];

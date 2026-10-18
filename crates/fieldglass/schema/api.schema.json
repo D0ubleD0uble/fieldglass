@@ -2967,7 +2967,7 @@
           "type": "integer"
         },
         "rows": {
-          "description": "The rows the box holds, `[start, end)` along the request's Y axis, in\nstorage order.\n`[0, 0]` when it holds none.",
+          "description": "The rows the window holds, `[start, end)` along the request's Y axis,\nin storage order: the rows the box holds, and at least two.\n`[0, 0]` when it holds none.",
           "items": {
             "format": "uint64",
             "minimum": 0,

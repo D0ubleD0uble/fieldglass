@@ -41,7 +41,7 @@ use fieldglass::{
     SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo,
     VectorOptions, VectorPairing, Vertical, WarpOptions, WarpTarget, Warped,
 };
-// The window planner's (#1083), behind `netcdf` or `zarr`, both default.
+// The window planner's (#1083), behind `zarr`, a default feature.
 use fieldglass::{ChunkRef, WindowPlan, WindowRequest};
 // The planner's wire types (#1081). `fetchplan` is a default feature, so this
 // suite names them unconditionally: a build without it is not one this file is

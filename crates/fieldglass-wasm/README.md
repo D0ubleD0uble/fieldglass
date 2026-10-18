@@ -155,7 +155,14 @@ are under **Measured**.
 import init, { openStore } from './pkg/web-zarr/fieldglass_wasm.js';
 await init();
 
-const get = async (key) => new Uint8Array(await (await fetch(`${store}/${key}`)).arrayBuffer());
+// An object's bytes, or `null` for one the store does not hold: a sparse array
+// leaves chunks unwritten, and a 404 for one is its fill value, not an error.
+const get = async (key) => {
+  const response = await fetch(`${store}/${key}`);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`${key}: HTTP ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+};
 
 // 1. The metadata: `zarr.json` for v3, `.zmetadata` for a consolidated v2 store.
 const objects = new Map([['zarr.json', await get('zarr.json')]]);
@@ -181,14 +188,26 @@ ds = openStore(objects);
 const field = ds.decodeWindow(request);  // a field like any other: palette, warp, probe
 ```
 
-A cell is in the box when its centre is. A box over the antimeridian runs past
-180 (`[.., 170, 190]`) rather than wrapping, and on a global grid it comes back
-as two column runs decoded as one window. Windows are planned over slices placed
-on a regular lat/lon grid, as 1-D latitude and longitude coordinates place them;
-anything else throws `unsupported`. **A key you
-do not pass reads as absent**, which for a chunk is the fill value, exactly like
-a chunk the store never wrote, so pass every key a plan names. A chunk whose
-fetch came back 404 can be left out or passed as `null`.
+A cell is in the box when its centre is, edges included (to a billionth of a
+cell, so an edge written as a centre's coordinate holds it). A box over the
+antimeridian runs past 180 (`[.., 170, 190]`) rather than wrapping, and on a
+global grid it comes back as two column runs decoded as one window. A window is
+at least two cells each way: one row or column has no spacing to place it by,
+so a box that holds one takes the next one as well, and the plan names its
+chunks. Windows are planned over slices placed on a regular lat/lon grid, as
+1-D latitude and longitude coordinates place them; anything else throws
+`unsupported`. Planning before the coordinate chunks are in the map throws
+`invalid_option` naming the keys to fetch.
+
+**A key you do not pass reads as absent**, which for a chunk is the fill value,
+exactly like a chunk the store never wrote, so pass every key a plan names. A
+chunk whose fetch came back 404 can be left out or passed as `null`, as `get`
+above does.
+
+**A sharded array plans whole shards.** In a v3 store with `sharding_indexed`,
+each planned key is a shard, and a window fetches every shard it touches in
+full, inner chunks it does not need included. Fetching only the inner chunks
+by range, through the shard index, is not done yet.
 
 ### Which way up a raster comes out
 
@@ -457,18 +476,18 @@ locally (rustc 1.98, wasm-bindgen 0.2.129, binaryen 132, `build.sh web`, gzip
 level 9 as the gate measures it), against this branch's default build, which is
 byte-identical to master's:
 
-| Build | `.wasm` bytes | gzipped bytes | gzipped vs default |
+| Build (local) | `.wasm` bytes | gzipped bytes | gzipped vs default |
 |---|---:|---:|---:|
 | default | 1,627,492 | 632,104 | |
-| `--features=zarr` | 1,856,322 | 737,320 | +105,216 (+16.6%) |
+| `--features=zarr` | 1,859,338 | 738,550 | +106,446 (+16.8%) |
 | `--features=fetchplan` | 1,920,568 | 749,553 | +117,449 (+18.6%) |
-| `--features=fetchplan,zarr` | 2,089,365 | 815,876 | +183,772 (+29.1%) |
-| a Zarr-only module (`zarr`, `render`, `analysis`; no GRIB or NetCDF) | 635,462 | 279,300 | a page loads it as well as, or instead of, the default |
+| `--features=fetchplan,zarr` | 2,092,532 | 817,175 | +185,071 (+29.3%) |
+| a Zarr-only module (`zarr`, `render`, `analysis`; no GRIB or NetCDF) | 639,242 | 280,935 | a page loads it as well as, or instead of, the default |
 
 Zarr adds the store walker, its metadata parser and `serde_json`, blosc with
 LZ4 and BloscLZ, and sharding; zstd and DEFLATE are already in the default
 build for NetCDF. Beside `fetchplan`, which already carries `serde_json`, it adds
-66,323 gzipped bytes rather than 105,216.
+67,622 gzipped bytes rather than 106,446.
 
 Two things worth knowing before optimising further:
 

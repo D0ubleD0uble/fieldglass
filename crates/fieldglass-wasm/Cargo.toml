@@ -75,8 +75,8 @@ fetchplan = ["fieldglass/fetchplan", "dep:serde_json"]
 # `fetchplan` is. It brings the Zarr walker and its codecs: blosc with its five
 # inner compressors, LZ4 and BloscLZ, zstd (already here for NetCDF), and v3
 # sharding, and `serde_json` for the metadata documents. Measured locally against
-# binaryen 132 it adds about 105 KB gzipped (+16.6%) to this module, or about
-# 66 KB beside `fetchplan`, which already carries `serde_json`; the README has
+# binaryen 132 it adds about 106 KB gzipped (+16.8%) to this module, or about
+# 68 KB beside `fetchplan`, which already carries `serde_json`; the README has
 # the figures and #1083 the decision. CI builds it separately (`build.sh nodejs
 # --features=zarr`) to run its test.
 #

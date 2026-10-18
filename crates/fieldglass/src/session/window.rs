@@ -22,7 +22,10 @@
 //!
 //! A cell is in the box when its centre is: latitude in `[lat_min, lat_max]`,
 //! and longitude on the eastward arc from `lon_min` to `lon_max`, with both
-//! edges included. The box follows the workspace convention for longitude
+//! edges included. "Included" allows a billionth of a cell either way, so an
+//! edge written as a centre's own coordinate holds that centre although the
+//! grid places it an ulp away (`1234 * 0.1` is 123.39999999999999). The box
+//! follows the workspace convention for longitude
 //! (`LonLatBox`): `lon_max >= lon_min`, and a box over the antimeridian runs
 //! past 180 or below -180 rather than wrapping its bounds. An arc of 360 degrees
 //! or more holds every column. A host that wants the cells a view only partly
@@ -37,6 +40,16 @@
 //! from the box's west edge, read as two regions. On a grid that does not close,
 //! cells at both ends of a box with a gap between them are read as the one
 //! rectangle that spans both.
+//!
+//! **A window is at least two cells along each axis.** One row or one column
+//! states no spacing, so a field that narrow has no placement: it would decode,
+//! and then probe to nothing and draw blank. A box that holds one row takes the
+//! next one too (the one before it at the grid's last row), and one column
+//! takes the next column east (wrapping on a grid that closes, the one before
+//! it at the edge of one that does not). The plan names the chunks of the
+//! widened window, so what a host fetches is still exactly what it decodes.
+//! Widening rather than refusing because the box that holds one cell is a
+//! deep zoom, which is exactly when a host wants a field back.
 //!
 //! # What is windowed
 //!
@@ -146,8 +159,8 @@ pub struct ChunkRef {
 #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct WindowPlan {
-    /// The rows the box holds, `[start, end)` along the request's Y axis, in
-    /// storage order.
+    /// The rows the window holds, `[start, end)` along the request's Y axis,
+    /// in storage order: the rows the box holds, and at least two.
     /// `[0, 0]` when it holds none.
     pub rows: [u64; 2],
     /// The columns, as `[start, end)` runs along the request's X axis in the order the
@@ -232,19 +245,12 @@ impl Session {
     /// [`variables`](Self::variables).
     pub fn coordinate_chunks(&self, variable: u32) -> Result<Option<Vec<ChunkRef>>, Error> {
         let (arrays, var) = self.arrays_variable(variable, "coordinate_chunks")?;
-        let source = arrays.source.as_ref();
         let mut out = Vec::new();
-        for axis in &var.dims {
-            let Some(coordinate) = source.array(&axis.name) else {
-                continue;
-            };
-            if coordinate.dimensions.len() != 1 || coordinate.dimensions[0] != axis.name {
-                continue;
-            }
-            let whole = 0..axis.length;
-            match arrays.chunk_refs(&axis.name, std::slice::from_ref(&whole))? {
+        for d in 0..var.dims.len() {
+            match arrays.coordinate_refs(&var, d)? {
                 Some(chunks) => out.extend(chunks),
-                None => return Ok(None),
+                None if !arrays.is_keyed() => return Ok(None),
+                None => {}
             }
         }
         Ok(arrays.is_keyed().then_some(out))
@@ -264,8 +270,10 @@ impl Session {
     /// [`Error::NoSuchMessage`] for a variable index outside
     /// [`variables`](Self::variables); [`Error::InvalidOption`] for axes that
     /// are the same or outside the variable, a `slice_indices` of the wrong
-    /// length or past an axis, and a box that is not finite or has an edge
-    /// below its opposite; [`Error::Unsupported`] for a slice placed on
+    /// length or past an axis, a box that is not finite or has an edge below
+    /// its opposite, and a store that holds no object for a chunk of the two
+    /// horizontal coordinates (named, so the host knows what to fetch);
+    /// [`Error::Unsupported`] for a slice placed on
     /// anything but a regular lat/lon grid running west to east; and a decode
     /// failure reading the coordinates.
     pub fn plan_window(&self, request: &WindowRequest) -> Result<WindowPlan, Error> {
@@ -482,6 +490,31 @@ impl Session {
             });
         }
 
+        // A box is matched against the two horizontal coordinates, and a
+        // coordinate chunk the host has not fetched reads as the fill value,
+        // which places nothing or places it wrong. Named instead, so the host
+        // knows what to fetch.
+        let mut absent = Vec::new();
+        for d in [y, x] {
+            if let Some(chunks) = arrays.coordinate_refs(&var, d)? {
+                let keys: Vec<&str> = chunks.iter().map(|c| c.key.as_str()).collect();
+                absent.extend(arrays.source.absent(&keys)?);
+            }
+        }
+        if !absent.is_empty() {
+            return Err(Error::InvalidOption {
+                detail: format!(
+                    "the store holds no {}: fetch the coordinate chunks `coordinate_chunks` \
+                     names before planning a window",
+                    absent
+                        .iter()
+                        .map(|k| format!("`{k}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            });
+        }
+
         let placement = arrays.placement(&var, y, x)?;
         let scan = placement.scan.unwrap_or_else(Scan::north_down);
         let whole = match &placement.geometry {
@@ -500,17 +533,35 @@ impl Session {
         let forward = placement.geometry.forward_at();
         let lats: Vec<Option<f64>> = (0..whole.nj).map(|j| forward(0, j).map(|p| p.0)).collect();
         let lons: Vec<Option<f64>> = (0..whole.ni).map(|i| forward(i, 0).map(|p| p.1)).collect();
+        // A billionth of a cell, so an edge on a centre holds it.
+        let slack = |a: Option<f64>, b: Option<f64>| match (a, b) {
+            (Some(a), Some(b)) => (b - a).abs() * 1e-9,
+            _ => 0.0,
+        };
+        let (lat_slack, lon_slack) = (slack(lats[0], lats[1]), slack(lons[0], lons[1]));
         let rows = span(
             &lats
                 .iter()
-                .map(|v| v.is_some_and(|lat| (lat_min..=lat_max).contains(&lat)))
+                .map(|v| {
+                    v.is_some_and(|lat| lat >= lat_min - lat_slack && lat <= lat_max + lat_slack)
+                })
                 .collect::<Vec<_>>(),
         );
         let inside: Vec<bool> = lons
             .iter()
-            .map(|v| v.is_some_and(|lon| on_arc(lon, lon_min, lon_max)))
+            .map(|v| v.is_some_and(|lon| on_arc(lon, lon_min, lon_max, lon_slack)))
             .collect();
-        let columns = column_runs(&inside, placement.geometry.is_periodic_x());
+        let periodic = placement.geometry.is_periodic_x();
+        let columns = column_runs(&inside, periodic);
+        // At least two cells along each axis, or the window has no placement.
+        let (rows, columns) = if rows.is_empty() || columns.is_empty() {
+            (rows, columns)
+        } else {
+            (
+                widen_rows(rows, u64::from(whole.nj)),
+                widen_columns(columns, u64::from(whole.ni), periodic),
+            )
+        };
         Ok(Window {
             arrays,
             var,
@@ -554,6 +605,32 @@ impl Arrays {
     fn is_keyed(&self) -> bool {
         self.source.is_keyed()
     }
+
+    /// The chunks of the coordinate array of `var`'s axis `d`, or `None` when
+    /// the axis has none or the container is not keyed.
+    ///
+    /// The coordinate is the 1-D array named for the axis, found the way CF
+    /// placement finds it: an axis's name is qualified by its group
+    /// (`grp/lat`), so its coordinate is the array of that qualified name whose
+    /// one dimension is the axis's own unqualified name.
+    fn coordinate_refs(
+        &self,
+        var: &RenderableArray,
+        d: usize,
+    ) -> Result<Option<Vec<ChunkRef>>, FieldglassError> {
+        let Some(axis) = var.dims.get(d) else {
+            return Ok(None);
+        };
+        let own = axis.name.rsplit('/').next().unwrap_or(&axis.name);
+        let Some(coordinate) = self.source.array(&axis.name) else {
+            return Ok(None);
+        };
+        if coordinate.dimensions.len() != 1 || coordinate.dimensions[0] != own {
+            return Ok(None);
+        }
+        let whole = 0..axis.length;
+        self.chunk_refs(&axis.name, std::slice::from_ref(&whole))
+    }
 }
 
 /// The refusal for a window larger than this target can address.
@@ -563,11 +640,44 @@ fn too_large() -> Error {
     }
 }
 
-/// Whether `lon` lies on the eastward arc from `west` to `east`, both included.
-/// An arc of a full turn or more holds every longitude.
-fn on_arc(lon: f64, west: f64, east: f64) -> bool {
+/// Whether `lon` lies on the eastward arc from `west` to `east`, both included,
+/// within `slack` degrees either way. An arc of a full turn or more holds every
+/// longitude.
+fn on_arc(lon: f64, west: f64, east: f64, slack: f64) -> bool {
     let arc = east - west;
-    arc >= 360.0 || (lon - west).rem_euclid(360.0) <= arc
+    let offset = (lon - west).rem_euclid(360.0);
+    // `offset` just under a full turn is `lon` a hair west of `west`.
+    arc >= 360.0 || offset <= arc + slack || offset >= 360.0 - slack
+}
+
+/// A row run of one row, taken to two: the next row, or the one before it at
+/// the grid's last row. `n` is the grid's row count, at least two.
+fn widen_rows(rows: Range<u64>, n: u64) -> Range<u64> {
+    if rows.end - rows.start != 1 {
+        rows
+    } else if rows.end < n {
+        rows.start..rows.end + 1
+    } else {
+        rows.start - 1..rows.end
+    }
+}
+
+/// A single column taken to two: the next column east, wrapping onto the first
+/// on a grid that closes on itself, or the one before it at the edge of one
+/// that does not. `n` is the grid's column count, at least two.
+fn widen_columns(columns: Vec<Range<u64>>, n: u64, periodic: bool) -> Vec<Range<u64>> {
+    match columns[..] {
+        [ref only] if only.end - only.start == 1 => {
+            if only.end < n {
+                std::iter::once(only.start..only.end + 1).collect()
+            } else if periodic {
+                vec![only.clone(), 0..1]
+            } else {
+                std::iter::once(only.start - 1..only.end).collect()
+            }
+        }
+        _ => columns,
+    }
 }
 
 /// The smallest `start..end` holding every `true` in `selected`, or `0..0`.
@@ -658,6 +768,10 @@ pub(super) trait Keyed: ArraySource {
 
     /// Whether [`chunk_keys`](Self::chunk_keys) answers at all.
     fn is_keyed(&self) -> bool;
+
+    /// Which of `keys` the container holds no object for. Empty for a
+    /// container not stored as keyed objects.
+    fn absent(&self, keys: &[&str]) -> Result<Vec<String>, FieldglassError>;
 }
 
 impl<O: ObjectSource> Keyed for fieldglass_zarr::ZarrStore<O> {
@@ -667,6 +781,17 @@ impl<O: ObjectSource> Keyed for fieldglass_zarr::ZarrStore<O> {
 
     fn is_keyed(&self) -> bool {
         true
+    }
+
+    fn absent(&self, keys: &[&str]) -> Result<Vec<String>, FieldglassError> {
+        let objects = self.objects();
+        let mut out = Vec::new();
+        for key in keys {
+            if objects.get(key)?.is_none() {
+                out.push((*key).to_string());
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -682,6 +807,10 @@ where
     fn is_keyed(&self) -> bool {
         false
     }
+
+    fn absent(&self, _keys: &[&str]) -> Result<Vec<String>, FieldglassError> {
+        Ok(Vec::new())
+    }
 }
 
 #[cfg(test)]
@@ -694,19 +823,19 @@ mod tests {
 
     #[test]
     fn an_arc_is_eastward_from_its_west_edge_and_holds_both_edges() {
-        assert!(on_arc(10.0, 0.0, 10.0));
-        assert!(on_arc(0.0, 0.0, 10.0));
-        assert!(!on_arc(10.5, 0.0, 10.0));
+        assert!(on_arc(10.0, 0.0, 10.0, 0.0));
+        assert!(on_arc(0.0, 0.0, 10.0, 0.0));
+        assert!(!on_arc(10.5, 0.0, 10.0, 0.0));
         // Across the antimeridian, in both spellings of a longitude.
-        assert!(on_arc(-175.0, 170.0, 190.0));
-        assert!(on_arc(185.0, 170.0, 190.0));
-        assert!(on_arc(300.0, -75.0, 75.0));
-        assert!(!on_arc(180.0, -75.0, 75.0));
+        assert!(on_arc(-175.0, 170.0, 190.0, 0.0));
+        assert!(on_arc(185.0, 170.0, 190.0, 0.0));
+        assert!(on_arc(300.0, -75.0, 75.0, 0.0));
+        assert!(!on_arc(180.0, -75.0, 75.0, 0.0));
         // A full turn holds everything, a point holds itself.
-        assert!(on_arc(123.0, -180.0, 180.0));
-        assert!(on_arc(42.0, 42.0, 42.0));
-        assert!(on_arc(402.0, 42.0, 42.0));
-        assert!(!on_arc(42.5, 42.0, 42.0));
+        assert!(on_arc(123.0, -180.0, 180.0, 0.0));
+        assert!(on_arc(42.0, 42.0, 42.0, 0.0));
+        assert!(on_arc(402.0, 42.0, 42.0, 0.0));
+        assert!(!on_arc(42.5, 42.0, 42.0, 0.0));
     }
 
     #[test]
@@ -731,6 +860,36 @@ mod tests {
         assert_eq!(column_runs(&bits("..##..##...."), false), vec![2..8]);
         // A closed grid read circularly still finds two runs here.
         assert_eq!(column_runs(&bits("..##..##...."), true), vec![2..8]);
+    }
+
+    #[test]
+    fn a_slack_holds_a_centre_an_ulp_outside_either_edge() {
+        // A few ulps west of the edge, where a 0.1-degree grid's forward map
+        // can place the centre an edge names.
+        let centre = 123.4 - 1e-12;
+        assert!(
+            !on_arc(centre, 123.4, 123.5, 0.0),
+            "the case this exists for"
+        );
+        assert!(on_arc(centre, 123.4, 123.5, 1e-10));
+        assert!(on_arc(123.5_f64.next_up(), 123.4, 123.5, 1e-10));
+        assert!(!on_arc(123.5 + 1e-6, 123.4, 123.5, 1e-10));
+    }
+
+    #[test]
+    // The ranges are the values under test, not a mistyped `vec![x; n]`.
+    #[allow(clippy::single_range_in_vec_init)]
+    fn a_single_row_or_column_is_widened_to_two() {
+        assert_eq!(widen_rows(3..4, 8), 3..5);
+        assert_eq!(widen_rows(7..8, 8), 6..8);
+        assert_eq!(widen_rows(2..5, 8), 2..5);
+        assert_eq!(widen_columns(vec![4..5], 12, true), vec![4..6]);
+        assert_eq!(widen_columns(vec![11..12], 12, true), vec![11..12, 0..1]);
+        assert_eq!(widen_columns(vec![11..12], 12, false), vec![10..12]);
+        assert_eq!(
+            widen_columns(vec![10..12, 0..1], 12, true),
+            vec![10..12, 0..1]
+        );
     }
 
     #[test]

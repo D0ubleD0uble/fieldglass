@@ -100,9 +100,12 @@ for (const store of ['window_v2', 'window_v3']) {
   const root = join(FIXTURES, 'windows', store);
   const keys = listing(root);
   const fetched = [];
+  // The README's `get`: bytes, or `null` for an object the store does not
+  // hold (a 404), which a sparse array's unwritten chunk is.
   const fetch = (key) => {
     fetched.push(key);
-    return new Uint8Array(readFileSync(join(root, ...key.split('/'))));
+    const path = join(root, ...key.split('/'));
+    return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
   };
   const expected = oracle[store];
 
@@ -115,6 +118,19 @@ for (const store of ['window_v2', 'window_v3']) {
   check(`${store}: lists t2m`, t2m !== undefined);
   const coordinates = handle.coordinateChunks(t2m.index);
   same(`${store}: the coordinate chunks`, coordinates, expected.coordinate_chunks);
+  // Planning before they are fetched names what to fetch.
+  let early;
+  try {
+    handle.planWindow({ variable: t2m.index, yDim: 1, xDim: 2, bounds: [0, 40, 0, 90], sliceIndices: [0, 0, 0] });
+  } catch (e) {
+    early = e;
+  }
+  same(`${store}: planning before the coordinates is invalid_option`, early?.code, 'invalid_option');
+  check(
+    `${store}: and names the coordinate keys`,
+    early !== undefined && coordinates.filter((c) => c.array !== 'time').every((c) => early.message.includes(c.key)),
+    early?.message,
+  );
   for (const { key } of coordinates) objects.set(key, fetch(key));
   handle.free();
   handle = wasm.openStore(objects);
@@ -163,6 +179,32 @@ for (const store of ['window_v2', 'window_v3']) {
     ]);
     field.free();
     windowed.free();
+
+    // A planned chunk that came back 404 is passed as `null`: its cells are
+    // the fill value (NaN here, so masked) and every other cell is unchanged.
+    if (window.name === 'crosses_chunk_edges') {
+      const [gone, ...kept] = plan.chunks;
+      const sparse = new Map([...objects]);
+      sparse.set(gone.key, null);
+      for (const { key } of kept) sparse.set(key, fetch(key));
+      const partial = wasm.openStore(sparse);
+      const f = partial.decodeWindow(request);
+      const mask = Array.from(f.mask());
+      const values = Array.from(f.values());
+      const ni = window.longitude.length;
+      const cols = window.columns.flatMap(([a, b]) => Array.from({ length: b - a }, (_, k) => a + k));
+      let right = true;
+      for (let at = 0; at < mask.length; at += 1) {
+        const j = window.rows[0] + Math.floor(at / ni);
+        const i = cols[at % ni];
+        const inGone = Math.floor(j / 3) === gone.index[1] && Math.floor(i / 4) === gone.index[2];
+        if (inGone ? mask[at] !== 0 : mask[at] !== 1 || values[at] !== window.values[at]) right = false;
+      }
+      check(`${name}: a 404 chunk passed as null reads as its fill, the rest unchanged`, right);
+      check(`${name}: and some cells are masked`, mask.includes(0));
+      f.free();
+      partial.free();
+    }
   }
 
   // Nothing beyond the metadata, the coordinates and the planned chunks was

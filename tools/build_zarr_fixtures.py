@@ -729,6 +729,13 @@ WINDOW_CASES = [
     ("crosses_the_seam", [55.0, 75.0, -75.0, 75.0], 2),
     # Every cell: the grid's own column order, not one starting at -180.
     ("whole_grid", [-90.0, 90.0, -180.0, 180.0], 0),
+    # Every edge exactly on a centre (latitudes 40 and 10, longitudes 60 and
+    # 120): edges are included.
+    ("edges_on_centres", [10.0, 40.0, 60.0, 120.0], 1),
+    # One cell, the grid's last row and last column. A window is at least two
+    # cells each way, so it takes the row before (there is none after) and the
+    # first column, across the seam.
+    ("one_cell_at_the_corner", [-1.0, 1.0, 329.0, 331.0], 0),
 ]
 
 
@@ -759,15 +766,29 @@ def window_selection(lat, lon, bounds):
     """The cells a box holds, by their centres: the rows whose latitude is in
     `[lat_min, lat_max]`, and the columns whose longitude is in the eastward arc
     from `lon_min` to `lon_max`, ordered eastward from `lon_min` — or every
-    column in storage order when the arc is the whole circle."""
+    column in storage order when the arc is the whole circle. A single row or
+    column is widened to two (see `widen`)."""
     lat_min, lat_max, lon_min, lon_max = bounds
     rows = [j for j, v in enumerate(lat) if lat_min <= v <= lat_max]
     span = lon_max - lon_min
     if span >= 360.0:
-        return rows, list(range(len(lon)))
+        return widen(rows, len(lat), periodic=False), list(range(len(lon)))
     east = [((v - lon_min) % 360.0, i) for i, v in enumerate(lon)]
     cols = [i for offset, i in sorted(east) if offset <= span]
-    return rows, cols
+    return widen(rows, len(lat), periodic=False), widen(cols, len(lon), periodic=True)
+
+
+def widen(indices, n, *, periodic):
+    """One index taken to two, because one row or column states no spacing and
+    so has no placement: the next one, wrapping on a periodic axis, or the one
+    before it at the end of one that is not. The fixture's longitudes are
+    global, its latitudes are not."""
+    if len(indices) != 1:
+        return indices
+    (i,) = indices
+    if i + 1 < n:
+        return [i, i + 1]
+    return [i, 0] if periodic else [i - 1, i]
 
 
 def runs(indices):

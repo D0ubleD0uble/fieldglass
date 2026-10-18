@@ -125,8 +125,13 @@ impl Handle {
     /// or two when the box crosses the seam of a global grid. A box that holds
     /// no cell is an empty plan, not an error.
     ///
-    /// Throws `unsupported` for a slice not placed on a regular lat/lon grid,
-    /// as 1-D latitude and longitude coordinates place one.
+    /// A window is at least two cells each way, since one row or column cannot
+    /// be placed: a box that holds one takes the next one too.
+    ///
+    /// Throws `invalid_option`, naming the keys, when the map lacks a chunk of
+    /// the coordinates `coordinateChunks` named, and `unsupported` for a slice
+    /// not placed on a regular lat/lon grid, as 1-D latitude and longitude
+    /// coordinates place one. A sharded array's plan names whole shards.
     #[wasm_bindgen(js_name = planWindow, unchecked_return_type = "WindowPlan")]
     pub fn plan_window(
         &self,

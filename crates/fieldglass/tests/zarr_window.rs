@@ -550,6 +550,136 @@ fn a_variable_stored_longitude_first_windows_as_rows_of_latitude() {
     );
 }
 
+/// A v3 array's `zarr.json`, raw little-endian `float64` through the `bytes`
+/// codec, for the in-memory stores below.
+fn v3_array(shape: &str, chunks: &str, dims: &str) -> Vec<u8> {
+    format!(
+        "{{\"zarr_format\":3,\"node_type\":\"array\",\"shape\":{shape},\"data_type\":\"float64\",\
+         \"chunk_grid\":{{\"name\":\"regular\",\"configuration\":{{\"chunk_shape\":{chunks}}}}},\
+         \"chunk_key_encoding\":{{\"name\":\"default\",\"configuration\":{{\"separator\":\"/\"}}}},\
+         \"fill_value\":\"NaN\",\"codecs\":[{{\"name\":\"bytes\",\"configuration\":{{\"endian\":\"little\"}}}}],\
+         \"dimension_names\":{dims},\"attributes\":{{}}}}"
+    )
+    .into_bytes()
+}
+
+fn f8(values: &[f64]) -> Vec<u8> {
+    values.iter().flat_map(|v| v.to_le_bytes()).collect()
+}
+
+const V3_GROUP: &[u8] = b"{\"zarr_format\":3,\"node_type\":\"group\",\"attributes\":{}}";
+
+/// `grp/t(lat, lon)` with `grp/lat` and `grp/lon` beside it: what a store
+/// written from a nested xarray `DataTree` holds.
+fn sub_group_store(with_coordinates: bool) -> MemoryObjects {
+    let mut objects = vec![
+        ("zarr.json", V3_GROUP.to_vec()),
+        ("grp/zarr.json", V3_GROUP.to_vec()),
+        ("grp/lat/zarr.json", v3_array("[3]", "[3]", "[\"lat\"]")),
+        ("grp/lon/zarr.json", v3_array("[4]", "[4]", "[\"lon\"]")),
+        (
+            "grp/t/zarr.json",
+            v3_array("[3,4]", "[3,2]", "[\"lat\",\"lon\"]"),
+        ),
+        ("grp/t/c/0/0", f8(&[0.0, 1.0, 10.0, 11.0, 20.0, 21.0])),
+        ("grp/t/c/0/1", f8(&[2.0, 3.0, 12.0, 13.0, 22.0, 23.0])),
+    ];
+    if with_coordinates {
+        objects.push(("grp/lat/c/0", f8(&[10.0, 20.0, 30.0])));
+        objects.push(("grp/lon/c/0", f8(&[0.0, 90.0, 180.0, 270.0])));
+    }
+    MemoryObjects::from_iter(objects)
+}
+
+#[test]
+fn a_variable_in_a_sub_group_names_its_own_groups_coordinates() {
+    let session = Session::open_store(sub_group_store(true)).expect("opens");
+    let t = variable(&session, "grp/t");
+    let keys: Vec<(String, String)> = session
+        .coordinate_chunks(t)
+        .expect("plans")
+        .expect("keyed")
+        .into_iter()
+        .map(|c| (c.array, c.key))
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            ("grp/lat".to_string(), "grp/lat/c/0".to_string()),
+            ("grp/lon".to_string(), "grp/lon/c/0".to_string()),
+        ]
+    );
+    let asked = WindowRequest::new(t, 0, 1, [15.0, 30.0, 170.0, 280.0], vec![0, 0]);
+    let plan = session.plan_window(&asked).expect("plans");
+    assert_eq!((plan.rows, plan.columns.clone()), ([1, 3], vec![[2, 4]]));
+    let planned: Vec<String> = plan
+        .chunks
+        .expect("keyed")
+        .into_iter()
+        .map(|c| c.key)
+        .collect();
+    assert_eq!(planned, ["grp/t/c/0/1"]);
+    let field = session
+        .decode_window(&asked, &DecodeOptions::default())
+        .expect("decodes");
+    assert_eq!(field.values.to_f64().to_vec(), [12.0, 13.0, 22.0, 23.0]);
+}
+
+#[test]
+fn planning_before_the_coordinates_are_fetched_names_them() {
+    let session = Session::open_store(sub_group_store(false)).expect("opens");
+    let t = variable(&session, "grp/t");
+    let asked = WindowRequest::new(t, 0, 1, [15.0, 30.0, 170.0, 280.0], vec![0, 0]);
+    for err in [
+        session.plan_window(&asked).expect_err("no coordinates"),
+        session
+            .decode_window(&asked, &DecodeOptions::default())
+            .expect_err("no coordinates"),
+    ] {
+        assert_eq!(err.code(), "invalid_option", "{err}");
+        let message = err.message();
+        assert!(
+            message.contains("grp/lat/c/0") && message.contains("grp/lon/c/0"),
+            "the missing objects are named: {message}"
+        );
+    }
+}
+
+#[test]
+fn a_box_edge_on_a_centre_holds_it_whatever_the_rounding() {
+    // A 0.1-degree global row of 3,600 columns: column 1234 is placed at
+    // `1234 * 0.1`, which is 123.39999999999999, one ulp short of 123.4. A box
+    // whose edges are that centre's own longitude holds it.
+    let n = 3600u32;
+    let lon: Vec<f64> = (0..n).map(|i| f64::from(i) / 10.0).collect();
+    let objects = vec![
+        ("zarr.json", V3_GROUP.to_vec()),
+        ("lat/zarr.json", v3_array("[2]", "[2]", "[\"lat\"]")),
+        ("lat/c/0", f8(&[0.0, 0.1])),
+        (
+            "lon/zarr.json",
+            v3_array(&format!("[{n}]"), &format!("[{n}]"), "[\"lon\"]"),
+        ),
+        ("lon/c/0", f8(&lon)),
+        (
+            "t/zarr.json",
+            v3_array(&format!("[2,{n}]"), "[2,100]", "[\"lat\",\"lon\"]"),
+        ),
+    ];
+    let session = Session::open_store(MemoryObjects::from_iter(objects)).expect("opens");
+    let t = variable(&session, "t");
+    for (bounds, columns) in [
+        ([0.0, 0.1, 123.4, 123.5], vec![[1234, 1236]]),
+        ([0.0, 0.1, 123.3, 123.4], vec![[1233, 1235]]),
+        ([0.1, 0.1, 359.9, 360.0], vec![[3599, 3600], [0, 1]]),
+    ] {
+        let plan = session
+            .plan_window(&WindowRequest::new(t, 0, 1, bounds, vec![0, 0]))
+            .expect("plans");
+        assert_eq!(plan.columns, columns, "{bounds:?}");
+    }
+}
+
 #[test]
 fn a_message_stream_has_no_windows() {
     let bytes = std::fs::read("../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2")
