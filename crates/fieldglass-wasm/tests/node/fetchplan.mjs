@@ -5,7 +5,7 @@
 //
 // One GFS field, planned the way a Worker plans it: parse the committed `.idx`,
 // select a record, build the `Range` header, check the envelope of the bytes
-// that range fetched (committed beside the sidecar), and open them. Then every
+// that range fetched (committed in crates/fieldglass/tests/fixtures), and open them. Then every
 // other answer the planner gives, compared against what the Rust planner gave
 // for the same input.
 //
@@ -14,7 +14,7 @@
 // The **headline** is checked against values from outside this project: the
 // offset and length come from the sidecar's own lines, the header is the one
 // the fixture was fetched from the bucket with, and the decoded field is what
-// eccodes reads (NOTICE.md beside the fixture).
+// eccodes reads (NOTICE.md beside each fixture).
 //
 // The **parity** half reads `crates/fieldglass/tests/fetch_plan_wire.json`,
 // which `fieldglass`'s own test records from the Rust planner: the queries, the
@@ -218,7 +218,7 @@ idx.free();
 // ---------------------------------------------------------------------------
 
 // ECMWF `r` on `pl` `50` and the 81,768 bytes at its `_offset`, committed
-// beside the sidecar. The line names the MARS `r` and the message decodes to
+// in crates/fieldglass/tests/fixtures. The line names the MARS `r` and the message decodes to
 // WMO `RH`, so the level is what tells two records apart: `pl 50` is 5000 Pa.
 {
   const index = wasm.parseEcmwfIndex(
