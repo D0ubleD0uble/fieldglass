@@ -110,6 +110,11 @@ export interface PageState {
   text: string;
   /** The status line under the image. */
   status: string;
+  /** The contour, arrow, overlay and export lines (#1051), each its own. */
+  contourStatus: string;
+  vectorStatus: string;
+  overlayStatus: string;
+  exportStatus: string;
   /** Whether the Animate row's Play button is disabled. */
   playDisabled: boolean;
   /** A GRIB panel's message picker, offered when its message is gone from a
@@ -469,6 +474,10 @@ const DRIVER = `
             .flatMap((el) => ['title', 'aria-label', 'placeholder'].map((a) => el.getAttribute(a) || '')),
         ).join('\\n'),
         status: byId('status').textContent,
+        contourStatus: byId('contour-status').textContent,
+        vectorStatus: byId('vector-status').textContent,
+        overlayStatus: byId('overlay-status').textContent,
+        exportStatus: byId('export-status').textContent,
         playDisabled: !!(byId('anim-play') && byId('anim-play').disabled),
         canvasVisibility: byId('canvas').style.visibility,
         linePlot: linePlot(),
