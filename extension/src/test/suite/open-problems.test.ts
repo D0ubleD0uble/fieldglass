@@ -73,8 +73,16 @@ function storesIn(folder: string): string[] {
     .sort();
 }
 
-function tabCount(): number {
-  return vscode.window.tabGroups.all.flatMap((g) => g.tabs).length;
+function tabs(): vscode.Tab[] {
+  return vscode.window.tabGroups.all.flatMap((g) => g.tabs);
+}
+
+/** Fail if a tab is open now that was not in `before`. Compared by identity
+ *  rather than by count: a tab an earlier test left closing can go while this
+ *  one runs, and a count would read that as nothing opening. */
+function assertNoNewTab(before: readonly vscode.Tab[], why: string): void {
+  const added = tabs().filter((t) => !before.includes(t));
+  assert.deepStrictEqual(added.map((t) => t.label), [], why);
 }
 
 /** Toast text that only someone who knows the format can read. */
@@ -87,7 +95,7 @@ function assertPlain(message: string): void {
 suite("Open problems (#1040)", () => {
   test("a folder of stores names the stores in it", async () => {
     const p = await provider();
-    const before = tabCount();
+    const before = tabs();
     const shown = await capture(DETAILS, () => p.openZarrStore(vscode.Uri.file(zarrFixtures("stores"))));
 
     assert.strictEqual(shown.length, 2, JSON.stringify(shown));
@@ -109,7 +117,7 @@ suite("Open problems (#1040)", () => {
     assert.ok(dialog.modal, "Details opens a dialog");
     assert.ok(dialog.detail?.includes(zarrFixtures("stores")), String(dialog.detail));
     assert.match(dialog.detail ?? "", /\.zgroup/);
-    assert.strictEqual(tabCount(), before, "nothing should have opened");
+    assertNoNewTab(before, "nothing should have opened");
   });
 
   test("a long list of stores is cut short", async () => {
@@ -145,7 +153,7 @@ suite("Open problems (#1040)", () => {
 
   test("a store with nothing to draw leads with the plain sentence", async () => {
     const p = await provider();
-    const before = tabCount();
+    const before = tabs();
     const store = zarrFixtures("stores", "v2_problems");
     const shown = await capture(DETAILS, () => p.openZarrStore(vscode.Uri.file(store)));
 
@@ -163,7 +171,7 @@ suite("Open problems (#1040)", () => {
     assert.ok(dialog.detail?.includes(store), String(dialog.detail));
     assert.match(dialog.detail ?? "", /- names: .*"<U4"/);
     assert.match(dialog.detail ?? "", /- x2: dimension "x" has length 5/);
-    assert.strictEqual(tabCount(), before, "no empty panel should have opened");
+    assertNoNewTab(before, "no empty panel should have opened");
   });
 
   // A GRIB or NetCDF file the reader refuses, opened as a user opens it.
