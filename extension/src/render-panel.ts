@@ -4034,7 +4034,8 @@ export function renderImagePanelHtml(
             (Number.isFinite(vw) && vw > 0 ? vw : 1) * dpr, dpr);
           // A map too small for the key says so, rather than showing none
           // without a word (#1168). A canvas not laid out yet has no size to
-          // be too small for, and is drawn again once it has one.
+          // be too small for, and is drawn again once it has one (the resize
+          // observer below redraws the overlay when its size moves, #1178).
           const note = document.getElementById('vector-key-note');
           if (note) {
             note.textContent = drawn && drawn.leftOff && o.clientWidth > 0 ? VECTOR_KEY_LEFT_OFF : '';
@@ -4740,6 +4741,19 @@ export function renderImagePanelHtml(
           // the toolbar wraps, with no window resize), and on the window as
           // well, in case a resize is not observed.
           function refitIfStale() {
+            // The overlay is drawn at the size it has when a reply lands, and
+            // its backing store keeps that size. A map laid out later (a
+            // panel shown, widened or resized with no window resize) is drawn
+            // again, the arrow key with it (#1178). Only where the size is
+            // stale, so the redraw, which keeps it, never triggers itself.
+            const over = document.getElementById('overlay');
+            if (over && lastPayload) {
+              const ratio = window.devicePixelRatio || 1;
+              if (over.width !== Math.max(1, Math.round(over.clientWidth * ratio))
+                || over.height !== Math.max(1, Math.round(over.clientHeight * ratio))) {
+                drawOverlay();
+              }
+            }
             const wrap = document.getElementById('plot-wrap');
             const image = document.getElementById('canvas');
             const rail = document.getElementById('axis-y');
@@ -4755,7 +4769,7 @@ export function renderImagePanelHtml(
           window.addEventListener('resize', refitIfStale);
           if (typeof ResizeObserver === 'function') {
             const refit = new ResizeObserver(refitIfStale);
-            for (const id of ['axis-y', 'axis-x', 'canvas', 'line-plot']) {
+            for (const id of ['axis-y', 'axis-x', 'canvas', 'overlay', 'line-plot']) {
               const el = document.getElementById(id);
               if (el) refit.observe(el);
             }

@@ -141,14 +141,20 @@ async function arrowsAfter(
 ): Promise<Drawn> {
   await panel.waitSent(isType("vectorResult"), from.sent, `the arrows for ${what}`);
   for (;;) {
-    // A round trip through the page: everything sent before it is handled.
-    const state = await panel.drive([]);
+    // The newest request the page has made, and the reply to it, if the
+    // provider has sent one. The page is read only after that: a round trip
+    // through it handles everything sent before it, so the state read holds
+    // the arrows this reply drew. Read before the reply was looked for, the
+    // state could miss an overlay draw for a reply sent in between (#1178).
     const request = panel.received.filter(isType("vectorRequest")).pop();
     const result = panel.sent.find((m: Msg) => isType("vectorResult")(m) && m.seq === request.seq);
     if (!result) {
       await panel.waitSent((m: Msg) => isType("vectorResult")(m) && m.seq === request.seq, from.sent, `the arrows for ${what}`);
       continue;
     }
+    const state = await panel.drive([]);
+    // Another request may have gone out while the page was read.
+    if (panel.received.filter(isType("vectorRequest")).pop() !== request) continue;
     assert.ok(!result.error, `${what}: ${result.error}`);
     const grid = panel.sent.filter(isType("gridReady")).pop();
     if (keyed) assert.ok(state.vectorKey, `${what}: a key is drawn`);
@@ -628,6 +634,57 @@ suite("Vector key (#1046)", () => {
         assert.ok(run >= exported.key.length, `the key's shaft is ${run} px in the PNG, for ${exported.key.length}`);
         assert.ok(labelHeight(exported.image, exported.key) >= 7, "its label is drawn in the PNG");
       }
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(path.dirname(file), { recursive: true, force: true });
+    }
+  });
+
+  // #1178: arrows that arrive before the map has a size draw no key, and the
+  // page said it would draw one once the map had a size. Nothing did, so the
+  // key stayed off until some unrelated redraw. The map is taken out of the layout
+  // here, the arrows asked for, and put back with nothing else
+  // sent: the key has to come on its own.
+  test("a key whose arrows arrived before the map was laid out is drawn once it is", async function () {
+    this.timeout(120_000);
+    const p = await provider();
+    const file = pairFile();
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let from = mark(panel);
+      await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+      await panel.waitSent(isType("gridReady"), from.sent, "the equirectangular render");
+      from = mark(panel);
+      await panel.drive([
+        { id: "color-vectors", value: INK },
+        { id: "width-vectors", value: WEIGHT },
+        { id: "vector-field-v", value: 1 },
+        { id: "overlay-vectors", checked: true },
+      ]);
+      const laid = await arrowsAfter(panel, from, "Equirectangular");
+      assert.ok(laid.key.canvas.width > 1);
+
+      // No layout for the map: the arrows arrive, and there is nothing to draw
+      // a key on, nor a map to call too small.
+      await panel.drive([{ selector: ".canvas-wrap", display: "none" }]);
+      from = mark(panel);
+      await panel.drive([{ id: "vector-spacing", value: 12 }]);
+      const hidden = await arrowsAfter(panel, from, "a map out of the layout", false);
+      assert.strictEqual(hidden.state.vectorKey, null, "no key on a map out of the layout");
+      assert.ok(!hidden.state.text.includes(VECTOR_KEY_LEFT_OFF), "and no note about one");
+
+      // Laid out again, and no window resize, control or reply: the page redraws.
+      await panel.drive([{ selector: ".canvas-wrap", display: "" }]);
+      let back = await panel.drive([]);
+      for (let k = 0; k < 150 && !back.vectorKey; k++) {
+        await new Promise((r) => setTimeout(r, 20));
+        back = await panel.drive([]);
+      }
+      assert.ok(back.vectorKey, "the key is drawn once the map is laid out");
+      assert.ok(back.vectorKey.canvas.width > 1);
     } finally {
       panel.dispose();
       editor.close();

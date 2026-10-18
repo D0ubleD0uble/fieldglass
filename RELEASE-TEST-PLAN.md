@@ -218,7 +218,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 2, 3, 4, 5, 7, 8 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 3, 4, 5 |
 | `B: samples/0.6.0/air_v2.zarr`, `air_v3.zarr` | 2, 5 |
-| `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21 |
+| `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21, 45 |
 | `B: samples/0.6.0/cmc_pair.grib` | 6, 24 |
 | `B: samples/0.6.0/gfs_unnamed_pair.grib2` | 6 |
 | `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6 |

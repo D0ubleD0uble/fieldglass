@@ -846,6 +846,9 @@ const DRIVER = `
         if ('click' in a) { el.click(); continue; }
         // A narrower or wider panel, as a user drags its edge.
         if ('width' in a) { el.style.width = a.width; resized = true; continue; }
+        // An element taken out of the layout and put back. Not
+        // waited on and no resize is nudged, so the page is left to notice.
+        if ('display' in a) { el.style.display = a.display; continue; }
         if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
@@ -880,6 +883,8 @@ export interface RealPanel {
       /** Click it, as a user presses a button. */
       click?: boolean;
       width?: string;
+      /** `none` takes it out of the layout, an empty string puts it back. */
+      display?: string;
     }>,
   ): Promise<PageState>;
   /** Click the middle of the image, as a user reads the value there, or the
