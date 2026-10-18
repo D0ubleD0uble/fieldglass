@@ -3941,7 +3941,12 @@ export function renderImagePanelHtml(
         function drawOverlay(skipKey) {
           const o = document.getElementById('overlay');
           const ctx = o && o.getContext('2d');
-          if (!o || !ctx || !lastPayload) return;
+          if (!o || !ctx || !lastPayload) {
+            // Nothing is drawn, so no key, and nothing to say about one.
+            const keyNote = document.getElementById('vector-key-note');
+            if (keyNote) keyNote.textContent = '';
+            return;
+          }
           const dpr = window.devicePixelRatio || 1;
           // Size the backing store to the overlay's *content* box (the canvas
           // bitmap fills the content box, inside its border) so a raster pixel
@@ -4028,9 +4033,12 @@ export function renderImagePanelHtml(
           const drawn = paintVectorKey(ctx, [0, 0, o.width, o.height], sx,
             (Number.isFinite(vw) && vw > 0 ? vw : 1) * dpr, dpr);
           // A map too small for the key says so, rather than showing none
-          // without a word (#1168).
+          // without a word (#1168). A canvas not laid out yet has no size to
+          // be too small for, and is drawn again once it has one.
           const note = document.getElementById('vector-key-note');
-          if (note) note.textContent = drawn && drawn.leftOff ? VECTOR_KEY_LEFT_OFF : '';
+          if (note) {
+            note.textContent = drawn && drawn.leftOff && o.clientWidth > 0 ? VECTOR_KEY_LEFT_OFF : '';
+          }
           // What was drawn, in canvas pixels, for a test to measure against.
           if (drawn && !drawn.leftOff) o.dataset.vectorKey = JSON.stringify(drawn);
         }

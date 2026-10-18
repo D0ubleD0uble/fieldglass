@@ -2208,7 +2208,7 @@ const HEAD_ANGLE_DEG: f64 = 155.0;
 /// with its head, as matplotlib's quiver keeps its arrows a share of the axes'
 /// width whatever the data's scale. A quarter leaves the whole-map views of
 /// the automatic spacing untouched: there a full-length arrow is about a
-/// twelfth of the shorter side on every target (0.07 to 0.09 on the GFS
+/// twelfth of the shorter side on every target (0.066 to 0.086 on the GFS
 /// fixture), so the cap first holds at about three times that spacing, or
 /// two clicks of the panel's zoom in.
 #[cfg(feature = "render")]

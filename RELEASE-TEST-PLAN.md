@@ -610,7 +610,7 @@ A depth axis with fill values used to fail to draw; no file here has one.
       length changes with the arrows' (#1046). Back on Equirectangular, keep
       zooming in with + until it stops zooming (a hundredth of a degree):
       after the first few clicks the arrows and the key stop growing, at a
-      quarter of the map's height, and the arrows spread apart instead. An
+      quarter of the map's shorter side, and the arrows spread apart instead. An
       arrow in view keeps its head, the key stays whole inside the map's
       corner with its label beside it, and its speed is the one the Vectors
       row gives (#1168). Export PNG there: the key is inside the map in the

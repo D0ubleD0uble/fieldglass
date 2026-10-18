@@ -905,27 +905,77 @@ fn a_deep_zoom_holds_a_full_length_arrow_to_a_quarter_of_the_map() {
     }
 }
 
+/// The shorter side of the raster `options` draw `source` on: the one a
+/// render, the overlays and the arrows share. Only the box targets read the
+/// caller's width and height; the source view is the grid's own shape and the
+/// other targets size their own.
+fn shorter_side(source: &Source<'_>, values: &[Option<f64>], options: &RenderOptions) -> f64 {
+    let raster = fieldglass::render::project(source, values, options).expect("the field renders");
+    f64::from(raster.width.min(raster.height))
+}
+
 /// The cap leaves a whole-map view of the automatic spacing alone: there a
 /// full-length arrow is the spacing between arrows, well short of a quarter
-/// of the map, on every target the panel offers.
+/// of the raster it is drawn on, on every target the panel offers.
 #[test]
 fn the_cap_leaves_the_whole_map_alone() {
     let geometry = global();
     let (u, v) = solid_rotation();
     for (what, o) in every_view() {
-        let arrows = one_grid(
-            &source(&geometry, "latlon"),
-            &u,
-            &v,
-            &o,
-            &VectorOptions::new(),
-        )
-        .unwrap_or_else(|e| panic!("{what}: {e}"));
+        let src = source(&geometry, "latlon");
+        let arrows = one_grid(&src, &u, &v, &o, &VectorOptions::new())
+            .unwrap_or_else(|e| panic!("{what}: {e}"));
         let key = arrows.reference_length.expect("arrows were drawn");
-        let shorter = f64::from(o.width.unwrap_or(0).min(o.height.unwrap_or(0)));
+        let shorter = shorter_side(&src, &u, &o);
         assert!(
             key < 0.25 * shorter * 0.9,
             "{what}: a full-length arrow is {key} px, near the cap of a quarter of {shorter} px"
+        );
+    }
+}
+
+/// What `MAX_FULL_ARROW_SHARE`'s documentation says of the #1046 fixture: at
+/// the automatic spacing, on every target at its own size, a full-length arrow
+/// is about a twelfth of the raster's shorter side (0.06 to 0.09 of it), so
+/// the quarter cap does not touch a whole-map view.
+#[test]
+fn a_whole_map_arrow_on_the_gfs_fixture_is_about_a_twelfth_of_the_map() {
+    /// Embedded rather than read, so the test runs under wasm32 too.
+    const GFS: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
+    let session = fieldglass::Session::open(GFS.to_vec()).expect("the fixture opens");
+    let field = session
+        .decode(0, &fieldglass::DecodeOptions::default())
+        .expect("the fixture decodes");
+    let values: Vec<Option<f64>> = (0..field.values.len())
+        .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
+        .collect();
+    let source = field.source();
+    for projection in [
+        "source",
+        "equirectangular",
+        "web_mercator",
+        "orthographic",
+        "polar_stereographic",
+        "mollweide",
+        "robinson",
+        "equal_earth",
+    ] {
+        let o = RenderOptions::new(projection, "nearest");
+        let arrows = vector_polylines(
+            &source,
+            &values,
+            &source,
+            &values,
+            &o,
+            &VectorOptions::new(),
+        )
+        .unwrap_or_else(|e| panic!("{projection}: {e}"));
+        let key = arrows.reference_length.expect("arrows were drawn");
+        let share = key / shorter_side(&source, &values, &o);
+        assert!(
+            (0.06..=0.09).contains(&share),
+            "{projection}: a full-length arrow is {share} of the shorter side"
         );
     }
 }
