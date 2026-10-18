@@ -34,12 +34,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
-    Addressing, Affine, AxisUnits, AxisValues, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype,
-    Error, Field, FullDetail, Georef, GridSupport, Identification, Isoline, LeftOutArray,
-    LeftOutCause, Line, MessageIdentity, MessageInfo, MessageProbe, PaletteOptions, PixelProbe,
-    Placement, Positive, Probe, Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat,
-    SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo,
-    VectorOptions, VectorPairing, Vertical, WarpOptions, WarpTarget, Warped,
+    Addressing, Affine, AxisUnits, AxisValues, ColourRange, CombineOpInfo, ContourOptions,
+    DecodeOptions, DimensionInfo, Dtype, Error, Field, FullDetail, Georef, GridSupport,
+    Identification, Isoline, LeftOutArray, LeftOutCause, Line, MessageIdentity, MessageInfo,
+    MessageProbe, OutOfRange, PaletteOptions, PixelProbe, Placement, Positive, Probe, Projected,
+    RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Raster, RenderOptions,
+    ResolvedOptions, SourceFormat, SpectralTruncation, StatisticalStep, Stats, SurfaceCodes,
+    TargetKind, Values, VariableInfo, VectorOptions, VectorPairing, Vertical, WarpOptions,
+    WarpTarget, Warped,
 };
 // The window planner's (#1083), behind `zarr`, a default feature.
 use fieldglass::{ChunkRef, WindowPlan, WindowRequest};
@@ -157,12 +159,21 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("FullDetail", Class::Wire, ""),
     ("MessageProbe", Class::Wire, ""),
     ("Isoline", Class::Wire, ""),
+    // The colour range a render used, and why one was refused (#1155).
+    ("ColourRange", Class::Wire, ""),
+    ("RangeSource", Class::Wire, ""),
+    ("OutOfRange", Class::Wire, ""),
+    ("RangeRefusal", Class::Wire, ""),
+    ("RangeRefusalReason", Class::Wire, ""),
+    ("RangeEnd", Class::Wire, ""),
     // --- error.rs -----------------------------------------------------------
     ("Error", Class::Wire, ""),
     // --- session.rs ---------------------------------------------------------
     ("DecodeOptions", Class::Wire, ""),
     ("WarpOptions", Class::Wire, ""),
     ("PaletteOptions", Class::Wire, ""),
+    // The range contours are spaced over (#1155).
+    ("ContourOptions", Class::Wire, ""),
     ("Raster", Class::Wire, ""),
     (
         "PlacedSlice",
@@ -524,10 +535,17 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<FullDetail>();
     is_wire_shaped::<MessageProbe>();
     is_wire_shaped::<Isoline>();
+    is_wire_shaped::<ColourRange>();
+    is_wire_shaped::<RangeSource>();
+    is_wire_shaped::<OutOfRange>();
+    is_wire_shaped::<RangeRefusal>();
+    is_wire_shaped::<RangeRefusalReason>();
+    is_wire_shaped::<RangeEnd>();
     is_wire_shaped::<Error>();
     is_wire_shaped::<DecodeOptions>();
     is_wire_shaped::<WarpOptions>();
     is_wire_shaped::<PaletteOptions>();
+    is_wire_shaped::<ContourOptions>();
     is_wire_shaped::<Raster>();
     is_wire_shaped::<RenderOptions>();
     is_wire_shaped::<CandidateOptions>();
@@ -577,6 +595,11 @@ fn every_option_type_is_constructible_from_outside_the_crate() {
     palette.min = Some(1.0);
     palette.max = Some(1000.0);
     assert_eq!(palette.colormap.as_deref(), Some("viridis"));
+
+    let mut contours = ContourOptions::default();
+    contours.min = Some(1.0);
+    contours.scale = Some("log10".to_string());
+    assert_eq!(contours.max, None);
 
     let mut render = RenderOptions::new("equirectangular", "bilinear");
     render.colormap = Some("plasma".to_string());
@@ -672,16 +695,48 @@ fn every_wire_type_round_trips_through_json() {
         "Warped",
         r#"{"values":[1.0],"mask":[1],"width":1,"height":1,"bounds":[-1.0,1.0,-2.0,2.0]}"#,
     );
-    round_trip::<Raster>("Raster", r#"{"rgba":[1,2,3,4],"width":1,"height":1}"#);
+    round_trip::<Raster>(
+        "Raster",
+        r#"{"rgba":[1,2,3,4],"width":1,"height":1,"range":{"usedMin":1.5,"usedMax":9.0,"rangeSource":"manual_min","center":null,"outOfRange":"clamp","below":3,"above":0,"present":40,"total":64}}"#,
+    );
+    round_trip::<ColourRange>(
+        "ColourRange",
+        r#"{"usedMin":1.5,"usedMax":9.0,"rangeSource":"manual_min","center":null,"outOfRange":"clamp","below":3,"above":0,"present":40,"total":64}"#,
+    );
+    // An empty field with an automatic range: no range, and not an error.
+    round_trip::<ColourRange>(
+        "ColourRange",
+        r#"{"usedMin":null,"usedMax":null,"rangeSource":"auto","center":null,"outOfRange":"clamp","below":0,"above":0,"present":0,"total":4}"#,
+    );
+    round_trip::<RangeSource>("RangeSource", r#""manual_max""#);
+    round_trip::<OutOfRange>("OutOfRange", r#""clamp""#);
+    round_trip::<RangeRefusal>(
+        "RangeRefusal",
+        r#"{"reason":"inverted","end":"min","given":100000.0,"fieldMin":53502.3,"fieldMax":99919.6}"#,
+    );
+    round_trip::<RangeRefusalReason>("RangeRefusalReason", r#""log10_not_positive""#);
+    round_trip::<RangeEnd>("RangeEnd", r#""both""#);
     round_trip::<Error>("Error", r#"{"code":"no_such_message","index":1,"count":0}"#);
+    round_trip::<Error>(
+        "Error",
+        r#"{"code":"invalid_option","detail":"x","rangeRefusal":{"reason":"inverted","end":"min","given":100000.0,"fieldMin":53502.3,"fieldMax":99919.6}}"#,
+    );
+    round_trip::<Error>(
+        "Error",
+        r#"{"code":"invalid_option","detail":"x","rangeRefusal":null}"#,
+    );
     round_trip::<DecodeOptions>("DecodeOptions", r#"{"dtype":"f64"}"#);
     round_trip::<WarpOptions>(
         "WarpOptions",
         r#"{"bilinear":true,"bounds":null,"width":512,"height":384}"#,
     );
+    round_trip::<ContourOptions>(
+        "ContourOptions",
+        r#"{"min":1.0,"max":null,"center":null,"scale":"log10"}"#,
+    );
     round_trip::<PaletteOptions>(
         "PaletteOptions",
-        r#"{"colormap":"viridis","colormapTable":null,"reversed":false,"min":null,"max":null,"scale":null}"#,
+        r#"{"colormap":"viridis","colormapTable":null,"reversed":false,"min":null,"max":null,"center":0.0,"scale":null}"#,
     );
     // The three the extension's declarations are generated from (#574). Their
     // documents are long, which is the point: every field name is pinned here.
@@ -824,7 +879,7 @@ const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Tempe
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a
 /// host reading `512.0` where the schema says `u32` is the drift this catches.
-const RENDER_OPTIONS_JSON: &str = r#"{"projection":"equirectangular","projectionPreset":"atlantic","centerLat":0.0,"centerLon":0.0,"resampling":"bilinear","flipY":false,"rangeMin":null,"rangeMax":null,"boundsLatMin":null,"boundsLatMax":null,"boundsLonMin":null,"boundsLonMax":null,"colormap":"viridis","colormapTable":null,"reverseColormap":false,"scaleMode":"linear","width":512,"height":384}"#;
+const RENDER_OPTIONS_JSON: &str = r#"{"projection":"equirectangular","projectionPreset":"atlantic","centerLat":0.0,"centerLon":0.0,"resampling":"bilinear","flipY":false,"rangeMin":null,"rangeMax":null,"rangeCenter":null,"boundsLatMin":null,"boundsLatMax":null,"boundsLonMin":null,"boundsLonMax":null,"colormap":"viridis","colormapTable":null,"reverseColormap":false,"scaleMode":"linear","width":512,"height":384}"#;
 
 /// The wire types the round-trip test covers, so it can be held to the
 /// classification rather than to whoever last edited the list.
@@ -846,12 +901,19 @@ const ROUND_TRIPPED: &[&str] = &[
     "FullDetail",
     "MessageProbe",
     "Isoline",
+    "ColourRange",
+    "RangeSource",
+    "OutOfRange",
+    "RangeRefusal",
+    "RangeRefusalReason",
+    "RangeEnd",
     "Warped",
     "Raster",
     "Error",
     "DecodeOptions",
     "WarpOptions",
     "PaletteOptions",
+    "ContourOptions",
     "Georef",
     "Field",
     "Line",
@@ -932,9 +994,7 @@ fn the_error_codes_are_the_ones_the_suite_pins() {
             got: 0,
             wanted: 0,
         },
-        Error::InvalidOption {
-            detail: String::new(),
-        },
+        Error::invalid_option(String::new()),
     ];
     let mut codes: Vec<String> = every_variant.iter().map(|e| e.code().to_string()).collect();
     codes.sort();
@@ -1008,6 +1068,8 @@ const MODULES: &[(&str, &str)] = &[
         include_str!("../src/session/window.rs"),
     ),
     ("render.rs", include_str!("../src/render.rs")),
+    // Declares no type: the colour-range rule, over `api.rs`'s DTOs (#1155).
+    ("colour_range.rs", include_str!("../src/colour_range.rs")),
     // A `pub mod` under a published feature, so its types are public surface
     // even though no host reads them.
     ("conformance.rs", include_str!("../src/conformance.rs")),
@@ -1953,6 +2015,12 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<FullDetail>("FullDetail");
     check_schema::<MessageProbe>("MessageProbe");
     check_schema::<Isoline>("Isoline");
+    check_schema::<ColourRange>("ColourRange");
+    check_schema::<RangeSource>("RangeSource");
+    check_schema::<OutOfRange>("OutOfRange");
+    check_schema::<RangeRefusal>("RangeRefusal");
+    check_schema::<RangeRefusalReason>("RangeRefusalReason");
+    check_schema::<RangeEnd>("RangeEnd");
     check_schema::<Stats>("Stats");
     check_schema::<Values>("Values");
     check_schema::<Raster>("Raster");
@@ -1961,6 +2029,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<DecodeOptions>("DecodeOptions");
     check_schema::<WarpOptions>("WarpOptions");
     check_schema::<PaletteOptions>("PaletteOptions");
+    check_schema::<ContourOptions>("ContourOptions");
     check_schema::<SourceFormat>("SourceFormat");
     check_schema::<Dtype>("Dtype");
     check_schema::<AxisUnits>("AxisUnits");
@@ -2015,6 +2084,12 @@ const SCHEMA_CHECKED: &[&str] = &[
     "FullDetail",
     "MessageProbe",
     "Isoline",
+    "ColourRange",
+    "RangeSource",
+    "OutOfRange",
+    "RangeRefusal",
+    "RangeRefusalReason",
+    "RangeEnd",
     "Stats",
     "Values",
     "Raster",
@@ -2023,6 +2098,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "DecodeOptions",
     "WarpOptions",
     "PaletteOptions",
+    "ContourOptions",
     "SourceFormat",
     "Dtype",
     "AxisUnits",
@@ -2136,6 +2212,7 @@ const SENT: &[&str] = &[
     "DecodeOptions",
     "WarpOptions",
     "PaletteOptions",
+    "ContourOptions",
     "RenderOptions",
     "VectorOptions",
     "CandidateOptions",
@@ -2210,12 +2287,12 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
         SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, Line,
         MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, VectorPairing, LeftOutArray, LeftOutCause,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
-        Error, Raster,
+        Error, Raster, ColourRange, RangeSource, OutOfRange, RangeRefusal, RangeRefusalReason, RangeEnd,
         PlanItem, PlanRange, Address, Expect, ParameterId, LevelSpec, Surface, Candidate,
         WindowPlan, ChunkRef,
     );
     register!(sent:
-        DecodeOptions, WarpOptions, PaletteOptions, RenderOptions, VectorOptions,
+        DecodeOptions, WarpOptions, PaletteOptions, ContourOptions, RenderOptions, VectorOptions,
         CandidateOptions, Query, SourceSpec, WindowRequest,
     );
 

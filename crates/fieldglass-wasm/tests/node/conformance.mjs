@@ -378,7 +378,11 @@ function withHandle(caseSpec, handle) {
         return wire(p, `${current}: probe`);
       }
       case 'contours': {
-        const lines = handle.contours(field, new Float64Array(args.levels ?? []));
+        const lines = handle.contours(field, new Float64Array(args.levels ?? []), {
+          min: args.rangeMin ?? null,
+          max: args.rangeMax ?? null,
+          scale: args.scale ?? null,
+        });
         return {
           levelCount: lines.length,
           levels: lines.map((l) => real(l.value)),

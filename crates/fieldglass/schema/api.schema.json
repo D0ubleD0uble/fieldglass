@@ -282,6 +282,79 @@
       ],
       "type": "object"
     },
+    "ColourRange": {
+      "description": "The colour range a render used, and what it did with the cells outside\nit (#1155).\n\nEvery host chooses the range by one rule, `fieldglass::colour_range`:\na manual end is used as given, and an end left out comes from the\nfield's present cells, taken over the whole decoded 2-D field before\nany warp. A window or a crop is a view of the field, not a new one, so\nit does not move the range.\n\nThe counts are taken in the pass that paints, over the painted\nraster's cells: `Session::render` counts the source grid's cells, and\nthe Node addon's render counts the pixels of the raster it warped to\n(the source grid's again for its source projection).\n\nA present cell is counted in [`below`](Self::below) or\n[`above`](Self::above) only when it took an end's colour. Under a log10\nscale a zero or negative value has no logarithm, so it paints like a\nmissing cell and is counted in neither, though it is still\n[`present`](Self::present).",
+      "properties": {
+        "above": {
+          "description": "Present cells above [`used_max`](Self::used_max).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "below": {
+          "description": "Present cells below [`used_min`](Self::used_min).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "center": {
+          "description": "The value the ramp is centred on for a diverging map, as given;\n`null` when none was asked for. The range is then symmetric about\nit (in `log10` under a log10 scale), so the ramp's middle colour\nsits on it.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "outOfRange": {
+          "$ref": "#/$defs/OutOfRange",
+          "description": "What a present cell outside the range paints as."
+        },
+        "present": {
+          "description": "Cells with a finite value the mask says is present.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rangeSource": {
+          "$ref": "#/$defs/RangeSource",
+          "description": "Which ends were given and which came from the data."
+        },
+        "total": {
+          "description": "Every cell of the painted raster, present or not.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usedMax": {
+          "description": "High end of the range, as [`used_min`](Self::used_min).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "usedMin": {
+          "description": "Low end of the range the cells were coloured over, in data units\n(unlogged under a log10 scale). `null` when the range was left to\nthe data and no cell is present, so there is no range to show and\nthe raster is transparent.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "usedMin",
+        "usedMax",
+        "rangeSource",
+        "center",
+        "outOfRange",
+        "below",
+        "above",
+        "present",
+        "total"
+      ],
+      "type": "object"
+    },
     "CombineOpInfo": {
       "description": "One entry of the field-combine vocabulary: what a host's Compare picker\nshows and what it sends back.\n\n[`crate::combine_ops`] builds the whole list from\n[`CombineOp::ALL`](fieldglass_core::CombineOp::ALL), so both hosts offer\nthe same operations in the same order and an op added to the enum\nreaches each picker without either being edited (#342).",
       "properties": {
@@ -298,6 +371,47 @@
         "value",
         "label"
       ],
+      "type": "object"
+    },
+    "ContourOptions": {
+      "description": "The colour range contours are spaced over when no levels are named: the\nrange fields of `PaletteOptions`, so a host sends contours the range it\nrenders with and the two agree (#1155). Every field `None` is the field's\nown range on a linear scale.",
+      "properties": {
+        "center": {
+          "default": null,
+          "description": "A value to centre the range on, as `PaletteOptions::center`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max": {
+          "default": null,
+          "description": "High end of the range. `None` takes the field's own maximum.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "min": {
+          "default": null,
+          "description": "Low end of the range. `None` takes the field's own minimum.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "scale": {
+          "default": null,
+          "description": "`\"linear\"` (default) or `\"log10\"`. The levels stay evenly spaced; the\nscale decides which ranges are refused, as it does for a render.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "DecodeOptions": {
@@ -527,11 +641,24 @@
             "detail": {
               "description": "Which option, and what it would have had to be.",
               "type": "string"
+            },
+            "rangeRefusal": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RangeRefusal"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "For a refused colour range, the same refusal as fields: which end,\nthe value given, and the field's own range (#1155). `null` for every\nother option, so a host checks it before pointing at a control."
             }
           },
           "required": [
             "code",
-            "detail"
+            "detail",
+            "rangeRefusal"
           ],
           "type": "object"
         }
@@ -1810,9 +1937,28 @@
       ],
       "type": "object"
     },
+    "OutOfRange": {
+      "description": "What a present cell outside a [`ColourRange`] paints as.",
+      "oneOf": [
+        {
+          "const": "clamp",
+          "description": "The colour of the end it is past, as matplotlib and xarray do by\ndefault. [`ColourRange::below`] and [`ColourRange::above`] count\nthem, so a legend can say how many there are. A value with no place\non the scale at all (zero or negative under log10) is not clamped:\nit paints like a missing cell and is in neither count.",
+          "type": "string"
+        }
+      ]
+    },
     "PaletteOptions": {
       "description": "Colour, decided once in Rust and exported as data.",
       "properties": {
+        "center": {
+          "default": null,
+          "description": "A value to centre the ramp on, for a diverging map: the range is made\nsymmetric about it. Validated like the two ends.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "colormap": {
           "default": null,
           "description": "A colormap name `core` knows. Unknown names are an error rather than a\nsilent fallback: a host that misspells one should hear about it.",
@@ -1846,7 +1992,7 @@
         },
         "min": {
           "default": null,
-          "description": "Low end of the display range. `None` takes the field's own minimum.",
+          "description": "Low end of the display range. `None` takes the field's own minimum, by\nthe rule [`crate::colour_range()`] states.",
           "format": "double",
           "type": [
             "number",
@@ -2149,6 +2295,131 @@
       },
       "type": "object"
     },
+    "RangeEnd": {
+      "description": "The option a [`RangeRefusal`] is about.",
+      "oneOf": [
+        {
+          "const": "min",
+          "description": "The minimum.",
+          "type": "string"
+        },
+        {
+          "const": "max",
+          "description": "The maximum.",
+          "type": "string"
+        },
+        {
+          "const": "both",
+          "description": "Both ends together: a manual maximum not above a manual minimum.",
+          "type": "string"
+        },
+        {
+          "const": "center",
+          "description": "The center.",
+          "type": "string"
+        }
+      ]
+    },
+    "RangeRefusal": {
+      "description": "Why a colour range was refused, as fields a host can act on: which\ncontrol to point at and what was wrong with it (#1155).\n\nCarried by [`crate::Error::InvalidOption`]. The error's message says\nthe same in prose; branch on [`reason`](Self::reason) and\n[`end`](Self::end), not on the wording.",
+      "properties": {
+        "end": {
+          "$ref": "#/$defs/RangeEnd",
+          "description": "Which option it was wrong about."
+        },
+        "fieldMax": {
+          "description": "The field's present-cell maximum, as [`field_min`](Self::field_min).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "fieldMin": {
+          "description": "The field's present-cell minimum, which an end left out is taken\nfrom; `null` for a field with no present cell.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "given": {
+          "description": "The value given for [`end`](Self::end); `null` when it is not a\nfinite number (JSON has no spelling for one), when the refusal is\nabout both ends, or when nothing was given for that end and its\nvalue came from the data (then it is\n[`field_min`](Self::field_min) or [`field_max`](Self::field_max)).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/RangeRefusalReason",
+          "description": "What was wrong."
+        }
+      },
+      "required": [
+        "reason",
+        "end",
+        "given",
+        "fieldMin",
+        "fieldMax"
+      ],
+      "type": "object"
+    },
+    "RangeRefusalReason": {
+      "description": "The stable code of a [`RangeRefusal`].",
+      "oneOf": [
+        {
+          "const": "not_finite",
+          "description": "The value is `NaN` or infinite.",
+          "type": "string"
+        },
+        {
+          "const": "inverted",
+          "description": "The maximum is not above the minimum. When one end was given and the\nother came from the data, [`RangeRefusal::end`] is the given one.",
+          "type": "string"
+        },
+        {
+          "const": "log10_not_positive",
+          "description": "A log10 scale needs a positive minimum (or center), and this one is\nzero or negative.",
+          "type": "string"
+        },
+        {
+          "const": "center_outside",
+          "description": "The center is not strictly between the given end and the data's\nother end, so the range cannot be centred on it.",
+          "type": "string"
+        },
+        {
+          "const": "center_with_both_ends",
+          "description": "A center was given with both ends, which already fix the range.",
+          "type": "string"
+        }
+      ]
+    },
+    "RangeSource": {
+      "description": "Where a [`ColourRange`]'s two ends came from.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "Both from the field's present cells.",
+          "type": "string"
+        },
+        {
+          "const": "manual",
+          "description": "Both as the caller gave them.",
+          "type": "string"
+        },
+        {
+          "const": "manual_min",
+          "description": "The minimum as given, the maximum from the data (or mirrored about\nthe center, when one was given).",
+          "type": "string"
+        },
+        {
+          "const": "manual_max",
+          "description": "The maximum as given, the minimum from the data (or mirrored about\nthe center).",
+          "type": "string"
+        }
+      ]
+    },
     "Raster": {
       "description": "A painted raster: RGBA bytes plus the dimensions they cover.",
       "properties": {
@@ -2157,6 +2428,10 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "range": {
+          "$ref": "#/$defs/ColourRange",
+          "description": "The range the cells were coloured over, and how many fell outside it,\ncounted as they were painted (#1155)."
         },
         "rgba": {
           "description": "Non-premultiplied RGBA, `width * height * 4` bytes, row-major from the\ntop-left. Ready for `putImageData` or an `RGBA8` texture upload.",
@@ -2178,7 +2453,8 @@
       "required": [
         "rgba",
         "width",
-        "height"
+        "height",
+        "range"
       ],
       "type": "object"
     },
@@ -2277,6 +2553,14 @@
             "null"
           ]
         },
+        "rangeCenter": {
+          "description": "A value to centre the ramp on, for a diverging map: the range is made\nsymmetric about it. Validated like the two ends.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "rangeMax": {
           "description": "High end of the manual range — see [`range_min`](Self::range_min).",
           "format": "double",
@@ -2286,7 +2570,7 @@
           ]
         },
         "rangeMin": {
-          "description": "Low end of a manual display range. When either end is `None` the caller\ntakes the computed min/max over the present cells.",
+          "description": "Low end of a manual display range. `None` takes the field's own\npresent-cell minimum, over the whole field before any warp, by the rule\n`fieldglass::colour_range` states (#1155).",
           "format": "double",
           "type": [
             "number",

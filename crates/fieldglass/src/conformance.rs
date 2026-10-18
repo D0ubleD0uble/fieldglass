@@ -68,7 +68,7 @@ use std::borrow::Cow;
 
 use crate::api::{Dtype, Field, Line};
 use crate::error::Error;
-use crate::session::{DecodeOptions, PaletteOptions, Session, WarpOptions};
+use crate::session::{ContourOptions, DecodeOptions, PaletteOptions, Session, WarpOptions};
 
 /// The recorded suite, as it ships in the crate.
 ///
@@ -1183,6 +1183,16 @@ fn decode_options(args: &Args) -> DecodeOptions {
     }
 }
 
+/// Contour options from a case's [`Args`]: the range fields a render takes.
+fn contour_options(args: &Args) -> ContourOptions {
+    ContourOptions {
+        min: args.range_min,
+        max: args.range_max,
+        center: None,
+        scale: args.scale.clone(),
+    }
+}
+
 /// Palette options from a case's [`Args`].
 fn palette_options(args: &Args) -> PaletteOptions {
     PaletteOptions {
@@ -1191,6 +1201,7 @@ fn palette_options(args: &Args) -> PaletteOptions {
         reversed: args.reversed.unwrap_or(false),
         min: args.range_min,
         max: args.range_max,
+        center: None,
         scale: args.scale.clone(),
     }
 }
@@ -1384,15 +1395,16 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             // Missing rather than defaulted: `a_minus_b` is a plausible
             // default and a case that lost its op would then record a real
             // observation for the wrong operation.
-            let op = case.args.combine_op.ok_or_else(|| Error::InvalidOption {
-                detail: "a combine case states its op".to_string(),
-            })?;
+            let op = case
+                .args
+                .combine_op
+                .ok_or_else(|| Error::invalid_option("a combine case states its op".to_string()))?;
             field_value(&session.combine(&a, &b, op)?)
         }
         Op::Contours => {
             let field = field(case.args.index)?;
             let levels = case.args.levels.clone().unwrap_or_default();
-            let lines = session.contours(&field, &levels)?;
+            let lines = session.contours(&field, &levels, &contour_options(&case.args))?;
             json!({
                 "levelCount": count(lines.len()),
                 "levels": lines.iter().map(|l| real(Some(l.value))).collect::<Vec<_>>(),
@@ -1408,9 +1420,10 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             // Missing rather than defaulted, for the reason `combine_op` is: a
             // slice case that lost an axis would otherwise record a real field
             // for a different question.
-            let missing = || Error::InvalidOption {
-                detail: "a decode_slice case states its variable, axes and slice indices"
-                    .to_string(),
+            let missing = || {
+                Error::invalid_option(
+                    "a decode_slice case states its variable, axes and slice indices".to_string(),
+                )
             };
             let args = &case.args;
             let variable = args.variable.ok_or_else(missing)?;
@@ -1426,9 +1439,10 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             )?)
         }
         Op::DecodeLine => {
-            let missing = || Error::InvalidOption {
-                detail: "a decode_line case states its variable, axis and slice indices"
-                    .to_string(),
+            let missing = || {
+                Error::invalid_option(
+                    "a decode_line case states its variable, axis and slice indices".to_string(),
+                )
             };
             let args = &case.args;
             let variable = args.variable.ok_or_else(missing)?;

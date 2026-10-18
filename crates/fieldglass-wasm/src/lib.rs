@@ -57,7 +57,9 @@
 //! Built with `panic = "abort"`: a decoder panic kills the Worker. The fuzz
 //! targets make that rare; treat the Worker as disposable and restart it.
 
-use fieldglass::{DecodeOptions, Field, Isoline, PaletteOptions, Session, WarpOptions};
+use fieldglass::{
+    ContourOptions, DecodeOptions, Field, Isoline, PaletteOptions, Session, WarpOptions,
+};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -96,6 +98,11 @@ pub fn glsl_snippet() -> String {
 
 /// Map an API error onto a JS `Error` carrying the stable `code` as a property,
 /// so a host branches on `e.code` and shows `e.message`.
+///
+/// A refused colour range also carries `rangeRefusal`, the API's
+/// `RangeRefusal` (which end, the value given, the field's own range, and a
+/// stable reason), so a page can point at the control that is wrong (#1155).
+/// It is `null` on every other error.
 fn throw(e: fieldglass::Error) -> JsValue {
     let err = js_sys::Error::new(&e.message());
     // A failed property set would mean a frozen `Error.prototype`; the message
@@ -105,6 +112,11 @@ fn throw(e: fieldglass::Error) -> JsValue {
         &JsValue::from_str("code"),
         &JsValue::from_str(e.code()),
     );
+    let refusal = e
+        .range_refusal()
+        .and_then(|r| to_js(r).ok())
+        .unwrap_or(JsValue::NULL);
+    let _ = js_sys::Reflect::set(&err, &JsValue::from_str("rangeRefusal"), &refusal);
     err.into()
 }
 
@@ -159,9 +171,9 @@ fn strict<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<
 /// `invalid_option`, with serde's own message naming the key.
 #[cfg(any(feature = "fetchplan", feature = "zarr"))]
 fn unreadable(what: &str, e: &dyn std::fmt::Display) -> JsValue {
-    throw(fieldglass::Error::InvalidOption {
-        detail: format!("could not read the {what}: {e}"),
-    })
+    throw(fieldglass::Error::invalid_option(format!(
+        "could not read the {what}: {e}"
+    )))
 }
 
 /// Every field-combine operation, in menu order: `[{ value, label }, …]`.
@@ -396,6 +408,13 @@ impl Handle {
     /// `lut` is 256 RGBA entries with any reversal already applied — the CPU
     /// painter's own table. Upload it as a 256 × 1 `RGBA8` texture sampled
     /// `NEAREST` and pair it with [`glsl_snippet`].
+    ///
+    /// The domain is chosen by the rule both hosts follow (#1155): a `min` or
+    /// `max` left out comes from the field's present cells. A range that does
+    /// not hold — inverted, zero-width, not finite, or a log10 minimum at or
+    /// below zero — throws `invalid_option` with `e.rangeRefusal` set. A field
+    /// with no present cell and no manual range is not refused: every cell is
+    /// masked, and the domain is a placeholder no cell reads.
     #[wasm_bindgen(
         unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: \"linear\" | \"log10\"; maskedRgba: Uint8Array }"
     )]
@@ -435,6 +454,9 @@ impl Handle {
     /// scanning south-to-north is flipped for you. Pass the user's own request
     /// straight through; composing `grid().scan.jPositive` yourself would flip
     /// twice.
+    ///
+    /// The range follows [`Handle::palette`]'s rule, and a field with no
+    /// present cell paints fully transparent rather than throwing.
     #[wasm_bindgen(js_name = render)]
     pub fn render(
         &self,
@@ -518,10 +540,24 @@ impl Handle {
     }
 
     /// Isolines in fractional grid coordinates. An empty `levels` asks for a
-    /// nice set spanning the field's own range.
+    /// nice set spanning the colour range `options` chooses: `{ min?, max?,
+    /// center?, scale? }`, the range half of the options `render` takes, so
+    /// pass the same values and the isolines follow the colours (#1155). A
+    /// range `render` would refuse throws the same `invalid_option`, with
+    /// `e.rangeRefusal`.
     #[wasm_bindgen(unchecked_return_type = "Isoline[]")]
-    pub fn contours(&self, field: &WasmField, levels: &[f64]) -> Result<JsValue, JsValue> {
-        let out: Vec<Isoline> = self.session.contours(&field.field, levels).map_err(throw)?;
+    pub fn contours(
+        &self,
+        field: &WasmField,
+        levels: &[f64],
+        #[wasm_bindgen(unchecked_param_type = "ContourOptions | null | undefined")]
+        options: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let options: ContourOptions = from_js(options)?;
+        let out: Vec<Isoline> = self
+            .session
+            .contours(&field.field, levels, &options)
+            .map_err(throw)?;
         to_js(&out)
     }
 

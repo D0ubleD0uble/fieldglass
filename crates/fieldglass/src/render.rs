@@ -121,11 +121,15 @@ pub struct RenderOptions {
     pub resampling: String,
     /// Paint row 0 at the bottom rather than the top.
     pub flip_y: bool,
-    /// Low end of a manual display range. When either end is `None` the caller
-    /// takes the computed min/max over the present cells.
+    /// Low end of a manual display range. `None` takes the field's own
+    /// present-cell minimum, over the whole field before any warp, by the rule
+    /// `fieldglass::colour_range` states (#1155).
     pub range_min: Option<f64>,
     /// High end of the manual range — see [`range_min`](Self::range_min).
     pub range_max: Option<f64>,
+    /// A value to centre the ramp on, for a diverging map: the range is made
+    /// symmetric about it. Validated like the two ends.
+    pub range_center: Option<f64>,
     /// South edge of a manual render window (degrees). All four must be `Some`
     /// and form a non-degenerate box, or the window falls back to the grid's
     /// own extent. `lon_min`/`lon_max` may lie outside [-180, 180] to describe a
@@ -229,6 +233,7 @@ impl Default for RenderOptions {
             flip_y: false,
             range_min: None,
             range_max: None,
+            range_center: None,
             bounds_lat_min: None,
             bounds_lat_max: None,
             bounds_lon_min: None,
@@ -352,6 +357,8 @@ pub struct ResolvedOptions {
     pub range_min: Option<f64>,
     /// High end of the manual display range.
     pub range_max: Option<f64>,
+    /// The value the ramp is centred on, when one was asked for.
+    pub range_center: Option<f64>,
     /// The manual render window, when all four edges made a box.
     pub bounds: Option<LonLatBox>,
     /// The caller's output raster, when it named one (#465). Read by the
@@ -366,6 +373,49 @@ pub struct ResolvedOptions {
     pub scale: ScaleMode,
 }
 
+/// The colormap a request names, by table or by name, or the default when it
+/// names neither.
+///
+/// The one parser [`RenderOptions`] and
+/// [`PaletteOptions`](crate::PaletteOptions) share, so the two hosts word a
+/// misspelt name the same way (#880 item 5). An unknown name is an error, not
+/// a silent fallback to viridis: a typo should say so rather than paint the
+/// wrong colours.
+#[cfg(feature = "render")]
+pub(crate) fn resolve_colormap(
+    table: Option<&[u8]>,
+    name: Option<&str>,
+) -> Result<Cow<'static, Colormap>, Error> {
+    match (table, name) {
+        (Some(table), name) => Ok(Cow::Owned(colormap_from_table(table, name)?)),
+        (None, None) => Ok(Cow::Borrowed(default_colormap())),
+        (None, Some(name)) => Colormap::by_name(name).map(Cow::Borrowed).ok_or_else(|| {
+            let known: Vec<&str> = fieldglass_core::colormap::colormaps()
+                .iter()
+                .map(|c| c.name())
+                .collect();
+            Error::invalid_option(format!(
+                "unknown colormap {name:?} (expected one of {})",
+                known.join(", ")
+            ))
+        }),
+    }
+}
+
+/// The scale a request names, `None` being linear.
+///
+/// Shared by both option types for the reason [`resolve_colormap`] is. An
+/// unknown scale is an error for the same reason an unknown colormap is: a
+/// typo should say so, not silently paint linearly.
+#[cfg(feature = "render")]
+pub(crate) fn parse_scale(name: Option<&str>) -> Result<ScaleMode, Error> {
+    Ok(if crate::colour_range::scale_is_log10(name)? {
+        ScaleMode::Log10
+    } else {
+        ScaleMode::Linear
+    })
+}
+
 /// The colormap a caller sent as a lookup table — [`RenderOptions::colormap_table`]
 /// and [`PaletteOptions::colormap_table`](crate::PaletteOptions::colormap_table).
 ///
@@ -375,17 +425,15 @@ pub struct ResolvedOptions {
 #[cfg(feature = "render")]
 pub(crate) fn colormap_from_table(table: &[u8], name: Option<&str>) -> Result<Colormap, Error> {
     if let Some(name) = name {
-        return Err(Error::InvalidOption {
-            detail: format!(
-                "both a colormap name ({name:?}) and a colormap table were given; send one"
-            ),
-        });
+        return Err(Error::invalid_option(format!(
+            "both a colormap name ({name:?}) and a colormap table were given; send one"
+        )));
     }
-    let lut: &[u8; 256 * 3] = table.try_into().map_err(|_| Error::InvalidOption {
-        detail: format!(
+    let lut: &[u8; 256 * 3] = table.try_into().map_err(|_| {
+        Error::invalid_option(format!(
             "a colormap table holds {} bytes; it must hold 768, three for each of 256 entries",
             table.len()
-        ),
+        ))
     })?;
     Ok(Colormap::from_lut(
         "table",
@@ -445,31 +493,29 @@ pub(crate) fn resolve_output_size(
         (None, None) => return Ok(None),
         (Some(width), Some(height)) => (width, height),
         (Some(_), None) => {
-            return Err(Error::InvalidOption {
-                detail: "an output raster width was given with no height; the two describe one \
+            return Err(Error::invalid_option(
+                "an output raster width was given with no height; the two describe one \
                          raster, so send both or neither"
                     .to_string(),
-            });
+            ));
         }
         (None, Some(_)) => {
-            return Err(Error::InvalidOption {
-                detail: "an output raster height was given with no width; the two describe one \
+            return Err(Error::invalid_option(
+                "an output raster height was given with no width; the two describe one \
                          raster, so send both or neither"
                     .to_string(),
-            });
+            ));
         }
     };
     if width == 0 || height == 0 {
-        return Err(Error::InvalidOption {
-            detail: format!("an output raster of {width} × {height} has no pixels"),
-        });
+        return Err(Error::invalid_option(format!(
+            "an output raster of {width} × {height} has no pixels"
+        )));
     }
     if !raster_is_allocatable(width, height, isize::MAX as u64) {
-        return Err(Error::InvalidOption {
-            detail: format!(
-                "an output raster of {width} × {height} is larger than this target can allocate"
-            ),
-        });
+        return Err(Error::invalid_option(format!(
+            "an output raster of {width} × {height} is larger than this target can allocate"
+        )));
     }
     Ok(Some((width, height)))
 }
@@ -530,66 +576,34 @@ impl ResolvedOptions {
                 lon0: world_central_meridian(options),
             }),
             other => {
-                return Err(Error::InvalidOption {
-                    detail: format!(
-                        "unknown projection {other:?} (expected \"source\", \"equirectangular\", \
+                return Err(Error::invalid_option(format!(
+                    "unknown projection {other:?} (expected \"source\", \"equirectangular\", \
                          \"web_mercator\", \"orthographic\", \"polar_stereographic\", \
                          \"mollweide\", \"robinson\", or \"equal_earth\")"
-                    ),
-                });
+                )));
             }
         };
         let resampling = match options.resampling.as_str() {
             "nearest" => Resampling::Nearest,
             "bilinear" => Resampling::Bilinear,
             other => {
-                return Err(Error::InvalidOption {
-                    detail: format!(
-                        "unknown resampling {other:?} (expected \"nearest\" or \"bilinear\")"
-                    ),
-                });
+                return Err(Error::invalid_option(format!(
+                    "unknown resampling {other:?} (expected \"nearest\" or \"bilinear\")"
+                )));
             }
         };
-        // An unknown colormap is an error, not a silent fallback to viridis: a
-        // typo'd name should say so rather than paint the wrong colours.
-        let colormap = match (
+        let colormap = resolve_colormap(
             options.colormap_table.as_deref(),
             options.colormap.as_deref(),
-        ) {
-            (Some(table), name) => Cow::Owned(colormap_from_table(table, name)?),
-            (None, None) => Cow::Borrowed(default_colormap()),
-            (None, Some(name)) => Cow::Borrowed(Colormap::by_name(name).ok_or_else(|| {
-                let known: Vec<&str> = fieldglass_core::colormap::colormaps()
-                    .iter()
-                    .map(|c| c.name())
-                    .collect();
-                Error::InvalidOption {
-                    detail: format!(
-                        "unknown colormap {name:?} (expected one of {})",
-                        known.join(", ")
-                    ),
-                }
-            })?),
-        };
-        // An unknown scale mode is an error for the same reason an unknown
-        // colormap is: a typo should say so, not silently paint linearly.
-        let scale = match options.scale_mode.as_deref() {
-            None | Some("linear") => ScaleMode::Linear,
-            Some("log10") => ScaleMode::Log10,
-            Some(other) => {
-                return Err(Error::InvalidOption {
-                    detail: format!(
-                        "unknown scale mode {other:?} (expected \"linear\" or \"log10\")"
-                    ),
-                });
-            }
-        };
+        )?;
+        let scale = parse_scale(options.scale_mode.as_deref())?;
         Ok(Self {
             target,
             resampling,
             flip_y: options.flip_y,
             range_min: options.range_min,
             range_max: options.range_max,
+            range_center: options.range_center,
             bounds: manual_render_window(options),
             size: resolve_output_size(options.width, options.height)?,
             colormap,
@@ -931,12 +945,10 @@ fn build_warp_target(
             // smearing every row to one latitude. Reject it rather than emit a
             // degenerate single-row raster.
             if used_lat_max - used_lat_min <= f64::EPSILON {
-                return Err(Error::InvalidOption {
-                    detail: format!(
-                        "Web Mercator latitude band [{lat_min}, {lat_max}] lies outside the \
+                return Err(Error::invalid_option(format!(
+                    "Web Mercator latitude band [{lat_min}, {lat_max}] lies outside the \
                          renderable ±85.0511° range",
-                    ),
-                });
+                )));
             }
             let used = merc.extent();
             Ok((BuiltTarget::Mercator(merc), Some(used)))
@@ -1398,13 +1410,11 @@ fn require_values_for_shape(source: &Source<'_>, values: &[Option<f64>]) -> Resu
     let (ni, nj) = (source.ni as usize, source.nj as usize);
     match ni.checked_mul(nj) {
         Some(cells) if cells == values.len() => Ok(()),
-        cells => Err(Error::InvalidOption {
-            detail: format!(
-                "a {ni}×{nj} grid has {} cells, and {} values were given",
-                cells.map_or_else(|| "too many".to_string(), |n| n.to_string()),
-                values.len()
-            ),
-        }),
+        cells => Err(Error::invalid_option(format!(
+            "a {ni}×{nj} grid has {} cells, and {} values were given",
+            cells.map_or_else(|| "too many".to_string(), |n| n.to_string()),
+            values.len()
+        ))),
     }
 }
 
@@ -2070,20 +2080,26 @@ pub fn contour_polylines(
     )?;
     let (ni, nj) = (source.ni, source.nj);
 
-    // Levels span the same range the image is painted over, so contours line up
-    // with the colours: a manual range override wins, else the present-cell
-    // min/max. A field with no present cell has no range and no isoline, so
-    // it answers no runs rather than levels over a range made up for it (#871).
-    let range = match (options.range_min, options.range_max) {
-        (Some(min), Some(max)) if max > min => Some((min, max)),
-        _ => min_max_ignoring_mask(values.iter().copied()),
-    };
-    let Some((used_min, used_max)) = range else {
+    // Levels span the range the image is painted over, chosen by the same rule
+    // and over the same whole field, so contours line up with the colours
+    // under a window too (#880 item 6, #1155). A field with no present cell
+    // has no range and no isoline, so it answers no runs rather than levels
+    // over a range made up for it (#871); a range the render refuses, this
+    // refuses with the same error.
+    let resolved = ResolvedOptions::parse(options)?;
+    let range = crate::colour_range(
+        min_max_ignoring_mask(values.iter().copied()),
+        resolved.range_min,
+        resolved.range_max,
+        resolved.range_center,
+        resolved.scale == ScaleMode::Log10,
+    )?;
+    let Some((used_min, used_max)) = range.used() else {
         return Ok(ProjectedPolylines::default());
     };
     let levels = match interval {
         Some(step) if step > 0.0 => levels_by_interval(used_min, used_max, step),
-        _ => nice_levels(used_min, used_max, 8),
+        _ => nice_levels(used_min, used_max, crate::AUTO_CONTOUR_LEVELS),
     };
 
     // Each contour segment becomes a two-vertex ring in `(lat, lon)` order (what
@@ -2396,14 +2412,12 @@ pub fn vector_polylines(
     let (ni, nj) = (source.ni, source.nj);
     let cells = (ni as usize).saturating_mul(nj as usize);
     if u.len() != cells || v.len() != cells {
-        return Err(Error::InvalidOption {
-            detail: format!(
-                "the two components must cover the same {ni} × {nj} grid; \
+        return Err(Error::invalid_option(format!(
+            "the two components must cover the same {ni} × {nj} grid; \
                  got {} and {} values",
-                u.len(),
-                v.len()
-            ),
-        });
+            u.len(),
+            v.len()
+        )));
     }
     if ni < 2 || nj < 2 {
         return Ok(VectorArrows::default());
@@ -3048,9 +3062,9 @@ pub fn field_csv(
                 _ => field_to_csv_long(values, ni, nj, |i, j| geo(i as u32, j as u32)),
             })
         }
-        other => Err(Error::InvalidOption {
-            detail: format!("unknown CSV format {other:?} (expected \"long\" or \"matrix\")"),
-        }),
+        other => Err(Error::invalid_option(format!(
+            "unknown CSV format {other:?} (expected \"long\" or \"matrix\")"
+        ))),
     }
 }
 

@@ -180,7 +180,7 @@ fn every_operation_runs_on_a_synthesised_field_with_no_special_case() {
         assert!(probe.value.is_some(), "{name}: probe read no value");
 
         let isolines = session
-            .contours(&field, &[])
+            .contours(&field, &[], &fieldglass::ContourOptions::default())
             .unwrap_or_else(|e| panic!("{name}: contours: {e}"));
         assert!(
             isolines.iter().any(|l| !l.segments.is_empty()),

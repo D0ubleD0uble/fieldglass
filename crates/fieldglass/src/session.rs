@@ -18,8 +18,6 @@ use fieldglass_core::bytes::ObjectSource;
 use fieldglass_core::bytes::read_head;
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use fieldglass_core::units::normalize_table_units;
-#[cfg(feature = "render")]
-use std::borrow::Cow;
 use std::sync::Arc;
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 use std::{collections::HashMap, sync::Mutex};
@@ -29,7 +27,7 @@ use fieldglass_core::{Format as CoreFormat, GridGeometry, detect_from_bytes};
 #[cfg(feature = "render")]
 use fieldglass_core::{
     LonLatBox, Resampling, SourceGrid, TargetRaster,
-    colormap::{Colormap, Palette, ScaleMode, default_colormap},
+    colormap::{Palette, ScaleMode},
     warp,
 };
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
@@ -43,7 +41,7 @@ use fieldglass_core::{contour_segments, contour_segments_global, nice_levels};
 #[cfg(feature = "analysis")]
 use crate::api::Isoline;
 #[cfg(feature = "render")]
-use crate::api::Warped;
+use crate::api::{ColourRange, Warped};
 // Only the message streams name a placement themselves; a slice's comes from
 // `Georef::from_slice`.
 use crate::api::{
@@ -183,12 +181,17 @@ pub struct PaletteOptions {
     /// so a reversed unknown name is still an error.
     #[serde(default)]
     pub reversed: bool,
-    /// Low end of the display range. `None` takes the field's own minimum.
+    /// Low end of the display range. `None` takes the field's own minimum, by
+    /// the rule [`crate::colour_range()`] states.
     #[serde(default)]
     pub min: Option<f64>,
     /// High end of the display range. `None` takes the field's own maximum.
     #[serde(default)]
     pub max: Option<f64>,
+    /// A value to centre the ramp on, for a diverging map: the range is made
+    /// symmetric about it. Validated like the two ends.
+    #[serde(default)]
+    pub center: Option<f64>,
     /// `"linear"` (default) or `"log10"`.
     #[serde(default)]
     pub scale: Option<String>,
@@ -211,9 +214,36 @@ impl PaletteOptions {
             reversed: false,
             min: None,
             max: None,
+            center: None,
             scale: scale.map(str::to_string),
         }
     }
+}
+
+/// The colour range contours are spaced over when no levels are named: the
+/// range fields of `PaletteOptions`, so a host sends contours the range it
+/// renders with and the two agree (#1155). Every field `None` is the field's
+/// own range on a linear scale.
+#[cfg(feature = "analysis")]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+#[non_exhaustive]
+pub struct ContourOptions {
+    /// Low end of the range. `None` takes the field's own minimum.
+    #[serde(default)]
+    pub min: Option<f64>,
+    /// High end of the range. `None` takes the field's own maximum.
+    #[serde(default)]
+    pub max: Option<f64>,
+    /// A value to centre the range on, as `PaletteOptions::center`.
+    #[serde(default)]
+    pub center: Option<f64>,
+    /// `"linear"` (default) or `"log10"`. The levels stay evenly spaced; the
+    /// scale decides which ranges are refused, as it does for a render.
+    #[serde(default)]
+    pub scale: Option<String>,
 }
 
 /// A painted raster: RGBA bytes plus the dimensions they cover.
@@ -231,6 +261,9 @@ pub struct Raster {
     pub width: u32,
     /// Raster rows.
     pub height: u32,
+    /// The range the cells were coloured over, and how many fell outside it,
+    /// counted as they were painted (#1155).
+    pub range: crate::api::ColourRange,
 }
 
 /// An open file.
@@ -742,22 +775,18 @@ pub fn line_through(
     let rank = var.dims.len();
     let along = along_dim as usize;
     if along >= rank {
-        return Err(Error::InvalidOption {
-            detail: format!(
-                "`{}` has {rank} dimensions, so along_dim {along} is outside them",
-                var.name
-            ),
-        });
+        return Err(Error::invalid_option(format!(
+            "`{}` has {rank} dimensions, so along_dim {along} is outside them",
+            var.name
+        )));
     }
     if indices.len() != rank {
-        return Err(Error::InvalidOption {
-            detail: format!(
-                "`{}` has {rank} dimensions, so `indices` needs {rank} entries \
+        return Err(Error::invalid_option(format!(
+            "`{}` has {rank} dimensions, so `indices` needs {rank} entries \
                  (the one being read along is ignored); {} were given",
-                var.name,
-                indices.len()
-            ),
-        });
+            var.name,
+            indices.len()
+        )));
     }
     let mut region = Vec::with_capacity(rank);
     for (d, dim) in var.dims.iter().enumerate() {
@@ -767,13 +796,11 @@ pub fn line_through(
         }
         let at = u64::from(indices[d]);
         if at >= dim.length {
-            return Err(Error::InvalidOption {
-                detail: format!(
-                    "index {at} is past the end of `{}`'s dimension {d} \
+            return Err(Error::invalid_option(format!(
+                "index {at} is past the end of `{}`'s dimension {d} \
                      (`{}`, length {})",
-                    var.name, dim.name, dim.length
-                ),
-            });
+                var.name, dim.name, dim.length
+            )));
         }
         region.push(at..at + 1);
     }
@@ -826,13 +853,14 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
         .iter()
         .find(|v| v.name == array)
         .ok_or_else(|| no_such_array(array, vars.len()))?;
-    let axis = var.dims.get(dim as usize).ok_or(Error::InvalidOption {
-        detail: format!(
+    let axis = var
+        .dims
+        .get(dim as usize)
+        .ok_or(Error::invalid_option(format!(
             "`{}` has {} dimensions, so dim {dim} is outside them",
             var.name,
             var.dims.len()
-        ),
-    })?;
+        )))?;
     let coordinates = axis_coordinates(source, &axis.name, axis.length);
     Ok(AxisValues {
         units: coordinates
@@ -852,11 +880,9 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
 /// reported back, beside how many arrays there were to choose from.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn no_such_array(array: &str, renderable: usize) -> Error {
-    Error::InvalidOption {
-        detail: format!(
-            "no renderable array is named `{array}`; the source lists {renderable} renderable arrays"
-        ),
-    }
+    Error::invalid_option(format!(
+        "no renderable array is named `{array}`; the source lists {renderable} renderable arrays"
+    ))
 }
 
 /// The coordinate values of an axis, from the 1-D array CF names after it
@@ -1744,26 +1770,22 @@ impl Session {
                 let (y, x) = (y_dim as usize, x_dim as usize);
                 let fixed: Vec<usize> = slice_indices.iter().map(|&i| i as usize).collect();
                 if fixed.len() != var.dims.len() {
-                    return Err(Error::InvalidOption {
-                        detail: format!(
-                            "`{}` has {} dimensions, so `slice_indices` needs {} entries \
+                    return Err(Error::invalid_option(format!(
+                        "`{}` has {} dimensions, so `slice_indices` needs {} entries \
                              (the two horizontal ones are ignored); {} were given",
-                            var.name,
-                            var.dims.len(),
-                            var.dims.len(),
-                            fixed.len()
-                        ),
-                    });
+                        var.name,
+                        var.dims.len(),
+                        var.dims.len(),
+                        fixed.len()
+                    )));
                 }
                 if y == x || y >= var.dims.len() || x >= var.dims.len() {
-                    return Err(Error::InvalidOption {
-                        detail: format!(
-                            "`{}` has {} dimensions; y_dim {y} and x_dim {x} must be \
+                    return Err(Error::invalid_option(format!(
+                        "`{}` has {} dimensions; y_dim {y} and x_dim {x} must be \
                              different and within them",
-                            var.name,
-                            var.dims.len()
-                        ),
-                    });
+                        var.name,
+                        var.dims.len()
+                    )));
                 }
                 let plane = read_plane(source, var, y, x, &fixed)?;
                 // The CF mask-and-scale, from the array's own attributes, so a
@@ -1952,14 +1974,12 @@ impl Session {
                 })?;
                 let (y, x) = (y_dim as usize, x_dim as usize);
                 if y == x || y >= var.dims.len() || x >= var.dims.len() {
-                    return Err(Error::InvalidOption {
-                        detail: format!(
-                            "`{}` has {} dimensions; y_dim {y} and x_dim {x} must be \
+                    return Err(Error::invalid_option(format!(
+                        "`{}` has {} dimensions; y_dim {y} and x_dim {x} must be \
                              different and within them",
-                            var.name,
-                            var.dims.len()
-                        ),
-                    });
+                        var.name,
+                        var.dims.len()
+                    )));
                 }
                 // The same call `decode_slice` makes, so the geometry a host
                 // paints with cannot disagree with the one the field reports —
@@ -2118,9 +2138,20 @@ impl Session {
     /// The colour decision, as data (ADR-0006 decision 3). The CPU painter
     /// reads the same value, so it is the oracle a GPU path is checked against
     /// rather than a second colour implementation.
+    ///
+    /// The domain is the range [`crate::colour_range()`] chooses. A field with
+    /// no present cell and an automatic range has none, and is not refused
+    /// (#1155): the palette spans a placeholder domain no cell reads, since
+    /// every cell of such a field is masked. [`Session::render`] reports that
+    /// as a `null` [`ColourRange`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidOption`] for an unknown colormap or scale, and for a
+    /// range the rule refuses, with the refusal's fields on it.
     #[cfg(feature = "render")]
     pub fn palette(&self, field: &Field, options: &PaletteOptions) -> Result<Palette, Error> {
-        build_palette(field, options)
+        build_palette(field, options).map(|(palette, _)| palette)
     }
 
     /// Paint a field to RGBA on the CPU. The fallback path: a GPU host colours
@@ -2147,10 +2178,11 @@ impl Session {
         // The raster is the field's stated shape, so that has to be the shape
         // of the values it holds (#913).
         require_field_shape(field)?;
-        let palette = build_palette(field, options)?;
+        let (palette, range) = build_palette(field, options)?;
         let values = field.values.to_f64();
         let flip = field.georef.scan.flips_source_rows(flip_y);
-        let rgba = palette.paint(&values, Some(&field.mask), field.ni, field.nj, flip);
+        let (rgba, counts) =
+            palette.paint_counted(&values, Some(&field.mask), field.ni, field.nj, flip);
         // `paint` answers an empty buffer for a raster whose byte count this
         // target cannot address — `usize` is 32 bits on wasm32, the host this
         // exists for. Say so, rather than handing back dimensions with no
@@ -2170,6 +2202,7 @@ impl Session {
             rgba,
             width: field.ni,
             height: field.nj,
+            range: range.counted(&counts, u64::from(field.ni) * u64::from(field.nj)),
         })
     }
 
@@ -2357,13 +2390,34 @@ impl Session {
 
     /// Isolines through a field, in fractional grid coordinates.
     ///
-    /// `levels` empty asks for a nice set spanning the field's own range.
+    /// `levels` empty asks for [`crate::AUTO_CONTOUR_LEVELS`] nice levels
+    /// spanning the colour range `options` chooses: the same range
+    /// `Session::render` colours over for the same `min`, `max`, `center`
+    /// and `scale`, so a manual range spaces the levels in this host as it
+    /// does in the Node addon's contours (#1155).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidOption`] for a range the render would refuse, with the
+    /// same `RangeRefusal`, whether or not `levels` is empty.
     #[cfg(feature = "analysis")]
-    pub fn contours(&self, field: &Field, levels: &[f64]) -> Result<Vec<Isoline>, Error> {
+    pub fn contours(
+        &self,
+        field: &Field,
+        levels: &[f64],
+        options: &ContourOptions,
+    ) -> Result<Vec<Isoline>, Error> {
+        let range = crate::colour_range(
+            field.stats.min.zip(field.stats.max),
+            options.min,
+            options.max,
+            options.center,
+            crate::colour_range::scale_is_log10(options.scale.as_deref())?,
+        )?;
         let chosen: Vec<f64> = if levels.is_empty() {
-            match (field.stats.min, field.stats.max) {
-                (Some(min), Some(max)) => nice_levels(min, max, 10),
-                _ => Vec::new(),
+            match range.used() {
+                Some((min, max)) => nice_levels(min, max, crate::AUTO_CONTOUR_LEVELS),
+                None => Vec::new(),
             }
         } else {
             levels.to_vec()
@@ -2424,15 +2478,13 @@ fn require_field_shape(field: &Field) -> Result<(), Error> {
     if cells == Some(field.values.len()) {
         return Ok(());
     }
-    Err(Error::InvalidOption {
-        detail: format!(
-            "a {}×{} grid has {} cells, and {} values were given",
-            field.ni,
-            field.nj,
-            cells.map_or_else(|| "too many".to_string(), |n| n.to_string()),
-            field.values.len()
-        ),
-    })
+    Err(Error::invalid_option(format!(
+        "a {}×{} grid has {} cells, and {} values were given",
+        field.ni,
+        field.nj,
+        cells.map_or_else(|| "too many".to_string(), |n| n.to_string()),
+        field.values.len()
+    )))
 }
 
 #[cfg(feature = "render")]
@@ -2472,9 +2524,9 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         || lat_max <= lat_min
         || lon_max <= lon_min
     {
-        return Err(Error::InvalidOption {
-            detail: format!("the warp window {window:?} encloses no area"),
-        });
+        return Err(Error::invalid_option(format!(
+            "the warp window {window:?} encloses no area"
+        )));
     }
 
     // Sampled in place rather than through `optional_values`: that shape is
@@ -2512,13 +2564,11 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     if size.is_none() {
         require_field_shape(field)?;
         if !crate::render::raster_is_allocatable(field.ni, field.nj, isize::MAX as u64) {
-            return Err(Error::InvalidOption {
-                detail: format!(
-                    "a {}×{} field warps to a raster larger than this target can allocate; \
+            return Err(Error::invalid_option(format!(
+                "a {}×{} field warps to a raster larger than this target can allocate; \
                      name a smaller width and height",
-                    field.ni, field.nj
-                ),
-            });
+                field.ni, field.nj
+            )));
         }
     }
     let (width, height) = size.unwrap_or((field.ni, field.nj));
@@ -2548,51 +2598,32 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     })
 }
 
+/// The palette for `field` under `options`, and the range it was built over.
+///
+/// The range is [`crate::colour_range()`] over the field's own statistics, so
+/// this host and the addon choose it by one rule (#1155). A field with no
+/// present cell and an automatic range has no range: the palette is built over
+/// a placeholder domain no cell reads, every cell paints transparent, and the
+/// range reports `null` ends rather than an error (#880 item 1).
 #[cfg(feature = "render")]
-fn build_palette(field: &Field, options: &PaletteOptions) -> Result<Palette, Error> {
-    let colormap = match (
+fn build_palette(field: &Field, options: &PaletteOptions) -> Result<(Palette, ColourRange), Error> {
+    let colormap = crate::render::resolve_colormap(
         options.colormap_table.as_deref(),
         options.colormap.as_deref(),
-    ) {
-        (Some(table), name) => Cow::Owned(crate::render::colormap_from_table(table, name)?),
-        (None, Some(name)) => {
-            Cow::Borrowed(Colormap::by_name(name).ok_or_else(|| Error::InvalidOption {
-                detail: format!("no colormap named {name:?}"),
-            })?)
-        }
-        (None, None) => Cow::Borrowed(default_colormap()),
-    };
-    let scale = match options.scale.as_deref() {
-        None | Some("linear") => ScaleMode::Linear,
-        Some("log10") => ScaleMode::Log10,
-        Some(other) => {
-            return Err(Error::InvalidOption {
-                detail: format!("no scale named {other:?}; expected \"linear\" or \"log10\""),
-            });
-        }
-    };
-    let min = options
-        .min
-        .or(field.stats.min)
-        .ok_or_else(|| Error::InvalidOption {
-            detail: "the field has no present values, so it has no range to colour".to_string(),
-        })?;
-    let max = options.max.or(field.stats.max).unwrap_or(min);
-    // A logarithm needs a positive domain. `transformed_domain` would answer
-    // `-inf` (for 0) or `NaN`, and every cell would then paint the low end of
-    // the ramp — a picture that looks like data and is not. `core` documents
-    // that its callers reject this; this is that rejection.
-    // Written as "not (finite and positive)" rather than `min <= 0.0`: a `NaN`
-    // minimum fails every comparison, so the simpler form would let it through
-    // and produce exactly the domain this guard exists to refuse.
-    if matches!(scale, ScaleMode::Log10) && !(min.is_finite() && min > 0.0) {
-        return Err(Error::InvalidOption {
-            detail: format!(
-                "a log10 scale needs a finite, positive minimum; the range starts at {min}"
-            ),
-        });
-    }
-    Ok(Palette::build(&colormap, options.reversed, min, max, scale))
+    )?;
+    let scale = crate::render::parse_scale(options.scale.as_deref())?;
+    let range = crate::colour_range(
+        field.stats.min.zip(field.stats.max),
+        options.min,
+        options.max,
+        options.center,
+        scale == ScaleMode::Log10,
+    )?;
+    let (min, max) = range.paint_domain();
+    Ok((
+        Palette::build(&colormap, options.reversed, min, max, scale),
+        range,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -3249,7 +3280,7 @@ mod tests {
         let session = grib2_session();
         let levels = [4.5, 9.5];
         let bounded: usize = session
-            .contours(&field, &levels)
+            .contours(&field, &levels, &ContourOptions::default())
             .expect("contours")
             .iter()
             .map(|l| l.segments.len())

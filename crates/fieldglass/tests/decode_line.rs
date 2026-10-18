@@ -199,7 +199,7 @@ fn the_refusals_name_what_was_wrong() {
         (0, vec![0, 9, 0], "past the end"),
     ] {
         match session.decode_line(t, along, &indices, &opts()) {
-            Err(Error::InvalidOption { detail }) => {
+            Err(Error::InvalidOption { detail, .. }) => {
                 assert!(detail.contains(needle), "{needle:?} not in {detail:?}");
             }
             other => panic!("along {along}, {indices:?}: expected a refusal, got {other:?}"),

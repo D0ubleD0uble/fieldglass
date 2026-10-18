@@ -108,6 +108,9 @@ compile_error!(
 #[cfg(any(feature = "render", feature = "analysis"))]
 mod align;
 pub mod api;
+// The one colour-range rule both hosts and the contour levels follow (#1155).
+#[cfg(any(feature = "render", feature = "analysis"))]
+mod colour_range;
 #[cfg(feature = "analysis")]
 pub mod combine;
 #[cfg(feature = "conformance")]
@@ -141,13 +144,18 @@ pub use align::component_frame;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{
-    Addressing, Affine, AxisUnits, AxisValues, DimensionInfo, Dtype, Field, FullDetail, Georef,
-    GridSupport, Identification, LeftOutArray, LeftOutCause, Line, MessageIdentity, MessageInfo,
-    MessageProbe, Placement, Positive, Probe, Scan, SourceFormat, SpectralTruncation,
+    Addressing, Affine, AxisUnits, AxisValues, ColourRange, DimensionInfo, Dtype, Field,
+    FullDetail, Georef, GridSupport, Identification, LeftOutArray, LeftOutCause, Line,
+    MessageIdentity, MessageInfo, MessageProbe, OutOfRange, Placement, Positive, Probe, RangeEnd,
+    RangeRefusal, RangeRefusalReason, RangeSource, Scan, SourceFormat, SpectralTruncation,
     StatisticalStep, Stats, SurfaceCodes, Values, VariableInfo, VectorPairing, Vertical,
 };
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};
+/// The colour range every host paints over, chosen by one rule (#1155), and
+/// the contour level count both hosts space their automatic levels with.
+#[cfg(any(feature = "render", feature = "analysis"))]
+pub use colour_range::{AUTO_CONTOUR_LEVELS, colour_range};
 #[cfg(feature = "analysis")]
 pub use combine::{
     CombineOp, combine_cell, combine_ops, combine_truncation, combine_values, op_from_wire,
@@ -166,10 +174,10 @@ pub use fieldglass_core::ProjectedPolylines;
 /// slice's lookup geometry per coordinate pair and asks the index which way its
 /// rows run. Ungated, because [`Georef`] is.
 pub use fieldglass_core::SpatialIndex;
-/// The finite range of a field's present cells, which a host painting a
-/// `render::project` result on the CPU needs for the palette domain when the
-/// caller named no range — the same rule `render::contour_polylines` spaces its
-/// levels over, so the isolines line up with the colours.
+/// The finite range of a field's present cells: the `extremes` a host painting a
+/// `render::project` result on the CPU hands [`colour_range()`], taken over the
+/// field it decoded and not the warped raster (#1155), as
+/// `render::contour_polylines` takes them.
 #[cfg(feature = "render")]
 pub use fieldglass_core::colormap::min_max_ignoring_mask;
 /// The grid a [`Source`] and a [`Georef`] carry, so a host can hold one (#574).
@@ -181,6 +189,8 @@ pub use fieldglass_core::units::normalize_units;
 /// Which container a buffer holds, from its leading bytes — what a host asks
 /// before choosing which handle to open, and what [`Session::open`] asks too.
 pub use fieldglass_core::{Format, detect_from_bytes};
+#[cfg(feature = "analysis")]
+pub use session::ContourOptions;
 // The placement a host paints with (#659), beside the `Session` that hands it
 // over. Not in `api`: it carries a `GridGeometry`, which is the engine's own
 // shape rather than anything a host serialises.

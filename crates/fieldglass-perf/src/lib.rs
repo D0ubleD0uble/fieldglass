@@ -404,7 +404,13 @@ impl Prepared {
             }
             (Op::Contours, State::Field(boxed)) => {
                 let (session, field) = *boxed;
-                let lines = session.contours(&field, CONTOUR_LEVELS).expect("contours");
+                let lines = session
+                    .contours(
+                        &field,
+                        CONTOUR_LEVELS,
+                        &fieldglass::ContourOptions::default(),
+                    )
+                    .expect("contours");
                 let cells = field.values.len() as u64;
                 done!(cells, (session, field, lines))
             }

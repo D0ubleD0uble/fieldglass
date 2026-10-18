@@ -145,7 +145,7 @@ function runChild(id) {
         handle.render(field, {}, false);
         return () => {};
       case 'contours':
-        handle.contours(field, CONTOUR_LEVELS);
+        handle.contours(field, CONTOUR_LEVELS, null);
         return () => {};
       default:
         die(`no wasm operation ${op}`);

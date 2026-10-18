@@ -1235,6 +1235,141 @@ api_type! {
         /// `[i0, j0, i1, j1]` per segment, in fractional grid indices.
         pub segments: Vec<[f64; 4]>,
     }
+
+    /// The colour range a render used, and what it did with the cells outside
+    /// it (#1155).
+    ///
+    /// Every host chooses the range by one rule, `fieldglass::colour_range`:
+    /// a manual end is used as given, and an end left out comes from the
+    /// field's present cells, taken over the whole decoded 2-D field before
+    /// any warp. A window or a crop is a view of the field, not a new one, so
+    /// it does not move the range.
+    ///
+    /// The counts are taken in the pass that paints, over the painted
+    /// raster's cells: `Session::render` counts the source grid's cells, and
+    /// the Node addon's render counts the pixels of the raster it warped to
+    /// (the source grid's again for its source projection).
+    ///
+    /// A present cell is counted in [`below`](Self::below) or
+    /// [`above`](Self::above) only when it took an end's colour. Under a log10
+    /// scale a zero or negative value has no logarithm, so it paints like a
+    /// missing cell and is counted in neither, though it is still
+    /// [`present`](Self::present).
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct ColourRange {
+        /// Low end of the range the cells were coloured over, in data units
+        /// (unlogged under a log10 scale). `null` when the range was left to
+        /// the data and no cell is present, so there is no range to show and
+        /// the raster is transparent.
+        pub used_min: Option<f64>,
+        /// High end of the range, as [`used_min`](Self::used_min).
+        pub used_max: Option<f64>,
+        /// Which ends were given and which came from the data.
+        pub range_source: RangeSource,
+        /// The value the ramp is centred on for a diverging map, as given;
+        /// `null` when none was asked for. The range is then symmetric about
+        /// it (in `log10` under a log10 scale), so the ramp's middle colour
+        /// sits on it.
+        pub center: Option<f64>,
+        /// What a present cell outside the range paints as.
+        pub out_of_range: OutOfRange,
+        /// Present cells below [`used_min`](Self::used_min).
+        pub below: u64,
+        /// Present cells above [`used_max`](Self::used_max).
+        pub above: u64,
+        /// Cells with a finite value the mask says is present.
+        pub present: u64,
+        /// Every cell of the painted raster, present or not.
+        pub total: u64,
+    }
+
+    /// Where a [`ColourRange`]'s two ends came from.
+    #[derive(Copy, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum RangeSource {
+        /// Both from the field's present cells.
+        Auto,
+        /// Both as the caller gave them.
+        Manual,
+        /// The minimum as given, the maximum from the data (or mirrored about
+        /// the center, when one was given).
+        ManualMin,
+        /// The maximum as given, the minimum from the data (or mirrored about
+        /// the center).
+        ManualMax,
+    }
+
+    /// What a present cell outside a [`ColourRange`] paints as.
+    #[derive(Copy, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum OutOfRange {
+        /// The colour of the end it is past, as matplotlib and xarray do by
+        /// default. [`ColourRange::below`] and [`ColourRange::above`] count
+        /// them, so a legend can say how many there are. A value with no place
+        /// on the scale at all (zero or negative under log10) is not clamped:
+        /// it paints like a missing cell and is in neither count.
+        Clamp,
+    }
+
+    /// Why a colour range was refused, as fields a host can act on: which
+    /// control to point at and what was wrong with it (#1155).
+    ///
+    /// Carried by [`crate::Error::InvalidOption`]. The error's message says
+    /// the same in prose; branch on [`reason`](Self::reason) and
+    /// [`end`](Self::end), not on the wording.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct RangeRefusal {
+        /// What was wrong.
+        pub reason: RangeRefusalReason,
+        /// Which option it was wrong about.
+        pub end: RangeEnd,
+        /// The value given for [`end`](Self::end); `null` when it is not a
+        /// finite number (JSON has no spelling for one), when the refusal is
+        /// about both ends, or when nothing was given for that end and its
+        /// value came from the data (then it is
+        /// [`field_min`](Self::field_min) or [`field_max`](Self::field_max)).
+        pub given: Option<f64>,
+        /// The field's present-cell minimum, which an end left out is taken
+        /// from; `null` for a field with no present cell.
+        pub field_min: Option<f64>,
+        /// The field's present-cell maximum, as [`field_min`](Self::field_min).
+        pub field_max: Option<f64>,
+    }
+
+    /// The stable code of a [`RangeRefusal`].
+    #[derive(Copy, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum RangeRefusalReason {
+        /// The value is `NaN` or infinite.
+        NotFinite,
+        /// The maximum is not above the minimum. When one end was given and the
+        /// other came from the data, [`RangeRefusal::end`] is the given one.
+        Inverted,
+        /// A log10 scale needs a positive minimum (or center), and this one is
+        /// zero or negative.
+        Log10NotPositive,
+        /// The center is not strictly between the given end and the data's
+        /// other end, so the range cannot be centred on it.
+        CenterOutside,
+        /// A center was given with both ends, which already fix the range.
+        CenterWithBothEnds,
+    }
+
+    /// The option a [`RangeRefusal`] is about.
+    #[derive(Copy, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum RangeEnd {
+        /// The minimum.
+        Min,
+        /// The maximum.
+        Max,
+        /// Both ends together: a manual maximum not above a manual minimum.
+        Both,
+        /// The center.
+        Center,
+    }
 }
 
 impl Values {

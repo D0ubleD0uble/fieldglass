@@ -93,7 +93,7 @@ fn read_objects(objects: &JsValue) -> Result<MemoryObjects, JsValue> {
 }
 
 fn invalid(detail: String) -> JsValue {
-    throw(fieldglass::Error::InvalidOption { detail })
+    throw(fieldglass::Error::invalid_option(detail))
 }
 
 #[wasm_bindgen]

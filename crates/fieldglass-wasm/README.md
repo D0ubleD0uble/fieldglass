@@ -77,7 +77,9 @@ handle.shaderMask(field, {});      // Uint8Array the shader tests
 handle.warp(field, { bounds: [24, 50, -125, -66], width: 512, height: 512 });
 handle.render(field, {}, false);   // RGBA, north up — see below
 handle.probe(field, lat, lon);
-handle.contours(field, new Float64Array([280, 290]));
+handle.contours(field, new Float64Array([280, 290]), {});
+// No levels: nice ones over the range render uses for the same min, max, center and scale.
+handle.contours(field, new Float64Array([]), { min: 270, max: 300 });
 
 // Difference maps and their siblings. `combineOps()` is the picker's list:
 // [{ value: 'a_minus_b', label: 'A − B' }, …]. Both fields must sit on the
@@ -447,12 +449,22 @@ The 0.6.0 release prep (#854) re-recorded it from the `ci.yml` run on
 figures (3.1%), and 33,276 and 19,471 above `+simd128`'s (3.3%). That is the
 growth of the merges since #929.
 
+#1155 re-recorded it from the `ci.yml` run on its PR (#1167, `22ad0823` merged
+onto `3bc0c205`), whose drift read 5.3% gzipped for the baseline and 5.0% for
+`+simd128`: 58,842 raw bytes and 32,719 gzipped above the previous baseline
+figures, and 59,035 and 30,901 above `+simd128`'s. Master at `3bc0c205`
+already measured 1,637,153 and 643,516 (4.6%), and 1,623,582 and 638,372
+(4.2%), so 8,921 raw and 4,431 gzipped of the baseline's growth, and 9,273 and
+5,005 of `+simd128`'s, are #1155's: the one colour-range rule, its range
+result and refusal types, and the contour options. The rest is the merges since
+#854.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,587,232 | 615,228 |
-| `+simd128` | 1,573,820 | 612,476 |
+| baseline | 1,646,074 | 647,947 |
+| `+simd128` | 1,632,855 | 643,377 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
@@ -574,6 +586,12 @@ and decodes each window from those alone. The rows, columns, chunks and values
 are checked against `crates/fieldglass-zarr/tests/fixtures/windows_oracle.json`,
 which the fixture script computes from the coordinates and reads back through
 xarray, and nothing unplanned may be fetched.
+
+**`tests/node/colour_range.mjs`** — the colour-range rule both hosts follow
+(#1155), over the committed GFS fixture. An empty field paints transparent; one
+manual end takes the other from the data; an inverted, zero-width or non-finite
+range is refused with `e.code` and `e.rangeRefusal`; and the automatic range and
+contour levels are the whole field's whatever a warp shows.
 
 **`tests/node/parity.mjs`** — the cross-target check. `node
 crates/fieldglass-wasm/tests/node/parity.mjs` decodes the real sample files with

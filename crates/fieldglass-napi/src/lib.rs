@@ -14,6 +14,8 @@ use fieldglass::{
     Format, GridGeometry, ProjectedPolylines, Scan, SpatialIndex, detect_from_bytes,
     normalize_units,
 };
+use napi::Env;
+use napi::bindgen_prelude::{JsObjectValue, Null};
 use napi_derive::napi;
 use std::sync::Mutex;
 
@@ -28,6 +30,9 @@ mod directory_store;
 // expectations — the browser host's Node runner is the third.
 #[cfg(test)]
 mod conformance_host;
+// The colour-range rule through this host's render path (#1155).
+#[cfg(test)]
+mod range_rule_tests;
 
 /// Bridge a foreign crate's error into a [`napi::Error`] by its `Display` text.
 ///
@@ -618,11 +623,17 @@ pub struct RenderOptions {
     /// Paint row 0 at the bottom rather than the top. Set for a source grid
     /// whose scan runs south-to-north, so north ends up up.
     pub flip_y: bool,
-    /// Manual range override. When either is `None` the renderer uses the
-    /// computed min/max over the present cells.
+    /// Low end of a manual colour range. `None` takes the field's own
+    /// present-cell minimum, over the whole decoded field before any warp, so a
+    /// window or the output size does not move it (#1155). One end may be
+    /// given alone; a range that does not hold is refused, with a
+    /// `rangeRefusal` on the thrown error naming the end.
     pub range_min: Option<f64>,
     /// High end of the manual range — see `range_min`.
     pub range_max: Option<f64>,
+    /// A value to centre the ramp on, for a diverging map: the range is made
+    /// symmetric about it. Validated like the two ends.
+    pub range_center: Option<f64>,
     /// Manual equirectangular extent override (degrees). Only consulted for
     /// the `"equirectangular"` target. When all four are `Some` and form a
     /// valid box (`lat_max > lat_min`, `lon_max > lon_min`) the warp renders
@@ -656,11 +667,12 @@ pub struct RenderOptions {
     /// magnitude (precipitation, AOD, chlorophyll) resolve across their whole
     /// range; non-positive values have no logarithm and render as missing
     /// (transparent). `None`/unknown is an error rather than a silent fallback,
-    /// matching the colormap field. Log10 needs a positive lower bound: with an
-    /// auto range whose minimum is ≤ 0 the render errors, directing the caller
-    /// to set a positive manual minimum (the panel disables the toggle in that
-    /// case). `used_min`/`used_max` are still echoed back in true (unlogged)
-    /// data units so the colorbar labels read correctly.
+    /// matching the colormap field. Log10 needs a finite, positive lower bound:
+    /// with a minimum ≤ 0, given or taken from the data, the render is refused
+    /// with a `rangeRefusal` whose `reason` is `"log10_not_positive"` (the
+    /// panel disables the toggle in that case). `used_min`/`used_max` are
+    /// still echoed back in true (unlogged) data units so the colorbar labels
+    /// read correctly.
     pub scale_mode: Option<String>,
     /// Output raster columns for the lat/lon-box targets (#465). `None` keeps
     /// the size those targets derive for themselves — see `height`.
@@ -778,7 +790,7 @@ pub fn combine_ops() -> Vec<CombineOpInfo> {
         .collect()
 }
 
-/// Output of [`Grib1Handle::render_grid`] / [`Grib2Handle::render_grid`].
+/// Output of [`Grib1Handle::render_grid_for_js`] / [`Grib2Handle::render_grid_for_js`].
 /// `rgba` is a paint-ready buffer the webview blits straight to canvas
 /// via `putImageData`.
 ///
@@ -808,6 +820,13 @@ pub struct RenderedGrid {
     pub used_min: Option<f64>,
     /// High end of the range actually used to paint — see `used_min`.
     pub used_max: Option<f64>,
+    /// The whole range result (#1155): the two ends above, which ends were
+    /// given, the center, and how many present cells of this raster were
+    /// below and above the range and took an end's colour, counted as they
+    /// were painted. The API's own `ColourRange`, the one `Session::render`
+    /// returns.
+    #[napi(ts_type = "ColourRange")]
+    pub range: serde_json::Value,
     /// Equirectangular extent actually rendered (degrees), echoed back so the
     /// webview can pre-fill the manual-bounds inputs. `null` for the
     /// source-projection target, which has no geographic extent. `lonMin`/
@@ -968,6 +987,7 @@ impl std::fmt::Debug for RenderedGrid {
             .field("height", &self.height)
             .field("used_min", &self.used_min)
             .field("used_max", &self.used_max)
+            .field("range", &self.range)
             .field("used_lat_min", &self.used_lat_min)
             .field("used_lat_max", &self.used_lat_max)
             .field("used_lon_min", &self.used_lon_min)
@@ -1123,7 +1143,7 @@ impl MessageStream {
     /// Message `index` painted under `options`, labelled with its band limit
     /// when it is a band-limited spectral map (#637). Both GRIB handles'
     /// `render_grid`.
-    fn render(&self, index: u32, options: &RenderOptions) -> napi::Result<RenderedGrid> {
+    fn render(&self, index: u32, options: &RenderOptions) -> Result<RenderedGrid, RenderError> {
         // A spectral message has no grid of its own; `resolved` synthesizes one
         // onto a global lat/lon grid and hands it back like any decoded field
         // (#330), so this path never special-cases it.
@@ -1142,7 +1162,7 @@ impl MessageStream {
         index_b: u32,
         op: &str,
         options: &RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
+    ) -> Result<RenderedGrid, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
         let op = fieldglass::op_from_wire(op).into_napi()?;
         let (raw_a, placed_a) = self.resolved(index_a)?;
@@ -1473,12 +1493,24 @@ impl Grib1Handle {
 
     /// Compose decode + reprojection warp + viridis colormap into a
     /// paint-ready RGBA buffer.
-    #[napi]
-    pub fn render_grid(
+    #[napi(js_name = "renderGrid")]
+    pub fn render_grid_for_js(
         &self,
+        env: Env,
         message_index: u32,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        self.render_grid(message_index, options)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// [`render_grid_for_js`](Self::render_grid_for_js), keeping the engine's refusal
+    /// rather than throwing it, for this crate's callers and tests (#1155).
+    pub(crate) fn render_grid(
+        &self,
+        message_index: u32,
+        options: RenderOptions,
+    ) -> Result<RenderedGrid, RenderError> {
         self.stream.render(message_index, &options)
     }
 
@@ -1488,14 +1520,28 @@ impl Grib1Handle {
     /// messages must sit on the same grid; the result renders through the
     /// normal pipeline (projection, overlays, palette, scaling, bounds) against
     /// the primary message's geometry.
-    #[napi]
-    pub fn render_grid_combined(
+    #[napi(js_name = "renderGridCombined")]
+    pub fn render_grid_combined_for_js(
         &self,
+        env: Env,
         message_index_a: u32,
         message_index_b: u32,
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        self.render_grid_combined(message_index_a, message_index_b, op, options)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// [`render_grid_combined_for_js`](Self::render_grid_combined_for_js), keeping the engine's refusal
+    /// rather than throwing it, for this crate's callers and tests (#1155).
+    pub(crate) fn render_grid_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: String,
+        options: RenderOptions,
+    ) -> Result<RenderedGrid, RenderError> {
         self.stream
             .render_combined(message_index_a, message_index_b, &op, &options)
     }
@@ -1754,29 +1800,55 @@ impl Grib2Handle {
     /// Decode one message and paint it into a raster under `options`. A
     /// spectral message is synthesized onto a global lat/lon grid first, so
     /// this takes any message index the file has.
-    #[napi]
-    pub fn render_grid(
+    #[napi(js_name = "renderGrid")]
+    pub fn render_grid_for_js(
         &self,
+        env: Env,
         message_index: u32,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        self.render_grid(message_index, options)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// [`render_grid_for_js`](Self::render_grid_for_js), keeping the engine's refusal
+    /// rather than throwing it, for this crate's callers and tests (#1155).
+    pub(crate) fn render_grid(
+        &self,
+        message_index: u32,
+        options: RenderOptions,
+    ) -> Result<RenderedGrid, RenderError> {
         self.stream.render(message_index, &options)
     }
 
     /// Render `message_index_a` combined element-wise with `message_index_b`
     /// under `op` (one of the `value` tags `combineOps()` reports) — the
     /// difference-map workflow. Sibling to
-    /// [`Grib1Handle::render_grid_combined`]; both messages must sit on the same
+    /// [`Grib1Handle::render_grid_combined_for_js`]; both messages must sit on the same
     /// grid, and the result renders through the normal pipeline against the
     /// primary message's geometry.
-    #[napi]
-    pub fn render_grid_combined(
+    #[napi(js_name = "renderGridCombined")]
+    pub fn render_grid_combined_for_js(
         &self,
+        env: Env,
         message_index_a: u32,
         message_index_b: u32,
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        self.render_grid_combined(message_index_a, message_index_b, op, options)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// [`render_grid_combined_for_js`](Self::render_grid_combined_for_js), keeping the engine's refusal
+    /// rather than throwing it, for this crate's callers and tests (#1155).
+    pub(crate) fn render_grid_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: String,
+        options: RenderOptions,
+    ) -> Result<RenderedGrid, RenderError> {
         self.stream
             .render_combined(message_index_a, message_index_b, &op, &options)
     }
@@ -2210,15 +2282,30 @@ impl NetcdfHandle {
     /// `sliceIndices` holds the fixed index for every dimension (its entries for
     /// `yDim` / `xDim` are ignored). The picked plane is fed through the shared
     /// warp on the geometry the file's coordinates place it on.
-    #[napi]
-    pub fn render_slice(
+    #[napi(js_name = "renderSlice")]
+    pub fn render_slice_for_js(
         &self,
+        env: Env,
         variable_index: u32,
         y_dim: u32,
         x_dim: u32,
         slice_indices: Vec<u32>,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        self.render_slice(variable_index, y_dim, x_dim, slice_indices, options)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// [`render_slice_for_js`](Self::render_slice_for_js), keeping the engine's refusal
+    /// rather than throwing it, for this crate's callers and tests (#1155).
+    pub(crate) fn render_slice(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        options: RenderOptions,
+    ) -> Result<RenderedGrid, RenderError> {
         let var = self.renderable(variable_index)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
@@ -2316,7 +2403,7 @@ impl NetcdfHandle {
 
     /// Serialize one decoded slice as CSV — `"matrix"` (a 2-D grid of values) or
     /// `"long"` (a `lat,lon,value` table), missing points as empty value cells.
-    /// The slice is picked exactly like [`render_slice`](Self::render_slice)
+    /// The slice is picked exactly like [`render_slice`](Self::render_slice_for_js)
     /// (`yDim` / `xDim` are the image axes, `sliceIndices` fixes the rest). The
     /// long format needs per-point geolocation, so it covers any slice whose
     /// synthesised geometry lands on a geolocated family — a regular lat/lon
@@ -2346,10 +2433,11 @@ impl NetcdfHandle {
     /// variable (`variableIndexB == variableIndexA`, different indices). Both
     /// slices must resolve to the same grid; the combined field renders through
     /// the normal pipeline against field A's geometry.
-    #[napi]
+    #[napi(js_name = "renderSliceCombined")]
     #[allow(clippy::too_many_arguments)]
-    pub fn render_slice_combined(
+    pub fn render_slice_combined_for_js(
         &self,
+        env: Env,
         variable_index_a: u32,
         y_dim: u32,
         x_dim: u32,
@@ -2359,6 +2447,33 @@ impl NetcdfHandle {
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        self.render_slice_combined(
+            variable_index_a,
+            y_dim,
+            x_dim,
+            slice_indices_a,
+            variable_index_b,
+            slice_indices_b,
+            op,
+            options,
+        )
+        .map_err(|e| e.throw(&env))
+    }
+
+    /// [`render_slice_combined_for_js`](Self::render_slice_combined_for_js), keeping the engine's refusal
+    /// rather than throwing it, for this crate's callers and tests (#1155).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn render_slice_combined(
+        &self,
+        variable_index_a: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices_a: Vec<u32>,
+        variable_index_b: u32,
+        slice_indices_b: Vec<u32>,
+        op: String,
+        options: RenderOptions,
+    ) -> Result<RenderedGrid, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
         let op = fieldglass::op_from_wire(&op).into_napi()?;
         let (y, x) = (y_dim as usize, x_dim as usize);
@@ -2449,7 +2564,7 @@ impl NetcdfHandle {
     /// Probe a NetCDF difference/sum/… map under a pixel (#329): the two slices
     /// are combined under `op` and the *combined* field is read, so the readout
     /// matches the displayed map, not slice A. Sibling to
-    /// [`Self::render_slice_combined`].
+    /// [`Self::render_slice_combined_for_js`].
     #[napi]
     #[allow(clippy::too_many_arguments)]
     pub fn probe_slice_combined(
@@ -3024,16 +3139,31 @@ impl ZarrHandle {
     /// through.
     ///
     /// `y_dim` / `x_dim` are the image axes and `slice_indices` fixes the rest,
-    /// exactly as [`NetcdfHandle::render_slice`] takes them.
-    #[napi]
-    pub fn render_slice(
+    /// exactly as [`NetcdfHandle::render_slice_for_js`] takes them.
+    #[napi(js_name = "renderSlice")]
+    pub fn render_slice_for_js(
         &self,
+        env: Env,
         variable_index: u32,
         y_dim: u32,
         x_dim: u32,
         slice_indices: Vec<u32>,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        self.render_slice(variable_index, y_dim, x_dim, slice_indices, options)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// [`render_slice_for_js`](Self::render_slice_for_js), keeping the engine's refusal
+    /// rather than throwing it, for this crate's callers and tests (#1155).
+    pub(crate) fn render_slice(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        options: RenderOptions,
+    ) -> Result<RenderedGrid, RenderError> {
         let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         render_from_source(&field.source(), &values, &options)
     }
@@ -3105,10 +3235,11 @@ impl ZarrHandle {
     /// `Session::combine` runs the alignment gate and the arithmetic, so the
     /// combined field arrives as a `Field` like any other — same placement, same
     /// render path. A store gets difference maps for free.
-    #[napi]
+    #[napi(js_name = "renderSliceCombined")]
     #[allow(clippy::too_many_arguments)]
-    pub fn render_slice_combined(
+    pub fn render_slice_combined_for_js(
         &self,
+        env: Env,
         variable_index_a: u32,
         y_dim: u32,
         x_dim: u32,
@@ -3118,6 +3249,33 @@ impl ZarrHandle {
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        self.render_slice_combined(
+            variable_index_a,
+            y_dim,
+            x_dim,
+            slice_indices_a,
+            variable_index_b,
+            slice_indices_b,
+            op,
+            options,
+        )
+        .map_err(|e| e.throw(&env))
+    }
+
+    /// [`render_slice_combined_for_js`](Self::render_slice_combined_for_js), keeping the engine's refusal
+    /// rather than throwing it, for this crate's callers and tests (#1155).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn render_slice_combined(
+        &self,
+        variable_index_a: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices_a: Vec<u32>,
+        variable_index_b: u32,
+        slice_indices_b: Vec<u32>,
+        op: String,
+        options: RenderOptions,
+    ) -> Result<RenderedGrid, RenderError> {
         let (combined, values) = self.combined(
             variable_index_a,
             y_dim,
@@ -3467,9 +3625,109 @@ fn render_combined(
     raw_b: &[Option<f64>],
     op: &str,
     options: &RenderOptions,
-) -> napi::Result<RenderedGrid> {
+) -> Result<RenderedGrid, RenderError> {
     let combined = combined_field(a, raw_a, b, raw_b, op)?;
     render_from_source(&a.source(), &combined, options)
+}
+
+/// What a render fails with on its way to JavaScript (#1155).
+///
+/// A refused colour range has to reach the panel as fields — which end, the
+/// value given, the field's own range — so it can point at the control that is
+/// wrong, and a `napi::Error` carries only a status and a reason. So the render
+/// path keeps the API's own [`fieldglass::Error`] until the `#[napi]` method,
+/// where [`throw`](Self::throw) builds the JS `Error` with `code` and
+/// `rangeRefusal` on it. Everything else is the `napi::Error` it always was.
+#[derive(Debug)]
+enum RenderError {
+    /// The engine refused, with its stable code and, for a colour range, the
+    /// refusal's fields.
+    Api(fieldglass::Error),
+    /// Anything this host reports in its own words.
+    Napi(napi::Error),
+}
+
+impl From<napi::Error> for RenderError {
+    fn from(e: napi::Error) -> Self {
+        Self::Napi(e)
+    }
+}
+
+impl From<fieldglass::Error> for RenderError {
+    fn from(e: fieldglass::Error) -> Self {
+        Self::Api(e)
+    }
+}
+
+impl RenderError {
+    /// The error a `#[napi]` method returns.
+    ///
+    /// An engine refusal is thrown here, as a JS `Error` whose `message` is
+    /// the API's, with `code` (the API's stable code) and `rangeRefusal` (the
+    /// [`fieldglass::RangeRefusal`], or `null`) set on it. The error returned
+    /// then says an exception is already pending, so napi-rs throws nothing
+    /// over it.
+    fn throw(self, env: &Env) -> napi::Error {
+        let e = match self {
+            Self::Napi(e) => return e,
+            Self::Api(e) => e,
+        };
+        let thrown = (|| -> napi::Result<()> {
+            let mut error = env.create_error(napi::Error::from_reason(e.message()))?;
+            error.set_named_property("code", e.code())?;
+            match e.range_refusal() {
+                Some(refusal) => {
+                    error.set_named_property("rangeRefusal", env.to_js_value(refusal)?)?;
+                }
+                None => error.set_named_property("rangeRefusal", Null)?,
+            }
+            env.throw(error)
+        })();
+        match thrown {
+            Ok(()) => napi::Error::from_status(napi::Status::PendingException),
+            // The object could not be built; the prose still says what was
+            // wrong.
+            Err(_) => napi::Error::from_reason(e.message()),
+        }
+    }
+
+    /// The prose a JS caller reads, for a test.
+    #[cfg(test)]
+    fn reason(&self) -> String {
+        match self {
+            Self::Api(e) => e.message(),
+            Self::Napi(e) => e.reason.clone(),
+        }
+    }
+
+    /// The engine's refusal, for a test that checks its fields.
+    #[cfg(test)]
+    fn api(&self) -> Option<&fieldglass::Error> {
+        match self {
+            Self::Api(e) => Some(e),
+            Self::Napi(_) => None,
+        }
+    }
+}
+
+/// The error with its fields dropped, for a caller that reports in prose: the
+/// characterisation golden, the conformance runner.
+impl From<RenderError> for napi::Error {
+    fn from(e: RenderError) -> Self {
+        match e {
+            RenderError::Api(e) => napi::Error::from_reason(e.message()),
+            RenderError::Napi(e) => e,
+        }
+    }
+}
+
+impl std::fmt::Display for RenderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Api(e) => write!(f, "{e}"),
+            Self::Napi(e) => write!(f, "{}", e.reason),
+        }
+    }
 }
 
 /// Paint a placed field.
@@ -3480,13 +3738,26 @@ fn render_combined(
 /// Zarr handle from a decoded field's own placement (#659).
 ///
 /// The row-flip decision comes from the `Source`'s own scan.
+///
+/// The colour range is [`fieldglass::colour_range`] over `raw`, the whole
+/// decoded field, before the warp: the rule `Session::render` follows, so a
+/// window, the output size or the resampling does not move the colours (#880
+/// item 6, #1155). It is resolved before the projection, so a refused range
+/// costs no warp.
 fn render_from_source(
     source: &fieldglass::Source<'_>,
     raw: &[Option<f64>],
     options: &RenderOptions,
-) -> napi::Result<RenderedGrid> {
+) -> Result<RenderedGrid, RenderError> {
     let engine = engine_options(options);
-    let resolved = ResolvedOptions::parse(&engine).into_napi()?;
+    let resolved = ResolvedOptions::parse(&engine)?;
+    let range = fieldglass::colour_range(
+        fieldglass::min_max_ignoring_mask(raw.iter().copied()),
+        resolved.range_min,
+        resolved.range_max,
+        resolved.range_center,
+        resolved.scale == fieldglass::ScaleMode::Log10,
+    )?;
     let Projected {
         values,
         mask,
@@ -3495,54 +3766,22 @@ fn render_from_source(
         bounds: used_bounds,
         summary,
         ..
-    } = fieldglass::render::project(source, raw, &engine).into_napi()?;
+    } = fieldglass::render::project(source, raw, &engine)?;
     let flip_y = if resolved.paints_the_source() {
         source.scan.flips_source_rows(resolved.flip_y)
     } else {
         resolved.flip_y
     };
 
-    // `None` when the range is automatic and no cell is present: there is no
-    // range to report, and none is invented for the legend (#871).
-    let used = match (resolved.range_min, resolved.range_max) {
-        (Some(min), Some(max)) if max > min => Some((min, max)),
-        _ => fieldglass::min_max_ignoring_mask(values.iter().enumerate().map(|(i, &v)| {
-            if mask.get(i).copied().unwrap_or(0) == 0 {
-                None
-            } else {
-                Some(v)
-            }
-        })),
-    };
-
-    // Log10 has no logarithm for a non-positive lower bound. Rather than paint
-    // garbage, refuse with an actionable message: the caller (the panel) keeps
-    // the log toggle disabled in this case, but a direct API call gets told
-    // exactly what to do. A field with a positive floor — or a positive manual
-    // minimum over data that dips to/below zero — renders fine; the sub-zero
-    // cells simply drop out as missing in the painter.
-    if let Some((used_min, _)) = used
-        && resolved.scale == fieldglass::ScaleMode::Log10
-        && used_min <= 0.0
-    {
-        return Err(napi::Error::from_reason(format!(
-            "log10 scaling needs a positive minimum, but the range starts at \
-             {used_min}; set a manual minimum > 0 or pick a field with \
-             positive values"
-        )));
-    }
-
-    // With no range every cell is masked and paints transparent, so the
-    // palette's domain is never read; `1.0..10.0` is positive for log10 too.
-    let (paint_min, paint_max) = used.unwrap_or((1.0, 10.0));
-    let rgba = fieldglass::Palette::build(
+    let (paint_min, paint_max) = range.paint_domain();
+    let (rgba, counts) = fieldglass::Palette::build(
         &resolved.colormap,
         resolved.reverse_colormap,
         paint_min,
         paint_max,
         resolved.scale,
     )
-    .paint(&values, Some(&mask), width, height, flip_y);
+    .paint_counted(&values, Some(&mask), width, height, flip_y);
     // `Palette::paint` answers an empty buffer for a raster whose byte count
     // this target cannot address, so a `RenderedGrid` could otherwise carry
     // dimensions with no pixels behind them — and `new ImageData(rgba, width,
@@ -3555,7 +3794,8 @@ fn render_from_source(
     if Some(rgba.len()) != expected {
         return Err(napi::Error::from_reason(format!(
             "a {width}×{height} RGBA raster does not fit this target's address space"
-        )));
+        ))
+        .into());
     }
 
     let (used_lat_min, used_lat_max, used_lon_min, used_lon_max) = match used_bounds {
@@ -3567,12 +3807,14 @@ fn render_from_source(
         None => (None, None, None, None),
     };
 
+    let range = range.counted(&counts, u64::from(width) * u64::from(height));
     Ok(RenderedGrid {
         rgba: rgba.into(),
         width: width as i32,
         height: height as i32,
-        used_min: used.map(|(min, _)| min),
-        used_max: used.map(|(_, max)| max),
+        used_min: range.used_min,
+        used_max: range.used_max,
+        range: serde_json::to_value(&range).expect("a colour range serialises"),
         used_lat_min,
         used_lat_max,
         used_lon_min,
@@ -3597,6 +3839,7 @@ fn engine_options(o: &RenderOptions) -> fieldglass::RenderOptions {
     engine.flip_y = o.flip_y;
     engine.range_min = o.range_min;
     engine.range_max = o.range_max;
+    engine.range_center = o.range_center;
     engine.bounds_lat_min = o.bounds_lat_min;
     engine.bounds_lat_max = o.bounds_lat_max;
     engine.bounds_lon_min = o.bounds_lon_min;
@@ -4539,6 +4782,7 @@ mod overlay_projection_tests {
             flip_y: false,
             range_min: None,
             range_max: None,
+            range_center: None,
             bounds_lat_min: None,
             bounds_lat_max: None,
             bounds_lon_min: None,
@@ -4687,6 +4931,7 @@ mod zarr_handle_tests {
             flip_y: false,
             range_min: None,
             range_max: None,
+            range_center: None,
             bounds_lat_min: None,
             bounds_lat_max: None,
             bounds_lon_min: None,
@@ -5383,6 +5628,7 @@ mod netcdf_slice_tests {
             flip_y: false,
             range_min: None,
             range_max: None,
+            range_center: None,
             bounds_lat_min: None,
             bounds_lat_max: None,
             bounds_lon_min: None,
@@ -5529,22 +5775,29 @@ mod netcdf_slice_tests {
         };
 
         // A manual range that dips to/below zero has no logarithm: refuse with
-        // an actionable message rather than paint garbage. (`RenderedGrid` isn't
-        // `Debug`, so match rather than `expect_err`.)
-        match handle.render_slice(
+        // an actionable message rather than paint garbage, and say which end
+        // as a field the panel can point at (#1155).
+        let Err(e) = handle.render_slice(
             sst.variable_index as u32,
             y,
             x,
             indices.clone(),
             log_opts(-5.0, 5.0),
-        ) {
-            Ok(_) => panic!("log10 with a non-positive minimum must error"),
-            Err(e) => assert!(
-                e.to_string()
-                    .contains("log10 scaling needs a positive minimum"),
-                "actionable message, got: {e}"
-            ),
-        }
+        ) else {
+            panic!("log10 with a non-positive minimum must error");
+        };
+        assert!(
+            e.reason().contains("set a minimum above 0"),
+            "actionable message, got: {e}"
+        );
+        let refusal = e.api().and_then(fieldglass::Error::range_refusal);
+        assert_eq!(
+            refusal.map(|r| (r.reason, r.end)),
+            Some((
+                fieldglass::RangeRefusalReason::Log10NotPositive,
+                fieldglass::RangeEnd::Min
+            )),
+        );
 
         // A positive manual range renders, and the true (unlogged) bounds are
         // echoed back so the colorbar labels stay in data units.
@@ -6183,7 +6436,7 @@ mod netcdf_slice_tests {
             .render_slice(9999, 0, 1, vec![0, 0], opts("source"))
             .map(|_| ())
             .expect_err("non-renderable index must error");
-        assert!(err.reason.contains("not a renderable"));
+        assert!(err.reason().contains("not a renderable"));
     }
 
     /// WRF `wrfout`-style classic fixture: the Lambert projection lives in global
@@ -6569,9 +6822,9 @@ mod space_view_geos_tests {
                 .err()
                 .unwrap_or_else(|| panic!("{what} was accepted"));
             assert!(
-                err.reason.contains("line of sight"),
+                err.reason().contains("line of sight"),
                 "{what}: the message should say what it cannot see, got: {}",
-                err.reason
+                err.reason()
             );
         }
         // The real GOES-like grid is untouched.
@@ -6919,7 +7172,7 @@ mod planar_geolocation_tests {
             .decode(0, &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto))
             .expect("the fixture decodes");
         let expected: Vec<(f64, f64)> = session
-            .contours(&field, &levels)
+            .contours(&field, &levels, &fieldglass::ContourOptions::default())
             .expect("grid-space isolines")
             .iter()
             .flat_map(|level| level.segments.iter())
@@ -7018,7 +7271,11 @@ mod planar_geolocation_tests {
         .expect_err("a shapeless spheroid places no point");
         // The semi-major axis is the radius the plane is built on, so it is the
         // number named (#610).
-        assert!(err.reason.contains("Earth radius of 0 m"), "{}", err.reason);
+        assert!(
+            err.reason().contains("Earth radius of 0 m"),
+            "{}",
+            err.reason()
+        );
         assert!(field_csv(&values, &shapeless, "long").is_err());
         // Its source view still paints the array as stored.
         assert!(
@@ -7072,9 +7329,9 @@ mod planar_geolocation_tests {
                     .err()
                     .unwrap_or_else(|| panic!("{family}: the warp accepted a collapsed plane"));
             assert!(
-                err.reason.contains("Earth radius of 0.000001 m"),
+                err.reason().contains("Earth radius of 0.000001 m"),
                 "{family}: the refusal should name the radius, got: {}",
-                err.reason
+                err.reason()
             );
             let err = field_csv(&values, &tiny, "long")
                 .err()
@@ -7286,9 +7543,9 @@ mod planar_geolocation_tests {
                     .err()
                     .unwrap_or_else(|| panic!("{family}: the warp accepted a {radius} m Earth"));
             assert!(
-                err.reason.contains(&named),
+                err.reason().contains(&named),
                 "{family}: the refusal should name the radius, got: {}",
-                err.reason
+                err.reason()
             );
             let err = field_csv(values, &broken, "long")
                 .err()
@@ -7347,6 +7604,7 @@ mod reduced_grid_render_tests {
             flip_y: false,
             range_min: None,
             range_max: None,
+            range_center: None,
             bounds_lat_min: None,
             bounds_lat_max: None,
             bounds_lon_min: None,
@@ -7666,6 +7924,7 @@ mod curvilinear_render_tests {
             flip_y: false,
             range_min: None,
             range_max: None,
+            range_center: None,
             bounds_lat_min: None,
             bounds_lat_max: None,
             bounds_lon_min: None,
@@ -8590,6 +8849,7 @@ mod sized_output_raster_tests {
             flip_y: false,
             range_min: None,
             range_max: None,
+            range_center: None,
             bounds_lat_min: Some(24.0),
             bounds_lat_max: Some(50.0),
             bounds_lon_min: Some(-125.0),
@@ -8715,9 +8975,9 @@ mod sized_output_raster_tests {
                 .render_grid(0, o)
                 .expect_err("a raster that is not a raster is refused");
             assert!(
-                err.reason.contains(wanted),
+                err.reason().contains(wanted),
                 "the refusal should say {wanted:?}, got {}",
-                err.reason
+                err.reason()
             );
         }
     }
@@ -8918,7 +9178,7 @@ mod coordinate_less_slice_placement_tests {
             )
             .expect_err("nothing places it");
         assert_eq!(
-            err.reason,
+            err.reason(),
             "reprojection not yet supported for grid type \"source\""
         );
         // It still differences against itself: a grid nothing places compares
@@ -9038,8 +9298,8 @@ mod paired_field_tests {
         Grib2Handle::from_vec(variants(GRIB2, grib2_scan_octet(GRIB2))).expect("opens")
     }
 
-    fn assert_scan_refusal(result: napi::Result<impl Sized>, flag: &str) {
-        let Err(e) = result else {
+    fn assert_scan_refusal(result: Result<impl Sized, impl Into<napi::Error>>, flag: &str) {
+        let Err(e) = result.map_err(Into::<napi::Error>::into) else {
             panic!("a pair differing in {flag} was accepted");
         };
         assert!(
@@ -9435,34 +9695,52 @@ mod nothing_computed_tests {
 
     #[test]
     fn a_field_with_no_present_cell_reports_no_range() {
+        // The message's own placement, with every cell missing: what an
+        // all-missing message decodes to.
         let h = hrrr();
-        let rendered = h.render_grid(0, off_the_grid()).expect("renders");
+        let (raw, placed) = h.resolved(0).expect("message 0");
+        let empty = vec![None; raw.len()];
+        let rendered = render_from_source(&placed.source(), &empty, &opts("equirectangular"))
+            .expect("renders");
         assert_eq!((rendered.used_min, rendered.used_max), (None, None));
         assert!(
             rendered.rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 0),
             "nothing is painted"
         );
+        assert_eq!(rendered.range["present"], 0);
 
         // A log10 scale has nothing to refuse when there is no range.
         let log = RenderOptions {
             scale_mode: Some("log10".to_string()),
-            ..off_the_grid()
+            ..opts("equirectangular")
         };
-        let rendered = h.render_grid(0, log).expect("renders under log10");
+        let rendered = render_from_source(&placed.source(), &empty, &log).expect("renders");
         assert_eq!((rendered.used_min, rendered.used_max), (None, None));
 
         // A manual range is the caller's, so it is echoed even over no data.
         let manual = RenderOptions {
             range_min: Some(250.0),
             range_max: Some(300.0),
-            ..off_the_grid()
+            ..opts("equirectangular")
         };
-        let rendered = h.render_grid(0, manual).expect("renders");
+        let rendered = render_from_source(&placed.source(), &empty, &manual).expect("renders");
         assert_eq!(rendered.used(), (250.0, 300.0));
+    }
 
-        // The same message over its own domain does have a range.
-        let (lo, hi) = h.render_grid(0, opts("source")).expect("renders").used();
-        assert!(hi >= lo);
+    /// A window the grid never reaches is a view of the field, not a field
+    /// with no cells (#1155 rule 6): the range is still the message's own,
+    /// and the raster has no present cell to count.
+    #[test]
+    fn a_window_off_the_grid_keeps_the_fields_range() {
+        let h = hrrr();
+        let whole = h.render_grid(0, opts("source")).expect("renders").used();
+        let rendered = h.render_grid(0, off_the_grid()).expect("renders");
+        assert_eq!(rendered.used(), whole);
+        assert!(
+            rendered.rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 0),
+            "nothing is painted"
+        );
+        assert_eq!(rendered.range["present"], 0);
     }
 
     #[test]
