@@ -13,8 +13,8 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
-import type { FieldglassDocument, FieldglassEditorProvider } from "../../provider";
-import { DETAILS } from "../../problems";
+import { MAX_FOLDERS_EXAMINED, type FieldglassDocument, type FieldglassEditorProvider } from "../../provider";
+import { couldNotOpen, DETAILS, nativeNotLoaded, nothingToDraw, notAStore, toastName } from "../../problems";
 import { extensionPath, provider } from "./real-panel";
 
 /** The repo's Zarr fixtures folder: about forty one-array stores, and `stores/`. */
@@ -164,8 +164,10 @@ suite("Open problems (#1040)", () => {
       toast.message.startsWith("Fieldglass: Nothing in this store can be drawn as a map."),
       toast.message,
     );
-    // The arrays it could not read are named, and nothing about why.
-    assert.match(toast.message, /couldn't read 2 of its arrays: names, x2\.$/);
+    // The arrays left out are named, and nothing about why: x2 is readable,
+    // it just gives `x` a second length, so "couldn't read" would be wrong.
+    assert.match(toast.message, /left out 2 of its arrays: names, x2\. Details says why\.$/);
+    assert.doesNotMatch(toast.message, /couldn't read/);
     assertPlain(toast.message);
     // The reader's reasons are behind Details, word for word.
     assert.ok(dialog.detail?.includes(store), String(dialog.detail));
@@ -211,4 +213,77 @@ suite("Open problems (#1040)", () => {
       }
     });
   }
+
+  test("past the folder limit, the count of stores is a floor", async () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-manyfolders-"));
+    // Two stores that sort first, so they fall inside the folders looked at,
+    // then more plain folders than the limit.
+    for (const store of ["a1", "a2"]) {
+      fs.mkdirSync(path.join(dir, store));
+      fs.writeFileSync(path.join(dir, store, ".zgroup"), '{"zarr_format": 2}');
+      assert.ok(native.ZarrHandle.isStore(path.join(dir, store)), `${store} should be a store`);
+    }
+    for (let i = 0; i < MAX_FOLDERS_EXAMINED + 10; i += 1) {
+      fs.mkdirSync(path.join(dir, `z${String(i).padStart(4, "0")}`));
+    }
+    // And one store past the limit, which is not looked at.
+    fs.mkdirSync(path.join(dir, "zzzz"));
+    fs.writeFileSync(path.join(dir, "zzzz", ".zgroup"), '{"zarr_format": 2}');
+
+    const p = await provider();
+    const shown = await capture(undefined, () => p.openZarrStore(vscode.Uri.file(dir)));
+    assert.strictEqual(shown.length, 1);
+    assert.strictEqual(
+      shown[0].message,
+      `Fieldglass: "${path.basename(dir)}" isn't a Zarr store. It contains at least 2 Zarr ` +
+        "stores: a1, a2. Pick one of those.",
+    );
+  });
+
+  test("a throw while opening reaches the command", async () => {
+    const p = await provider();
+    const w = vscode.window as unknown as Record<string, unknown>;
+    const realDialog = w.showOpenDialog;
+    const target = p as unknown as Record<string, unknown>;
+    const realOpen = target.openZarrRenderPanel;
+    w.showOpenDialog = () => Promise.resolve([vscode.Uri.file(zarrFixtures("stores", "cf_v3"))]);
+    // A store that opens, then a failure past `fromDirectory`.
+    target.openZarrRenderPanel = () => {
+      throw new Error("panel failed");
+    };
+    try {
+      await assert.rejects(p.promptOpenZarrStore(), /panel failed/);
+    } finally {
+      w.showOpenDialog = realDialog;
+      target.openZarrRenderPanel = realOpen;
+    }
+  });
+
+  test("a name cannot make a link in the toast", () => {
+    const hostile = "[click](" + "command" + ":workbench.action.quit)";
+    assert.strictEqual(
+      toastName(hostile),
+      "［click］（" + "command" + ":workbench.action.quit）",
+    );
+    const summaries = [
+      notAStore("/x", hostile, [hostile, "ok"]).summary,
+      notAStore("/x", hostile, []).summary,
+      nothingToDraw("/x", [{ name: hostile, reason: "r" }]).summary,
+      couldNotOpen("GRIB file", hostile, "/x", new Error("e")).summary,
+    ];
+    for (const summary of summaries) assert.doesNotMatch(summary, /[[\]()]/, summary);
+    // Details is plain text, and keeps the name as written.
+    assert.ok(nothingToDraw("/x", [{ name: hostile, reason: "r" }]).details.includes(hostile));
+  });
+
+  test("reinstalling is offered only when the module is missing", () => {
+    const missing = Object.assign(new Error("Cannot find module"), { code: "MODULE_NOT_FOUND" });
+    assert.match(nativeNotLoaded("/m.node", missing).summary, /reinstalling it may fix this/);
+    const broken = new Error("invalid ELF header");
+    const problem = nativeNotLoaded("/m.node", broken);
+    assert.doesNotMatch(problem.summary, /reinstall/i);
+    assert.ok(problem.details.includes("invalid ELF header"));
+  });
 });

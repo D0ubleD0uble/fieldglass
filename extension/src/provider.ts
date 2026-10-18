@@ -248,7 +248,9 @@ export class FieldglassEditorProvider
     });
     const storeUri = picked?.[0];
     if (!storeUri) return;
-    void this.openZarrStore(storeUri);
+    // Awaited, so a throw while opening reaches the command and is reported,
+    // rather than being dropped as an unhandled rejection.
+    await this.openZarrStore(storeUri);
   }
 
   /** Open a store the caller has already chosen.
@@ -267,7 +269,7 @@ export class FieldglassEditorProvider
     if (!native.ZarrHandle.isStore(storeUri.fsPath)) {
       // A folder of stores is the likely mistake, so name the stores in it.
       const inside = await childStores(storeUri, (p) => native.ZarrHandle.isStore(p));
-      await reportProblem("error", notAStore(storeUri.fsPath, name, inside));
+      await reportProblem("error", notAStore(storeUri.fsPath, name, inside.stores, inside.partial));
       return;
     }
     let handle: ZarrHandle;
@@ -3214,21 +3216,36 @@ export function renderHtml(
 </html>`;
 }
 
+/** How many folders {@link childStores} looks at. Each look is a few
+ *  synchronous file checks, so a folder of thousands (a home directory, a
+ *  data archive) is cut off here rather than stalling the window. */
+export const MAX_FOLDERS_EXAMINED = 200;
+
 /** The folders directly inside `folder` that are Zarr stores, by name, sorted.
  *
  *  One level only: a folder of stores is the mistake this answers, and a deeper
- *  walk would be slow on a large tree for little more help. A folder that cannot
- *  be listed has none to offer. Hidden folders are skipped. */
-async function childStores(folder: vscode.Uri, isStore: (fsPath: string) => boolean): Promise<string[]> {
+ *  walk would be slow on a large tree for little more help. Only the first
+ *  {@link MAX_FOLDERS_EXAMINED} folders by name are looked at, and `partial`
+ *  says when there were more. A folder that cannot be listed has none to offer.
+ *  Hidden folders are skipped. */
+async function childStores(
+  folder: vscode.Uri,
+  isStore: (fsPath: string) => boolean,
+): Promise<{ stores: string[]; partial: boolean }> {
   let entries: [string, vscode.FileType][];
   try {
     entries = await vscode.workspace.fs.readDirectory(folder);
   } catch {
-    return [];
+    return { stores: [], partial: false };
   }
-  return entries
+  const folders = entries
     .filter(([n, type]) => (type & vscode.FileType.Directory) !== 0 && !n.startsWith("."))
     .map(([n]) => n)
-    .filter((n) => isStore(vscode.Uri.joinPath(folder, n).fsPath))
     .sort();
+  return {
+    stores: folders
+      .slice(0, MAX_FOLDERS_EXAMINED)
+      .filter((n) => isStore(vscode.Uri.joinPath(folder, n).fsPath)),
+    partial: folders.length > MAX_FOLDERS_EXAMINED,
+  };
 }

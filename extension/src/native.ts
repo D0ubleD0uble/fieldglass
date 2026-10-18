@@ -803,6 +803,9 @@ export function loadNative(): FieldglassNative | undefined {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, security/detect-non-literal-require
     cached = require(nodePath) as FieldglassNative;
   } catch (err) {
+    // The whole error, stack included, for a bug report; the toast's
+    // Details has only its message.
+    console.error(`[Fieldglass] failed to load ${nodePath}:`, err);
     void reportProblem("error", nativeNotLoaded(nodePath, err));
   }
   return cached;

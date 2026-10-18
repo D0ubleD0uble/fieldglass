@@ -27,6 +27,21 @@ export function listNames(names: readonly string[]): string {
   return `${names.slice(0, MAX_NAMES).join(", ")} and ${names.length - MAX_NAMES} more`;
 }
 
+/** A name from the disk or a store, made safe to put in a toast.
+ *
+ *  A toast turns `[text](target)` into a link, and a `command:` target runs a
+ *  command when clicked. A folder or array name is not ours to trust, so its
+ *  brackets and parentheses become the full-width forms, which read the same
+ *  and never make a link. Details is shown as plain text and keeps the name
+ *  as it is. */
+export function toastName(name: string): string {
+  return name
+    .replace(/\[/g, "\uFF3B")
+    .replace(/\]/g, "\uFF3D")
+    .replace(/\(/g, "\uFF08")
+    .replace(/\)/g, "\uFF09");
+}
+
 /** A thrown value as text, without the `Error: ` prefix `String(err)` adds. */
 export function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -34,15 +49,24 @@ export function errorText(err: unknown): string {
 
 /** A folder picked as a Zarr store that is not one. `childStores` are the names
  *  of the folders directly inside it that are stores, in the order to list
- *  them; the toast names them so the user can pick the one they meant. */
-export function notAStore(folderPath: string, folderName: string, childStores: readonly string[]): Problem {
-  const lead = `Fieldglass: "${folderName}" isn't a Zarr store.`;
+ *  them; the toast names them so the user can pick the one they meant.
+ *  `partial` says only some of its folders were looked at, so the count is a
+ *  floor. */
+export function notAStore(
+  folderPath: string,
+  folderName: string,
+  childStores: readonly string[],
+  partial = false,
+): Problem {
+  const lead = `Fieldglass: "${toastName(folderName)}" isn't a Zarr store.`;
+  const names = childStores.map(toastName);
+  const atLeast = partial ? "at least " : "";
   let summary: string;
-  if (childStores.length === 1) {
-    summary = `${lead} It contains one Zarr store, ${childStores[0]}. Pick that folder instead.`;
-  } else if (childStores.length > 1) {
+  if (names.length === 1) {
+    summary = `${lead} It contains ${atLeast}one Zarr store, ${names[0]}. Pick that folder instead.`;
+  } else if (names.length > 1) {
     summary =
-      `${lead} It contains ${childStores.length} Zarr stores: ${listNames(childStores)}. ` +
+      `${lead} It contains ${atLeast}${names.length} Zarr stores: ${listNames(names)}. ` +
       "Pick one of those.";
   } else {
     summary =
@@ -67,27 +91,29 @@ export interface LeftOutArray {
 /** A store that opened but holds nothing a map can be drawn from.
  *
  *  The reasons the reader gives are technical text with no code beside them,
- *  so the toast names the arrays it could not read and leaves the reasons to
- *  Details rather than guessing at what each string means. */
+ *  and they are not all "could not read": two arrays giving one dimension two
+ *  lengths is one. So the toast names the arrays left out and leaves the
+ *  reasons to Details rather than guessing at what each string means. */
 export function nothingToDraw(storePath: string, leftOut: readonly LeftOutArray[]): Problem {
   const lead =
     "Fieldglass: Nothing in this store can be drawn as a map. A map needs an array " +
     "of numbers with at least two dimensions, such as latitude and longitude";
-  const names = leftOut.map((l) => l.name);
+  const names = leftOut.map((l) => toastName(l.name));
   const summary =
     names.length === 0
       ? `${lead}, and this store has none.`
       : names.length === 1
-        ? `${lead}. Fieldglass couldn't read one of its arrays, ${names[0]}.`
-        : `${lead}. Fieldglass couldn't read ${names.length} of its arrays: ${listNames(names)}.`;
+        ? `${lead}. Fieldglass left out one of its arrays, ${names[0]}; Details says why.`
+        : `${lead}. Fieldglass left out ${names.length} of its arrays: ${listNames(names)}. ` +
+          "Details says why.";
   const lines = [`Store: ${storePath}`];
   if (leftOut.length > 0) {
-    lines.push("Arrays Fieldglass couldn't read:");
+    lines.push("Arrays left out, with the reader's reason:");
     for (const l of leftOut) lines.push(`- ${l.name}: ${l.reason}`);
   }
   lines.push(
-    "No other array in the store can be drawn as a map: each has fewer than two " +
-      "dimensions, does not hold numbers, or is the coordinates of another array.",
+    "No other array in the store is an array of numbers with at least two " +
+      "dimensions that is not the coordinates of another array.",
   );
   return { summary, details: lines.join("\n") };
 }
@@ -99,18 +125,26 @@ export function nothingToDraw(storePath: string, leftOut: readonly LeftOutArray[
 export function couldNotOpen(what: string, name: string, path: string, err: unknown): Problem {
   return {
     summary:
-      `Fieldglass: couldn't open "${name}" as a ${what}. It may be damaged or incomplete, ` +
+      `Fieldglass: couldn't open "${toastName(name)}" as a ${what}. It may be damaged or incomplete, ` +
       "or use a feature Fieldglass doesn't read yet.",
     details: `${path}\n${errorText(err)}`,
   };
 }
 
-/** The native module did not load, so nothing can be opened. */
+/** The native module did not load, so nothing can be opened.
+ *
+ *  Reinstalling helps when the module is missing from the install. When it is
+ *  there and still fails (a platform it was not built for, a library the
+ *  system lacks) reinstalling changes nothing, so the toast does not offer
+ *  it. */
 export function nativeNotLoaded(modulePath: string, err: unknown): Problem {
+  const missing = (err as { code?: unknown } | null)?.code === "MODULE_NOT_FOUND";
   return {
-    summary:
-      "Fieldglass: couldn't load its file reader, so it can't open files. " +
-      "Reinstalling the extension may fix this.",
+    summary: missing
+      ? "Fieldglass: couldn't find its file reader, so it can't open files. The " +
+        "extension may be incompletely installed; reinstalling it may fix this."
+      : "Fieldglass: couldn't load its file reader, so it can't open files. Details " +
+        "has the error to report.",
     details: `${modulePath}\n${errorText(err)}`,
   };
 }
