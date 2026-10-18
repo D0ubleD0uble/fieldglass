@@ -1516,8 +1516,8 @@ impl Session {
     /// container that reads everything it can describe. **Never an error**: one
     /// unreadable array does not fail a container.
     ///
-    /// Each carries a [`LeftOutCause`] beside the reader's prose (#1129), so a
-    /// host can say why in its own words.
+    /// Each carries a [`LeftOutCause`](crate::LeftOutCause) beside the
+    /// reader's prose (#1129), so a host can say why in its own words.
     pub fn left_out(&self) -> Vec<LeftOutArray> {
         match &self.reader {
             #[cfg(feature = "grib1")]
