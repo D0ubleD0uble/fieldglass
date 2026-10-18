@@ -2768,6 +2768,11 @@
           "const": "not_a_pair",
           "description": "The two are not the components of one vector.",
           "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "Can't tell: a field has no name to read (a GRIB parameter no\ntable names, or a variable with no `standard_name`), and its\npartner's name does not settle it. A host says nothing beside\nthe arrows for it.",
+          "type": "string"
         }
       ]
     },

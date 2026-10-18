@@ -61,6 +61,22 @@
 //! dispersion statistics (`Zonal velocity fluctuation (Hanna)`) is not a
 //! component.
 //!
+//! CF standard names have per-axis statistics of their own, and the same
+//! holds for them: a standard name with a modifier after it (`eastward_wind
+//! standard_error`, `northward_wind number_of_observations`, and the
+//! `detection_minimum` and `status_flag` modifiers) names a quantity about
+//! the component rather than the component, and so does one that holds
+//! `square_of_` or `variance_of_` (`square_of_eastward_wind`).
+//!
+//! # Not every field has a name to read
+//!
+//! A GRIB parameter no table names, and a NetCDF or Zarr variable with no
+//! `standard_name`, give the rule nothing to read, so the answer for them is
+//! [`VectorPairing::Unknown`] rather than a claim either way. The exception is
+//! a partner whose name is read and is not a component (`Temperature`): no
+//! name for the other field makes that a vector, so the pair is
+//! [`VectorPairing::NotAPair`].
+//!
 //! What the rule cannot know is that the two fields are at the same level, or
 //! valid at the same time. It answers only whether their parameters pair.
 
@@ -68,7 +84,9 @@
 ///
 /// The answer to a pairing a caller has already made, so it is never a
 /// refusal: arrows are drawn whichever this is, and a host says so beside
-/// them when it is not [`VectorPairing::Recognised`].
+/// them when it is [`VectorPairing::Swapped`] or [`VectorPairing::NotAPair`].
+/// [`VectorPairing::Unknown`] says nothing either way, so a host says nothing
+/// beside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VectorPairing {
     /// The u field is the eastward (or along-x) component and the v field is
@@ -82,6 +100,10 @@ pub enum VectorPairing {
     /// component, they are components of different things, or both are the
     /// same component.
     NotAPair,
+    /// Can't tell: a field has no name to read (a GRIB parameter no table
+    /// names, or a variable with no `standard_name`), and its partner's name
+    /// does not settle it.
+    Unknown,
 }
 
 /// Which component a name is.
@@ -206,16 +228,41 @@ fn is_per_axis_statistic(name: &str) -> bool {
         || folded.iter().any(|w| w == "variance" || w == "hanna")
 }
 
-fn pairing(u: Option<Component>, v: Option<Component>) -> VectorPairing {
+/// Whether a CF standard name is a statistic of one component rather than a
+/// component: see the module docs.
+///
+/// A modifier is the attribute's second word, after whitespace. Every
+/// modifier CF defines (CF 1.11 Appendix C) names something other than the
+/// variable itself, so any one counts.
+fn is_per_axis_standard_name_statistic(name: &str) -> bool {
+    let folded = words(name);
+    let holds = |phrase: &[&str]| {
+        folded
+            .windows(phrase.len())
+            .any(|w| w.iter().zip(phrase).all(|(a, b)| a == b))
+    };
+    name.split_whitespace().nth(1).is_some()
+        || holds(&["square", "of"])
+        || holds(&["variance", "of"])
+}
+
+/// A name as read: `None` when the field has no name, else the component it
+/// is, if it is one.
+type Read = Option<Option<Component>>;
+
+fn pairing(u: Read, v: Read) -> VectorPairing {
     match (u, v) {
-        (Some(u), Some(v)) if u.words == v.words && u.axis != v.axis => {
+        (Some(Some(u)), Some(Some(v))) if u.words == v.words && u.axis != v.axis => {
             if u.axis == Axis::U {
                 VectorPairing::Recognised
             } else {
                 VectorPairing::Swapped
             }
         }
-        _ => VectorPairing::NotAPair,
+        // Both read, or one read as no component at all: no name the other
+        // could have makes them a vector.
+        (Some(_), Some(_)) | (Some(None), None) | (None, Some(None)) => VectorPairing::NotAPair,
+        _ => VectorPairing::Unknown,
     }
 }
 
@@ -242,7 +289,11 @@ pub fn mentions_a_direction(name: &str) -> bool {
 /// Whether two GRIB parameters, by the names their tables give them, are a
 /// u/v pair in this order.
 ///
-/// `None` is a field whose parameter no table names; it pairs with nothing.
+/// `None` is a field whose parameter no table names, or that has no
+/// parameter: the answer is then [`VectorPairing::Unknown`], unless the other
+/// name is read and is not a component. A host passes `None` for a parameter
+/// its tables do not resolve, not the placeholder it displays for one
+/// (`Parameter 0/2/250`), which this would read as a name.
 ///
 /// ```
 /// use fieldglass_core::vector_pair::{VectorPairing, pairing_of_parameter_names};
@@ -255,37 +306,49 @@ pub fn mentions_a_direction(name: &str) -> bool {
 ///     pairing_of_parameter_names(Some("Wind speed"), Some("Wind direction")),
 ///     VectorPairing::NotAPair,
 /// );
+/// assert_eq!(pairing_of_parameter_names(u, None), VectorPairing::Unknown);
+/// assert_eq!(
+///     pairing_of_parameter_names(Some("Temperature"), None),
+///     VectorPairing::NotAPair,
+/// );
 /// ```
 #[must_use]
 pub fn pairing_of_parameter_names(u: Option<&str>, v: Option<&str>) -> VectorPairing {
-    pairing(
-        u.and_then(parameter_component),
-        v.and_then(parameter_component),
-    )
+    pairing(u.map(parameter_component), v.map(parameter_component))
+}
+
+/// A CF standard name read as a component, or `None`.
+fn standard_name_component(name: &str) -> Option<Component> {
+    if is_per_axis_standard_name_statistic(name) {
+        return None;
+    }
+    component(name, STANDARD_NAME_WORDS)
 }
 
 /// Whether two CF standard names are a u/v pair in this order:
 /// `eastward_*` with `northward_*`, or `x_*` with `y_*`, the rest of the name
 /// the same.
 ///
+/// `None` is a variable with no `standard_name`, read as
+/// [`pairing_of_parameter_names`] reads a missing parameter name.
+///
 /// ```
 /// use fieldglass_core::vector_pair::{VectorPairing, pairing_of_standard_names};
 ///
+/// let (u, v) = (Some("eastward_wind"), Some("northward_wind"));
+/// assert_eq!(pairing_of_standard_names(u, v), VectorPairing::Recognised);
+/// assert_eq!(pairing_of_standard_names(v, u), VectorPairing::Swapped);
 /// assert_eq!(
-///     pairing_of_standard_names("eastward_wind", "northward_wind"),
-///     VectorPairing::Recognised,
-/// );
-/// assert_eq!(pairing_of_standard_names("y_wind", "x_wind"), VectorPairing::Swapped);
-/// assert_eq!(
-///     pairing_of_standard_names("eastward_wind", "y_wind"),
+///     pairing_of_standard_names(u, Some("y_wind")),
 ///     VectorPairing::NotAPair,
 /// );
+/// assert_eq!(pairing_of_standard_names(u, None), VectorPairing::Unknown);
 /// ```
 #[must_use]
-pub fn pairing_of_standard_names(u: &str, v: &str) -> VectorPairing {
+pub fn pairing_of_standard_names(u: Option<&str>, v: Option<&str>) -> VectorPairing {
     pairing(
-        component(u, STANDARD_NAME_WORDS),
-        component(v, STANDARD_NAME_WORDS),
+        u.map(standard_name_component),
+        v.map(standard_name_component),
     )
 }
 
@@ -475,13 +538,46 @@ mod tests {
             names("Visibility", "Ultraviolet index"),
             VectorPairing::NotAPair
         );
-        // A parameter no table names pairs with nothing.
+    }
+
+    #[test]
+    fn a_missing_name_is_unknown_unless_its_partner_settles_it() {
+        // Nothing to read: can't tell, in either order.
+        for (u, v) in [
+            (None, Some("v-component of wind")),
+            (Some("u-component of wind"), None),
+            (None, None),
+        ] {
+            assert_eq!(
+                pairing_of_parameter_names(u, v),
+                VectorPairing::Unknown,
+                "{u:?} / {v:?}"
+            );
+            assert_eq!(
+                pairing_of_standard_names(u.map(|_| "eastward_wind"), v.map(|_| "northward_wind")),
+                VectorPairing::Unknown,
+                "standard names {u:?} / {v:?}"
+            );
+        }
+        // A partner that is read and is not a component makes no vector,
+        // whatever the other is.
+        for (u, v) in [
+            (None, Some("Temperature")),
+            (Some("Wind speed"), None),
+            (None, Some("Variance of v component")),
+        ] {
+            assert_eq!(
+                pairing_of_parameter_names(u, v),
+                VectorPairing::NotAPair,
+                "{u:?} / {v:?}"
+            );
+        }
         assert_eq!(
-            pairing_of_parameter_names(None, Some("v-component of wind")),
+            pairing_of_standard_names(None, Some("air_temperature")),
             VectorPairing::NotAPair
         );
         assert_eq!(
-            pairing_of_parameter_names(None, None),
+            pairing_of_standard_names(Some("square_of_eastward_wind"), None),
             VectorPairing::NotAPair
         );
     }
@@ -504,12 +600,12 @@ mod tests {
             ("tendency_of_eastward_wind", "tendency_of_northward_wind"),
         ] {
             assert_eq!(
-                pairing_of_standard_names(u, v),
+                pairing_of_standard_names(Some(u), Some(v)),
                 VectorPairing::Recognised,
                 "{u} / {v}"
             );
             assert_eq!(
-                pairing_of_standard_names(v, u),
+                pairing_of_standard_names(Some(v), Some(u)),
                 VectorPairing::Swapped,
                 "{v} / {u}"
             );
@@ -528,10 +624,52 @@ mod tests {
             ("u_wind", "v_wind"),
         ] {
             assert_eq!(
-                pairing_of_standard_names(u, v),
+                pairing_of_standard_names(Some(u), Some(v)),
                 VectorPairing::NotAPair,
                 "{u} / {v}"
             );
         }
+    }
+
+    #[test]
+    fn cf_per_axis_statistics_are_not_components() {
+        // The modifiers of CF 1.11 Appendix C.
+        const MODIFIERS: [&str; 4] = [
+            "detection_minimum",
+            "number_of_observations",
+            "standard_error",
+            "status_flag",
+        ];
+        for (u0, v0) in [("eastward_wind", "northward_wind"), ("x_wind", "y_wind")] {
+            for modifier in MODIFIERS {
+                let (u, v) = (format!("{u0} {modifier}"), format!("{v0} {modifier}"));
+                for (a, b) in [(&*u, &*v), (&*v, &*u), (&*u, v0), (u0, &*v)] {
+                    assert_eq!(
+                        pairing_of_standard_names(Some(a), Some(b)),
+                        VectorPairing::NotAPair,
+                        "{a} / {b}"
+                    );
+                }
+            }
+            for prefix in ["square_of_", "variance_of_", "tendency_of_square_of_"] {
+                let (u, v) = (format!("{prefix}{u0}"), format!("{prefix}{v0}"));
+                assert_eq!(
+                    pairing_of_standard_names(Some(&u), Some(&v)),
+                    VectorPairing::NotAPair,
+                    "{u} / {v}"
+                );
+            }
+            // The plain names still pair.
+            assert_eq!(
+                pairing_of_standard_names(Some(u0), Some(v0)),
+                VectorPairing::Recognised,
+                "{u0} / {v0}"
+            );
+        }
+        // Whitespace around a name is not a modifier.
+        assert_eq!(
+            pairing_of_standard_names(Some("  eastward_wind "), Some("northward_wind\n")),
+            VectorPairing::Recognised
+        );
     }
 }
