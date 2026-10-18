@@ -335,6 +335,55 @@ export interface RailsState {
   note: Box | null;
 }
 
+/** The page-side reader of every `<button>` (#1118), as script text: the
+ *  driver's and the dump-panel test's pages both run it. */
+export const PANEL_BUTTONS_SCRIPT = `
+// Every button on the page (#1118): what it computed, beside the theme
+// variables it should take, resolved by a probe element so the test needs
+// no copy of the theme's colours. A high-contrast theme sets no secondary
+// colours, so the primary button's are the ones it should take.
+function panelButtons() {
+  const probe = document.createElement('span');
+  probe.style.display = 'none';
+  document.body.appendChild(probe);
+  const resolve = (prop, value) => {
+    probe.style[prop] = '';
+    probe.style[prop] = value;
+    return getComputedStyle(probe)[prop];
+  };
+  const out = Array.from(document.querySelectorAll('button')).map((b) => {
+    const s = getComputedStyle(b);
+    const opacity = s.opacity;
+    // A disabled copy beside it: toggling the real button would blur it.
+    const copy = b.cloneNode(true);
+    copy.disabled = true;
+    b.after(copy);
+    const disabledOpacity = getComputedStyle(copy).opacity;
+    copy.remove();
+    return {
+      id: b.id || b.className,
+      text: b.textContent.trim(),
+      shown: b.getClientRects().length > 0,
+      background: s.backgroundColor,
+      color: s.color,
+      borderColor: s.borderTopColor,
+      borderWidth: s.borderTopWidth,
+      wantBackground: resolve('backgroundColor', 'var(--vscode-button-secondaryBackground, var(--vscode-button-background))'),
+      wantColor: resolve('color', 'var(--vscode-button-secondaryForeground, var(--vscode-button-foreground))'),
+      wantBorder: resolve('borderTopColor', 'var(--vscode-button-border, var(--vscode-contrastBorder, transparent))'),
+      disabledOpacity,
+      opacity,
+      focused: document.activeElement === b,
+      focusOutlineColor: s.outlineColor,
+      focusOutlineStyle: s.outlineStyle,
+      wantFocus: resolve('color', 'var(--vscode-focusBorder)'),
+    };
+  });
+  probe.remove();
+  return out;
+}
+`;
+
 /** Added to the panel's page ahead of its own script. It keeps the webview API
  *  the panel acquires, so it can answer on the same channel, and on each
  *  `test:drive` sets the named controls, fires their `change` like a user's
@@ -594,51 +643,7 @@ const DRIVER = `
           })),
       }));
     }
-    // Every button on the page (#1118): what it computed, beside the theme
-    // variables it should take, resolved by a probe element so the test needs
-    // no copy of the theme's colours. A high-contrast theme sets no secondary
-    // colours, so the primary button's are the ones it should take.
-    function panelButtons() {
-      const probe = document.createElement('span');
-      probe.style.display = 'none';
-      document.body.appendChild(probe);
-      const resolve = (prop, value) => {
-        probe.style[prop] = '';
-        probe.style[prop] = value;
-        return getComputedStyle(probe)[prop];
-      };
-      const out = Array.from(document.querySelectorAll('button')).map((b) => {
-        const s = getComputedStyle(b);
-        const opacity = s.opacity;
-        // A disabled copy beside it: toggling the real button would blur it.
-        const copy = b.cloneNode(true);
-        copy.disabled = true;
-        b.after(copy);
-        const disabledOpacity = getComputedStyle(copy).opacity;
-        copy.remove();
-        const f = s;
-        return {
-          id: b.id || b.className,
-          text: b.textContent.trim(),
-          shown: b.getClientRects().length > 0,
-          background: s.backgroundColor,
-          color: s.color,
-          borderColor: s.borderTopColor,
-          borderWidth: s.borderTopWidth,
-          wantBackground: resolve('backgroundColor', 'var(--vscode-button-secondaryBackground, var(--vscode-button-background))'),
-          wantColor: resolve('color', 'var(--vscode-button-secondaryForeground, var(--vscode-button-foreground))'),
-          wantBorder: resolve('borderTopColor', 'var(--vscode-button-border, var(--vscode-contrastBorder, transparent))'),
-          disabledOpacity,
-          opacity,
-          focused: document.activeElement === b,
-          focusOutlineColor: f.outlineColor,
-          focusOutlineStyle: f.outlineStyle,
-          wantFocus: resolve('color', 'var(--vscode-focusBorder)'),
-        };
-      });
-      probe.remove();
-      return out;
-    }
+    ${PANEL_BUTTONS_SCRIPT}
     // A slice panel's index steppers, Field A's and Field B's (#1041).
     function steppers() {
       const main = byId('slice-dims');

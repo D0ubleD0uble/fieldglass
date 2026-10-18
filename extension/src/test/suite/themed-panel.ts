@@ -64,43 +64,63 @@ export function shown(panel: RealPanel): Promise<PageState> {
   );
 }
 
-/** Read the page until `ok` holds. */
-export async function waitFor(panel: RealPanel, ok: (s: PageState) => boolean, what: string): Promise<PageState> {
+/** Read a page through `read` until `ok` holds. */
+export async function waitForRead<T extends { themeKind: string }>(
+  read: () => Promise<T>,
+  ok: (s: T) => boolean,
+  what: string,
+): Promise<T> {
   const until = Date.now() + 15_000;
   for (;;) {
-    const state = await panel.drive([]);
+    const state = await read();
     if (ok(state)) return state;
     if (Date.now() > until) throw new Error(`timed out waiting for ${what}; the page is in ${state.themeKind}`);
     await new Promise((r) => setTimeout(r, 50));
   }
 }
 
-/** Run `check` with the panel drawn in each of the named themes, then put the
- *  theme back and close the panel. `close()` sits in a nested `finally`, so a
- *  failed assertion is the error reported, and the panel, editor and temp
- *  directory are closed even if the restore never lands. */
-export async function inThemes(
+/** Read the page until `ok` holds. */
+export function waitFor(panel: RealPanel, ok: (s: PageState) => boolean, what: string): Promise<PageState> {
+  return waitForRead(() => panel.drive([]), ok, what);
+}
+
+/** Run `check` with the page drawn in each of the named themes (`read` is how
+ *  the page is read), then put the theme back and call `close`. `close` sits
+ *  in a nested `finally`, so a failed assertion is the error reported, and
+ *  the page, editor and temp directory are closed even if the restore never
+ *  lands. */
+export async function inThemesRead<T extends { themeKind: string }>(
+  read: () => Promise<T>,
+  close: () => void,
+  themes: ReadonlyArray<readonly [name: string, kind: string]>,
+  check: (state: T, theme: string) => void | Promise<void>,
+): Promise<void> {
+  const config = vscode.workspace.getConfiguration("workbench");
+  const original = config.inspect<string>("colorTheme")?.globalValue;
+  try {
+    const startKind = (await read()).themeKind;
+    try {
+      for (const [theme, kind] of themes) {
+        await vscode.workspace.getConfiguration("workbench").update("colorTheme", theme, vscode.ConfigurationTarget.Global);
+        const state = await waitForRead(read, (s) => s.themeKind === kind, `the page in ${theme}`);
+        await check(state, theme);
+      }
+    } finally {
+      await config.update("colorTheme", original, vscode.ConfigurationTarget.Global);
+      // The suites after this one start in the theme this one found.
+      await waitForRead(read, (s) => s.themeKind === startKind, "the restored theme");
+    }
+  } finally {
+    close();
+  }
+}
+
+/** `inThemesRead` for a real render panel. */
+export function inThemes(
   opened: Opened,
   themes: ReadonlyArray<readonly [name: string, kind: string]>,
   check: (state: PageState, theme: string, panel: RealPanel) => void | Promise<void>,
 ): Promise<void> {
   const { panel, close } = opened;
-  const config = vscode.workspace.getConfiguration("workbench");
-  const original = config.inspect<string>("colorTheme")?.globalValue;
-  const startKind = (await panel.drive([])).themeKind;
-  try {
-    for (const [theme, kind] of themes) {
-      await vscode.workspace.getConfiguration("workbench").update("colorTheme", theme, vscode.ConfigurationTarget.Global);
-      const state = await waitFor(panel, (s) => s.themeKind === kind, `the page in ${theme}`);
-      await check(state, theme, panel);
-    }
-  } finally {
-    try {
-      await config.update("colorTheme", original, vscode.ConfigurationTarget.Global);
-      // The suites after this one start in the theme this one found.
-      await waitFor(panel, (s) => s.themeKind === startKind, "the restored theme");
-    } finally {
-      close();
-    }
-  }
+  return inThemesRead(() => panel.drive([]), close, themes, (state, theme) => check(state, theme, panel));
 }

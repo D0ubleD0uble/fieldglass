@@ -3203,23 +3203,26 @@ export function renderHtml(
       outline: 1px solid var(--vscode-focusBorder);
       outline-offset: -1px;
     }
-    button.render-btn, button.netcdf-render-btn {
+    /* Every button on the dump page takes the theme's secondary button
+       colours (#1118): Render, Export CSV and the NetCDF render buttons. */
+    button {
       background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
       color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
-      border: 1px solid var(--vscode-button-border, transparent);
+      border: 1px solid var(--vscode-button-border, var(--vscode-contrastBorder, transparent));
       padding: 0.15rem 0.6rem;
       cursor: pointer;
       font-family: inherit;
       font-size: inherit;
       border-radius: 2px;
     }
-    button.render-btn:hover, button.netcdf-render-btn:hover {
+    button:hover:not(:disabled) {
       background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
     }
-    button.render-btn:focus, button.netcdf-render-btn:focus {
+    button:focus-visible {
       outline: 1px solid var(--vscode-focusBorder);
       outline-offset: 1px;
     }
+    button:disabled { opacity: 0.4; cursor: default; }
     .netcdf-render { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
     .render-na { color: var(--vscode-descriptionForeground); font-size: 0.85rem; }
     .render-status { font-size: 0.85rem; min-height: 1.1em; }

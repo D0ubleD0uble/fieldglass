@@ -4955,7 +4955,7 @@ export function renderImagePanelHtml(
     button:hover:not(:disabled) {
       background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
     }
-    button:focus {
+    button:focus-visible {
       outline: 1px solid var(--vscode-focusBorder);
       outline-offset: 1px;
     }
