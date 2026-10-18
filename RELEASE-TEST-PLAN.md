@@ -643,7 +643,7 @@ A depth axis with fill values used to fail to draw; no file here has one.
 - [ ] The refusal from message 1 is gone as soon as message 2 is picked (#1051).
       Picking message 1 again brings it back. Unticking Arrows clears it. With
       Contours ticked, the contours drawing leaves the arrow refusal in place.
-- [ ] The refusal sits on a line of its own under the Vectors row, not in the
+- [ ] The refusal sits on a line of its own below the render summary, not in the
       render summary line. With the refusal showing, change the colour map or
       the message: the summary line updates and the refusal stays until the
       pair changes. Failure looks like the summary text and the refusal
@@ -661,7 +661,7 @@ A depth axis with fill values used to fail to draw; no file here has one.
 - [ ] Message 0 with message 1 is refused as two different grids, not as a
       frame difference.
 
-## 7. Zoom and pan (#245)
+## 7. Zoom and pan (#245, #1114)
 
 **`S: samples/gfs.grib2`**, Equirectangular, then Web Mercator
 
@@ -684,12 +684,13 @@ A depth axis with fill values used to fail to draw; no file here has one.
       straight away, while the old image is still up. The readout describes
       the equirectangular image you clicked: the latitude and longitude of
       the point under the pointer on that image, not the same screen point
-      read on a Mollweide disc. Do it again, back from Mollweide to
-      Equirectangular, clicking a point near a corner of the disc; if the
-      click lands after the render, the readout reads the new image, which is
-      also correct. The window is short, so repeat a few times. Failure looks
-      like a readout that matches neither image, or "no value" over land that
-      the old image shows (#1114).
+      read on a Mollweide disc. Click a corner of the image, outside the
+      Mollweide disc: while the old image is up the readout gives the corner's
+      latitude and longitude, since the old image has a cell there. Once the
+      Mollweide render lands, a click at that corner leaves the readout empty.
+      The window is short, so repeat a few times. Failure looks like a
+      readout that matches neither image, or an empty readout over the old
+      image's corner while it is still up (#1114).
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, Equirectangular, coastlines, contours and arrows on
 
@@ -1437,9 +1438,8 @@ python3 -m http.server 8001
   arrives`, `a GRIB map, after picking a projection, before its render
   arrives`).
 - **The overlay error line (#1051).** It shows only when the provider fails to
-  project a coastline or graticule layer, which no sample does.
-  `extension/src/test/suite/vector-status.test.ts` drives the line. The arrow
-  and export lines are in §6.
+  project a coastline or graticule layer, which no sample does. No automated
+  test checks that line's text either. The arrow and export lines are in §6.
 - **Rust API** (breaking changes and additions) and **Internal**: no user
   interface, except the error kinds they add, which reach a user as the
   messages §32 checks. Those that change what a user sees have tests: a dense
