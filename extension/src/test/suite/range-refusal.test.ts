@@ -240,4 +240,52 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       editor.close();
     }
   });
+
+  test("switching log back to linear clears a Manual log10 refusal even when the render then fails for another reason (#1174)", async () => {
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1174-"));
+    const file = path.join(dir, "three.grib2");
+    const a = fs.readFileSync(FIXTURE);
+    const other = fs.readFileSync(path.join(extensionPath(), "src", "test", "fixtures", "eta_lambert_msg0.grib2"));
+    fs.writeFileSync(file, Buffer.concat([a, a, other]));
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      // Manual, the minimum left to the data, log on: drawn, the floor is positive.
+      await answer(
+        panel,
+        [MANUAL, { id: "range-min", value: "" }, { id: "range-max", value: 400 }, { id: "scale-log", checked: true }],
+        (m: Msg) => m.type === "gridReady" && m.options.scaleMode === "log10",
+        "log10 drawn",
+      );
+      // A minus A is zero: the data's minimum has no logarithm, and Manual keeps the refusal.
+      await answer(
+        panel,
+        [{ id: "compare-op", value: "a_minus_b" }, { id: "compare-field-b", value: 1 }],
+        (m: Msg) => m.type === "gridError" && m.rangeRefusal?.reason === "log10_not_positive",
+        "the log10 refusal under a Manual range",
+      );
+      let state = await panel.drive([]);
+      assert.notStrictEqual(state.rangeNote, null, "the refusal is up");
+      // Field B on another grid: the render fails for a reason that is not the range.
+      const from = panel.sent.length;
+      await panel.drive([{ id: "compare-field-b", value: 2 }]);
+      await panel.waitSent((m: Msg) => m.type === "gridError" && !m.rangeRefusal, from, "the different-grid error");
+      state = await panel.drive([]);
+      assert.notStrictEqual(state.rangeNote, null, "still up after the unrelated error");
+      // Back to linear: a change to the range, so the refusal goes with it.
+      const f2 = panel.sent.length;
+      await panel.drive([{ id: "scale-log", checked: false }]);
+      await panel.waitSent((m: Msg) => m.type === "gridError" && !m.rangeRefusal, f2, "the grid error again");
+      state = await panel.drive([{ id: "export-png", click: true }]);
+      assert.strictEqual(state.rangeNote, null);
+      assert.deepStrictEqual(state.rangeInvalid, []);
+      assert.ok(!state.exportStatus.includes("range fields"), "export is no longer blocked by the range");
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

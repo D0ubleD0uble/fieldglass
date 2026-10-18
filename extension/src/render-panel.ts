@@ -4618,7 +4618,7 @@ export function renderImagePanelHtml(
           // The log toggle only changes the value→colour mapping, not the ramp,
           // so it re-renders without touching the legend gradient.
           const logToggle = document.getElementById('scale-log');
-          if (logToggle) logToggle.addEventListener('change', requestRender);
+          if (logToggle) logToggle.addEventListener('change', () => { rangeEdited(); requestRender(); });
           // Compare picker (#239): changing the operation or Field B re-renders
           // through the combined path (or back to single render when off).
           ['compare-op', 'compare-field-b'].forEach((id) => {
