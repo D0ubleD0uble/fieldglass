@@ -3,8 +3,9 @@
 //!
 //! Every pair here is a committed, unmodified sidecar line and the message a
 //! producer published at that line's offset, fetched by range from the object
-//! the sidecar describes (provenance in
-//! `crates/fieldglass-fetchplan/tests/fixtures/NOTICE.md`). Nothing is built
+//! the sidecar describes (provenance in the `NOTICE.md` beside each: the sidecars
+//! in `crates/fieldglass-fetchplan/tests/fixtures/`, the messages in
+//! `crates/fieldglass/tests/fixtures/`). Nothing is built
 //! from the decoder's own output: a sidecar written from what the decoder says
 //! agrees with the decoder by construction, which is how the level check came to
 //! refuse every real wgrib2 record with a level (`2 mb` against the bare
@@ -24,15 +25,23 @@ use fieldglass::fetchplan::{
 /// Relative to the crate directory, not built from `CARGO_MANIFEST_DIR`: this
 /// suite also runs under `wasmtime --dir=. --dir=..`, which cannot open an
 /// absolute host path.
-const FIXTURES: &str = "../fieldglass-fetchplan/tests/fixtures";
+const SIDECARS: &str = "../fieldglass-fetchplan/tests/fixtures";
 
-fn read(name: &str) -> Vec<u8> {
-    let path = format!("{FIXTURES}/{name}");
+/// The messages the sidecars point at. They live here, not beside the
+/// sidecars, because only this crate reads them (#1132).
+const MESSAGES: &str = "tests/fixtures";
+
+fn read_from(dir: &str, name: &str) -> Vec<u8> {
+    let path = format!("{dir}/{name}");
     std::fs::read(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"))
 }
 
+fn read(name: &str) -> Vec<u8> {
+    read_from(MESSAGES, name)
+}
+
 fn text(name: &str) -> String {
-    String::from_utf8(read(name)).expect("a sidecar is text")
+    String::from_utf8(read_from(SIDECARS, name)).expect("a sidecar is text")
 }
 
 /// The one message in `bytes`, after the envelope check a host runs first.

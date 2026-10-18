@@ -1,0 +1,90 @@
+# Test fixture provenance
+
+Four real GRIB messages, each the bytes a record of a sidecar in
+`crates/fieldglass-fetchplan/tests/fixtures/` points at, so a plan can be
+checked against what it fetches. They live here because the umbrella crate
+reads them and `fieldglass-fetchplan` does not, which keeps them out of the
+fetchplan package (#1132). The sidecars they were taken from stay with
+fetchplan, whose `NOTICE.md` carries their provenance. Each section below says
+how the message was taken.
+
+## NOAA / NCEP messages (public domain)
+
+Works of the U.S. Government, not subject to copyright protection in the United
+States (17 U.S.C. § 105), and redistributed by the NOAA Open Data Dissemination
+(NODD) program on AWS Open Data with no restrictions.
+
+### `gfs_0p25_rh_2mb.grib2`
+
+Record 107 of `gfs_0p25.idx` (`RH:2 mb:anl`), fetched on 2026-10-16 from the
+object that sidecar describes,
+`https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000`,
+with `Range: bytes=76032983-76033192`: from the record's offset to one byte
+before record 108's. Unmodified, 210 bytes, SHA-256
+`55e074b163aec826a51805cd1a8414c79c331585f16707c0c4c10882f1e700cd`. The live
+sidecar was fetched again the same day and is byte-identical to the committed
+one, so the offsets are the ones this message sits at.
+
+It was picked for its size. Relative humidity at 2 hPa is zero everywhere, so
+the message is a constant field of 1,038,240 points in complex packing with
+spatial differencing (5.3), one of the smallest records in the product; most
+are hundreds of kilobytes. eccodes 2.34.1 (`grib_ls`) reads it as `r` on `isobaricInhPa` level 2,
+2026-09-04 00Z, minimum and maximum 0. The browser host's planner test
+(`crates/fieldglass-wasm/tests/node/fetchplan.mjs`) and the umbrella's
+(`crates/fieldglass/tests/fetch_plan_wire.rs`) select this record, build its
+`Range` header, verify its envelope on these bytes and decode it (#1081).
+
+### `gefs_chem_0p25_pmtc_sfc.grib2`
+
+Record 22 of `gefs_chem_a2d_0p25.idx` (`PMTC:surface:anl:aerosol=Dust dry:aerosol_size <1e-05:`),
+fetched on 2026-10-17 from the object that sidecar describes,
+`https://noaa-gefs-pds.s3.amazonaws.com/gefs.20260904/00/chem/pgrb2ap25/gefs.chem.t00z.a2d_0p25.f000.grib2`,
+with `Range: bytes=13921007-14137554`: from the record's offset to one byte
+before record 23's. Unmodified, 216,548 bytes, SHA-256
+`411c4d3228ebe1df466fe4782cd097eda7731e8a82ef2a7799747e15d89ce9b4`. It is the
+smallest record in the product; the whole object was read once to find it and
+was not kept.
+
+eccodes 2.34.1 (`grib_dump -O`, `grib_get`) reads it as product template 4.48,
+discipline 0, category 13 (aerosols), NCEP-local number 192 (`pmtc`,
+particulate matter coarse), constituent type 62001, size below 10 × 10⁻⁶ m,
+no wavelength interval, first fixed surface 1 (ground or water surface), second
+surface missing, 2026-09-04 00Z, step 0, 1,038,240 values, minimum 0.000127789,
+maximum 1359.05. Packing is complex with spatial differencing (5.3).
+
+It is the aerosol half of `crates/fieldglass/tests/verify_message_real_pairs.rs`
+(#1126): a correct line on a template the reader does not parse, whose level
+was refused as a stale sidecar before that issue.
+
+## ECMWF messages (CC-BY-4.0)
+
+ECMWF open data is published under the Creative Commons Attribution 4.0
+International licence (CC BY 4.0); see
+<https://www.ecmwf.int/en/forecasts/datasets/open-data>. Attribution: ECMWF.
+
+### `ecmwf_ifs_0p25_r_50hpa.grib2`, `ecmwf_ifs_0p25_mx2t3.grib2`
+
+Two records of `ecmwf_ifs_0p25_oper.index`, fetched on 2026-10-17 from the
+object that index describes. `data.ecmwf.int` keeps only the last few days, so
+both came from ECMWF's open-data mirror on AWS, which keeps the archive:
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/ifs/0p25/oper/20260904000000-0h-oper-fc.grib2`.
+The mirror's copy of the index
+(`…/20260904000000-0h-oper-fc.index`) was fetched the same day and is
+byte-identical to the committed one, so the offsets are the ones these
+messages sit at. Each is the record's `_offset` for its `_length`, unmodified:
+
+| File | Record | `Range` | Bytes | SHA-256 |
+|---|---|---|---|---|
+| `ecmwf_ifs_0p25_r_50hpa.grib2` | line 97, `r`, `pl` `50` | `bytes=68405631-68487398` | 81,768 | `db174329abf6972c8240f6518c28888967778943b37dd4a46c94ac491659eeb6` |
+| `ecmwf_ifs_0p25_mx2t3.grib2` | line 11, `mx2t3`, `sfc` | `bytes=5038129-5038352` | 224 | `c3d28075fff9505186bae947e95366c461a8308dcd23098f445669935db46597` |
+
+eccodes 2.34.1 (`grib_ls`) reads the first as `r` on `isobaricInhPa` level 50
+(first fixed surface 100, scaled value 5000 Pa), minimum 0.462906, maximum
+131.463, and the second as `mx2t3` on `heightAboveGround` level 2 (surface 103),
+step range 0-3, a constant field of 0. Both are CCSDS-packed (5.42), 2026-09-04
+00Z.
+
+They are the ECMWF half of `crates/fieldglass/tests/verify_message_real_pairs.rs`
+(#1093). The isobaric one is the smallest `pl` record in the index; the other
+is a single-level field that is not on the ground, which is what an ECMWF `sfc`
+means and what a reading of `sfc` as WMO surface type 1 refuses.

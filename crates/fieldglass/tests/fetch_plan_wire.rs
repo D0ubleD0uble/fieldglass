@@ -35,8 +35,7 @@ const GFS_IDX: &str = include_str!("../../fieldglass-fetchplan/tests/fixtures/gf
 /// The object key that sidecar describes, as a host would name it.
 const GFS_KEY: &str = "gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000";
 /// Record 107 of [`GFS_IDX`], fetched from that object: `RH:2 mb:anl`.
-const GFS_RH_2MB: &[u8] =
-    include_bytes!("../../fieldglass-fetchplan/tests/fixtures/gfs_0p25_rh_2mb.grib2");
+const GFS_RH_2MB: &[u8] = include_bytes!("fixtures/gfs_0p25_rh_2mb.grib2");
 
 /// ECMWF IFS 0.25°, the same cycle: every range exact.
 const ECMWF_INDEX: &str =
@@ -172,7 +171,7 @@ fn recording() -> Value {
             "plan": record_manifest(&ecmwf, &ecmwf_queries(), &resolver),
         },
         "envelope": {
-            "path": "crates/fieldglass-fetchplan/tests/fixtures/gfs_0p25_rh_2mb.grib2",
+            "path": "crates/fieldglass/tests/fixtures/gfs_0p25_rh_2mb.grib2",
             "item": wire(rh),
             "declaredLength": declared,
             "truncatedTo": 100,
