@@ -230,31 +230,40 @@ jobs:
             -- --skip detect::fs_tests \
                --skip probing_an_empty_raster_answers_rather_than_panicking
 
-      # Grouped baseline-then-simd on purpose. `--simd` changes RUSTFLAGS, which
+      # Grouped by variant on purpose. `--simd` changes RUSTFLAGS, which
       # changes the fingerprint of every crate in the graph, so alternating the
       # two would compile the whole tree four times instead of twice. The `web`
       # and `nodejs` builds of one variant share their cargo artifact and differ
       # only in the wasm-bindgen glue.
+      #
+      # `--features=fetchplan,zarr` is the package's second entry,
+      # `@fieldglass/wasm/full` (#1158); the planner and Zarr tests below run
+      # against its Node build. Each feature alone is no longer built here: no
+      # entry ships it, and the `cargo-clippy-wasm-fetchplan` and
+      # `cargo-clippy-wasm-zarr` hooks still compile each one by itself.
+      #
+      # `+simd128` first, so the last group built is the one `pack.sh` rebuilds
+      # at the end of the job (both of its entries are baseline builds), and
+      # that rebuild finds every crate already compiled.
       - name: Build the browser bundles
         run: |
-          crates/fieldglass-wasm/build.sh web
-          crates/fieldglass-wasm/build.sh nodejs
-          crates/fieldglass-wasm/build.sh web --features=fetchplan
-          crates/fieldglass-wasm/build.sh nodejs --features=fetchplan
-          crates/fieldglass-wasm/build.sh web --features=zarr
-          crates/fieldglass-wasm/build.sh nodejs --features=zarr
-          crates/fieldglass-wasm/build.sh web --features=fetchplan,zarr
           crates/fieldglass-wasm/build.sh web --simd
           crates/fieldglass-wasm/build.sh nodejs --simd
+          crates/fieldglass-wasm/build.sh web
+          crates/fieldglass-wasm/build.sh nodejs
+          crates/fieldglass-wasm/build.sh web --features=fetchplan,zarr
+          crates/fieldglass-wasm/build.sh nodejs --features=fetchplan,zarr
 
-      # Fails when either build drifts more than 5% from the figures in the
+      # Fails when any build drifts more than 5% from the figures in the
       # crate README, in either direction, so the documented size is the
-      # measured size. Writes the table into the run summary.
+      # measured size. Writes the table into the run summary. `full` is the
+      # `@fieldglass/wasm/full` entry (#1158).
       - name: Bundle-size gate
         run: |
           python3 tools/check_wasm_bundle_size.py \
             --build baseline=crates/fieldglass-wasm/pkg/web/fieldglass_wasm_bg.wasm \
-            --build '+simd128=crates/fieldglass-wasm/pkg/web-simd/fieldglass_wasm_bg.wasm'
+            --build '+simd128=crates/fieldglass-wasm/pkg/web-simd/fieldglass_wasm_bg.wasm' \
+            --build full=crates/fieldglass-wasm/pkg/web-fetchplan-zarr/fieldglass_wasm_bg.wasm
 
       # The third runner of the ADR-0006 conformance suite (#573): the same
       # `crates/fieldglass/conformance/suite.json` the umbrella's own tests and
@@ -312,55 +321,22 @@ jobs:
       # through the bundle. Committed files only, and it fails rather than skips
       # when one is missing.
       #
-      # Against the `fetchplan` feature build: the planner is not in the shipped
-      # bundle until where it ships is decided (#1081). Its size is printed
-      # beside the gated table, and not gated, so that decision is made from
-      # this runner's figure rather than a local one.
+      # Against the full entry's Node build, `@fieldglass/wasm/full` (#1158):
+      # the default entry has no planner.
       - name: Fetch planner through the browser host
         run: |
           node crates/fieldglass-wasm/tests/node/fetchplan.mjs \
-            --pkg crates/fieldglass-wasm/pkg/nodejs-fetchplan
-          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
-          import gzip
-          def size(p):
-              d = open(p, "rb").read()
-              return len(d), len(gzip.compress(d, compresslevel=9, mtime=0))
-          base = size("crates/fieldglass-wasm/pkg/web/fieldglass_wasm_bg.wasm")
-          plan = size("crates/fieldglass-wasm/pkg/web-fetchplan/fieldglass_wasm_bg.wasm")
-          print("\n### Bundle with the fetch planner (#1081, not gated)\n")
-          print("| Build | `.wasm` bytes | gzipped bytes |")
-          print("|---|---:|---:|")
-          print(f"| baseline | {base[0]:,} | {base[1]:,} |")
-          print(f"| baseline + `fetchplan` | {plan[0]:,} ({(plan[0] / base[0] - 1) * 100:+.1f}%) | {plan[1]:,} ({(plan[1] / base[1] - 1) * 100:+.1f}%) |")
-          EOF
+            --pkg crates/fieldglass-wasm/pkg/nodejs-fetchplan-zarr
 
       # Zarr stores in the browser module (#1083): the committed v2 and v3
       # window stores opened from their metadata, the coordinate chunks and then
       # exactly the chunks each plan names fetched from the committed files, and
       # each window decoded from those alone against `windows_oracle.json`.
-      #
-      # Against the `zarr` feature build, for the reason the planner's step is:
-      # it is not in the shipped bundle until where it ships is decided. Its
-      # size, alone and beside the planner, is printed beside the gated table
-      # and not gated.
+      # Against the full entry's Node build, as the planner's step is.
       - name: Zarr stores through the browser host
         run: |
           node crates/fieldglass-wasm/tests/node/zarr.mjs \
-            --pkg crates/fieldglass-wasm/pkg/nodejs-zarr
-          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
-          import gzip
-          def size(p):
-              d = open(p, "rb").read()
-              return len(d), len(gzip.compress(d, compresslevel=9, mtime=0))
-          base = size("crates/fieldglass-wasm/pkg/web/fieldglass_wasm_bg.wasm")
-          print("\n### Bundle with Zarr stores (#1083, not gated)\n")
-          print("| Build | `.wasm` bytes | gzipped bytes |")
-          print("|---|---:|---:|")
-          print(f"| baseline | {base[0]:,} | {base[1]:,} |")
-          for label, kind in (("`zarr`", "web-zarr"), ("`fetchplan,zarr`", "web-fetchplan-zarr")):
-              b = size(f"crates/fieldglass-wasm/pkg/{kind}/fieldglass_wasm_bg.wasm")
-              print(f"| baseline + {label} | {b[0]:,} ({(b[0] / base[0] - 1) * 100:+.1f}%) | {b[1]:,} ({(b[1] / base[1] - 1) * 100:+.1f}%) |")
-          EOF
+            --pkg crates/fieldglass-wasm/pkg/nodejs-fetchplan-zarr
 
       - name: Native decode baseline
         run: |
@@ -382,8 +358,9 @@ jobs:
 
       # The npm package `release.yml` publishes on a tag, built and proved on
       # every pull request rather than only when a tag makes it too late (#466).
-      # `pack.sh` reuses the `pkg/web` build above, so this costs an npm install
-      # into a temp directory and nothing else.
+      # `pack.sh` rebuilds the two web builds above, the default entry and the
+      # full one (#1158), from crates already compiled, so this costs little
+      # beyond an npm install into a temp directory.
       #
       # The other Node tests load `pkg/nodejs/fieldglass_wasm.js` by path, so
       # they would all pass with a `package.json` that shipped none of it. This
