@@ -48,7 +48,7 @@ use fieldglass_core::{
     WebMercator,
     colormap::{Colormap, ColormapKind, ScaleMode, default_colormap},
     project_polylines,
-    warp::{PreparedTarget, TargetProjection, WarpedRaster, warp},
+    warp::{ForwardMap, PreparedTarget, TargetProjection, WarpedRaster, warp},
 };
 // The forward map is built only by the operations that need one.
 #[cfg(any(feature = "render", feature = "analysis"))]
@@ -791,6 +791,22 @@ impl BuiltTarget {
             BuiltTarget::EqEarth(t) => {
                 project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
             }
+        }
+    }
+
+    /// Where each `(lat, lon)` point of `latlon` lands on this target's raster,
+    /// by the same forward map and flip [`BuiltTarget::project`] uses, without
+    /// any run splitting: `None` for a point off the projection's domain.
+    fn project_points(&self, flip_y: bool, latlon: &[f64]) -> Vec<Option<(f64, f64)>> {
+        let (_, h) = self.dims();
+        match self {
+            BuiltTarget::Equirect(t) => points_on(&t.prepare(), h, flip_y, latlon),
+            BuiltTarget::Mercator(t) => points_on(&t.prepare(), h, flip_y, latlon),
+            BuiltTarget::Ortho(t) => points_on(&t.prepare(), h, flip_y, latlon),
+            BuiltTarget::Polar(t) => points_on(&t.prepare(), h, flip_y, latlon),
+            BuiltTarget::Moll(t) => points_on(&t.prepare(), h, flip_y, latlon),
+            BuiltTarget::Robin(t) => points_on(&t.prepare(), h, flip_y, latlon),
+            BuiltTarget::EqEarth(t) => points_on(&t.prepare(), h, flip_y, latlon),
         }
     }
 
@@ -1582,6 +1598,60 @@ pub fn overlay_polylines(
     }
 }
 
+/// Each flat `[lat, lon, …]` point through `map`, flipped as
+/// [`project_polylines`] flips a vertex on a raster `height` rows tall.
+#[cfg(feature = "render")]
+fn points_on<P: ForwardMap>(
+    map: &P,
+    height: u32,
+    flip_y: bool,
+    latlon: &[f64],
+) -> Vec<Option<(f64, f64)>> {
+    let y_top = f64::from(height) - 1.0;
+    latlon
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[lat, lon]| {
+            map.lonlat_to_pixel(lat, lon)
+                .map(|(x, y)| (x, if flip_y { y_top - y } else { y }))
+        })
+        .collect()
+}
+
+/// Points on a raster, `None` where one is off the projection's domain, and
+/// that raster's `(width, height)`.
+#[cfg(feature = "render")]
+type RasterPoints = (Vec<Option<(f64, f64)>>, (u32, u32));
+
+/// Single points on the raster [`overlay_polylines`] projects onto, through
+/// the same target: what that call would put at each vertex, before any run is
+/// split or culled. Returns the points and the raster's `(width, height)`.
+#[cfg(feature = "render")]
+fn overlay_points(
+    source: &Source<'_>,
+    options: &RenderOptions,
+    latlon: &[f64],
+) -> Result<RasterPoints, Error> {
+    let resolved = ResolvedOptions::parse(options)?;
+    let geometry = source.placed()?;
+    require_reprojectable(geometry, source.refused_as())?;
+    let (ni, nj) = (source.ni, source.nj);
+    match resolved.target {
+        TargetKind::Source => {
+            let inverse = geometry.inverse_at();
+            let flip = source.scan.flips_source_rows(resolved.flip_y);
+            let target = SourceOverlayTarget::new(inverse.as_ref());
+            Ok((points_on(&target, nj, flip, latlon), (ni, nj)))
+        }
+        TargetKind::Warp(target_kind) => {
+            let (built, _used_bounds) =
+                build_warp_target(target_kind, ni, nj, geometry, &resolved)?;
+            Ok((built.project_points(resolved.flip_y, latlon), built.dims()))
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Forward geolocation: grid point → (lat, lon)
 // ---------------------------------------------------------------------------
@@ -2274,6 +2344,19 @@ pub struct VectorArrows {
     /// when no arrow survives onto the raster, so a legend has no scale to show
     /// and none is made up for it (#871).
     pub reference_speed: Option<f64>,
+    /// How long a full-length arrow is on this raster, in the same pixel space
+    /// as [`runs`](Self::runs): the length a key draws beside
+    /// [`reference_speed`](Self::reference_speed) (#1046).
+    ///
+    /// An arrow is a geographic segment, so its length on screen changes
+    /// across a map that stretches or shrinks distance (an equirectangular
+    /// map's high latitudes, a globe's limb). This is measured off one drawn
+    /// arrow, not recomputed: of the arrows drawn whole on the raster, the one
+    /// with the largest share of full length, its tail-to-tip length divided
+    /// by that share. With the scale taken from the field, that is the fastest
+    /// arrow on the map, at exactly the length it was drawn. `None` when no
+    /// arrow is drawn whole on the raster.
+    pub reference_length: Option<f64>,
 }
 
 #[cfg(feature = "render")]
@@ -2283,6 +2366,7 @@ impl Default for VectorArrows {
         Self {
             runs: ProjectedPolylines::default(),
             reference_speed: None,
+            reference_length: None,
         }
     }
 }
@@ -2416,6 +2500,8 @@ pub fn vector_polylines(
 
     let mut latlon: Vec<f64> = Vec::new();
     let mut ring_lengths: Vec<u32> = Vec::new();
+    // Each arrow's tail and tip, and its share of full length, for the key.
+    let mut shafts: Vec<Shaft> = Vec::new();
     for &(i, j) in &sampled {
         let index = j * ni as usize + i;
         let (Some(u), Some(v)) = (u[index], v[index]) else {
@@ -2483,16 +2569,98 @@ pub fn vector_polylines(
             latlon.extend_from_slice(&[point.0, point.1]);
         }
         ring_lengths.push(ARROW_VERTICES);
+        shafts.push(Shaft {
+            tail: start,
+            tip,
+            share: length / longest,
+        });
     }
 
     let runs = overlay_polylines(source, options, &latlon, &ring_lengths)?;
     // Every arrow can clip off the raster, as when the view is a window the
     // field does not reach. Then nothing was drawn to a scale.
     let reference_speed = (!runs.seg_lengths.is_empty()).then_some(fastest);
+    let reference_length = if reference_speed.is_some() {
+        full_arrow_length(source, options, &runs, &shafts)?
+    } else {
+        None
+    };
     Ok(VectorArrows {
         runs,
         reference_speed,
+        reference_length,
     })
+}
+
+/// One arrow's shaft as built: tail and tip `(lat, lon)`, and the share of a
+/// full-length arrow it was drawn at (`(0, 1]`).
+#[cfg(feature = "render")]
+struct Shaft {
+    tail: (f64, f64),
+    tip: (f64, f64),
+    share: f64,
+}
+
+/// The on-raster length of a full-length arrow, measured off the drawn arrow
+/// with the largest share of full length — see
+/// [`VectorArrows::reference_length`].
+///
+/// "Drawn" is what the canvas strokes: a five-vertex run in `runs` that starts
+/// at this arrow's projected tail and tip, so an arrow split at a seam or by
+/// the edge of a globe is not measured, and neither is one that projects off
+/// the raster into the margin [`project_polylines`] keeps. The tail and tip are
+/// projected by the same target as the runs, so a drawn arrow's ends match its
+/// run's first two vertices bit for bit.
+#[cfg(feature = "render")]
+fn full_arrow_length(
+    source: &Source<'_>,
+    options: &RenderOptions,
+    runs: &ProjectedPolylines,
+    shafts: &[Shaft],
+) -> Result<Option<f64>, Error> {
+    let whole_run = ARROW_VERTICES as usize;
+    let mut drawn = std::collections::HashSet::new();
+    let mut at = 0usize;
+    for &n in &runs.seg_lengths {
+        let n = n as usize;
+        if n == whole_run
+            && let Some(ends) = runs.xy.get(at..at + 4)
+        {
+            drawn.insert(ends.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+        }
+        at += 2 * n;
+    }
+    let ends: Vec<f64> = shafts
+        .iter()
+        .flat_map(|s| [s.tail.0, s.tail.1, s.tip.0, s.tip.1])
+        .collect();
+    let (points, (width, height)) = overlay_points(source, options, &ends)?;
+    // Pixel centres sit on whole numbers, so the raster spans half a pixel
+    // beyond the first and last.
+    let on_raster = |(x, y): (f64, f64)| {
+        (-0.5..=f64::from(width) - 0.5).contains(&x)
+            && (-0.5..=f64::from(height) - 0.5).contains(&y)
+    };
+    let mut best: Option<(f64, f64)> = None;
+    for (shaft, &[tail, tip]) in shafts.iter().zip(points.as_chunks::<2>().0) {
+        let (Some(tail), Some(tip)) = (tail, tip) else {
+            continue;
+        };
+        if !on_raster(tail) || !on_raster(tip) {
+            continue;
+        }
+        let key = [tail.0, tail.1, tip.0, tip.1].map(f64::to_bits);
+        if !drawn.contains(key.as_slice()) {
+            continue;
+        }
+        let full = (tip.0 - tail.0).hypot(tip.1 - tail.1) / shaft.share;
+        if best.is_none_or(|(share, _)| shaft.share > share) {
+            best = Some((shaft.share, full));
+        }
+    }
+    Ok(best
+        .map(|(_, length)| length)
+        .filter(|l| l.is_finite() && *l > 0.0))
 }
 
 // ---------------------------------------------------------------------------

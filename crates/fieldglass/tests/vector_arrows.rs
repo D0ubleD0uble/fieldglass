@@ -388,6 +388,141 @@ fn the_reference_speed_is_the_scale_the_arrows_were_drawn_to() {
     assert_eq!(none.reference_speed, None);
 }
 
+/// The length a key draws its arrow at (#1046) is a drawn arrow's, not a
+/// figure worked out beside the arrows: with the scale taken from the field,
+/// the fastest arrow on the map is drawn at exactly that length.
+///
+/// `u = cos(lat)` is fastest on the equator, where both targets here draw an
+/// arrow at the centre of the map.
+#[test]
+fn the_reference_length_is_the_fastest_arrow_as_drawn() {
+    let geometry = global();
+    let (u, v) = solid_rotation();
+    let mut globe = options("orthographic");
+    globe.center_lat = Some(0.0);
+    globe.center_lon = Some(0.0);
+    for options in [options("equirectangular"), globe] {
+        let arrows = one_grid(
+            &source(&geometry, "latlon"),
+            &u,
+            &v,
+            &options,
+            &VectorOptions::new(),
+        )
+        .expect("arrows");
+        let key = arrows.reference_length.expect("arrows were drawn");
+        let lengths: Vec<f64> = shafts(&arrows)
+            .into_iter()
+            .map(|((x0, y0), (x1, y1))| (x1 - x0).hypot(y1 - y0))
+            .collect();
+        assert!(
+            lengths.iter().any(|l| (l - key).abs() < 1e-9),
+            "{}: the key's {key} px is one drawn arrow's length",
+            options.projection
+        );
+        // On these two maps the fastest arrow is also the longest drawn, to
+        // within a pixel: `cos(lat)` slows the wind exactly as Equirectangular
+        // stretches a parallel, and a globe only shortens what is off-centre.
+        let longest = lengths.iter().copied().fold(0.0, f64::max);
+        assert!(
+            (longest - key).abs() < 1.0,
+            "{}: the longest arrow is {longest} px, the key {key} px",
+            options.projection
+        );
+    }
+}
+
+/// A pinned scale draws every arrow at a share of full length, and the key is
+/// still a full-length arrow: the drawn arrow over its share.
+#[test]
+fn a_pinned_reference_speed_keeps_the_key_at_full_length() {
+    let geometry = global();
+    let (u, v) = solid_rotation();
+    let options = options("equirectangular");
+    let auto = one_grid(
+        &source(&geometry, "latlon"),
+        &u,
+        &v,
+        &options,
+        &VectorOptions::new(),
+    )
+    .expect("arrows");
+    let mut pinned = VectorOptions::new();
+    pinned.reference_speed = Some(4.0);
+    let held = one_grid(&source(&geometry, "latlon"), &u, &v, &options, &pinned).expect("arrows");
+    let (a, h) = (
+        auto.reference_length.expect("drawn"),
+        held.reference_length.expect("drawn"),
+    );
+    // The same spacing gives the same full length; the shaft is a great
+    // circle, so a quarter of it is not quite a quarter on the map.
+    assert!((a - h).abs() < 0.02 * a, "{a} px against {h} px");
+    let longest = shafts(&held)
+        .into_iter()
+        .map(|((x0, y0), (x1, y1))| (x1 - x0).hypot(y1 - y0))
+        .fold(0.0, f64::max);
+    assert!(
+        longest < h / 3.0,
+        "the arrows are short: {longest} px of {h}"
+    );
+}
+
+/// A sparser spacing puts the sampled cells further apart, and a full-length
+/// arrow is that far, so the key lengthens with it. Not exactly in proportion:
+/// the full length is the mean distance between sampled neighbours along a
+/// row, and each spacing samples a different set of rows.
+#[test]
+fn spacing_moves_the_reference_length_with_the_arrows() {
+    let geometry = global();
+    let (u, v) = solid_rotation();
+    let options = options("equirectangular");
+    let at = |spacing| {
+        let mut vectors = VectorOptions::new();
+        vectors.spacing = Some(spacing);
+        one_grid(&source(&geometry, "latlon"), &u, &v, &options, &vectors)
+            .expect("arrows")
+            .reference_length
+            .expect("drawn")
+    };
+    let (dense, sparse) = (at(2), at(6));
+    assert!(
+        (2.5..3.5).contains(&(sparse / dense)),
+        "three times the spacing, about three times the length: {dense} px, {sparse} px"
+    );
+}
+
+/// Zoomed into a window that leaves out the fastest cell, the key is taken
+/// from the arrows still on the map: none is full length there, so the key is
+/// longer than any of them, at the length a full-speed arrow would be drawn
+/// in that window.
+#[test]
+fn a_window_without_the_fastest_cell_still_has_a_key() {
+    let geometry = global();
+    let (u, v) = solid_rotation();
+    let mut window = options("equirectangular");
+    window.bounds_lat_min = Some(40.0);
+    window.bounds_lat_max = Some(70.0);
+    window.bounds_lon_min = Some(0.0);
+    window.bounds_lon_max = Some(60.0);
+    let arrows = one_grid(
+        &source(&geometry, "latlon"),
+        &u,
+        &v,
+        &window,
+        &VectorOptions::new(),
+    )
+    .expect("arrows");
+    let key = arrows.reference_length.expect("arrows are on the window");
+    let longest = shafts(&arrows)
+        .into_iter()
+        .map(|((x0, y0), (x1, y1))| (x1 - x0).hypot(y1 - y0))
+        .fold(0.0, f64::max);
+    assert!(
+        longest > 0.0 && key > longest,
+        "key {key} px, longest arrow {longest} px"
+    );
+}
+
 /// A window the field does not reach clips every arrow away. Then nothing was
 /// drawn, so there is no scale to report, even though the field has wind (#871).
 #[test]
@@ -421,6 +556,7 @@ fn arrows_clipped_off_the_window_report_no_reference_speed() {
         "every arrow is off the window"
     );
     assert_eq!(arrows.reference_speed, None);
+    assert_eq!(arrows.reference_length, None, "and no length for a key");
 
     // The same field over the whole globe does draw, so the window is the cause.
     let drawn = one_grid(

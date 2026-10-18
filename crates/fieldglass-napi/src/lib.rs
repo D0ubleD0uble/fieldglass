@@ -883,7 +883,8 @@ impl ProjectedOverlay {
 /// The runs are [`ProjectedOverlay`]'s shape — five vertices per arrow — so the
 /// same canvas code draws them. `referenceSpeed` is what a legend puts beside a
 /// full-length reference arrow, in the components' own units; `null` when no
-/// arrow was drawn (#871).
+/// arrow was drawn (#871). `referenceLength` is how long that arrow is drawn
+/// (#1046).
 // `use_nullable`, like `RenderedGrid`: the key is always present.
 #[napi(object, use_nullable = true)]
 pub struct ProjectedVectors {
@@ -893,6 +894,10 @@ pub struct ProjectedVectors {
     pub seg_lengths: napi::bindgen_prelude::Uint32Array,
     /// The speed a full-length arrow stands for; `null` when no arrow was drawn.
     pub reference_speed: Option<f64>,
+    /// How long a full-length arrow is, in the same raster pixels as `xy`: the
+    /// length a key draws beside `referenceSpeed` (#1046), measured off a drawn
+    /// arrow. `null` when no arrow is drawn whole on the raster.
+    pub reference_length: Option<f64>,
 }
 
 impl ProjectedVectors {
@@ -901,6 +906,7 @@ impl ProjectedVectors {
             xy: a.runs.xy.into(),
             seg_lengths: a.runs.seg_lengths.into(),
             reference_speed: a.reference_speed,
+            reference_length: a.reference_length,
         }
     }
 }
@@ -975,6 +981,7 @@ impl std::fmt::Debug for ProjectedVectors {
             .field("xy.len", &self.xy.len())
             .field("seg_lengths.len", &self.seg_lengths.len())
             .field("reference_speed", &self.reference_speed)
+            .field("reference_length", &self.reference_length)
             .finish()
     }
 }
@@ -9320,12 +9327,17 @@ mod nothing_computed_tests {
             .expect("projects");
         assert_eq!(none.seg_lengths.len(), 0, "no arrow is on the window");
         assert_eq!(none.reference_speed, None);
+        assert_eq!(
+            none.reference_length, None,
+            "and no length for a key (#1046)"
+        );
 
         let some = h
             .project_vectors(0, 0, opts("source"), Some(8), None)
             .expect("projects");
         assert!(!some.seg_lengths.is_empty());
         assert!(some.reference_speed.is_some_and(|s| s > 0.0));
+        assert!(some.reference_length.is_some_and(|l| l > 0.0));
     }
 }
 
