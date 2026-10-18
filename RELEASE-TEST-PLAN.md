@@ -607,16 +607,24 @@ A depth axis with fill values used to fail to draw; no file here has one.
       however large the panel is (#1046). Untick Arrows: the arrows, the key
       and the row's "Full-length arrow" text all go.
 - [ ] Zoom in twice with +, then switch to Orthographic: each time the key's
-      length changes with the arrows' (#1046). Back on Equirectangular, zoom
-      in until the arrows are longer than the map is wide: the key is cut to
-      half (or a quarter) with its speed, so it still fits. Zoomed into a
-      window without the fastest arrow, or on a globe with it on the far
-      side, the key is still as long as an arrow at its speed is drawn on
-      that view, and longer than every arrow shown. On Equirectangular and
-      on Orthographic, no arrow is longer than the key, the polar ones
-      included (#1159). Failure looks like a key that keeps one length while
-      the arrows grow or shrink, or polar arrows on Equirectangular stretched
-      east–west past the key's length.
+      length changes with the arrows' (#1046). Back on Equirectangular, keep
+      zooming in with + until it stops zooming (a hundredth of a degree):
+      after the first few clicks the arrows and the key stop growing, at a
+      quarter of the map's height, and the arrows spread apart instead. An
+      arrow in view keeps its head, the key stays whole inside the map's
+      corner with its label beside it, and its speed is the one the Vectors
+      row gives (#1168). Export PNG there: the key is inside the map in the
+      image too. Zoomed into a window without the fastest arrow, or on a
+      globe with it on the far side, the key is still as long as an arrow at
+      its speed is drawn on that view, and longer than every arrow shown. On
+      Equirectangular and on Orthographic, no arrow is longer than the key,
+      the polar ones included (#1159). Narrow the panel until the map is too
+      small for the key and its label: the key goes and the Vectors row reads
+      "No arrow key: the map is too small to fit one." Failure looks like a
+      key that keeps one length while the arrows grow or shrink, polar arrows
+      on Equirectangular stretched east–west past the key's length, or, zoomed
+      in, arrows drawn as long lines with no head and a key or label running
+      off the map.
 - [ ] Turn arrows back on, spacing 4, colour red. Click another editor tab in
       the same group and come back, then import `batlow.cpt` (§9): both times
       the arrows, V component, spacing and colour are as you left them

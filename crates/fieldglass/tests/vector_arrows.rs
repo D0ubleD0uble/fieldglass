@@ -844,6 +844,92 @@ fn the_key_is_the_longest_arrow_on_the_gfs_fixture() {
     }
 }
 
+/// At the panel's deepest zoom, a hundredth of a degree, a full-length arrow
+/// was the spacing between arrows on screen: on the #1046 fixture at the
+/// automatic spacing (15°), some 1,500 map widths, drawn as a headless line
+/// across the map, with a key that could not fit (#1168). It is now held to a
+/// quarter of the map's shorter side, so the arrow from the cell in view is on
+/// the map whole, head and all, and is no longer than the key. Equirectangular,
+/// where the zoom happens, and Web Mercator, which zooms the same way.
+#[test]
+fn a_deep_zoom_holds_a_full_length_arrow_to_a_quarter_of_the_map() {
+    /// Embedded rather than read, so the test runs under wasm32 too.
+    const GFS: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
+    let session = fieldglass::Session::open(GFS.to_vec()).expect("the fixture opens");
+    let field = session
+        .decode(0, &fieldglass::DecodeOptions::default())
+        .expect("the fixture decodes");
+    let values: Vec<Option<f64>> = (0..field.values.len())
+        .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
+        .collect();
+    let source = field.source();
+    for projection in ["equirectangular", "web_mercator"] {
+        // 0.01° across, centred on the sampled cell at (0°, 180°).
+        let mut o = RenderOptions::new(projection, "nearest");
+        o.width = Some(720);
+        o.height = Some(365);
+        o.bounds_lat_min = Some(-0.0025);
+        o.bounds_lat_max = Some(0.0025);
+        o.bounds_lon_min = Some(179.995);
+        o.bounds_lon_max = Some(180.005);
+        let arrows = vector_polylines(
+            &source,
+            &values,
+            &source,
+            &values,
+            &o,
+            &VectorOptions::new(),
+        )
+        .unwrap_or_else(|e| panic!("{projection}: {e}"));
+        let key = arrows.reference_length.expect("the cell in view draws");
+        assert_eq!(
+            key,
+            0.25 * 365.0,
+            "{projection}: a full-length arrow is a quarter of the shorter side"
+        );
+        let on_map =
+            |(x, y): (f64, f64)| (-0.5..=719.5).contains(&x) && (-0.5..=364.5).contains(&y);
+        let whole = whole_arrows(&arrows);
+        assert!(
+            whole.iter().any(|arrow| arrow.iter().all(|&p| on_map(p))),
+            "{projection}: an arrow is on the map, head and all: {whole:?}"
+        );
+        for [tail, tip, ..] in whole {
+            let length = (tip.0 - tail.0).hypot(tip.1 - tail.1);
+            assert!(
+                length <= key * (1.0 + 1e-12),
+                "{projection}: an arrow is {length} px, the key {key} px"
+            );
+        }
+    }
+}
+
+/// The cap leaves a whole-map view of the automatic spacing alone: there a
+/// full-length arrow is the spacing between arrows, well short of a quarter
+/// of the map, on every target the panel offers.
+#[test]
+fn the_cap_leaves_the_whole_map_alone() {
+    let geometry = global();
+    let (u, v) = solid_rotation();
+    for (what, o) in every_view() {
+        let arrows = one_grid(
+            &source(&geometry, "latlon"),
+            &u,
+            &v,
+            &o,
+            &VectorOptions::new(),
+        )
+        .unwrap_or_else(|e| panic!("{what}: {e}"));
+        let key = arrows.reference_length.expect("arrows were drawn");
+        let shorter = f64::from(o.width.unwrap_or(0).min(o.height.unwrap_or(0)));
+        assert!(
+            key < 0.25 * shorter * 0.9,
+            "{what}: a full-length arrow is {key} px, near the cap of a quarter of {shorter} px"
+        );
+    }
+}
+
 /// An arrow is drawn on screen from its cell, so one at the map's seam or a
 /// globe's edge is drawn whole: it runs off the edge of the map, or past the
 /// limb, rather than being cut in two or dropped. On a whole-world map every
@@ -981,7 +1067,9 @@ fn spacing_moves_the_reference_length_with_the_arrows() {
 
 /// A spacing wider than the grid samples one cell, which has no sampled
 /// neighbour to be spaced from. It still draws, at the length to the grid's
-/// last column and row, as it did when arrows were measured on the Earth.
+/// last column and row, as it did when arrows were measured on the Earth, and
+/// that is longer than a quarter of the map, so the arrow is held to that
+/// (#1168).
 #[test]
 fn a_spacing_wider_than_the_grid_still_draws_one_arrow() {
     let geometry = global();
@@ -1021,7 +1109,7 @@ fn a_spacing_wider_than_the_grid_still_draws_one_arrow() {
         vec![fieldglass::render::ARROW_VERTICES]
     );
     let key = arrows.reference_length.expect("a key length");
-    assert!(key > 100.0, "the arrow spans the grid: {key} px");
+    assert_eq!(key, 0.25 * 300.0, "held to a quarter of the 400 × 300 map");
 }
 
 /// Zoomed into a window that leaves out the fastest cell, no arrow on the map

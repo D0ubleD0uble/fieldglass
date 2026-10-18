@@ -917,7 +917,9 @@ pub struct ProjectedVectors {
     /// How long a full-length arrow is, in the same raster pixels as `xy`: the
     /// length a key draws beside `referenceSpeed` (#1046). Arrows are drawn at
     /// one on-screen length per speed (#1159), so every arrow at the reference
-    /// speed is this long. `null` when no arrow is drawn.
+    /// speed is this long. At most a quarter of the raster's shorter side
+    /// (#1168), so it fits on the map at any zoom. `null` when no arrow is
+    /// drawn.
     pub reference_length: Option<f64>,
     /// Whether u and v are the two components of one vector, by the parameter
     /// each message names: `fieldglass::Session::vector_pairing`, in the wire
