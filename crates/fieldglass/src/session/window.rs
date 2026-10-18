@@ -346,12 +346,10 @@ impl Session {
     ) -> Result<Field, Error> {
         let window = self.window(request, "decode_window")?;
         if window.is_empty() {
-            return Err(Error::InvalidOption {
-                detail: format!(
-                    "the box {:?} holds no cell centre of `{}`, so there is no window to decode",
-                    request.bounds, window.var.name
-                ),
-            });
+            return Err(Error::invalid_option(format!(
+                "the box {:?} holds no cell centre of `{}`, so there is no window to decode",
+                request.bounds, window.var.name
+            )));
         }
         let source = window.arrays.source.as_ref();
         let (ni, nj) = (window.ni(), window.nj());
@@ -444,23 +442,19 @@ impl Session {
         let rank = var.dims.len();
         let (y, x) = (request.y_dim as usize, request.x_dim as usize);
         if y == x || y >= rank || x >= rank {
-            return Err(Error::InvalidOption {
-                detail: format!(
-                    "`{}` has {rank} dimensions; yDim {y} and xDim {x} must be different and \
+            return Err(Error::invalid_option(format!(
+                "`{}` has {rank} dimensions; yDim {y} and xDim {x} must be different and \
                      within them",
-                    var.name
-                ),
-            });
+                var.name
+            )));
         }
         if request.slice_indices.len() != rank {
-            return Err(Error::InvalidOption {
-                detail: format!(
-                    "`{}` has {rank} dimensions, so `sliceIndices` needs {rank} entries (the two \
+            return Err(Error::invalid_option(format!(
+                "`{}` has {rank} dimensions, so `sliceIndices` needs {rank} entries (the two \
                      horizontal ones are ignored); {} were given",
-                    var.name,
-                    request.slice_indices.len()
-                ),
-            });
+                var.name,
+                request.slice_indices.len()
+            )));
         }
         let mut fixed = Vec::with_capacity(rank);
         for (d, (&at, axis)) in request.slice_indices.iter().zip(&var.dims).enumerate() {
@@ -469,25 +463,21 @@ impl Session {
                 continue;
             }
             if u64::from(at) >= axis.length {
-                return Err(Error::InvalidOption {
-                    detail: format!(
-                        "`sliceIndices[{d}]` is {at}, past the {} positions of `{}`",
-                        axis.length, axis.name
-                    ),
-                });
+                return Err(Error::invalid_option(format!(
+                    "`sliceIndices[{d}]` is {at}, past the {} positions of `{}`",
+                    axis.length, axis.name
+                )));
             }
             fixed.push(u64::from(at));
         }
         let [lat_min, lat_max, lon_min, lon_max] = request.bounds;
         if !request.bounds.iter().all(|v| v.is_finite()) || lat_min > lat_max || lon_min > lon_max {
-            return Err(Error::InvalidOption {
-                detail: format!(
-                    "`bounds` is [latMin, latMax, lonMin, lonMax] with each edge finite and no \
+            return Err(Error::invalid_option(format!(
+                "`bounds` is [latMin, latMax, lonMin, lonMax] with each edge finite and no \
                      smaller than its opposite (a box over the antimeridian runs past 180); \
                      {:?} is not one",
-                    request.bounds
-                ),
-            });
+                request.bounds
+            )));
         }
 
         // A box is matched against the two horizontal coordinates, and a
@@ -502,17 +492,15 @@ impl Session {
             }
         }
         if !absent.is_empty() {
-            return Err(Error::InvalidOption {
-                detail: format!(
-                    "the store holds no {}: fetch the coordinate chunks `coordinate_chunks` \
+            return Err(Error::invalid_option(format!(
+                "the store holds no {}: fetch the coordinate chunks `coordinate_chunks` \
                      names before planning a window",
-                    absent
-                        .iter()
-                        .map(|k| format!("`{k}`"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-            });
+                absent
+                    .iter()
+                    .map(|k| format!("`{k}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
         }
 
         let placement = arrays.placement(&var, y, x)?;

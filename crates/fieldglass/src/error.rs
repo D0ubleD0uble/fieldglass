@@ -8,7 +8,7 @@ use fieldglass_core::FieldglassError;
 /// [`code`](Error::code) is the stable string it maps on. The `code` is part of
 /// the API — a host may branch on it — while [`message`](Error::message) is
 /// prose and may be reworded.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(tag = "code", rename_all = "snake_case")]
@@ -79,10 +79,32 @@ pub enum Error {
     InvalidOption {
         /// Which option, and what it would have had to be.
         detail: String,
+        /// For a refused colour range, the same refusal as fields: which end,
+        /// the value given, and the field's own range (#1155). `null` for every
+        /// other option, so a host checks it before pointing at a control.
+        #[serde(default, rename = "rangeRefusal")]
+        range_refusal: Option<crate::api::RangeRefusal>,
     },
 }
 
 impl Error {
+    /// [`Self::InvalidOption`] with `detail`, for an option other than a colour
+    /// range.
+    pub fn invalid_option(detail: impl Into<String>) -> Self {
+        Self::InvalidOption {
+            detail: detail.into(),
+            range_refusal: None,
+        }
+    }
+
+    /// The refused colour range this error carries, if it is one (#1155).
+    pub fn range_refusal(&self) -> Option<&crate::api::RangeRefusal> {
+        match self {
+            Self::InvalidOption { range_refusal, .. } => range_refusal.as_ref(),
+            _ => None,
+        }
+    }
+
     /// The stable machine-readable tag. Matches the serde discriminant, so a
     /// host reading the JSON form and one calling this method cannot disagree.
     pub fn code(&self) -> &'static str {
@@ -114,7 +136,7 @@ impl Error {
             Self::WrongAddressing { expected, detail } => {
                 format!("this session is addressed by {expected}: {detail}")
             }
-            Self::InvalidOption { detail } => detail.clone(),
+            Self::InvalidOption { detail, .. } => detail.clone(),
         }
     }
 }
@@ -179,9 +201,7 @@ impl From<fieldglass_fetchplan::FetchPlanError> for Error {
             | E::CycleHourOutOfRange { .. }
             | E::UnsortedCycleHours { .. }
             | E::TimeOutOfRange { .. }
-            | E::OffsetPastEnd { .. } => Self::InvalidOption {
-                detail: e.to_string(),
-            },
+            | E::OffsetPastEnd { .. } => Self::invalid_option(e.to_string()),
             other => Self::Decode {
                 detail: other.to_string(),
             },
@@ -216,7 +236,7 @@ mod tests {
                 expected: "variables".into(),
                 detail: "x".into(),
             },
-            Error::InvalidOption { detail: "x".into() },
+            Error::invalid_option("x"),
         ];
         for e in &all {
             match e {

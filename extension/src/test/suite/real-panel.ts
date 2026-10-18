@@ -115,6 +115,11 @@ export interface PageState {
   vectorStatus: string;
   overlayStatus: string;
   exportStatus: string;
+  /** The refused colour range shown under the min/max fields (#1155), `null`
+   *  while none is on screen. */
+  rangeNote: string | null;
+  /** The min/max fields marked invalid, by id. */
+  rangeInvalid: string[];
   /** Whether the Animate row's Play button is disabled. */
   playDisabled: boolean;
   /** A GRIB panel's message picker, offered when its message is gone from a
@@ -555,6 +560,10 @@ const DRIVER = `
         vectorStatus: byId('vector-status').textContent,
         overlayStatus: byId('overlay-status').textContent,
         exportStatus: byId('export-status').textContent,
+        rangeNote: byId('range-note') && byId('range-note').getClientRects().length > 0
+          ? byId('range-note').textContent : null,
+        rangeInvalid: ['range-min', 'range-max']
+          .filter((id) => byId(id) && byId(id).getAttribute('aria-invalid') === 'true'),
         playDisabled: !!(byId('anim-play') && byId('anim-play').disabled),
         canvasVisibility: byId('canvas').style.visibility,
         linePlot: linePlot(),

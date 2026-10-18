@@ -45,8 +45,8 @@ use crate::error::Error;
 /// [`Error::NoSuchMessage`] for an index outside the file, and
 /// [`Error::InvalidOption`] for a `value` that does not fit the octet.
 pub fn with_p1_octet(bytes: &[u8], index: u32, value: u32) -> Result<Vec<u8>, Error> {
-    let octet = u8::try_from(value).map_err(|_| Error::InvalidOption {
-        detail: format!("`P1` is one octet, so 0..=255; {value} was given"),
+    let octet = u8::try_from(value).map_err(|_| {
+        Error::invalid_option(format!("`P1` is one octet, so 0..=255; {value} was given"))
     })?;
     let reader = fieldglass_grib1::Grib1Reader::from_bytes(bytes.to_vec())?;
     let count = u32::try_from(reader.messages.len()).unwrap_or(u32::MAX);

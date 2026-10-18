@@ -69,7 +69,7 @@ fn a_huge_field_probes_contours_and_warps() {
 /// Assert `result` is the shape refusal, naming the stated grid.
 fn refused<T: std::fmt::Debug>(result: Result<T, Error>, what: &str) {
     match result {
-        Err(Error::InvalidOption { detail }) => {
+        Err(Error::InvalidOption { detail, .. }) => {
             assert!(detail.contains("70000×70000"), "{what}: {detail}");
         }
         other => panic!("{what}: expected a shape refusal, got {other:?}"),
@@ -137,7 +137,7 @@ fn a_grid_whose_cell_count_overflows_is_refused() {
 /// "too many" where it overflows `usize` and a number where it does not.
 fn refused_overflow<T: std::fmt::Debug>(result: Result<T, Error>, what: &str) {
     match result {
-        Err(Error::InvalidOption { detail }) => assert!(
+        Err(Error::InvalidOption { detail, .. }) => assert!(
             detail.starts_with("a 4294967295×4294967295 grid has ")
                 && detail.ends_with(" cells, and 4 values were given"),
             "{what}: {detail}"

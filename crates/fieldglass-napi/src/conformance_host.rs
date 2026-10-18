@@ -210,8 +210,8 @@ impl Handle {
 
     fn render_grid(&self, index: u32, options: RenderOptions) -> napi::Result<RenderedGrid> {
         match self {
-            Self::Grib1(h) => h.render_grid(index, options),
-            Self::Grib2(h) => h.render_grid(index, options),
+            Self::Grib1(h) => h.render_grid(index, options).map_err(Into::into),
+            Self::Grib2(h) => h.render_grid(index, options).map_err(Into::into),
             Self::Netcdf(_) => Err(no_messages()),
         }
     }
@@ -243,6 +243,7 @@ fn render_options(args: &Args) -> RenderOptions {
         flip_y: args.flip_y.unwrap_or(false),
         range_min: args.range_min,
         range_max: args.range_max,
+        range_center: None,
         bounds_lat_min: None,
         bounds_lat_max: None,
         bounds_lon_min: None,

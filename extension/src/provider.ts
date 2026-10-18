@@ -16,6 +16,7 @@ import {
   nativeBinaryName,
   type AxisValues,
   type CombineOp,
+  type ColourRange,
   type CombineOpInfo,
   type DatasetMeta,
   type Grib1Handle,
@@ -25,6 +26,7 @@ import {
   type MessageInfo,
   type NetcdfHandle,
   type NetcdfVariableMeta,
+  type RangeRefusal,
   type SliceGrid,
   type SlicePanelHandle,
   type ZarrHandle,
@@ -973,7 +975,8 @@ export class FieldglassEditorProvider
           type: "gridError",
           messageIndex: shown.index,
           error: `render failed: ${err}`,
-        });
+          ...rangeRefusalOf(err),
+        } satisfies GridErrorMessage);
       }
     };
 
@@ -1674,6 +1677,7 @@ export class FieldglassEditorProvider
           messageIndex: spec.variableIndex,
           error: `render failed: ${err}`,
           sliceGrid: sliceAnswer(grid),
+          ...rangeRefusalOf(err),
         } satisfies GridErrorMessage);
       }
     };
@@ -2023,6 +2027,9 @@ export interface GridReadyMessage {
   /** `null` when no cell had a value to take a range from (#871). */
   usedMin: number | null;
   usedMax: number | null;
+  /** The whole range result (#1155): which ends were given and how many
+   *  cells fell outside the range. */
+  range: ColourRange;
   /** Equirectangular extent actually rendered, echoed so the panel can
    *  pre-fill the manual-bounds inputs. `null` for source projection. */
   usedLatMin: number | null;
@@ -2127,6 +2134,27 @@ export interface GridErrorMessage {
    *  nothing was drawn: these are the new file's messages, to pick one from
    *  (#959). */
   pickMessages?: CompareFieldOption[];
+  /** The colour range Rust refused, as fields (#1155): the panel shows
+   *  `rangeMessage` at the min/max field `rangeRefusal.end` names. Absent for
+   *  every other failure. */
+  rangeRefusal?: RangeRefusal;
+  /** Rust's own words for `rangeRefusal`, without the "render failed" prefix. */
+  rangeMessage?: string;
+}
+
+/** The refused colour range a render threw, as the addon puts it on the error
+ *  (`code` and `rangeRefusal`, #1155), ready to spread into a `gridError`.
+ *  Empty for any other failure, so the panel never matches on the wording. */
+export function rangeRefusalOf(
+  err: unknown,
+): Pick<GridErrorMessage, "rangeRefusal" | "rangeMessage"> {
+  if (typeof err !== "object" || err === null) return {};
+  const { rangeRefusal, message } = err as { rangeRefusal?: unknown; message?: unknown };
+  if (typeof rangeRefusal !== "object" || rangeRefusal === null) return {};
+  return {
+    rangeRefusal: rangeRefusal as RangeRefusal,
+    rangeMessage: typeof message === "string" ? message : undefined,
+  };
 }
 
 /** `overlayRequest` posted by the render panel when an overlay layer is
@@ -2461,6 +2489,7 @@ export function buildGridReadyMessage(
     height: rendered.height,
     usedMin: rendered.usedMin,
     usedMax: rendered.usedMax,
+    range: rendered.range,
     usedLatMin: rendered.usedLatMin,
     usedLatMax: rendered.usedLatMax,
     usedLonMin: rendered.usedLonMin,

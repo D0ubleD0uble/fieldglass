@@ -299,6 +299,7 @@ fn options(projection: &str, resampling: &str) -> RenderOptions {
         flip_y: false,
         range_min: None,
         range_max: None,
+        range_center: None,
         bounds_lat_min: None,
         bounds_lat_max: None,
         bounds_lon_min: None,
@@ -366,9 +367,11 @@ impl Subject<'_> {
 
     fn render(&self, o: RenderOptions) -> napi::Result<RenderedGrid> {
         match self {
-            Self::Grib1(h, i) => h.render_grid(*i, o),
-            Self::Grib2(h, i) => h.render_grid(*i, o),
-            Self::Netcdf(h, v, y, x, idx) => h.render_slice(*v, *y, *x, idx.clone(), o),
+            Self::Grib1(h, i) => h.render_grid(*i, o).map_err(Into::into),
+            Self::Grib2(h, i) => h.render_grid(*i, o).map_err(Into::into),
+            Self::Netcdf(h, v, y, x, idx) => h
+                .render_slice(*v, *y, *x, idx.clone(), o)
+                .map_err(Into::into),
         }
     }
 
@@ -418,11 +421,11 @@ impl Subject<'_> {
     fn render_combined(&self, o: RenderOptions, op: &str) -> napi::Result<RenderedGrid> {
         let op = op.to_string();
         match self {
-            Self::Grib1(h, i) => h.render_grid_combined(*i, *i, op, o),
-            Self::Grib2(h, i) => h.render_grid_combined(*i, *i, op, o),
-            Self::Netcdf(h, v, y, x, idx) => {
-                h.render_slice_combined(*v, *y, *x, idx.clone(), *v, idx.clone(), op, o)
-            }
+            Self::Grib1(h, i) => h.render_grid_combined(*i, *i, op, o).map_err(Into::into),
+            Self::Grib2(h, i) => h.render_grid_combined(*i, *i, op, o).map_err(Into::into),
+            Self::Netcdf(h, v, y, x, idx) => h
+                .render_slice_combined(*v, *y, *x, idx.clone(), *v, idx.clone(), op, o)
+                .map_err(Into::into),
         }
     }
 
@@ -837,6 +840,9 @@ fn rendered_row(result: napi::Result<RenderedGrid>) -> Row {
     support::fnv(&mut h, &rendered.rgba);
     mix_opt_f64(&mut h, rendered.used_min);
     mix_opt_f64(&mut h, rendered.used_max);
+    // The rest of the range result (#1155): its JSON, keys in a fixed order,
+    // so which ends were given and the counts the painter took are pinned too.
+    mix_str(&mut h, &rendered.range.to_string());
     mix_opt_f64(&mut h, rendered.used_lat_min);
     mix_opt_f64(&mut h, rendered.used_lat_max);
     mix_opt_f64(&mut h, rendered.used_lon_min);

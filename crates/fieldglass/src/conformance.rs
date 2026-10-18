@@ -1191,6 +1191,7 @@ fn palette_options(args: &Args) -> PaletteOptions {
         reversed: args.reversed.unwrap_or(false),
         min: args.range_min,
         max: args.range_max,
+        center: None,
         scale: args.scale.clone(),
     }
 }
@@ -1384,9 +1385,10 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             // Missing rather than defaulted: `a_minus_b` is a plausible
             // default and a case that lost its op would then record a real
             // observation for the wrong operation.
-            let op = case.args.combine_op.ok_or_else(|| Error::InvalidOption {
-                detail: "a combine case states its op".to_string(),
-            })?;
+            let op = case
+                .args
+                .combine_op
+                .ok_or_else(|| Error::invalid_option("a combine case states its op".to_string()))?;
             field_value(&session.combine(&a, &b, op)?)
         }
         Op::Contours => {
@@ -1408,9 +1410,10 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             // Missing rather than defaulted, for the reason `combine_op` is: a
             // slice case that lost an axis would otherwise record a real field
             // for a different question.
-            let missing = || Error::InvalidOption {
-                detail: "a decode_slice case states its variable, axes and slice indices"
-                    .to_string(),
+            let missing = || {
+                Error::invalid_option(
+                    "a decode_slice case states its variable, axes and slice indices".to_string(),
+                )
             };
             let args = &case.args;
             let variable = args.variable.ok_or_else(missing)?;
@@ -1426,9 +1429,10 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             )?)
         }
         Op::DecodeLine => {
-            let missing = || Error::InvalidOption {
-                detail: "a decode_line case states its variable, axis and slice indices"
-                    .to_string(),
+            let missing = || {
+                Error::invalid_option(
+                    "a decode_line case states its variable, axis and slice indices".to_string(),
+                )
             };
             let args = &case.args;
             let variable = args.variable.ok_or_else(missing)?;

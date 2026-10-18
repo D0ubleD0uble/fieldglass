@@ -260,6 +260,65 @@ export interface ChunkRef {
 }
 
 /**
+ * The colour range a render used, and what it did with the cells outside
+ * it (#1155).
+ *
+ * Every host chooses the range by one rule, `fieldglass::colour_range`:
+ * a manual end is used as given, and an end left out comes from the
+ * field's present cells, taken over the whole decoded 2-D field before
+ * any warp. A window or a crop is a view of the field, not a new one, so
+ * it does not move the range.
+ *
+ * The counts are taken in the pass that paints, over the painted
+ * raster's cells: the source grid's for a source-projection render, the
+ * output raster's for a warped one.
+ */
+export interface ColourRange {
+  /**
+   * Low end of the range the cells were coloured over, in data units
+   * (unlogged under a log10 scale). `null` when the range was left to
+   * the data and no cell is present, so there is no range to show and
+   * the raster is transparent.
+   */
+  usedMin: number | null;
+  /**
+   * High end of the range, as `used_min`.
+   */
+  usedMax: number | null;
+  /**
+   * Which ends were given and which came from the data.
+   */
+  rangeSource: RangeSource;
+  /**
+   * The value the ramp is centred on for a diverging map, as given;
+   * `null` when none was asked for. The range is then symmetric about
+   * it (in `log10` under a log10 scale), so the ramp's middle colour
+   * sits on it.
+   */
+  center: number | null;
+  /**
+   * What a present cell outside the range paints as.
+   */
+  outOfRange: OutOfRange;
+  /**
+   * Present cells below `used_min`.
+   */
+  below: number;
+  /**
+   * Present cells above `used_max`.
+   */
+  above: number;
+  /**
+   * Cells with a finite value the mask says is present.
+   */
+  present: number;
+  /**
+   * Every cell of the painted raster, present or not.
+   */
+  total: number;
+}
+
+/**
  * One entry of the field-combine vocabulary: what a host's Compare picker
  * shows and what it sends back.
  *
@@ -490,6 +549,12 @@ export type ApiError =
      * Which option, and what it would have had to be.
      */
     detail: string;
+    /**
+     * For a refused colour range, the same refusal as fields: which end,
+     * the value given, and the field's own range (#1155). `null` for every
+     * other option, so a host checks it before pointing at a control.
+     */
+    rangeRefusal: RangeRefusal | null;
   };
 
 /**
@@ -1579,9 +1644,25 @@ export interface MessageProbe {
 }
 
 /**
+ * What a present cell outside a `ColourRange` paints as.
+ */
+export type OutOfRange =
+  /**
+   * The colour of the end it is past, as matplotlib and xarray do by
+   * default. `ColourRange::below` and `ColourRange::above` count
+   * them, so a legend can say how many there are.
+   */
+  | "clamp";
+
+/**
  * Colour, decided once in Rust and exported as data.
  */
 export interface PaletteOptions {
+  /**
+   * A value to centre the ramp on, for a diverging map: the range is made
+   * symmetric about it. Validated like the two ends.
+   */
+  center?: number | null;
   /**
    * A colormap name `core` knows. Unknown names are an error rather than a
    * silent fallback: a host that misspells one should hear about it.
@@ -1598,7 +1679,8 @@ export interface PaletteOptions {
    */
   max?: number | null;
   /**
-   * Low end of the display range. `None` takes the field's own minimum.
+   * Low end of the display range. `None` takes the field's own minimum, by
+   * the rule `colour_range()` states.
    */
   min?: number | null;
   /**
@@ -1893,6 +1975,112 @@ export interface Query {
 }
 
 /**
+ * The option a `RangeRefusal` is about.
+ */
+export type RangeEnd =
+  /**
+   * The minimum.
+   */
+  | "min"
+  /**
+   * The maximum.
+   */
+  | "max"
+  /**
+   * Both ends together: a manual maximum not above a manual minimum.
+   */
+  | "both"
+  /**
+   * The center.
+   */
+  | "center";
+
+/**
+ * Why a colour range was refused, as fields a host can act on: which
+ * control to point at and what was wrong with it (#1155).
+ *
+ * Carried by `Error::InvalidOption`. The error's message says
+ * the same in prose; branch on `reason` and
+ * `end`, not on the wording.
+ */
+export interface RangeRefusal {
+  /**
+   * What was wrong.
+   */
+  reason: RangeRefusalReason;
+  /**
+   * Which option it was wrong about.
+   */
+  end: RangeEnd;
+  /**
+   * The value given for `end`; `null` when it is not a
+   * finite number (JSON has no spelling for one) or when the refusal is
+   * about both ends.
+   */
+  given: number | null;
+  /**
+   * The field's present-cell minimum, which an end left out is taken
+   * from; `null` for a field with no present cell.
+   */
+  fieldMin: number | null;
+  /**
+   * The field's present-cell maximum, as `field_min`.
+   */
+  fieldMax: number | null;
+}
+
+/**
+ * The stable code of a `RangeRefusal`.
+ */
+export type RangeRefusalReason =
+  /**
+   * The value is `NaN` or infinite.
+   */
+  | "not_finite"
+  /**
+   * The maximum is not above the minimum. When one end was given and the
+   * other came from the data, `RangeRefusal::end` is the given one.
+   */
+  | "inverted"
+  /**
+   * A log10 scale needs a positive minimum (or center), and this one is
+   * zero or negative.
+   */
+  | "log10_not_positive"
+  /**
+   * The center is not strictly between the given end and the data's
+   * other end, so the range cannot be centred on it.
+   */
+  | "center_outside"
+  /**
+   * A center was given with both ends, which already fix the range.
+   */
+  | "center_with_both_ends";
+
+/**
+ * Where a `ColourRange`'s two ends came from.
+ */
+export type RangeSource =
+  /**
+   * Both from the field's present cells.
+   */
+  | "auto"
+  /**
+   * Both as the caller gave them.
+   */
+  | "manual"
+  /**
+   * The minimum as given, the maximum from the data (or mirrored about
+   * the center, when one was given).
+   */
+  | "manual_min"
+  /**
+   * The maximum as given, the minimum from the data (or mirrored about
+   * the center).
+   */
+  | "manual_max";
+
+/**
  * A painted raster: RGBA bytes plus the dimensions they cover.
  */
 export interface Raster {
@@ -1909,6 +2097,11 @@ export interface Raster {
    * Raster rows.
    */
   height: number;
+  /**
+   * The range the cells were coloured over, and how many fell outside it,
+   * counted as they were painted (#1155).
+   */
+  range: ColourRange;
 }
 
 /**
@@ -2041,12 +2234,18 @@ export interface RenderOptions {
    */
   projectionPreset?: string | null;
   /**
+   * A value to centre the ramp on, for a diverging map: the range is made
+   * symmetric about it. Validated like the two ends.
+   */
+  rangeCenter?: number | null;
+  /**
    * High end of the manual range — see `range_min`.
    */
   rangeMax?: number | null;
   /**
-   * Low end of a manual display range. When either end is `None` the caller
-   * takes the computed min/max over the present cells.
+   * Low end of a manual display range. `None` takes the field's own
+   * present-cell minimum, over the whole field before any warp, by the rule
+   * `fieldglass::colour_range` states (#1155).
    */
   rangeMin?: number | null;
   /**

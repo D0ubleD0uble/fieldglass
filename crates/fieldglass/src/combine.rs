@@ -83,8 +83,11 @@ pub fn combine_ops() -> Vec<CombineOpInfo> {
 ///
 /// [`Error::InvalidOption`] for a tag [`CombineOp::from_wire`] does not know.
 pub fn op_from_wire(tag: &str) -> Result<CombineOp, Error> {
-    CombineOp::from_wire(tag).ok_or_else(|| Error::InvalidOption {
-        detail: format!("unknown combine op {tag:?} (expected {})", known_tags()),
+    CombineOp::from_wire(tag).ok_or_else(|| {
+        Error::invalid_option(format!(
+            "unknown combine op {tag:?} (expected {})",
+            known_tags()
+        ))
     })
 }
 

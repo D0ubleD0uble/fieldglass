@@ -109,19 +109,23 @@ suite("Vector arrows", () => {
     );
   });
 
-  test("nothing drawn reports null, and the panel shows no made-up range or speed (#871)", () => {
+  test("a window off the grid keeps the field's range and reports no made-up speed (#871, #1155)", () => {
     const handle = cmcWind();
-    // The binding: `null`, present as a key, where nothing was computed.
+    // A window off the grid is a view of the field, not a field with no
+    // cells: the range is still the field's own (#1155), and nothing is
+    // painted or counted as present.
     const rendered = handle.renderGrid(0, OFF_THE_GRID);
-    assert.strictEqual(rendered.usedMin, null, "no range for a field with no present cell");
-    assert.strictEqual(rendered.usedMax, null);
+    const own = handle.renderGrid(0, SOURCE);
+    assert.deepStrictEqual([rendered.usedMin, rendered.usedMax], [own.usedMin, own.usedMax]);
     assert.ok(rendered.rgba.every((b, i) => i % 4 !== 3 || b === 0), "nothing is painted");
+    assert.strictEqual(rendered.range.present, 0, "no present cell in the window");
     const arrows = handle.projectVectors(0, 0, OFF_THE_GRID, 8, true);
     assert.strictEqual(arrows.segLengths.length, 0, "no arrow is on the window");
     assert.strictEqual(arrows.referenceSpeed, null, "no speed when no arrow was drawn");
 
-    // The panel's text for those results: no range, and an empty arrow key.
-    assert.strictEqual(composeRangeText(rendered.usedMin, rendered.usedMax), "no values");
+    // The panel's text for a field with no range at all (#871), and an empty
+    // arrow key.
+    assert.strictEqual(composeRangeText(null, null), "no values");
     assert.strictEqual(composeVectorScale(arrows.referenceSpeed, "m s**-1"), "");
 
     // Over the grid's own domain both are numbers, and the panel shows them.

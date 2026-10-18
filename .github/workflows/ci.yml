@@ -291,6 +291,13 @@ jobs:
       - name: Vector pairing through the browser host
         run: node crates/fieldglass-wasm/tests/node/vector_pairing.mjs
 
+      # The colour-range rule both hosts follow (#1155), through the bundle:
+      # real JS `NaN` and `Infinity` reach it, a refusal arrives with `code`
+      # and `rangeRefusal` on the `Error`, and an empty field paints. Committed
+      # fixture only; fails rather than skips when the bundle is missing.
+      - name: Colour range through the browser host
+        run: node crates/fieldglass-wasm/tests/node/colour_range.mjs
+
       # The fetch planner in the browser module (#1081): one GFS field from the
       # committed `.idx`, its Range header, and the envelope check on the
       # committed bytes that range fetched; then every answer the Rust planner

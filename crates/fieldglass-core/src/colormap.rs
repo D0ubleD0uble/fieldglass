@@ -82,8 +82,9 @@ impl ScaleMode {
 ///   long-standing behaviour.
 /// - `Log10`: `(log10(v) - log10(min)) / (log10(max) - log10(min))`, clamped.
 ///   `v <= 0` returns `None` (no logarithm → missing). The caller must pass a
-///   positive `min`; the napi layer enforces this and errors otherwise, so a
-///   non-positive `min` never reaches here in the render pipeline.
+///   positive `min`; the `fieldglass` umbrella's colour-range rule refuses
+///   one that is not, for both hosts, so a non-positive `min` never reaches
+///   here in the render pipeline.
 ///
 /// Always returns `None` for a non-finite `v`, in either mode.
 pub fn scale_position(v: f64, min: f64, max: f64, scale: ScaleMode) -> Option<f64> {
@@ -114,23 +115,60 @@ fn transformed_domain(min: f64, max: f64, scale: ScaleMode) -> (f64, f64) {
 /// [`Palette::normalise`] both route through it, so the CPU painter and a host
 /// that reads a `Palette` cannot disagree about where a value sits.
 fn position_in(v: f64, t0: f64, t1: f64, scale: ScaleMode) -> Option<f64> {
+    transformed(v, scale).map(|tv| clamped_position(tv, t0, t1))
+}
+
+/// `v` in the space the scale interpolates over, or `None` when it has no
+/// place there: a non-finite value in either mode, and under
+/// [`ScaleMode::Log10`] a non-positive one, which has no logarithm.
+fn transformed(v: f64, scale: ScaleMode) -> Option<f64> {
     if !v.is_finite() {
         return None;
     }
-    let tv = match scale {
-        ScaleMode::Linear => v,
-        ScaleMode::Log10 => {
-            // No logarithm for non-positive values — they have no place on a
-            // log ramp and paint as missing.
-            if v <= 0.0 {
-                return None;
-            }
-            v.log10()
-        }
-    };
+    match scale {
+        ScaleMode::Linear => Some(v),
+        // No logarithm for non-positive values — they have no place on a log
+        // ramp and paint as missing.
+        ScaleMode::Log10 => (v > 0.0).then(|| v.log10()),
+    }
+}
+
+/// An already-[`transformed`] value's position in `[t0, t1]`, clamped: a value
+/// past either end takes that end's colour.
+fn clamped_position(tv: f64, t0: f64, t1: f64) -> f64 {
     let span = t1 - t0;
     let t = if span > 0.0 { (tv - t0) / span } else { 0.0 };
-    Some(t.clamp(0.0, 1.0))
+    t.clamp(0.0, 1.0)
+}
+
+/// The lookup-table entry a clamped position paints from.
+///
+/// `t` is in `[0, 1]`, so the product lands in `[0, 255]` and the saturating
+/// float→int cast never truncates. A `NaN` `t` — reachable only from a
+/// degenerate `log10` domain — casts to 0, which is the entry the painter has
+/// always given it.
+fn entry(t: f64) -> u8 {
+    (t * 255.0).round() as u8
+}
+
+/// What [`Palette::paint_counted`] counted while it coloured a raster.
+///
+/// Every cell counted is one painted in the same pass, so a host that reports
+/// "12 cells below the range" is describing the picture it shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct PaintCounts {
+    /// Cells the mask says are present and whose value is finite: the cells a
+    /// range is taken over.
+    pub present: u64,
+    /// Present cells below the palette's domain, which paint the low end's
+    /// colour. Under [`ScaleMode::Log10`] a non-positive value is below every
+    /// positive minimum and is counted here, although it has no logarithm and
+    /// paints as missing.
+    pub below: u64,
+    /// Present cells above the palette's domain, which paint the high end's
+    /// colour.
+    pub above: u64,
 }
 
 /// One named colormap: a stable `name` (the wire value), a human `label` for
@@ -420,27 +458,55 @@ impl Palette {
 
     /// The lookup-table entry `v` paints from, or `None` when it has no colour.
     pub fn index(&self, v: f64) -> Option<u8> {
-        // `t` is clamped to `[0, 1]`, so the product lands in `[0, 255]` and the
-        // saturating float→int cast never truncates. A `NaN` `t` — reachable
-        // only from a degenerate `log10` domain — casts to 0, which is the
-        // entry the painter has always given it.
-        self.position(v).map(|t| (t * 255.0).round() as u8)
+        self.position(v).map(entry)
     }
 
     /// The RGBA pixel for one value: its table entry, or
     /// [`masked_rgba`](Self::masked_rgba) when it has no colour.
     pub fn rgba(&self, v: f64) -> [u8; 4] {
         match self.index(v) {
-            Some(i) => {
-                let o = i as usize * 4;
-                [
-                    self.lut[o],
-                    self.lut[o + 1],
-                    self.lut[o + 2],
-                    self.lut[o + 3],
-                ]
-            }
+            Some(i) => self.entry_rgba(i),
             None => self.masked_rgba,
+        }
+    }
+
+    /// Lookup-table entry `i` as a pixel.
+    fn entry_rgba(&self, i: u8) -> [u8; 4] {
+        let o = i as usize * 4;
+        [
+            self.lut[o],
+            self.lut[o + 1],
+            self.lut[o + 2],
+            self.lut[o + 3],
+        ]
+    }
+
+    /// One unmasked cell's pixel, counting it and which side of the domain it
+    /// sits on.
+    ///
+    /// [`rgba`](Self::rgba) by another route: the value is transformed once and
+    /// both the count and the colour are read from that, so counting costs two
+    /// comparisons per cell rather than a second logarithm.
+    fn counted_rgba(&self, v: f64, counts: &mut PaintCounts) -> [u8; 4] {
+        if !v.is_finite() {
+            return self.masked_rgba;
+        }
+        counts.present += 1;
+        match transformed(v, self.scale) {
+            Some(tv) => {
+                // Compared in the transformed domain rather than read off the
+                // clamped position, which rounds a value a hair past an end
+                // onto it.
+                counts.below += u64::from(tv < self.t0);
+                counts.above += u64::from(tv > self.t1);
+                self.entry_rgba(entry(clamped_position(tv, self.t0, self.t1)))
+            }
+            // Finite and with no logarithm: non-positive under `Log10`, which
+            // is below any positive minimum.
+            None => {
+                counts.below += 1;
+                self.masked_rgba
+            }
         }
     }
 
@@ -466,6 +532,23 @@ impl Palette {
         height: u32,
         flip_y: bool,
     ) -> Vec<u8> {
+        self.paint_counted(values, mask, width, height, flip_y).0
+    }
+
+    /// [`paint`](Self::paint), also counting the present cells and how many of
+    /// them sat outside the domain, in the same pass that colours them.
+    ///
+    /// The pixels are exactly `paint`'s: `paint` is this with the counts
+    /// dropped.
+    pub fn paint_counted(
+        &self,
+        values: &[f64],
+        mask: Option<&[u8]>,
+        width: u32,
+        height: u32,
+        flip_y: bool,
+    ) -> (Vec<u8>, PaintCounts) {
+        let mut counts = PaintCounts::default();
         // `usize` is 32 bits on wasm32 — the host this type exists for — and
         // both dimensions can be a `u32` read straight out of a file's grid
         // description. Size the buffer in `u64` and refuse one this target
@@ -477,10 +560,10 @@ impl Palette {
             .and_then(|bytes| usize::try_from(bytes).ok())
             .map(|bytes| bytes / 4)
         else {
-            return Vec::new();
+            return (Vec::new(), counts);
         };
         if total == 0 {
-            return Vec::new();
+            return (Vec::new(), counts);
         }
         let w = width as usize;
         let h = height as usize;
@@ -503,11 +586,11 @@ impl Palette {
             let px = if masked {
                 self.masked_rgba
             } else {
-                self.rgba(v)
+                self.counted_rgba(v, &mut counts)
             };
             out[o..o + 4].copy_from_slice(&px);
         }
-        out
+        (out, counts)
     }
 }
 
@@ -647,6 +730,43 @@ mod tests {
         // And flipped, where the missing cell lands on the top row.
         let flipped = p.paint(&[0.0, 0.5, 1.0], None, 2, 2, true);
         assert_eq!(px(&flipped, 1), none);
+    }
+
+    /// The counts come from the pass that paints, and the pixels are `paint`'s
+    /// exactly: a present cell outside the domain takes the end colour and is
+    /// counted on its side, and a masked or non-finite one is not present.
+    #[test]
+    fn paint_counted_counts_the_cells_it_clamps() {
+        let viridis = Colormap::by_name("viridis").expect("the default colormap");
+        let p = Palette::build(viridis, false, 1.0, 2.0, ScaleMode::Linear);
+        let values = [0.5, 1.0, 1.5, 2.0, 3.0, f64::NAN, 7.0, 1.2];
+        let mask = [1, 1, 1, 1, 1, 1, 0, 1];
+        let (rgba, counts) = p.paint_counted(&values, Some(&mask), 4, 2, false);
+        assert_eq!(rgba, p.paint(&values, Some(&mask), 4, 2, false));
+        assert_eq!(
+            counts,
+            PaintCounts {
+                present: 6,
+                below: 1,
+                above: 1,
+            }
+        );
+        // Clamped, not missing: the cell below paints the low end's colour.
+        assert_eq!(&rgba[0..4], &p.rgba(1.0));
+        assert_eq!(&rgba[16..20], &p.rgba(2.0));
+
+        // Under log10 a non-positive present cell is below every positive
+        // minimum, and still paints as missing.
+        let log = Palette::build(viridis, false, 1.0, 100.0, ScaleMode::Log10);
+        let (rgba, counts) = log.paint_counted(&[-1.0, 0.0, 10.0, 1000.0], None, 4, 1, false);
+        assert_eq!(counts.present, 4);
+        assert_eq!((counts.below, counts.above), (2, 1));
+        assert_eq!(&rgba[0..4], &log.masked_rgba);
+
+        // A constant field's zero-width domain has nothing outside it.
+        let flat = Palette::build(viridis, false, 5.0, 5.0, ScaleMode::Linear);
+        let (_, counts) = flat.paint_counted(&[5.0, 5.0], None, 2, 1, false);
+        assert_eq!((counts.present, counts.below, counts.above), (2, 0, 0));
     }
 
     /// The exact viridis LUT the renderer produced before the colormap registry

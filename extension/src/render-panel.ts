@@ -2260,8 +2260,12 @@ export function renderImagePanelHtml(
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const auto = !mode || mode.value !== 'manual';
           animation = {
-            // No range to hold when the last frame had no values (#871).
+            // No range to hold when the last frame had no values (#871), or
+            // a zero-width one: a constant frame's min == max, which Rust
+            // refuses as a manual range (#1155), so each frame then ranges
+            // itself.
             lock: auto && lastPayload && lastPayload.usedMin != null
+              && lastPayload.usedMax > lastPayload.usedMin
               ? [lastPayload.usedMin, lastPayload.usedMax]
               : null,
             awaiting: false,
@@ -2512,12 +2516,16 @@ export function renderImagePanelHtml(
             options.centerLon = num('picker-world-meridian');
           }
           if (mode && mode.value === 'manual') {
-            const min = Number((document.getElementById('range-min') || {}).value);
-            const max = Number((document.getElementById('range-max') || {}).value);
-            if (Number.isFinite(min) && Number.isFinite(max) && max > min) {
-              options.rangeMin = min;
-              options.rangeMax = max;
-            }
+            // Each end is sent as typed, and a blank one is left to the data
+            // (#1155). Rust decides whether the pair holds, and a refusal is
+            // shown at these fields (showRangeRefusal), not dropped here.
+            const end = (id) => {
+              const raw = (document.getElementById(id) || {}).value;
+              const v = raw === undefined || raw === '' ? NaN : Number(raw);
+              return Number.isFinite(v) ? v : undefined;
+            };
+            options.rangeMin = end('range-min');
+            options.rangeMax = end('range-max');
           } else if (animation && animation.lock) {
             // Playing on an auto range: every frame is coloured on the range the
             // first one was, so the colours mean the same values throughout
@@ -2614,12 +2622,19 @@ export function renderImagePanelHtml(
           );
           // The last export's outcome was said of the previous image.
           setExportStatus('');
+          // The range this image was drawn on held, so no refusal stands.
+          showRangeRefusal(null);
           // Pre-fill the manual-range inputs once so the user can switch
           // to Manual mode without typing. Nothing to offer without a range.
+          // Only while the range is automatic: in Manual mode a field left
+          // blank means "from the data" (#1155), and filling it would turn a
+          // one-ended range into a two-ended one behind the user's back.
           const minIn = document.getElementById('range-min');
           const maxIn = document.getElementById('range-max');
-          if (hasRange && minIn && !minIn.value) minIn.value = payload.usedMin.toPrecision(6);
-          if (hasRange && maxIn && !maxIn.value) maxIn.value = payload.usedMax.toPrecision(6);
+          const rangeMode = document.querySelector('input[name="range-mode"]:checked');
+          const autoRange = !rangeMode || rangeMode.value !== 'manual';
+          if (autoRange && hasRange && minIn && !minIn.value) minIn.value = payload.usedMin.toPrecision(6);
+          if (autoRange && hasRange && maxIn && !maxIn.value) maxIn.value = payload.usedMax.toPrecision(6);
           // Pre-fill the manual-bounds inputs from the extent Rust actually
           // used (present for the warped lat/lon targets — equirectangular and
           // Web Mercator). The empty guard means we never clobber a value the
@@ -2644,9 +2659,11 @@ export function renderImagePanelHtml(
         function logHasPositiveFloor() {
           const mode = document.querySelector('input[name="range-mode"]:checked');
           if (mode && mode.value === 'manual') {
-            const min = Number((document.getElementById('range-min') || {}).value);
-            const max = Number((document.getElementById('range-max') || {}).value);
-            return Number.isFinite(min) && Number.isFinite(max) && max > min && min > 0;
+            // A typed minimum is the floor; a blank one comes from the data,
+            // like the automatic range's (#1155).
+            const raw = (document.getElementById('range-min') || {}).value;
+            const min = raw === undefined || raw === '' ? NaN : Number(raw);
+            if (Number.isFinite(min)) return min > 0;
           }
           return !!(lastPayload && typeof lastPayload.usedMin === 'number'
             && lastPayload.usedMin > 0);
@@ -2788,15 +2805,43 @@ export function renderImagePanelHtml(
           // The message a GRIB panel was drawing is not exactly once in the
           // file that changed under it (#959).
           if (Array.isArray(msg.pickMessages)) offerMessages(msg.pickMessages);
-          // Self-heal the one render error the log toggle can cause: switching
-          // to a field with no positive floor while log was on. Drop log and
-          // re-render linearly rather than leaving the panel stuck on an error.
+          const refusal = msg.rangeRefusal || null;
+          const manual = document.querySelector('input[name="range-mode"]:checked');
+          const isManual = !!(manual && manual.value === 'manual');
+          // Self-heal the one render error the log toggle can cause on its
+          // own: switching to a field with no positive floor while log was on
+          // and the range was automatic. Drop log and re-render linearly rather
+          // than leaving the panel stuck on an error. Read from the refusal's
+          // code, not its wording (#1155).
           const logEl = document.getElementById('scale-log');
-          if (logEl && logEl.checked && /log10/.test(err)) {
+          if (logEl && logEl.checked && refusal && refusal.reason === 'log10_not_positive'
+            && !isManual) {
             logEl.checked = false;
             logEl.disabled = true;
             requestRender();
+            return;
           }
+          // A range the user typed that does not hold is shown at the fields
+          // it is about, in Rust's words.
+          showRangeRefusal(refusal, msg.rangeMessage);
+        }
+
+        // Show a refused colour range at the min/max fields (#1155): the
+        // message under them, and the field (or both) it names marked
+        // invalid. A null refusal clears it.
+        function showRangeRefusal(refusal, message) {
+          const note = document.getElementById('range-note');
+          const ends = { min: ['range-min'], max: ['range-max'], both: ['range-min', 'range-max'] };
+          const marked = refusal ? ends[refusal.end] || [] : [];
+          ['range-min', 'range-max'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (marked.includes(id)) el.setAttribute('aria-invalid', 'true');
+            else el.removeAttribute('aria-invalid');
+          });
+          if (!note) return;
+          note.textContent = refusal ? (message || '') : '';
+          note.hidden = !refusal;
         }
 
         // Nothing is drawn under the old heading: the image, its overlays and
@@ -4782,6 +4827,9 @@ export function renderImagePanelHtml(
     .unavailable summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
     .unavailable ul { margin: 0.25rem 0 0; padding-left: 1.4rem; }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
+    /* A colour range Rust refused (#1155): the field it names, and why. */
+    input[aria-invalid="true"] { outline: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); outline-offset: -1px; }
+    #range-note { color: var(--vscode-errorForeground); }
     #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.1em; }
     .contour-status {
       font-size: 0.85rem;
@@ -5109,9 +5157,10 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
       <label><input type="radio" name="range-mode" value="manual"> Manual</label>
       <span id="range-manual-fields" hidden>
-        <label>min <input type="number" id="range-min" step="any"></label>
-        <label>max <input type="number" id="range-max" step="any"></label>
+        <label>min <input type="number" id="range-min" step="any" aria-describedby="range-note"></label>
+        <label>max <input type="number" id="range-max" step="any" aria-describedby="range-note"></label>
       </span>
+      <span class="picker-note" id="range-note" role="alert" hidden></span>
     </fieldset>
     <fieldset id="bounds-fieldset" hidden>
       <legend>Bounds:</legend>

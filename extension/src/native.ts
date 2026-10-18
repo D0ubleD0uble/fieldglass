@@ -21,10 +21,11 @@ import * as path from "path";
 
 import { nativeNotLoaded, reportProblem } from "./problems";
 
-import type { AxisValues, GridSupport, LeftOutArray, MessageInfo, Placement, VectorPairing, Vertical } from "./api.generated";
+import type { AxisValues, ColourRange, GridSupport, LeftOutArray, MessageInfo, Placement, VectorPairing, Vertical } from "./api.generated";
 
 export type {
   AxisValues,
+  ColourRange,
   Georef,
   GridSupport,
   Identification,
@@ -32,6 +33,7 @@ export type {
   LeftOutCause,
   MessageInfo,
   Placement,
+  RangeRefusal,
   VectorPairing,
   Vertical,
 } from "./api.generated";
@@ -126,8 +128,13 @@ export interface RenderOptions {
   centerLon?: number;
   resampling: "nearest" | "bilinear";
   flipY: boolean;
+  /** A manual colour range. Either end may be sent alone; the other comes
+   *  from the field. A range that does not hold is refused with an error
+   *  carrying `rangeRefusal` (#1155). */
   rangeMin?: number;
   rangeMax?: number;
+  /** A value to centre the ramp on, for a diverging map (#1155). */
+  rangeCenter?: number;
   /** Manual lat/lon extent override (degrees). Consulted for the warped
    *  lat/lon targets — "equirectangular" and "web_mercator". Pass all four to
    *  render that window; partial/inverted boxes fall back to the computed
@@ -219,6 +226,9 @@ export interface RenderedGrid {
    *  automatic and no cell had a value, so there is none to show (#871). */
   usedMin: number | null;
   usedMax: number | null;
+  /** The whole range result (#1155): which ends were given, the center, and
+   *  how many present cells were below and above the range. */
+  range: ColourRange;
   /** Geographic extent actually rendered (degrees), echoed back so the
    *  panel can pre-fill the manual-bounds inputs. Present for the warped
    *  lat/lon targets (equirectangular, web_mercator); `null` for the
