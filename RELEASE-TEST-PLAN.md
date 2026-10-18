@@ -370,8 +370,8 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       `▶▶|`: the same height, in the middle of each button, and in the
       button's text colour. Back and forward mirror each other, and so do
       first and last. Press play: the icon becomes two bars and the button
-      keeps its size. Switch to a light theme (and back to a dark one): the
-      icons follow the theme's text colour. Failure looks like `⏮`/`⏭` drawn
+      keeps its size. Press it again to stop. Switch to a light theme (and
+      back to a dark one): the icons stay legible in both. Failure looks like `⏮`/`⏭` drawn
       small and above the middle, or a back arrow with no bar (#1042).
 - [ ] Press play: the label beside Loop counts `2024-01-02 (step 1 of
       0–365)`, `2024-01-03 (step 2 of 0–365)`, …, the `time` stepper and its

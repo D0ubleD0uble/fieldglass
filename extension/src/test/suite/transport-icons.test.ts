@@ -167,10 +167,12 @@ function assertRow(state: PageState, theme: string): void {
     const name = BUTTONS.find(([id]) => id === b.id)?.[2];
     assert.ok(classes(icon).includes(`icon-${name}`), `#${b.id} shows the ${name} icon, got ${icon.name}`);
     assert.strictEqual(icon.viewBox, "0 0 16 16", `#${b.id}'s icon is on the shared grid`);
-    // `currentColor`: the icon is drawn in the button's text colour, which
-    // the theme sets.
+    // `currentColor`: every shape is filled with the button's own text
+    // colour. This proves the icon takes `currentColor`, not that the
+    // button's colour follows the theme: the panel's buttons are not themed
+    // yet (#1118).
     for (const fill of icon.fills) {
-      assert.strictEqual(fill, b.color, `#${b.id}'s icon is drawn in its text colour (${theme})`);
+      assert.strictEqual(fill, b.color, `#${b.id}'s icon is filled with currentColor (${theme})`);
     }
     // Each icon's shapes span the same height of the grid and are centred
     // on it, so they draw the same size.
@@ -214,6 +216,7 @@ suite("Transport icons (#1042)", function () {
     const config = vscode.workspace.getConfiguration("workbench");
     const original = config.inspect<string>("colorTheme")?.globalValue;
     const { panel, close } = await openAnimated();
+    const startKind = (await panel.drive([])).themeKind;
     try {
       for (const [theme, kind] of [
         ["Default Light Modern", "vscode-light"],
@@ -225,6 +228,8 @@ suite("Transport icons (#1042)", function () {
       }
     } finally {
       await config.update("colorTheme", original, vscode.ConfigurationTarget.Global);
+      // The suites after this one start in the theme this one found.
+      await waitFor(panel, (s) => s.themeKind === startKind, "the restored theme");
       close();
     }
   });
@@ -233,8 +238,10 @@ suite("Transport icons (#1042)", function () {
     const { panel, close } = await openAnimated();
     try {
       const before = await shown(panel);
-      const playBox = button(before, "anim-play").box;
-      const rowBoxes = buttons(before).map((b) => b.box);
+      // Measured from the first button, so a frame that lands between reads
+      // and moves the whole row (a heading that wraps) does not count.
+      const playBox = placed(before, "anim-play");
+      const rowBoxes = row(before);
       assert.ok(classes(iconOf(button(before, "anim-play"))).includes("icon-play"));
 
       const playing = await panel.drive([{ id: "anim-play", click: true }]);
@@ -242,8 +249,8 @@ suite("Transport icons (#1042)", function () {
       assert.strictEqual(pause.ariaLabel, "Pause");
       assert.strictEqual(pause.title, "Pause");
       assert.ok(classes(iconOf(pause)).includes("icon-pause"), "the playing button shows the pause icon");
-      assert.deepStrictEqual(pause.box, playBox, "the button keeps its size and place as play becomes pause");
-      assert.deepStrictEqual(buttons(playing).map((b) => b.box), rowBoxes, "the row does not move");
+      assert.deepStrictEqual(placed(playing, "anim-play"), playBox, "the button keeps its size and place as play becomes pause");
+      assert.deepStrictEqual(row(playing), rowBoxes, "the buttons do not move against each other");
       assertOnGrid(iconOf(pause));
 
       const stopped = await panel.drive([{ id: "anim-play", click: true }]);
@@ -251,12 +258,24 @@ suite("Transport icons (#1042)", function () {
       assert.strictEqual(play.ariaLabel, "Play");
       assert.strictEqual(play.title, "Play");
       assert.ok(classes(iconOf(play)).includes("icon-play"), "the stopped button shows the play icon");
-      assert.deepStrictEqual(play.box, playBox, "the button keeps its size and place as pause becomes play");
+      assert.deepStrictEqual(placed(stopped, "anim-play"), playBox, "the button keeps its size and place as pause becomes play");
     } finally {
       close();
     }
   });
 });
+
+/** Button `id`'s box, measured from the first transport button's top left. */
+function placed(state: PageState, id: string): Box {
+  const origin = buttons(state)[0].box;
+  const b = button(state, id).box;
+  return { left: b.left - origin.left, top: b.top - origin.top, right: b.right - origin.left, bottom: b.bottom - origin.top };
+}
+
+/** Every transport button's box, measured as `placed` measures it. */
+function row(state: PageState): Box[] {
+  return buttons(state).map((b) => placed(state, b.id));
+}
 
 /** Pause is drawn on the same grid as the rest: the same span of y, centred. */
 function assertOnGrid(icon: TransportButton["icons"][number]): void {
