@@ -417,8 +417,11 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       button's text colour. Back and forward mirror each other, and so do
       first and last. Press play: the icon becomes two bars and the button
       keeps its size. Press it again to stop. Switch to a light theme (and
-      back to a dark one): the icons stay legible in both. Failure looks like `⏮`/`⏭` drawn
-      small and above the middle, or a back arrow with no bar (#1042).
+      back to a dark one): the buttons and their icons take the theme's colours in
+      both, with no light-grey buttons in the dark theme, and Export PNG, Export
+      CSV and the zoom buttons match. Failure looks like `⏮`/`⏭` drawn
+      small and above the middle, or a back arrow with no bar (#1042), or
+      light-grey buttons in a dark theme (#1118).
 - [ ] Press play: the label beside Loop counts `2024-01-02 (step 1 of
       0–365)`, `2024-01-03 (step 2 of 0–365)`, …, the `time` stepper and its
       date follow, and so does the date at the end of the line under the

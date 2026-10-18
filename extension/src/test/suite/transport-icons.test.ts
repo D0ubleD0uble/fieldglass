@@ -11,23 +11,8 @@
 // back is what the page lays out.
 
 import * as assert from "assert";
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
-import * as vscode from "vscode";
-
-import { loadNative } from "../../native";
-import {
-  type Box,
-  classicNetcdf,
-  isType,
-  openEditor,
-  openReal,
-  type PageState,
-  provider,
-  type RealPanel,
-  type TransportButton,
-} from "./real-panel";
+import { type Box, type PageState, type TransportButton } from "./real-panel";
+import { inThemes, openAnimated, shown } from "./themed-panel";
 
 /** The buttons in order, with the labels they have always carried. */
 const BUTTONS: Array<[id: string, label: string, icon: string]> = [
@@ -42,69 +27,6 @@ const BUTTONS: Array<[id: string, label: string, icon: string]> = [
 const SAME = 0.01;
 /** Within half a pixel, for a centre rounded to the pixel grid. */
 const CENTRED = 0.5;
-
-type Opened = { panel: RealPanel; close: () => void };
-
-/** A classic NetCDF file of `air(time, lat, lon)` over five steps, opened in
- *  a real slice panel, once its Animate row is on screen. */
-async function openAnimated(): Promise<Opened> {
-  const p = await provider();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1042-"));
-  const file = path.join(dir, "steps.nc");
-  fs.writeFileSync(
-    file,
-    classicNetcdf(
-      [["time", 5], ["lat", 3], ["lon", 4]],
-      [
-        { name: "time", dims: ["time"], attrs: { units: "hours since 2024-01-01 00:00:00" }, values: [0, 6, 12, 18, 24] },
-        { name: "lat", dims: ["lat"], attrs: { units: "degrees_north" }, values: [-10, 0, 10] },
-        { name: "lon", dims: ["lon"], attrs: { units: "degrees_east" }, values: [0, 90, 180, 270] },
-        {
-          name: "air",
-          dims: ["time", "lat", "lon"],
-          attrs: { units: "K" },
-          values: Array.from({ length: 60 }, (_, i) => 250 + Math.floor(i / 12)),
-        },
-      ],
-    ),
-  );
-  const native = loadNative();
-  assert.ok(native, "native binding required");
-  const air = native.NetcdfHandle.fromBytes(fs.readFileSync(file)).variables().find((v) => v.name === "air");
-  assert.ok(air, "air is renderable");
-  const editor = await openEditor(p, file);
-  const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.variableIndex }));
-  await panel.waitSent(isType("gridReady"), 0, "the first render");
-  await shown(panel);
-  return {
-    panel,
-    close: () => {
-      panel.dispose();
-      editor.close();
-      fs.rmSync(dir, { recursive: true, force: true });
-    },
-  };
-}
-
-/** Read the page once its Animate row is laid out. */
-function shown(panel: RealPanel): Promise<PageState> {
-  return waitFor(
-    panel,
-    (s) => s.animateRowDisplay !== "none" && !!s.transport && s.transport.every((b) => height(b.box) > 0),
-    "the Animate row on screen",
-  );
-}
-
-/** Read the page until `ok` holds. */
-async function waitFor(panel: RealPanel, ok: (s: PageState) => boolean, what: string): Promise<PageState> {
-  const until = Date.now() + 15_000;
-  for (;;) {
-    const state = await panel.drive([]);
-    if (ok(state)) return state;
-    if (Date.now() > until) throw new Error(`timed out waiting for ${what}; the page is in ${state.themeKind}`);
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
 
 function buttons(state: PageState): TransportButton[] {
   assert.ok(state.transport, "a slice panel has transport buttons");
@@ -168,9 +90,8 @@ function assertRow(state: PageState, theme: string): void {
     assert.ok(classes(icon).includes(`icon-${name}`), `#${b.id} shows the ${name} icon, got ${icon.name}`);
     assert.strictEqual(icon.viewBox, "0 0 16 16", `#${b.id}'s icon is on the shared grid`);
     // `currentColor`: every shape is filled with the button's own text
-    // colour. This proves the icon takes `currentColor`, not that the
-    // button's colour follows the theme: the panel's buttons are not themed
-    // yet (#1118).
+    // colour. That the button's own colour follows the theme is
+    // panel-button-theme.test.ts (#1118).
     for (const fill of icon.fills) {
       assert.strictEqual(fill, b.color, `#${b.id}'s icon is filled with currentColor (${theme})`);
     }
@@ -213,25 +134,14 @@ suite("Transport icons (#1042)", function () {
   this.timeout(60_000);
 
   test("every transport button shows one icon from one set, the same size and centred, in light and dark themes", async () => {
-    const config = vscode.workspace.getConfiguration("workbench");
-    const original = config.inspect<string>("colorTheme")?.globalValue;
-    const { panel, close } = await openAnimated();
-    const startKind = (await panel.drive([])).themeKind;
-    try {
-      for (const [theme, kind] of [
+    await inThemes(
+      await openAnimated(),
+      [
         ["Default Light Modern", "vscode-light"],
         ["Default Dark Modern", "vscode-dark"],
-      ] as const) {
-        await vscode.workspace.getConfiguration("workbench").update("colorTheme", theme, vscode.ConfigurationTarget.Global);
-        const state = await waitFor(panel, (s) => s.themeKind === kind, `the page in ${theme}`);
-        assertRow(state, theme);
-      }
-    } finally {
-      await config.update("colorTheme", original, vscode.ConfigurationTarget.Global);
-      // The suites after this one start in the theme this one found.
-      await waitFor(panel, (s) => s.themeKind === startKind, "the restored theme");
-      close();
-    }
+      ],
+      assertRow,
+    );
   });
 
   test("play and pause swap without the button, or the row, changing size", async () => {
