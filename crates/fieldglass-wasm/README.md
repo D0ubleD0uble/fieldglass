@@ -525,10 +525,9 @@ onto `f0eebc2f`), whose drift read 1.1% for both builds: 18,733 raw bytes and
 three drawing calls.
 
 `full` is the `@fieldglass/wasm/full` entry (#1158), `build.sh web
---features=fetchplan,zarr`. **Its row is a local measurement until CI's first
-run records it** (rustc 1.98, wasm-bindgen 0.2.129, binaryen 132, on the tree
-whose baseline measured 1,662,751 and 648,655 locally): re-record it from the
-`wasm` job's summary before this lands, as the rule below says for every row.
+--features=fetchplan,zarr`, recorded from the `ci.yml` run on its PR (#1177,
+`e405255b`): 28.5% above the baseline it was measured beside (647,947
+gzipped, before #1082), and 28.1% raw.
 
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
@@ -536,7 +535,7 @@ whose baseline measured 1,662,751 and 648,655 locally): re-record it from the
 |---|---:|---:|
 | baseline | 1,664,807 | 653,912 |
 | `+simd128` | 1,651,138 | 650,608 |
-| full | 2,127,618 | 833,530 |
+| full | 2,108,202 | 832,652 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
