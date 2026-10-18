@@ -2446,15 +2446,23 @@ pub fn vector_polylines(
         return Ok(VectorArrows::default());
     };
 
-    // How far apart the sampled cells are on the Earth, on average along a row.
-    // Not an arrow's length any more (that is set on screen, below): it sizes
-    // the geographic steps an arrow's direction is read from.
+    // How far apart the sampled cells are on the Earth, on average along a row
+    // and down a column. Not an arrow's length any more (that is set on
+    // screen, below): it sizes the geographic steps an arrow's direction is
+    // read from. Both directions, because a row next to a pole is metres
+    // long, and a step sized from it alone is short enough for a projection's
+    // own solver error there to tilt the arrow.
     let spacing_m = sampled
         .iter()
-        .filter_map(|&(i, j)| {
-            let here = at(i, j)?;
-            let along = at((i + step).min(ni as usize - 1), j)?;
-            let d = distance_between(here, along);
+        .flat_map(|&(i, j)| {
+            [
+                ((i + step).min(ni as usize - 1), j),
+                (i, (j + step).min(nj as usize - 1)),
+            ]
+            .map(|next| ((i, j), next))
+        })
+        .filter_map(|(here, next)| {
+            let d = distance_between(at(here.0, here.1)?, at(next.0, next.1)?);
             (d > 0.0).then_some(d)
         })
         .fold(None, |sum: Option<(f64, u32)>, d| {
@@ -2600,12 +2608,15 @@ pub fn vector_polylines(
 }
 
 /// How far along its bearing, as a share of the spacing between arrows, the
-/// geographic step an arrow's on-screen direction is read from goes. Short
-/// enough that the step is the projection's tangent there to well under a
-/// degree on every target, long enough to move the pixel by many orders of
-/// magnitude more than rounding.
+/// geographic step an arrow's on-screen direction is read from goes. The
+/// central chord over it is the projection's tangent to well under 0.01° on
+/// every target, and it is long enough that neither rounding nor a forward
+/// projection's own iterative error (Mollweide's Newton solve for θ, which
+/// stops after 12 steps and is least converged by the poles) moves it: a
+/// thousandth of the spacing, where a millionth tilted arrows by 0.03° on a
+/// 0.01° grid at lat 89.9.
 #[cfg(feature = "render")]
-const DIRECTION_STEP: f64 = 1e-6;
+const DIRECTION_STEP: f64 = 1e-3;
 
 /// One arrow before it is projected: the cell it starts from `(lat, lon)`,
 /// the flow's bearing there (radians, clockwise from north), and its share of
@@ -2693,10 +2704,12 @@ fn full_arrow_pixels(
 /// a line, by the same amount on both sides, so the central chord is the
 /// tangent to well within rounding where a one-sided step would lean. Near an
 /// edge one side fails: a step across the map's seam lands a map's width away
-/// and a step off a globe's disc does not land at all. Then the shorter side
-/// answers alone. Each of `steps` (metres) is tried in turn until one moves
-/// the pixel. `None` when none does, which leaves the arrow undrawn: it has no
-/// direction here.
+/// and a step off a globe's disc does not land at all. Then the other side
+/// answers alone, from one step and two (`4·Δ₁ − Δ₂`, which cancels the
+/// lean as the central chord does), or from one step where the second lands
+/// over the edge too. Each of `steps` (metres) is tried in turn until one
+/// moves the pixel. `None` when none does, which leaves the arrow undrawn: it
+/// has no direction here.
 #[cfg(feature = "render")]
 fn screen_direction(
     place: &impl Fn((f64, f64)) -> Option<(f64, f64)>,
@@ -2710,23 +2723,37 @@ fn screen_direction(
         let n = d.0.hypot(d.1);
         (n.is_finite() && n > 0.0).then_some((d, n))
     };
+    // The screen delta `distance` along `bearing`, turned to point the way
+    // the arrow does (`sign` -1 for the side behind the cell).
+    let delta = |bearing: f64, sign: f64, distance: f64| {
+        place(destination(lat, lon, bearing, distance))
+            .and_then(|p| moved((sign * (p.0 - tail.0), sign * (p.1 - tail.1))))
+    };
+    let back = arrow.bearing + std::f64::consts::PI;
     for step in steps {
-        let ahead = place(destination(lat, lon, arrow.bearing, step))
-            .and_then(|p| moved((p.0 - tail.0, p.1 - tail.1)));
-        let behind = place(destination(
-            lat,
-            lon,
-            arrow.bearing + std::f64::consts::PI,
-            step,
-        ))
-        .and_then(|p| moved((tail.0 - p.0, tail.1 - p.1)));
+        let ahead = delta(arrow.bearing, 1.0, step);
+        let behind = delta(back, -1.0, step);
+        // One side alone, made second order by its point two steps out when
+        // that lands where a straight continuation would.
+        let one_sided = |(d1, n1): ((f64, f64), f64), bearing: f64, sign: f64| match delta(
+            bearing,
+            sign,
+            2.0 * step,
+        ) {
+            Some((d2, n2)) if (1.5 * n1..=2.5 * n1).contains(&n2) => {
+                moved((4.0 * d1.0 - d2.0, 4.0 * d1.1 - d2.1)).or(Some((d1, n1)))
+            }
+            _ => Some((d1, n1)),
+        };
         let along = match (ahead, behind) {
             // Two sides of one step: neither crossed a seam.
             (Some((a, na)), Some((b, nb))) if na.max(nb) <= 2.0 * na.min(nb) => {
                 moved((a.0 + b.0, a.1 + b.1))
             }
-            (Some(a), Some(b)) => Some(if a.1 <= b.1 { a } else { b }),
-            (one, other) => one.or(other),
+            (Some(a), Some(b)) if a.1 <= b.1 => one_sided(a, arrow.bearing, 1.0),
+            (Some(_), Some(b)) | (None, Some(b)) => one_sided(b, back, -1.0),
+            (Some(a), None) => one_sided(a, arrow.bearing, 1.0),
+            (None, None) => None,
         };
         if let Some(((dx, dy), n)) = along {
             return Some((dx / n, dy / n));

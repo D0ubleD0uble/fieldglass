@@ -120,9 +120,9 @@ fn an_eastward_field_points_east_on_an_equirectangular_map() {
         assert!(x1 > x0, "an eastward arrow points right: {x0} → {x1}");
         // Due east is along the parallel, which this map draws horizontal,
         // and the shaft is straight on screen. (An arrow on the map's left
-        // edge reads its direction from the step ahead alone, the one behind
-        // being over the seam, and a great circle's few metres lean off the
-        // parallel by about 1e-7.)
+        // edge reads its direction from the steps ahead alone, the one behind
+        // being over the seam, which cancels a great circle's lean off the
+        // parallel to second order, not exactly.)
         assert!(
             (y1 - y0).abs() < 1e-6 * (x1 - x0).abs(),
             "and runs along its parallel: {y0} → {y1} over {x0} → {x1}"
@@ -560,6 +560,91 @@ fn every_arrow_points_along_its_projected_flow_on_every_target() {
         assert!(
             checked * 10 >= drawn.len() * 9,
             "{what}: only {checked} of {} arrows checked",
+            drawn.len()
+        );
+    }
+}
+
+/// A fine grid next to the pole, on the world maps whose forward projection
+/// solves for an auxiliary angle (Mollweide's θ by Newton's method, Robinson's
+/// table, Equal Earth's polynomial). Along a row there, neighbouring cells are
+/// metres apart, and a direction step sized from that row spacing is short
+/// enough for the solver's own error near the pole to tilt it. The direction
+/// must still be the projected chord's, within a hundredth of a degree.
+#[test]
+fn arrows_on_a_fine_grid_by_the_pole_point_along_their_projected_flow() {
+    // 0.01° cells from lat 89.98 down to 89.62.
+    let geometry = GridGeometry::LatLon(LatLonParams {
+        ni: NI,
+        nj: NJ,
+        lat_first: 89.98,
+        lon_first: 0.0,
+        lat_last: 89.62,
+        lon_last: 0.71,
+    });
+    let cells = (NI * NJ) as usize;
+    let (u, v) = (vec![Some(3.0); cells], vec![Some(4.0); cells]);
+    let bearing = 3.0f64.atan2(4.0);
+    let step = (NI / 24) as usize;
+    let mut rings = Vec::new();
+    for j in (0..NJ as usize).step_by(step) {
+        for i in (0..NI as usize).step_by(step) {
+            let (lat, lon) = (89.98 - 0.01 * j as f64, 0.01 * i as f64);
+            let to = step_along(lat, lon, bearing, 20.0);
+            let from = step_along(lat, lon, bearing + std::f64::consts::PI, 20.0);
+            rings.extend_from_slice(&[from.0, from.1, lat, lon, to.0, to.1]);
+        }
+    }
+    let lengths = vec![3u32; rings.len() / 6];
+    for projection in ["mollweide", "robinson", "equal_earth"] {
+        let mut o = options(projection);
+        o.width = Some(4000);
+        o.height = Some(2000);
+        let arrows = one_grid(
+            &source(&geometry, "latlon"),
+            &u,
+            &v,
+            &o,
+            &VectorOptions::new(),
+        )
+        .unwrap_or_else(|e| panic!("{projection}: {e}"));
+        let drawn = whole_arrows(&arrows);
+        assert!(
+            drawn.len() > 100,
+            "{projection}: only {} arrows",
+            drawn.len()
+        );
+        let flows = flows(
+            &fieldglass::render::overlay_polylines(
+                &source(&geometry, "latlon"),
+                &o,
+                &rings,
+                &lengths,
+            )
+            .unwrap_or_else(|e| panic!("{projection}: {e}")),
+        );
+        let near = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).hypot(a.1 - b.1) < 1e-9;
+        let mut checked = 0;
+        for [tail, tip, ..] in &drawn {
+            let Some((_, along)) = flows
+                .iter()
+                .find(|(cells, _)| cells.iter().any(|c| near(*c, *tail)))
+            else {
+                continue;
+            };
+            let shaft = (tip.0 - tail.0, tip.1 - tail.1);
+            let turn = (shaft.0 * along.1 - shaft.1 * along.0)
+                .atan2(shaft.0 * along.0 + shaft.1 * along.1)
+                .to_degrees();
+            assert!(
+                turn.abs() < 0.01,
+                "{projection}: the arrow at {tail:?} is {turn}° off its projected flow"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked * 10 >= drawn.len() * 9,
+            "{projection}: only {checked} of {} arrows checked",
             drawn.len()
         );
     }
