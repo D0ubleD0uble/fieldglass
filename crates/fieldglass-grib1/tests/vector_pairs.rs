@@ -163,8 +163,6 @@ fn every_pair_the_tables_define() {
     assert!(total >= 7, "the pairs named above at least: {total}");
 }
 
-/// Every name ON388 Table 2 and the ECMWF tables hold that mentions a
-/// direction.
 /// Every name ON388 Table 2 and the ECMWF local tables give.
 fn all_names() -> BTreeSet<&'static str> {
     let mut names = BTreeSet::new();
@@ -178,6 +176,8 @@ fn all_names() -> BTreeSet<&'static str> {
     names
 }
 
+/// Every name ON388 Table 2 and the ECMWF tables hold that mentions a
+/// direction.
 fn directional_names() -> BTreeSet<&'static str> {
     all_names()
         .into_iter()
@@ -263,6 +263,20 @@ const PLACEHOLDER_WORDS: &[&str] = &[
     "unused",
 ];
 
+/// The names [`is_placeholder_name`] reads as placeholders here, reviewed one
+/// by one (#1142), so a real name it would swallow fails the sweep.
+const PLACEHOLDERS: &[&str] = &[
+    "Experimental product",
+    "Indicates a missing value",
+    "Reserved",
+    "Reserved for future unbalanced components",
+    "Wave experimental parameter 1",
+    "Wave experimental parameter 2",
+    "Wave experimental parameter 3",
+    "Wave experimental parameter 4",
+    "Wave experimental parameter 5",
+];
+
 /// Names that hold a [`PLACEHOLDER_WORDS`] word and still name a quantity,
 /// reviewed one by one (#1142).
 const NAMED_DESPITE_THE_WORD: &[&str] = &[];
@@ -295,6 +309,16 @@ fn every_placeholder_spelling_is_read_as_no_name() {
     for name in &placeholders {
         println!("PLACEHOLDER {name:?}");
     }
+    let expected: BTreeSet<&str> = PLACEHOLDERS.iter().copied().collect();
+    assert_eq!(
+        expected.len(),
+        PLACEHOLDERS.len(),
+        "a placeholder is listed twice"
+    );
+    assert_eq!(
+        placeholders, expected,
+        "the names read as placeholders are not the reviewed ones"
+    );
     let reviewed: BTreeSet<&str> = NAMED_DESPITE_THE_WORD.iter().copied().collect();
     assert_eq!(
         reviewed.len(),
