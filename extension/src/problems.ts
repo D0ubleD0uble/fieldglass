@@ -23,11 +23,18 @@ export const DETAILS = "Details";
 /** How many names a toast lists before it says "and N more". */
 const MAX_NAMES = 8;
 
-/** `a, b, c`, or `a, b and 3 more` past {@link MAX_NAMES}. */
-export function listNames(names: readonly string[]): string {
-  if (names.length <= MAX_NAMES) return names.join(", ");
-  return `${names.slice(0, MAX_NAMES).join(", ")} and ${names.length - MAX_NAMES} more`;
+/** `a, b, c`, or `a, b and 3 more` past {@link MAX_NAMES}. With `and`, a
+ *  list that fits ends `b and c`, as in a sentence. */
+export function listNames(names: readonly string[], { and = false } = {}): string {
+  if (names.length > MAX_NAMES) {
+    return `${names.slice(0, MAX_NAMES).join(", ")} and ${names.length - MAX_NAMES} more`;
+  }
+  if (!and || names.length <= 1) return names.join(", ");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
+
+/** How many reasons a toast gives before it says there are others. */
+const MAX_REASONS = 4;
 
 /** A name from the disk or a store, made safe to put in a toast.
  *
@@ -81,15 +88,6 @@ export function notAStore(
       ".zmetadata, .zgroup or .zarray. Fieldglass looks for these, not for a .zarr " +
       "name, so a store without the suffix still opens.",
   };
-}
-
-/** `a`, `a and b`, `a, b and c`, or `a, b and 3 more` past {@link MAX_NAMES}. */
-function joinNames(names: readonly string[]): string {
-  if (names.length > MAX_NAMES) {
-    return `${names.slice(0, MAX_NAMES).join(", ")} and ${names.length - MAX_NAMES} more`;
-  }
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
 /** Why an array is no map, in plain words: what follows its name, as `[one,
@@ -156,9 +154,11 @@ export function nothingToDraw(
     group.names.push(toastName(a.name));
     groups.set(words[0], group);
   }
-  const reasons = [...groups.values()].map(
-    ({ words, names }) => `${joinNames(names)} ${names.length === 1 ? words[0] : words[1]}`,
-  );
+  const reasons = [...groups.values()]
+    .slice(0, MAX_REASONS)
+    .map(({ words, names }) => `${listNames(names, { and: true })} ${names.length === 1 ? words[0] : words[1]}`);
+  // Past the cap, the rest are one clause, and Details has every array.
+  if (groups.size > MAX_REASONS) reasons.push("other arrays can't be drawn for other reasons; Details says why");
   if (reasons.length > 1) reasons[reasons.length - 1] = `and ${reasons[reasons.length - 1]}`;
   const summary =
     reasons.length === 0 ? `${lead}, and this store has none.` : `${lead}. In this store, ${reasons.join("; ")}.`;

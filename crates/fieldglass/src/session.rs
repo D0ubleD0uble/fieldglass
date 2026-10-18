@@ -696,12 +696,12 @@ fn left_out_wire(l: fieldglass_core::LeftOut) -> LeftOutArray {
         Core::UnsupportedDtype { dtype } => LeftOutCause::UnsupportedDtype { dtype },
         Core::Text => LeftOutCause::Text,
         Core::DimensionClash { dimension } => LeftOutCause::DimensionClash { dimension },
+        Core::Unsupported => LeftOutCause::Unsupported,
         Core::UnreadableMetadata => LeftOutCause::UnreadableMetadata,
         Core::TooFewDimensions { rank } => LeftOutCause::TooFewDimensions { rank },
         Core::Coordinate => LeftOutCause::Coordinate,
-        // `Unsupported`, and any code core adds before the wire learns it:
-        // a host's fallback wording is the honest answer for both.
-        _ => LeftOutCause::Unsupported,
+        // No wildcard: core's enum is exhaustive so that a new code fails to
+        // build here, where its wire spelling has to be decided.
     };
     LeftOutArray {
         name: l.name,

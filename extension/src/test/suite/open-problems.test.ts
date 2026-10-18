@@ -226,6 +226,25 @@ suite("Open problems (#1040)", () => {
       { name: "lon", reason: "r", cause: { code: "coordinate" } },
     ]).summary;
     assert.match(two, /In this store, lat and lon are coordinates, /);
+    // Past four reasons the toast stops and points at Details, which names
+    // every array.
+    const many: LeftOutCause[] = [
+      { code: "text" },
+      { code: "coordinate" },
+      { code: "unsupported" },
+      { code: "unreadable_metadata" },
+      { code: "too_few_dimensions", rank: 1 },
+    ];
+    const capped = nothingToDraw(
+      "/x",
+      many.map((cause, i) => ({ name: `a${i}`, reason: `r${i}`, cause })),
+    );
+    assert.ok(
+      capped.summary.endsWith("; and other arrays can't be drawn for other reasons; Details says why."),
+      capped.summary,
+    );
+    assert.doesNotMatch(capped.summary, /a4/);
+    assert.match(capped.details, /- a4: r4/);
   });
 
   // A GRIB or NetCDF file the reader refuses, opened as a user opens it.

@@ -228,7 +228,7 @@ pub fn resolve<S: ByteSource + ?Sized>(
                 Err(e @ FieldglassError::UnsupportedSection(_)) => {
                     let reason = e.to_string();
                     let cause =
-                        dataset::unsupported_cause(source, child.object_header_address, probe)
+                        dataset::unsupported_cause(source, child.object_header_address, probe, &e)
                             .unwrap_or(LeftOutCause::Unsupported);
                     seen.insert(
                         child.object_header_address,

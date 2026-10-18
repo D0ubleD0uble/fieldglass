@@ -501,10 +501,12 @@ fn each_array_left_out_says_why_in_a_code() {
 /// read, and a document that does not parse (#1129).
 #[test]
 fn every_kind_of_refused_document_gets_its_own_code() {
+    // `dtype` last, so a case can follow it with a key that overrides one
+    // above (JSON objects keep the last of a repeated key here).
     let v2 = |dtype: &str| {
         format!(
-            r#"{{"zarr_format": 2, "shape": [4], "chunks": [4], "dtype": {dtype},
-                "fill_value": 0, "compressor": null, "filters": null, "order": "C"}}"#
+            r#"{{"zarr_format": 2, "shape": [4], "chunks": [4], "fill_value": 0,
+                "compressor": null, "filters": null, "order": "C", "dtype": {dtype}}}"#
         )
         .into_bytes()
     };
@@ -532,7 +534,60 @@ fn every_kind_of_refused_document_gets_its_own_code() {
             2,
             LeftOutCause::UnreadableMetadata,
         ),
+        // zarr-python 2 and xarray write strings as objects with a string
+        // codec; an object array with none is not text.
+        (
+            "vlen_utf8",
+            v2(r#""|O", "filters": [{"id": "vlen-utf8"}]"#),
+            2,
+            LeftOutCause::Text,
+        ),
+        (
+            "vlen_bytes",
+            v2(r#""|O", "filters": [{"id": "vlen-bytes"}]"#),
+            2,
+            LeftOutCause::Text,
+        ),
+        ("objects", v2(r#""|O""#), 2, dtype("|O")),
+        // A broken shape is what refused this one, though its type is one
+        // this crate does not decode either: the code follows the refusal.
+        (
+            "bad_shape",
+            br#"{"zarr_format": 2, "shape": "four", "chunks": [4], "dtype": "<f2"}"#.to_vec(),
+            2,
+            LeftOutCause::UnreadableMetadata,
+        ),
+        (
+            "ragged_half",
+            v3(r#""float16""#, "rectilinear"),
+            3,
+            LeftOutCause::Unsupported,
+        ),
         ("text3", v3(r#""string""#, "regular"), 3, LeftOutCause::Text),
+        (
+            "utf8_3",
+            v3(r#""variable_length_utf8""#, "regular"),
+            3,
+            LeftOutCause::Text,
+        ),
+        (
+            "utf32_3",
+            v3(
+                r#"{"name": "fixed_length_utf32", "configuration": {"length_bytes": 16}}"#,
+                "regular",
+            ),
+            3,
+            LeftOutCause::Text,
+        ),
+        (
+            "raw3",
+            v3(
+                r#"{"name": "raw_bytes", "configuration": {"length_bytes": 4}}"#,
+                "regular",
+            ),
+            3,
+            dtype("raw_bytes"),
+        ),
         (
             "ext3",
             v3(r#"{"name": "numpy.datetime64"}"#, "regular"),

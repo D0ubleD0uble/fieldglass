@@ -1044,8 +1044,14 @@ pub struct LeftOut {
 /// vocabulary, so a host words each case once.
 ///
 /// A code carries what names the thing at fault: the element type as the
-/// container spells it, the dimension, the rank. `#[non_exhaustive]`, so a
-/// host keeps a fallback wording for a code it has not met.
+/// container spells it, the dimension, the rank.
+///
+/// **Exhaustive on purpose**, unlike most of this crate's enums. The umbrella
+/// maps each code onto its wire twin with a `match`, and the workspace's `=`
+/// pins mean it always builds against this exact crate. A new code is then a
+/// compile error at the one place the wire must learn it, rather than a code
+/// that quietly crosses as something else. The wire type is the one that is
+/// `#[non_exhaustive]`, and a host keeps a fallback wording there.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
@@ -1056,7 +1062,6 @@ pub struct LeftOut {
         rename_all_fields = "camelCase"
     )
 )]
-#[non_exhaustive]
 pub enum LeftOutCause {
     /// An element type this build does not decode: a compound or
     /// variable-length HDF5 type, a 16-bit float, a complex number.
