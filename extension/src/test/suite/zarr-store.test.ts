@@ -5,7 +5,8 @@
 // has to be a command. That is the design decision this file pins, along with the
 // two behaviours the Rust gates cannot see: that the command is actually
 // registered under the id `package.json` contributes, and that a folder which is
-// not a store is *reported* rather than opened as an empty editor.
+// not a store is *reported* rather than opened as an empty editor. What that
+// report says is `open-problems.test.ts` (#1040).
 //
 // The store used is the committed oracle one — the same directory
 // `fieldglass-zarr`'s own tests read, written by `tools/build_zarr_fixtures.py`
@@ -118,37 +119,6 @@ suite("Zarr store", () => {
     // Physical units, so the CF scale/offset ran: the fixture is packed int16
     // around 240-290 K.
     assert.ok(lo > 100 && hi < 400, `range looks unscaled: ${lo}..${hi}`);
-  });
-
-  test("a folder that is not a store is reported, not opened", async () => {
-    const p = await provider();
-    const notAStore = vscode.Uri.file(path.join(repoRoot(), "crates", "fieldglass-zarr", "tests", "fixtures"));
-
-    let shown: string | undefined;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const realError = (vscode.window as any).showErrorMessage;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (vscode.window as any).showErrorMessage = (msg: string) => {
-      shown = msg;
-      return Promise.resolve(undefined);
-    };
-    const before = vscode.window.tabGroups.all.flatMap((g) => g.tabs).length;
-    try {
-      p.openZarrStore(notAStore);
-    } finally {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (vscode.window as any).showErrorMessage = realError;
-    }
-
-    assert.ok(shown, "the user was told");
-    assert.match(shown, /not a Zarr store/, shown);
-    assert.match(shown, /\.zgroup/, "the message names what it looked for");
-    assert.match(shown, /convention/, "and that the suffix is not the test");
-    assert.strictEqual(
-      vscode.window.tabGroups.all.flatMap((g) => g.tabs).length,
-      before,
-      "no editor should have opened",
-    );
   });
 
   test("opening a store opens a render panel", async () => {

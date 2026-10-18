@@ -19,7 +19,7 @@
 
 import * as path from "path";
 
-import * as vscode from "vscode";
+import { nativeNotLoaded, reportProblem } from "./problems";
 
 import type { AxisValues, GridSupport, MessageInfo, Placement, Vertical } from "./api.generated";
 
@@ -803,10 +803,7 @@ export function loadNative(): FieldglassNative | undefined {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, security/detect-non-literal-require
     cached = require(nodePath) as FieldglassNative;
   } catch (err) {
-    console.error(`[Fieldglass] failed to load ${nodePath}:`, err);
-    vscode.window.showErrorMessage(
-      `Fieldglass: failed to load native module (${nativeBinaryName()}): ${err}`,
-    );
+    void reportProblem("error", nativeNotLoaded(nodePath, err));
   }
   return cached;
 }
