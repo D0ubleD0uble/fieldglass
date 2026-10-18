@@ -293,6 +293,7 @@ classDiagram
         +normalise(v) f32 — shader-facing
         +index(v) u8 — what the CPU painter emits
         +paint(values, mask, w, h, flip_y) RGBA
+        +paint_counted(...) RGBA and PaintCounts, one pass
     }
     class RenderedGrid {
         <<napi>>
@@ -301,7 +302,7 @@ classDiagram
     }
     class Raster {
         <<planned #464, crate fieldglass>>
-        API DTO: rgba, width, height, used range, used bounds
+        API DTO: rgba, width, height, range (ColourRange, #1155)
     }
     Grib2Handle *-- Session
     WasmHandle *-- Session
@@ -341,3 +342,11 @@ internally (a 256-entry LUT plus the scale rule), extracted as an API type.
 `render()` paints through it, and a GPU host uploads the same table and
 applies the same two-line normalisation in a shader snippet the package
 ships, so the CPU output is the oracle for the GPU output.
+
+The range a palette spans is chosen once too (#1155): `fieldglass::colour_range`
+takes the whole decoded field's present-cell extremes, before any warp, and the
+caller's optional `min`, `max` and `center`, and returns a `ColourRange` or an
+`invalid_option` carrying a `RangeRefusal`. `Session::palette` and `render`,
+the addon's render path and both contour paths call it, and
+`Palette::paint_counted` fills the range's below, above and present counts in
+the pass that paints.

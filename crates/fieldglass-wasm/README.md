@@ -575,6 +575,12 @@ are checked against `crates/fieldglass-zarr/tests/fixtures/windows_oracle.json`,
 which the fixture script computes from the coordinates and reads back through
 xarray, and nothing unplanned may be fetched.
 
+**`tests/node/colour_range.mjs`** — the colour-range rule both hosts follow
+(#1155), over the committed GFS fixture. An empty field paints transparent; one
+manual end takes the other from the data; an inverted, zero-width or non-finite
+range is refused with `e.code` and `e.rangeRefusal`; and the automatic range and
+contour levels are the whole field's whatever a warp shows.
+
 **`tests/node/parity.mjs`** — the cross-target check. `node
 crates/fieldglass-wasm/tests/node/parity.mjs` decodes the real sample files with
 both this build and the native Node addon and compares every present value.

@@ -235,7 +235,7 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1`, `F: crates/fieldglass-grib2/tests/fixtures/j_consecutive_latlon.grib2` | 35 |
 | `F: crates/fieldglass-grib1/tests/fixtures/reduced_gg_*.grib1`, `F: crates/fieldglass-grib2/tests/fixtures/*reduced_gaussian.grib2` | 8, 36, 37 |
 | `F: crates/fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1` | 13 |
-| `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` | 1, 15, 44 |
+| `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` | 1, 15, 44, 45 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc` | 44 |
 | `F: crates/fieldglass-grib2/tests/fixtures/ccsds_flags46_12bit.grib2` | 17 |
 | `F: extension/src/test/fixtures/healpix_n4_ring.grib2`, `netcdf_classic_dummy.nc` | 1 |
@@ -1050,9 +1050,12 @@ members are not told apart yet, by design.
 **`B: samples/0.6.0/cmc_pair.grib`** (also used in §6)
 
 - [ ] Equirectangular with the bounds set to 50° S to 30° S, 60° E to 90° E,
-      which this northern grid never reaches. The panel shows "no values" and
-      no colour bar, not a 0 to 1 range. With arrows on, no arrow key is
-      shown.
+      which this northern grid never reaches. Nothing is drawn, and the colour
+      bar keeps the field's own range: a window is a view of the field, not a
+      field with no values (#1155). It never reads 0 to 1. With arrows on, no
+      arrow key is shown. A field with no values at all shows "no values" and
+      no colour bar; no sample has one, so `extension/src/test/suite/vectors.test.ts`
+      and `crates/fieldglass/tests/colour_range_rules.rs` check it.
 
 ## 25. A variable in a nested NetCDF-4 group (#704)
 
@@ -1436,6 +1439,28 @@ python3 -m http.server 8001
       decodes `rap_jpeg2000_lambert.grib2` in a Web Worker and paints it with
       the shader and the CPU painter. The verdict reads `PASS — N pixels
       compared, M off by one lookup entry, 0 mismatched.`
+
+## 45. One colour-range rule in both hosts (#1155)
+
+**`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
+(temperature, about 270 to 312 K)
+
+- [ ] **Priority.** Equirectangular, colour range on Auto. Note the colour
+      bar's two numbers. Set the bounds to a small box inside the grid, then
+      switch Resampling to Bilinear: the numbers do not change. In 0.5.0 they
+      followed the window and the resampling.
+- [ ] Colour range Manual, min `300`, max cleared. The map draws, the colour
+      bar runs from 300 to the field's maximum, and every cell below 300 is
+      the lowest colour, not transparent.
+- [ ] Min `300`, max `290`. The last picture stays, and under the fields, in
+      the error colour, reads `minimum 300 is not below maximum 290; set a
+      minimum below the maximum`. Both fields are outlined. In 0.5.0 the
+      panel quietly drew the automatic range.
+- [ ] Max cleared, min `400`. The note reads `minimum 400 is above the
+      field's maximum … (taken from the data); set a maximum too`, and only
+      the min field is outlined.
+- [ ] Min `280`. The map draws from 280 to the maximum, and the note and the
+      outlines go.
 
 ---
 
