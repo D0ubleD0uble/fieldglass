@@ -498,6 +498,59 @@ fn a_window_past_the_field_cap_is_refused_before_it_is_allocated() {
 }
 
 #[test]
+fn a_variable_stored_longitude_first_windows_as_rows_of_latitude() {
+    // `t(lon, lat)`: the X axis precedes the Y axis in storage, so each region
+    // comes back columns outer and has to be turned into rows. Raw `<f8` in
+    // 2 x 3 chunks, `t(i, j) = 10 i + j`, on a global 90-degree grid.
+    let zarray = |shape: &str, chunks: &str| {
+        format!(
+            "{{\"zarr_format\":2,\"shape\":{shape},\"chunks\":{chunks},\"dtype\":\"<f8\",\
+             \"fill_value\":null,\"compressor\":null,\"filters\":null,\"order\":\"C\"}}"
+        )
+        .into_bytes()
+    };
+    let f8 = |values: &[f64]| -> Vec<u8> { values.iter().flat_map(|v| v.to_le_bytes()).collect() };
+    let dims = |names: &str| format!("{{\"_ARRAY_DIMENSIONS\":{names}}}").into_bytes();
+    let store = MemoryObjects::from_iter([
+        (".zgroup", b"{\"zarr_format\":2}".to_vec()),
+        ("lat/.zarray", zarray("[3]", "[3]")),
+        ("lat/.zattrs", dims("[\"lat\"]")),
+        ("lat/0", f8(&[10.0, 20.0, 30.0])),
+        ("lon/.zarray", zarray("[4]", "[4]")),
+        ("lon/.zattrs", dims("[\"lon\"]")),
+        ("lon/0", f8(&[0.0, 90.0, 180.0, 270.0])),
+        ("t/.zarray", zarray("[4,3]", "[2,3]")),
+        ("t/.zattrs", dims("[\"lon\",\"lat\"]")),
+        ("t/0.0", f8(&[0.0, 1.0, 2.0, 10.0, 11.0, 12.0])),
+        ("t/1.0", f8(&[20.0, 21.0, 22.0, 30.0, 31.0, 32.0])),
+    ]);
+    let session = Session::open_store(store).expect("opens");
+    let t = variable(&session, "t");
+    // Latitudes 20 and 30; longitudes 270, 0 and 90, across the seam.
+    let asked = WindowRequest::new(t, 1, 0, [15.0, 30.0, 260.0, 460.0], vec![0, 0]);
+    let plan = session.plan_window(&asked).expect("plans");
+    assert_eq!(plan.rows, [1, 3]);
+    assert_eq!(plan.columns, vec![[3, 4], [0, 2]]);
+    let keys: Vec<&str> = plan
+        .chunks
+        .as_ref()
+        .expect("keyed")
+        .iter()
+        .map(|c| c.key.as_str())
+        .collect();
+    assert_eq!(keys, ["t/0.0", "t/1.0"]);
+    let field = session
+        .decode_window(&asked, &DecodeOptions::default())
+        .expect("decodes");
+    assert_eq!((field.ni, field.nj), (3, 2));
+    assert_eq!(
+        field.values.to_f64().to_vec(),
+        [31.0, 1.0, 11.0, 32.0, 2.0, 12.0],
+        "rows of latitude, columns east from 270"
+    );
+}
+
+#[test]
 fn a_message_stream_has_no_windows() {
     let bytes = std::fs::read("../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2")
         .expect("a GRIB2 fixture");
