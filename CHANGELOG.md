@@ -4,6 +4,12 @@ All notable changes to Fieldglass are documented here. The format roughly follow
 
 Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and every release is a stable one. Pre-1.0, a minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` → `0.3.1`) does not. The extension and the library crates share one version number.
 
+## [Unreleased]
+
+### Fixed
+
+- **A level in the dimensionless unit `1` no longer shows a stray `1`.** A sigma level read `0.995 1` in the slice steppers, the Animate label, the subtitle and the exported PNG name. Units of `1` are now left out there, and from the probe readout, the wind arrow key, the panel heading and the plot captions.
+
 ## [0.6.0] — 2026-10-12
 
 This release opens Zarr stores, adds animation, line plots, cross-sections, wind arrows, a zonal average, imported color tables, and zoom and pan to the viewer, reads szip-compressed HDF5, and names every ECMWF GRIB1 parameter. Fieldglass also runs in a browser as `@fieldglass/wasm`, and four more library crates join crates.io. The Rust API has breaking changes, listed under **Rust API**.
