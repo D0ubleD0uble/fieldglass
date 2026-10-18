@@ -2351,11 +2351,12 @@ pub struct VectorArrows {
     /// An arrow is a geographic segment, so its length on screen changes
     /// across a map that stretches or shrinks distance (an equirectangular
     /// map's high latitudes, a globe's limb). This is measured off one drawn
-    /// arrow, not recomputed: of the arrows drawn whole on the raster, the one
+    /// arrow, not recomputed: of the arrows drawn whole, the one
     /// with the largest share of full length, its tail-to-tip length divided
     /// by that share. With the scale taken from the field, that is the fastest
-    /// arrow on the map, at exactly the length it was drawn. `None` when no
-    /// arrow is drawn whole on the raster.
+    /// arrow on the map, at exactly the length it was drawn. An arrow with an
+    /// end on the raster is preferred to one only in the margin around it.
+    /// `None` when no arrow is drawn whole.
     pub reference_length: Option<f64>,
 }
 
@@ -2607,10 +2608,12 @@ struct Shaft {
 ///
 /// "Drawn" is what the canvas strokes: a five-vertex run in `runs` that starts
 /// at this arrow's projected tail and tip, so an arrow split at a seam or by
-/// the edge of a globe is not measured, and neither is one that projects off
-/// the raster into the margin [`project_polylines`] keeps. The tail and tip are
-/// projected by the same target as the runs, so a drawn arrow's ends match its
-/// run's first two vertices bit for bit.
+/// the edge of a globe is not measured. The tail and tip are projected by the
+/// same target as the runs, so a drawn arrow's ends match its run's first two
+/// vertices bit for bit. An arrow with an end on the raster comes before one
+/// wholly in the margin [`project_polylines`] keeps around it: zoomed in, an
+/// arrow can be longer than the window, and its length is still the one the
+/// map draws it at, but a visible arrow is the one a reader compares.
 #[cfg(feature = "render")]
 fn full_arrow_length(
     source: &Source<'_>,
@@ -2641,25 +2644,24 @@ fn full_arrow_length(
         (-0.5..=f64::from(width) - 0.5).contains(&x)
             && (-0.5..=f64::from(height) - 0.5).contains(&y)
     };
-    let mut best: Option<(f64, f64)> = None;
+    // (on the raster, share of full length, full length), best first.
+    let mut best: Option<(bool, f64, f64)> = None;
     for (shaft, &[tail, tip]) in shafts.iter().zip(points.as_chunks::<2>().0) {
         let (Some(tail), Some(tip)) = (tail, tip) else {
             continue;
         };
-        if !on_raster(tail) || !on_raster(tip) {
-            continue;
-        }
         let key = [tail.0, tail.1, tip.0, tip.1].map(f64::to_bits);
         if !drawn.contains(key.as_slice()) {
             continue;
         }
+        let seen = on_raster(tail) || on_raster(tip);
         let full = (tip.0 - tail.0).hypot(tip.1 - tail.1) / shaft.share;
-        if best.is_none_or(|(share, _)| shaft.share > share) {
-            best = Some((shaft.share, full));
+        if best.is_none_or(|(was_seen, share, _)| (seen, shaft.share) > (was_seen, share)) {
+            best = Some((seen, shaft.share, full));
         }
     }
     Ok(best
-        .map(|(_, length)| length)
+        .map(|(_, _, length)| length)
         .filter(|l| l.is_finite() && *l > 0.0))
 }
 

@@ -155,6 +155,9 @@ export interface VectorKeyState {
     tip: number;
     y: number;
     length: number;
+    /** The share of a full-length arrow drawn: 1, or halved until the key
+     *  fits the map. */
+    share: number;
     lineWidth: number;
     colour: string;
     label: string;

@@ -188,7 +188,7 @@ export interface ParsedColorTable {
  *  `referenceSpeed` is `null` when no arrow was drawn (#871).
  *  `referenceLength` is how long a full-length arrow is drawn, in the same
  *  raster pixels as `xy`, for the key (#1046); `null` when no arrow is drawn
- *  whole on the raster. */
+ *  whole. */
 export interface ProjectedVectors {
   xy: Float64Array;
   segLengths: Uint32Array;

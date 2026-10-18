@@ -3736,22 +3736,33 @@ export function renderImagePanelHtml(
           delete o.dataset.vectorKey;
           if (!lastVectors || !vectorsEnabled()) return;
           const full = Number(lastVectors.referenceLength);
-          const label = composeVectorScale(lastVectors.referenceSpeed, UNITS);
-          if (!label || !Number.isFinite(full) || full <= 0) return;
+          const speed = Number(lastVectors.referenceSpeed);
+          if (lastVectors.referenceSpeed == null || !Number.isFinite(speed)) return;
+          if (!Number.isFinite(full) || full <= 0) return;
           const colour = (document.getElementById('color-vectors') || {}).value
             || themedForeground();
           const vw = Number((document.getElementById('width-vectors') || {}).value);
           const lineWidth = (Number.isFinite(vw) && vw > 0 ? vw : 1) * dpr;
-          const length = full * sx;
-          // The head is the one Rust gives each arrow: barbs a third of the
-          // shaft long (HEAD_FRACTION), turned 155° from it (HEAD_ANGLE_DEG).
-          const barb = 0.32 * length;
-          const turn = 155 * Math.PI / 180;
           const pad = 6 * dpr;
           const inset = 8 * dpr;
           const fontPx = 11 * dpr;
           ctx.save();
           ctx.font = fontPx + 'px sans-serif';
+          // An arrow's length is in proportion to its speed, so a key too long
+          // for the map (a wide spacing, a deep zoom) is halved with its speed
+          // until it fits, rather than run off the edge.
+          let share = 1;
+          let label = composeVectorScale(speed, UNITS);
+          while (share > 1 / 64 &&
+            full * sx * share + ctx.measureText(label).width + 3 * pad > o.width - 2 * inset) {
+            share /= 2;
+            label = composeVectorScale(speed * share, UNITS);
+          }
+          const length = full * sx * share;
+          // The head is the one Rust gives each arrow: barbs a third of the
+          // shaft long (HEAD_FRACTION), turned 155° from it (HEAD_ANGLE_DEG).
+          const barb = 0.32 * length;
+          const turn = 155 * Math.PI / 180;
           const textW = ctx.measureText(label).width;
           const headH = barb * Math.sin(turn);
           const boxW = pad + length + pad + textW + pad;
@@ -3785,7 +3796,7 @@ export function renderImagePanelHtml(
           ctx.restore();
           // What was drawn, in canvas pixels, for a test to measure against.
           o.dataset.vectorKey = JSON.stringify({
-            tail: tail, tip: tip, y: y, length: length, lineWidth: lineWidth,
+            tail: tail, tip: tip, y: y, length: length, share: share, lineWidth: lineWidth,
             colour: colour, label: label, box: [boxX, boxY, boxW, boxH],
           });
         }

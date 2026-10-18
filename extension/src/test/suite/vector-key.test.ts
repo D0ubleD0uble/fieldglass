@@ -162,6 +162,7 @@ function assertKeyMatches(d: Drawn, file: string, what: string): void {
   const reference = d.result.referenceLength;
   assert.ok(typeof reference === "number" && reference > 0, `${what}: a reference length, got ${reference}`);
   // The page drew what it was given, scaled as the arrows are.
+  assert.strictEqual(d.key.drawn.share, 1, `${what}: the key fits the map at full length`);
   assert.ok(
     Math.abs(d.key.drawn.length - reference * scale) < 1e-6,
     `${what}: drawn ${d.key.drawn.length} px for ${reference} raster px × ${scale}`,
@@ -333,6 +334,38 @@ suite("Vector key (#1046)", () => {
       );
       assert.ok(longestDrawn(sparse) > longestDrawn(equirect), "and so do the arrows");
 
+      // Zoomed in, the window is a few sampled cells across, and a
+      // full-length arrow would run off the map: the key is halved, speed and
+      // all, until it fits.
+      let zoomed: Drawn | undefined;
+      const lengths: string[] = [];
+      for (let k = 0; k < 6 && !(zoomed && zoomed.key.drawn.share < 1); k++) {
+        from = mark(panel);
+        await panel.drive([{ id: "zoom-in", click: true }]);
+        zoomed = await renderAfter(panel, from, `zoom ${k + 1}`);
+        lengths.push(`${zoomed.key.drawn.length.toFixed(1)} of ${zoomed.key.canvas.width}`);
+      }
+      assert.ok(zoomed);
+      const half = zoomed.key;
+      assert.ok(half.drawn.share < 1, `the key is cut to fit: ${lengths.join(", ")}`);
+      assert.ok(half.drawn.tip < half.canvas.width, "and its arrow is on the map");
+      assert.strictEqual(half.drawn.label, composeVectorScale(zoomed.result.referenceSpeed * half.drawn.share, "Pa"));
+      assert.ok(
+        Math.abs(
+          half.drawn.length -
+            zoomed.result.referenceLength * (half.canvas.width / zoomed.rasterWidth) * half.drawn.share,
+        ) < 1e-6,
+        `the cut key is that share of a full-length arrow: ${half.drawn.length} px`,
+      );
+      assert.ok(
+        zoomed.result.referenceLength > sparse.result.referenceLength * 4,
+        `zooming in lengthens a full-length arrow: ${sparse.result.referenceLength} → ${zoomed.result.referenceLength} px`,
+      );
+      from = mark(panel);
+      await panel.drive([{ id: "zoom-reset", click: true }]);
+      const wide = await renderAfter(panel, from, "Reset view");
+      assert.strictEqual(wide.key.drawn.share, 1, "and full length again on the whole map");
+
       // The export carries the key, at the length the map's arrows are
       // exported at.
       const saved = vscode.window.showSaveDialog;
@@ -351,8 +384,8 @@ suite("Vector key (#1046)", () => {
         if (dir) fs.writeFileSync(path.join(dir, "after-export.png"), png);
         // The map is exported at the raster's own size, so the overlay, key
         // and all, is scaled by raster over canvas.
-        const toExport = sparse.rasterWidth / sparse.key.canvas.width;
-        const expected = (sparse.key.drawn.length + sparse.key.drawn.lineWidth / 2) * toExport;
+        const toExport = wide.rasterWidth / wide.key.canvas.width;
+        const expected = (wide.key.drawn.length + wide.key.drawn.lineWidth / 2) * toExport;
         const run = longestInkRun(image);
         assert.ok(Math.abs(run - expected) <= 1.5, `the key is ${run} px in the PNG, expected ${expected}`);
       } finally {
