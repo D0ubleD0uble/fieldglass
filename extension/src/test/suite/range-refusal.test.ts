@@ -263,6 +263,11 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
     fs.writeFileSync(file, Buffer.concat([a, a, other]));
     const editor = await openEditor(p, file);
     const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    // The test ends with an export click, which asks for a save dialog: answer
+    // it, or a real native dialog opens and keeps the window's focus.
+    const savedDialog = vscode.window.showSaveDialog;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       // Manual, the minimum left to the data, log on: drawn, the floor is positive.
@@ -291,11 +296,16 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       const f2 = panel.sent.length;
       await panel.drive([{ id: "scale-log", checked: false }]);
       await panel.waitSent((m: Msg) => m.type === "gridError" && !m.rangeRefusal, f2, "the grid error again");
+      const sentBefore = panel.sent.length;
       state = await panel.drive([{ id: "export-png", click: true }]);
       assert.strictEqual(state.rangeNote, null);
       assert.deepStrictEqual(state.rangeInvalid, []);
       assert.ok(!state.exportStatus.includes("range fields"), "export is no longer blocked by the range");
+      // The export went to the host, which asked the (stubbed) dialog: wait for
+      // that before the stub is put back.
+      await panel.waitSent(isType("exportPngDone"), sentBefore, "the PNG export's outcome");
     } finally {
+      vscode.window.showSaveDialog = savedDialog;
       panel.dispose();
       editor.close();
       fs.rmSync(dir, { recursive: true, force: true });
