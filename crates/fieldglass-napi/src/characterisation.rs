@@ -388,11 +388,14 @@ impl Subject<'_> {
         // range. A fixed absolute interval cannot serve a corpus that mixes
         // kelvin, pascals and metres per second: it would trace nothing for one
         // field and hundreds of thousands of segments for the next.
-        match self {
+        // The prose of a refusal is what the golden records, so its fields are
+        // dropped here, as the render rows drop them.
+        let drawn = match self {
             Self::Grib1(h, i) => h.project_contours(*i, o, None),
             Self::Grib2(h, i) => h.project_contours(*i, o, None),
             Self::Netcdf(h, v, y, x, idx) => h.project_contours(*v, *y, *x, idx.clone(), o, None),
-        }
+        };
+        drawn.map_err(Into::into)
     }
 
     fn csv(&self, format: &str) -> napi::Result<napi::bindgen_prelude::Buffer> {
@@ -451,7 +454,7 @@ impl Subject<'_> {
     /// Contours over the combined field — the other half of the #329 seam.
     fn contours_combined(&self, o: RenderOptions, op: &str) -> napi::Result<ProjectedOverlay> {
         let op = op.to_string();
-        match self {
+        let drawn = match self {
             Self::Grib1(h, i) => h.project_contours_combined(*i, *i, op, o, None),
             Self::Grib2(h, i) => h.project_contours_combined(*i, *i, op, o, None),
             Self::Netcdf(h, v, y, x, idx) => h.project_contours_slice_combined(
@@ -465,7 +468,8 @@ impl Subject<'_> {
                 o,
                 None,
             ),
-        }
+        };
+        drawn.map_err(Into::into)
     }
 }
 

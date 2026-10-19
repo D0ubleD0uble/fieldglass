@@ -1578,13 +1578,27 @@ impl Grib1Handle {
     /// (#238). `interval` sets a manual level spacing; `None` picks ~8 nice
     /// levels over the used range. Errors for grid types whose forward
     /// geolocation isn't wired yet (projected + reduced grids).
-    #[napi]
-    pub fn project_contours(
+    #[napi(js_name = "projectContours")]
+    pub fn project_contours_for_js(
         &self,
+        env: Env,
         message_index: u32,
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
+        self.project_contours(message_index, options, interval)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// The call behind [`Self::project_contours_for_js`], keeping the
+    /// engine's refusal rather than throwing it, for this crate's callers
+    /// and tests (#1156).
+    pub(crate) fn project_contours(
+        &self,
+        message_index: u32,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> Result<ProjectedOverlay, RenderError> {
         let (raw, placed) = self.resolved(message_index)?;
         project_contours_impl(&placed, raw.as_ref(), &options, interval)
             .map(ProjectedOverlay::from_polylines)
@@ -1671,17 +1685,33 @@ impl Grib1Handle {
     /// Contour a difference/sum/… map (#329): decode both fields, combine under
     /// `op`, and trace the *combined* field's isolines — so contours follow the
     /// displayed map, not field A. Same geometry gate as [`Self::project_contours`].
-    #[napi]
-    pub fn project_contours_combined(
+    #[napi(js_name = "projectContoursCombined")]
+    pub fn project_contours_combined_for_js(
         &self,
+        env: Env,
         message_index_a: u32,
         message_index_b: u32,
         op: String,
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
+        self.project_contours_combined(message_index_a, message_index_b, op, options, interval)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// The call behind [`Self::project_contours_combined_for_js`], keeping the
+    /// engine's refusal rather than throwing it, for this crate's callers
+    /// and tests (#1156).
+    pub(crate) fn project_contours_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: String,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> Result<ProjectedOverlay, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(&op).into_napi()?;
+        let op = fieldglass::op_from_wire(&op)?;
         let (raw_a, placed_a) = self.resolved(message_index_a)?;
         let (raw_b, placed_b) = self.resolved(message_index_b)?;
         let combined = combined_field(
@@ -2008,13 +2038,27 @@ impl Grib2Handle {
 
     /// Contour isolines for this message, projected onto the render raster.
     /// Sibling to [`Grib1Handle::project_contours`].
-    #[napi]
-    pub fn project_contours(
+    #[napi(js_name = "projectContours")]
+    pub fn project_contours_for_js(
         &self,
+        env: Env,
         message_index: u32,
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
+        self.project_contours(message_index, options, interval)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// The call behind [`Self::project_contours_for_js`], keeping the
+    /// engine's refusal rather than throwing it, for this crate's callers
+    /// and tests (#1156).
+    pub(crate) fn project_contours(
+        &self,
+        message_index: u32,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> Result<ProjectedOverlay, RenderError> {
         let (raw, placed) = self.resolved(message_index)?;
         project_contours_impl(&placed, raw.as_ref(), &options, interval)
             .map(ProjectedOverlay::from_polylines)
@@ -2054,17 +2098,33 @@ impl Grib2Handle {
     /// Contour a difference/sum/… map (#329) — sibling to
     /// [`Grib1Handle::project_contours_combined`]. Traces the combined field's
     /// isolines so contours follow the displayed map, not field A.
-    #[napi]
-    pub fn project_contours_combined(
+    #[napi(js_name = "projectContoursCombined")]
+    pub fn project_contours_combined_for_js(
         &self,
+        env: Env,
         message_index_a: u32,
         message_index_b: u32,
         op: String,
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
+        self.project_contours_combined(message_index_a, message_index_b, op, options, interval)
+            .map_err(|e| e.throw(&env))
+    }
+
+    /// The call behind [`Self::project_contours_combined_for_js`], keeping the
+    /// engine's refusal rather than throwing it, for this crate's callers
+    /// and tests (#1156).
+    pub(crate) fn project_contours_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: String,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> Result<ProjectedOverlay, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(&op).into_napi()?;
+        let op = fieldglass::op_from_wire(&op)?;
         let (raw_a, placed_a) = self.resolved(message_index_a)?;
         let (raw_b, placed_b) = self.resolved(message_index_b)?;
         let combined = combined_field(
@@ -2687,9 +2747,11 @@ impl NetcdfHandle {
     /// synthesised from the file's coordinates or projection attributes, so a
     /// NetCDF grid is contourable wherever that synthesis lands on a geolocated
     /// family — every one but a GOES scan-angle (space view) grid.
-    #[napi]
-    pub fn project_contours(
+    #[napi(js_name = "projectContours")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn project_contours_for_js(
         &self,
+        env: Env,
         variable_index: u32,
         y_dim: u32,
         x_dim: u32,
@@ -2697,6 +2759,29 @@ impl NetcdfHandle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
+        self.project_contours(
+            variable_index,
+            y_dim,
+            x_dim,
+            slice_indices,
+            options,
+            interval,
+        )
+        .map_err(|e| e.throw(&env))
+    }
+
+    /// The call behind [`Self::project_contours_for_js`], keeping the
+    /// engine's refusal rather than throwing it, for this crate's callers
+    /// and tests (#1156).
+    pub(crate) fn project_contours(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> Result<ProjectedOverlay, RenderError> {
         let var = self.renderable(variable_index)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
@@ -2761,10 +2846,11 @@ impl NetcdfHandle {
     /// Contour a NetCDF difference/sum/… map (#329): the two slices are combined
     /// under `op` and the *combined* field's isolines are traced. Sibling to
     /// [`Self::project_contours`].
-    #[napi]
+    #[napi(js_name = "projectContoursSliceCombined")]
     #[allow(clippy::too_many_arguments)]
-    pub fn project_contours_slice_combined(
+    pub fn project_contours_slice_combined_for_js(
         &self,
+        env: Env,
         variable_index_a: u32,
         y_dim: u32,
         x_dim: u32,
@@ -2775,8 +2861,38 @@ impl NetcdfHandle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
+        self.project_contours_slice_combined(
+            variable_index_a,
+            y_dim,
+            x_dim,
+            slice_indices_a,
+            variable_index_b,
+            slice_indices_b,
+            op,
+            options,
+            interval,
+        )
+        .map_err(|e| e.throw(&env))
+    }
+
+    /// The call behind [`Self::project_contours_slice_combined_for_js`], keeping the
+    /// engine's refusal rather than throwing it, for this crate's callers
+    /// and tests (#1156).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn project_contours_slice_combined(
+        &self,
+        variable_index_a: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices_a: Vec<u32>,
+        variable_index_b: u32,
+        slice_indices_b: Vec<u32>,
+        op: String,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> Result<ProjectedOverlay, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(&op).into_napi()?;
+        let op = fieldglass::op_from_wire(&op)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
@@ -3358,9 +3474,11 @@ impl ZarrHandle {
     }
 
     /// Isolines of this slice, projected onto its raster.
-    #[napi]
-    pub fn project_contours(
+    #[napi(js_name = "projectContours")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn project_contours_for_js(
         &self,
+        env: Env,
         variable_index: u32,
         y_dim: u32,
         x_dim: u32,
@@ -3368,11 +3486,34 @@ impl ZarrHandle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
+        self.project_contours(
+            variable_index,
+            y_dim,
+            x_dim,
+            slice_indices,
+            options,
+            interval,
+        )
+        .map_err(|e| e.throw(&env))
+    }
+
+    /// The call behind [`Self::project_contours_for_js`], keeping the
+    /// engine's refusal rather than throwing it, for this crate's callers
+    /// and tests (#1156).
+    pub(crate) fn project_contours(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> Result<ProjectedOverlay, RenderError> {
         let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         let engine = engine_options(&options);
-        ResolvedOptions::parse(&engine).into_napi()?;
+        ResolvedOptions::parse(&engine)?;
         fieldglass::render::contour_polylines(&field.source(), &values, &engine, interval)
-            .into_napi()
+            .map_err(RenderError::from)
             .map(ProjectedOverlay::from_polylines)
     }
 
@@ -3483,10 +3624,11 @@ impl ZarrHandle {
     }
 
     /// Contour the combined field, for the same reason (#329).
-    #[napi]
+    #[napi(js_name = "projectContoursSliceCombined")]
     #[allow(clippy::too_many_arguments)]
-    pub fn project_contours_slice_combined(
+    pub fn project_contours_slice_combined_for_js(
         &self,
+        env: Env,
         variable_index_a: u32,
         y_dim: u32,
         x_dim: u32,
@@ -3497,6 +3639,36 @@ impl ZarrHandle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
+        self.project_contours_slice_combined(
+            variable_index_a,
+            y_dim,
+            x_dim,
+            slice_indices_a,
+            variable_index_b,
+            slice_indices_b,
+            op,
+            options,
+            interval,
+        )
+        .map_err(|e| e.throw(&env))
+    }
+
+    /// The call behind [`Self::project_contours_slice_combined_for_js`], keeping the
+    /// engine's refusal rather than throwing it, for this crate's callers
+    /// and tests (#1156).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn project_contours_slice_combined(
+        &self,
+        variable_index_a: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices_a: Vec<u32>,
+        variable_index_b: u32,
+        slice_indices_b: Vec<u32>,
+        op: String,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> Result<ProjectedOverlay, RenderError> {
         let (combined, values) = self.combined(
             variable_index_a,
             y_dim,
@@ -3507,9 +3679,9 @@ impl ZarrHandle {
             &op,
         )?;
         let engine = engine_options(&options);
-        ResolvedOptions::parse(&engine).into_napi()?;
+        ResolvedOptions::parse(&engine)?;
         fieldglass::render::contour_polylines(&combined.source(), &values, &engine, interval)
-            .into_napi()
+            .map_err(RenderError::from)
             .map(ProjectedOverlay::from_polylines)
     }
 
@@ -4166,15 +4338,17 @@ fn field_csv(values: &[Option<f64>], placed: &Placed, format: &str) -> napi::Res
 
 /// Extract contour isolines from a decoded field and project them onto the same
 /// raster the render and the overlay use — `fieldglass::render::contour_polylines`,
-/// over this host's options.
+/// over this host's options, with the engine's refusal kept for the `#[napi]`
+/// method to throw in its fields (#1156).
 fn project_contours_impl(
     placed: &Placed,
     raw: &[Option<f64>],
     options: &RenderOptions,
     interval: Option<f64>,
-) -> napi::Result<ProjectedPolylines> {
+) -> Result<ProjectedPolylines, RenderError> {
     let engine = engine_options(options);
-    fieldglass::render::contour_polylines(&placed.source(), raw, &engine, interval).into_napi()
+    fieldglass::render::contour_polylines(&placed.source(), raw, &engine, interval)
+        .map_err(RenderError::from)
 }
 
 /// Arrows for a vector field, projected onto the rendered raster (#241).
