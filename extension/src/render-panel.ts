@@ -2818,6 +2818,9 @@ export function renderImagePanelHtml(
           // The message a GRIB panel was drawing is not exactly once in the
           // file that changed under it (#959).
           if (Array.isArray(msg.pickMessages)) offerMessages(msg.pickMessages);
+          // The file holds no variable now, so a range refused of one read from
+          // the old file is about nothing (#1194).
+          if (msg.noVariables === true) rangeEdited();
           const refusal = msg.rangeRefusal || null;
           const manual = document.querySelector('input[name="range-mode"]:checked');
           const isManual = !!(manual && manual.value === 'manual');

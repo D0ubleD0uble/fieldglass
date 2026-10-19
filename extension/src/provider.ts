@@ -893,7 +893,7 @@ export class FieldglassEditorProvider
         pickMessages: picking,
       } satisfies GridErrorMessage);
     };
-    const adopt = (current: Grib1Handle | Grib2Handle): boolean => {
+    const adopt = (current: Grib1Handle | Grib2Handle, ask: { seq?: number } = {}): boolean => {
       const next = listMessages(current);
       // The same messages in the same places: the file is the one the page was
       // written from (an editor closed and opened again, say). The page's
@@ -920,7 +920,7 @@ export class FieldglassEditorProvider
       // The tab no longer names the message either.
       panel.title = composeTabTitle("pick a message", source);
       gate.keep(current);
-      refuse();
+      refuse(ask);
       return false;
     };
     // The user picked one of the new file's messages. The index is the one the
@@ -1161,7 +1161,7 @@ export class FieldglassEditorProvider
           | { type?: string; dataUrl?: unknown; defaultName?: unknown },
       ) => {
         if (!m || typeof m.type !== "string") return;
-        if (!gate.admit(m.type, docHandle(), adopt)) return;
+        if (!gate.admit(m.type, docHandle(), (h) => adopt(h, answeredSeq(m)))) return;
         // No message is chosen: a render is answered with the refusal again (a
         // page shown again after it was hidden asks for one), the pick is
         // served, and every other request, which would read a message nobody
@@ -1567,7 +1567,7 @@ export class FieldglassEditorProvider
     // Said in place of the first render after that, when the variable the page
     // was showing is no longer in the file.
     let refusal: string | null = null;
-    const adopt = (current: SlicePanelHandle, asked: SliceSpec | undefined): void => {
+    const adopt = (current: SlicePanelHandle, asked: SliceSpec | undefined, ask: { seq?: number } = {}): void => {
       const name = (variables.find((v) => v.variableIndex === asked?.variableIndex) ?? initialVar).name;
       const next = current.variables();
       const same = next.find((v) => v.name === name);
@@ -1577,7 +1577,9 @@ export class FieldglassEditorProvider
           type: "gridError",
           messageIndex: asked?.variableIndex ?? initial.variableIndex,
           error: `The ${subject.container} ${subject.noun} no longer has a variable to draw.`,
+          ...ask,
           sliceGrid: sliceAnswer(null),
+          noVariables: true,
         } satisfies GridErrorMessage);
         return;
       }
@@ -1867,7 +1869,7 @@ export class FieldglassEditorProvider
         if (!m || typeof m.type !== "string") return;
         const current = subject.handle();
         const served = gate.admit(m.type, current, (h) => {
-          adopt(h, (m as { slice?: SliceSpec }).slice);
+          adopt(h, (m as { slice?: SliceSpec }).slice, answeredSeq(m));
           return false;
         });
         if (!served) return;
@@ -2122,6 +2124,13 @@ export function sliceAnswer(grid: SliceGrid | null): SliceAnswer {
   };
 }
 
+/** The `seq` to echo in a render answer to `m`: its own for a `ready` or
+ *  `rerenderRequest`, nothing for any other request (an overlay's or a probe's
+ *  seq belongs to its own reply, not to a render answer). */
+function answeredSeq(m: { type?: string }): { seq?: number } {
+  return m.type === "ready" || m.type === "rerenderRequest" ? seqOf(m) : {};
+}
+
 /** A request's `seq`, when it sent a number, to echo in the answer. */
 function seqOf(m: unknown): { seq?: number } {
   const seq = (m as { seq?: unknown } | null)?.seq;
@@ -2148,6 +2157,10 @@ export interface GridErrorMessage {
   /** The variable the panel was showing is gone from a file that changed, and
    *  nothing was drawn: the panel asks for a variable to be picked (#839). */
   pickVariable?: boolean;
+  /** A changed file has no variable left to draw, and the page is not written
+   *  again: a colour range refused of a variable read from the old file no
+   *  longer stands (#1194). */
+  noVariables?: boolean;
   /** A GRIB panel's message is not exactly once in its changed file, and
    *  nothing was drawn: these are the new file's messages, to pick one from
    *  (#959). */
