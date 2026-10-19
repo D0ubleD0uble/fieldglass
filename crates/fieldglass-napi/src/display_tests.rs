@@ -51,12 +51,15 @@ fn a_rap_message_decodes_at_reduction_one_onto_the_derived_grid() {
         .decode_display(0, reduce(1))
         .expect("decodes at reduction 1");
     let (_, placed) = h.resolved(0).expect("the full field");
-    assert_eq!(display.reduction(), 1);
+    assert_eq!(display.reduction().unwrap(), 1);
     assert_eq!(
-        (display.ni(), display.nj()),
+        (display.ni().unwrap(), display.nj().unwrap()),
         (placed.ni.div_ceil(2), placed.nj.div_ceil(2))
     );
-    assert_eq!(display.values.len(), (display.ni() * display.nj()) as usize);
+    assert_eq!(
+        display.values.len(),
+        (display.ni().unwrap() * display.nj().unwrap()) as usize
+    );
     let derived = placed
         .geometry
         .subsampled(1)
@@ -70,12 +73,15 @@ fn a_rap_message_decodes_at_reduction_one_onto_the_derived_grid() {
     let grid: fieldglass::Georef =
         serde_json::from_value(display.grid().expect("grid")).expect("a Georef");
     assert_eq!(grid.geometry, derived);
-    assert_eq!((grid.ni, grid.nj), (Some(display.ni()), Some(display.nj())));
+    assert_eq!(
+        (grid.ni, grid.nj),
+        (Some(display.ni().unwrap()), Some(display.nj().unwrap()))
+    );
 
     // No options, and reduction zero, are the message's own field.
     for options in [None, Some(serde_json::Value::Null), reduce(0)] {
         let same = h.decode_display(0, options).expect("reduction zero");
-        assert_eq!(same.reduction(), 0);
+        assert_eq!(same.reduction().unwrap(), 0);
         assert_eq!(*same.placed.geometry, *placed.geometry);
         let (raw, _) = h.resolved(0).expect("full");
         assert_eq!(same.values, *raw);
@@ -96,7 +102,7 @@ fn a_display_grid_renders_and_warps() {
         .expect("the source view paints");
     assert_eq!(
         (source.width, source.height),
-        (display.ni() as i32, display.nj() as i32)
+        (display.ni().unwrap() as i32, display.nj().unwrap() as i32)
     );
     assert_eq!(opaque(&source), display.values.iter().flatten().count());
 

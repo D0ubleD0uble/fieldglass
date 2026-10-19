@@ -94,6 +94,37 @@ class Rules(unittest.TestCase):
     def test_no_handle_class_fails(self):
         self.assertEqual(chk.check("napi", "export declare function open(): void"), ["no `Handle` class is declared"])
 
+    def test_an_un_backticked_rust_link_fails(self):
+        for doc in ["/** see [Grib1Handle] */", "/** see [Self::decode] */"]:
+            problems = chk.check("napi", doc + "\n" + napi_file())
+            self.assertTrue(any("Rust doc link" in p for p in problems), (doc, problems))
+        # Ordinary brackets are not links.
+        self.assertEqual(chk.check("napi", "/** `[latMin, latMax]`, [0, 0] */\n" + napi_file()), [])
+
+    def test_every_class_is_held_to_camel_case_and_the_reserved_names(self):
+        for member in ["  reduction(by_level: number): number", "  closeAsync(): Promise<void>",
+                       "  static fromBytesAsync(bytes: Uint8Array): Promise<DisplayGrid>"]:
+            extra = "export declare class DisplayGrid {\n" + member + "\n}\n"
+            problems = chk.check("napi", napi_file(functions=extra))
+            self.assertTrue(any(p.startswith("DisplayGrid ") for p in problems), (member, problems))
+
+    def test_a_static_method_is_read(self):
+        extra = "export declare class DisplayGrid {\n  static from_raw(raw_bytes: Uint8Array): DisplayGrid\n}\n"
+        problems = chk.check("napi", napi_file(functions=extra))
+        self.assertTrue(any("`raw_bytes` is not camelCase" in p for p in problems), problems)
+
+    def test_open_store_is_required_where_a_store_opens(self):
+        no_store = napi_file().replace("export declare function openStore(path: string): Handle\n", "")
+        self.assertTrue(any("openStore is missing" in p for p in chk.check("napi", no_store)))
+        wasm = no_store.replace("export declare function ", "export function ")
+        for name in chk.NAPI_ONLY_FUNCTIONS:
+            wasm = wasm.replace(f"export function {name}(): unknown\n", "")
+        wasm = wasm.replace("export declare class Handle {", "export class Handle {")
+        for name in chk.NAPI_ONLY:
+            wasm = wasm.replace(f"  {name}(): unknown\n", "")
+        self.assertEqual(chk.check("wasm", wasm), [], "the default entry has no store")
+        self.assertTrue(any("openStore is missing" in p for p in chk.check("wasm", wasm, full=True)))
+
     def test_the_lists_do_not_overlap(self):
         shared = set(chk.SHARED)
         self.assertFalse(shared & set(chk.NAPI_ONLY), "a shared method listed as napi's own")

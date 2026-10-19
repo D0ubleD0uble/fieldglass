@@ -1105,9 +1105,9 @@ export interface LineRequest {
   alongDim: number;
   /**
    * A position on every axis of the variable, in its declared order, the
-   * one read along ignored.
+   * one read along ignored. A JavaScript host also takes a `Uint32Array`.
    */
-  sliceIndices: number[];
+  sliceIndices: number[] | Uint32Array;
 }
 
 /**
@@ -2035,9 +2035,9 @@ export interface SliceRequest {
   xDim: number;
   /**
    * A position on every axis of the variable, in its declared order, the two
-   * image axes ignored.
+   * image axes ignored. A JavaScript host also takes a `Uint32Array`.
    */
-  sliceIndices: number[];
+  sliceIndices: number[] | Uint32Array;
 }
 
 /**

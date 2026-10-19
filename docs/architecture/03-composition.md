@@ -175,7 +175,7 @@ classDiagram
     Handle ..> DecodedGrid : decode, decodeSlice
     Handle ..> RenderedGrid : renderGrid
     Handle ..> DisplayGrid : decodeDisplay
-    Handle ..> NetcdfVariableMeta : variables
+    Handle ..> VariableInfo : variables
     NetcdfReader ..> DatasetMeta : produces
 ```
 

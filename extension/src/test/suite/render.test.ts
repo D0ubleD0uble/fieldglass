@@ -665,7 +665,7 @@ suite("Render pipeline", () => {
       .find((v) => v.dims.reduce((n, d) => n * d.length, 1) === 146_800_704);
     assert.ok(large, "the seed offers its large dataset");
     assert.throws(
-      () => handle.renderGrid({ variable: large.variableIndex, yDim: 0, xDim: 1, sliceIndices: [0, 0] }, defaultRenderOptions()),
+      () => handle.renderGrid({ variable: large.index, yDim: 0, xDim: 1, sliceIndices: [0, 0] }, defaultRenderOptions()),
       /asks for 146800704 values at once.*more than the 67108864 one field may hold.*The file itself is fine/,
     );
   });
@@ -1044,7 +1044,7 @@ suite("render-panel HTML", () => {
     const handle = native.open(fs.readFileSync(fixturePath("netcdf4_dimscale.nc")));
     const slice: SlicePanelData = {
       variables: handle.variables(),
-      initial: { variableIndex: handle.variables()[0].variableIndex, yDim: 1, xDim: 2, sliceIndices: [0, 0, 0] },
+      initial: { variableIndex: handle.variables()[0].index, yDim: 1, xDim: 2, sliceIndices: [0, 0, 0] },
     };
     for (const [label, html] of [
       ["message", renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, fakeMeta(), "summary", registry(), combineOps())],
@@ -1086,12 +1086,12 @@ suite("render-panel HTML", () => {
     const handle = native.open(fs.readFileSync(file));
     const t2m = handle.variables().find((v) => v.name === "t2m");
     assert.ok(t2m, "t2m is offered");
-    const stored = handle.renderGrid({ variable: t2m.variableIndex, yDim: 1, xDim: 2, sliceIndices: [7, 0, 0] }, defaultRenderOptions());
+    const stored = handle.renderGrid({ variable: t2m.index, yDim: 1, xDim: 2, sliceIndices: [7, 0, 0] }, defaultRenderOptions());
     assert.ok(stored.width > 0 && stored.height > 0);
     assert.strictEqual(stored.usedMax, 90);
     assert.strictEqual(stored.usedMin, -90);
     for (let step = 0; step < 12; step++) {
-      const frame = handle.renderGrid({ variable: t2m.variableIndex, yDim: 1, xDim: 2, sliceIndices: [step, 0, 0] }, defaultRenderOptions());
+      const frame = handle.renderGrid({ variable: t2m.index, yDim: 1, xDim: 2, sliceIndices: [step, 0, 0] }, defaultRenderOptions());
       assert.strictEqual(frame.usedMax == null, step !== 7, `time step ${step}`);
     }
   });
@@ -1530,7 +1530,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(sst);
     const indices = sst.dims.map(() => 0);
     const source = handle.renderGrid(
-      { variable: sst.variableIndex, yDim: sst.detectedYDim ?? 2, xDim: sst.detectedXDim ?? 3, sliceIndices: indices },
+      { variable: sst.index, yDim: sst.detectedYDim ?? 2, xDim: sst.detectedXDim ?? 3, sliceIndices: indices },
       defaultRenderOptions(),
     );
     assert.strictEqual(source.width, 180);
@@ -1538,7 +1538,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.strictEqual(source.rgba.length, 180 * 89 * 4);
 
     const warped = handle.renderGrid(
-      { variable: sst.variableIndex, yDim: 2, xDim: 3, sliceIndices: indices },
+      { variable: sst.index, yDim: 2, xDim: 3, sliceIndices: indices },
       { projection: "equirectangular", resampling: "nearest", flipY: false },
     );
     assert.ok(warped.width > 0 && warped.height > 0);
@@ -1554,7 +1554,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
 
     // A − A on identical slice indices: every present cell is exactly 0.
     const self = handle.renderGrid(
-      { a: { variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices }, b: { variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices }, op: "a_minus_b" },
+      { a: { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, b: { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, op: "a_minus_b" },
       defaultRenderOptions(),
     );
     assert.strictEqual(self.usedMin, 0, "self-difference minimum is 0");
@@ -1566,7 +1566,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const bIndices = indices.slice();
     bIndices[1] = Math.min(1, Math.max(0, sst.dims[1].length - 1)); // lev axis
     const diff = handle.renderGrid(
-      { a: { variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices }, b: { variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: bIndices }, op: "a_minus_b" },
+      { a: { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, b: { variable: sst.index, yDim: y, xDim: x, sliceIndices: bIndices }, op: "a_minus_b" },
       defaultRenderOptions(),
     );
     assert.strictEqual(diff.rgba.length, diff.width * diff.height * 4);
@@ -1574,7 +1574,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     // A bad op is a clear error.
     assert.throws(
       () => handle.renderGrid(
-        { a: { variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices }, b: { variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices }, op: "product" as never },
+        { a: { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, b: { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, op: "product" as never },
         defaultRenderOptions(),
       ),
       /unknown combine op/,
@@ -1590,7 +1590,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
 
     // Auto levels: a real SST field has interior isolines.
     const auto = handle.projectContours(
-      { variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices },
+      { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices },
       {
       projection: "equirectangular",
       resampling: "nearest",
@@ -1603,7 +1603,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
 
     // A manual interval also produces runs (a different set of levels).
     const manual = handle.projectContours(
-      { variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices },
+      { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices },
       {
       projection: "source",
       resampling: "nearest",
@@ -1623,7 +1623,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const opts = { projection: "source" as const, resampling: "nearest" as const, flipY: false };
 
     // A pixel well inside the 180×89 grid resolves to a cell.
-    const r = handle.probePixel({ variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices }, opts, 90, 44);
+    const r = handle.probePixel({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, opts, 90, 44);
     assert.ok(r, "an in-grid pixel returns a result");
     assert.strictEqual(r.gridI, 90);
     assert.strictEqual(r.gridJ, 44);
@@ -1634,7 +1634,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
 
     // A click past the raster is nothing.
     assert.strictEqual(
-      handle.probePixel({ variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices }, opts, 9999, 9999),
+      handle.probePixel({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, opts, 9999, 9999),
       null,
       "off-raster returns null",
     );
@@ -1685,7 +1685,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const sst = handle.variables().find((v) => v.name === "sst");
     assert.ok(sst);
     const [y, x] = [sst.detectedYDim ?? 2, sst.detectedXDim ?? 3];
-    const zonal = handle.zonalMean({ variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: sst.dims.map(() => 0) });
+    const zonal = handle.zonalMean({ variable: sst.index, yDim: y, xDim: x, sliceIndices: sst.dims.map(() => 0) });
     assert.strictEqual(zonal.values.length, sst.dims[y].length, "one point per latitude row");
     assert.ok(zonal.coordinates && zonal.coordinates.length === zonal.values.length);
     // ERSST masks land, so a row can be a gap; the ocean rows are sea
@@ -1702,7 +1702,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const handle = dimscaleHandle();
     const t = handle.variables().find((v) => v.name === "temperature");
     assert.ok(t, "the fixture's 3-D variable");
-    const line = handle.decodeLine({ variable: t.variableIndex, alongDim: 0, sliceIndices: [0, 1, 2] });
+    const line = handle.decodeLine({ variable: t.index, alongDim: 0, sliceIndices: [0, 1, 2] });
     assert.deepStrictEqual(line.values, [6, 18]);
     assert.deepStrictEqual(line.mask, [1, 1]);
     assert.strictEqual(line.dimension, "time");
@@ -1718,16 +1718,16 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const t = handle.variables().find((v) => v.name === "temperature");
     assert.ok(t);
     // `ds['temperature'][1, 2, :]` → [20, 21, 22, 23].
-    const line = handle.decodeLine({ variable: t.variableIndex, alongDim: 2, sliceIndices: [1, 2, 0] });
+    const line = handle.decodeLine({ variable: t.index, alongDim: 2, sliceIndices: [1, 2, 0] });
     assert.deepStrictEqual(line.values, [20, 21, 22, 23]);
-    assert.deepStrictEqual(handle.decodeLine({ variable: t.variableIndex, alongDim: 2, sliceIndices: [1, 2, 3] }).values, line.values);
+    assert.deepStrictEqual(handle.decodeLine({ variable: t.index, alongDim: 2, sliceIndices: [1, 2, 3] }).values, line.values);
   });
 
   test("line refuses an axis the variable does not have", () => {
     const handle = dimscaleHandle();
     const t = handle.variables().find((v) => v.name === "temperature");
     assert.ok(t);
-    assert.throws(() => handle.decodeLine({ variable: t.variableIndex, alongDim: 9, sliceIndices: [0, 0, 0] }), /along_dim 9/);
+    assert.throws(() => handle.decodeLine({ variable: t.index, alongDim: 9, sliceIndices: [0, 0, 0] }), /along_dim 9/);
   });
 
   test("lineIndices writes the probed cell into the slice on screen (#172)", () => {
@@ -1747,7 +1747,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(sst);
     const coast = loadVectorLayer("coastline");
     const out = handle.projectOverlay(
-      { variable: sst.variableIndex, yDim: 2, xDim: 3, sliceIndices: [] },
+      { variable: sst.index, yDim: 2, xDim: 3, sliceIndices: [] },
       { projection: "equirectangular", resampling: "nearest", flipY: false },
       { latlon: coast.latlon, ringLengths: coast.ringLengths },
     );
@@ -1807,7 +1807,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
 
       // And the default actually geolocates — reprojection is what #218 is for.
       const rendered = handle.renderGrid(
-        { variable: v.variableIndex, yDim: y, xDim: x, sliceIndices: v.dims.map(() => 0) },
+        { variable: v.index, yDim: y, xDim: x, sliceIndices: v.dims.map(() => 0) },
         { projection: "equirectangular", resampling: "nearest", flipY: false },
       );
       assert.ok(
@@ -1860,7 +1860,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       assert.ok(v, `the fixture has ${name}`);
       const rank = v.dims.length;
       const grid = handle.sliceGrid(
-        { variable: v.variableIndex, yDim: v.detectedYDim ?? rank - 2, xDim: v.detectedXDim ?? rank - 1 },
+        { variable: v.index, yDim: v.detectedYDim ?? rank - 2, xDim: v.detectedXDim ?? rank - 1 },
       );
       const html = renderImagePanelHtml(
         { cspSource: "" } as unknown as vscode.Webview,
@@ -2365,7 +2365,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const slice: SlicePanelData = {
       variables,
       initial: {
-        variableIndex: sst.variableIndex,
+        variableIndex: sst.index,
         yDim: 2,
         xDim: 3,
         sliceIndices: sst.dims.map(() => 0),

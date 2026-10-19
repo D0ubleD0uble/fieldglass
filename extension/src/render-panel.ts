@@ -20,7 +20,7 @@ import type {
   Georef,
   GridSupport,
   MessageInfo,
-  NetcdfVariableMeta,
+  VariableInfo,
   Placement,
   ProbeResult,
 } from "./native";
@@ -65,7 +65,7 @@ export interface SliceSpec {
  *  renderable variables (each with their dimensions and detected horizontal
  *  axes) and the slice the panel opens on. */
 export interface SlicePanelData {
-  variables: NetcdfVariableMeta[];
+  variables: VariableInfo[];
   initial: SliceSpec;
 }
 
@@ -1580,7 +1580,7 @@ export function renderImagePanelHtml(
         let compareIndices = SLICE ? SLICE.initial.sliceIndices.slice() : [];
 
         function sliceVariable(idx) {
-          return SLICE ? SLICE.variables.find((v) => v.variableIndex === idx) : undefined;
+          return SLICE ? SLICE.variables.find((v) => v.index === idx) : undefined;
         }
 
         // Extra fields merged into a rerender / overlay request: the slice spec
@@ -2341,7 +2341,7 @@ export function renderImagePanelHtml(
           const varSel = document.getElementById('slice-variable');
           if (varSel) {
             varSel.innerHTML = SLICE.variables
-              .map((v) => '<option value="' + v.variableIndex + '">' + escapeAttr(v.name) + '</option>')
+              .map((v) => '<option value="' + v.index + '">' + escapeAttr(v.name) + '</option>')
               .join('');
             varSel.value = String(sliceState.variableIndex);
             varSel.addEventListener('change', () => {
@@ -2354,7 +2354,7 @@ export function renderImagePanelHtml(
               let xDim = v.detectedXDim != null ? v.detectedXDim : 1;
               if (xDim === yDim) xDim = yDim === 0 ? 1 : 0;
               sliceState = {
-                variableIndex: v.variableIndex,
+                variableIndex: v.index,
                 yDim,
                 xDim,
                 sliceIndices: v.dims.map(() => 0),
@@ -4662,7 +4662,7 @@ export function renderImagePanelHtml(
             if (okAxis(s.slice.yDim) && okAxis(s.slice.xDim) && s.slice.yDim !== s.slice.xDim &&
                 Array.isArray(s.slice.sliceIndices)) {
               sliceState = {
-                variableIndex: v.variableIndex,
+                variableIndex: v.index,
                 yDim: s.slice.yDim,
                 xDim: s.slice.xDim,
                 sliceIndices: clampTo(v.dims, s.slice.sliceIndices),

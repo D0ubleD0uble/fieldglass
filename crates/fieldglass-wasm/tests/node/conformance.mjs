@@ -134,7 +134,8 @@ function paletteOptions(args) {
 }
 
 function decodeOptions(args) {
-  return { dtype: args.dtype ?? 'auto' };
+  // A case may send the object as it stands, to pin a refusal (#1073).
+  return args.decodeOptions ?? { dtype: args.dtype ?? 'auto' };
 }
 
 /** What a line contributes to an observation —

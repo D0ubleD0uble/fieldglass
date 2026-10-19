@@ -44,7 +44,7 @@ suite("Overlays follow placement (#840)", function () {
     const index = (name: string) => {
       const v = variables.find((x) => x.name === name);
       assert.ok(v, `the fixture has ${name}`);
-      return v.variableIndex;
+      return v.index;
     };
     const temperature = index("temperature");
     const latBnds = index("lat_bnds");
@@ -151,7 +151,7 @@ suite("Overlays follow placement (#840)", function () {
     assert.ok(latBnds, "the fixture has lat_bnds");
 
     const editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: latBnds.variableIndex }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: latBnds.index }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await panel.drive([{ id: "overlay-coastlines", checked: true }]);

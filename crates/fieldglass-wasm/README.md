@@ -297,18 +297,21 @@ done, or open it with `using`, which calls `[Symbol.dispose]` at the end of the
 block — a dropped JS reference does not release the wasm allocation until the
 host's `FinalizationRegistry` runs, if it runs at all.
 
-### The same names as the Node addon
+### One shape with the Node binding
 
-The VS Code extension's addon binds the same `Session` with the same shape
-(#1073): `open`, `openStore`, `format`, `addressing`, `count`, `message`,
-`variables`, `leftOut`, `undrawable`, `decode`, `decodeSlice`, `decodeLine`,
-`decodeDisplay` and `close` take the same arguments in both, so code written
-against one reads against the other. `decodeSlice` and `decodeLine` take one
-object, `{ variable, yDim, xDim, sliceIndices }` and `{ variable, alongDim,
-sliceIndices }`, and refuse a key they do not know. Everything here is
-synchronous; `load(source, { signal })` and `<name>Async` are reserved for the
-asynchronous layer (#1085), which adds to these names rather than renaming
-them.
+The repository's Node binding (`fieldglass-napi`, internal to the VS Code
+extension) binds the same `Session` with the same shape (#1073): `open`,
+`format`, `addressing`, `count`, `message`, `variables`, `leftOut`,
+`undrawable`, `decode`, `decodeSlice`, `decodeLine`, `decodeDisplay` and `close`
+take the same arguments and mean the same things in both, and
+`tools/check_js_api.py` holds both generated declarations to that.
+`decodeSlice` and `decodeLine` take one object, `{ variable, yDim, xDim,
+sliceIndices }` and `{ variable, alongDim, sliceIndices }`, where `variable` is a
+position in `variables()` and `sliceIndices` may be a `Uint32Array`, and refuse
+a key they do not know. `close()` is harmless twice, and every other call on a
+closed object throws. Everything here is synchronous; `load(source, { signal })`
+and `<name>Async` are reserved for the asynchronous layer (#1085), which adds to
+these names rather than renaming them.
 
 Every accessor that returns a typed array **copies** out of linear memory. A
 view into it dangles the moment wasm grows the heap, so a host that wants to

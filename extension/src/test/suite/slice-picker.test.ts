@@ -324,9 +324,9 @@ suite("Slice panel projection picker", () => {
     const latBnds = byName("lat_bnds");
     const temperature = byName("temperature");
     // The slice the panel script picks for a variable: its detected axes.
-    const latBndsSlice = { variableIndex: latBnds.variableIndex, yDim: 0, xDim: 1, sliceIndices: [0, 0] };
+    const latBndsSlice = { variableIndex: latBnds.index, yDim: 0, xDim: 1, sliceIndices: [0, 0] };
     const temperatureSlice = {
-      variableIndex: temperature.variableIndex,
+      variableIndex: temperature.index,
       yDim: 1,
       xDim: 2,
       sliceIndices: [0, 0, 0],
@@ -335,7 +335,7 @@ suite("Slice panel projection picker", () => {
     // The editor opens a slice panel with a private call; this is that call.
     const panel = withSlicePanel(p, () =>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (p as any).openNetcdfRenderPanel(doc, latBnds.variableIndex),
+      (p as any).openNetcdfRenderPanel(doc, latBnds.index),
     );
     assert.deepStrictEqual(pickerIn(panel.html()), ["source"], "opened on lat_bnds");
     const picker = new Picker(panel.html());

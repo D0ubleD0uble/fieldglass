@@ -33,7 +33,9 @@
 //! `tools/check_js_api.py` fails while either host declares one of them early.
 
 use super::*;
-use fieldglass::{Addressing, DecodeOptions, Error, LineRequest, SliceRequest, SourceFormat};
+use fieldglass::{
+    Addressing, DecodeOptions, Error, LineRequest, SliceRequest, SourceFormat, VariableInfo,
+};
 use napi::JsValue;
 use napi::bindgen_prelude::{Float64Array, Object, Uint8Array, Uint32Array, Unknown};
 
@@ -83,11 +85,19 @@ pub fn wire_dispose(exports: Object, env: Env) -> napi::Result<()> {
         return Ok(());
     }
     for class in ["Handle", "DisplayGrid"] {
+        // Skipped rather than failed on: the addon loading matters more than
+        // `using` working, and `close()` is there either way.
         let constructor: Unknown = exports.get_named_property(class)?;
+        if constructor.get_type()? != napi::ValueType::Function {
+            continue;
+        }
         let mut prototype: Object = constructor
             .coerce_to_object()?
             .get_named_property("prototype")?;
         let close: Unknown = prototype.get_named_property("close")?;
+        if close.get_type()? != napi::ValueType::Function {
+            continue;
+        }
         prototype.set_property(dispose, close)?;
     }
     Ok(())
@@ -117,8 +127,81 @@ enum Inner {
     Grib2(Grib2File),
     // Boxed: a NetCDF file carries its dataset view and two memos, several
     // times the size of the others.
-    Netcdf(Box<NetcdfFile>),
+    Netcdf(Box<NetcdfOpen>),
     Zarr(ZarrStore),
+}
+
+/// A NetCDF file, and its variables as `Session` lists and numbers them.
+///
+/// The file reads through its own reader, view and memos (ADR-0011), which
+/// number a variable by its place in the file. Every slice a JavaScript caller
+/// names uses the position in `variables()` instead, on this host as on the
+/// browser module (#1073), so the listing is the API's own and each position is
+/// translated to the file's number here, once, at the boundary.
+#[derive(Debug)]
+pub(crate) struct NetcdfOpen {
+    file: NetcdfFile,
+    /// `fieldglass::variables_of` over the file: the browser module's list.
+    variables: Vec<VariableInfo>,
+    /// The file's own index for each position in `variables`, `None` for one
+    /// the view does not list as renderable (none, so far).
+    decode_index: Vec<Option<u32>>,
+}
+
+impl NetcdfOpen {
+    fn new(file: NetcdfFile) -> Self {
+        let variables = fieldglass::variables_of(&fieldglass::netcdf::NetcdfArrays::new(
+            &file.reader,
+            &file.view,
+        ));
+        let renderable = file.view.renderable_variables();
+        // The array model names a variable without the leading `/` a NetCDF-4
+        // group path carries in the view, as `NetcdfFile::line` matches them.
+        let decode_index = variables
+            .iter()
+            .map(|v| {
+                renderable
+                    .iter()
+                    .find(|r| r.name.strip_prefix('/').unwrap_or(&r.name) == v.name)
+                    .and_then(|r| u32::try_from(r.decode_index).ok())
+            })
+            .collect();
+        Self {
+            file,
+            variables,
+            decode_index,
+        }
+    }
+
+    /// The file's own index for position `variable` of `variables()`.
+    fn index_of(&self, variable: u32) -> Result<u32, RenderError> {
+        match self.decode_index.get(variable as usize) {
+            Some(Some(i)) => Ok(*i),
+            Some(None) => Err(Error::Unsupported {
+                detail: format!("variable {variable} has no plane this host reads"),
+            }
+            .into()),
+            None => Err(Error::NoSuchMessage {
+                index: variable,
+                count: u32::try_from(self.variables.len()).unwrap_or(u32::MAX),
+            }
+            .into()),
+        }
+    }
+
+    /// A slice with its variable translated to the file's own index.
+    fn translate(&self, mut slice: SliceRequest) -> Result<SliceRequest, RenderError> {
+        slice.variable = self.index_of(slice.variable)?;
+        Ok(slice)
+    }
+}
+
+impl std::ops::Deref for NetcdfOpen {
+    type Target = NetcdfFile;
+
+    fn deref(&self) -> &NetcdfFile {
+        &self.file
+    }
 }
 
 /// A field a pipeline call draws: a message index, or one slice of a variable.
@@ -209,7 +292,9 @@ impl Handle {
         let inner = match fieldglass::detect_from_bytes(&bytes) {
             fieldglass::Format::Grib1 => Inner::Grib1(Grib1File::from_vec(bytes)?),
             fieldglass::Format::Grib2 => Inner::Grib2(Grib2File::from_vec(bytes)?),
-            fieldglass::Format::NetCdf => Inner::Netcdf(Box::new(NetcdfFile::from_vec(bytes)?)),
+            fieldglass::Format::NetCdf => {
+                Inner::Netcdf(Box::new(NetcdfOpen::new(NetcdfFile::from_vec(bytes)?)))
+            }
             // Asked of the session so the refusal is the one every host gives
             // for the same bytes, with its `unsupported_format` code.
             _ => {
@@ -223,6 +308,44 @@ impl Handle {
             }
         };
         Ok(Self { inner: Some(inner) })
+    }
+
+    /// A target with each slice's variable in the numbering the container's
+    /// own code takes: the file's for NetCDF, the listing's for a store.
+    fn resolve(&self, target: GridTarget) -> Result<GridTarget, RenderError> {
+        let Inner::Netcdf(open) = self.inner()? else {
+            return Ok(target);
+        };
+        let field = |f: GridField| -> Result<GridField, RenderError> {
+            Ok(match f {
+                GridField::Slice(s) => GridField::Slice(open.translate(s)?),
+                message => message,
+            })
+        };
+        Ok(match target {
+            GridTarget::One(f) => GridTarget::One(field(f)?),
+            GridTarget::Combined { a, b, op } => GridTarget::Combined {
+                a: field(a)?,
+                b: field(b)?,
+                op,
+            },
+        })
+    }
+
+    /// [`resolve`](Self::resolve) for one field.
+    fn resolve_field(&self, field: GridField) -> Result<GridField, RenderError> {
+        match self.resolve(GridTarget::One(field))? {
+            GridTarget::One(f) => Ok(f),
+            GridTarget::Combined { .. } => unreachable!("one field in, one out"),
+        }
+    }
+
+    /// A variable position in the numbering the container's own code takes.
+    fn resolve_variable(&self, variable: u32) -> Result<u32, RenderError> {
+        match self.inner()? {
+            Inner::Netcdf(open) => open.index_of(variable),
+            _ => Ok(variable),
+        }
     }
 
     /// The container, or the refusal a closed handle gives.
@@ -306,6 +429,13 @@ pub(crate) fn read_request<T: RequestType>(
     mut value: serde_json::Value,
     what: &str,
 ) -> Result<T, RenderError> {
+    // A serde-derived struct also reads from a JSON array, field by field,
+    // where `deny_unknown_fields` never applies: `[v, 2, 3, [0, 0]]` would read
+    // as a slice here and be refused by the browser module. So anything but an
+    // object is refused first, as there.
+    if !value.is_object() {
+        return Err(unreadable(what, &"it is not an object"));
+    }
     if let Some(indices) = value.get_mut("sliceIndices")
         && let serde_json::Value::Object(map) = indices
         && (0..map.len()).all(|i| map.contains_key(&i.to_string()))
@@ -487,9 +617,11 @@ impl Handle {
     /// places on purpose: `variableIndex` is the number every slice here takes
     /// (for a NetCDF file the file's own numbering), and `units` is typeset for
     /// display (ADR-0007).
-    #[napi(js_name = "variables")]
-    pub fn variables_for_js(&self, env: Env) -> napi::Result<Vec<NetcdfVariableMeta>> {
-        self.variables().map_err(|e| e.throw(&env))
+    #[napi(js_name = "variables", ts_return_type = "VariableInfo[]")]
+    pub fn variables_for_js(&self, env: Env) -> napi::Result<serde_json::Value> {
+        self.variables()
+            .and_then(|v| Ok(to_js(serde_json::to_value(v))?))
+            .map_err(|e| e.throw(&env))
     }
 
     /// The arrays the container holds and this build will not read, each with
@@ -784,11 +916,11 @@ impl Handle {
     }
 
     /// See `variables_for_js`.
-    pub(crate) fn variables(&self) -> Result<Vec<NetcdfVariableMeta>, RenderError> {
+    pub(crate) fn variables(&self) -> Result<Vec<VariableInfo>, RenderError> {
         Ok(match self.inner()? {
             Inner::Grib1(_) | Inner::Grib2(_) => Vec::new(),
-            Inner::Netcdf(h) => h.variables(),
-            Inner::Zarr(h) => h.variables(),
+            Inner::Netcdf(open) => open.variables.clone(),
+            Inner::Zarr(h) => h.session.variables(),
         })
     }
 
@@ -851,7 +983,7 @@ impl Handle {
         let slice: SliceRequest = read_request(slice, "slice")?;
         let options = decode_options(options)?;
         match self.inner()? {
-            Inner::Netcdf(h) => Ok(h.decode_slice(&slice, &options)?),
+            Inner::Netcdf(h) => Ok(h.decode_slice(&h.translate(slice)?, &options)?),
             Inner::Zarr(h) => h.decode_slice(&slice, &options),
             Inner::Grib1(_) | Inner::Grib2(_) => Err(wrong_addressing(
                 Addressing::Messages,
@@ -866,7 +998,8 @@ impl Handle {
         line: serde_json::Value,
         options: Option<serde_json::Value>,
     ) -> Result<LineResult, RenderError> {
-        let line: LineRequest = read_request(line, "line")?;
+        let mut line: LineRequest = read_request(line, "line")?;
+        line.variable = self.resolve_variable(line.variable)?;
         let options = decode_options(options)?;
         on_slices!(self.inner()?, |h| h.line(
             line.variable,
@@ -910,7 +1043,7 @@ impl Handle {
         options: RenderOptions,
         lines: Polylines,
     ) -> Result<ProjectedOverlay, RenderError> {
-        let field = match grid_target(target)? {
+        let field = match self.resolve(grid_target(target)?)? {
             GridTarget::One(f) | GridTarget::Combined { a: f, .. } => f,
         };
         let Polylines {
@@ -959,7 +1092,7 @@ impl Handle {
 
     /// See `zonal_mean_for_js`.
     pub(crate) fn zonal_mean(&self, field: serde_json::Value) -> Result<LineResult, RenderError> {
-        match (self.inner()?, grid_field(field)?) {
+        match (self.inner()?, self.resolve_field(grid_field(field)?)?) {
             (Inner::Grib1(h), GridField::Message(i)) => Ok(h.zonal_mean(i)?),
             (Inner::Grib2(h), GridField::Message(i)) => Ok(h.zonal_mean(i)?),
             (Inner::Netcdf(h), GridField::Slice(s)) => {
@@ -978,23 +1111,26 @@ impl Handle {
         field: serde_json::Value,
         format: String,
     ) -> Result<Vec<u8>, RenderError> {
-        Ok(match (self.inner()?, grid_field(field)?) {
-            (Inner::Grib1(h), GridField::Message(i)) => h.export_csv(i, format)?,
-            (Inner::Grib2(h), GridField::Message(i)) => h.export_csv(i, format)?,
-            (Inner::Netcdf(h), GridField::Slice(s)) => {
-                h.export_csv(s.variable, s.y_dim, s.x_dim, s.slice_indices, format)?
-            }
-            (Inner::Zarr(h), GridField::Slice(s)) => {
-                h.export_csv(s.variable, s.y_dim, s.x_dim, s.slice_indices, format)?
-            }
-            (inner, _) => return Err(wrong_target(inner)),
-        })
+        Ok(
+            match (self.inner()?, self.resolve_field(grid_field(field)?)?) {
+                (Inner::Grib1(h), GridField::Message(i)) => h.export_csv(i, format)?,
+                (Inner::Grib2(h), GridField::Message(i)) => h.export_csv(i, format)?,
+                (Inner::Netcdf(h), GridField::Slice(s)) => {
+                    h.export_csv(s.variable, s.y_dim, s.x_dim, s.slice_indices, format)?
+                }
+                (Inner::Zarr(h), GridField::Slice(s)) => {
+                    h.export_csv(s.variable, s.y_dim, s.x_dim, s.slice_indices, format)?
+                }
+                (inner, _) => return Err(wrong_target(inner)),
+            },
+        )
     }
 
     /// See `slice_grid_for_js`.
     pub(crate) fn slice_grid(&self, axes: &SliceAxes) -> Result<SliceGrid, RenderError> {
+        let variable = self.resolve_variable(axes.variable)?;
         on_slices!(self.inner()?, |h| h
-            .slice_grid(axes.variable, axes.y_dim, axes.x_dim)
+            .slice_grid(variable, axes.y_dim, axes.x_dim)
             .map_err(RenderError::from))
         .ok_or_else(|| {
             wrong_addressing(
@@ -1011,6 +1147,7 @@ impl Handle {
         variable: u32,
         dim: u32,
     ) -> Result<serde_json::Value, RenderError> {
+        let variable = self.resolve_variable(variable)?;
         on_slices!(self.inner()?, |h| h
             .axis_values(variable, dim)
             .map_err(RenderError::from))
@@ -1044,7 +1181,7 @@ impl Handle {
         options: RenderOptions,
     ) -> Result<RenderedGrid, RenderError> {
         let inner = self.inner()?;
-        match grid_target(target)? {
+        match self.resolve(grid_target(target)?)? {
             GridTarget::One(field) => match (inner, field) {
                 (Inner::Grib1(h), GridField::Message(i)) => h.render_grid(i, options),
                 (Inner::Grib2(h), GridField::Message(i)) => h.render_grid(i, options),
@@ -1102,7 +1239,7 @@ impl Handle {
         interval: Option<f64>,
     ) -> Result<ProjectedOverlay, RenderError> {
         let inner = self.inner()?;
-        match grid_target(target)? {
+        match self.resolve(grid_target(target)?)? {
             GridTarget::One(field) => match (inner, field) {
                 (Inner::Grib1(h), GridField::Message(i)) => {
                     h.project_contours(i, options, interval)
@@ -1177,7 +1314,7 @@ impl Handle {
         py: u32,
     ) -> Result<Option<ProbeResult>, RenderError> {
         let inner = self.inner()?;
-        let probed = match grid_target(target)? {
+        let probed = match self.resolve(grid_target(target)?)? {
             GridTarget::One(field) => match (inner, field) {
                 (Inner::Grib1(h), GridField::Message(i)) => h.probe(i, options, px, py),
                 (Inner::Grib2(h), GridField::Message(i)) => h.probe(i, options, px, py),
@@ -1267,20 +1404,20 @@ mod tests {
 
     /// `sst` and `ssta`, on the same `lat × lon` plane, as this host numbers
     /// them.
-    fn ersst() -> (Handle, i32, i32) {
+    fn ersst() -> (Handle, u32, u32) {
         let handle = Handle::from_vec(ERSST.to_vec()).expect("ERSST opens");
         let variables = handle.variables().expect("lists");
         let index = |name: &str| {
             variables
                 .iter()
                 .find(|v| v.name == name)
-                .map(|v| v.variable_index)
+                .map(|v| v.index)
                 .expect("listed")
         };
         (handle, index("sst"), index("ssta"))
     }
 
-    fn slice(variable: i32) -> serde_json::Value {
+    fn slice(variable: u32) -> serde_json::Value {
         json!({ "variable": variable, "yDim": 2, "xDim": 3, "sliceIndices": [0, 0, 0, 0] })
     }
 
@@ -1373,6 +1510,17 @@ mod tests {
             let e = grid_target(bad.clone()).expect_err("refused");
             assert_eq!(code(&e), Some("invalid_option"), "{bad}: {e}");
         }
+        // A serde-derived struct would read an array field by field; a request
+        // is an object or nothing, as the browser module reads it.
+        let positional = json!([4, 2, 3, [0, 0, 0, 0]]);
+        for bad in [positional.clone(), json!([[4, 2, 3, [0, 0, 0, 0]]])] {
+            let e = grid_target(bad.clone()).expect_err("refused");
+            assert_eq!(code(&e), Some("invalid_option"), "{bad}: {e}");
+        }
+        let e = read_request::<SliceRequest>(positional, "slice").expect_err("refused");
+        assert!(e.to_string().contains("not an object"), "{e}");
+        let e = read_request::<LineRequest>(json!([4, 2, [0, 0]]), "line").expect_err("refused");
+        assert_eq!(code(&e), Some("invalid_option"), "{e}");
     }
 
     /// `a` and `b` reach the container in that order: the difference of two
@@ -1381,7 +1529,7 @@ mod tests {
     #[test]
     fn a_combined_target_keeps_its_order() {
         let (handle, sst, ssta) = ersst();
-        let combined = |a: i32, b: i32| {
+        let combined = |a: u32, b: u32| {
             handle
                 .render_grid(
                     json!({ "a": slice(a), "b": slice(b), "op": "a_minus_b" }),
@@ -1395,13 +1543,15 @@ mod tests {
         let Some(Inner::Netcdf(file)) = &handle.inner else {
             panic!("a NetCDF handle");
         };
+        // The file's own code numbers variables by their place in the file;
+        // the handle translated the listing's positions to those.
         let direct = file
             .render_slice_combined(
-                sst as u32,
+                file.index_of(sst).expect("listed"),
                 2,
                 3,
                 vec![0, 0, 0, 0],
-                ssta as u32,
+                file.index_of(ssta).expect("listed"),
                 vec![0, 0, 0, 0],
                 "a_minus_b".to_string(),
                 opts("source"),
@@ -1434,6 +1584,23 @@ mod tests {
         }))
         .expect_err("refused");
         assert_eq!(code(&e), Some("invalid_option"), "{e}");
+    }
+
+    /// The listing is the API's own, numbered by position as `Session` numbers
+    /// it, so the two hosts mean one variable by one number (#1073).
+    #[test]
+    fn a_netcdf_listing_is_the_sessions() {
+        let (handle, _, _) = ersst();
+        let session = fieldglass::Session::open(ERSST.to_vec()).expect("opens");
+        assert_eq!(handle.variables().unwrap(), session.variables());
+        let past = u32::try_from(session.variables().len()).unwrap();
+        let e = handle
+            .decode_slice(
+                json!({ "variable": past, "yDim": 2, "xDim": 3, "sliceIndices": [0, 0, 0, 0] }),
+                None,
+            )
+            .expect_err("past the list");
+        assert_eq!(code(&e), Some("no_such_message"), "{e}");
     }
 
     #[test]

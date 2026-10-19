@@ -77,6 +77,10 @@ suite("One handle for every container (#1073)", () => {
 
     const field = native.open(fixture("regular_latlon_surface.grib2")).decodeDisplay(0);
     assert.strictEqual(field[Symbol.dispose], field.close, "a display grid's dispose is close");
+    field.close();
+    field[Symbol.dispose]();
+    assert.throws(() => field.ni(), /closed/, "a closed display grid refuses a read");
+    assert.throws(() => field.grid(), /closed/);
   });
 
   test("each mode refuses the other's question as wrong_addressing", () => {
@@ -84,7 +88,7 @@ suite("One handle for every container (#1073)", () => {
     const grib = native.open(fixture("regular_latlon_surface.grib2"));
     const netcdf = native.open(fixture("ersst_v5_187001_cdf1.nc"));
     const sst = netcdf.variables()[0];
-    const slice = { variable: sst.variableIndex, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] };
+    const slice = { variable: sst.index, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] };
     assert.strictEqual(codeOf(() => netcdf.decode(0)), "wrong_addressing");
     assert.strictEqual(codeOf(() => netcdf.message(0)), "wrong_addressing");
     assert.strictEqual(codeOf(() => grib.decodeSlice(slice)), "wrong_addressing");
@@ -135,7 +139,7 @@ suite("One handle for every container (#1073)", () => {
     const netcdf = native.open(fixture("ersst_v5_187001_cdf1.nc"));
     const sst = netcdf.variables()[0];
     const slice = netcdf.decodeSlice(
-      { variable: sst.variableIndex, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] },
+      { variable: sst.index, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] },
       { dtype: "f64" },
     );
     assert.deepStrictEqual([slice.ni, slice.nj], [180, 89]);
@@ -143,15 +147,15 @@ suite("One handle for every container (#1073)", () => {
     // A typed array of slice indices reads as the array it holds, as the
     // browser package reads one.
     const typed = netcdf.decodeSlice({
-      variable: sst.variableIndex,
+      variable: sst.index,
       yDim: 2,
       xDim: 3,
-      sliceIndices: new Uint32Array([0, 0, 0, 0]) as unknown as number[],
+      sliceIndices: new Uint32Array([0, 0, 0, 0]),
     });
-    const plain = netcdf.decodeSlice({ variable: sst.variableIndex, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] });
+    const plain = netcdf.decodeSlice({ variable: sst.index, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] });
     assert.deepStrictEqual(Array.from(typed.values), Array.from(plain.values));
     assert.strictEqual(
-      codeOf(() => netcdf.decodeSlice({ variable: sst.variableIndex, yDim: 2, xDim: 3, sliceIndex: [0] } as never)),
+      codeOf(() => netcdf.decodeSlice({ variable: sst.index, yDim: 2, xDim: 3, sliceIndex: [0] } as never)),
       "invalid_option",
       "a key the request does not take is refused, not ignored",
     );

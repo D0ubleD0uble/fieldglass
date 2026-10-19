@@ -179,11 +179,11 @@ optional field is declared `T | null`. The `api-declarations` pre-commit hook
 fails when either file differs from what the schema generates. The addon's own
 returned `#[napi(object)]` types keep the same contract: the ones with an
 `Option` field (`DatasetMeta`, `RenderedGrid`, `ProjectedVectors`,
-`NetcdfVariableMeta`, `LineResult`, `ProbeResult`) are marked `use_nullable = true`, so napi writes
+`LineResult`, `ProbeResult`) are marked `use_nullable = true`, so napi writes
 `null` and declares `T | null`, and `tools/check_native_declarations.py` holds
 `native.ts` to what napi generates and refuses a returned object that leaves a
-key out. Only `RenderOptions`, which the extension sends rather than receives,
-keeps optional keys. `api_rules.rs` refuses `skip_serializing` on any API type
+key out. Only the objects the extension sends rather than receives
+(`RenderOptions`, `ContourSpacing`, `VectorPair`) keep optional keys. `api_rules.rs` refuses `skip_serializing` on any API type
 for the same reason (#574).
 
 **Why `fieldglass` takes `core` with `default-features = false`.** It sits

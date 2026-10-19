@@ -1392,7 +1392,7 @@ say(`grib2: ${grib.format()} ${t.ni()}x${t.nj()} ${t.parameter()} ${t.units()} v
 const canvas = document.getElementById('map');
 canvas.width = t.ni();
 canvas.height = t.nj();
-const rgba = new Uint8ClampedArray(grib.render(t, {}, false));
+const rgba = new Uint8ClampedArray(grib.render(t, {}, false).rgba);
 canvas.getContext('2d').putImageData(new ImageData(rgba, t.ni(), t.nj()), 0, 0);
 t.free();
 grib.free();
@@ -1400,7 +1400,7 @@ grib.free();
 // NetCDF: a slice placed by its 2-D coordinates.
 const ice = open(await bytes('rtofs_tripolar_arctic.nc'));
 const iv = ice.variables().find((v) => v.name === 'ice_coverage');
-const f = ice.decodeSlice(iv.index, iv.detectedYDim ?? 1, iv.detectedXDim ?? 2, new Uint32Array(iv.dims.length), {});
+const f = ice.decodeSlice({ variable: iv.index, yDim: iv.detectedYDim ?? 1, xDim: iv.detectedXDim ?? 2, sliceIndices: new Uint32Array(iv.dims.length) }, {});
 const g = f.grid();
 say(`netcdf: ${ice.format()} ${f.ni()}x${f.nj()} kind=${g.kind} label=${g.label}`);
 f.free();
@@ -1413,7 +1413,7 @@ for (const step of [7, 8, 119]) {
   const at = new Uint32Array(bv.dims.length);
   at[bv.detectedTimeDim ?? 0] = step;
   const t0 = performance.now();
-  const p = big.decodeSlice(bv.index, bv.detectedYDim ?? 1, bv.detectedXDim ?? 2, at, {});
+  const p = big.decodeSlice({ variable: bv.index, yDim: bv.detectedYDim ?? 1, xDim: bv.detectedXDim ?? 2, sliceIndices: at }, {});
   const ps = p.stats();
   say(`t2m step ${step}: ${(performance.now() - t0).toFixed(0)} ms valid=${ps.validCount} ${ps.min}..${ps.max}`);
   p.free();

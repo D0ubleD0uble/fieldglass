@@ -137,7 +137,7 @@ suite("CSV export (NetCDF)", () => {
 
   test("exportCsv matrix is a rectangular grid of the slice", () => {
     const { handle, sst, y, x, indices } = netcdfSst();
-    const csv = utf8(handle.exportCsv({ variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices }, "matrix"));
+    const csv = utf8(handle.exportCsv({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, "matrix"));
     const rows = csv.replace(/\n$/, "").split("\n").map((r) => r.split(","));
     assert.ok(rows.length > 1, "more than one row");
     const cols = rows[0].length;
@@ -150,14 +150,14 @@ suite("CSV export (NetCDF)", () => {
   test("exportCsv long has a header and one row per grid point", () => {
     const { handle, sst, y, x, indices } = netcdfSst();
     const matrix = utf8(
-      handle.exportCsv({ variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices }, "matrix"),
+      handle.exportCsv({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, "matrix"),
     )
       .replace(/\n$/, "")
       .split("\n");
     const cells = matrix.length * matrix[0].split(",").length;
 
     const long = utf8(
-      handle.exportCsv({ variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices }, "long"),
+      handle.exportCsv({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, "long"),
     )
       .replace(/\n$/, "")
       .split("\n");
@@ -171,7 +171,7 @@ suite("CSV export (NetCDF)", () => {
   test("exportCsv rejects an unknown format", () => {
     const { handle, sst, y, x, indices } = netcdfSst();
     assert.throws(
-      () => handle.exportCsv({ variable: sst.variableIndex, yDim: y, xDim: x, sliceIndices: indices }, "tsv" as "matrix"),
+      () => handle.exportCsv({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, "tsv" as "matrix"),
       /unknown CSV format/,
     );
   });

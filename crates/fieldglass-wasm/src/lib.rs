@@ -185,8 +185,9 @@ fn from_js<T: serde::de::DeserializeOwned + Default>(value: JsValue) -> Result<T
     if value.is_undefined() || value.is_null() {
         return Ok(T::default());
     }
-    serde_wasm_bindgen::from_value(value)
-        .map_err(|e| js_sys::Error::new(&format!("could not read the options object: {e}")).into())
+    // `invalid_option`, with its `code`, as every other refused argument is and
+    // as the Node addon refuses the same object (#1073).
+    serde_wasm_bindgen::from_value(value).map_err(|e| unreadable("options object", &e))
 }
 
 /// Read an argument whose type refuses unknown keys, so that it does.
@@ -261,6 +262,11 @@ fn unreadable(what: &str, e: &dyn std::fmt::Display) -> JsValue {
     )))
 }
 
+/// The refusal every call on a closed object gives (#1073).
+fn closed(what: &str) -> JsValue {
+    js_sys::Error::new(&format!("this {what} was closed; open or decode it again")).into()
+}
+
 /// Every field-combine operation, in menu order: `[{ value, label }, …]`.
 ///
 /// What a Compare picker is built from. The list is
@@ -276,7 +282,15 @@ pub fn combine_ops() -> Result<JsValue, JsValue> {
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct Handle {
-    session: Session,
+    /// `None` once closed.
+    session: Option<Session>,
+}
+
+impl Handle {
+    /// The session, or the refusal a closed handle gives.
+    fn session(&self) -> Result<&Session, JsValue> {
+        self.session.as_ref().ok_or_else(|| closed("handle"))
+    }
 }
 
 /// Open a container from its bytes. The format is detected from the bytes.
@@ -286,20 +300,24 @@ pub struct Handle {
 #[wasm_bindgen]
 pub fn open(bytes: &[u8]) -> Result<Handle, JsValue> {
     let session = Session::open(bytes.to_vec()).map_err(throw)?;
-    Ok(Handle { session })
+    Ok(Handle {
+        session: Some(session),
+    })
 }
 
 #[wasm_bindgen]
 impl Handle {
     /// Release the file and its parsed index now: the same as `free()`, and as `[Symbol.dispose]`, so
     /// `using` releases it at the end of its block (#1073). Any call on it
-    /// afterwards throws.
-    pub fn close(self) {}
+    /// afterwards throws, except `close()` itself, which is harmless twice.
+    pub fn close(&mut self) {
+        self.session = None;
+    }
 
     /// `"grib1"`, `"grib2"`, `"netcdf"` or, from `openStore`, `"zarr"`.
     #[wasm_bindgen(unchecked_return_type = "SourceFormat")]
     pub fn format(&self) -> Result<JsValue, JsValue> {
-        to_js(&self.session.format())
+        to_js(&self.session()?.format())
     }
 
     /// Which of the two ways this container is addressed: `"messages"` or
@@ -316,12 +334,12 @@ impl Handle {
     /// question was wrong.
     #[wasm_bindgen(unchecked_return_type = "Addressing")]
     pub fn addressing(&self) -> Result<JsValue, JsValue> {
-        to_js(&self.session.addressing())
+        to_js(&self.session()?.addressing())
     }
 
     /// How many messages the file holds. Zero for a variable container.
-    pub fn count(&self) -> u32 {
-        self.session.count()
+    pub fn count(&self) -> Result<u32, JsValue> {
+        Ok(self.session()?.count())
     }
 
     /// The dataset's shared dimensions, in the order the file declares them.
@@ -331,7 +349,7 @@ impl Handle {
     /// per variable. Empty for a message container.
     #[wasm_bindgen(unchecked_return_type = "DimensionInfo[]")]
     pub fn dimensions(&self) -> Result<JsValue, JsValue> {
-        to_js(&self.session.dimensions())
+        to_js(&self.session()?.dimensions())
     }
 
     /// The variables a caller can decode a slice of.
@@ -341,7 +359,7 @@ impl Handle {
     /// takes. Empty for a message container.
     #[wasm_bindgen(unchecked_return_type = "VariableInfo[]")]
     pub fn variables(&self) -> Result<JsValue, JsValue> {
-        to_js(&self.session.variables())
+        to_js(&self.session()?.variables())
     }
 
     /// The arrays the file holds and this build will not read, each with the
@@ -349,7 +367,7 @@ impl Handle {
     /// for a message container.
     #[wasm_bindgen(js_name = leftOut, unchecked_return_type = "LeftOutArray[]")]
     pub fn left_out(&self) -> Result<JsValue, JsValue> {
-        to_js(&self.session.left_out())
+        to_js(&self.session()?.left_out())
     }
 
     /// The arrays the file reads that no map can be drawn from, each with why
@@ -357,7 +375,7 @@ impl Handle {
     /// `Handle.leftOut` and `Handle.variables`, every array once.
     #[wasm_bindgen(unchecked_return_type = "LeftOutArray[]")]
     pub fn undrawable(&self) -> Result<JsValue, JsValue> {
-        to_js(&self.session.undrawable())
+        to_js(&self.session()?.undrawable())
     }
 
     /// Decode one 2-D slice of a variable into the same field
@@ -385,7 +403,7 @@ impl Handle {
         let slice: SliceRequest = request(slice, "slice")?;
         let options: DecodeOptions = from_js(options)?;
         let field = self
-            .session
+            .session()?
             .decode_slice(
                 slice.variable,
                 slice.y_dim,
@@ -394,7 +412,7 @@ impl Handle {
                 &options,
             )
             .map_err(throw)?;
-        Ok(WasmField { field })
+        Ok(WasmField { field: Some(field) })
     }
 
     /// One line through a variable: its values along `line.alongDim`, every
@@ -426,7 +444,7 @@ impl Handle {
         let line: LineRequest = request(line, "line")?;
         let options: DecodeOptions = from_js(options)?;
         let line = self
-            .session
+            .session()?
             .decode_line(line.variable, line.along_dim, &line.slice_indices, &options)
             .map_err(throw)?;
         to_js(&line)
@@ -438,7 +456,7 @@ impl Handle {
     /// of these to open. Ask for the ones you are going to show.
     #[wasm_bindgen(unchecked_return_type = "MessageInfo")]
     pub fn message(&self, index: u32) -> Result<JsValue, JsValue> {
-        let info = self.session.message(index).map_err(throw)?;
+        let info = self.session()?.message(index).map_err(throw)?;
         to_js(&info)
     }
 
@@ -451,7 +469,7 @@ impl Handle {
     /// from a pair that is not one says so beside them.
     #[wasm_bindgen(js_name = vectorPairing, unchecked_return_type = "VectorPairing")]
     pub fn vector_pairing(&self, u: u32, v: u32) -> Result<JsValue, JsValue> {
-        let pairing = self.session.vector_pairing(u, v).map_err(throw)?;
+        let pairing = self.session()?.vector_pairing(u, v).map_err(throw)?;
         to_js(&pairing)
     }
 
@@ -465,8 +483,8 @@ impl Handle {
         #[wasm_bindgen(unchecked_optional_param_type = "DecodeOptions | null")] options: JsValue,
     ) -> Result<WasmField, JsValue> {
         let options: DecodeOptions = from_js(options)?;
-        let field = self.session.decode(index, &options).map_err(throw)?;
-        Ok(WasmField { field })
+        let field = self.session()?.decode(index, &options).map_err(throw)?;
+        Ok(WasmField { field: Some(field) })
     }
 
     /// Decode one message to **draw**, at a reduced resolution: `options` is
@@ -494,10 +512,10 @@ impl Handle {
     ) -> Result<WasmDisplayField, JsValue> {
         let options: DisplayDecodeOptions = from_js(options)?;
         let field = self
-            .session
+            .session()?
             .decode_display(index, &options)
             .map_err(throw)?;
-        Ok(WasmDisplayField { field })
+        Ok(WasmDisplayField { field: Some(field) })
     }
 
     /// Resample a field onto a geographic box without painting it.
@@ -518,7 +536,10 @@ impl Handle {
         #[wasm_bindgen(unchecked_optional_param_type = "WarpOptions | null")] options: JsValue,
     ) -> Result<JsValue, JsValue> {
         let options: WarpOptions = from_js(options)?;
-        let out = self.session.warp(&field.field, &options).map_err(throw)?;
+        let out = self
+            .session()?
+            .warp(field.field()?, &options)
+            .map_err(throw)?;
         warped_object(&out)
     }
 
@@ -536,8 +557,8 @@ impl Handle {
     ) -> Result<JsValue, JsValue> {
         let options: WarpOptions = from_js(options)?;
         let out = self
-            .session
-            .warp_display(&field.field, &options)
+            .session()?
+            .warp_display(field.field()?, &options)
             .map_err(throw)?;
         warped_object(&out)
     }
@@ -572,12 +593,12 @@ impl Handle {
     ) -> Result<JsValue, JsValue> {
         let options: PaletteOptions = from_js(options)?;
         let palette = self
-            .session
-            .palette(&field.field, &options)
+            .session()?
+            .palette(field.field()?, &options)
             .map_err(throw)?;
         let range = self
-            .session
-            .palette_range(&field.field, &options)
+            .session()?
+            .palette_range(field.field()?, &options)
             .map_err(throw)?;
         palette_object(&palette, &range)
     }
@@ -607,12 +628,12 @@ impl Handle {
         let full = full_stats_from_js(full_stats)?;
         let options: PaletteOptions = from_js(options)?;
         let palette = self
-            .session
-            .palette_display(&field.field, full.as_ref(), &options)
+            .session()?
+            .palette_display(field.field()?, full.as_ref(), &options)
             .map_err(throw)?;
         let range = self
-            .session
-            .palette_display_range(&field.field, full.as_ref(), &options)
+            .session()?
+            .palette_display_range(field.field()?, full.as_ref(), &options)
             .map_err(throw)?;
         palette_object(&palette, &range)
     }
@@ -647,8 +668,8 @@ impl Handle {
     ) -> Result<JsValue, JsValue> {
         let options: PaletteOptions = from_js(options)?;
         let raster = self
-            .session
-            .render(&field.field, &options, flip_y)
+            .session()?
+            .render(field.field()?, &options, flip_y)
             .map_err(throw)?;
         raster_object(&raster)
     }
@@ -671,8 +692,8 @@ impl Handle {
         let full = full_stats_from_js(full_stats)?;
         let options: PaletteOptions = from_js(options)?;
         let raster = self
-            .session
-            .render_display(&field.field, full.as_ref(), &options, flip_y)
+            .session()?
+            .render_display(field.field()?, full.as_ref(), &options, flip_y)
             .map_err(throw)?;
         raster_object(&raster)
     }
@@ -682,7 +703,7 @@ impl Handle {
     /// reason every absent value on this surface is (#574).
     #[wasm_bindgen(unchecked_return_type = "Probe | null")]
     pub fn probe(&self, field: &WasmField, lat: f64, lon: f64) -> Result<JsValue, JsValue> {
-        match self.session.probe(&field.field, lat, lon) {
+        match self.session()?.probe(field.field()?, lat, lon) {
             Some(p) => to_js(&p),
             None => Ok(JsValue::NULL),
         }
@@ -701,7 +722,11 @@ impl Handle {
     /// should use `probe` and `probeFullDetail` instead.
     #[wasm_bindgen(js_name = probeMessage, unchecked_return_type = "MessageProbe | null")]
     pub fn probe_message(&self, index: u32, lat: f64, lon: f64) -> Result<JsValue, JsValue> {
-        match self.session.probe_message(index, lat, lon).map_err(throw)? {
+        match self
+            .session()?
+            .probe_message(index, lat, lon)
+            .map_err(throw)?
+        {
             Some(p) => to_js(&p),
             None => Ok(JsValue::NULL),
         }
@@ -715,7 +740,7 @@ impl Handle {
     #[wasm_bindgen(js_name = probeFullDetail, unchecked_return_type = "FullDetail | null")]
     pub fn probe_full_detail(&self, index: u32, lat: f64, lon: f64) -> Result<JsValue, JsValue> {
         match self
-            .session
+            .session()?
             .probe_full_detail(index, lat, lon)
             .map_err(throw)?
         {
@@ -737,10 +762,10 @@ impl Handle {
     pub fn combine(&self, a: &WasmField, b: &WasmField, op: &str) -> Result<WasmField, JsValue> {
         let op = fieldglass::op_from_wire(op).map_err(throw)?;
         let field = self
-            .session
-            .combine(&a.field, &b.field, op)
+            .session()?
+            .combine(a.field()?, b.field()?, op)
             .map_err(throw)?;
-        Ok(WasmField { field })
+        Ok(WasmField { field: Some(field) })
     }
 
     /// Isolines in fractional grid coordinates. An empty `levels` asks for a
@@ -758,8 +783,8 @@ impl Handle {
     ) -> Result<JsValue, JsValue> {
         let options: ContourOptions = from_js(options)?;
         let out: Vec<Isoline> = self
-            .session
-            .contours(&field.field, levels, &options)
+            .session()?
+            .contours(field.field()?, levels, &options)
             .map_err(throw)?;
         to_js(&out)
     }
@@ -779,10 +804,10 @@ impl Handle {
     ) -> Result<js_sys::Float32Array, JsValue> {
         let options: PaletteOptions = from_js(options)?;
         let palette = self
-            .session
-            .palette(&field.field, &options)
+            .session()?
+            .palette(field.field()?, &options)
             .map_err(throw)?;
-        let values = fieldglass::shader_values(&field.field, &palette);
+        let values = fieldglass::shader_values(field.field()?, &palette);
         Ok(js_sys::Float32Array::from(&values[..]))
     }
 
@@ -798,10 +823,10 @@ impl Handle {
     ) -> Result<js_sys::Uint8Array, JsValue> {
         let options: PaletteOptions = from_js(options)?;
         let palette = self
-            .session
-            .palette(&field.field, &options)
+            .session()?
+            .palette(field.field()?, &options)
             .map_err(throw)?;
-        let mask = fieldglass::shader_mask(&field.field, &palette);
+        let mask = fieldglass::shader_mask(field.field()?, &palette);
         Ok(js_sys::Uint8Array::from(&mask[..]))
     }
 }
@@ -884,68 +909,79 @@ fn full_stats_from_js(value: JsValue) -> Result<Option<Stats>, JsValue> {
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct WasmField {
-    field: Field,
+    /// `None` once closed.
+    field: Option<Field>,
+}
+
+impl WasmField {
+    /// The field, or the refusal a closed one gives.
+    fn field(&self) -> Result<&Field, JsValue> {
+        self.field.as_ref().ok_or_else(|| closed("field"))
+    }
 }
 
 #[wasm_bindgen]
 impl WasmField {
     /// Release the field's memory now: the same as `free()`, and as `[Symbol.dispose]`, so
     /// `using` releases it at the end of its block (#1073). Any call on it
-    /// afterwards throws.
-    pub fn close(self) {}
+    /// afterwards throws, except `close()` itself, which is harmless twice.
+    pub fn close(&mut self) {
+        self.field = None;
+    }
 
     /// The values, as a `Float32Array` or a `Float64Array` depending on what
     /// the source supports — see the `dtype` accessor. A copy: the array does
     /// not alias linear memory.
     #[wasm_bindgen(unchecked_return_type = "Float32Array | Float64Array")]
-    pub fn values(&self) -> JsValue {
-        match self.field.values.as_f32() {
+    pub fn values(&self) -> Result<JsValue, JsValue> {
+        let field = self.field()?;
+        Ok(match field.values.as_f32() {
             Some(v) => js_sys::Float32Array::from(v).into(),
             // Every other width crosses as `Float64Array`: the accessor's job
             // is a lossless handoff, and `f64` is the only typed array that is
             // lossless for every width the API can hold.
-            None => js_sys::Float64Array::from(&self.field.values.to_f64()[..]).into(),
-        }
+            None => js_sys::Float64Array::from(&field.values.to_f64()[..]).into(),
+        })
     }
 
     /// `"f32"` or `"f64"` — which typed array `WasmField.values` returned.
     #[wasm_bindgen(unchecked_return_type = "\"f32\" | \"f64\"")]
-    pub fn dtype(&self) -> String {
-        if self.field.values.as_f32().is_some() {
+    pub fn dtype(&self) -> Result<String, JsValue> {
+        Ok(if self.field()?.values.as_f32().is_some() {
             "f32".to_string()
         } else {
             "f64".to_string()
-        }
+        })
     }
 
     /// One byte per cell: `1` present, `0` absent. A separate array rather than
     /// `NaN` in the values, because `isnan()` is unreliable on some mobile GPUs
     /// and a `NaN` poisons linear filtering in a texture.
-    pub fn mask(&self) -> js_sys::Uint8Array {
-        js_sys::Uint8Array::from(&self.field.mask[..])
+    pub fn mask(&self) -> Result<js_sys::Uint8Array, JsValue> {
+        Ok(js_sys::Uint8Array::from(&self.field()?.mask[..]))
     }
 
     /// Grid columns (west-to-east point count of one row).
-    pub fn ni(&self) -> u32 {
-        self.field.ni
+    pub fn ni(&self) -> Result<u32, JsValue> {
+        Ok(self.field()?.ni)
     }
 
     /// Grid rows. `values()` is `ni * nj` long, row-major.
-    pub fn nj(&self) -> u32 {
-        self.field.nj
+    pub fn nj(&self) -> Result<u32, JsValue> {
+        Ok(self.field()?.nj)
     }
 
     /// Where the field sits on the Earth: `kind`, `boundsLonlat`, `proj4`,
     /// `affine`, `periodicX`, `scan`.
     #[wasm_bindgen(unchecked_return_type = "Georef")]
     pub fn grid(&self) -> Result<JsValue, JsValue> {
-        to_js(&self.field.georef)
+        to_js(&self.field()?.georef)
     }
 
     /// `{ min, max, validCount }` over the present cells.
     #[wasm_bindgen(unchecked_return_type = "Stats")]
     pub fn stats(&self) -> Result<JsValue, JsValue> {
-        to_js(&self.field.stats)
+        to_js(&self.field()?.stats)
     }
 
     /// The parameter's name, e.g. `"Temperature"`. When no table in the crate
@@ -955,16 +991,16 @@ impl WasmField {
     /// contract in full (#633). `null` for a GRIB2 product template that
     /// carries no parameter codes (#775).
     #[wasm_bindgen(unchecked_return_type = "string | null")]
-    pub fn parameter(&self) -> JsValue {
-        nullable_text(self.field.parameter.as_deref())
+    pub fn parameter(&self) -> Result<JsValue, JsValue> {
+        Ok(nullable_text(self.field()?.parameter.as_deref()))
     }
 
     /// The parameter's units as the originating table states them, e.g.
     /// `"K"`. `null` when the parameter did not resolve, the table states no
     /// units for it, or the array's attributes state none (#775).
     #[wasm_bindgen(unchecked_return_type = "string | null")]
-    pub fn units(&self) -> JsValue {
-        nullable_text(self.field.units.as_deref())
+    pub fn units(&self) -> Result<JsValue, JsValue> {
+        Ok(nullable_text(self.field()?.units.as_deref()))
     }
 
     /// `{ declared, truncatedTo }` when the values are a spectral field
@@ -974,7 +1010,7 @@ impl WasmField {
     /// read a point's full-detail value with `Handle.probeFullDetail`.
     #[wasm_bindgen(unchecked_return_type = "SpectralTruncation | null")]
     pub fn truncation(&self) -> Result<JsValue, JsValue> {
-        match &self.field.truncation {
+        match &self.field()?.truncation {
             Some(t) => to_js(t),
             None => Ok(JsValue::NULL),
         }
@@ -993,54 +1029,64 @@ impl WasmField {
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct WasmDisplayField {
-    field: DisplayField,
+    /// `None` once closed.
+    field: Option<DisplayField>,
+}
+
+impl WasmDisplayField {
+    /// The field, or the refusal a closed one gives.
+    fn field(&self) -> Result<&DisplayField, JsValue> {
+        self.field.as_ref().ok_or_else(|| closed("display field"))
+    }
 }
 
 #[wasm_bindgen]
 impl WasmDisplayField {
     /// Release the field's memory now: the same as `free()`, and as `[Symbol.dispose]`, so
     /// `using` releases it at the end of its block (#1073). Any call on it
-    /// afterwards throws.
-    pub fn close(self) {}
+    /// afterwards throws, except `close()` itself, which is harmless twice.
+    pub fn close(&mut self) {
+        self.field = None;
+    }
 
     /// How many wavelet levels were discarded: `0` is the message's own field.
-    pub fn reduction(&self) -> u8 {
-        self.field.reduction
+    pub fn reduction(&self) -> Result<u8, JsValue> {
+        Ok(self.field()?.reduction)
     }
 
     /// Grid columns: `ceil(ni / 2^reduction)` of the message's.
-    pub fn ni(&self) -> u32 {
-        self.field.ni
+    pub fn ni(&self) -> Result<u32, JsValue> {
+        Ok(self.field()?.ni)
     }
 
     /// Grid rows: `ceil(nj / 2^reduction)` of the message's.
-    pub fn nj(&self) -> u32 {
-        self.field.nj
+    pub fn nj(&self) -> Result<u32, JsValue> {
+        Ok(self.field()?.nj)
     }
 
     /// Where the field sits: above reduction zero, the **derived** grid (every
     /// `2^reduction`-th point of the message's), never the message's own.
     #[wasm_bindgen(unchecked_return_type = "Georef")]
     pub fn grid(&self) -> Result<JsValue, JsValue> {
-        to_js(&self.field.georef)
+        to_js(&self.field()?.georef)
     }
 
     /// The parameter's name, as `WasmField.parameter`.
     #[wasm_bindgen(unchecked_return_type = "string | null")]
-    pub fn parameter(&self) -> JsValue {
-        nullable_text(self.field.parameter.as_deref())
+    pub fn parameter(&self) -> Result<JsValue, JsValue> {
+        Ok(nullable_text(self.field()?.parameter.as_deref()))
     }
 
     /// The parameter's units, as `WasmField.units`.
     #[wasm_bindgen(unchecked_return_type = "string | null")]
-    pub fn units(&self) -> JsValue {
-        nullable_text(self.field.units.as_deref())
+    pub fn units(&self) -> Result<JsValue, JsValue> {
+        Ok(nullable_text(self.field()?.units.as_deref()))
     }
 
     /// As `WasmField.truncation`; only a reduction-zero field has one.
     #[wasm_bindgen(unchecked_return_type = "SpectralTruncation | null")]
     pub fn truncation(&self) -> Result<JsValue, JsValue> {
-        match &self.field.truncation {
+        match &self.field()?.truncation {
             Some(t) => to_js(t),
             None => Ok(JsValue::NULL),
         }

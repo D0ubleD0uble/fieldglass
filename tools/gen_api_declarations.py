@@ -78,6 +78,11 @@ REGENERATE = (
 
 # Keywords that say nothing TypeScript can state. Anything outside these and the
 # ones `ts_type` handles is refused.
+# An array a JavaScript caller may also pass as this typed array (#1073): a
+# list of indices a page already holds as a `Uint32Array`. Recorded on the
+# Rust field with `schemars(extend(...))`, and declared `T[] | <name>`.
+TYPED_ARRAY = "x-fieldglass-typed-array"
+
 IGNORED = {"description", "format", "minimum", "maximum", "default", "title"}
 HANDLED = {
     "$ref",
@@ -92,6 +97,7 @@ HANDLED = {
     "properties",
     "required",
     "additionalProperties",
+    TYPED_ARRAY,
 }
 
 # The longest fixed-length array spelled as a tuple. `[f64; 4]` boxes and corner
@@ -174,7 +180,7 @@ def check_keywords(schema: dict, where: str) -> None:
 
 # Keywords that only mean something beside a `type` naming that kind.
 OBJECT_ONLY = {"properties", "required", "additionalProperties"}
-ARRAY_ONLY = {"items", "minItems", "maxItems"}
+ARRAY_ONLY = {"items", "minItems", "maxItems", TYPED_ARRAY}
 
 
 def check_combination(schema: dict, where: str) -> None:
@@ -275,7 +281,13 @@ def ts_single(schema: dict, kind: str, defs: dict, indent: str, where: str) -> s
         lo, hi = schema.get("minItems"), schema.get("maxItems")
         if lo is not None and lo == hi and 0 < lo <= MAX_TUPLE:
             return "[" + ", ".join([item] * lo) + "]"
-        return f"({item})[]" if " " in item else f"{item}[]"
+        array = f"({item})[]" if " " in item else f"{item}[]"
+        typed = schema.get(TYPED_ARRAY)
+        if typed is not None:
+            if typed not in {"Uint8Array", "Uint32Array", "Int32Array", "Float32Array", "Float64Array"}:
+                raise SchemaError(f"{where}: {TYPED_ARRAY} names no typed array: {typed!r}")
+            return f"{array} | {typed}"
+        return array
     if kind == "object":
         if "properties" not in schema:
             if schema.get("additionalProperties") is True:

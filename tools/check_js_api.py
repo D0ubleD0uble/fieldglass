@@ -24,13 +24,16 @@ What a host must satisfy:
    the reason only it has it. A name both hosts use for different operations
    is the failure this exists to stop; `SAME_NAME_OTHER_INPUT` holds the one
    function that is the same operation reached from a different source.
-3. **Parameters are camelCase.** A `_` in a parameter name is a Rust name
-   leaking through.
-4. **No Rust doc link.** `[`Name`]` or `](Self::...)` in a doc comment is
-   markup a JavaScript reader cannot follow.
+3. **Parameters are camelCase**, on every exported class and function. A `_`
+   in a parameter name is a Rust name leaking through.
+4. **No Rust doc link.** `[`Name`]`, `[Name]`, `[Self::x]` or `](Self::...)` in
+   a doc comment is markup a JavaScript reader cannot follow.
 5. **The async names are free.** `load` and every `<name>Async` are reserved
    for the asynchronous layer (#1085), which lands beside the synchronous one
-   without renaming it; neither host may declare one before then.
+   without renaming it; no class or function of either host may declare one
+   before then.
+6. **`openStore` is there** on the addon and on the browser module's full
+   entry (`--wasm-full`), the two builds that open a Zarr store.
 
 A host's run fails loudly when its file is missing, rather than passing on
 nothing.
@@ -98,6 +101,7 @@ NAPI_ONLY_FUNCTIONS: dict[str, str] = {
     "colormaps": "the picker's colormap list",
     "parseColorTable": "the colour-table import",
     "packingLabel": "the message table's packing column",
+    "typesetUnits": "the extension's units typesetting (ADR-0007) over a listing's raw units",
 }
 WASM_ONLY: dict[str, str] = {
     "free": "wasm-bindgen's own release, which `close` also is",
@@ -199,7 +203,10 @@ def normalise(params: str) -> str:
     return ", ".join(out)
 
 
-MEMBER_RE = re.compile(r"^\s*(?P<name>\[[^\]]+\]|[A-Za-z_]\w*)\s*\((?P<params>[^)]*)\)", re.M)
+MEMBER_RE = re.compile(
+    r"^\s*(?:static\s+)?(?P<name>\[[^\]]+\]|[A-Za-z_]\w*)\s*\((?P<params>[^)]*)\)", re.M
+)
+CLASS_RE = re.compile(r"export (?:declare )?class (?P<name>\w+)")
 FUNCTION_RE = re.compile(
     r"^export (?:declare )?function (?P<name>\w+)\s*\((?P<params>[^)]*)\)", re.M
 )
@@ -224,11 +231,19 @@ def functions(text: str) -> dict[str, str]:
 # The checks
 # ---------------------------------------------------------------------------
 
-DOC_LINK_RE = re.compile(r"\[`[^`\]]+`\](?!\()|\]\((?:Self|crate|super|fieldglass)\b")
+DOC_LINK_RE = re.compile(
+    # [`Name`], and [Name] or [Self::x] spelt like a Rust path, unless a web
+    # link follows; and a link whose target is a Rust path.
+    r"\[`[^`\]]+`\](?!\()"
+    r"|\[(?:Self|crate|[A-Z][A-Za-z0-9_]*)(?:::[A-Za-z0-9_]+)*\](?![(:])"
+    r"|\]\((?:Self|crate|super|fieldglass)\b"
+)
 
 
-def check(host: str, text: str) -> list[str]:
-    """Every way `text`, the host's generated declarations, breaks the contract."""
+def check(host: str, text: str, full: bool = False) -> list[str]:
+    """Every way `text`, the host's generated declarations, breaks the contract.
+
+    `full` is the browser module's full entry, which must open a Zarr store."""
     only, only_functions = HOSTS[host]
     other_only, other_functions = next(v for k, v in HOSTS.items() if k != host)
     problems: list[str] = []
@@ -277,7 +292,15 @@ def check(host: str, text: str) -> list[str]:
         elif name not in only_functions:
             problems.append(f"function {name} is in neither shared list nor the {host} list")
 
-    for scope, table in (("Handle", methods), ("function", exported)):
+    if (host == "napi" or full) and "openStore" not in exported:
+        problems.append("function openStore is missing: this build opens a Zarr store")
+
+    scopes = [("function", exported)]
+    for m in CLASS_RE.finditer(code):
+        cls = class_body(code, m.group("name"))
+        if cls is not None:
+            scopes.append((m.group("name"), members(cls)))
+    for scope, table in scopes:
         for name, params in table.items():
             for p in split_params(params):
                 pname = re.match(r"\w+", p)
@@ -315,21 +338,28 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--napi", type=Path, help="the addon's generated index.d.ts")
     parser.add_argument("--wasm", type=Path, action="append", default=[], help="a browser build's .d.ts")
+    parser.add_argument(
+        "--wasm-full", type=Path, action="append", default=[], help="the full entry's .d.ts"
+    )
     parser.add_argument("--table", action="store_true", help="print the side-by-side table")
     args = parser.parse_args(argv)
     if args.table:
         print(table())
         return 0
-    runs = ([("napi", args.napi)] if args.napi else []) + [("wasm", p) for p in args.wasm]
+    runs = (
+        ([("napi", args.napi, False)] if args.napi else [])
+        + [("wasm", p, False) for p in args.wasm]
+        + [("wasm", p, True) for p in args.wasm_full]
+    )
     if not runs:
         parser.error("name a host's declarations with --napi or --wasm")
     failed = False
-    for host, path in runs:
+    for host, path, full in runs:
         if not path.is_file():
             print(f"{path}: missing — build the {host} host first", file=sys.stderr)
             failed = True
             continue
-        problems = check(host, path.read_text(encoding="utf-8"))
+        problems = check(host, path.read_text(encoding="utf-8"), full)
         for p in problems:
             print(f"{path}: {p}", file=sys.stderr)
         if problems:

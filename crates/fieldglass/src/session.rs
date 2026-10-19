@@ -163,7 +163,8 @@ pub struct SliceRequest {
     /// Which of its axes runs across the columns.
     pub x_dim: u32,
     /// A position on every axis of the variable, in its declared order, the two
-    /// image axes ignored.
+    /// image axes ignored. A JavaScript host also takes a `Uint32Array`.
+    #[cfg_attr(feature = "schema", schemars(extend("x-fieldglass-typed-array" = "Uint32Array")))]
     pub slice_indices: Vec<u32>,
 }
 
@@ -200,7 +201,8 @@ pub struct LineRequest {
     /// The axis to read along, as a position in the variable's axes.
     pub along_dim: u32,
     /// A position on every axis of the variable, in its declared order, the
-    /// one read along ignored.
+    /// one read along ignored. A JavaScript host also takes a `Uint32Array`.
+    #[cfg_attr(feature = "schema", schemars(extend("x-fieldglass-typed-array" = "Uint32Array")))]
     pub slice_indices: Vec<u32>,
 }
 
@@ -867,6 +869,42 @@ fn left_out_wire(l: fieldglass_core::LeftOut) -> LeftOutArray {
         reason: l.reason,
         cause,
     }
+}
+
+/// The variables `source` offers to slice — the implementation behind
+/// [`Session::variables`], for a host that holds an [`ArraySource`] rather
+/// than a `Session` (#1073).
+///
+/// `index` is the position in this list, which every slice and line request
+/// names, on every host: `fieldglass-napi` reads NetCDF through its own reader
+/// and view, and lists and numbers its variables through this, so the two
+/// hosts mean the same variable by the same number.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
+    renderable_arrays(source.group())
+        .into_iter()
+        .enumerate()
+        .map(|(i, v)| VariableInfo {
+            // Position in *this* list, not anything the reader numbers by: a
+            // host should never have to know that a reader counts every array
+            // while this offers only the renderable ones.
+            index: u32::try_from(i).unwrap_or(u32::MAX),
+            dims: v
+                .dims
+                .iter()
+                .map(|d| DimensionInfo {
+                    name: d.name.clone(),
+                    length: d.length,
+                })
+                .collect(),
+            dtype: dtype_name(&v.element_type),
+            units: array_units(source, &v.name),
+            detected_y_dim: v.detected_y_dim.and_then(|d| u32::try_from(d).ok()),
+            detected_x_dim: v.detected_x_dim.and_then(|d| u32::try_from(d).ok()),
+            detected_time_dim: v.detected_time_dim.and_then(|d| u32::try_from(d).ok()),
+            name: v.name,
+        })
+        .collect()
 }
 
 /// The arrays `source` holds and this build will not read — the
@@ -1908,30 +1946,7 @@ impl Session {
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => Vec::new(),
             #[cfg(any(feature = "netcdf", feature = "zarr"))]
-            Reader::Arrays(a) => renderable_arrays(a.source.group())
-                .into_iter()
-                .enumerate()
-                .map(|(i, v)| VariableInfo {
-                    // Position in *this* list, not anything the reader numbers
-                    // by: a host should never have to know that a reader counts
-                    // every array while this offers only the renderable ones.
-                    index: u32::try_from(i).unwrap_or(u32::MAX),
-                    dims: v
-                        .dims
-                        .iter()
-                        .map(|d| DimensionInfo {
-                            name: d.name.clone(),
-                            length: d.length,
-                        })
-                        .collect(),
-                    dtype: dtype_name(&v.element_type),
-                    units: array_units(a.source.as_ref(), &v.name),
-                    detected_y_dim: v.detected_y_dim.and_then(|d| u32::try_from(d).ok()),
-                    detected_x_dim: v.detected_x_dim.and_then(|d| u32::try_from(d).ok()),
-                    detected_time_dim: v.detected_time_dim.and_then(|d| u32::try_from(d).ok()),
-                    name: v.name,
-                })
-                .collect(),
+            Reader::Arrays(a) => variables_of(a.source.as_ref()),
         }
     }
 

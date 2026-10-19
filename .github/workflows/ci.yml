@@ -260,7 +260,7 @@ jobs:
         run: |
           python3 tools/check_js_api.py \
             --wasm crates/fieldglass-wasm/pkg/nodejs/fieldglass_wasm.d.ts \
-            --wasm crates/fieldglass-wasm/pkg/nodejs-fetchplan-zarr/fieldglass_wasm.d.ts
+            --wasm-full crates/fieldglass-wasm/pkg/nodejs-fetchplan-zarr/fieldglass_wasm.d.ts
 
       # Fails when any build drifts more than 5% from the figures in the
       # crate README, in either direction, so the documented size is the

@@ -29,15 +29,9 @@
 //! | `render_display` | `renderDisplayGrid(display, stats, …)` with `projection: "source"`, the stats `decode` returns | as `render` |
 //! | the error cases | the same calls | that the call fails, and on the same input |
 //!
-//! Two things the API answers are left out of the variable ops, each on
-//! purpose:
-//!
-//! * a variable's `units` — this host typesets them for display (ADR-0007) and
-//!   the API hands over the file's own spelling, so the two differ by design;
-//! * a variable's `index` — this host numbers a NetCDF file's variables by
-//!   their place in the file, the API by their place in the list it offers.
-//!   Both lists are compared in order, so the list position is checked anyway,
-//!   and a slice case's position is translated through the list.
+//! `variables()` is the API's own `VariableInfo` list on both hosts since
+//! #1073, compared whole, `index` and `units` included, and a slice case's
+//! `variable` is that position on both: no translation between the two.
 //!
 //! The `decode` row is the one that has caught a real host divergence: the
 //! GRIB decode used to take the raw path while every other call resolved, so a
@@ -179,7 +173,11 @@ fn render_options(args: &Args) -> RenderOptions {
 
 /// `decode`'s options for a case, as JavaScript would send them.
 fn decode_options(args: &Args) -> Option<Value> {
-    Some(json!({ "dtype": args.dtype }))
+    Some(
+        args.decode_options
+            .clone()
+            .unwrap_or_else(|| json!({ "dtype": args.dtype })),
+    )
 }
 
 /// `decodeDisplay`'s options for a case, as JavaScript would send them.
@@ -240,19 +238,6 @@ fn raster_value(raster: &RenderedGrid) -> Value {
     })
 }
 
-/// The API's `variable` is a position in the list it offers; this host's slice
-/// calls take the number its own `variables()` reports, which for a NetCDF file
-/// is the variable's place in the file. The two lists are the same variables in
-/// the same order (the `variables` cases check that), so the position
-/// translates. `None` when the list has no such position.
-fn host_variable(handle: &crate::Handle, position: Option<u32>) -> Option<i32> {
-    handle
-        .variables()
-        .ok()?
-        .get(position? as usize)
-        .map(|v| v.variable_index)
-}
-
 /// What this host answers for one case, in the suite's own observation shape.
 ///
 /// `None` means "this op is not comparable through this binding"; a failure
@@ -294,32 +279,16 @@ fn observe(case: &Case) -> Option<Value> {
         Op::Render => handle
             .render_grid(json!(args.index), render_options(args))
             .map(|raster| raster_value(&raster)),
-        Op::Variables => handle.variables().map(|variables| {
-            Value::Array(
-                variables
-                    .iter()
-                    .map(|v| {
-                        json!({
-                            "name": v.name,
-                            "dims": axes(v.dims.iter().map(|d| (d.name.as_str(), d.length))),
-                            "dtype": v.nc_type,
-                            "detectedYDim": v.detected_y_dim,
-                            "detectedXDim": v.detected_x_dim,
-                            "detectedTimeDim": v.detected_time_dim,
-                        })
-                    })
-                    .collect(),
-            )
-        }),
+        Op::Variables => handle
+            .variables()
+            .and_then(|variables| Ok(to_js(serde_json::to_value(variables))?)),
         Op::Dimensions => handle
             .metadata()
             .map(|meta| axes(meta.dimensions.iter().map(|d| (d.name.as_str(), d.length)))),
         Op::LeftOut => handle.left_out(),
         Op::Undrawable => handle.undrawable(),
         Op::DecodeSlice => {
-            let Some(variable) = host_variable(&handle, args.variable) else {
-                return Some(failed());
-            };
+            let variable = args.variable;
             handle
                 .decode_slice(
                     json!({
@@ -333,9 +302,7 @@ fn observe(case: &Case) -> Option<Value> {
                 .map(|grid| decoded_value(&grid))
         }
         Op::DecodeLine => {
-            let Some(variable) = host_variable(&handle, args.variable) else {
-                return Some(failed());
-            };
+            let variable = args.variable;
             handle
                 .decode_line(
                     json!({
@@ -374,7 +341,14 @@ fn observe(case: &Case) -> Option<Value> {
         | Op::WarpDisplay
         | Op::PaletteDisplay => return None,
     };
-    Some(observed.unwrap_or_else(|_| failed()))
+    Some(observed.unwrap_or_else(|e| match e.api() {
+        // An API refusal crosses with its code (#1073), so the code is
+        // compared; this host's own prose has none, and is compared as failed.
+        Some(api) => {
+            json!({ "error": { "code": api.code(), "hasMessage": !api.message().is_empty() } })
+        }
+        None => failed(),
+    }))
 }
 
 /// A line in `fieldglass::conformance::line_value`'s shape, less `dtype`: this
@@ -428,9 +402,9 @@ fn display_value(display: &DisplayGrid) -> Result<Value, RenderError> {
     Ok(json!({
         "len": display.values.len(),
         "maskOnes": display.values.iter().flatten().count(),
-        "ni": display.ni(),
-        "nj": display.nj(),
-        "reduction": display.reduction(),
+        "ni": display.ni()?,
+        "nj": display.nj()?,
+        "reduction": display.reduction()?,
         "georef": georef,
         "samples": samples,
     }))
@@ -484,7 +458,13 @@ fn failed() -> Value {
 /// so the comparison reports the length rather than a projection of it.
 fn projected(reference: &Value, observed: &Value) -> Value {
     if reference.get("error").is_some() {
-        return failed();
+        // Compared whole when this host answered with a code, and as a bare
+        // failure when it answered in its own words.
+        return if observed.get("error").is_some() {
+            reference.clone()
+        } else {
+            failed()
+        };
     }
     match (reference, observed) {
         (Value::Array(r), Value::Array(o)) if r.len() == o.len() => {

@@ -81,10 +81,8 @@ for (const rel of SAMPLES) {
     const nativePresent = nativeGrid.mask[k] === 1;
     const wasmPresent = mask[k] === 1;
     if (nativePresent !== wasmPresent) {
-      // The umbrella also masks a non-finite decoded value, which the addon
-      // leaves present with a NaN in it. That is a deliberate difference and
-      // not a decode disagreement, so it is reported separately.
-      if (nativePresent && !Number.isFinite(nativeGrid.values[k])) continue;
+      // Both hosts pack through the API's rule since #1073, which masks a
+      // non-finite value, so any disagreement here is a real one.
       maskDiff++;
       continue;
     }

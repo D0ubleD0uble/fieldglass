@@ -195,6 +195,20 @@ fn to_js(dto: Result<serde_json::Value, serde_json::Error>) -> napi::Result<serd
     dto.map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
+/// A unit string typeset for display (ADR-0007): what the extension shows
+/// beside a variable's name, where `variables()` hands over the file's own
+/// spelling, as the browser module does (#1073). An empty or blank result is
+/// the empty string.
+#[napi]
+pub fn typeset_units(units: String) -> String {
+    let typeset = normalize_units(&units).into_owned();
+    if typeset.trim().is_empty() {
+        String::new()
+    } else {
+        typeset
+    }
+}
+
 /// Detect the format of a file from its raw bytes.
 /// Returns "grib1" | "grib2" | "netcdf" | "unknown".
 #[napi]
@@ -2010,27 +2024,30 @@ impl DisplayGrid {
 impl DisplayGrid {
     /// How many wavelet levels were discarded: `0` is the message's own field.
     #[napi]
-    pub fn reduction(&self) -> u32 {
-        u32::from(self.reduction)
+    pub fn reduction(&self) -> napi::Result<u32> {
+        self.open()?;
+        Ok(u32::from(self.reduction))
     }
 
     /// Grid columns: `ceil(ni / 2^reduction)` of the message's. The browser
     /// module's `WasmDisplayField.ni()`.
     #[napi]
-    pub fn ni(&self) -> u32 {
-        self.placed.ni
+    pub fn ni(&self) -> napi::Result<u32> {
+        self.open()?;
+        Ok(self.placed.ni)
     }
 
     /// Grid rows: `ceil(nj / 2^reduction)` of the message's.
     #[napi]
-    pub fn nj(&self) -> u32 {
-        self.placed.nj
+    pub fn nj(&self) -> napi::Result<u32> {
+        self.open()?;
+        Ok(self.placed.nj)
     }
 
     /// Drop the values now rather than when the garbage collector runs. Also
     /// what `[Symbol.dispose]` does, so `using grid = handle.decodeDisplay(…)`
-    /// releases it at the end of the block. Calling it twice is harmless; a
-    /// closed grid refuses to be drawn.
+    /// releases it at the end of the block. Calling it twice is harmless; every
+    /// other call on a closed grid throws, as on the browser module.
     #[napi]
     pub fn close(&mut self) {
         self.values = Vec::new();
@@ -2041,7 +2058,19 @@ impl DisplayGrid {
     /// **derived** grid, never the message's own.
     #[napi(ts_return_type = "Georef")]
     pub fn grid(&self) -> napi::Result<serde_json::Value> {
+        self.open()?;
         to_js(serde_json::to_value(&self.georef))
+    }
+}
+
+impl DisplayGrid {
+    /// The refusal every call on a closed grid gives.
+    fn open(&self) -> napi::Result<()> {
+        if self.closed {
+            Err(closed_display_grid())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -2068,8 +2097,7 @@ pub(crate) fn geometry_wire(georef: &fieldglass::Georef) -> serde_json::Value {
 // ---------------------------------------------------------------------------
 
 /// One axis (dimension) of a renderable NetCDF variable, for the slice picker's
-/// index controls.
-#[napi(object)]
+/// index controls, in this crate's own listing (tests and the golden).
 #[derive(Debug)]
 pub struct NetcdfAxis {
     /// The dimension's name as the file declares it.
@@ -2084,18 +2112,11 @@ pub struct NetcdfAxis {
 /// `null` means detection found no matching coordinate variable and the user
 /// must assign that axis by hand.
 ///
-/// Every key is present, and a field with nothing to report is `null`, never
-/// missing (#574).
-// `use_nullable`: napi writes `null` for a `None` and declares the field
-// `T | null`, the wire form every object this addon returns has (#574, decided
-// 2026-09-29). Without it the key is left out and reads `undefined`, which is
-// how a `T | null` declaration once let a `!== null` guard through (#288).
-//
-// Not the API's `VariableInfo`, which the browser host returns, because the two
-// differ on purpose in two places the picker reads: `variableIndex` is the
-// file's own numbering, which every other method here takes, and `units` is
-// typeset for display (ADR-0007).
-#[napi(object, use_nullable = true)]
+/// Crate-internal since #1073: the handle's `variables()` returns the API's
+/// `VariableInfo`, numbered by position as the browser module numbers it. This
+/// listing numbers a variable by its place in the file, which the per-file
+/// methods below take, and is what this crate's tests and the characterisation
+/// golden walk the corpus with.
 #[derive(Debug)]
 pub struct NetcdfVariableMeta {
     /// Index into the reader's decode order — pass back as `variableIndex`.
@@ -3960,8 +3981,8 @@ fn project_vectors_impl(
 
 /// One line through a variable — a profile or a time series at a cell (#172).
 ///
-/// The napi spelling of `fieldglass::Line`: `values` beside a `mask` the way
-/// `DecodedGrid` carries them, with `NaN` at a masked point, so read `mask`
+/// The napi spelling of `fieldglass::Line`: `values` beside a `mask`, with
+/// `NaN` at a masked point (where `DecodedGrid` holds `0`), so read `mask`
 /// first. A line is one axis long, so plain arrays rather than typed ones.
 ///
 /// Every key is present, and a field with nothing to report is `null`, never

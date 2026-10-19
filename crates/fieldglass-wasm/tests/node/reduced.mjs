@@ -191,6 +191,16 @@ equal(
   true,
 );
 
+// A closed display field: `close()` twice is harmless, every read after it
+// and every draw of it throws, and `free()` still releases it (#1073).
+coarse.close();
+coarse.close();
+equal('a closed display field refuses ni()', /closed/.test(thrown(() => coarse.ni())?.message ?? ''), true);
+equal(
+  'and refuses to be drawn',
+  /closed/.test(thrown(() => handle.renderDisplay(coarse, stats, {}, false))?.message ?? ''),
+  true,
+);
 coarse.free();
 full.free();
 

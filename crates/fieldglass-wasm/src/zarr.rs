@@ -61,7 +61,9 @@ pub fn open_store(
     objects: JsValue,
 ) -> Result<Handle, JsValue> {
     let session = Session::open_store(read_objects(&objects)?).map_err(throw)?;
-    Ok(Handle { session })
+    Ok(Handle {
+        session: Some(session),
+    })
 }
 
 /// The JS map as the in-memory store the session reads: bytes for an object,
@@ -127,7 +129,7 @@ impl Handle {
     /// for a variable past the list.
     #[wasm_bindgen(js_name = coordinateChunks, unchecked_return_type = "ChunkRef[] | null")]
     pub fn coordinate_chunks(&self, variable: u32) -> Result<JsValue, JsValue> {
-        to_js(&self.session.coordinate_chunks(variable).map_err(throw)?)
+        to_js(&self.session()?.coordinate_chunks(variable).map_err(throw)?)
     }
 
     /// Which cells a box holds at one position on the other axes, and which
@@ -160,7 +162,7 @@ impl Handle {
         #[wasm_bindgen(unchecked_param_type = "WindowRequest")] request: JsValue,
     ) -> Result<JsValue, JsValue> {
         let request: WindowRequest = strict(request, "window request")?;
-        to_js(&self.session.plan_window(&request).map_err(throw)?)
+        to_js(&self.session()?.plan_window(&request).map_err(throw)?)
     }
 
     /// The field over a window's cells, read from the chunks `planWindow`
@@ -182,9 +184,9 @@ impl Handle {
         let request: WindowRequest = strict(request, "window request")?;
         let options: DecodeOptions = from_js(options)?;
         let field = self
-            .session
+            .session()?
             .decode_window(&request, &options)
             .map_err(throw)?;
-        Ok(WasmField { field })
+        Ok(WasmField { field: Some(field) })
     }
 }

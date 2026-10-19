@@ -25,7 +25,7 @@ import * as path from "path";
 
 import { nativeNotLoaded, reportProblem } from "./problems";
 
-import type { Addressing, AxisValues, ColourRange, DecodeOptions, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, LineRequest, MessageInfo, Placement, SliceRequest, SourceFormat, Stats, VectorPairing, Vertical } from "./api.generated";
+import type { Addressing, AxisValues, ColourRange, DecodeOptions, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, LineRequest, MessageInfo, Placement, SliceRequest, SourceFormat, Stats, VariableInfo, VectorPairing, Vertical } from "./api.generated";
 
 export type {
   Addressing,
@@ -42,6 +42,8 @@ export type {
   RangeRefusal,
   SliceRequest,
   SourceFormat,
+  DimensionInfo,
+  VariableInfo,
   VectorPairing,
   Vertical,
 } from "./api.generated";
@@ -347,33 +349,6 @@ export interface CombineOpInfo {
 // NetCDF 2-D slice rendering (#122)
 // ---------------------------------------------------------------------------
 
-/** One axis (dimension) of a renderable NetCDF variable, for the picker's
- *  index controls. */
-export interface NetcdfAxis {
-  name: string;
-  length: number;
-}
-
-/** A NetCDF variable the render panel can draw, with its dimensions and the
- *  CF-detected horizontal-axis positions. `detectedYDim` / `detectedXDim` are
- *  axis indices (into `dims`) the picker pre-fills the Y / X selectors with;
- *  `null` means detection found no coordinate variable and the user assigns
- *  that axis by hand. */
-export interface NetcdfVariableMeta {
-  variableIndex: number;
-  name: string;
-  ncType: string;
-  dims: NetcdfAxis[];
-  detectedYDim: number | null;
-  detectedXDim: number | null;
-  /** The axis index of the time dimension, which the panel animates along
-   *  (#170); `null` when the variable has none. Never an image axis. */
-  detectedTimeDim: number | null;
-  /** The variable's CF `units`, typeset for display the way a GRIB unit is
-   *  (ADR-0007); `null` when the variable declares none (#775). */
-  units: string | null;
-}
-
 /** Where one slice sits, as the render panel asks it (#574): the family to
  *  caption, whether it can be placed, and whether the reprojection targets may
  *  be offered. The same placement the handle renders from, so the picker cannot
@@ -462,8 +437,11 @@ export interface Handle {
    *  `MessageInfo` the browser package returns. Every key is present; a field
    *  with nothing to report is `null` (#574). */
   message(index: number): MessageInfo;
-  /** The variables a slice can be drawn from. Empty for a message stream. */
-  variables(): NetcdfVariableMeta[];
+  /** The variables a slice can be drawn from, as the browser package lists
+   *  them (#1073): `index` is the position every slice request names, and
+   *  `units` is the file's own spelling, which {@link FieldglassNative.typesetUnits}
+   *  typesets for display. Empty for a message stream. */
+  variables(): VariableInfo[];
   /** The arrays the container holds and this build will not read (#709), each
    *  with the reader's reason and a `cause` code (#1129). */
   leftOut(): LeftOutArray[];
@@ -567,6 +545,9 @@ export interface FieldglassNative {
    *  `"Second-order (SPD-2)"`; an identifier with no label comes back as
    *  itself. */
   packingLabel(packing: string): string;
+  /** A unit string typeset for display (ADR-0007), as the panel shows a
+   *  variable's units; blank comes back empty. */
+  typesetUnits(units: string): string;
 }
 
 let cached: FieldglassNative | undefined;

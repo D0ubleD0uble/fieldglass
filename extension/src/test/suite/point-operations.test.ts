@@ -51,7 +51,7 @@ function variableIndex(file: string, name: string): number {
     .variables()
     .find((x) => x.name === name);
   assert.ok(v, `${path.basename(file)} has ${name}`);
-  return v.variableIndex;
+  return v.index;
 }
 
 /** The committed §3.20 polar stereographic fixture, edited to state an Earth
@@ -231,7 +231,7 @@ suite("Point operations follow the grid (#945)", function () {
           const native = loadNative();
           assert.ok(native, "native binding required");
           const bytes = fs.readFileSync(file);
-          const handle = file.endsWith(".grib2") ? native.open(bytes) : native.open(bytes);
+          const handle = native.open(bytes);
           const meta = handle.message(0);
           assert.strictEqual(meta.placement, "placed", `${family} is placed`);
           supports = meta.supports;
@@ -349,7 +349,7 @@ suite("Point operations follow the grid (#945)", function () {
             source: path.basename(file),
           },
           {
-            variableIndex: v.variableIndex,
+            variableIndex: v.index,
             yDim: v.detectedYDim ?? rank - 2,
             xDim: v.detectedXDim ?? rank - 1,
             sliceIndices: new Array(rank).fill(0),

@@ -42,7 +42,7 @@ export async function openAnimated(): Promise<Opened> {
   const air = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "air");
   assert.ok(air, "air is renderable");
   const editor = await openEditor(p, file);
-  const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.variableIndex }));
+  const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.index }));
   await panel.waitSent(isType("gridReady"), 0, "the first render");
   await shown(panel);
   return {

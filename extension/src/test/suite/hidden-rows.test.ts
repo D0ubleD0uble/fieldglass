@@ -68,7 +68,7 @@ suite("Hidden toolbar rows are not displayed (#1035)", function () {
     const latBnds = variable(file, "lat_bnds");
     assert.strictEqual(latBnds.dims.length, 2, "nothing to animate");
     const editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: latBnds.variableIndex }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: latBnds.index }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await panel.drive([]);
@@ -86,7 +86,7 @@ suite("Hidden toolbar rows are not displayed (#1035)", function () {
     const file = fixture("netcdf4_dimscale.nc");
     const temperature = variable(file, "temperature");
     const editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.variableIndex }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.index }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await panel.drive([]);

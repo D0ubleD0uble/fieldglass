@@ -183,7 +183,7 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
       .find((v) => v.name === "temperature");
     assert.ok(temperature, "the fixture has temperature");
     const editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.variableIndex }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.index }));
     try {
       const moved = await roundTrip(
         panel,
@@ -263,13 +263,13 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
       await panel.waitSent(drawnOrRefused, 0, "the first render");
       await settle(panel);
       const first = (await panel.controls())["slice-variable"];
-      const other = first === String(t.variableIndex) ? u : t;
+      const other = first === String(t.index) ? u : t;
       // Another control changed, which saves the panel with Animate on its
       // default; shown again; then moved to the variable whose time sits
       // elsewhere.
       await panel.drive([{ id: "anim-speed", value: 5 }]);
       await rebuilt(panel);
-      await panel.drive([{ id: "slice-variable", value: other.variableIndex }]);
+      await panel.drive([{ id: "slice-variable", value: other.index }]);
       await settle(panel);
       assert.strictEqual(
         (await panel.controls())["animate-dim"],

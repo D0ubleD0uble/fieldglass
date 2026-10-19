@@ -53,7 +53,7 @@ function variableIndex(file: string, name: string): number {
     .variables()
     .find((x) => x.name === name);
   assert.ok(v, `${path.basename(file)} has ${name}`);
-  return v.variableIndex;
+  return v.index;
 }
 
 /** The committed §3.20 polar stereographic fixture on an Earth of 80 km with

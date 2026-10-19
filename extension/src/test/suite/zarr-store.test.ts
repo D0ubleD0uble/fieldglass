@@ -101,7 +101,7 @@ suite("Zarr store", () => {
     assert.ok(t.detectedXDim != null, "a longitude axis was detected");
 
     const grid = handle.renderGrid(
-      { variable: t.variableIndex, yDim: t.detectedYDim, xDim: t.detectedXDim, sliceIndices: t.dims.map(() => 0) },
+      { variable: t.index, yDim: t.detectedYDim, xDim: t.detectedXDim, sliceIndices: t.dims.map(() => 0) },
       {
         projection: "equirectangular",
         resampling: "nearest",

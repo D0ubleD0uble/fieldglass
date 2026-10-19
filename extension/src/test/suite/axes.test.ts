@@ -158,7 +158,7 @@ function variableIndex(store: string, name: string): number {
   assert.ok(native, "native binding required");
   const v = native.openStore(store).variables().find((x) => x.name === name);
   assert.ok(v, `the store has ${name}`);
-  return v.variableIndex;
+  return v.index;
 }
 
 const drawn = (m: Msg) => m && (m.type === "gridReady" || m.type === "gridError");
@@ -401,7 +401,7 @@ suite("Line-plot and cross-section axes (#1043)", function () {
     const t2m = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "t2m");
     assert.ok(t2m, "t2m is renderable");
     const editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: t2m.variableIndex }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: t2m.index }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await plotted(panel);
@@ -450,7 +450,7 @@ suite("Line-plot and cross-section axes (#1043)", function () {
     const sst = native.open(fs.readFileSync(file)).variables().find((v) => v.name.endsWith("sst"));
     assert.ok(sst, "sst is renderable");
     let editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: sst.variableIndex }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: sst.index }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       // lev (a depth, positive down) down the rows, lat across: 89 × 1.
@@ -514,7 +514,7 @@ suite("A cross-section restored over a reopened or changed file (#1043)", functi
     const air = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "air");
     assert.ok(air, "air is renderable");
     let editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.variableIndex }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.index }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       // level down the rows, lat across: 3 × 17, ground at the bottom.
@@ -571,7 +571,7 @@ async function levelsSection(): Promise<{ panel: RealPanel; close: () => void }>
   const air = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "air");
   assert.ok(air, "air is renderable");
   const editor = await openEditor(p, file);
-  const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.variableIndex }));
+  const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.index }));
   const close = () => {
     panel.dispose();
     editor.close();

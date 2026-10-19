@@ -114,13 +114,13 @@ suite("A render panel names its file or store (#1038)", function () {
     assert.ok(a && t, `the twin has a and t, got ${variables.map((v) => v.name).join(", ")}`);
     // The stores open on their first variable; the twin is opened on the same.
     // Each numbers its variables its own way, so t is found in each.
-    const tIn = new Map<string, number>([["cf_twin.nc", t.variableIndex]]);
+    const tIn = new Map<string, number>([["cf_twin.nc", t.index]]);
     for (const store of stores) {
       const vars = native.openStore(store).variables();
       assert.strictEqual(vars[0].name, "a", `${store} opens on a`);
       const tv = vars.find((v) => v.name === "t");
       assert.ok(tv, `${store} has t`);
-      tIn.set(path.basename(store), tv.variableIndex);
+      tIn.set(path.basename(store), tv.index);
     }
 
     const editor = await openEditor(p, twin);
@@ -128,7 +128,7 @@ suite("A render panel names its file or store (#1038)", function () {
     try {
       panels.push({
         source: "cf_twin.nc",
-        panel: await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: a.variableIndex })),
+        panel: await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: a.index })),
       });
       for (const store of stores) {
         panels.push({ source: path.basename(store), panel: await openReal(p, () => p.openZarrStore(vscode.Uri.file(store))) });

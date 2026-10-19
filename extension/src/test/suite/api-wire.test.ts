@@ -239,17 +239,17 @@ suite("API wire contract (#574)", () => {
     const nc = native.open(fixture("netcdf4_dimscale.nc"));
     const bounds = nc.variables().find((v) => v.name === "lat_bnds");
     assert.ok(bounds, "the fixture has lat_bnds");
-    nullUnderItsKey("NetcdfVariableMeta", bounds, ["detectedTimeDim"]);
+    nullUnderItsKey("VariableInfo", bounds, ["detectedTimeDim"]);
     for (const key of ["detectedYDim", "detectedXDim"]) {
-      assert.ok(key in bounds, `NetcdfVariableMeta.${key} is present`);
+      assert.ok(key in bounds, `VariableInfo.${key} is present`);
     }
     const [y, x] = [bounds.dims.length - 2, bounds.dims.length - 1];
 
     // AxisValues and LineResult: an axis with no coordinate array.
-    nullUnderItsKey("AxisValues", nc.axisValues(bounds.variableIndex, x), ["coordinates"]);
+    nullUnderItsKey("AxisValues", nc.axisValues(bounds.index, x), ["coordinates"]);
     nullUnderItsKey(
       "LineResult",
-      nc.decodeLine({ variable: bounds.variableIndex, alongDim: x, sliceIndices: bounds.dims.map(() => 0) }),
+      nc.decodeLine({ variable: bounds.index, alongDim: x, sliceIndices: bounds.dims.map(() => 0) }),
       ["coordinates", "coordinateUnits"],
     );
 
@@ -260,7 +260,7 @@ suite("API wire contract (#574)", () => {
       flipY: false,
     };
     const zero = bounds.dims.map(() => 0);
-    nullUnderItsKey("RenderedGrid", nc.renderGrid({ variable: bounds.variableIndex, yDim: y, xDim: x, sliceIndices: zero }, options), [
+    nullUnderItsKey("RenderedGrid", nc.renderGrid({ variable: bounds.index, yDim: y, xDim: x, sliceIndices: zero }, options), [
       "usedLatMin",
       "usedLatMax",
       "usedLonMin",
@@ -268,14 +268,14 @@ suite("API wire contract (#574)", () => {
     ]);
 
     // ProbeResult: a cell nothing places has a value and no position.
-    const probe = nc.probePixel({ variable: bounds.variableIndex, yDim: y, xDim: x, sliceIndices: zero }, options, 0, 0);
+    const probe = nc.probePixel({ variable: bounds.index, yDim: y, xDim: x, sliceIndices: zero }, options, 0, 0);
     assert.ok(probe, "the pixel is on the raster");
     nullUnderItsKey("ProbeResult", probe, ["lat", "lon"]);
     assert.strictEqual(typeof probe.value, "number", "and it still reads the value");
 
     // SliceGrid has no optional field; its answers for the same slice are the
     // ones the panel gates its projection picker on.
-    assert.deepStrictEqual(nc.sliceGrid({ variable: bounds.variableIndex, yDim: y, xDim: x }), {
+    assert.deepStrictEqual(nc.sliceGrid({ variable: bounds.index, yDim: y, xDim: x }), {
       label: "source",
       placement: "unplaceable",
       reprojectable: false,

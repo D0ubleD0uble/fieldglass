@@ -19,12 +19,13 @@ import {
   type ColourRange,
   type CombineOpInfo,
   type DatasetMeta,
+  type FieldglassNative,
   type GridSupport,
   type GridTarget,
   type Handle,
   type Identification,
   type MessageInfo,
-  type NetcdfVariableMeta,
+  type VariableInfo,
   type RangeRefusal,
   type SliceAxes,
   type SliceGrid,
@@ -80,6 +81,22 @@ const FORMAT_LABELS: Record<string, string> = {
  *  should hold the result. */
 export function listMessages(handle: Handle): MessageInfo[] {
   return Array.from({ length: handle.count() }, (_, i) => handle.message(i));
+}
+
+/** A handle's variables, as the panel shows them: the browser package's
+ *  listing (#1073) with each `units` typeset for display (ADR-0007), the way a
+ *  GRIB message's units arrive. */
+export function listVariables(native: FieldglassNative, handle: Handle): VariableInfo[] {
+  return handle.variables().map((v) => ({
+    ...v,
+    units: v.units == null ? null : native.typesetUnits(v.units) || null,
+  }));
+}
+
+/** {@link listVariables} with the addon this extension loaded. */
+function listVariablesOf(handle: Handle): VariableInfo[] {
+  const native = loadNative();
+  return native ? listVariables(native, handle) : handle.variables();
 }
 
 /** A panel's slice as the handle's `SliceRequest` (#1073): the panel names the
@@ -304,7 +321,7 @@ export class FieldglassEditorProvider
       await reportProblem("error", couldNotOpen("Zarr store", name, storeUri.fsPath, err));
       return;
     }
-    const variables = handle.variables();
+    const variables = listVariables(native, handle);
     if (variables.length === 0) {
       // A store that opened but holds nothing drawable. `leftOut` and
       // `undrawable` say why for each of its arrays (#1129), and
@@ -316,7 +333,7 @@ export class FieldglassEditorProvider
       return;
     }
     this._zarrHandlesByStore.set(storeUri.toString(), handle);
-    this.openZarrRenderPanel(storeUri, variables[0].variableIndex);
+    this.openZarrRenderPanel(storeUri, variables[0].index);
   }
 
   /** Ask for a `.cpt` file, import it, and offer it in every open render panel.
@@ -418,7 +435,7 @@ export class FieldglassEditorProvider
     const handle = native ? this.openOrReuseHandle(document, format) : undefined;
     const messages = handle ? listMessages(handle) : undefined;
     let dataset: DatasetMeta | undefined;
-    let netcdfVariables: NetcdfVariableMeta[] | undefined;
+    let netcdfVariables: VariableInfo[] | undefined;
     if (native && format === "netcdf") {
       // One reader for the whole open. The handle is retained for rendering
       // anyway, and it answers for the metadata too, so the file is parsed and
@@ -435,7 +452,7 @@ export class FieldglassEditorProvider
       // metadata view. A backing without a render path yet (HDF5, #169) returns
       // an empty list, so the dump shows without render buttons.
       try {
-        netcdfVariables = ncHandle?.variables();
+        netcdfVariables = ncHandle && native ? listVariables(native, ncHandle) : undefined;
       } catch (err) {
         console.error("[Fieldglass] Handle.variables failed:", err);
       }
@@ -765,9 +782,9 @@ export class FieldglassEditorProvider
     }
 
     // Named as the PNG of this slice is (#1039, #1112).
-    let variable: NetcdfVariableMeta | undefined;
+    let variable: VariableInfo | undefined;
     try {
-      variable = handle.variables().find((v) => v.variableIndex === spec.variableIndex);
+      variable = handle.variables().find((v) => v.index === spec.variableIndex);
     } catch {
       // Named by the variable's index below.
     }
@@ -1497,9 +1514,9 @@ export class FieldglassEditorProvider
     handle: Handle,
     variableIndex: number,
   ): void {
-    let variables = handle.variables();
+    let variables = listVariablesOf(handle);
     let initialVar =
-      variables.find((v) => v.variableIndex === variableIndex) ?? variables[0];
+      variables.find((v) => v.index === variableIndex) ?? variables[0];
     if (!initialVar) return;
 
     let initial = defaultSliceSpec(initialVar);
@@ -1547,7 +1564,7 @@ export class FieldglassEditorProvider
     // The tab names the variable drawn and the file or store (#1038). It
     // follows the variable: set again by every render, from the variable the
     // render drew.
-    const titleOf = (v: NetcdfVariableMeta): string =>
+    const titleOf = (v: VariableInfo): string =>
       composeTabTitle(cleanTitlePart(v.name) || "variable", subject.source);
     const panel = vscode.window.createWebviewPanel(
       "fieldglass.render",
@@ -1580,8 +1597,8 @@ export class FieldglassEditorProvider
     // was showing is no longer in the file.
     let refusal: string | null = null;
     const adopt = (current: Handle, asked: SliceSpec | undefined, ask: { seq?: number } = {}): void => {
-      const name = (variables.find((v) => v.variableIndex === asked?.variableIndex) ?? initialVar).name;
-      const next = current.variables();
+      const name = (variables.find((v) => v.index === asked?.variableIndex) ?? initialVar).name;
+      const next = listVariablesOf(current);
       const same = next.find((v) => v.name === name);
       const opened = same ?? next[0];
       if (!opened) {
@@ -1611,8 +1628,8 @@ export class FieldglassEditorProvider
     // one the panel opened on, and the heading and probe units have to follow
     // it; labelling every render with `initialVar` reported the opening
     // variable's units against whatever was on screen.
-    const renderedVar = (spec: SliceSpec): NetcdfVariableMeta =>
-      variables.find((v) => v.variableIndex === spec.variableIndex) ?? initialVar;
+    const renderedVar = (spec: SliceSpec): VariableInfo =>
+      variables.find((v) => v.index === spec.variableIndex) ?? initialVar;
 
     const paint = (requested: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare, ask: { seq?: number } = {}) => {
       const docHandle = subject.handle();
@@ -2536,7 +2553,7 @@ function axisReader(handle: Handle, variableIndex: number): (dim: number) => Axi
  *  {@link composeExportName} writes it. `variable` is `undefined` when the
  *  handle no longer lists it, and the name then carries the index. */
 function sliceExportName(
-  variable: Pick<NetcdfVariableMeta, "name" | "dims"> | undefined,
+  variable: Pick<VariableInfo, "name" | "dims"> | undefined,
   spec: SliceSpec,
   source: string,
   ext: ExportExtension,
@@ -2622,12 +2639,12 @@ function productionStatus(id: Identification): string | null {
 
 /** The slice the render panel opens on: the variable's CF-detected horizontal
  *  axes (falling back to the first two dimensions) with every held index at 0. */
-function defaultSliceSpec(v: NetcdfVariableMeta): SliceSpec {
+function defaultSliceSpec(v: VariableInfo): SliceSpec {
   const yDim = v.detectedYDim ?? 0;
   let xDim = v.detectedXDim ?? (yDim === 0 ? 1 : 0);
   if (xDim === yDim) xDim = yDim === 0 ? 1 : 0;
   return {
-    variableIndex: v.variableIndex,
+    variableIndex: v.index,
     yDim,
     xDim,
     sliceIndices: v.dims.map(() => 0),
@@ -2645,9 +2662,9 @@ function defaultSliceSpec(v: NetcdfVariableMeta): SliceSpec {
  *  variable or axes with a different answer, so every slice render sends its
  *  own in `GridReadyMessage.sliceGrid` and the picker follows that (#822). */
 export function sliceField(
-  v: NetcdfVariableMeta,
+  v: VariableInfo,
   grid: SliceGrid | null,
-  index = v.variableIndex,
+  index = v.index,
 ): PanelField {
   return {
     index,
@@ -2673,7 +2690,7 @@ export function sliceField(
 
 /** The heading a render of this variable is labelled with. */
 function sliceTitle(
-  v: NetcdfVariableMeta,
+  v: VariableInfo,
   index: number,
 ): Pick<PanelField, "index" | "parameter" | "units"> {
   return { index, parameter: v.name, units: v.units };
@@ -2713,7 +2730,7 @@ export function describeProjection(meta: MessageInfo): string {
 
 function renderDatasetBody(
   d: DatasetMeta,
-  netcdfVariables?: NetcdfVariableMeta[],
+  netcdfVariables?: VariableInfo[],
 ): string {
   // Long attribute strings are common in CF-Convention NetCDF files; truncate
   // for the row view but keep the full text in the title attribute so users
@@ -2747,7 +2764,7 @@ function renderDatasetBody(
     const buttons = netcdfVariables
       .map(
         (v) =>
-          `<button type="button" class="netcdf-render-btn" data-variable-index="${v.variableIndex}">Render ${escapeHtml(v.name)}</button>`,
+          `<button type="button" class="netcdf-render-btn" data-variable-index="${v.index}">Render ${escapeHtml(v.name)}</button>`,
       )
       .join(" ");
     sections.push(`
@@ -2914,7 +2931,7 @@ export function renderHtml(
   dataset: DatasetMeta | undefined,
   headerBytes: Uint8Array | undefined,
   editable: boolean,
-  netcdfVariables?: NetcdfVariableMeta[]
+  netcdfVariables?: VariableInfo[]
 ): string {
   // FORMAT_LABELS is a closed Record<string, string>; `format` originates
   // from native detect_bytes which returns one of a fixed set of tokens.

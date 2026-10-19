@@ -95,7 +95,7 @@ suite("The projection note follows placement (#960)", function () {
     const index = (name: string) => {
       const v = handle.variables().find((x) => x.name === name);
       assert.ok(v, `the fixture has ${name}`);
-      return v.variableIndex;
+      return v.index;
     };
     const temperature = index("temperature");
     const latBnds = index("lat_bnds");

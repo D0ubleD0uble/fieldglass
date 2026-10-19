@@ -253,6 +253,32 @@ equal(
 );
 mixed.free();
 
+// `close()` is harmless twice, every other call on a closed object throws, and
+// `Symbol.dispose` still releases one that was closed (#1073).
+const closing = wasm.open(new Uint8Array(readFileSync(MIXED)));
+const own = closing.variables();
+closing.close();
+closing.close();
+const closedThrows = (name, call) => {
+  try {
+    call();
+    check(`${name} after close throws`, false, 'it returned');
+  } catch (e) {
+    check(`${name} after close throws`, /closed/.test(e.message), e.message);
+  }
+};
+closedThrows('handle.variables', () => closing.variables());
+closedThrows('handle.count', () => closing.count());
+closing[Symbol.dispose]();
+check('the closed handle had variables to list before', Array.isArray(own));
+const once = handle.decodeSlice({ variable: variables[0].index, yDim: 0, xDim: 1, sliceIndices: [0, 0] });
+once.close();
+once.close();
+closedThrows('field.values', () => once.values());
+closedThrows('field.ni', () => once.ni());
+closedThrows('a closed field handed to render', () => handle.render(once, {}, false));
+once[Symbol.dispose]();
+
 field.free();
 handle.free();
 

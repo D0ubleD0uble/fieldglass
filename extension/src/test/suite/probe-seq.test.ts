@@ -26,7 +26,7 @@ async function temperaturePanel(): Promise<{ panel: RealPanel; close: () => void
     .find((v) => v.name === "temperature");
   assert.ok(temperature, "the fixture has temperature");
   const editor = await openEditor(p, file);
-  const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.variableIndex }));
+  const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.index }));
   await panel.waitSent(isType("gridReady"), 0, "the first render");
   return {
     panel,

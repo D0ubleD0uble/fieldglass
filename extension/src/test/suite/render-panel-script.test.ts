@@ -48,7 +48,7 @@ function indexOf(bytes: Buffer, name: string): number {
   assert.ok(native, "native binding required");
   const v = native.open(bytes).variables().find((x) => x.name === name);
   assert.ok(v, `the file has ${name}`);
-  return v.variableIndex;
+  return v.index;
 }
 
 /** A copy of a NetCDF file in a temporary folder, opened in the editor with a
@@ -215,12 +215,14 @@ suite("The render panel's own script", function () {
   // The new file has the variable, under another number, and something else
   // under the old one. The panel is restored after the change.
   test("a slice panel finds its variable by name in a file that changed (#839)", async () => {
-    const first = fs.readFileSync(netcdfFixture("missing_value_classic.nc"));
-    const second = fs.readFileSync(netcdfFixture("cf_packed_data.nc"));
-    const before = indexOf(first, "temp");
-    const after = indexOf(second, "temp");
-    assert.notStrictEqual(before, after, "temp moves");
-    const { panel, change, done } = await changingFile(first, "temp");
+    // `sst` is first of ERSST's two variables and second of OISST's: a number
+    // is a position in the list (#1073), so it moves with the list.
+    const first = fs.readFileSync(netcdfFixture("ersst_v5_187001_cdf1.nc"));
+    const second = fs.readFileSync(netcdfFixture("oisst_avhrr_v2.nc"));
+    const before = indexOf(first, "sst");
+    const after = indexOf(second, "sst");
+    assert.notStrictEqual(before, after, "sst moves");
+    const { panel, change, done } = await changingFile(first, "sst");
     try {
       const opened = await panel.waitSent(isType("gridReady"), 0, "the first render");
       assert.strictEqual(opened.messageIndex, before);
@@ -230,12 +232,12 @@ suite("The render panel's own script", function () {
       panel.rebuild();
       const reply = await panel.waitSent(drawnOrRefused, from, "the restored render");
       assert.strictEqual(reply.type, "gridReady", `${reply.error ?? ""}`);
-      assert.strictEqual(reply.messageIndex, after, "temp at its number in the new file");
-      assert.match(reply.titleLine, /^temp\b/);
+      assert.strictEqual(reply.messageIndex, after, "sst at its number in the new file");
+      assert.match(reply.titleLine, /^sst\b/);
       const state = await panel.drive([]);
-      assert.strictEqual(state.sliceVariable, "temp");
-      assert.deepStrictEqual(state.sliceVariables, ["temp"]);
-      assert.match(state.title, /^temp\b/);
+      assert.strictEqual(state.sliceVariable, "sst");
+      assert.deepStrictEqual(state.sliceVariables, ["ice", "sst"]);
+      assert.match(state.title, /^sst\b/);
     } finally {
       done();
     }
