@@ -1548,11 +1548,10 @@ impl Session {
     /// whole field: on the committed RAP fixture a reduction of 1 decodes in
     /// about a quarter of the time. The values are then a wavelet low-pass the
     /// message does not hold, on every `2^r`-th point of its grid, so what comes
-    /// back is a [`DisplayField`] and not a [`Field`]:
-    /// [`render_display`](Self::render_display),
-    /// [`warp_display`](Self::warp_display) and
-    /// [`palette_display`](Self::palette_display) take it, and nothing that
-    /// measures does.
+    /// back is a [`DisplayField`] and not a [`Field`]: `render_display`,
+    /// `warp_display` and `palette_display` take it (named, not linked: they
+    /// are behind `render`, and this method is not), and nothing that measures
+    /// does.
     ///
     /// ```compile_fail,E0308
     /// # use fieldglass::{DisplayDecodeOptions, Session};
