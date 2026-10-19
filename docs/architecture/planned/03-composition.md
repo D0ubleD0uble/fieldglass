@@ -360,4 +360,6 @@ the pass that paints. Both hosts report the range they used (#1156): the
 addon's `RenderedGrid.range`, and the browser module's `render(...).range` and
 `palette(...).range`. A palette paints nothing, so `Session::palette_range`
 counts the field's cells with `Palette::count`, and its range equals the one
-`render` reports for the same options.
+`render` reports for the same options. The ends and range source match
+across hosts; the counts match only in the source projection, since the addon
+counts the pixels of the raster it warped to and `Session` counts cells.

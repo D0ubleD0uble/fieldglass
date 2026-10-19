@@ -78,6 +78,8 @@ handle.warp(field, { bounds: [24, 50, -125, -66], width: 512, height: 512 });
 const { rgba, width, height, range } = handle.render(field, {}, false);   // RGBA, north up — see below
 // `range` is the color range used, as the VS Code extension reports it: usedMin,
 // usedMax, rangeSource, center, and how many cells fell below and above it.
+// The ends match the extension's everywhere; the counts only in the source
+// projection, as the extension counts the pixels of a warped map.
 // `palette.range` is the same range, for a legend drawn beside the GPU path.
 handle.probe(field, lat, lon);
 handle.contours(field, new Float64Array([280, 290]), {});
