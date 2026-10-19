@@ -315,8 +315,11 @@ features on. Nothing extra is needed before a release.
 ### npm
 
 `@fieldglass/wasm` is the browser build, published from the `publish-wasm-npm`
-job. It is one package, built with `wasm-bindgen --target web` and `wasm-opt
--Oz`; `crates/fieldglass-wasm/pack.sh` assembles it and `npm pack`s it. The
+job. It is one package with two entries, the default one and
+`@fieldglass/wasm/full` (the module built with `fetchplan,zarr`, in the
+package's `full/` directory, #1158), each built with `wasm-bindgen --target web`
+and `wasm-opt -Oz`; `crates/fieldglass-wasm/pack.sh` assembles both and
+`npm pack`s them, and the file list it prints names both. The
 Node addon (`fieldglass-napi`) has nothing to do with it and takes no wasm
 dependency.
 
@@ -329,7 +332,8 @@ time. It is not in the version table in §1 for that reason.
 **Every tag publishes (except the bootstrap release, below); a
 `workflow_dispatch` dry run builds the tarball and does not publish it.** The
 dry run still runs the full package check — it installs the tarball into a
-throwaway project and decodes a GRIB2 and a NetCDF fixture through it — and
+throwaway project and decodes a GRIB2 and a NetCDF fixture through it, and
+plans a fetch and opens a Zarr store through the full entry — and
 uploads the `.tgz` as a run artefact. Every pull request runs
 that same check in `ci.yml`, so a broken package fails long before a tag.
 

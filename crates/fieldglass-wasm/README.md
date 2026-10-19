@@ -15,13 +15,15 @@ upstream ([ADR-0006](../../docs/decisions/0006-hosts-are-bindings-over-a-plain-d
 ./build.sh nodejs   # CommonJS for Node        → pkg/nodejs
 ./build.sh web --simd    # the +simd128 variant → pkg/web-simd
 ./build.sh web --no-opt  # skip wasm-opt
+./build.sh web --features=fetchplan,zarr   # the full entry → pkg/web-fetchplan-zarr
 
-./pack.sh           # the npm package, from a web build → pkg/npm + a .tgz
+./pack.sh           # the npm package, both entries → pkg/npm + a .tgz
 ```
 
 `pack.sh` assembles what `release.yml` publishes as
 [`@fieldglass/wasm`](https://www.npmjs.com/package/@fieldglass/wasm) on a `v*`
-tag (#466). The version comes from the workspace `Cargo.toml`, never from an
+tag (#466), from two web builds: the default entry, and the full one in the
+package's `full/` directory (see **Two entries** below). The version comes from the workspace `Cargo.toml`, never from an
 argument, so the package cannot drift from the crates and the extension; the
 committed `npm/package.json` carries a `0.0.0` placeholder that `pack.sh`
 refuses to ship.
@@ -51,6 +53,30 @@ request.
 Not wasm-pack, and not napi-rs's wasm target: napi-rs only ships loaders for
 `wasm32-wasip1-threads`, which needs COOP/COEP cross-origin isolation and about
 half a megabyte of emnapi/WASI shims.
+
+## Two entries
+
+The package ships the module built two ways (#1158), and a page loads one of
+them:
+
+| Import | Built with | What it has |
+|---|---|---|
+| `@fieldglass/wasm` | the default features | GRIB1, GRIB2 and NetCDF: open, decode, place, warp, paint, probe, contour, combine |
+| `@fieldglass/wasm/full` | `--features=fetchplan,zarr` | all of that, plus the fetch planner and Zarr stores |
+
+Use the default unless the page plans fetches from a GRIB sidecar or reads a
+Zarr store: the full module is about 29% larger gzipped (both are gated under
+**Measured**). Each entry has its own `.wasm`
+(`@fieldglass/wasm/fieldglass_wasm_bg.wasm` and
+`@fieldglass/wasm/full/fieldglass_wasm_bg.wasm`, for a bundler or a Worker's
+`init`) and its own `.d.ts`, which declares only what that entry has. Importing
+`openStore` or `PlanItem` from the default entry is a type error, not an
+`undefined` at run time.
+
+The default entry's module and glue are byte for byte what they were before the
+full entry existed; its `.d.ts` only lost the planner and Zarr types it used to
+declare without containing them. The split can later become one bundle, with
+`full` kept as an alias, without breaking an import of either.
 
 ## Use
 
@@ -117,28 +143,31 @@ The planner reads a GRIB sidecar and says which bytes of the object to fetch
 for a field, so an app needs no sidecar parser of its own. Nothing here does
 I/O; the fetches are yours.
 
-**Not in the published package yet.** It is built with
-`./build.sh web --features=fetchplan` (into `pkg/web-fetchplan`), and the
-default bundle leaves it out until where it ships is decided
-([#1081](https://github.com/D0ubleD0uble/fieldglass/issues/1081)): about 93 KB
-gzipped (+15%) inside this module, or about 226 KB as a module of its own,
-which has to carry its own copy of the GRIB2 parameter tables.
+**In the full entry only**, `@fieldglass/wasm/full` (built locally with
+`./build.sh web --features=fetchplan,zarr`).
 
 ```js
 import init, {
   open, parseWgrib2Idx, httpRangeHeader, verifyEnvelope, verifyMessage, candidates,
-} from './pkg/web-fetchplan/fieldglass_wasm.js';
+} from '@fieldglass/wasm/full';
 await init();
 
-// Which runs should have posted by now, newest first. A guess: fetch until one exists.
+// Which runs should have posted by now, newest first. A guess: take the first
+// whose sidecar exists.
 const source = {
   keyPattern: 'gfs.{yyyy}{mm}{dd}/{HH}/atmos/gfs.t{HH}z.pgrb2.0p25.f{fff}',
   cycleHours: [0, 6, 12, 18], latencyMinutes: 240, maxCandidates: 4,
 };
-const [run] = candidates(source, { nowUnixSecs: Math.floor(Date.now() / 1000) });
-
-const key = run.key;
-const idx = parseWgrib2Idx(key, await (await fetch(`${bucket}/${key}.idx`)).text());
+let key, text;
+for (const run of candidates(source, { nowUnixSecs: Math.floor(Date.now() / 1000) })) {
+  const sidecar = await fetch(`${bucket}/${run.key}.idx`);
+  if (sidecar.status === 404) continue;            // not posted yet: try the run before
+  if (!sidecar.ok) throw new Error(`${run.key}.idx: HTTP ${sidecar.status}`);
+  [key, text] = [run.key, await sidecar.text()];
+  break;
+}
+if (key === undefined) throw new Error('none of the recent runs has posted');
+const idx = parseWgrib2Idx(key, text);
 
 // By the sidecar's own words, or by WMO codes and a level. Every match comes back.
 const items = idx.select({ abbreviation: 'TMP', levelText: '2 m above ground' });
@@ -148,6 +177,11 @@ const items = idx.select({ abbreviation: 'TMP', levelText: '2 m above ground' })
 const item = items[0];
 const header = httpRangeHeader(item.range);          // 'bytes=…' or null for the whole object
 const response = await fetch(`${bucket}/${key}`, header ? { headers: { Range: header } } : {});
+// 206 for a ranged request, 200 for the whole object. Check before trusting the
+// bytes: a 200 to a ranged request is a server that ignored `Range` and sent the
+// whole object, and an error page is not a message. Either one passed on reads
+// as a stale sidecar or a short read, and sends you after the wrong fix.
+if (response.status !== (header ? 206 : 200)) throw new Error(`${key}: HTTP ${response.status}`);
 const bytes = new Uint8Array(await response.arrayBuffer());
 
 verifyEnvelope(item, bytes);   // throws short_read (retry) or decode (stale sidecar)
@@ -165,14 +199,10 @@ by `abbreviation`.
 A Zarr store is many objects, and a page fetches only the ones a view needs.
 The store says which. Nothing here does I/O; the fetches are yours.
 
-**Not in the published package yet.** It is built with
-`./build.sh web --features=zarr` (into `pkg/web-zarr`), and the default bundle
-leaves it out until where it ships is decided
-([#1083](https://github.com/D0ubleD0uble/fieldglass/issues/1083)). The figures
-are under **Measured**.
+**In the full entry only**, `@fieldglass/wasm/full`, as the planner is.
 
 ```js
-import init, { openStore } from './pkg/web-zarr/fieldglass_wasm.js';
+import init, { openStore } from '@fieldglass/wasm/full';
 await init();
 
 // An object's bytes, or `null` for one the store does not hold: a sparse array
@@ -496,12 +526,18 @@ onto `f0eebc2f`), whose drift read 1.1% for both builds: 18,733 raw bytes and
 `+simd128`'s. That is the reduced-resolution decode, its display field and its
 three drawing calls.
 
+`full` is the `@fieldglass/wasm/full` entry (#1158), `build.sh web
+--features=fetchplan,zarr`, recorded from the `ci.yml` run on its PR (#1177,
+`3d897b4e`, rebased onto #1082's merge): 28.4% above the baseline gzipped,
+and 28.0% raw. That is the fetch planner and the Zarr stores.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
 | baseline | 1,664,807 | 653,912 |
 | `+simd128` | 1,651,138 | 650,608 |
+| full | 2,130,575 | 839,579 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
@@ -518,12 +554,11 @@ toolchain differs from CI's, and so does its size. CI takes the current stable
 rustc, so a new Rust release alone can push the drift over 1.0%; the next PR
 then re-records it, saying so.
 
-**Zarr (#1083, not gated, not in the table).** The `zarr` feature is built
-beside the table's builds and its size printed beside the table in CI's run
-summary, so the decision on where it ships is made from CI's figure. Measured
+**Zarr and the planner, as measured for the decision (#1083, #1081).** The
+owner chose to ship both in a second entry rather than in the default one
+(#1158); the `full` row above is that entry, gated like the others. Measured
 locally (rustc 1.98, wasm-bindgen 0.2.129, binaryen 132, `build.sh web`, gzip
-level 9 as the gate measures it), against this branch's default build, which is
-byte-identical to master's:
+level 9 as the gate measures it) on #1083's branch, against its default build:
 
 | Build (local) | `.wasm` bytes | gzipped bytes | gzipped vs default |
 |---|---:|---:|---:|
@@ -608,17 +643,18 @@ decodes a committed fixture in a Worker, colours it on the CPU through
 `readPixels` of the second against the first. The acceptance rule is one
 lookup-table entry at a bin edge and nothing else.
 
-**`tests/node/fetchplan.mjs`** — the planner, against a `--features=fetchplan`
-build (`--pkg crates/fieldglass-wasm/pkg/nodejs-fetchplan`). It plans one GFS
+**`tests/node/fetchplan.mjs`** — the planner, against the full entry built for
+Node (`build.sh nodejs --features=fetchplan,zarr`, read from
+`pkg/nodejs-fetchplan-zarr`). It plans one GFS
 field from a committed `.idx`, checks the `Range` header and the envelope of the
 committed bytes that range fetched, checks with `verifyMessage` that they are the
 field the line named (and that a neighbouring line's GFS and ECMWF records are
 refused), and replays every answer the Rust planner recorded in `crates/fieldglass/tests/fetch_plan_wire.json`.
 
-**`tests/node/zarr.mjs`** — Zarr stores, against a `--features=zarr` build
-(`--pkg crates/fieldglass-wasm/pkg/nodejs-zarr`). It opens the committed v2
-(blosc) and v3 (zstd) window stores, north-to-south and south-to-north (whose
-v3 edition never wrote one latitude chunk), from their metadata alone, fetches the
+**`tests/node/zarr.mjs`** — Zarr stores, against the same full-entry build. It
+opens the committed v2 (blosc) and v3 (zstd) window stores, north-to-south and
+south-to-north (whose v3 edition never wrote one latitude chunk), from their
+metadata alone, fetches the
 coordinate chunks and then the chunks each plan names from the committed files,
 and decodes each window from those alone. The rows, columns, chunks and values
 are checked against `crates/fieldglass-zarr/tests/fixtures/windows_oracle.json`,
@@ -644,8 +680,7 @@ is worse than no parity check.
 ## Not here yet
 
 Threads (the façade is single-threaded by design — ADR-0005 — and shared memory
-needs COOP/COEP), Zarr stores in the published package (bound behind the `zarr`
-feature, above), and the reduced-resolution JPEG 2000 decode `fieldglass-grib2` offers
+needs COOP/COEP) and the reduced-resolution JPEG 2000 decode `fieldglass-grib2` offers
 ([#463](https://github.com/D0ubleD0uble/fieldglass/issues/463)).
 
 `+simd128` is measured above and not enabled: it buys nothing here.

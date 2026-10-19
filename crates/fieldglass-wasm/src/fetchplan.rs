@@ -9,8 +9,8 @@
 //!
 //! Like the rest of this crate it forwards and converts, nothing more. The
 //! plan items, queries and sources are `fieldglass-fetchplan`'s own serde types,
-//! declared in `api.generated.d.ts` from the same schema as everything else, so
-//! there is no second spelling of any of them here.
+//! declared in `api.fetchplan.generated.d.ts` from the same schema as
+//! everything else, so there is no second spelling of any of them here.
 
 use std::sync::OnceLock;
 
@@ -150,6 +150,12 @@ pub fn http_range_header(
 /// fewer bytes arrived than the item asked for or the message declares (worth
 /// a retry), and `decode` when the bytes are not the promised message, which is
 /// what a stale sidecar looks like (worth refetching the sidecar).
+///
+/// It assumes a successful ranged response, so check the HTTP status first:
+/// 206 for a ranged request, 200 for a whole-object one. A 200 to a ranged
+/// request means the server ignored `Range` and sent the whole object. An
+/// error page is not a message either, and passed in here it reads as one of
+/// the two codes above by its length, sending the caller after the wrong fix.
 #[wasm_bindgen(js_name = verifyEnvelope)]
 pub fn verify_envelope(
     #[wasm_bindgen(unchecked_param_type = "PlanItem")] item: JsValue,

@@ -12,9 +12,19 @@ One schema, two consumers (ADR-0006 decision 2). The schema is
   DTO types the addon returns from;
 * `crates/fieldglass-wasm/src/api.generated.d.ts`, which the browser host embeds
   in wasm-bindgen's own `.d.ts` so `@fieldglass/wasm` publishes typed values
-  rather than `any`.
+  rather than `any`, and beside it one file per feature the host can be built
+  with (`api.fetchplan.generated.d.ts`, `api.zarr.generated.d.ts`), embedded only
+  in a build with that feature.
 
-The two files carry the same declarations under a different header, because both
+The browser files are split because the package ships two entries (#1158): the
+default one without the fetch planner and Zarr stores, and
+`@fieldglass/wasm/full` with both, and each entry's `.d.ts` declares only what
+it contains. The schema says which root types need which feature
+(`x-fieldglass-feature-roots`, recorded by the same test as the rest of it); a
+feature's file holds every definition its roots reach that the `always` roots do
+not. The extension's addon has every type, so its file holds every definition.
+
+Both hosts carry the same declarations under a different header, because both
 hosts put the same bytes on the wire: every key of a returned object present,
 with `null` for a Rust `None` (#574, decided 2026-09-29). An optional field is
 therefore `field: T | null` and never `field?: T` on anything a host returns. On
@@ -46,7 +56,20 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SCHEMA = REPO / "crates" / "fieldglass" / "schema" / "api.schema.json"
 EXTENSION_OUT = REPO / "extension" / "src" / "api.generated.ts"
-WASM_OUT = REPO / "crates" / "fieldglass-wasm" / "src" / "api.generated.d.ts"
+WASM_DIR = REPO / "crates" / "fieldglass-wasm" / "src"
+WASM_OUT = WASM_DIR / "api.generated.d.ts"
+# The declarations a browser build embeds only with one of these features
+# (#1158). A feature the schema names and this map does not is an error, not a
+# file nobody embeds.
+WASM_FEATURE_OUT = {
+    "fetchplan": WASM_DIR / "api.fetchplan.generated.d.ts",
+    "zarr": WASM_DIR / "api.zarr.generated.d.ts",
+}
+
+# The schema's list of root types by the feature a host needs to bind them, and
+# the name it gives every build.
+FEATURE_ROOTS = "x-fieldglass-feature-roots"
+ALWAYS = "always"
 
 REGENERATE = (
     "FIELDGLASS_UPDATE_SCHEMA=1 cargo test -p fieldglass --test api_rules, "
@@ -310,16 +333,112 @@ def declaration(rust_name: str, schema: dict, defs: dict) -> list[str]:
     return lines
 
 
-def render(schema: dict, header: str) -> str:
-    """Every definition in the schema, as TypeScript, under `header`."""
+def render(schema: dict, header: str, names: set[str] | None = None) -> str:
+    """The schema's definitions as TypeScript, under `header`: every one, or
+    only `names`. A reference to a definition outside `names` is still checked
+    against the whole schema, because the file it lands in sits in one `.d.ts`
+    with the file that declares it."""
     defs = schema.get("$defs")
     if not isinstance(defs, dict) or not defs:
         raise SchemaError("the schema has no $defs, so there is nothing to declare")
     out = [header.rstrip(), ""]
-    for name in sorted(defs):
+    for name in sorted(defs if names is None else names):
         out.extend(declaration(name, defs[name], defs))
         out.append("")
     return "\n".join(out).rstrip() + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Which build declares what (#1158)
+# ---------------------------------------------------------------------------
+
+
+def references(schema, out: set[str]) -> set[str]:
+    """Every definition name a `$ref` anywhere inside `schema` points at."""
+    if isinstance(schema, dict):
+        for key, value in schema.items():
+            if key == "$ref" and isinstance(value, str):
+                out.add(value.removeprefix("#/$defs/"))
+            else:
+                references(value, out)
+    elif isinstance(schema, list):
+        for value in schema:
+            references(value, out)
+    return out
+
+
+def reach(defs: dict, roots: list[str]) -> set[str]:
+    """`roots` and every definition they refer to, however deeply."""
+    seen: set[str] = set()
+    stack = list(roots)
+    while stack:
+        name = stack.pop()
+        if name in seen:
+            continue
+        if name not in defs:
+            raise SchemaError(f"a $ref or a listed root that names no definition: {name}")
+        seen.add(name)
+        stack.extend(references(defs[name], set()))
+    return seen
+
+
+def split(schema: dict) -> dict[str, set[str]]:
+    """The definitions each browser declaration file holds: `{"always": …,
+    "fetchplan": …, "zarr": …}`.
+
+    `always` is what the every-build roots reach. A feature's set is what its own
+    roots reach beyond that, so a nested definition such as the planner's
+    `Dialect` follows the roots that use it, and one an every-build type also
+    uses stays in the default file. Refused, rather than guessed at: a root
+    listed twice or naming nothing, a feature this script has no file for, an
+    every-build type that reaches a feature's root (the default `.d.ts` would
+    declare a type its build does not bind), a definition two features share
+    and no every-build type uses (a build with both would declare it twice),
+    and a definition no root reaches.
+    """
+    defs = schema.get("$defs")
+    if not isinstance(defs, dict) or not defs:
+        raise SchemaError("the schema has no $defs, so there is nothing to declare")
+    groups = schema.get(FEATURE_ROOTS)
+    if not isinstance(groups, dict) or not all(isinstance(v, list) for v in groups.values()):
+        raise SchemaError(
+            f"the schema has no {FEATURE_ROOTS} object of root lists, so which build "
+            f"declares what is unknown; record it with {REGENERATE}"
+        )
+    wanted = {ALWAYS, *WASM_FEATURE_OUT}
+    if set(groups) != wanted:
+        raise SchemaError(
+            f"{FEATURE_ROOTS} lists {sorted(groups)}, and this script has files for "
+            f"{sorted(wanted)}; teach WASM_FEATURE_OUT where a new feature's declarations go"
+        )
+    listed = [name for roots in groups.values() for name in roots]
+    twice = sorted({name for name in listed if listed.count(name) > 1})
+    if twice:
+        raise SchemaError(f"{FEATURE_ROOTS} lists {twice} under more than one feature")
+
+    always = reach(defs, groups[ALWAYS])
+    parts = {ALWAYS: always}
+    for feature in WASM_FEATURE_OUT:
+        leaked = always & set(groups[feature])
+        if leaked:
+            raise SchemaError(
+                f"a type every build declares refers to {sorted(leaked)}, which only a "
+                f"build with {feature!r} binds"
+            )
+        parts[feature] = reach(defs, groups[feature]) - always
+    features = list(WASM_FEATURE_OUT)
+    for i, a in enumerate(features):
+        for b in features[i + 1 :]:
+            shared = parts[a] & parts[b]
+            if shared:
+                raise SchemaError(
+                    f"{sorted(shared)} are used by {a!r} and {b!r} and by no type every "
+                    "build declares, so a build with both would declare them twice"
+                )
+    orphans = set(defs) - set().union(*parts.values())
+    if orphans:
+        raise SchemaError(f"{sorted(orphans)} are reached by no root in {FEATURE_ROOTS}")
+    return parts
 
 
 # ---------------------------------------------------------------------------
@@ -344,14 +463,29 @@ EXTENSION_HEADER = f"""\
 WASM_HEADER = f"""\
 {COMMON}
 //
-// Embedded in the package's .d.ts by src/lib.rs (typescript_custom_section)."""
+// Embedded in the package's .d.ts by src/lib.rs (typescript_custom_section), in
+// every build. The fetch planner's and Zarr's types are in the files a build
+// with those features adds (#1158)."""
+
+
+def wasm_feature_header(feature: str) -> str:
+    return f"""\
+{COMMON}
+//
+// Embedded in the package's .d.ts by src/lib.rs only in a build with the
+// `{feature}` feature, as the @fieldglass/wasm/full entry is (#1158). It names
+// types from api.generated.d.ts, which every build embeds."""
 
 
 def outputs(schema: dict) -> dict[Path, str]:
-    return {
+    parts = split(schema)
+    wanted = {
         EXTENSION_OUT: render(schema, EXTENSION_HEADER),
-        WASM_OUT: render(schema, WASM_HEADER),
+        WASM_OUT: render(schema, WASM_HEADER, parts[ALWAYS]),
     }
+    for feature, path in WASM_FEATURE_OUT.items():
+        wanted[path] = render(schema, wasm_feature_header(feature), parts[feature])
+    return wanted
 
 
 def shown(path: Path) -> str:

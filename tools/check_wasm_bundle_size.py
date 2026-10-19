@@ -3,7 +3,11 @@
 
     python3 tools/check_wasm_bundle_size.py \\
         --build baseline=crates/fieldglass-wasm/pkg/web/fieldglass_wasm_bg.wasm \\
-        --build '+simd128=crates/fieldglass-wasm/pkg/web-simd/fieldglass_wasm_bg.wasm'
+        --build '+simd128=crates/fieldglass-wasm/pkg/web-simd/fieldglass_wasm_bg.wasm' \\
+        --build full=crates/fieldglass-wasm/pkg/web-fetchplan-zarr/fieldglass_wasm_bg.wasm
+
+`full` is the package's `@fieldglass/wasm/full` entry (#1158), gated like the
+others so neither entry can grow unrecorded.
 
 A bundle-size gate is the only thing that keeps a wasm target honest: nothing
 else fails when the download doubles (#462). The gate is not a separate ceiling

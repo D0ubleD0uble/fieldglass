@@ -12,14 +12,15 @@
 //! `MessageManifest`, whose `select` turns a query into plan items, and
 //! `httpRangeHeader` and `verifyEnvelope` are the two steps either side of the
 //! Worker's `fetch`. `candidates` says which runs of a source should have
-//! posted by now. The feature is off in the shipped bundle until where the
-//! planner ships is decided (see `Cargo.toml`).
+//! posted by now. The feature is off by default: the package's default entry
+//! leaves it out, and its `@fieldglass/wasm/full` entry is built with it and
+//! `zarr` (#1158, see `Cargo.toml`).
 //!
 //! With the `zarr` feature, `openStore` opens a Zarr store from the objects a
 //! page fetched, and a handle over one says which objects a view needs:
 //! `coordinateChunks` for the coordinate arrays, then `planWindow` for the
 //! chunks a lat/lon box and a time step touch, which `decodeWindow` decodes
-//! from (#1083). Off in the shipped bundle for the same reason.
+//! from (#1083). Off by default too, and in the `full` entry beside the planner.
 //!
 //! # The memory contract
 //!
@@ -85,6 +86,11 @@ pub use zarr::open_store;
 /// and checked against it in CI. wasm-bindgen copies this into the package's
 /// `.d.ts`, which is what lets the methods below name `MessageInfo` rather than
 /// `any`.
+///
+/// Every build embeds this file, and `RENDERED_RASTER` below. The planner's and
+/// Zarr's types are in the two feature-gated sections after that,
+/// which only a build with that feature embeds, so the default package's
+/// `.d.ts` declares nothing it does not contain (#1158).
 #[wasm_bindgen(typescript_custom_section)]
 const API_DECLARATIONS: &str = include_str!("api.generated.d.ts");
 
@@ -105,6 +111,18 @@ export interface RenderedRaster {
   range: ColourRange;
 }
 "#;
+
+/// The fetch planner's wire types (`PlanItem`, `Query`, `SourceSpec` and the
+/// rest), split out of `api.generated.d.ts` by the same generator.
+#[cfg(feature = "fetchplan")]
+#[wasm_bindgen(typescript_custom_section)]
+const FETCHPLAN_DECLARATIONS: &str = include_str!("api.fetchplan.generated.d.ts");
+
+/// The Zarr window planner's wire types (`WindowRequest`, `WindowPlan`,
+/// `ChunkRef`), split out the same way.
+#[cfg(feature = "zarr")]
+#[wasm_bindgen(typescript_custom_section)]
+const ZARR_DECLARATIONS: &str = include_str!("api.zarr.generated.d.ts");
 
 /// The shader snippet a GPU host pastes into its own fragment program.
 ///

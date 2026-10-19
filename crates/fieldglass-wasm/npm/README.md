@@ -46,6 +46,44 @@ Fields and handles own memory the module allocated, and linear memory never
 shrinks: call `free()` when you are done with one, or use `using` and let
 `Symbol.dispose` do it.
 
+## Two entries
+
+| Import | What it has |
+|---|---|
+| `@fieldglass/wasm` | Everything above: open, decode, place, warp, paint, probe, contour and combine GRIB1, GRIB2 and NetCDF. |
+| `@fieldglass/wasm/full` | All of that, plus a fetch planner for GRIB sidecars and Zarr stores. About 29% larger to download. |
+
+Use the default unless a page reads parts of remote files. The full entry plans
+which byte ranges of a GRIB file to fetch from its `.idx` or `.index` sidecar,
+and reads a lat/lon window of a Zarr store from just the chunks it touches.
+Nothing in either entry does I/O: the page fetches, and passes the bytes in.
+
+```js
+import init, { parseWgrib2Idx, httpRangeHeader, verifyEnvelope, open } from '@fieldglass/wasm/full';
+
+await init();
+
+const sidecar = await fetch(`${url}.idx`);
+if (!sidecar.ok) throw new Error(`HTTP ${sidecar.status}`);
+const [item] = parseWgrib2Idx(key, await sidecar.text())
+  .select({ abbreviation: 'TMP', levelText: '2 m above ground' });
+
+const header = httpRangeHeader(item.range);
+const response = await fetch(url, header ? { headers: { Range: header } } : {});
+// Check the status first: a 200 to a ranged request means the server sent the
+// whole file, and an error page is not a message.
+if (response.status !== (header ? 206 : 200)) throw new Error(`HTTP ${response.status}`);
+const bytes = new Uint8Array(await response.arrayBuffer());
+verifyEnvelope(item, bytes);
+const handle = open(bytes);
+```
+
+For a Zarr store, fetch each object the store names and pass a missing chunk
+as `null`: a 404 for a chunk means the store never wrote it, which reads as its
+fill value. Any other failed fetch is an error. Each entry has its own `.wasm`,
+at `@fieldglass/wasm/fieldglass_wasm_bg.wasm` and
+`@fieldglass/wasm/full/fieldglass_wasm_bg.wasm`.
+
 ## What it opens
 
 | Format | Notes |
@@ -56,8 +94,9 @@ shrinks: call `free()` when you are done with one, or use `using` and let
 
 ## Types
 
-`fieldglass_wasm.d.ts` ships with the package. `wasm-bindgen` generates the class
-and method signatures, so they cannot drift from the module. The values those
+`fieldglass_wasm.d.ts` ships with the package, and `full/fieldglass_wasm.d.ts`
+with the full entry; each declares only what its entry has. `wasm-bindgen`
+generates the class and method signatures, so they cannot drift from the module. The values those
 methods return and take (`MessageInfo`, `Georef`, `VariableInfo`, the option
 objects and the rest) are declared in the same file, generated from the
 project's JSON schema of its Rust types.

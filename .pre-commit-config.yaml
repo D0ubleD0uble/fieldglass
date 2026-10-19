@@ -58,9 +58,9 @@ repos:
         pass_filenames: false
 
       # The browser host's planner binding (#1081) is behind a feature nothing
-      # in the workspace turns on, so the hook above never compiles it. Off in
-      # the shipped bundle until where the planner ships is decided; linted here
-      # so it does not rot while it waits.
+      # in the workspace turns on, so the hook above never compiles it. The
+      # package's full entry builds it beside `zarr` (#1158); this lints the
+      # planner alone, a build CI no longer makes.
       - id: cargo-clippy-wasm-fetchplan
         name: cargo clippy -p fieldglass-wasm --features fetchplan -- -D warnings
         language: system
@@ -70,8 +70,8 @@ repos:
         entry: cargo clippy -p fieldglass-wasm --features fetchplan --all-targets -- -D warnings
         pass_filenames: false
 
-      # The browser host's Zarr binding (#1083), off in the shipped bundle for
-      # the planner's reason above. Linted alone and beside the planner, since
+      # The browser host's Zarr binding (#1083), likewise in the full entry only.
+      # Linted alone, a build CI no longer makes, and beside the planner, since
       # the two share the strict argument reader in `src/lib.rs`.
       - id: cargo-clippy-wasm-zarr
         name: cargo clippy -p fieldglass-wasm --features zarr -- -D warnings
@@ -214,7 +214,7 @@ repos:
         # schema. Python only, so it runs on every commit that touches either end
         # and in CI's pre-commit job, and a hand edit to a generated file fails
         # here rather than being overwritten by the next regeneration.
-        files: ^(tools/gen_api_declarations\.py|crates/fieldglass/schema/api\.schema\.json|extension/src/api\.generated\.ts|crates/fieldglass-wasm/src/api\.generated\.d\.ts)$
+        files: ^(tools/gen_api_declarations\.py|crates/fieldglass/schema/api\.schema\.json|extension/src/api\.generated\.ts|crates/fieldglass-wasm/src/api(\.[a-z]+)?\.generated\.d\.ts)$
         entry: python3 tools/gen_api_declarations.py --check
         pass_filenames: false
 
@@ -446,7 +446,7 @@ repos:
         # a schema nobody regenerated from, a keyword the generator has no rule
         # for — so the commit-stage `api-declarations` hook is known to be
         # connected, not only green.
-        files: ^(tools/(gen_api_declarations|test_gen_api_declarations)\.py|crates/fieldglass/schema/api\.schema\.json|extension/src/api\.generated\.ts|crates/fieldglass-wasm/src/api\.generated\.d\.ts)$
+        files: ^(tools/(gen_api_declarations|test_gen_api_declarations)\.py|crates/fieldglass/schema/api\.schema\.json|extension/src/api\.generated\.ts|crates/fieldglass-wasm/src/api(\.[a-z]+)?\.generated\.d\.ts)$
         entry: python3 tools/test_gen_api_declarations.py
         pass_filenames: false
 

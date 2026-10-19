@@ -11,12 +11,16 @@ returned field with nothing to report is `T | null` under its own key, and an
 option a host may leave out is `?` — and that the output does not depend on the
 order the schema happens to list things in, which is what makes a conflict in a
 generated file a re-run rather than a merge.
+
+`TheSplit` covers the browser files' split by feature (#1158): which file a
+definition lands in, and each schema the split refuses rather than guesses at.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import shutil
 import tempfile
 import unittest
@@ -190,6 +194,77 @@ class Refusals(unittest.TestCase):
             gen.render({"$defs": {}}, "")
 
 
+def grouped(defs: dict, always: list, fetchplan: list, zarr: list) -> dict:
+    return {"$defs": defs, gen.FEATURE_ROOTS: {"always": always, "fetchplan": fetchplan, "zarr": zarr}}
+
+
+OBJ = {"type": "object", "properties": {}, "required": []}
+
+
+def refers(*names: str) -> dict:
+    return {
+        "type": "object",
+        "properties": {n.lower(): {"$ref": f"#/$defs/{n}"} for n in names},
+        "required": [n.lower() for n in names],
+    }
+
+
+class TheSplit(unittest.TestCase):
+    """Which browser file declares what (#1158)."""
+
+    def test_a_nested_definition_follows_the_roots_that_reach_it(self):
+        parts = gen.split(
+            grouped(
+                {
+                    "Info": refers("Shared"),
+                    "Shared": OBJ,
+                    "Item": refers("Dialect", "Shared"),
+                    "Dialect": OBJ,
+                    "Plan": OBJ,
+                },
+                ["Info"],
+                ["Item"],
+                ["Plan"],
+            )
+        )
+        self.assertEqual(parts["always"], {"Info", "Shared"})
+        self.assertEqual(parts["fetchplan"], {"Item", "Dialect"})
+        self.assertEqual(parts["zarr"], {"Plan"})
+
+    def test_an_every_build_type_reaching_a_feature_root_is_refused(self):
+        with self.assertRaisesRegex(gen.SchemaError, r"\['Item'\].*'fetchplan'"):
+            gen.split(grouped({"Info": refers("Item"), "Item": OBJ, "Plan": OBJ}, ["Info"], ["Item"], ["Plan"]))
+
+    def test_a_definition_only_two_features_share_is_refused(self):
+        with self.assertRaisesRegex(gen.SchemaError, "declare them twice"):
+            gen.split(
+                grouped(
+                    {"Info": OBJ, "Item": refers("Both"), "Plan": refers("Both"), "Both": OBJ},
+                    ["Info"],
+                    ["Item"],
+                    ["Plan"],
+                )
+            )
+
+    def test_a_definition_no_root_reaches_is_refused(self):
+        with self.assertRaisesRegex(gen.SchemaError, r"\['Stray'\] are reached by no root"):
+            gen.split(grouped({"Info": OBJ, "Item": OBJ, "Plan": OBJ, "Stray": OBJ}, ["Info"], ["Item"], ["Plan"]))
+
+    def test_a_root_listed_twice_is_refused(self):
+        with self.assertRaisesRegex(gen.SchemaError, "more than one feature"):
+            gen.split(grouped({"Info": OBJ, "Plan": OBJ}, ["Info"], ["Info"], ["Plan"]))
+
+    def test_a_feature_with_no_file_is_refused(self):
+        doc = grouped({"Info": OBJ, "Item": OBJ, "Plan": OBJ}, ["Info"], ["Item"], ["Plan"])
+        doc[gen.FEATURE_ROOTS]["grib3"] = []
+        with self.assertRaisesRegex(gen.SchemaError, "WASM_FEATURE_OUT"):
+            gen.split(doc)
+
+    def test_a_schema_without_the_list_is_refused(self):
+        with self.assertRaisesRegex(gen.SchemaError, gen.FEATURE_ROOTS):
+            gen.split({"$defs": {"Info": OBJ}})
+
+
 class TheDriftGate(unittest.TestCase):
     """`check` against copies of the real schema and outputs."""
 
@@ -198,14 +273,17 @@ class TheDriftGate(unittest.TestCase):
         root = Path(self.tmp.name)
         self.schema = root / "api.schema.json"
         shutil.copyfile(gen.SCHEMA, self.schema)
-        self.real = (gen.EXTENSION_OUT, gen.WASM_OUT)
+        self.real = (gen.EXTENSION_OUT, gen.WASM_OUT, gen.WASM_FEATURE_OUT)
         gen.EXTENSION_OUT = root / "api.generated.ts"
         gen.WASM_OUT = root / "api.generated.d.ts"
+        gen.WASM_FEATURE_OUT = {f: root / p.name for f, p in self.real[2].items()}
         shutil.copyfile(self.real[0], gen.EXTENSION_OUT)
         shutil.copyfile(self.real[1], gen.WASM_OUT)
+        for feature, path in gen.WASM_FEATURE_OUT.items():
+            shutil.copyfile(self.real[2][feature], path)
 
     def tearDown(self):
-        gen.EXTENSION_OUT, gen.WASM_OUT = self.real
+        gen.EXTENSION_OUT, gen.WASM_OUT, gen.WASM_FEATURE_OUT = self.real
         self.tmp.cleanup()
 
     def test_the_copies_pass(self):
@@ -232,6 +310,42 @@ class TheDriftGate(unittest.TestCase):
         gen.WASM_OUT.unlink()
         self.assertEqual(len(gen.check(self.schema)), 1)
 
+    def test_a_hand_edit_to_a_feature_file_is_caught(self):
+        for feature, path in gen.WASM_FEATURE_OUT.items():
+            with self.subTest(feature=feature):
+                original = path.read_text(encoding="utf-8")
+                path.write_text(original + "export interface Extra {}\n", encoding="utf-8")
+                problems = gen.check(self.schema)
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn(path.name, problems[0])
+                path.unlink()
+                self.assertEqual(len(gen.check(self.schema)), 1, "a deleted feature file passed")
+                path.write_text(original, encoding="utf-8")
+        self.assertEqual(gen.check(self.schema), [])
+
+    def test_a_planner_type_moved_to_every_build_is_caught(self):
+        # The registration the Rust test holds to the module; here, what the
+        # split does with a schema that says otherwise.
+        original = self.schema.read_text(encoding="utf-8")
+
+        def moved(name: str) -> list[str]:
+            doc = json.loads(original)
+            roots = doc[gen.FEATURE_ROOTS]
+            roots["fetchplan"].remove(name)
+            roots["always"].append(name)
+            self.schema.write_text(json.dumps(doc), encoding="utf-8")
+            return gen.check(self.schema)
+
+        # A type that refers to nothing else of the planner's: both files drift.
+        problems = moved("Candidate")
+        self.assertEqual(len(problems), 2, problems)
+        default = next(p for p in problems if f"{gen.WASM_OUT.name} is not" in p)
+        self.assertIn("+export interface Candidate {", default)
+        # One that does: the split refuses it outright.
+        problems = moved("Query")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("only a build with 'fetchplan' binds", problems[0])
+
     def test_a_schema_nobody_regenerated_from_is_caught(self):
         doc = json.loads(self.schema.read_text(encoding="utf-8"))
         doc["$defs"]["MessageInfo"]["properties"]["added"] = {"type": ["string", "null"]}
@@ -251,6 +365,22 @@ class TheDriftGate(unittest.TestCase):
 class TheRepoItself(unittest.TestCase):
     def test_the_checked_in_declarations_are_what_the_schema_generates(self):
         self.assertEqual(gen.check(), [])
+
+    def test_the_default_browser_file_declares_no_planner_or_zarr_type(self):
+        # The acceptance item of #1158, read off the files the builds embed:
+        # every planner and Zarr name is declared in its feature's file, and
+        # none in the file the default package embeds.
+        declared = re.compile(r"^export (?:interface|type) (\w+)", re.M)
+        default = set(declared.findall(gen.WASM_OUT.read_text(encoding="utf-8")))
+        planner = set(declared.findall(gen.WASM_FEATURE_OUT["fetchplan"].read_text(encoding="utf-8")))
+        zarr = set(declared.findall(gen.WASM_FEATURE_OUT["zarr"].read_text(encoding="utf-8")))
+        self.assertLessEqual({"PlanItem", "PlanRange", "Query", "SourceSpec", "Dialect", "Expect"}, planner)
+        self.assertEqual({"ChunkRef", "WindowPlan", "WindowRequest"}, zarr)
+        self.assertEqual(default & (planner | zarr), set())
+        self.assertIn("MessageInfo", default)
+        # The extension's addon has every type, so it declares all of them.
+        extension = set(declared.findall(gen.EXTENSION_OUT.read_text(encoding="utf-8")))
+        self.assertEqual(extension, default | planner | zarr)
 
     def test_every_returned_optional_in_message_info_is_a_present_null(self):
         # The decision this file exists for, read off the real output.
