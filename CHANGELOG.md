@@ -172,6 +172,8 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 
 - **NetCDF-4 shuffle on a chunk that is not a whole number of elements** now unshuffles the whole elements and leaves the trailing bytes, as libhdf5 does. Closes #203.
 
+- **The browser module refuses an array as an options object.** `decode(0, ["f64"])` decoded at the automatic width instead of throwing `invalid_option`, as the Node addon already did. Both now take a plain object keyed `"0"`, `"1"`, … as `sliceIndices`, as they take a typed array. Closes #1210.
+
 ### Rust API
 
 `fieldglass`, `fieldglass-zarr`, `fieldglass-fetchplan` and `fieldglass-aec` join `fieldglass-core` and the three format readers on crates.io. All eight share one version and pin each other exactly. Before 1.0 a minor release may break any of them; expect `fieldglass-zarr` and `fieldglass-fetchplan` to move more than the readers, since Zarr and the cloud manifest formats are still changing. Closes #851.

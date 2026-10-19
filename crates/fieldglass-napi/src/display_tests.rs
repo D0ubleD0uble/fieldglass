@@ -88,6 +88,24 @@ fn a_rap_message_decodes_at_reduction_one_onto_the_derived_grid() {
     }
 }
 
+/// Stats are an object: an array would read as `Stats` field by field (#1210).
+#[test]
+fn full_stats_that_are_not_an_object_are_refused() {
+    let h = rap();
+    let display = h.decode_display(0, reduce(1)).expect("decodes");
+    for bad in [
+        serde_json::json!([0, 1]),
+        serde_json::json!("stats"),
+        serde_json::json!(3),
+    ] {
+        let e = h
+            .render_display(&display, Some(bad.clone()), &opts("source"))
+            .err()
+            .unwrap_or_else(|| panic!("{bad} was read as stats"));
+        assert!(e.to_string().contains("not an object"), "{e}");
+    }
+}
+
 /// `renderDisplay` paints the coarse grid as stored, and warps it onto a
 /// window where the full field lands: the same window at the same size covers
 /// the same pixels. On the message's own grid it would cover a quarter.
