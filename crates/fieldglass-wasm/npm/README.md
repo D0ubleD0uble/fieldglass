@@ -52,7 +52,7 @@ shrinks: call `free()` when you are done with one, or use `using` and let
 | Import | What it has |
 |---|---|
 | `@fieldglass/wasm` | Everything above: open, decode, place, warp, paint, probe, contour and combine GRIB1, GRIB2 and NetCDF. |
-| `@fieldglass/wasm/full` | All of that, plus a fetch planner for GRIB sidecars and Zarr stores. About 29% larger to download. |
+| `@fieldglass/wasm/full` | All of that, plus Zarr stores and a fetch planner for GRIB sidecars. About 29% larger to download. |
 
 Use the default unless a page reads parts of remote files. The full entry plans
 which byte ranges of a GRIB file to fetch from its `.idx` or `.index` sidecar,
@@ -92,7 +92,7 @@ at `@fieldglass/wasm/fieldglass_wasm_bg.wasm` and
 | GRIB2 | Every registered §5 packing template, and every grid family the project projects. |
 | GRIB1 | Including second-order packing and spherical-harmonic fields. |
 | NetCDF | Classic (CDF-1/2/5) and NetCDF-4 over HDF5, with the CF conventions applied. |
-| Zarr | v2 and v3 stores. Only in `@fieldglass/wasm/full`. |
+| Zarr | v2 and v3 stores, consolidated or not, including blosc and v3 sharding. Only in `@fieldglass/wasm/full`. |
 
 ## Types
 
