@@ -2430,9 +2430,8 @@ export interface RenderOptions {
  * in the wrong order, and the hosts take it identically so that code written
  * against one reads against the other.
  *
- * `variable` is an index from the host's own `variables()` list: a position in
- * `Session::variables` for the browser module, and the file's numbering that
- * the Node addon's list reports for a NetCDF file. `y_dim` and `x_dim` are
+ * `variable` is a position in `variables()` on every host: the list
+ * `Session::variables` returns. `y_dim` and `x_dim` are
  * positions in that variable's axes, and `slice_indices` holds **one entry per
  * axis** in the same order, the two image axes ignored rather than absent.
  *

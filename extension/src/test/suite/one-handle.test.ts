@@ -5,10 +5,12 @@
 
 import * as assert from "assert";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative, type FieldglassNative, type Handle } from "../../native";
+import { listVariables } from "../../provider";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -118,6 +120,50 @@ suite("One handle for every container (#1073)", () => {
         ["time", "coordinate"],
       ],
     );
+  });
+
+  test("the panel's listing typesets each variable's units, for a NetCDF file and a Zarr store", () => {
+    const native = addon();
+    // The addon hands over the file's own spelling, as the browser package
+    // does; the panel shows it typeset (ADR-0007).
+    const netcdf = native.open(fixture("netcdf_classic_dummy.nc"));
+    const raw = netcdf.variables().find((v) => v.name === "u_1205");
+    assert.strictEqual(raw?.units, "m/s", "the file's own spelling crosses");
+    const shown = listVariables(native, netcdf).find((v) => v.name === "u_1205");
+    assert.strictEqual(shown?.units, "m s⁻¹");
+
+    // A store of two 2-D arrays: one in CF's `m s-1`, one with blank units.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1073-"));
+    try {
+      const array = (name: string, units: string) => {
+        fs.mkdirSync(path.join(dir, name));
+        fs.writeFileSync(
+          path.join(dir, name, ".zarray"),
+          JSON.stringify({
+            zarr_format: 2,
+            shape: [2, 2],
+            chunks: [2, 2],
+            dtype: "<f4",
+            compressor: null,
+            fill_value: null,
+            filters: null,
+            order: "C",
+          }),
+        );
+        fs.writeFileSync(path.join(dir, name, ".zattrs"), JSON.stringify({ _ARRAY_DIMENSIONS: ["y", "x"], units }));
+        fs.writeFileSync(path.join(dir, name, "0.0"), Buffer.from(new Float32Array([1, 2, 3, 4]).buffer));
+      };
+      fs.writeFileSync(path.join(dir, ".zgroup"), JSON.stringify({ zarr_format: 2 }));
+      array("speed", "m s-1");
+      array("blank", "   ");
+      const store = native.openStore(dir);
+      const listed = new Map(listVariables(native, store).map((v) => [v.name, v.units]));
+      assert.strictEqual(listed.get("speed"), "m s⁻¹", "a store's units are typeset too");
+      assert.strictEqual(listed.get("blank"), null, "blank units are none");
+      store.close();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("decode and decodeSlice pack at the width asked for, and bytes cross as Uint8Array", () => {

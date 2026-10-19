@@ -1392,12 +1392,15 @@ impl MessageStream {
         message_index: u32,
         options: Option<serde_json::Value>,
     ) -> Result<DisplayGrid, RenderError> {
-        let options: fieldglass::DisplayDecodeOptions = match options {
-            None | Some(serde_json::Value::Null) => fieldglass::DisplayDecodeOptions::default(),
-            Some(v) => serde_json::from_value(v).map_err(|e| {
-                fieldglass::Error::invalid_option(format!("could not read the options object: {e}"))
-            })?,
-        };
+        let options: fieldglass::DisplayDecodeOptions =
+            match handle::object_or_absent(options, "options object")? {
+                None => fieldglass::DisplayDecodeOptions::default(),
+                Some(v) => serde_json::from_value(v).map_err(|e| {
+                    fieldglass::Error::invalid_option(format!(
+                        "could not read the options object: {e}"
+                    ))
+                })?,
+            };
         let field = self.session.decode_display(message_index, &options)?;
         Ok(DisplayGrid::new(field))
     }

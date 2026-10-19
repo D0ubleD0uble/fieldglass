@@ -410,11 +410,29 @@ fn unreadable(what: &str, e: &dyn std::fmt::Display) -> RenderError {
     Error::invalid_option(format!("could not read the {what}: {e}")).into()
 }
 
-/// Read decode options the way the browser module does: `null` or left out is
-/// the default.
-fn decode_options(value: Option<serde_json::Value>) -> Result<DecodeOptions, RenderError> {
+/// An argument that must be an object: `Ok(None)` when left out or `null`, and
+/// refused as `invalid_option` when it is anything but an object.
+///
+/// A serde-derived struct also reads from a JSON array, field by field, where
+/// `deny_unknown_fields` never applies: `["f64"]` would read as decode options
+/// here and be refused by the browser module. Every options object and request
+/// this handle reads goes through this first (#1073).
+pub(crate) fn object_or_absent(
+    value: Option<serde_json::Value>,
+    what: &str,
+) -> Result<Option<serde_json::Value>, RenderError> {
     match value {
-        None | Some(serde_json::Value::Null) => Ok(DecodeOptions::default()),
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(v) if v.is_object() => Ok(Some(v)),
+        Some(_) => Err(unreadable(what, &"it is not an object")),
+    }
+}
+
+/// Read decode options the way the browser module does: `null` or left out is
+/// the default, and anything but an object is refused.
+fn decode_options(value: Option<serde_json::Value>) -> Result<DecodeOptions, RenderError> {
+    match object_or_absent(value, "options object")? {
+        None => Ok(DecodeOptions::default()),
         Some(v) => serde_json::from_value(v).map_err(|e| unreadable("options object", &e)),
     }
 }
@@ -426,16 +444,14 @@ fn decode_options(value: Option<serde_json::Value>) -> Result<DecodeOptions, Ren
 /// …, which a `Vec<u32>` refuses. The browser module reads one as an array, so
 /// this host does too, rather than the two refusing different inputs (#1073).
 pub(crate) fn read_request<T: RequestType>(
-    mut value: serde_json::Value,
+    value: serde_json::Value,
     what: &str,
 ) -> Result<T, RenderError> {
-    // A serde-derived struct also reads from a JSON array, field by field,
-    // where `deny_unknown_fields` never applies: `[v, 2, 3, [0, 0]]` would read
-    // as a slice here and be refused by the browser module. So anything but an
-    // object is refused first, as there.
-    if !value.is_object() {
+    // Anything but an object is refused first, as on the browser module: see
+    // `object_or_absent`. A request is never optional, so `null` is refused too.
+    let Some(mut value) = object_or_absent(Some(value), what)? else {
         return Err(unreadable(what, &"it is not an object"));
-    }
+    };
     if let Some(indices) = value.get_mut("sliceIndices")
         && let serde_json::Value::Object(map) = indices
         && (0..map.len()).all(|i| map.contains_key(&i.to_string()))
@@ -611,12 +627,12 @@ impl Handle {
     }
 
     /// The variables a slice can be drawn from, each with its axes and the
-    /// image axes detected on it. Empty for a message stream.
+    /// image axes detected on it: the API's `VariableInfo`, as the browser
+    /// module returns it. Empty for a message stream.
     ///
-    /// This host's own listing rather than the API's `VariableInfo`, in two
-    /// places on purpose: `variableIndex` is the number every slice here takes
-    /// (for a NetCDF file the file's own numbering), and `units` is typeset for
-    /// display (ADR-0007).
+    /// `index` is the position every slice and line request names. `units` is
+    /// the file's own spelling, which `typesetUnits` typesets for display
+    /// (ADR-0007).
     #[napi(js_name = "variables", ts_return_type = "VariableInfo[]")]
     pub fn variables_for_js(&self, env: Env) -> napi::Result<serde_json::Value> {
         self.variables()
@@ -1521,6 +1537,20 @@ mod tests {
         assert!(e.to_string().contains("not an object"), "{e}");
         let e = read_request::<LineRequest>(json!([4, 2, [0, 0]]), "line").expect_err("refused");
         assert_eq!(code(&e), Some("invalid_option"), "{e}");
+        // Options objects too: an array is not decode options on either host.
+        let grib = Handle::from_vec(GRIB2.to_vec()).expect("opens");
+        for bad in [json!(["f64"]), json!("f64"), json!(3)] {
+            let e = grib.decode(0, Some(bad.clone())).expect_err("refused");
+            assert_eq!(code(&e), Some("invalid_option"), "{bad}: {e}");
+            let e = grib
+                .decode_display(0, Some(bad.clone()))
+                .expect_err("refused");
+            assert_eq!(code(&e), Some("invalid_option"), "{bad}: {e}");
+        }
+        assert!(
+            grib.decode(0, Some(serde_json::Value::Null)).is_ok(),
+            "null is the default"
+        );
     }
 
     /// `a` and `b` reach the container in that order: the difference of two
@@ -1601,6 +1631,54 @@ mod tests {
             )
             .expect_err("past the list");
         assert_eq!(code(&e), Some("no_such_message"), "{e}");
+    }
+
+    /// A NetCDF-4 file's variables in nested groups: each position resolves to
+    /// the file's own variable, whose view name carries the group path with a
+    /// leading `/`, and decodes to what `Session` decodes at that position.
+    #[test]
+    fn grouped_variables_resolve_by_their_group_path() {
+        let bytes = include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc");
+        let handle = Handle::from_vec(bytes.to_vec()).expect("opens");
+        let session = fieldglass::Session::open(bytes.to_vec()).expect("opens");
+        let listed = handle.variables().unwrap();
+        assert!(
+            listed.iter().any(|v| v.name.contains('/')),
+            "the fixture has grouped variables"
+        );
+        let Some(Inner::Netcdf(open)) = &handle.inner else {
+            panic!("a NetCDF handle");
+        };
+        assert!(
+            open.decode_index.iter().all(Option::is_some),
+            "{:?}",
+            open.decode_index
+        );
+        for v in &listed {
+            let (y, x) = (v.detected_y_dim.unwrap_or(0), v.detected_x_dim.unwrap_or(1));
+            let indices = vec![0; v.dims.len()];
+            let ours = handle
+                .decode_slice(
+                    json!({ "variable": v.index, "yDim": y, "xDim": x, "sliceIndices": indices }),
+                    Some(json!({ "dtype": "f64" })),
+                )
+                .unwrap_or_else(|e| panic!("{}: {e}", v.name));
+            let theirs = session
+                .decode_slice(
+                    v.index,
+                    y,
+                    x,
+                    &indices,
+                    &fieldglass::DecodeOptions::new(fieldglass::Dtype::F64),
+                )
+                .expect("decodes");
+            assert_eq!((ours.ni, ours.nj), (theirs.ni, theirs.nj), "{}", v.name);
+            assert_eq!(&ours.mask[..], &theirs.mask[..], "{}", v.name);
+            let napi::Either::B(values) = &ours.values else {
+                panic!("f64 asked for");
+            };
+            assert_eq!(&values[..], &theirs.values.to_f64()[..], "{}", v.name);
+        }
     }
 
     #[test]
