@@ -107,13 +107,23 @@ function optionSets(lo, hi) {
     ['centred', { center: lo + span / 3 }],
     ['log10', { scale: 'log10' }],
     ['log10, min given', { scale: 'log10', min: Math.max(lo, 0) + span / 4 }],
-    ['refused: inverted', { min: hi, max: lo }],
-    ['refused: min past the data', { min: hi + span }],
+    ['refused: inverted', { min: hi, max: lo }, 'inverted'],
+    ['refused: min past the data', { min: hi + span }, 'inverted'],
   ];
 }
 
+/** Both hosts refused, as `invalid_option`, with `reason` on the refusal. */
+function refusedFor(label, ne, be, reason) {
+  same(`${label}: the addon refuses as invalid_option`, ne?.code ?? null, 'invalid_option');
+  same(`${label}: the browser refuses as invalid_option`, be?.code ?? null, 'invalid_option');
+  same(`${label}: for the expected reason`, [ne?.rangeRefusal?.reason ?? null, be?.rangeRefusal?.reason ?? null], [
+    reason,
+    reason,
+  ]);
+}
+
 function compareHosts(label, nodeRender, browserRender, browserPalette, lo, hi) {
-  for (const [name, o] of optionSets(lo, hi)) {
+  for (const [name, o, reason] of optionSets(lo, hi)) {
     const { node, browser } = spellings(o);
     let n = null;
     let b = null;
@@ -127,6 +137,11 @@ function compareHosts(label, nodeRender, browserRender, browserPalette, lo, hi) 
       code: be.code,
       rangeRefusal: be.rangeRefusal,
     });
+    if (reason) {
+      // Not vacuous: both must refuse, as invalid_option, for this reason.
+      refusedFor(`${label} ${name}`, ne, be, reason);
+      continue;
+    }
     if (ne || be) continue;
     same(`${label} ${name}: the range result`, n.range, b.range);
     same(`${label} ${name}: usedMin / usedMax echo it`, [n.usedMin, n.usedMax], [b.range.usedMin, b.range.usedMax]);
@@ -166,7 +181,7 @@ for (const [file, Handle] of [
     code: be.code,
     rangeRefusal: be.rangeRefusal,
   });
-  same(`${label} contours: as invalid_option`, ne && ne.code, 'invalid_option');
+  refusedFor(`${label} contours`, ne, be, 'inverted');
   field.free();
   handle.free();
 }

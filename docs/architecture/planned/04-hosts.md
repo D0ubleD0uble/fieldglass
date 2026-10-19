@@ -101,7 +101,7 @@ sequenceDiagram
     H-->>W: Palette { lut, t0, t1, scale, masked, range }
     W-->>A: Field + Palette (one copy out of wasm memory, then transfer)
     A->>G: upload values + R8 mask + 256×1 LUT, proj4 → mesh
-    Note over A,G: restyle = new Palette (1 KB of LUT), no re-decode
+    Note over A,G: restyle = new Palette (1 KB of LUT) plus one pass counting the cells for its range (#1156), no re-decode
     Note over A,G: shader = shipped snippet: normalise, NEAREST LUT lookup
 ```
 

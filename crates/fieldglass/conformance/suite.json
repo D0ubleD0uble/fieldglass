@@ -25462,6 +25462,531 @@
       }
     },
     {
+      "id": "render/range_masked",
+      "fixture": "fieldglass-grib2/tests/fixtures/complex_mvm1_regular_latlon.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": "viridis",
+        "colormapTable": null,
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": 280.0,
+        "rangeMax": 300.0,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null
+      },
+      "expect": {
+        "height": 31,
+        "opaque": 450,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 124,
+            "rgba": [
+              67,
+              56,
+              129,
+              255
+            ]
+          },
+          {
+            "i": 248,
+            "rgba": [
+              36,
+              135,
+              141,
+              255
+            ]
+          },
+          {
+            "i": 372,
+            "rgba": [
+              253,
+              231,
+              37,
+              255
+            ]
+          },
+          {
+            "i": 495,
+            "rgba": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "range": {
+          "above": 139,
+          "below": 55,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 450,
+          "rangeSource": "manual",
+          "total": 496,
+          "usedMax": 300.0,
+          "usedMin": 280.0
+        },
+        "rgbaLen": 1984,
+        "width": 16
+      }
+    },
+    {
+      "id": "palette/range_masked",
+      "fixture": "fieldglass-grib2/tests/fixtures/complex_mvm1_regular_latlon.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": "viridis",
+        "colormapTable": null,
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": 280.0,
+        "rangeMax": 300.0,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "range": {
+          "above": 139,
+          "below": 55,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 450,
+          "rangeSource": "manual",
+          "total": 496,
+          "usedMax": 300.0,
+          "usedMin": 280.0
+        },
+        "scale": "linear",
+        "t0": 280.0,
+        "t1": 300.0
+      }
+    },
+    {
+      "id": "render/range_masked_f32",
+      "fixture": "fieldglass-grib2/tests/fixtures/complex_mvm1_regular_latlon.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": "viridis",
+        "colormapTable": null,
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": 280.0,
+        "rangeMax": 300.0,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null
+      },
+      "expect": {
+        "height": 31,
+        "opaque": 450,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 124,
+            "rgba": [
+              67,
+              56,
+              129,
+              255
+            ]
+          },
+          {
+            "i": 248,
+            "rgba": [
+              36,
+              135,
+              141,
+              255
+            ]
+          },
+          {
+            "i": 372,
+            "rgba": [
+              253,
+              231,
+              37,
+              255
+            ]
+          },
+          {
+            "i": 495,
+            "rgba": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "range": {
+          "above": 139,
+          "below": 55,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 450,
+          "rangeSource": "manual",
+          "total": 496,
+          "usedMax": 300.0,
+          "usedMin": 280.0
+        },
+        "rgbaLen": 1984,
+        "width": 16
+      }
+    },
+    {
+      "id": "palette/range_masked_f32",
+      "fixture": "fieldglass-grib2/tests/fixtures/complex_mvm1_regular_latlon.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": "viridis",
+        "colormapTable": null,
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": 280.0,
+        "rangeMax": 300.0,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "range": {
+          "above": 139,
+          "below": 55,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 450,
+          "rangeSource": "manual",
+          "total": 496,
+          "usedMax": 300.0,
+          "usedMin": 280.0
+        },
+        "scale": "linear",
+        "t0": 280.0,
+        "t1": 300.0
+      }
+    },
+    {
+      "id": "render/range_masked_f64",
+      "fixture": "fieldglass-grib2/tests/fixtures/complex_mvm1_regular_latlon.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": "viridis",
+        "colormapTable": null,
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": 280.0,
+        "rangeMax": 300.0,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null
+      },
+      "expect": {
+        "height": 31,
+        "opaque": 450,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 124,
+            "rgba": [
+              67,
+              56,
+              129,
+              255
+            ]
+          },
+          {
+            "i": 248,
+            "rgba": [
+              36,
+              135,
+              141,
+              255
+            ]
+          },
+          {
+            "i": 372,
+            "rgba": [
+              253,
+              231,
+              37,
+              255
+            ]
+          },
+          {
+            "i": 495,
+            "rgba": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "range": {
+          "above": 139,
+          "below": 55,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 450,
+          "rangeSource": "manual",
+          "total": 496,
+          "usedMax": 300.0,
+          "usedMin": 280.0
+        },
+        "rgbaLen": 1984,
+        "width": 16
+      }
+    },
+    {
+      "id": "palette/range_masked_f64",
+      "fixture": "fieldglass-grib2/tests/fixtures/complex_mvm1_regular_latlon.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": "viridis",
+        "colormapTable": null,
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": 280.0,
+        "rangeMax": 300.0,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "range": {
+          "above": 139,
+          "below": 55,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 450,
+          "rangeSource": "manual",
+          "total": 496,
+          "usedMax": 300.0,
+          "usedMin": 280.0
+        },
+        "scale": "linear",
+        "t0": 280.0,
+        "t1": 300.0
+      }
+    },
+    {
       "id": "palette/colormap_table",
       "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
       "op": "palette",

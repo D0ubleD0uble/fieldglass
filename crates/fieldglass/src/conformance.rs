@@ -786,22 +786,101 @@ pub fn cases() -> Vec<Case> {
     // default: both ends inside the data, so cells clamp at each end and the
     // counts are not zero, and one end alone, so the other comes from the
     // data. The field runs 270.47..311.10.
-    for (id, op, min, max) in [
-        ("render/range_clamped", Op::Render, Some(280.0), Some(300.0)),
+    //
+    // Two more pin the counting where it can part from the painting: a field
+    // with masked cells (complex packing with missing values, 46 of its 496
+    // cells absent), so `present` is below `total`, and each width a host can
+    // decode to, since `palette_range` counts an `f32` field by widening it
+    // cell by cell rather than through the painter's copy.
+    let mvm = format!("{G2}complex_mvm1_regular_latlon.grib2");
+    for (id, op, fixture, dtype, min, max) in [
         (
-            "palette/range_clamped",
-            Op::Palette,
+            "render/range_clamped",
+            Op::Render,
+            &latlon,
+            None,
             Some(280.0),
             Some(300.0),
         ),
-        ("render/range_min_only", Op::Render, Some(290.0), None),
-        ("palette/range_min_only", Op::Palette, Some(290.0), None),
+        (
+            "palette/range_clamped",
+            Op::Palette,
+            &latlon,
+            None,
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "render/range_min_only",
+            Op::Render,
+            &latlon,
+            None,
+            Some(290.0),
+            None,
+        ),
+        (
+            "palette/range_min_only",
+            Op::Palette,
+            &latlon,
+            None,
+            Some(290.0),
+            None,
+        ),
+        (
+            "render/range_masked",
+            Op::Render,
+            &mvm,
+            None,
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "palette/range_masked",
+            Op::Palette,
+            &mvm,
+            None,
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "render/range_masked_f32",
+            Op::Render,
+            &mvm,
+            Some(Dtype::F32),
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "palette/range_masked_f32",
+            Op::Palette,
+            &mvm,
+            Some(Dtype::F32),
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "render/range_masked_f64",
+            Op::Render,
+            &mvm,
+            Some(Dtype::F64),
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "palette/range_masked_f64",
+            Op::Palette,
+            &mvm,
+            Some(Dtype::F64),
+            Some(280.0),
+            Some(300.0),
+        ),
     ] {
         out.push(Case {
             id: id.to_string(),
-            fixture: latlon.clone(),
+            fixture: fixture.clone(),
             op,
             args: Args {
+                dtype,
                 colormap: Some("viridis".to_string()),
                 reversed: Some(false),
                 scale: Some("linear".to_string()),
