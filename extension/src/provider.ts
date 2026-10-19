@@ -196,12 +196,15 @@ interface ExportCsvMessage {
   messageIndex: number;
 }
 
-type WebviewMessage =
+/** A message from the editor page, with the number the page was written
+ *  under (#1217). Untrusted, as everything from a webview is. */
+type WebviewMessage = (
   | EditP1Message
   | ReadyMessage
   | DecodeGridMessage
   | RenderVariableMessage
-  | ExportCsvMessage;
+  | ExportCsvMessage
+) & { page?: unknown };
 
 /** How a PNG export ended. The panel shows "Exporting PNG…" the moment it
  *  hands the image over, and only this side knows what happened next, so the
@@ -230,6 +233,9 @@ interface SlicePanelSubject {
   /** The file or store's name, which the tab and the line under the heading
    *  carry (#1038). */
   source: string;
+  /** The document the panel draws from, which a revert writes the panel
+   *  again for (#1217). A Zarr store is not a document. */
+  document?: vscode.Uri;
 }
 
 export class FieldglassEditorProvider
@@ -377,11 +383,18 @@ export class FieldglassEditorProvider
   private _csvExport: Promise<void> = Promise.resolve();
 
   /** Build `panel`'s HTML now, and again whenever the colormaps change. */
-  private trackRenderPanel(panel: vscode.WebviewPanel, build: () => void): void {
+  private trackRenderPanel(panel: vscode.WebviewPanel, build: () => void, document?: vscode.Uri): void {
     build();
     this._renderPanelBuilders.set(panel, build);
-    panel.onDidDispose(() => this._renderPanelBuilders.delete(panel));
+    if (document) this._renderPanelDocs.set(panel, document.toString());
+    panel.onDidDispose(() => {
+      this._renderPanelBuilders.delete(panel);
+      this._renderPanelDocs.delete(panel);
+    });
   }
+  /** The document each render panel draws from, for the panels a revert
+   *  writes again (#1217). A Zarr panel has none. */
+  private readonly _renderPanelDocs = new Map<vscode.WebviewPanel, string>();
 
   private readonly _onDidChangeCustomDocument =
     new vscode.EventEmitter<vscode.CustomDocumentEditEvent<FieldglassDocument>>();
@@ -424,7 +437,32 @@ export class FieldglassEditorProvider
     panel: vscode.WebviewPanel
   ): Promise<void> {
     this.trackPanel(document, panel);
+    // Scripts must be enabled so the webview can request and paint a 2-D
+    // render of a message's decoded grid. The CSP set in renderHtml is the
+    // security boundary — see the comment there for the policy itself.
+    // `localResourceRoots: []` makes the no-external-resources boundary
+    // explicit: the CSP (`default-src 'none'`) already blocks loads, and this
+    // ensures nothing can be served from disk even if the CSP is later relaxed.
+    panel.webview.options = { enableScripts: true, localResourceRoots: [] };
+    this.writeEditorPage(document, panel);
 
+    panel.webview.onDidReceiveMessage((msg: WebviewMessage) => {
+      // From a page this panel has written over since (#1217). Its row and
+      // variable numbers are the old file's, so serving it would open whatever
+      // the new file holds at that number.
+      if (!msg || msg.page !== this._editorPages.get(panel)) return;
+      this.handleWebviewMessage(document, panel, msg);
+    });
+  }
+
+  /** The number each editor page was last written with. The page sends it
+   *  back on every message (#1217), as a render panel's page does (#1202). */
+  private readonly _editorPages = new WeakMap<vscode.WebviewPanel, number>();
+
+  /** Write `panel`'s editor page from the document's bytes as they are now,
+   *  under a number of its own. Reads through the document's cached handles,
+   *  opening them when there are none. */
+  private writeEditorPage(document: FieldglassDocument, panel: vscode.WebviewPanel): void {
     const native = loadNative();
     const header = document.bytes.slice(0, 32);
     // The whole buffer, not `header`: an HDF5 file may put its signature after
@@ -464,13 +502,8 @@ export class FieldglassEditorProvider
     // single editable column.
     const editable = false;
 
-    // Scripts must be enabled so the webview can request and paint a 2-D
-    // render of a message's decoded grid. The CSP set in renderHtml is the
-    // security boundary — see the comment there for the policy itself.
-    // `localResourceRoots: []` makes the no-external-resources boundary
-    // explicit: the CSP (`default-src 'none'`) already blocks loads, and this
-    // ensures nothing can be served from disk even if the CSP is later relaxed.
-    panel.webview.options = { enableScripts: true, localResourceRoots: [] };
+    const page = (this._editorPages.get(panel) ?? -1) + 1;
+    this._editorPages.set(panel, page);
     panel.webview.html = renderHtml(
       panel.webview,
       format,
@@ -479,12 +512,9 @@ export class FieldglassEditorProvider
       dataset,
       headerBytes,
       editable,
-      netcdfVariables
+      netcdfVariables,
+      page,
     );
-
-    panel.webview.onDidReceiveMessage((msg: WebviewMessage) => {
-      this.handleWebviewMessage(document, panel, msg);
-    });
   }
 
   async saveCustomDocument(
@@ -507,7 +537,7 @@ export class FieldglassEditorProvider
     _cancellation: vscode.CancellationToken
   ): Promise<void> {
     await document.revertFromDisk();
-    this.broadcastUpdate(document);
+    this.reloadDocument(document);
   }
 
   async backupCustomDocument(
@@ -921,7 +951,7 @@ export class FieldglassEditorProvider
         gate.page,
       );
     };
-    this.trackRenderPanel(panel, write);
+    this.trackRenderPanel(panel, write, document.uri);
 
     const refuse = (ask: { seq?: number } = {}) => {
       if (!picking) return;
@@ -1368,25 +1398,47 @@ export class FieldglassEditorProvider
     }
   }
 
+  /** The document's bytes were read from disk again (File: Revert File,
+   *  #1217). Every handle read from the old bytes is dropped, and every editor
+   *  page on the document is written again from the new bytes, which opens
+   *  the new handles: a GRIB file's messages, or a NetCDF file's dump and
+   *  variables. Every render panel on the document is written again too, so it
+   *  asks at once, and its {@link PanelHandleGate} finds the new handle and
+   *  looks for its message or variable in the new file. */
+  private reloadDocument(document: FieldglassDocument): void {
+    const key = document.uri.toString();
+    this._handlesByDoc.delete(key);
+    this._netcdfHandlesByDoc.delete(key);
+    for (const panel of this._panelsByDoc.get(key) ?? []) this.writeEditorPage(document, panel);
+    for (const [panel, doc] of this._renderPanelDocs) {
+      if (doc === key) this._renderPanelBuilders.get(panel)?.();
+    }
+  }
+
   /** Send the current document state to a single panel (used by the
-   *  `ready` mount handshake). Same reparse-and-cache shape as
-   *  [`broadcastUpdate`]; if the cached handle is still good (no
-   *  intervening edits) we reuse it. */
+   *  `ready` mount handshake). Only a GRIB document has messages to send, and
+   *  only from the handle its page was written from: the page's numbers are
+   *  that file's. */
   private postCurrentMessages(
     panel: vscode.WebviewPanel,
     document: FieldglassDocument,
   ): void {
     const cached = this._handlesByDoc.get(document.uri.toString());
-    const messages = cached
-      ? listMessages(cached)
-      : this.reparseAndCache(document);
-    if (!messages) return;
-    panel.webview.postMessage({ type: "update", messages });
+    if (!cached) return;
+    panel.webview.postMessage({ type: "update", messages: listMessages(cached) });
   }
 
+  /** Open the document's bytes again as GRIB, for the edit path's `update`.
+   *  Bytes that are not GRIB get no GRIB handle (#1217): a NetCDF document's
+   *  handle lives in `_netcdfHandlesByDoc`. */
   private reparseAndCache(document: FieldglassDocument): MessageInfo[] | undefined {
     const native = loadNative();
     if (!native) return undefined;
+    const format = native.detectBytes(document.bytes);
+    if (format !== "grib1" && format !== "grib2") {
+      this._handlesByDoc.delete(document.uri.toString());
+      return undefined;
+    }
     try {
       const handle = native.open(document.bytes);
       this._handlesByDoc.set(document.uri.toString(), handle);
@@ -1477,6 +1529,7 @@ export class FieldglassEditorProvider
         container: "NetCDF",
         noun: "file",
         source: sourceName(document.uri),
+        document: document.uri,
       },
       handle,
       variableIndex,
@@ -1599,7 +1652,7 @@ export class FieldglassEditorProvider
         gate.page,
       );
     };
-    this.trackRenderPanel(panel, write);
+    this.trackRenderPanel(panel, write, subject.document);
 
     // Said in place of the first render after that, when the variable the page
     // was showing is no longer in the file.
@@ -2966,7 +3019,10 @@ export function renderHtml(
   dataset: DatasetMeta | undefined,
   headerBytes: Uint8Array | undefined,
   editable: boolean,
-  netcdfVariables?: VariableInfo[]
+  netcdfVariables?: VariableInfo[],
+  // The number the provider wrote this page under, which the page sends back
+  // on every message (#1217).
+  page = 0,
 ): string {
   // FORMAT_LABELS is a closed Record<string, string>; `format` originates
   // from native detect_bytes which returns one of a fixed set of tokens.
@@ -3102,6 +3158,11 @@ export function renderHtml(
     <script nonce="${cspNonce}">
       (function () {
         const vscode = acquireVsCodeApi();
+        // Every message carries the page's number. A revert writes the page
+        // again, and what the old page sent names rows of the old file, so the
+        // provider drops it (#1217).
+        const PAGE = ${JSON.stringify(page)};
+        function post(m) { vscode.postMessage(Object.assign({}, m, { page: PAGE })); }
         const editable = ${editable ? "true" : "false"};
         ${refreshedP1Value.toString()}
 
@@ -3148,7 +3209,7 @@ export function renderHtml(
               const idx = Number(el.getAttribute('data-message-index'));
               if (!Number.isFinite(idx)) return;
               setStatus(idx, 'Decoding message ' + idx + '…');
-              vscode.postMessage({ type: 'decodeGrid', messageIndex: idx });
+              post({ type: 'decodeGrid', messageIndex: idx });
             });
           });
           document.querySelectorAll('button.export-csv-btn').forEach((el) => {
@@ -3156,7 +3217,7 @@ export function renderHtml(
               ev.stopPropagation();
               const idx = Number(el.getAttribute('data-message-index'));
               if (!Number.isFinite(idx)) return;
-              vscode.postMessage({ type: 'exportCsv', messageIndex: idx });
+              post({ type: 'exportCsv', messageIndex: idx });
             });
           });
           // NetCDF: open the slice-picker render panel for a variable.
@@ -3167,7 +3228,7 @@ export function renderHtml(
               if (!Number.isFinite(idx)) return;
               const s = document.getElementById('netcdf-render-status');
               if (s) s.textContent = 'Opening render…';
-              vscode.postMessage({ type: 'renderVariable', variableIndex: idx });
+              post({ type: 'renderVariable', variableIndex: idx });
             });
           });
           if (editable) {
@@ -3179,7 +3240,7 @@ export function renderHtml(
                 if (!Number.isFinite(v) || v < 0 || v > 255 || !Number.isInteger(v)) {
                   return;
                 }
-                vscode.postMessage({ type: 'edit-p1', messageIndex: idx, value: v });
+                post({ type: 'edit-p1', messageIndex: idx, value: v });
               });
             });
           }
@@ -3213,7 +3274,7 @@ export function renderHtml(
         });
 
         attach();
-        vscode.postMessage({ type: 'ready' });
+        post({ type: 'ready' });
       })();
     </script>
   `;
