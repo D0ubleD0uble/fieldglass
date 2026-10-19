@@ -146,10 +146,12 @@ try {
     cwd: project,
     stdio: 'pipe',
   });
-  writeFileSync(
-    join(project, 'consumer.ts'),
+  // The same consumer against each entry (#1158): the full one is the default
+  // plus the planner and Zarr, so everything the default declares must
+  // type-check through it too.
+  const consumer = (entry) =>
     [
-      "import init, { open, type ColourRange, type FullDetail, type MessageInfo, type MessageProbe, type RenderedRaster } from '@fieldglass/wasm';",
+      `import init, { open, type ColourRange, type FullDetail, type MessageInfo, type MessageProbe, type RenderedRaster } from '${entry}';`,
       '',
       '// Typed against the published names, so a method whose declared return',
       '// type names nothing fails here rather than in a consumer.',
@@ -201,8 +203,9 @@ try {
       '  return [rgba, low, shown, handle.renderDisplay(coarse, field.stats(), {}, false).range.below];',
       '}',
       '',
-    ].join('\n'),
-  );
+    ].join('\n');
+  writeFileSync(join(project, 'consumer.ts'), consumer('@fieldglass/wasm'));
+  writeFileSync(join(project, 'consumer_full.ts'), consumer('@fieldglass/wasm/full'));
   // What `tsc` says about one consumer file, or '' when it type-checks.
   const typeCheck = (file) => {
     try {
@@ -237,6 +240,12 @@ try {
     `the published declarations type-check under tsc ${tscVersion} --strict`,
     tscOutput === '',
     `\n${tscOutput}`,
+  );
+  const tscFullOutput = typeCheck('consumer_full.ts');
+  check(
+    `the same consumer type-checks against @fieldglass/wasm/full`,
+    tscFullOutput === '',
+    `\n${tscFullOutput}`,
   );
 
   await init({ module_or_path: await readFile(wasmPath) });
