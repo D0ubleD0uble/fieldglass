@@ -307,8 +307,9 @@ take the same arguments and mean the same things in both, and
 `tools/check_js_api.py` holds both generated declarations to that.
 `decodeSlice` and `decodeLine` take one object, `{ variable, yDim, xDim,
 sliceIndices }` and `{ variable, alongDim, sliceIndices }`, where `variable` is a
-position in `variables()` and `sliceIndices` may be a `Uint32Array`, and refuse
-a key they do not know. `close()` is harmless twice, and every other call on a
+position in `variables()` and `sliceIndices` may be a `Uint32Array` or a plain object
+keyed `"0"`, `"1"`, … (the form the Node binding receives a typed array as), and
+refuse a key they do not know. `close()` is harmless twice, and every other call on a
 closed object throws. Everything here is synchronous; `load(source, { signal })`
 and `<name>Async` are reserved for the asynchronous layer (#1085), which adds to
 these names rather than renaming them.

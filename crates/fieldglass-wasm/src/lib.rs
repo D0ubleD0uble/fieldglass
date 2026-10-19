@@ -264,7 +264,9 @@ fn index_keyed_indices(request: &js_sys::Object) -> Result<Option<JsValue>, JsVa
     let array = js_sys::Array::new();
     for i in 0..js_sys::Object::keys(object).length() {
         let key = JsValue::from_str(&i.to_string());
-        if !js_sys::Reflect::has(object, &key)? {
+        // Own keys only, as the Node binding's map holds: an inherited `1` is not
+        // an index the caller wrote.
+        if !js_sys::Object::has_own(object, &key) {
             return Ok(None);
         }
         array.push(&js_sys::Reflect::get(object, &key)?);
@@ -931,6 +933,10 @@ fn palette_object(
 fn full_stats_from_js(value: JsValue) -> Result<Option<Stats>, JsValue> {
     if value.is_undefined() || value.is_null() {
         return Ok(None);
+    }
+    // An array would read as `Stats` field by field, as options did (#1210).
+    if !value.is_object() || js_sys::Array::is_array(&value) {
+        return Err(unreadable("full-field stats", &"it is not an object"));
     }
     serde_wasm_bindgen::from_value(value)
         .map(Some)

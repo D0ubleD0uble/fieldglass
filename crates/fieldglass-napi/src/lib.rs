@@ -1423,12 +1423,15 @@ fn render_display_grid(
     if field.closed {
         return Err(closed_display_grid().into());
     }
-    let full: Option<fieldglass::Stats> = match full_stats {
-        None | Some(serde_json::Value::Null) => None,
-        Some(v) => Some(serde_json::from_value(v).map_err(|e| {
-            fieldglass::Error::invalid_option(format!("could not read the full-field stats: {e}"))
-        })?),
-    };
+    let full: Option<fieldglass::Stats> =
+        match handle::object_or_absent(full_stats, "full-field stats")? {
+            None => None,
+            Some(v) => Some(serde_json::from_value(v).map_err(|e| {
+                fieldglass::Error::invalid_option(format!(
+                    "could not read the full-field stats: {e}"
+                ))
+            })?),
+        };
     let extremes = fieldglass::full_field_extremes(
         full.as_ref(),
         field.values.iter().any(Option::is_some),

@@ -158,6 +158,13 @@ equal(
   thrown(() => handle.paletteDisplay(coarse, null, {}))?.code,
   'invalid_option',
 );
+for (const bad of [[0, 1], 'stats', 3]) {
+  equal(
+    `stats ${JSON.stringify(bad)} are invalid_option`,
+    thrown(() => handle.renderDisplay(coarse, bad, {}, false))?.code,
+    'invalid_option',
+  );
+}
 equal(
   'stats that are not a Stats object are invalid_option',
   thrown(() => handle.renderDisplay(coarse, { min: 'cold' }, {}, false))?.code,

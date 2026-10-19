@@ -1621,6 +1621,12 @@ mod tests {
         }))
         .expect_err("refused");
         assert_eq!(code(&e), Some("invalid_option"), "{e}");
+        // So is one with a gap, as on the browser module (#1210).
+        let e = grid_target(json!({
+            "variable": 4, "yDim": 2, "xDim": 3, "sliceIndices": { "0": 0, "2": 0 },
+        }))
+        .expect_err("refused");
+        assert_eq!(code(&e), Some("invalid_option"), "{e}");
     }
 
     /// The listing is the API's own, numbered by position as `Session` numbers

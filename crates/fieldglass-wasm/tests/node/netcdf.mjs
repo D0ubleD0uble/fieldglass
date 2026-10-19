@@ -181,7 +181,15 @@ check('values are physical units, not stored codes', unpacked);
     const got = handle.decodeSlice(slice(indices), {});
     equal(`sliceIndices as ${name} decodes the same field`, Array.from(got.values()), want);
   }
-  for (const bad of [{ time: 0 }, { 0: 0, 2: 0 }]) {
+  const line = (sliceIndices) => ({ variable: variables[0].index, alongDim: 0, sliceIndices });
+  equal(
+    'a line takes an index-keyed sliceIndices as its array',
+    JSON.stringify(handle.decodeLine(line({ 0: 0, 1: 0 }), {})),
+    JSON.stringify(handle.decodeLine(line([0, 0]), {})),
+  );
+  // An inherited key is not an index the caller wrote.
+  const inherited = Object.assign(Object.create({ 1: 0 }), { 0: 0, 5: 0 });
+  for (const bad of [{ time: 0 }, { 0: 0, 2: 0 }, inherited]) {
     let code = null;
     try {
       handle.decodeSlice(slice(bad), {});
