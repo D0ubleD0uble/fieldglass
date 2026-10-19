@@ -211,7 +211,7 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
     }
   });
 
-  test.skip("Export PNG while the range is refused says so and exports nothing (#1174)", async () => {
+  test("Export PNG while the range is refused says so and exports nothing (#1174)", async () => {
     const p = await provider();
     const editor = await openEditor(p, FIXTURE);
     const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
