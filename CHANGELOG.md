@@ -177,6 +177,7 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 - **NetCDF-4 shuffle on a chunk that is not a whole number of elements** now unshuffles the whole elements and leaves the trailing bytes, as libhdf5 does. Closes #203.
 
 - **The browser module refuses an array as an options object.** `decode(0, ["f64"])` decoded at the automatic width instead of throwing `invalid_option`, as the Node addon already did. Both now take a plain object keyed `"0"`, `"1"`, … as `sliceIndices`, as they take a typed array. Closes #1210.
+- **The browser module refuses an array wherever it reads an object argument.** `select([])` returned every record, and `select(["TMP"])`, `candidates(source, [0])`, `planWindow([...])` and `decodeWindow([...])` were read by position. They now throw `invalid_option`. Closes #1221.
 
 ### Rust API
 

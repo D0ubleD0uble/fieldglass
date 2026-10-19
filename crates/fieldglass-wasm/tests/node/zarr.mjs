@@ -265,6 +265,9 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
   const good = { variable: t2m.index, yDim: 1, xDim: 2, bounds: [0, 40, 0, 90], sliceIndices: [0, 0, 0] };
   same(`${store}: an unknown key`, codeOf(() => handle.planWindow({ ...good, sliceIndex: 1 })), 'invalid_option');
   same(`${store}: a missing key`, codeOf(() => handle.planWindow({ ...good, bounds: undefined })), 'invalid_option');
+  same(`${store}: an array is not a window request`, codeOf(() => handle.planWindow([1, 1, 2, [0, 40, 0, 90], [0, 0, 0]])), 'invalid_option');
+  same(`${store}: an empty array is not a window request`, codeOf(() => handle.planWindow([])), 'invalid_option');
+  same(`${store}: an array is not a window to decode`, codeOf(() => handle.decodeWindow([t2m.index, 1, 2, [0, 40, 0, 90], [0, 0, 0]])), 'invalid_option');
   same(`${store}: an inverted box`, codeOf(() => handle.planWindow({ ...good, bounds: [40, 0, 0, 90] })), 'invalid_option');
   same(`${store}: a step past the end`, codeOf(() => handle.planWindow({ ...good, sliceIndices: [3, 0, 0] })), 'invalid_option');
   same(

@@ -215,6 +215,20 @@ check(
   'a misspelt key inside parameter throws invalid_option',
   codeOf(() => idx.select({ parameter: { discipline: 0, category: 1, numbr: 1 } })) === 'invalid_option',
 );
+// serde reads a struct from an array by position, so each of these used to be
+// accepted (#1221): `[]` as an empty query that selects every record.
+check('an empty array is not an empty query', codeOf(() => idx.select([])) === 'invalid_option');
+check('an array is not a query read by position', codeOf(() => idx.select(['TMP'])) === 'invalid_option');
+check('a string is not a query', codeOf(() => idx.select('TMP')) === 'invalid_option');
+check('a number is not a query', codeOf(() => idx.select(3)) === 'invalid_option');
+check(
+  'an array is not candidate options',
+  codeOf(() => wasm.candidates(recording.sources.source, [0])) === 'invalid_option',
+);
+check(
+  'an array is not a source',
+  codeOf(() => wasm.candidates([], { nowUnixSecs: 1788500000 })) === 'invalid_option',
+);
 check(
   'a fractional clock is refused, not truncated',
   codeOf(() => wasm.candidates(recording.sources.source, { nowUnixSecs: 1788500000.5 })) === 'invalid_option',
