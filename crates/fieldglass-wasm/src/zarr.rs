@@ -177,7 +177,7 @@ impl Handle {
     pub fn decode_window(
         &self,
         #[wasm_bindgen(unchecked_param_type = "WindowRequest")] request: JsValue,
-        #[wasm_bindgen(unchecked_param_type = "DecodeOptions | null | undefined")] options: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "DecodeOptions | null")] options: JsValue,
     ) -> Result<WasmField, JsValue> {
         let request: WindowRequest = strict(request, "window request")?;
         let options: DecodeOptions = from_js(options)?;

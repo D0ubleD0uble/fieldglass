@@ -464,7 +464,7 @@ struct Arrays {
     /// second identical question from here is unobservable except in time. It
     /// is memoised rather than left to each host because *every* host needs
     /// it and only one had it: `fieldglass-napi` cached the curvilinear index
-    /// for NetCDF, did not for Zarr — `ZarrHandle` re-derived it on every
+    /// for NetCDF, did not for Zarr — its Zarr handle re-derived it on every
     /// repaint — and the browser host cached neither.
     placements: Mutex<HashMap<PlacementKey, Arc<SlicePlacement>>>,
 }

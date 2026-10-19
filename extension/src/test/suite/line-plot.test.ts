@@ -55,7 +55,7 @@ async function temperaturePanel(): Promise<{ panel: RealPanel; close: () => void
   const file = fixture("netcdf4_dimscale.nc");
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const temperature = native.NetcdfHandle.fromBytes(fs.readFileSync(file))
+  const temperature = native.open(fs.readFileSync(file))
     .variables()
     .find((v) => v.name === "temperature");
   assert.ok(temperature, "the fixture has temperature");
@@ -288,7 +288,7 @@ suite("The line plot is a choice, off by default (#1037)", function () {
       await panel.drive([{ id: "line-toggle", checked: true }]);
       const native = loadNative();
       assert.ok(native, "native binding required");
-      const one = native.ZarrHandle.fromDirectory(store).variables().find((v) => v.name === "one");
+      const one = native.openStore(store).variables().find((v) => v.name === "one");
       assert.ok(one, "the store has the single-cell variable");
       const from = panel.sent.length;
       await panel.drive([{ id: "slice-variable", value: one.variableIndex }]);

@@ -123,7 +123,7 @@ impl MessageManifest {
     #[wasm_bindgen(unchecked_return_type = "PlanItem[]")]
     pub fn select(
         &self,
-        #[wasm_bindgen(unchecked_param_type = "Query | null | undefined")] query: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "Query | null")] query: JsValue,
     ) -> Result<JsValue, JsValue> {
         let query: Query = if query.is_undefined() || query.is_null() {
             Query::default()

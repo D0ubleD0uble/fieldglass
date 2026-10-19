@@ -178,7 +178,7 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
     // `temperature` is time × lat × lon: three axes to plot a line along.
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const temperature = native.NetcdfHandle.fromBytes(fs.readFileSync(file))
+    const temperature = native.open(fs.readFileSync(file))
       .variables()
       .find((v) => v.name === "temperature");
     assert.ok(temperature, "the fixture has temperature");
@@ -253,7 +253,7 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
     fourDimensionStore(store);
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const variables = native.ZarrHandle.fromDirectory(store).variables();
+    const variables = native.openStore(store).variables();
     const t = variables.find((v) => v.name === "t");
     const u = variables.find((v) => v.name === "u");
     assert.ok(t && u, "the store has t and u");

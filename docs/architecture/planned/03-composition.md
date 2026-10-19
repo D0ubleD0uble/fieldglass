@@ -224,12 +224,19 @@ expects a free repaint). wasm keeps none: the host owns every field it
 decoded and passes it back for render, probe, and contours, so memory is the
 app's decision.
 
+Both hosts export one `Handle` with the same names and arguments for what they
+share — opening, listing and decoding (#1073). The addon's map pipeline, which
+the browser module does not have, takes a target (a message index, a slice, or
+two combined) rather than a method per container; see
+[`04-hosts.md`](04-hosts.md#one-javascript-api).
+
 ```mermaid
 classDiagram
-    class Grib2Handle {
-        napi
-        -Mutex~HashMap~ decoded
-        -Mutex~HashMap~ synthesized
+    class NapiHandle {
+        napi, shipped #1073
+        one per open file or store
+        +renderGrid(target, opts) RenderedGrid
+        value memo per message and plane
     }
     class WasmHandle {
         <<planned #460>>
@@ -304,14 +311,14 @@ classDiagram
     }
     class RenderedGrid {
         <<napi>>
-        Raster plus the used extent, RGBA as a Buffer
+        Raster plus the used extent, RGBA as a Uint8Array
         every key present, null for none
     }
     class Raster {
         <<planned #464, crate fieldglass>>
         API DTO: rgba, width, height, range (ColourRange, #1155)
     }
-    Grib2Handle *-- Session
+    NapiHandle *-- Session
     WasmHandle *-- Session
     Session o-- Grib1Reader : one of, per open
     Session o-- Grib2Reader : one of, per open
@@ -322,12 +329,12 @@ classDiagram
     Session ..> DisplayField
     Session ..> Palette : palette(opts)
     Session ..> Raster : render(), paints through Palette
-    Grib2Handle ..> ConformanceSuite : passes
+    NapiHandle ..> ConformanceSuite : passes
     WasmHandle ..> ConformanceSuite : passes
     DisplayField ..> Field : same layout, distinct type — not accepted by probe / csv / contours / stats
     RenderedGrid ..> Raster : built from (napi)
-    Grib2Handle ..> Message : message(i)
-    Grib2Handle ..> RenderedGrid
+    NapiHandle ..> Message : message(i)
+    NapiHandle ..> RenderedGrid
     WasmHandle ..> Field : returns to the host, takes it back by reference
     WasmHandle ..> Palette : returns it, the app uploads it
     Field *-- Georef

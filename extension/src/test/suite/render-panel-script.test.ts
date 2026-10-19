@@ -46,7 +46,7 @@ function netcdfFixture(name: string): string {
 function indexOf(bytes: Buffer, name: string): number {
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const v = native.NetcdfHandle.fromBytes(bytes).variables().find((x) => x.name === name);
+  const v = native.open(bytes).variables().find((x) => x.name === name);
   assert.ok(v, `the file has ${name}`);
   return v.variableIndex;
 }
@@ -88,7 +88,7 @@ async function changingFile(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const handles = (p as any)._netcdfHandlesByDoc as Map<string, unknown>;
       assert.ok(handles.has(vscode.Uri.file(file).toString()), "the document has a handle to replace");
-      handles.set(vscode.Uri.file(file).toString(), native.NetcdfHandle.fromBytes(bytes));
+      handles.set(vscode.Uri.file(file).toString(), native.open(bytes));
     },
     done: () => {
       panel.dispose();

@@ -5,6 +5,11 @@
 //! function is a thin call through. Decode, projection and paint logic belongs
 //! below the umbrella, never in this crate (ADR-0006) — and the umbrella is the
 //! only workspace crate this one names (#574).
+//!
+//! The addon exports one `Handle` (`handle.rs`, #1073), with the browser
+//! module's names for what the two share; the per-container files below it
+//! (`Grib1File`, `Grib2File`, `NetcdfFile`, `ZarrStore`) hold the memos the
+//! extension's repaint loop needs (ADR-0011).
 
 use fieldglass::netcdf::{
     DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,

@@ -254,6 +254,14 @@ jobs:
           crates/fieldglass-wasm/build.sh web --features=fetchplan,zarr
           crates/fieldglass-wasm/build.sh nodejs --features=fetchplan,zarr
 
+      # Both browser entries' declarations against the JavaScript API the Node
+      # addon shares (#1073); the extension job checks the addon's.
+      - name: The browser module's declarations keep the shared JavaScript API
+        run: |
+          python3 tools/check_js_api.py \
+            --wasm crates/fieldglass-wasm/pkg/nodejs/fieldglass_wasm.d.ts \
+            --wasm crates/fieldglass-wasm/pkg/nodejs-fetchplan-zarr/fieldglass_wasm.d.ts
+
       # Fails when any build drifts more than 5% from the figures in the
       # crate README, in either direction, so the documented size is the
       # measured size. Writes the table into the run summary. `full` is the
@@ -428,6 +436,14 @@ jobs:
       # failing open (#574).
       - name: native.ts matches the generated declarations
         run: python3 tools/check_native_declarations.py
+
+      # The addon's generated declarations against the JavaScript API both hosts
+      # share (#1073): the shared methods' signatures, nothing else shared by
+      # accident, camelCase parameters, no Rust doc links, and the async names
+      # left free for #1085. The browser builds are held to the same contract in
+      # the wasm job.
+      - name: The addon's declarations keep the shared JavaScript API
+        run: python3 tools/check_js_api.py --napi extension/bin/index.d.ts
 
       - name: Run extension tests (mocha + @vscode/test-electron, under xvfb)
         run: xvfb-run -a npm test

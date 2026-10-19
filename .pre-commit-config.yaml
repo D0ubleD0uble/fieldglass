@@ -438,6 +438,18 @@ repos:
         entry: python3 tools/test_check_native_declarations.py
         pass_filenames: false
 
+      - id: js-api-selftest
+        name: JavaScript API checker self-test
+        stages: [pre-push]
+        language: system
+        # The checker runs in CI against each host's generated `.d.ts` (the
+        # extension job's `index.d.ts`, the wasm job's builds), which only exist
+        # after a build. Its self-test runs here, over synthetic files, so every
+        # rule of the shared JavaScript API is seen to fail (#1073).
+        files: ^tools/(check_js_api|test_check_js_api)\.py$
+        entry: python3 tools/test_check_js_api.py
+        pass_filenames: false
+
       - id: api-declarations-selftest
         name: API declaration generator self-test
         stages: [pre-push]

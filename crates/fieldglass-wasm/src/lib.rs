@@ -28,9 +28,9 @@
 //! **the façade keeps no decode cache**. `Handle.decode` hands a `WasmField`
 //! to JS and JS owns it; `warp`, `render`, `probe`, and `contours` take it back
 //! by reference. `Handle.decodeDisplay` hands over a `WasmDisplayField`
-//! the same way. Call `field.free()` when you are done with one — a dropped JS
-//! reference does not release the wasm allocation until the host's
-//! `FinalizationRegistry` runs, if it runs at all.
+//! the same way. Call `field.close()` (or `free()`) when you are done with one,
+//! or hold it with `using` — a dropped JS reference does not release the wasm
+//! allocation until the host's `FinalizationRegistry` runs, if it runs at all.
 //!
 //! Every accessor that returns a typed array **copies** out of linear memory,
 //! because a view into it dangles the moment wasm grows the heap. A host that
@@ -466,7 +466,7 @@ impl Handle {
     pub fn decode(
         &self,
         index: u32,
-        #[wasm_bindgen(unchecked_param_type = "DecodeOptions | null | undefined")] options: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "DecodeOptions | null")] options: JsValue,
     ) -> Result<WasmField, JsValue> {
         let options: DecodeOptions = from_js(options)?;
         let field = self.session.decode(index, &options).map_err(throw)?;
@@ -493,7 +493,7 @@ impl Handle {
     pub fn decode_display(
         &self,
         index: u32,
-        #[wasm_bindgen(unchecked_param_type = "DisplayDecodeOptions | null | undefined")]
+        #[wasm_bindgen(unchecked_optional_param_type = "DisplayDecodeOptions | null")]
         options: JsValue,
     ) -> Result<WasmDisplayField, JsValue> {
         let options: DisplayDecodeOptions = from_js(options)?;
@@ -519,7 +519,7 @@ impl Handle {
     pub fn warp(
         &self,
         field: &WasmField,
-        #[wasm_bindgen(unchecked_param_type = "WarpOptions | null | undefined")] options: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "WarpOptions | null")] options: JsValue,
     ) -> Result<JsValue, JsValue> {
         let options: WarpOptions = from_js(options)?;
         let out = self.session.warp(&field.field, &options).map_err(throw)?;
@@ -536,7 +536,7 @@ impl Handle {
     pub fn warp_display(
         &self,
         field: &WasmDisplayField,
-        #[wasm_bindgen(unchecked_param_type = "WarpOptions | null | undefined")] options: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "WarpOptions | null")] options: JsValue,
     ) -> Result<JsValue, JsValue> {
         let options: WarpOptions = from_js(options)?;
         let out = self
@@ -572,8 +572,7 @@ impl Handle {
     pub fn palette(
         &self,
         field: &WasmField,
-        #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
-        options: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "PaletteOptions | null")] options: JsValue,
     ) -> Result<JsValue, JsValue> {
         let options: PaletteOptions = from_js(options)?;
         let palette = self
@@ -607,8 +606,7 @@ impl Handle {
         field: &WasmDisplayField,
         #[wasm_bindgen(js_name = "fullStats", unchecked_param_type = "Stats | null")]
         full_stats: JsValue,
-        #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
-        options: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "PaletteOptions | null")] options: JsValue,
     ) -> Result<JsValue, JsValue> {
         let full = full_stats_from_js(full_stats)?;
         let options: PaletteOptions = from_js(options)?;
@@ -760,8 +758,7 @@ impl Handle {
         &self,
         field: &WasmField,
         levels: &[f64],
-        #[wasm_bindgen(unchecked_param_type = "ContourOptions | null | undefined")]
-        options: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "ContourOptions | null")] options: JsValue,
     ) -> Result<JsValue, JsValue> {
         let options: ContourOptions = from_js(options)?;
         let out: Vec<Isoline> = self
@@ -782,8 +779,7 @@ impl Handle {
     pub fn shader_values(
         &self,
         field: &WasmField,
-        #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
-        options: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "PaletteOptions | null")] options: JsValue,
     ) -> Result<js_sys::Float32Array, JsValue> {
         let options: PaletteOptions = from_js(options)?;
         let palette = self
@@ -802,8 +798,7 @@ impl Handle {
     pub fn shader_mask(
         &self,
         field: &WasmField,
-        #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
-        options: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "PaletteOptions | null")] options: JsValue,
     ) -> Result<js_sys::Uint8Array, JsValue> {
         let options: PaletteOptions = from_js(options)?;
         let palette = self

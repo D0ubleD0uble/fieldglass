@@ -53,7 +53,7 @@ function sst(): { handle: ReturnType<typeof netcdf>; v: NetcdfVariableMeta } {
 function netcdf(bytes: Buffer) {
   const native = loadNative();
   assert.ok(native, "native module must load");
-  return native.NetcdfHandle.fromBytes(bytes);
+  return native.open(bytes);
 }
 
 suite("Cross-sections", () => {
@@ -209,16 +209,16 @@ suite("Cross-sections", () => {
     const { handle, v } = sst();
     const base = { projection: "source" as const, resampling: "nearest" as const, flipY: false };
     // Time by latitude: 89 columns of latitude, one row of time.
-    const plot = handle.renderSlice(v.variableIndex, 0, 2, [0, 0, 0, 0], base);
+    const plot = handle.renderGrid({ variable: v.variableIndex, yDim: 0, xDim: 2, sliceIndices: [0, 0, 0, 0] }, base);
     assert.deepStrictEqual([plot.width, plot.height], [89, 1]);
     assert.strictEqual(plot.usedLatMin, null, "no geographic extent");
     // And the map target refuses it rather than inventing one.
     assert.throws(
-      () => handle.renderSlice(v.variableIndex, 0, 2, [0, 0, 0, 0], { ...base, projection: "equirectangular" }),
+      () => handle.renderGrid({ variable: v.variableIndex, yDim: 0, xDim: 2, sliceIndices: [0, 0, 0, 0] }, { ...base, projection: "equirectangular" }),
       /lat|reproject|grid/i,
     );
     // The real map pair still reprojects.
-    const map = handle.renderSlice(v.variableIndex, 2, 3, [0, 0, 0, 0], { ...base, projection: "equirectangular" });
+    const map = handle.renderGrid({ variable: v.variableIndex, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] }, { ...base, projection: "equirectangular" });
     assert.ok(map.width > 0 && map.usedLatMin != null, "lat by lon is still a map");
   });
 

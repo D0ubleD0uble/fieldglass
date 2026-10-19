@@ -66,7 +66,7 @@ suite("The projection note follows placement (#960)", function () {
     fs.writeFileSync(file, zeroRadiusLambert());
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const meta = native.Grib2Handle.fromBytes(fs.readFileSync(file)).message(0);
+    const meta = native.open(fs.readFileSync(file)).message(0);
     assert.strictEqual(meta.grid?.label, "lambert", "declined under its family's name");
     assert.strictEqual(meta.placement, "unplaceable");
     assert.strictEqual(meta.reprojectable, false);
@@ -91,7 +91,7 @@ suite("The projection note follows placement (#960)", function () {
     const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const handle = native.NetcdfHandle.fromBytes(fs.readFileSync(file));
+    const handle = native.open(fs.readFileSync(file));
     const index = (name: string) => {
       const v = handle.variables().find((x) => x.name === name);
       assert.ok(v, `the fixture has ${name}`);

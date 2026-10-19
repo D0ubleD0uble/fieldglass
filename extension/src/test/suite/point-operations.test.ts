@@ -18,7 +18,7 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { loadNative, type GridSupport, type SlicePanelHandle } from "../../native";
+import { loadNative, type GridSupport, type Handle } from "../../native";
 import {
   NO_LONG_CSV_NOTE,
   NO_ZONAL_REASON,
@@ -47,7 +47,7 @@ function crateFixture(crate: string, name: string): string {
 function variableIndex(file: string, name: string): number {
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const v = native.NetcdfHandle.fromBytes(fs.readFileSync(file))
+  const v = native.open(fs.readFileSync(file))
     .variables()
     .find((x) => x.name === name);
   assert.ok(v, `${path.basename(file)} has ${name}`);
@@ -160,7 +160,7 @@ suite("Point operations follow the grid (#945)", function () {
     fs.writeFileSync(file, Buffer.concat([message, message]));
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const meta = native.Grib2Handle.fromBytes(fs.readFileSync(file)).message(0);
+    const meta = native.open(fs.readFileSync(file)).message(0);
     assert.strictEqual(meta.placement, "unplaceable", "the grid is not placed");
     assert.deepStrictEqual(meta.supports, NONE, "and takes no point operation");
 
@@ -231,7 +231,7 @@ suite("Point operations follow the grid (#945)", function () {
           const native = loadNative();
           assert.ok(native, "native binding required");
           const bytes = fs.readFileSync(file);
-          const handle = file.endsWith(".grib2") ? native.Grib2Handle.fromBytes(bytes) : native.Grib1Handle.fromBytes(bytes);
+          const handle = file.endsWith(".grib2") ? native.open(bytes) : native.open(bytes);
           const meta = handle.message(0);
           assert.strictEqual(meta.placement, "placed", `${family} is placed`);
           supports = meta.supports;
@@ -242,7 +242,7 @@ suite("Point operations follow the grid (#945)", function () {
           if (!grid.placed) {
             const native = loadNative();
             assert.ok(native, "native binding required");
-            const v = native.NetcdfHandle.fromBytes(fs.readFileSync(file))
+            const v = native.open(fs.readFileSync(file))
               .variables()
               .find((x) => x.name === variable);
             assert.ok(v);
@@ -335,13 +335,13 @@ suite("Point operations follow the grid (#945)", function () {
     };
     try {
       const slice = async (file: string, name: string) => {
-        const handle = native.NetcdfHandle.fromBytes(fs.readFileSync(file));
+        const handle = native.open(fs.readFileSync(file));
         const v = handle.variables().find((x) => x.name === name);
         assert.ok(v, `${path.basename(file)} has ${name}`);
         const rank = v.dims.length;
         await p.handleExportSliceCsv(
           {
-            handle: (): SlicePanelHandle => handle,
+            handle: (): Handle => handle,
             gone: "",
             exportDir: vscode.Uri.file(path.dirname(file)),
             container: "NetCDF",

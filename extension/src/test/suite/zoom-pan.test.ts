@@ -144,7 +144,7 @@ suite("Zoom and pan", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(path.join(extensionPath(), "src", "test", "fixtures", "spectral_simple_t63.grib2"));
-    const handle = native.Grib2Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
     const render = (w: MapWindow) => {
       const options: RenderOptions = {
         projection: "equirectangular",

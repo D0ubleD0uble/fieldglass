@@ -203,6 +203,21 @@ try {
       '  return [rgba, low, shown, handle.renderDisplay(coarse, field.stats(), {}, false).range.below];',
       '}',
       '',
+      '// One shape with the Node addon (#1073): a slice and a line are one object',
+      '// each, every class closes, and `using` releases a handle at the block end.',
+      'export function shape(bytes: Uint8Array): number {',
+      '  using handle = open(bytes);',
+      '  using slice = handle.decodeSlice({ variable: 0, yDim: 0, xDim: 1, sliceIndices: [0, 0] });',
+      "  handle.decodeLine({ variable: 0, alongDim: 0, sliceIndices: [0, 0] }, { dtype: 'f64' });",
+      '  // @ts-expect-error the slice is one object, not four arguments',
+      '  handle.decodeSlice(0, 0, 1, [0, 0]);',
+      '  // @ts-expect-error a key the request does not take',
+      '  handle.decodeSlice({ variable: 0, yDim: 0, xDim: 1, sliceIndex: [0, 0] });',
+      '  const field = handle.decode(0);',
+      '  field.close();',
+      '  return slice.ni();',
+      '}',
+      '',
     ].join('\n');
   writeFileSync(join(project, 'consumer.ts'), consumer('@fieldglass/wasm'));
   writeFileSync(join(project, 'consumer_full.ts'), consumer('@fieldglass/wasm/full'));

@@ -485,9 +485,7 @@ impl Handle {
         &self,
         env: Env,
         index: u32,
-        #[napi(ts_arg_type = "DecodeOptions | null | undefined")] options: Option<
-            serde_json::Value,
-        >,
+        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<serde_json::Value>,
     ) -> napi::Result<DecodedGrid> {
         self.decode(index, options).map_err(|e| e.throw(&env))
     }
@@ -503,9 +501,7 @@ impl Handle {
         &self,
         env: Env,
         #[napi(ts_arg_type = "SliceRequest")] slice: serde_json::Value,
-        #[napi(ts_arg_type = "DecodeOptions | null | undefined")] options: Option<
-            serde_json::Value,
-        >,
+        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<serde_json::Value>,
     ) -> napi::Result<DecodedGrid> {
         self.decode_slice(slice, options).map_err(|e| e.throw(&env))
     }
@@ -518,9 +514,7 @@ impl Handle {
         &self,
         env: Env,
         #[napi(ts_arg_type = "LineRequest")] line: serde_json::Value,
-        #[napi(ts_arg_type = "DecodeOptions | null | undefined")] options: Option<
-            serde_json::Value,
-        >,
+        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<serde_json::Value>,
     ) -> napi::Result<LineResult> {
         self.decode_line(line, options).map_err(|e| e.throw(&env))
     }
@@ -540,9 +534,7 @@ impl Handle {
         &self,
         env: Env,
         index: u32,
-        #[napi(ts_arg_type = "DisplayDecodeOptions | null | undefined")] options: Option<
-            serde_json::Value,
-        >,
+        #[napi(ts_arg_type = "DisplayDecodeOptions | null")] options: Option<serde_json::Value>,
     ) -> napi::Result<DisplayGrid> {
         self.decode_display(index, options)
             .map_err(|e| e.throw(&env))

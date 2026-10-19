@@ -75,20 +75,20 @@ suite("Zarr store", () => {
 
     // Every committed store, none of which is named `*.zarr`.
     for (const name of ["v2_nested", "v2_slash", "v3_nested", "cf_v2", "cf_v3"]) {
-      assert.ok(native.ZarrHandle.isStore(storePath(name)), `${name} is a store`);
+      assert.ok(native.isStore(storePath(name)), `${name} is a store`);
     }
     // The directory that holds them is not one, and neither is a file.
     assert.ok(
-      !native.ZarrHandle.isStore(path.join(repoRoot(), "crates", "fieldglass-zarr", "tests", "fixtures")),
+      !native.isStore(path.join(repoRoot(), "crates", "fieldglass-zarr", "tests", "fixtures")),
       "a directory of stores is not a store",
     );
-    assert.ok(!native.ZarrHandle.isStore(path.join(repoRoot(), "README.md")));
+    assert.ok(!native.isStore(path.join(repoRoot(), "README.md")));
   });
 
   test("a store lists its variables and renders a slice", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const handle = native.ZarrHandle.fromDirectory(storePath("cf_v3"));
+    const handle = native.openStore(storePath("cf_v3"));
 
     const variables = handle.variables();
     assert.ok(variables.length > 0, "the store lists variables");
@@ -100,11 +100,8 @@ suite("Zarr store", () => {
     assert.ok(t.detectedYDim != null, "a latitude axis was detected");
     assert.ok(t.detectedXDim != null, "a longitude axis was detected");
 
-    const grid = handle.renderSlice(
-      t.variableIndex,
-      t.detectedYDim,
-      t.detectedXDim,
-      t.dims.map(() => 0),
+    const grid = handle.renderGrid(
+      { variable: t.variableIndex, yDim: t.detectedYDim, xDim: t.detectedXDim, sliceIndices: t.dims.map(() => 0) },
       {
         projection: "equirectangular",
         resampling: "nearest",

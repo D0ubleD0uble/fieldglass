@@ -3,7 +3,7 @@
 // The picker used to be written once, from the slice the panel opened on. A
 // panel opened on a variable with no coordinates then offered only the source
 // view for every variable it moved to, and one opened on a placed variable kept
-// offering map targets that an unplaceable one refused in `renderSlice`.
+// offering map targets that an unplaceable one refused in `renderGrid`.
 //
 // These drive the provider's real message handler through a stand-in panel,
 // over the real native handles, and read back what it posts: each render now
@@ -315,7 +315,7 @@ suite("Slice panel projection picker", () => {
     )) as FieldglassDocument;
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const variables = native.NetcdfHandle.fromBytes(fs.readFileSync(uri.fsPath)).variables();
+    const variables = native.open(fs.readFileSync(uri.fsPath)).variables();
     const byName = (name: string) => {
       const v = variables.find((x) => x.name === name);
       assert.ok(v, `the fixture has ${name}`);

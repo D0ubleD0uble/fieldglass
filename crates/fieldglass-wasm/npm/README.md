@@ -43,8 +43,8 @@ Everything after a decode — `warp`, `palette`, `render`, `probe`, `contours`,
 split stops at the decode and nothing downstream has two cases.
 
 Fields and handles own memory the module allocated, and linear memory never
-shrinks: call `free()` when you are done with one, or use `using` and let
-`Symbol.dispose` do it.
+shrinks: call `close()` (or `free()`) when you are done with one, or use `using`
+and let `Symbol.dispose` do it.
 
 ## Two entries
 

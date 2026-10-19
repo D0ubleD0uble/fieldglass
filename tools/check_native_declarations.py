@@ -24,7 +24,7 @@ written for another reason.
    completeness.** A hand-written object type is a view, and declaring a field
    nothing reads is declaring a shape nothing uses. The reverse is not checked
    either — `native.ts` also declares the loader, the webview payloads and
-   `SlicePanelHandle`, none of which napi generates.
+   the map pipeline's target types, none of which napi generates as interfaces.
 
 2. **Every field that *is* declared agrees, optionality and `| null`
    included** — on a `#[napi(object)]`, which is what napi generates an
@@ -91,6 +91,8 @@ GLOBAL_TYPES = {
     "Int32Array",
     "Promise",
     "Record",
+    # `[Symbol.dispose]`, which the addon sets on each class (#1073).
+    "Symbol",
     "Uint8Array",
     "Uint32Array",
 }
@@ -103,13 +105,7 @@ TYPE_ALIASES: dict[str, str] = {
 
 # Generated names `native.ts` deliberately does not declare, with the reason.
 # An entry here is a hole in property 1, so each needs one.
-IGNORED_GENERATED: dict[str, str] = {
-    "DecodedVariable": (
-        "returned by `decode_variable`, which the extension does not call — it "
-        "renders slices through `renderSlice` and never asks for raw values. "
-        "Declaring it would be declaring a shape nothing reads."
-    ),
-}
+IGNORED_GENERATED: dict[str, str] = {}
 
 # Fields the hand-written file declares differently from what napi generates,
 # knowingly. **This is a ratchet, not an exemption**: the check fails when a field
@@ -132,6 +128,14 @@ INPUT_OBJECTS: dict[str, str] = {
         "the picker state the panel sends to every render, overlay, contour and "
         "probe call; an omitted field is the renderer's default"
     ),
+    "ContourSpacing": (
+        "the contour call's spacing (#1073); an omitted interval picks the "
+        "automatic levels"
+    ),
+    "VectorPair": (
+        "the two messages an arrows call draws (#1073); an omitted spacing or "
+        "frame takes the default or the pair's own"
+    ),
 }
 
 
@@ -150,9 +154,9 @@ def extends(text: str) -> dict[str, list[str]]:
     """Interface name -> the interfaces it extends.
 
     Followed when collecting hand-written members, because an inherited method
-    *is* declared — `ZarrHandle extends SlicePanelHandle` is how #659 avoided
-    writing eight signatures twice, and a checker that ignored it would demand
-    the duplication it exists to prevent.
+    *is* declared — `ZarrHandle extends SlicePanelHandle` was how #659 avoided
+    writing eight signatures twice, before the one `Handle` (#1073), and a
+    checker that ignored it would demand the duplication it exists to prevent.
     """
     out: dict[str, list[str]] = {}
     for m in EXTENDS_RE.finditer(text):

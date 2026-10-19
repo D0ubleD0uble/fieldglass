@@ -48,7 +48,7 @@ function cmcWind() {
     "cmc_wind_300_2010052400_p012.grib",
   );
   assert.ok(fs.existsSync(p), `fixture missing: ${p}`);
-  return native.Grib1Handle.fromBytes(fs.readFileSync(p));
+  return native.open(fs.readFileSync(p));
 }
 
 const SOURCE = { projection: "source" as const, resampling: "nearest" as const, flipY: false };
@@ -75,7 +75,7 @@ suite("Vector arrows", () => {
     );
     const native = loadNative();
     assert.ok(native);
-    const latlon = native.Grib2Handle.fromBytes(
+    const latlon = native.open(
       fs.readFileSync(path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2")),
     );
     assert.strictEqual(latlon.message(0).uvRelativeToGrid, false, "a plain lat/lon grid does not");
@@ -85,8 +85,8 @@ suite("Vector arrows", () => {
     const handle = cmcWind();
     // The corpus holds one message per file, so the pair is this field against
     // itself: a flow at 45° to the grid. What matters here is the plumbing.
-    const dense = handle.projectVectors(0, 0, SOURCE, 4, true);
-    const sparse = handle.projectVectors(0, 0, SOURCE, 16, true);
+    const dense = handle.projectVectors({ u: 0, v: 0, spacing: 4, gridRelative: true }, SOURCE);
+    const sparse = handle.projectVectors({ u: 0, v: 0, spacing: 16, gridRelative: true }, SOURCE);
     for (const arrows of [dense, sparse]) {
       assert.ok(arrows.segLengths.length > 0, "some arrows");
       assert.ok(
@@ -119,7 +119,7 @@ suite("Vector arrows", () => {
     assert.deepStrictEqual([rendered.usedMin, rendered.usedMax], [own.usedMin, own.usedMax]);
     assert.ok(rendered.rgba.every((b, i) => i % 4 !== 3 || b === 0), "nothing is painted");
     assert.strictEqual(rendered.range.present, 0, "no present cell in the window");
-    const arrows = handle.projectVectors(0, 0, OFF_THE_GRID, 8, true);
+    const arrows = handle.projectVectors({ u: 0, v: 0, spacing: 8, gridRelative: true }, OFF_THE_GRID);
     assert.strictEqual(arrows.segLengths.length, 0, "no arrow is on the window");
     assert.strictEqual(arrows.referenceSpeed, null, "no speed when no arrow was drawn");
 
@@ -135,7 +135,7 @@ suite("Vector arrows", () => {
       composeRangeText(drawn.usedMin, drawn.usedMax),
       `range ${drawn.usedMin.toPrecision(4)} … ${drawn.usedMax.toPrecision(4)}`,
     );
-    const speed = handle.projectVectors(0, 0, SOURCE, 8, true).referenceSpeed;
+    const speed = handle.projectVectors({ u: 0, v: 0, spacing: 8, gridRelative: true }, SOURCE).referenceSpeed;
     assert.ok(speed != null && speed > 0, `got ${speed}`);
     // The key's label: the speed and its units. The key itself is an arrow
     // drawn on the map (#1046), so no glyph stands in for one.
@@ -144,8 +144,8 @@ suite("Vector arrows", () => {
 
   test("the two conventions point differently on a projected grid", () => {
     const handle = cmcWind();
-    const grid = handle.projectVectors(0, 0, SOURCE, 8, true);
-    const earth = handle.projectVectors(0, 0, SOURCE, 8, false);
+    const grid = handle.projectVectors({ u: 0, v: 0, spacing: 8, gridRelative: true }, SOURCE);
+    const earth = handle.projectVectors({ u: 0, v: 0, spacing: 8, gridRelative: false }, SOURCE);
     assert.strictEqual(grid.segLengths.length, earth.segLengths.length);
     // Same tails, different tips: the rotation is the whole difference.
     let moved = 0;
@@ -172,8 +172,8 @@ suite("Vector arrows", () => {
       "fixtures",
       "polar_stereographic_surface.grib2",
     );
-    const handle = native.Grib2Handle.fromBytes(fs.readFileSync(p));
-    assert.throws(() => handle.projectVectors(0, 0, SOURCE, 8, false), /grid|extent|reproject|support/i);
+    const handle = native.open(fs.readFileSync(p));
+    assert.throws(() => handle.projectVectors({ u: 0, v: 0, spacing: 8, gridRelative: false }, SOURCE), /grid|extent|reproject|support/i);
   });
 
   test("the Vectors row appears with a pair to choose from, and carries the file's convention", () => {

@@ -142,7 +142,7 @@ async function openDimscale(): Promise<{ panel: RealPanel; close: () => void; fi
   const file = fixture(path.join(FIXTURES(), "netcdf4_dimscale.nc"));
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const temperature = native.NetcdfHandle.fromBytes(fs.readFileSync(file))
+  const temperature = native.open(fs.readFileSync(file))
     .variables()
     .find((v) => v.name === "temperature");
   assert.ok(temperature, "the fixture has temperature");

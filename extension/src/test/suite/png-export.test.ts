@@ -203,7 +203,7 @@ suite("Export PNG", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
-    const meta: MessageInfo = native.Grib2Handle.fromBytes(bytes).message(0);
+    const meta: MessageInfo = native.open(bytes).message(0);
 
     // A stand-in panel that records what the provider registers and posts.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

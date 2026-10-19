@@ -95,8 +95,8 @@ function fastestDrawn(
 ): { length: number; speed: number; matched: number; drawn: number } {
   const native = loadNative();
   assert.ok(native, "native module must load");
-  const handle = native.Grib2Handle.fromBytes(fs.readFileSync(file));
-  const values = handle.decodeGrid(0);
+  const handle = native.open(fs.readFileSync(file));
+  const values = handle.decode(0);
   const options = resolveRerenderOptions(request.options ?? {});
   const step = request.spacing ?? Math.max(1, Math.floor(Math.max(NI, NJ) / 24));
   const arrows = wholeArrows(result);
@@ -108,7 +108,7 @@ function fastestDrawn(
       if (values.mask[k] !== 1) continue;
       const lat = 90 - 2.5 * j;
       const lon = 2.5 * i;
-      const at = handle.projectOverlay(0, options, new Float64Array([lat, lon, lat, lon]), new Uint32Array([2]));
+      const at = handle.projectOverlay(0, options, { latlon: new Float64Array([lat, lon, lat, lon]), ringLengths: new Uint32Array([2]) });
       if (at.xy.length === 0) continue;
       const arrow = arrows.find((a) => Math.hypot(a.tail[0] - at.xy[0], a.tail[1] - at.xy[1]) < 1e-6);
       if (!arrow) continue;

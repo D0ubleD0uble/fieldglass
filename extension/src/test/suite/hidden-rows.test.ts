@@ -37,7 +37,7 @@ function field(number: number): Buffer {
 function variable(file: string, name: string) {
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const found = native.NetcdfHandle.fromBytes(fs.readFileSync(file))
+  const found = native.open(fs.readFileSync(file))
     .variables()
     .find((v) => v.name === name);
   assert.ok(found, `the fixture has ${name}`);

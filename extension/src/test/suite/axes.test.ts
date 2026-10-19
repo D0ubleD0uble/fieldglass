@@ -156,7 +156,7 @@ async function storePanel(build: (root: string) => void): Promise<{ panel: RealP
 function variableIndex(store: string, name: string): number {
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const v = native.ZarrHandle.fromDirectory(store).variables().find((x) => x.name === name);
+  const v = native.openStore(store).variables().find((x) => x.name === name);
   assert.ok(v, `the store has ${name}`);
   return v.variableIndex;
 }
@@ -398,7 +398,7 @@ suite("Line-plot and cross-section axes (#1043)", function () {
     assert.ok(fs.existsSync(file), `fixture missing: ${file}`);
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const t2m = native.NetcdfHandle.fromBytes(fs.readFileSync(file)).variables().find((v) => v.name === "t2m");
+    const t2m = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "t2m");
     assert.ok(t2m, "t2m is renderable");
     const editor = await openEditor(p, file);
     const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: t2m.variableIndex }));
@@ -447,7 +447,7 @@ suite("Line-plot and cross-section axes (#1043)", function () {
     fs.copyFileSync(path.join(fixtures, "ersst_v5_187001_cdf1.nc"), file);
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const sst = native.NetcdfHandle.fromBytes(fs.readFileSync(file)).variables().find((v) => v.name.endsWith("sst"));
+    const sst = native.open(fs.readFileSync(file)).variables().find((v) => v.name.endsWith("sst"));
     assert.ok(sst, "sst is renderable");
     let editor = await openEditor(p, file);
     const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: sst.variableIndex }));
@@ -511,7 +511,7 @@ suite("A cross-section restored over a reopened or changed file (#1043)", functi
     fs.writeFileSync(file, levelsFile(0));
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const air = native.NetcdfHandle.fromBytes(fs.readFileSync(file)).variables().find((v) => v.name === "air");
+    const air = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "air");
     assert.ok(air, "air is renderable");
     let editor = await openEditor(p, file);
     const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.variableIndex }));
@@ -568,7 +568,7 @@ async function levelsSection(): Promise<{ panel: RealPanel; close: () => void }>
   fs.writeFileSync(file, levelsFile(0));
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const air = native.NetcdfHandle.fromBytes(fs.readFileSync(file)).variables().find((v) => v.name === "air");
+  const air = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "air");
   assert.ok(air, "air is renderable");
   const editor = await openEditor(p, file);
   const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.variableIndex }));

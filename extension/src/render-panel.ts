@@ -2598,7 +2598,7 @@ export function renderImagePanelHtml(
           if (!ctx) return;
           canvas.width = payload.width;
           canvas.height = payload.height;
-          // payload.rgba arrives as a Node Buffer; copy into a Uint8ClampedArray
+          // payload.rgba arrives as a Uint8Array; view it as a Uint8ClampedArray
           // so ImageData accepts it.
           const rgba = new Uint8ClampedArray(
             payload.rgba.buffer ? payload.rgba.buffer : payload.rgba,

@@ -132,7 +132,7 @@ suite("API wire contract (#574)", () => {
   test("a spectral GRIB1 message's absent fields are present nulls", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const info: MessageInfo = native.Grib1Handle.fromBytes(
+    const info: MessageInfo = native.open(
       fixture("spectral_simple_t63.grib1"),
     ).message(0);
 
@@ -162,7 +162,7 @@ suite("API wire contract (#574)", () => {
   test("a GRIB2 message's identification is tagged grib2 and holds only its own fields", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const info: MessageInfo = native.Grib2Handle.fromBytes(
+    const info: MessageInfo = native.open(
       fixture("regular_latlon_surface.grib2"),
     ).message(0);
     const id = info.identification;
@@ -188,19 +188,19 @@ suite("API wire contract (#574)", () => {
     const messages: [string, MessageInfo][] = [
       [
         "spectral_simple_t63.grib1",
-        native.Grib1Handle.fromBytes(fixture("spectral_simple_t63.grib1")).message(0),
+        native.open(fixture("spectral_simple_t63.grib1")).message(0),
       ],
       [
         "cmc_wind_300_2010052400_p012.grib",
-        native.Grib1Handle.fromBytes(fixture("cmc_wind_300_2010052400_p012.grib")).message(0),
+        native.open(fixture("cmc_wind_300_2010052400_p012.grib")).message(0),
       ],
       [
         "regular_latlon_surface.grib2",
-        native.Grib2Handle.fromBytes(fixture("regular_latlon_surface.grib2")).message(0),
+        native.open(fixture("regular_latlon_surface.grib2")).message(0),
       ],
       [
         "healpix_n4_ring.grib2",
-        native.Grib2Handle.fromBytes(fixture("healpix_n4_ring.grib2")).message(0),
+        native.open(fixture("healpix_n4_ring.grib2")).message(0),
       ],
     ];
     let nulls = 0;
@@ -232,11 +232,11 @@ suite("API wire contract (#574)", () => {
     };
 
     // DatasetMeta: a classic file has no note and no HDF5 superblock.
-    const classic = native.NetcdfHandle.fromBytes(fixture("netcdf_classic_dummy.nc"));
+    const classic = native.open(fixture("netcdf_classic_dummy.nc"));
     nullUnderItsKey("DatasetMeta", classic.metadata(), ["note", "hdf5SuperblockVersion"]);
 
     // `lat_bnds` has no coordinate arrays of its own and no time axis.
-    const nc = native.NetcdfHandle.fromBytes(fixture("netcdf4_dimscale.nc"));
+    const nc = native.open(fixture("netcdf4_dimscale.nc"));
     const bounds = nc.variables().find((v) => v.name === "lat_bnds");
     assert.ok(bounds, "the fixture has lat_bnds");
     nullUnderItsKey("NetcdfVariableMeta", bounds, ["detectedTimeDim"]);
@@ -249,7 +249,7 @@ suite("API wire contract (#574)", () => {
     nullUnderItsKey("AxisValues", nc.axisValues(bounds.variableIndex, x), ["coordinates"]);
     nullUnderItsKey(
       "LineResult",
-      nc.line(bounds.variableIndex, x, bounds.dims.map(() => 0)),
+      nc.decodeLine({ variable: bounds.variableIndex, alongDim: x, sliceIndices: bounds.dims.map(() => 0) }),
       ["coordinates", "coordinateUnits"],
     );
 
@@ -260,7 +260,7 @@ suite("API wire contract (#574)", () => {
       flipY: false,
     };
     const zero = bounds.dims.map(() => 0);
-    nullUnderItsKey("RenderedGrid", nc.renderSlice(bounds.variableIndex, y, x, zero, options), [
+    nullUnderItsKey("RenderedGrid", nc.renderGrid({ variable: bounds.variableIndex, yDim: y, xDim: x, sliceIndices: zero }, options), [
       "usedLatMin",
       "usedLatMax",
       "usedLonMin",
@@ -268,14 +268,14 @@ suite("API wire contract (#574)", () => {
     ]);
 
     // ProbeResult: a cell nothing places has a value and no position.
-    const probe = nc.probe(bounds.variableIndex, y, x, zero, options, 0, 0);
+    const probe = nc.probePixel({ variable: bounds.variableIndex, yDim: y, xDim: x, sliceIndices: zero }, options, 0, 0);
     assert.ok(probe, "the pixel is on the raster");
     nullUnderItsKey("ProbeResult", probe, ["lat", "lon"]);
     assert.strictEqual(typeof probe.value, "number", "and it still reads the value");
 
     // SliceGrid has no optional field; its answers for the same slice are the
     // ones the panel gates its projection picker on.
-    assert.deepStrictEqual(nc.sliceGrid(bounds.variableIndex, y, x), {
+    assert.deepStrictEqual(nc.sliceGrid({ variable: bounds.variableIndex, yDim: y, xDim: x }), {
       label: "source",
       placement: "unplaceable",
       reprojectable: false,
@@ -286,7 +286,7 @@ suite("API wire contract (#574)", () => {
   test("an index past the file throws rather than returning an empty object", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const handle = native.Grib2Handle.fromBytes(fixture("regular_latlon_surface.grib2"));
+    const handle = native.open(fixture("regular_latlon_surface.grib2"));
     assert.throws(() => handle.message(99));
   });
 });

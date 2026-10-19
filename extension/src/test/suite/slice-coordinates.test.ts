@@ -346,7 +346,7 @@ suite("Slice coordinates (#1041)", () => {
     const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const temperature = native.NetcdfHandle.fromBytes(fs.readFileSync(file))
+    const temperature = native.open(fs.readFileSync(file))
       .variables()
       .find((v) => v.name === "temperature");
     assert.ok(temperature, "the fixture has temperature");
@@ -403,7 +403,7 @@ suite("Slice coordinates (#1041)", () => {
     );
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const air = native.NetcdfHandle.fromBytes(fs.readFileSync(file)).variables().find((v) => v.name === "air");
+    const air = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "air");
     assert.ok(air, "air is renderable");
     let editor = await openEditor(p, file);
     const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.variableIndex }));
