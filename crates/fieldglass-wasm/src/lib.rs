@@ -553,8 +553,10 @@ impl Handle {
     /// Returns `{ rgba, width, height, range }`: the RGBA bytes as a
     /// `Uint8Array`, the field's `ni × nj`, and the `ColourRange` the cells
     /// were coloured over, with how many fell below and above it (#1156). The
-    /// Node addon's render reports the same range for the same field and
-    /// options.
+    /// Node addon's render reports the same ends and range source for the same
+    /// field and options. Its counts match only in the source projection: the
+    /// addon counts the pixels of the raster it warped to, and this counts the
+    /// field's cells.
     ///
     /// The range follows [`Handle::palette`]'s rule, and a field with no
     /// present cell paints fully transparent rather than throwing, with a
