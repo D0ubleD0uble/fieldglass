@@ -38,9 +38,7 @@ fn resolver() -> &'static TableResolver {
 /// defaults" but a mistake, and is refused as one. An array is refused too, as
 /// serde would read it by position (#1221).
 fn required<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<T, JsValue> {
-    if js_sys::Array::is_array(&value) {
-        return Err(unreadable(what, &"it is not an object"));
-    }
+    crate::refuse_non_object(&value, what)?;
     serde_wasm_bindgen::from_value(value).map_err(|e| unreadable(what, &e))
 }
 

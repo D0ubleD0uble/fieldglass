@@ -69,6 +69,16 @@ function same(name, actual, expected) {
   );
 }
 
+/** The message a call throws, or a note that it did not throw. */
+function messageOf(f) {
+  try {
+    f();
+    return 'did not throw';
+  } catch (e) {
+    return String(e.message ?? e);
+  }
+}
+
 /** The `code` a call throws, or a note that it did not throw. */
 function codeOf(f) {
   try {
@@ -166,6 +176,17 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
     for (const { key } of plan.chunks) held.set(key, fetch(key));
     const windowed = wasm.openStore(held);
     const field = windowed.decodeWindow(request, null);
+    // The planned chunks are held, so only the guard can refuse these (#1221).
+    same(
+      `${name}: an array is not a window to decode`,
+      messageOf(() => windowed.decodeWindow([t2m.index, 1, 2, window.bounds, [window.time, 0, 0]], null)).includes('it is not an object'),
+      true,
+    );
+    same(
+      `${name}: a typed array is not decode options`,
+      messageOf(() => windowed.decodeWindow(request, new Uint8Array(1))).includes('it is not an object'),
+      true,
+    );
     same(`${name}: values`, Array.from(field.values()), window.values);
     same(`${name}: nothing masked`, Array.from(field.mask()).every((m) => m === 1), true);
     same(`${name}: shape`, [field.ni(), field.nj()], [window.longitude.length, window.latitude.length]);
@@ -265,9 +286,18 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
   const good = { variable: t2m.index, yDim: 1, xDim: 2, bounds: [0, 40, 0, 90], sliceIndices: [0, 0, 0] };
   same(`${store}: an unknown key`, codeOf(() => handle.planWindow({ ...good, sliceIndex: 1 })), 'invalid_option');
   same(`${store}: a missing key`, codeOf(() => handle.planWindow({ ...good, bounds: undefined })), 'invalid_option');
-  same(`${store}: an array is not a window request`, codeOf(() => handle.planWindow([1, 1, 2, [0, 40, 0, 90], [0, 0, 0]])), 'invalid_option');
-  same(`${store}: an empty array is not a window request`, codeOf(() => handle.planWindow([])), 'invalid_option');
-  same(`${store}: an array is not a window to decode`, codeOf(() => handle.decodeWindow([t2m.index, 1, 2, [0, 40, 0, 90], [0, 0, 0]])), 'invalid_option');
+  // Each is refused by the object guard itself, not by a later check: an array
+  // read by position is a well-formed request (#1221).
+  const positional = [t2m.index, 1, 2, [0, 40, 0, 90], [0, 0, 0]];
+  for (const [what, f] of [
+    ['an array is not a window request', () => handle.planWindow(positional)],
+    ['an empty array is not a window request', () => handle.planWindow([])],
+    ['an array is not a window to decode', () => handle.decodeWindow(positional)],
+    ['a typed array is not a window request', () => handle.planWindow(new Uint8Array(1))],
+  ]) {
+    same(`${store}: ${what}`, codeOf(f), 'invalid_option');
+    same(`${store}: ${what}, by the guard`, messageOf(f).includes('it is not an object'), true);
+  }
   same(`${store}: an inverted box`, codeOf(() => handle.planWindow({ ...good, bounds: [40, 0, 0, 90] })), 'invalid_option');
   same(`${store}: a step past the end`, codeOf(() => handle.planWindow({ ...good, sliceIndices: [3, 0, 0] })), 'invalid_option');
   same(

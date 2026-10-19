@@ -186,9 +186,11 @@ fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
 /// serde reads a struct from a JS array, field by field, so `["f64"]` would
 /// decode at `auto` width and `select([])` would read as an empty query; the
 /// Node addon refuses both, and so does this (#1210, #1221). A string or number
-/// serde refuses itself, but in its own words.
+/// serde refuses itself, but in its own words. A typed array is refused too:
+/// serde reads it as an empty object, so `new Uint8Array(1)` would be the
+/// defaults. Only the top level is checked; `sliceIndices` may be one.
 fn refuse_non_object(value: &JsValue, what: &str) -> Result<(), JsValue> {
-    if !value.is_object() || js_sys::Array::is_array(value) {
+    if !value.is_object() || js_sys::Array::is_array(value) || js_sys::ArrayBuffer::is_view(value) {
         return Err(unreadable(what, &"it is not an object"));
     }
     Ok(())

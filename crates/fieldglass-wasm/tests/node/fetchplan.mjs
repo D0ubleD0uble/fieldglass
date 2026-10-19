@@ -219,6 +219,7 @@ check(
 // accepted (#1221): `[]` as an empty query that selects every record.
 check('an empty array is not an empty query', codeOf(() => idx.select([])) === 'invalid_option');
 check('an array is not a query read by position', codeOf(() => idx.select(['TMP'])) === 'invalid_option');
+check('a typed array is not a query', codeOf(() => idx.select(new Uint8Array(1))) === 'invalid_option');
 check('a string is not a query', codeOf(() => idx.select('TMP')) === 'invalid_option');
 check('a number is not a query', codeOf(() => idx.select(3)) === 'invalid_option');
 check(
