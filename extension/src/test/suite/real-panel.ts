@@ -1127,8 +1127,13 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
 /** An editor opened on a file, through a stand-in editor webview whose message
  *  handler the test calls the way the table's page does. */
 export interface Editor {
-  /** Send the provider a message as the table's page would. */
+  /** Send the provider a message as the table's page would: numbered as the
+   *  page the provider last wrote (#1217), unless `m` carries its own `page`. */
   send(m: object): void;
+  /** The editor page's HTML as the provider last wrote it. */
+  html(): string;
+  /** The document the editor is open on. */
+  document: FieldglassDocument;
   /** Close the editor tab, which drops the document's reader handle once no
    *  editor on it is left. */
   close(): void;
@@ -1165,7 +1170,9 @@ export async function openEditor(p: FieldglassEditorProvider, file: string): Pro
   assert.ok(handler, "the editor registers a message handler");
   const send = handler;
   return {
-    send,
+    send: (m) => send({ page: pageNumberOf(editor.webview.html), ...m }),
+    html: () => editor.webview.html,
+    document: doc,
     close: () => {
       for (const cb of onDispose.splice(0)) cb();
     },
