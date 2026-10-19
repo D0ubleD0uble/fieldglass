@@ -215,10 +215,10 @@ Each file is opened once; this is where its checks are.
 | `S: samples/goes.nc` | 21 |
 | `S: samples/rtofs_ice.nc` | 41 |
 | `S: samples/mirs_swath.nc` | 1 |
-| `B: samples/0.6.0/ncep_air_daily_2024.nc` | 2, 3, 4, 5, 7, 8 |
+| `B: samples/0.6.0/ncep_air_daily_2024.nc` | 2, 3, 4, 5, 7, 8, 46 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 3, 4, 5 |
 | `B: samples/0.6.0/air_v2.zarr`, `air_v3.zarr` | 2, 5 |
-| `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21, 45 |
+| `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21, 45, 46 (`gfs_wind` only) |
 | `B: samples/0.6.0/cmc_pair.grib` | 6, 24 |
 | `B: samples/0.6.0/gfs_unnamed_pair.grib2` | 6 |
 | `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6 |
@@ -228,6 +228,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/members_*.grib2` | 23 |
 | `B: samples/0.6.0/hsv.cpt`, `F: crates/fieldglass-core/tests/fixtures/cpt/*.cpt` | 9 |
 | `F: crates/fieldglass-zarr/tests/fixtures/stores/*` | 2 |
+| `F: extension/src/test/fixtures/regular_latlon_surface.grib2`, `eta_lambert_msg0.grib2`; `F: crates/fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc`, `oisst_avhrr_v2.nc` (copied to a scratch folder) | 47 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc` | 18, 19, 20, 22 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc` | 3, 4, 27, 44 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/goes_geostationary*.nc`, `goes16_abi_cmip.nc` | 21, 40 |
@@ -1452,7 +1453,7 @@ python3 -m http.server 8001
       the shader and the CPU painter. The verdict reads `PASS — N pixels
       compared, M off by one lookup entry, 0 mismatched.`
 
-## 45. One colour-range rule in both hosts (#1155, #1149)
+## 45. One colour-range rule in both hosts (#1155, #1156, #1149)
 
 **`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
 (temperature, about 270 to 312 K)
@@ -1496,6 +1497,104 @@ python3 -m http.server 8001
 
 ---
 
+## 46. The line plot and the zonal average on a Compare map (#1208)
+
+With Compare on, the probe and the contours read the combined map. In 0.5.0
+the line plot and the zonal average still read Field A alone. Tick Line plot
+and Zonal average for every check here. The caption of each names the
+operation (`A − B`) when it is combined.
+
+**`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`, axes `lon` (X) and `lat` (Y)
+
+- [ ] Set `time` to 100 (2024-04-10), choose Compare `A − B` and set Field B's
+      `time` to 10 (2024-01-11). Click a cell in northern mid-latitudes, say
+      45° N 10° E, and plot along `lon`. The line is a row of the difference
+      map: values of a few kelvin either side of zero (spring against
+      winter), and the caption names `A − B`. Failure looks like a line of
+      temperatures between about 230 and 310 K, which is Field A alone. At the
+      clicked longitude the line meets the value the readout gives for that
+      cell.
+- [ ] Plot along `lat` instead: the same, a column of the difference map.
+- [ ] **Priority.** Plot along `time`. This runs along a held axis. Field A
+      steps along the axis and Field B stays on the day it is drawn at, so the
+      line is Field A on each day minus Field B on 2024-01-11. It crosses zero
+      at the `2024-01-11` tick, the day Field B is on, and meets the dashed
+      rule (day 100) at the value the readout gives for the cell. Failure
+      looks like absolute temperatures, a line that is zero all the way, or
+      one that is not zero on 2024-01-11.
+- [ ] Set Field B's `time` to 200 and click the cell again: the whole line has
+      moved by one constant, and now crosses zero at the `2024-07-19` tick. Step
+      Field A to another day and click again: the line is the same, only the
+      dashed rule has moved, because Field B stays where it is drawn.
+- [ ] Zonal average, with Field A and Field B both on day 100: the line is flat
+      at zero, one point per row. Set Field B's `time` to 10: it is no longer
+      flat, and is above zero in the northern mid-latitudes. Set Compare back to
+      off: the line returns to absolute temperatures near 250 to 300 K.
+
+**`B: samples/0.6.0/gfs_wind.grib2`**, message 0 (UGRD)
+
+- [ ] Tick Zonal average with Compare off and note the numbers in the caption.
+      Choose Compare `A + B` with Field B the same message 0: the line has the
+      same shape and its numbers are exactly twice what you noted. Failure
+      looks like unchanged numbers, which is Field A alone.
+- [ ] Choose `A − B` with Field B message 0: a flat line at zero. Pick Field B
+      message 1 (VGRD): the line is the zonal mean of u minus v, not u.
+
+`crates/fieldglass/tests/decode_line.rs` (`a_combined_line_is_the_combined_map_along_the_axis`,
+`a_combined_line_is_the_combine_of_the_slices_it_crosses`) and
+`extension/src/test/suite/compare-readouts.test.ts` (the NetCDF line along each
+axis and the zonal average, and the GRIB zonal average) compare every point
+against A op B. The browser package has no Compare line.
+
+## 47. File: Revert File rewrites the editor and its panels (#1217)
+
+Revert reads the file from disk again. In 0.5.0 the editor kept the old table
+or dump, and a NetCDF file's open panels stayed on the old bytes. You make the
+replaced file yourself, with the editor open.
+
+```sh
+mkdir -p /tmp/fg-revert
+F=extension/src/test/fixtures
+cat $F/regular_latlon_surface.grib2 $F/eta_lambert_msg0.grib2 > /tmp/fg-revert/pair.grib2
+cp crates/fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc /tmp/fg-revert/sst.nc
+```
+
+**`/tmp/fg-revert/pair.grib2`**: temperature, then pressure
+
+- [ ] Open it. The table lists message 0 as temperature and message 1 as
+      pressure. Leave the tab open and, in a terminal, swap the messages:
+      `cat $F/eta_lambert_msg0.grib2 $F/regular_latlon_surface.grib2 > /tmp/fg-revert/pair.grib2`.
+      With the Fieldglass tab focused, run *File: Revert File* from the Command
+      Palette. The table now lists pressure as message 0 and temperature as
+      message 1. Failure looks like the old order.
+- [ ] Click row 0. The panel's heading is `Message 0` with the pressure
+      parameter, the new file's message 0, not temperature.
+
+A click on the old table cannot be made by hand, because the table is gone once
+the page is rewritten. `extension/src/test/suite/revert.test.ts` (`a GRIB
+editor's table is written from the reverted file, and the old table's rows open
+nothing`) sends one from the old page and checks that no panel opens.
+
+**`/tmp/fg-revert/sst.nc`**: ERSST, which has `sst` only
+
+- [ ] Open it, click Render for `sst` and leave the panel open. Overwrite the
+      file with OISST, which has `ice` and `sst`:
+      `cp crates/fieldglass-netcdf/tests/fixtures/oisst_avhrr_v2.nc /tmp/fg-revert/sst.nc`.
+      Focus the metadata tab and run *File: Revert File*. The page now has a
+      Render button for `ice` as well as `sst`. The open panel redraws on its
+      own, still titled `sst`, and its variable picker lists `ice` and `sst`.
+      Failure looks like a page and a picker with `sst` alone.
+- [ ] Render `ice` from the page. Overwrite the file with ERSST again
+      (`cp crates/fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc /tmp/fg-revert/sst.nc`)
+      and revert. The `ice` panel says `ice is no longer in the file, so
+      nothing was drawn. Pick a variable to draw.` rather than drawing `sst`
+      under the name `ice`.
+
+`revert.test.ts` (`a NetCDF editor and its slice panel are written from the
+reverted file`) holds the second panel and the old dump's Render button.
+
+---
+
 ## No manual check
 
 `[0.6.0]` entries with no section above, and why:
@@ -1507,7 +1606,8 @@ python3 -m http.server 8001
   `crates/fieldglass` and `fieldglass-netcdf`).
 - **Painting or probing a field of the wrong length (#845, #902), bi-Fourier
   past 65,535 coefficients in the browser (#889), lengths that wrap on 32-bit
-  (#561), GRIB bitmaps of the wrong length (#804), NetCDF-4 shuffle on a
+  (#561), GRIB bitmaps of the wrong length (#804, with #201 and #202, which it
+  is part of), NetCDF-4 shuffle on a
   partial element (#203).** No file a user would open shows them. The tests:
   #845 `fieldglass-core`'s `colormap.rs::paint_tolerates_slices_of_the_wrong_length`
   and `crates/fieldglass/src/render.rs::probe_pixel_on_a_short_slice_reports_no_value`;
@@ -1570,6 +1670,26 @@ python3 -m http.server 8001
 - **The overlay error line (#1051).** It shows only when the provider fails to
   project a coastline or graticule layer, which no sample does. No automated
   test checks that line's text either. The arrow and export lines are in §6.
+- **The browser module refuses an array as an options object (#1210).** It
+  is an npm-package behaviour with no editor to see it in.
+  `crates/fieldglass-wasm/tests/node/reduced.mjs` passes `["f64"]`, a string and
+  a number to `decode`, `decodeDisplay`, `warp` and `palette` and expects
+  `invalid_option` (null and undefined stay the default), and
+  `crates/fieldglass-wasm/tests/node/netcdf.mjs` does the same for
+  `sliceIndices`, accepting a typed array or an index-keyed object only.
+- **A panel whose file changed draws the variable it was showing, even on a
+  four-dimensional variable (#1202).** The fault is a message from the old page
+  arriving just after the redraw, a window no click can hit.
+  `extension/src/test/suite/render-panel-script.test.ts` (`a slice panel finds
+  its variable by name when its page asks for axes first (#1202)` and `a ready
+  from a page the panel has written over is not served (#1202)`) holds it; §22 and §23 see
+  the same redraw by eye.
+- **A Zarr store's units are written the way NetCDF's are (#1073).** The units
+  are typeset in the panel's title line and probe readout. The sample stores
+  carry plain `degK`, which typesets to itself, so by eye there is nothing to
+  tell; the rule is held by
+  `extension/src/test/suite/one-handle.test.ts` (`the panel's listing typesets
+  each variable's units, for a NetCDF file and a Zarr store`).
 - **Rust API** (breaking changes and additions) and **Internal**: no user
   interface, except the error kinds they add, which reach a user as the
   messages §32 checks. Those that change what a user sees have tests: a dense
