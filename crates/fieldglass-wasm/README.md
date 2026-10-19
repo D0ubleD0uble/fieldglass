@@ -485,12 +485,18 @@ already measured 1,637,153 and 643,516 (4.6%), and 1,623,582 and 638,372
 result and refusal types, and the contour options. The rest is the merges since
 #854.
 
+#1082 re-recorded it from the `ci.yml` run on its PR (#1185, `214eb524` merged
+onto `f0eebc2f`), whose drift read 1.1% for both builds: 18,733 raw bytes and
+5,965 gzipped above the previous baseline figures, and 18,283 and 7,231 above
+`+simd128`'s. That is the reduced-resolution decode, its display field and its
+three drawing calls.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,646,074 | 647,947 |
-| `+simd128` | 1,632,855 | 643,377 |
+| baseline | 1,664,807 | 653,912 |
+| `+simd128` | 1,651,138 | 650,608 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
