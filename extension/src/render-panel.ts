@@ -1404,6 +1404,9 @@ export function renderImagePanelHtml(
   // The file or store's name, which the line under the heading opens with
   // (#1038). A slice panel draws a variable; any other draws a GRIB message.
   sourceName = "",
+  // The number the page sends back on every message, so the provider can tell
+  // it from a page it has since replaced (#1202). See `PanelHandleGate`.
+  page = 0,
 ): string {
   const source: PanelSource = { kind: slice ? "variable" : "message", name: sourceName };
   const cspNonce = nonce();
@@ -1462,7 +1465,16 @@ export function renderImagePanelHtml(
   const script = `
     <script nonce="${cspNonce}">
       (function () {
-        const vscode = acquireVsCodeApi();
+        // Every message carries the page's number. A page written again over a
+        // changed file has a new one, and what the old page sent is dropped,
+        // its \`ready\` included, however late it arrives (#1202).
+        const api = acquireVsCodeApi();
+        const PAGE = ${JSON.stringify(page)};
+        const vscode = {
+          postMessage: (m) => api.postMessage(Object.assign({}, m, { page: PAGE })),
+          getState: () => api.getState(),
+          setState: (state) => api.setState(state),
+        };
 
         // The most-recently-received rendered grid. We only re-render
         // when the user changes a picker that affects the Rust output

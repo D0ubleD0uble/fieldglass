@@ -28,6 +28,7 @@ import {
   type PanelField,
   type UnavailableGroup,
 } from "../../render-panel";
+import { pageNumberOf } from "./real-panel";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -129,7 +130,8 @@ function withSlicePanel(p: FieldglassEditorProvider, open: () => void): FakePane
   const build = builders.get(fake);
   assert.ok(build, "the panel is tracked for rebuilds");
   return {
-    send: (m) => handler(m),
+    // Numbered as the page the provider last wrote numbers its messages.
+    send: (m) => handler({ page: pageNumberOf(fake.webview.html), ...m }),
     posted,
     html: () => fake.webview.html,
     rebuild: build,

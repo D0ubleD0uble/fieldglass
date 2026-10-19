@@ -8,6 +8,7 @@ import type { FieldglassApi } from "../../extension";
 import { loadNative, type MessageInfo } from "../../native";
 import type { FieldglassDocument, FieldglassEditorProvider } from "../../provider";
 import { composeSubtitle, renderImagePanelHtml } from "../../render-panel";
+import { pageNumberOf } from "./real-panel";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -271,7 +272,7 @@ suite("Compare map band-limit label (#814)", () => {
         html: () => fakePanel.webview.html,
         note: (type: string, compare?: { op: string; messageIndexB: number }) => {
           posted.length = 0;
-          send({ type, projection: "source", ...(compare ? { compare } : {}) });
+          send({ type, page: pageNumberOf(fakePanel.webview.html), projection: "source", ...(compare ? { compare } : {}) });
           const ready = posted.find((m) => m.type === "gridReady");
           assert.ok(ready, `a ${type} paints: ${JSON.stringify(posted.map((m) => m.error ?? m.type))}`);
           return ready.truncationNote;

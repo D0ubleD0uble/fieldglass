@@ -896,6 +896,14 @@ export class FieldglassEditorProvider
     // the new file's messages, to pick one from (#959). Declared before the
     // first write, which reads it.
     let picking: CompareFieldOption[] | null = null;
+    // A changed file is read through the gate slice panels use (#839). The
+    // panel's message is looked for in the new file by its identity, which is
+    // Rust's (`MessageInfo.identity`): the parameter, level, reference time,
+    // step or range, and grid. Exactly one match is drawn under its own
+    // heading. None, or more than one, is refused, and the new file's messages
+    // are offered instead (`picking`); nothing is drawn until one is picked.
+    // Made before the first write, which numbers the page from it.
+    const gate = new PanelHandleGate<Handle>(opened);
 
     const write = () => {
       panel.webview.html = renderImagePanelHtml(
@@ -910,17 +918,11 @@ export class FieldglassEditorProvider
         // every panel): the page opens on the picker, never on the old heading.
         picking ?? undefined,
         source,
+        gate.page,
       );
     };
     this.trackRenderPanel(panel, write);
 
-    // A changed file is read through the gate slice panels use (#839). The
-    // panel's message is looked for in the new file by its identity, which is
-    // Rust's (`MessageInfo.identity`): the parameter, level, reference time,
-    // step or range, and grid. Exactly one match is drawn under its own
-    // heading. None, or more than one, is refused, and the new file's messages
-    // are offered instead (`picking`); nothing is drawn until one is picked.
-    const gate = new PanelHandleGate<Handle>(opened);
     const refuse = (ask: { seq?: number } = {}) => {
       if (!picking) return;
       panel.webview.postMessage({
@@ -1197,7 +1199,7 @@ export class FieldglassEditorProvider
           | { type?: string; dataUrl?: unknown; defaultName?: unknown },
       ) => {
         if (!m || typeof m.type !== "string") return;
-        if (!gate.admit(m.type, docHandle(), (h) => adopt(h, answeredSeq(m)))) return;
+        if (!gate.admit(m as { type: string }, docHandle(), (h) => adopt(h, answeredSeq(m)))) return;
         // No message is chosen: a render is answered with the refusal again (a
         // page shown again after it was hidden asks for one), the pick is
         // served, and every other request, which would read a message nobody
@@ -1577,6 +1579,12 @@ export class FieldglassEditorProvider
       { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [] },
     );
     let slice: SlicePanelData = { variables, initial };
+    // The handle the page's variable list was read from. A changed file's
+    // variables can be others, or the same ones numbered differently, so the
+    // panel is written again from the new file, and the page restores its
+    // selection by the variable's name (#839). Made before the first write,
+    // which numbers the page from it.
+    const gate = new PanelHandleGate<Handle>(handle);
     const write = () => {
       panel.webview.html = renderImagePanelHtml(
         panel.webview,
@@ -1588,15 +1596,11 @@ export class FieldglassEditorProvider
         undefined,
         undefined,
         subject.source,
+        gate.page,
       );
     };
     this.trackRenderPanel(panel, write);
 
-    // The handle the page's variable list was read from. A changed file's
-    // variables can be others, or the same ones numbered differently, so the
-    // panel is written again from the new file, and the page restores its
-    // selection by the variable's name (#839).
-    const gate = new PanelHandleGate<Handle>(handle);
     // Said in place of the first render after that, when the variable the page
     // was showing is no longer in the file.
     let refusal: string | null = null;
@@ -1876,7 +1880,7 @@ export class FieldglassEditorProvider
       ) => {
         if (!m || typeof m.type !== "string") return;
         const current = subject.handle();
-        const served = gate.admit(m.type, current, (h) => {
+        const served = gate.admit(m as { type: string }, current, (h) => {
           adopt(h, (m as { slice?: SliceSpec }).slice, answeredSeq(m));
           return false;
         });
@@ -1965,22 +1969,38 @@ export class FieldglassEditorProvider
  *  page was written from. So the first request after the handle changes is not
  *  served; the panel decides what the new file holds for it (`adopt`). When it
  *  writes the page again (`rewrite`), anything the old page sent before it was
- *  replaced is still on its way with the old numbers, and is dropped until the
- *  new page says it is ready. Slice panels and GRIB panels both go through
- *  this, so the two cannot drift apart. */
+ *  replaced is still on its way with the old numbers, its `ready` included, so
+ *  every page is written with a number of its own ({@link PanelHandleGate.page})
+ *  and echoes it on every message. A message carrying another page's number is
+ *  dropped (#1202), and the new page's other requests are dropped until its
+ *  `ready`. Slice panels and GRIB panels both go through this, so the two
+ *  cannot drift apart. */
 export class PanelHandleGate<H> {
   private awaitingReady = false;
+  private written = 0;
 
   constructor(private pageHandle: H | undefined) {}
 
-  /** Whether to serve a request of `type`, with `current` the document's
-   *  handle now. When the handle has changed, `adopt` runs instead and says
-   *  whether the request is served after all. */
-  admit(type: string, current: H | undefined, adopt: (current: H) => boolean): boolean {
+  /** The number to write the page with, which it sends back on every message.
+   *  A page written again for the same file (an imported colormap, say) keeps
+   *  it: its numbers mean what the last page's did. */
+  get page(): number {
+    return this.written;
+  }
+
+  /** Whether to serve `m`, a request of `m.type` from the page numbered
+   *  `m.page`, with `current` the document's handle now. When the handle has
+   *  changed, `adopt` runs instead and says whether the request is served
+   *  after all. */
+  admit(m: { type: string; page?: unknown }, current: H | undefined, adopt: (current: H) => boolean): boolean {
     // A PNG export reads the page's own pixels, not the handle.
-    if (type === "exportPng") return true;
+    if (m.type === "exportPng") return true;
+    // From a page that has been replaced since. Its `ready` is not the new
+    // page's: the old page can post one after the panel started writing the
+    // new one, and it names the field by the old file's numbers.
+    if (m.page !== this.written) return false;
     if (this.awaitingReady) {
-      if (type !== "ready") return false;
+      if (m.type !== "ready") return false;
       this.awaitingReady = false;
     }
     // Checked for the new page's ready as well: the handle can have changed
@@ -1993,6 +2013,7 @@ export class PanelHandleGate<H> {
   /** The page is being written again from `handle`'s file. */
   rewrite(handle: H): void {
     this.pageHandle = handle;
+    this.written += 1;
     this.awaitingReady = true;
   }
 
