@@ -181,6 +181,33 @@ try {
 // A slice index list of the wrong length is refused rather than defaulted:
 // silently taking zero is how a viewer shows the first time step and labels it
 // the last.
+// The slice is one object (#1073). `sliceIndices` may be a typed array, and a
+// key the request does not take is refused rather than ignored: a misspelt
+// `sliceIndex` dropped silently would draw the first time step.
+equal(
+  'a Uint32Array of slice indices reads',
+  handle.decodeSlice({ variable: variables[0].index, yDim: 0, xDim: 1, sliceIndices: new Uint32Array([0, 0]) }).ni(),
+  4,
+);
+for (const [what, slice] of [
+  ['a misspelt key', { variable: variables[0].index, yDim: 0, xDim: 1, sliceIndex: [0, 0] }],
+  ['a missing key', { variable: variables[0].index, yDim: 0, xDim: 1 }],
+  ['four positional arguments', variables[0].index],
+]) {
+  try {
+    handle.decodeSlice(slice);
+    check(`${what} is refused`, false, 'it returned');
+  } catch (e) {
+    check(`${what} is refused as invalid_option`, e.code === 'invalid_option', `code was ${e.code}`);
+  }
+}
+try {
+  handle.decodeLine({ variable: variables[0].index, alongDim: 0, sliceIndices: [0, 0], extra: 1 });
+  check('a line with an extra key is refused', false, 'it returned');
+} catch (e) {
+  check('a line with an extra key is refused as invalid_option', e.code === 'invalid_option', `code was ${e.code}`);
+}
+
 try {
   handle.decodeSlice({ variable: variables[0].index, yDim: 0, xDim: 1, sliceIndices: [0] }, {});
   check('a short sliceIndices throws', false, 'it returned');

@@ -197,13 +197,7 @@ fn from_js<T: serde::de::DeserializeOwned + Default>(value: JsValue) -> Result<T
 /// empty query and select every record. Reading the object into a JSON value
 /// first enumerates every key it has, and the type's own rule then applies.
 ///
-/// Shared by the slice and line requests (#1073), the planner's arguments and
-/// the Zarr window's (#1081, #1083).
-///
-/// Without `serde_json` in the build (the default entry has no planner and no
-/// Zarr), the object's own keys are listed through `Object.keys` and checked
-/// against the ones the type reads, which is the same refusal for the two
-/// request types, whose fields are all required numbers and arrays.
+/// Shared by the planner's arguments and the Zarr window's (#1081, #1083).
 #[cfg(any(feature = "fetchplan", feature = "zarr"))]
 fn strict<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<T, JsValue> {
     let json: serde_json::Value =
@@ -211,11 +205,15 @@ fn strict<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<
     serde_json::from_value(json).map_err(|e| unreadable(what, &e))
 }
 
-/// [`strict`] for a build without `serde_json`: the keys are listed by
-/// JavaScript and compared with the fields `T` names, then the object is read
-/// by serde-wasm-bindgen, which finds every field it needs or refuses.
-#[cfg(not(any(feature = "fetchplan", feature = "zarr")))]
-fn strict<T: serde::de::DeserializeOwned + Fields>(
+/// Read a slice or line request (#1073), refusing a key it does not take.
+///
+/// The refusal [`strict`] makes, reached another way, for two reasons: the
+/// default entry links no `serde_json`, and a JSON value cannot hold the
+/// `Uint32Array` a page may pass as `sliceIndices`. So JavaScript lists the
+/// object's own keys, each is checked against the ones the request reads, and
+/// serde-wasm-bindgen then reads the object, typed arrays included, and refuses
+/// one missing a field.
+fn request<T: serde::de::DeserializeOwned + Fields>(
     value: JsValue,
     what: &str,
 ) -> Result<T, JsValue> {
@@ -239,20 +237,18 @@ fn strict<T: serde::de::DeserializeOwned + Fields>(
     serde_wasm_bindgen::from_value(value).map_err(|e| unreadable(what, &e))
 }
 
-/// The keys a request object may hold, for [`strict`] in a build without
-/// `serde_json`. Spelt as the wire spells them.
-#[cfg(not(any(feature = "fetchplan", feature = "zarr")))]
+/// The keys a request object may hold, for [`request`]. Spelt as the wire
+/// spells them: a key missing here would refuse every request that names it,
+/// which `tests/node/netcdf.mjs` and the conformance runner would both see.
 trait Fields {
     /// Every key the type reads.
     const FIELDS: &'static [&'static str];
 }
 
-#[cfg(not(any(feature = "fetchplan", feature = "zarr")))]
 impl Fields for SliceRequest {
     const FIELDS: &'static [&'static str] = &["variable", "yDim", "xDim", "sliceIndices"];
 }
 
-#[cfg(not(any(feature = "fetchplan", feature = "zarr")))]
 impl Fields for LineRequest {
     const FIELDS: &'static [&'static str] = &["variable", "alongDim", "sliceIndices"];
 }
@@ -386,7 +382,7 @@ impl Handle {
         #[wasm_bindgen(unchecked_param_type = "SliceRequest")] slice: JsValue,
         #[wasm_bindgen(unchecked_optional_param_type = "DecodeOptions | null")] options: JsValue,
     ) -> Result<WasmField, JsValue> {
-        let slice: SliceRequest = strict(slice, "slice")?;
+        let slice: SliceRequest = request(slice, "slice")?;
         let options: DecodeOptions = from_js(options)?;
         let field = self
             .session
@@ -427,7 +423,7 @@ impl Handle {
         #[wasm_bindgen(unchecked_param_type = "LineRequest")] line: JsValue,
         #[wasm_bindgen(unchecked_optional_param_type = "DecodeOptions | null")] options: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let line: LineRequest = strict(line, "line")?;
+        let line: LineRequest = request(line, "line")?;
         let options: DecodeOptions = from_js(options)?;
         let line = self
             .session

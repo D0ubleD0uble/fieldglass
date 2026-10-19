@@ -296,6 +296,50 @@ fn decode_options(value: Option<serde_json::Value>) -> Result<DecodeOptions, Ren
     }
 }
 
+/// A slice or line request read strictly, with a typed array of slice indices
+/// taken as the array it holds.
+///
+/// napi hands a `Uint32Array` to `serde_json` as an object keyed `"0"`, `"1"`,
+/// …, which a `Vec<u32>` refuses. The browser module reads one as an array, so
+/// this host does too, rather than the two refusing different inputs (#1073).
+pub(crate) fn read_request<T: RequestType>(
+    mut value: serde_json::Value,
+    what: &str,
+) -> Result<T, RenderError> {
+    if let Some(indices) = value.get_mut("sliceIndices")
+        && let serde_json::Value::Object(map) = indices
+        && (0..map.len()).all(|i| map.contains_key(&i.to_string()))
+    {
+        let array = (0..map.len())
+            .map(|i| {
+                map.remove(&i.to_string())
+                    .unwrap_or(serde_json::Value::Null)
+            })
+            .collect();
+        *indices = serde_json::Value::Array(array);
+    }
+    T::from_wire(value).map_err(|e| unreadable(what, &e))
+}
+
+/// The two request types [`read_request`] reads; a trait rather than serde's
+/// own bound because this crate names no `serde` (only `serde_json`).
+pub(crate) trait RequestType: Sized {
+    /// `serde_json::from_value` for this type.
+    fn from_wire(value: serde_json::Value) -> Result<Self, serde_json::Error>;
+}
+
+impl RequestType for SliceRequest {
+    fn from_wire(value: serde_json::Value) -> Result<Self, serde_json::Error> {
+        serde_json::from_value(value)
+    }
+}
+
+impl RequestType for LineRequest {
+    fn from_wire(value: serde_json::Value) -> Result<Self, serde_json::Error> {
+        serde_json::from_value(value)
+    }
+}
+
 /// One field of a target: a message index, or a slice object read strictly.
 fn grid_field(value: serde_json::Value) -> Result<GridField, RenderError> {
     match value {
@@ -304,9 +348,9 @@ fn grid_field(value: serde_json::Value) -> Result<GridField, RenderError> {
             .and_then(|i| u32::try_from(i).ok())
             .map(GridField::Message)
             .ok_or_else(|| unreadable("field", &format!("{n} is not a message index"))),
-        object @ serde_json::Value::Object(_) => serde_json::from_value(object)
-            .map(GridField::Slice)
-            .map_err(|e| unreadable("slice", &e)),
+        object @ serde_json::Value::Object(_) => {
+            read_request(object, "slice").map(GridField::Slice)
+        }
         other => Err(unreadable(
             "field",
             &format!(
@@ -804,8 +848,7 @@ impl Handle {
         slice: serde_json::Value,
         options: Option<serde_json::Value>,
     ) -> Result<DecodedGrid, RenderError> {
-        let slice: SliceRequest =
-            serde_json::from_value(slice).map_err(|e| unreadable("slice", &e))?;
+        let slice: SliceRequest = read_request(slice, "slice")?;
         let options = decode_options(options)?;
         match self.inner()? {
             Inner::Netcdf(h) => Ok(h.decode_slice(&slice, &options)?),
@@ -823,7 +866,7 @@ impl Handle {
         line: serde_json::Value,
         options: Option<serde_json::Value>,
     ) -> Result<LineResult, RenderError> {
-        let line: LineRequest = serde_json::from_value(line).map_err(|e| unreadable("line", &e))?;
+        let line: LineRequest = read_request(line, "line")?;
         let options = decode_options(options)?;
         on_slices!(self.inner()?, |h| h.line(
             line.variable,
@@ -1366,6 +1409,31 @@ mod tests {
             .expect("renders");
         assert_eq!(&forward.rgba[..], &direct.rgba[..]);
         assert_ne!(&forward.rgba[..], &backward.rgba[..]);
+    }
+
+    /// A `Uint32Array` reaches `serde_json` as an index-keyed object, and is
+    /// read as the array it is, as the browser module reads it.
+    #[test]
+    fn a_typed_array_of_slice_indices_reads_as_its_array() {
+        let as_napi_hands_it = json!({
+            "variable": 4, "yDim": 2, "xDim": 3,
+            "sliceIndices": { "0": 0, "1": 1, "2": 0, "3": 0 },
+        });
+        assert_eq!(
+            grid_target(as_napi_hands_it).unwrap(),
+            GridTarget::One(GridField::Slice(SliceRequest::new(
+                4,
+                2,
+                3,
+                vec![0, 1, 0, 0]
+            )))
+        );
+        // An object that is not index-keyed is still refused.
+        let e = grid_target(json!({
+            "variable": 4, "yDim": 2, "xDim": 3, "sliceIndices": { "time": 0 },
+        }))
+        .expect_err("refused");
+        assert_eq!(code(&e), Some("invalid_option"), "{e}");
     }
 
     #[test]

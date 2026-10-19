@@ -140,6 +140,16 @@ suite("One handle for every container (#1073)", () => {
     );
     assert.deepStrictEqual([slice.ni, slice.nj], [180, 89]);
     assert.ok(slice.stats.validCount > 0);
+    // A typed array of slice indices reads as the array it holds, as the
+    // browser package reads one.
+    const typed = netcdf.decodeSlice({
+      variable: sst.variableIndex,
+      yDim: 2,
+      xDim: 3,
+      sliceIndices: new Uint32Array([0, 0, 0, 0]) as unknown as number[],
+    });
+    const plain = netcdf.decodeSlice({ variable: sst.variableIndex, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] });
+    assert.deepStrictEqual(Array.from(typed.values), Array.from(plain.values));
     assert.strictEqual(
       codeOf(() => netcdf.decodeSlice({ variable: sst.variableIndex, yDim: 2, xDim: 3, sliceIndex: [0] } as never)),
       "invalid_option",
