@@ -2584,12 +2584,13 @@ export function renderImagePanelHtml(
           // A cross-section's rows are oriented by its Y axis (#1043), so its
           // values are read before the first render that needs them.
           whenYAxisKnown(() => {
-            vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(true), sliceFields(), compareRequest()));
+            postRerender();
           });
           setStatus('Rendering…');
         }
 
         function blit(payload) {
+          takeAskedKey(payload);
           clearGesturePreview();
           const canvas = document.getElementById('canvas');
           if (!canvas) return;
@@ -2798,6 +2799,7 @@ export function renderImagePanelHtml(
           // A frame that fails ends playback rather than retrying it forever.
           stopAnimation();
           const err = msg.error || 'render failed';
+          const askedKey = takeAskedKey(msg);
           mountAnswered = true;
           // A refused colour range is said once, at the fields it is about
           // (showRangeRefusal); the status line only points there (#1155).
@@ -2835,10 +2837,77 @@ export function renderImagePanelHtml(
           // A range the user typed that does not hold is shown at the fields
           // it is about, in Rust's words. An error that is not about the range
           // (a Compare on another grid fails before the range is read) says
-          // nothing of it, so a refusal already standing is left up: the
-          // fields still hold what was refused. It clears on a drawn image or
-          // when the range fields or mode change (#1174).
-          if (refusal) showRangeRefusal(refusal, msg.rangeMessage);
+          // nothing of it, so a refusal already standing is left up when it
+          // does not depend on the data and the field is the same: the fields
+          // still hold what was refused. It clears on a drawn image or when the
+          // range fields or mode change (#1174), or the field changes under a
+          // refusal read off the data (#1186).
+          if (refusal) {
+            showRangeRefusal(refusal, msg.rangeMessage, askedKey);
+          } else if (rangeRefused && !(rangeRefusalFixed || refusedFieldKey === askedKey)) {
+            // A refusal that was read off the data is about the field it was
+            // read from. The field has changed and the new render failed before
+            // reading any range, so the note would be about a field no longer
+            // chosen (#1186). One that names only typed values stands for any
+            // field.
+            rangeEdited();
+          }
+        }
+
+        // Each render request carries an id, and the field it asks for is kept
+        // under it until the host's answer (which echoes the id) comes back. A
+        // refusal is said of the field its request named, not of whatever is
+        // chosen by the time it arrives (#1186). An answer with no id the page
+        // knows (the host refusing on its own) is taken to be about the field
+        // chosen now.
+        let renderSeq = 0;
+        const askedKeys = new Map();
+        function newAsk() {
+          const seq = ++renderSeq;
+          askedKeys.set(seq, fieldKey());
+          if (askedKeys.size > 64) askedKeys.delete(askedKeys.keys().next().value);
+          return seq;
+        }
+        function takeAskedKey(msg) {
+          if (msg && typeof msg.seq === 'number' && askedKeys.has(msg.seq)) {
+            const key = askedKeys.get(msg.seq);
+            askedKeys.delete(msg.seq);
+            return key;
+          }
+          return fieldKey();
+        }
+        function postRerender() {
+          vscode.postMessage(Object.assign({ type: 'rerenderRequest', seq: newAsk() }, currentOptions(true), sliceFields(), compareRequest()));
+        }
+
+        // The field selection a refusal was said of: the message, the variable
+        // and slice, and the compare operation with its Field B.
+        function fieldKey() {
+          const pick = document.getElementById('message-pick');
+          return JSON.stringify([pick ? pick.value : '', sliceFields(), compareRequest()]);
+        }
+
+        // A refusal that holds whatever the data is: it names only what was
+        // typed. The ones that took an end from the data (one end typed and the
+        // other left to the field; a center mirrored about the field's ends)
+        // go stale when the field does.
+        function refusalIsDataFree(refusal) {
+          switch (refusal.reason) {
+            case 'center_with_both_ends':
+            case 'center_outside':
+              return true;
+            case 'not_finite':
+              // A typed value that is not a number names no given value. A center
+              // that pushes an end past the largest number does, and that
+              // reach comes from the data's ends.
+              return refusal.given == null;
+            case 'inverted':
+              return refusal.end === 'both';
+            case 'log10_not_positive':
+              return refusal.given != null;
+            default:
+              return false;
+          }
         }
 
         // The range fields or mode were edited: what was refused was said of
@@ -2853,7 +2922,7 @@ export function renderImagePanelHtml(
         // Show a refused colour range at the min/max fields (#1155): the
         // message under them, and the field (or both) it names marked
         // invalid. A null refusal clears it.
-        function showRangeRefusal(refusal, message) {
+        function showRangeRefusal(refusal, message, askedKey) {
           const note = document.getElementById('range-note');
           const ends = { min: ['range-min'], max: ['range-max'], both: ['range-min', 'range-max'] };
           const marked = refusal ? ends[refusal.end] || [] : [];
@@ -2864,6 +2933,8 @@ export function renderImagePanelHtml(
             else el.removeAttribute('aria-invalid');
           });
           rangeRefused = !!refusal;
+          rangeRefusalFixed = !!refusal && refusalIsDataFree(refusal);
+          refusedFieldKey = refusal ? askedKey : null;
           // Contours share the range, so they would be refused in the same
           // words: drop them rather than say it a third time. The next drawn
           // image asks for them again (its contour key has moved).
@@ -2982,6 +3053,10 @@ export function renderImagePanelHtml(
         // Whether the range on the fields now is one Rust refused (#1155):
         // contours are not asked for over it.
         let rangeRefused = false;
+        // Whether that refusal is independent of the data, and the field it was
+        // said of (#1186).
+        let rangeRefusalFixed = false;
+        let refusedFieldKey = null;
         // The state the cached contour runs correspond to (geometry + used range
         // + interval + field). A palette-only repaint leaves it unchanged, so we
         // skip re-running marching squares + projection (#336). null = no runs.
@@ -4859,7 +4934,7 @@ export function renderImagePanelHtml(
         // painted in storage order, then asks for the axis, and draws again
         // only if the axis turns its rows over (#1043).
         const readyOptions = currentOptions(true);
-        vscode.postMessage(Object.assign({ type: 'ready' }, readyOptions, sliceFields(), compareRequest()));
+        vscode.postMessage(Object.assign({ type: 'ready', seq: newAsk() }, readyOptions, sliceFields(), compareRequest()));
         //
         // Restoring the page asked for its axes already, ahead of the ready,
         // and a page written again has those requests dropped. So they are
@@ -4871,7 +4946,7 @@ export function renderImagePanelHtml(
             if (awaitingPick || rowsFlipped() === readyOptions.flipY) return;
             // Not requestRender: the first paint may not have answered yet,
             // and this one has to follow it either way.
-            vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(true), sliceFields(), compareRequest()));
+            postRerender();
           };
         }
         if (isCrossSection()) {

@@ -883,10 +883,11 @@ export class FieldglassEditorProvider
     // heading. None, or more than one, is refused, and the new file's messages
     // are offered instead (`picking`); nothing is drawn until one is picked.
     const gate = new PanelHandleGate<Grib1Handle | Grib2Handle>(opened);
-    const refuse = () => {
+    const refuse = (ask: { seq?: number } = {}) => {
       if (!picking) return;
       panel.webview.postMessage({
         type: "gridError",
+        ...ask,
         messageIndex: shown.index,
         error: MESSAGE_GONE,
         pickMessages: picking,
@@ -945,13 +946,14 @@ export class FieldglassEditorProvider
       write();
     };
 
-    const paint = (options: RenderOptions, compare?: GribCompare) => {
+    const paint = (options: RenderOptions, compare?: GribCompare, ask: { seq?: number } = {}) => {
       const docHandle = this._handlesByDoc.get(key);
       if (!docHandle) {
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: shown.index,
           error: "reader handle was disposed",
+          ...ask,
         });
         return;
       }
@@ -968,13 +970,14 @@ export class FieldglassEditorProvider
             )
           : docHandle.renderGrid(shown.index, options);
         panel.webview.postMessage(
-          buildGridReadyMessage(rendered, shown, options, { kind: "message", name: source }),
+          { ...buildGridReadyMessage(rendered, shown, options, { kind: "message", name: source }), ...ask },
         );
       } catch (err) {
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: shown.index,
           error: `render failed: ${err}`,
+          ...ask,
           ...rangeRefusalOf(err),
         } satisfies GridErrorMessage);
       }
@@ -1165,15 +1168,15 @@ export class FieldglassEditorProvider
         // chose, is dropped.
         if (picking && m.type !== "exportPng") {
           if (m.type === "pickMessage") pick((m as { messageIndex?: unknown }).messageIndex);
-          else if (m.type === "ready" || m.type === "rerenderRequest") refuse();
+          else if (m.type === "ready" || m.type === "rerenderRequest") refuse(seqOf(m));
           return;
         }
         if (m.type === "ready") {
-          paint(resolveRerenderOptions(m as Partial<RenderOptions>), resolveGribCompare(m));
+          paint(resolveRerenderOptions(m as Partial<RenderOptions>), resolveGribCompare(m), seqOf(m));
           return;
         }
         if (m.type === "rerenderRequest") {
-          paint(resolveRerenderOptions(m as Partial<RenderOptions>), resolveGribCompare(m));
+          paint(resolveRerenderOptions(m as Partial<RenderOptions>), resolveGribCompare(m), seqOf(m));
           return;
         }
         if (m.type === "overlayRequest") {
@@ -1597,7 +1600,7 @@ export class FieldglassEditorProvider
     const renderedVar = (spec: SliceSpec): NetcdfVariableMeta =>
       variables.find((v) => v.variableIndex === spec.variableIndex) ?? initialVar;
 
-    const paint = (requested: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare) => {
+    const paint = (requested: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare, ask: { seq?: number } = {}) => {
       const docHandle = subject.handle();
       if (!docHandle) {
         // With no handle nothing is placed, so the picker and the Overlay row
@@ -1606,6 +1609,7 @@ export class FieldglassEditorProvider
           type: "gridError",
           messageIndex: spec.variableIndex,
           error: subject.gone,
+          ...ask,
           sliceGrid: sliceAnswer(null),
           handleGone: true,
         } satisfies GridErrorMessage);
@@ -1654,6 +1658,7 @@ export class FieldglassEditorProvider
           axisOf(docHandle, spec.variableIndex),
         );
         panel.webview.postMessage({
+          ...ask,
           ...buildGridReadyMessage(
             rendered,
             sliceTitle(renderedVar(spec), spec.variableIndex),
@@ -1676,6 +1681,7 @@ export class FieldglassEditorProvider
           type: "gridError",
           messageIndex: spec.variableIndex,
           error: `render failed: ${err}`,
+          ...ask,
           sliceGrid: sliceAnswer(grid),
           ...rangeRefusalOf(err),
         } satisfies GridErrorMessage);
@@ -1871,6 +1877,7 @@ export class FieldglassEditorProvider
             type: "gridError",
             messageIndex: spec.variableIndex,
             error: refusal,
+            ...seqOf(m),
             sliceGrid: sliceAnswer(current ? gridOf(current, spec) : null),
             pickVariable: true,
           } satisfies GridErrorMessage);
@@ -1882,7 +1889,7 @@ export class FieldglassEditorProvider
         // had; a fresh panel sends its defaults.
         if (m.type === "ready" || m.type === "rerenderRequest") {
           const spec = (m as { slice?: SliceSpec }).slice ?? initial;
-          paint(resolveRerenderOptions(m as Partial<RenderOptions>), spec, resolveNetcdfCompare(m));
+          paint(resolveRerenderOptions(m as Partial<RenderOptions>), spec, resolveNetcdfCompare(m), seqOf(m));
           return;
         }
         if (m.type === "overlayRequest") {
@@ -2020,6 +2027,8 @@ export const MESSAGE_GONE = "This message is no longer in the file (or is ambigu
 
 export interface GridReadyMessage {
   type: "gridReady";
+  /** The `seq` of the render request this answers, when it had one. */
+  seq?: number;
   messageIndex: number;
   rgba: Uint8Array;
   width: number;
@@ -2113,9 +2122,18 @@ export function sliceAnswer(grid: SliceGrid | null): SliceAnswer {
   };
 }
 
+/** A request's `seq`, when it sent a number, to echo in the answer. */
+function seqOf(m: unknown): { seq?: number } {
+  const seq = (m as { seq?: unknown } | null)?.seq;
+  return typeof seq === "number" ? { seq } : {};
+}
+
 /** `gridError`: a render the provider could not draw. */
 export interface GridErrorMessage {
   type: "gridError";
+  /** The `seq` of the render request this answers. Absent when the host
+   *  refuses on its own. */
+  seq?: number;
   messageIndex: number;
   error: string;
   /** A slice panel's answers for the slice it was asked to draw (#839). The
