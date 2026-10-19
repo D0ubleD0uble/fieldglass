@@ -250,10 +250,11 @@ class TheRepoItselfPasses(unittest.TestCase):
         # entry added back is a declaration that disagrees with the runtime.
         self.assertEqual(chk.KNOWN_NULLABLE, set())
 
-    def test_the_only_input_object_is_the_render_options(self):
+    def test_the_only_input_objects_are_the_named_ones(self):
         # Pinned: an object added here is exempt from the every-key contract,
-        # which a reviewer should see happen.
-        self.assertEqual(set(chk.INPUT_OBJECTS), {"RenderOptions"})
+        # which a reviewer should see happen. The render options, and the
+        # contour spacing and arrow pair the one Handle takes (#1073).
+        self.assertEqual(set(chk.INPUT_OBJECTS), {"RenderOptions", "ContourSpacing", "VectorPair"})
         for name, reason in chk.INPUT_OBJECTS.items():
             self.assertTrue(reason.strip(), f"{name} is an input with no reason")
 

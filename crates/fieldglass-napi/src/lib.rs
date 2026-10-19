@@ -726,7 +726,7 @@ pub fn combine_ops() -> Vec<CombineOpInfo> {
         .collect()
 }
 
-/// Output of `Grib1File::render_grid_for_js` / `Grib2File::render_grid_for_js`.
+/// What `Handle.renderGrid` and `Handle.renderDisplayGrid` return.
 /// `rgba` is a paint-ready buffer the webview blits straight to canvas
 /// via `putImageData`.
 ///
@@ -1441,7 +1441,7 @@ fn no_display_raster() -> napi::Error {
 /// a spectral field onto its global grid, and the one value memo all live —
 /// shared with `Grib2File`, which is the same stream without the bytes.
 ///
-/// `bytes` is kept because `Self::set_p1` hands a freshly edited file back to
+/// `bytes` is kept because the handle's `setP1` hands a freshly edited file back to
 /// JavaScript and a session returns no bytes. It is the *same* allocation the
 /// session reads through (`Arc<[u8]>`), so opening a file still costs one copy
 /// on top of the buffer JavaScript holds — the saving #411 made, kept. GRIB2 has
@@ -1474,9 +1474,8 @@ impl Grib1File {
         self.stream.message_info(message_index)
     }
 
-    /// Decode one message into a `(values, mask)` typed-array pair. NaN
-    /// is reserved for masked cells in `values`; callers should consult
-    /// `mask[k] == 0` rather than checking for NaN.
+    /// The handle's `decode`: one message's values, packed at the width
+    /// `options` asks for, a masked cell `0` and `mask` saying which are present.
     ///
     /// Resolved like every other entry point on this handle: a spectral message
     /// has no raster of its own, so it is synthesized onto a global lat/lon grid
@@ -1526,8 +1525,8 @@ impl Grib1File {
         fieldglass::grib1::with_p1_octet(&self.bytes, message_index, value).into_napi()
     }
 
-    /// `render_grid_for_js`, keeping the engine's refusal
-    /// rather than throwing it, for this crate's callers and tests (#1155).
+    /// The handle's `renderGrid` for one message. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1155).
     pub(crate) fn render_grid(
         &self,
         message_index: u32,
@@ -1536,8 +1535,8 @@ impl Grib1File {
         self.stream.render(message_index, &options)
     }
 
-    /// `render_grid_combined_for_js`, keeping the engine's refusal
-    /// rather than throwing it, for this crate's callers and tests (#1155).
+    /// The handle's `renderGrid` for a combined target `{ a, b, op }`. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1155).
     pub(crate) fn render_grid_combined(
         &self,
         message_index_a: u32,
@@ -1570,9 +1569,8 @@ impl Grib1File {
         .map(ProjectedOverlay::from_polylines)
     }
 
-    /// The call behind `Self::project_contours_for_js`, keeping the
-    /// engine's refusal rather than throwing it, for this crate's callers
-    /// and tests (#1156).
+    /// The handle's `projectContours` for one field. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1156).
     pub(crate) fn project_contours(
         &self,
         message_index: u32,
@@ -1659,9 +1657,8 @@ impl Grib1File {
             .probe_combined(message_index_a, message_index_b, &op, &options, px, py)
     }
 
-    /// The call behind `Self::project_contours_combined_for_js`, keeping the
-    /// engine's refusal rather than throwing it, for this crate's callers
-    /// and tests (#1156).
+    /// The handle's `projectContours` for a combined target. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1156).
     pub(crate) fn project_contours_combined(
         &self,
         message_index_a: u32,
@@ -1800,8 +1797,8 @@ impl Grib2File {
         zonal_mean_of(&raw, &placed, name.as_deref(), units.as_deref())
     }
 
-    /// `render_grid_for_js`, keeping the engine's refusal
-    /// rather than throwing it, for this crate's callers and tests (#1155).
+    /// The handle's `renderGrid` for one message. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1155).
     pub(crate) fn render_grid(
         &self,
         message_index: u32,
@@ -1810,8 +1807,8 @@ impl Grib2File {
         self.stream.render(message_index, &options)
     }
 
-    /// `render_grid_combined_for_js`, keeping the engine's refusal
-    /// rather than throwing it, for this crate's callers and tests (#1155).
+    /// The handle's `renderGrid` for a combined target `{ a, b, op }`. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1155).
     pub(crate) fn render_grid_combined(
         &self,
         message_index_a: u32,
@@ -1874,9 +1871,8 @@ impl Grib2File {
         .map(|arrows| ProjectedVectors::from_arrows(arrows, pairing))
     }
 
-    /// The call behind `Self::project_contours_for_js`, keeping the
-    /// engine's refusal rather than throwing it, for this crate's callers
-    /// and tests (#1156).
+    /// The handle's `projectContours` for one field. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1156).
     pub(crate) fn project_contours(
         &self,
         message_index: u32,
@@ -1917,9 +1913,8 @@ impl Grib2File {
             .probe_combined(message_index_a, message_index_b, &op, &options, px, py)
     }
 
-    /// The call behind `Self::project_contours_combined_for_js`, keeping the
-    /// engine's refusal rather than throwing it, for this crate's callers
-    /// and tests (#1156).
+    /// The handle's `projectContours` for a combined target. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1156).
     pub(crate) fn project_contours_combined(
         &self,
         message_index_a: u32,
@@ -2258,7 +2253,7 @@ impl NetcdfFile {
         // HDF5 metadata is resolved lazily and can fail for a *whole-file* layout
         // outside the decoded subset (decision 0003); on failure the view is
         // empty and the panel falls back to the metadata dump, mirroring
-        // `open_netcdf` — which is what keeps such a file openable at all, since
+        // what the metadata view shows — which is what keeps such a file openable at all, since
         // `metadata()` below is what renders that dump. One variable carrying an
         // undecodable datatype no longer reaches this path: the view holds every
         // other variable and `DatasetMeta::unsupported_variables` names it (#550).
@@ -2274,7 +2269,7 @@ impl NetcdfFile {
     /// The dataset metadata — dimensions, global attributes, variables — from
     /// the reader this handle already holds.
     ///
-    /// Identical to what `open_netcdf` returns for the same bytes. It exists
+    /// The handle's `metadata()`, from the reader it already holds. It exists
     /// so a caller that is going to keep a handle anyway does not have to build
     /// a second reader to get the metadata: doing both parsed the whole file
     /// twice and copied it twice, which on a 110 MB NetCDF-4 file was 86 ms of
@@ -2316,8 +2311,8 @@ impl NetcdfFile {
             .collect()
     }
 
-    /// `render_slice_for_js`, keeping the engine's refusal
-    /// rather than throwing it, for this crate's callers and tests (#1155).
+    /// The handle's `renderGrid` for one slice. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1155).
     pub(crate) fn render_slice(
         &self,
         variable_index: u32,
@@ -2466,8 +2461,8 @@ impl NetcdfFile {
         field_csv(&plane, &placed, &format).map(csv_buffer)
     }
 
-    /// `render_slice_combined_for_js`, keeping the engine's refusal
-    /// rather than throwing it, for this crate's callers and tests (#1155).
+    /// The handle's `renderGrid` for two slices combined. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1155).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_slice_combined(
         &self,
@@ -2522,9 +2517,8 @@ impl NetcdfFile {
         .map(ProjectedOverlay::from_polylines)
     }
 
-    /// The call behind `Self::project_contours_for_js`, keeping the
-    /// engine's refusal rather than throwing it, for this crate's callers
-    /// and tests (#1156).
+    /// The handle's `projectContours` for one field. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1156).
     pub(crate) fn project_contours(
         &self,
         variable_index: u32,
@@ -2565,7 +2559,7 @@ impl NetcdfFile {
     /// Probe a NetCDF difference/sum/… map under a pixel (#329): the two slices
     /// are combined under `op` and the *combined* field is read, so the readout
     /// matches the displayed map, not slice A. Sibling to
-    /// `Self::render_slice_combined_for_js`.
+    /// the handle's `renderGrid` for two slices combined.
     #[allow(clippy::too_many_arguments)]
     pub fn probe_slice_combined(
         &self,
@@ -2593,9 +2587,8 @@ impl NetcdfFile {
         probe_from_source(&placed_a.source(), &combined, &options, px, py)
     }
 
-    /// The call behind `Self::project_contours_slice_combined_for_js`, keeping the
-    /// engine's refusal rather than throwing it, for this crate's callers
-    /// and tests (#1156).
+    /// The handle's `projectContours` for two slices combined. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1156).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn project_contours_slice_combined(
         &self,
@@ -3100,8 +3093,8 @@ impl ZarrStore {
         to_js(serde_json::to_value(self.session.undrawable()))
     }
 
-    /// `render_slice_for_js`, keeping the engine's refusal
-    /// rather than throwing it, for this crate's callers and tests (#1155).
+    /// The handle's `renderGrid` for one slice. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1155).
     pub(crate) fn render_slice(
         &self,
         variable_index: u32,
@@ -3137,9 +3130,8 @@ impl ZarrStore {
         .map(ProjectedOverlay::from_polylines)
     }
 
-    /// The call behind `Self::project_contours_for_js`, keeping the
-    /// engine's refusal rather than throwing it, for this crate's callers
-    /// and tests (#1156).
+    /// The handle's `projectContours` for one field. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1156).
     pub(crate) fn project_contours(
         &self,
         variable_index: u32,
@@ -3175,8 +3167,8 @@ impl ZarrStore {
         probe_from_source(&field.source(), &values, &options, px, py)
     }
 
-    /// `render_slice_combined_for_js`, keeping the engine's refusal
-    /// rather than throwing it, for this crate's callers and tests (#1155).
+    /// The handle's `renderGrid` for two slices combined. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1155).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_slice_combined(
         &self,
@@ -3229,9 +3221,8 @@ impl ZarrStore {
         probe_from_source(&combined.source(), &values, &options, px, py)
     }
 
-    /// The call behind `Self::project_contours_slice_combined_for_js`, keeping the
-    /// engine's refusal rather than throwing it, for this crate's callers
-    /// and tests (#1156).
+    /// The handle's `projectContours` for two slices combined. The refusal is the engine's, so
+    /// the handle throws it with its `code` (#1156).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn project_contours_slice_combined(
         &self,
@@ -5078,7 +5069,7 @@ mod netcdf_slice_tests {
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc");
 
     /// Build a handle from raw bytes without crossing the napi `Buffer` boundary
-    /// (which would need a Node runtime) — mirrors `from_bytes`'s body.
+    /// (which would need a Node runtime) — mirrors `from_vec`'s body.
     fn handle(bytes: &[u8]) -> NetcdfFile {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).unwrap();
         let view = reader.view().expect("dimension-scale resolution");

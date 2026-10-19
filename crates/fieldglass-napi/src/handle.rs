@@ -1,4 +1,4 @@
-//! The one handle this addon exports, and the three ways to get one (#1073).
+//! The one handle this addon exports, and the two ways to open one (#1073).
 //!
 //! ADR-0006 decision 1 makes every host a binding over `fieldglass::Session`,
 //! and the browser module binds it as one `Handle`. This addon used to ship

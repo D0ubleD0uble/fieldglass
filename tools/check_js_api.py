@@ -292,9 +292,11 @@ def table() -> str:
     """The two hosts side by side: what the PR shows as the diff of the surfaces."""
     rows = ["| | Node addon (`fieldglass-napi`) | Browser module (`@fieldglass/wasm`) |", "|---|---|---|"]
     for name, params in SHARED.items():
-        rows.append(f"| `Handle.{name}` | `{name}({params})` | `{name}({params})` |")
+        sig = _cell(f"`{name}({params})`")
+        rows.append(f"| `Handle.{name}` | {sig} | {sig} |")
     for name, params in SHARED_FUNCTIONS.items():
-        rows.append(f"| `{name}` | `{name}({params})` | `{name}({params})` |")
+        sig = _cell(f"`{name}({params})`")
+        rows.append(f"| `{name}` | {sig} | {sig} |")
     for name, why in SAME_NAME_OTHER_INPUT.items():
         rows.append(f"| `{name}` | `{name}(path)` | `{name}(objects)` — {why} |")
     for name, why in NAPI_ONLY.items():
@@ -302,6 +304,11 @@ def table() -> str:
     for name, why in WASM_ONLY.items():
         rows.append(f"| `Handle.{name}` | — | {why} |")
     return "\n".join(rows)
+
+
+def _cell(text: str) -> str:
+    """A Markdown table cell: a `|` inside it would end the cell."""
+    return text.replace("|", "\\|")
 
 
 def main(argv: list[str] | None = None) -> int:
