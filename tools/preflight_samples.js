@@ -8,10 +8,16 @@
 //   node tools/preflight_samples.js [dir]
 //
 // Requires the native module built into extension/bin (see samples/README.md).
+//
+// `preflightFile(bytes, label)` is exported so the extension's test suite runs
+// the NetCDF path over a committed fixture (preflight-samples.test.ts): this
+// script is plain JS that tsc and CI never see, so a renamed addon field would
+// otherwise only show up as a false RENDER FAILED in a manual pass (#1209).
 const fs = require('fs');
 const path = require('path');
 const REPO = path.resolve(__dirname, '..');
 const m = require(path.join(REPO, 'extension/bin/fieldglass.linux-x64-gnu.node'));
+let out = console.log;
 const opts = { projection: 'equirectangular', resampling: 'nearest', flipY: false };
 
 function grib(buf, label) {
@@ -24,10 +30,10 @@ function grib(buf, label) {
   try {
     r = h.renderGrid(idx, opts);
   } catch (e) {
-    return console.log(`  ${label}: ${msgs.length} msgs; grid=${gridLabel(mm)} packing=${mm.packing}  RENDER FAILED: ${e.message}`);
+    return out(`  ${label}: ${msgs.length} msgs; grid=${gridLabel(mm)} packing=${mm.packing}  RENDER FAILED: ${e.message}`);
   }
-  console.log(`  ${label}: ${msgs.length} msgs | msg#${idx} ${mm.parameter ?? mm.abbreviation} | grid=${gridLabel(mm)} | packing=${mm.packing} | reproj=${mm.reprojectable}`);
-  console.log(`         render: ${r.width}x${r.height} | ${r.projectionSummary} | ${range(r)}`);
+  out(`  ${label}: ${msgs.length} msgs | msg#${idx} ${mm.parameter ?? mm.abbreviation} | grid=${gridLabel(mm)} | packing=${mm.packing} | reproj=${mm.reprojectable}`);
+  out(`         render: ${r.width}x${r.height} | ${r.projectionSummary} | ${range(r)}`);
 }
 
 function gridLabel(mm) {
@@ -46,37 +52,54 @@ function netcdf(buf, label) {
   const vars = h.variables();
   if (!vars.length) {
     const d = h.metadata();
-    return console.log(`  ${label}: ${d.backingLabel} | 0 renderable vars${d.note ? ` | note: ${d.note}` : ''}`);
+    return out(`  ${label}: ${d.backingLabel} | 0 renderable vars${d.note ? ` | note: ${d.note}` : ''}`);
   }
   const v = vars.find((x) => x.detectedYDim != null && x.detectedXDim != null) || vars[0];
-  console.log(`  ${label}: ${vars.length} renderable vars | var '${v.name}' dims=[${v.dims.map((d) => `${d.name}:${d.length}`).join(',')}] Y=${v.detectedYDim} X=${v.detectedXDim}`);
-  if (v.detectedYDim == null || v.detectedXDim == null) return console.log('         (no CF axes detected — needs manual axis pick)');
+  out(`  ${label}: ${vars.length} renderable vars | var '${v.name}' dims=[${v.dims.map((d) => `${d.name}:${d.length}`).join(',')}] Y=${v.detectedYDim} X=${v.detectedXDim}`);
+  if (v.detectedYDim == null || v.detectedXDim == null) return out('         (no CF axes detected — needs manual axis pick)');
   const slice = v.dims.map(() => 0);
   try {
     const r = h.renderGrid(
-      { variable: v.variableIndex, yDim: v.detectedYDim, xDim: v.detectedXDim, sliceIndices: slice },
+      { variable: v.index, yDim: v.detectedYDim, xDim: v.detectedXDim, sliceIndices: slice },
       opts,
     );
-    console.log(`         render: ${r.width}x${r.height} | ${r.projectionSummary} | ${range(r)}`);
+    out(`         render: ${r.width}x${r.height} | ${r.projectionSummary} | ${range(r)}`);
   } catch (e) {
-    console.log(`         RENDER FAILED: ${e.message}`);
+    out(`         RENDER FAILED: ${e.message}`);
   }
 }
 
-const dir = path.resolve(REPO, process.argv[2] || 'samples');
-const files = fs.readdirSync(dir).filter((f) => /\.(grib2|grib1|grib|grb2|nc|nc4)$/.test(f)).sort();
-if (!files.length) {
-  console.log(`No sample files in ${path.relative(REPO, dir)}/ — run tools/fetch_samples.sh first.`);
-  process.exit(0);
-}
-for (const f of files) {
-  const buf = fs.readFileSync(path.join(dir, f));
-  const fmt = m.detectBytes(buf);
+/** Preflight one file; returns the lines it would print. */
+function preflightFile(buf, label) {
+  const lines = [];
+  const prev = out;
+  out = (l) => lines.push(l);
   try {
-    if (fmt === 'grib2' || fmt === 'grib1') grib(buf, `${f} [${fmt}]`);
-    else if (fmt === 'netcdf') netcdf(buf, `${f} [${fmt}]`);
-    else console.log(`  ${f}: UNKNOWN format (${fmt})`);
-  } catch (e) {
-    console.log(`  ${f} [${fmt}]: OPEN FAILED: ${e.message}`);
+    const fmt = m.detectBytes(buf);
+    try {
+      if (fmt === 'grib2' || fmt === 'grib1') grib(buf, `${label} [${fmt}]`);
+      else if (fmt === 'netcdf') netcdf(buf, `${label} [${fmt}]`);
+      else out(`  ${label}: UNKNOWN format (${fmt})`);
+    } catch (e) {
+      out(`  ${label} [${fmt}]: OPEN FAILED: ${e.message}`);
+    }
+  } finally {
+    out = prev;
+  }
+  return lines;
+}
+
+function main() {
+  const dir = path.resolve(REPO, process.argv[2] || 'samples');
+  const files = fs.readdirSync(dir).filter((f) => /\.(grib2|grib1|grib|grb2|nc|nc4)$/.test(f)).sort();
+  if (!files.length) {
+    console.log(`No sample files in ${path.relative(REPO, dir)}/ - run tools/fetch_samples.sh first.`);
+    return;
+  }
+  for (const f of files) {
+    for (const l of preflightFile(fs.readFileSync(path.join(dir, f)), f)) console.log(l);
   }
 }
+
+if (require.main === module) main();
+module.exports = { preflightFile };
