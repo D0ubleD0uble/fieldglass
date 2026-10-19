@@ -930,6 +930,8 @@ struct SizImage {
     components: u16,
     /// Whether component 0 is signed (bit 7 of its `Ssiz`).
     signed: bool,
+    /// `XOsiz` and `YOsiz`, the image's origin on the reference grid.
+    origin: (u64, u64),
     /// Component 0's width at the requested resolution reduction.
     width: u64,
     /// Component 0's height at the requested resolution reduction.
@@ -975,9 +977,63 @@ fn read_siz(codestream: &[u8], reduction: u8) -> Option<SizImage> {
     Some(SizImage {
         components: u16::from_be_bytes([head[40], head[41]]),
         signed: head[42] & 0x80 != 0,
+        origin: (x_offset, y_offset),
         width: extent(x_size, x_offset, x_sampling),
         height: extent(y_size, y_offset, y_sampling),
     })
+}
+
+/// The number of wavelet decomposition levels component 0 carries, read from
+/// the main header's COD, or COC for component 0 where one overrides it
+/// (ISO/IEC 15444-1 A.6.1 and A.6.2, Tables A-12 to A-15). A codestream of `NL`
+/// levels has `NL + 1` resolutions, and `rust_j2k` refuses a reduction of more
+/// than `NL` as `Unsupported`.
+///
+/// This is how a reduction past the pyramid is told from the codec's other
+/// `Unsupported`s (#1182), which it raises for features it does not decode at
+/// any level. `rust_j2k` 0.3.0 does not expose its parsed header, so this reads
+/// the two markers itself; walking marker segments from SIZ to the first tile
+/// part, and reading nothing it does not need.
+///
+/// `None` when the main header has no readable COD. A tile-part header can
+/// override the count for its own tile (a tile COD or COC); this does not read
+/// those, so a codestream that does is told apart on its main header's word.
+fn read_decomposition_levels(codestream: &[u8]) -> Option<u8> {
+    let components = u16::from_be_bytes([*codestream.get(40)?, *codestream.get(41)?]);
+    // SOC (2), then segments of `marker (2) | Lseg (2) | body (Lseg - 2)`.
+    let mut at = 2usize;
+    let (mut cod, mut coc) = (None, None);
+    while let Some(head) = codestream.get(at..at + 4) {
+        let marker = u16::from_be_bytes([head[0], head[1]]);
+        // The first tile part (SOT) or its data (SOD) ends the main header.
+        if marker == 0xFF90 || marker == 0xFF93 {
+            break;
+        }
+        let len = usize::from(u16::from_be_bytes([head[2], head[3]]));
+        let body = codestream.get(at + 4..(at + 2).checked_add(len)?)?;
+        match marker {
+            // Scod (1), SGcod (4), then SPcod: NL first.
+            0xFF52 => cod = body.get(5).copied(),
+            // Ccoc (1 byte, or 2 from 257 components), Scoc (1), SPcoc: NL first.
+            0xFF53 => {
+                let (component, rest) = if components < 257 {
+                    (u16::from(*body.first()?), body.get(1..)?)
+                } else {
+                    (
+                        u16::from_be_bytes([*body.first()?, *body.get(1)?]),
+                        body.get(2..)?,
+                    )
+                };
+                if component == 0 {
+                    coc = rest.get(1).copied();
+                }
+            }
+            _ => {}
+        }
+        at = (at + 2).checked_add(len)?;
+    }
+    // COC outranks COD for its component (A.6.2).
+    coc.or(cod)
 }
 
 /// Refuse a codestream that is not one unsigned scalar grid. The same two
@@ -1136,8 +1192,14 @@ fn decode_jpeg2000_packing(
 /// not exist.
 ///
 /// **Errors.** [`FieldglassError::UnsupportedSection`] only for a level this
-/// codestream has no resolution for, which a lower level would serve. A
-/// codestream that is broken, or is not the single unsigned component
+/// codestream has no resolution for, which a lower level would serve: a
+/// `reduction` above the decomposition levels its COD states. Any other
+/// `Unsupported` the codec raises is a feature it does not decode at any level,
+/// and is [`FieldglassError::Parse`] like the rest (#1182). The other
+/// [`FieldglassError::UnsupportedSection`] is a SIZ image origin that is not
+/// zero, above `reduction` 0: a reduced level of such an image is not the
+/// coarse raster of the full field, and reduction 0 decodes it, so a lower
+/// level serves. A codestream that is broken, or is not the single unsigned component
 /// `grid_jpeg` writes, or does not match the §3 grid, is
 /// [`FieldglassError::Parse`]: no level would decode it, so a caller told
 /// "unsupported" and falling back to reduction zero would fail again (#1082).
@@ -1192,8 +1254,8 @@ pub(crate) fn decode_jpeg2000_reduced(
 
     // The shape SIZ states at this level must be the shape the §3 grid reduces
     // to, checked before anything is decoded (#848): a 1 × 1 grid's codestream
-    // can state 8192 × 8192. Same rounding, and the same zero-origin caveat,
-    // as the decoded-shape check below, which stays as the decoder's own word.
+    // can state 8192 × 8192. Same rounding as the decoded-shape check below,
+    // which stays as the decoder's own word.
     if let Some(siz) = read_siz(ds_payload, reduction) {
         // A codestream that is not one `grid_jpeg` writes fails at every
         // resolution, so it is a decode failure here and not a refusal: see the
@@ -1202,6 +1264,17 @@ pub(crate) fn decode_jpeg2000_reduced(
             FieldglassError::UnsupportedSection(detail) => FieldglassError::Parse(detail),
             other => other,
         })?;
+        // A non-zero origin makes a reduced level ceil(x1 / 2^r) - ceil(x0 / 2^r),
+        // which is not the coarse raster of the full field: some origins give a
+        // different width, others the same width over the odd columns. The
+        // full-resolution decode is unaffected, so a lower level serves (#1182).
+        if reduction > 0 && siz.origin != (0, 0) {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "JPEG 2000 packing: codestream's image origin is {}, {} and has no coarse \
+                 raster at resolution reduction {reduction}",
+                siz.origin.0, siz.origin.1
+            )));
+        }
         if siz.width != u64::from(expected_ni) || siz.height != u64::from(expected_nj) {
             return Err(FieldglassError::Parse(format!(
                 "JPEG 2000 packing: codestream's SIZ gives a {}×{} image at resolution \
@@ -1218,11 +1291,18 @@ pub(crate) fn decode_jpeg2000_reduced(
     .map_err(|e| {
         let detail =
             format!("JPEG 2000 packing: decode at resolution reduction {reduction} failed: {e}");
-        // The codec's `Unsupported` is the one that can mean "not at this
-        // level": a reduction past a component's pyramid. Everything else it
-        // reports is a broken codestream, which no level would decode.
+        // The codec's `Unsupported` means "outside the decoded subset" and is
+        // raised for far more than a reduction past the pyramid: a feature it
+        // does not decode fails at every level, and a caller told "unsupported"
+        // would ask at reduction zero and fail again (#1182). So only a
+        // reduction beyond the decomposition levels the codestream states is
+        // "not at this level"; everything else is a decode failure.
         match e {
-            rust_j2k::Error::Unsupported(_) => FieldglassError::UnsupportedSection(detail),
+            rust_j2k::Error::Unsupported(_)
+                if read_decomposition_levels(ds_payload).is_some_and(|nl| reduction > nl) =>
+            {
+                FieldglassError::UnsupportedSection(detail)
+            }
             _ => FieldglassError::Parse(detail),
         }
     })?;
@@ -1244,16 +1324,9 @@ pub(crate) fn decode_jpeg2000_reduced(
     // a codestream that is not the raster at all — transposed, or sized to some
     // other field — before its samples are read row-major into one.
     //
-    // What it does **not** catch, and cannot: a non-zero image origin. JPEG 2000
-    // sizes a reduced level as `ceil(x1 / 2^r) - ceil(x0 / 2^r)`, which equals
-    // `ceil((x1 - x0) / 2^r)` for many non-zero `x0` — `x0 = 1, x1 = 453` gives
-    // 226 at `r = 1`, the same as a 452-wide grid with the origin at zero, while
-    // the samples retained are the *odd* full-resolution columns. Every
-    // `grid_jpeg` encoder writes a zero origin, and `rust_j2k` 0.3.0's `Image`
-    // exposes only the reduced extents, so there is nothing here to compare
-    // against; the zero origin is an assumption, stated rather than checked.
-    // The full-resolution path makes the same assumption more quietly, by
-    // reading the samples in order.
+    // A non-zero image origin would pass this when the widths happen to agree
+    // (`x0 = 1, x1 = 453` gives 226 at `r = 1`, over the *odd* columns), so the
+    // SIZ origin is refused above, before the decode, above reduction 0.
     if component.width != expected_ni || component.height != expected_nj {
         return Err(FieldglassError::Parse(format!(
             "JPEG 2000 packing: resolution reduction {reduction} gives a {}×{} image, but the \
@@ -3563,10 +3636,9 @@ mod reduced_jpeg2000_tests {
     ///
     /// JPEG 2000 sizes a reduced level as `ceil(x1 / 2^r) - ceil(x0 / 2^r)`,
     /// which is `ceil(n / 2^r)` only when the image origin is zero. Every
-    /// `grid_jpeg` codestream puts it there, so the two agree — but a
-    /// codestream that did not would hand back a raster a column narrower with
-    /// nothing to say so, which is what this refuses. Asked with the shape the
-    /// grid really reduces to, the same call succeeds.
+    /// `grid_jpeg` codestream puts it there, so the two agree; a codestream
+    /// that is some other shape is refused. Asked with the shape the grid
+    /// really reduces to, the same call succeeds.
     #[test]
     fn a_codestream_that_is_not_the_shape_the_grid_reduces_to_is_refused() {
         let (payload, template) = sections_of("rap_jpeg2000_lambert.grib2");
@@ -3647,6 +3719,85 @@ mod reduced_jpeg2000_tests {
                 assert_eq!((siz.components, siz.signed), (1, false), "{fixture}");
             }
         }
+    }
+
+    /// The count read from the header is the one the codec enforces: the last
+    /// reduction it decodes is the count, and one more is refused. The
+    /// reduced decoder files the refusal as a level, and a codestream the codec
+    /// refuses at every level as a decode failure (#1182).
+    #[test]
+    fn the_decomposition_levels_are_the_depth_the_codec_enforces() {
+        let (payload, template) = sections_of("rap_jpeg2000_lambert.grib2");
+        let levels = read_decomposition_levels(&payload).expect("RAP has a COD");
+        assert_eq!(levels, 5);
+        let at = |r: u8| {
+            rust_j2k::decode_with(
+                &payload,
+                rust_j2k::DecodeOptions::default().with_resolution_reduction(r),
+            )
+        };
+        at(levels).expect("the deepest level");
+        assert!(matches!(
+            at(levels + 1),
+            Err(rust_j2k::Error::Unsupported(_))
+        ));
+
+        let err = decode_jpeg2000_reduced(&payload, &template, levels + 1, 8, 6)
+            .expect_err("past the pyramid");
+        assert!(
+            matches!(err, FieldglassError::UnsupportedSection(_)),
+            "{err:?}"
+        );
+
+        // An HTJ2K style bit in the COD: the codec's `Unsupported`, at any level.
+        let mut patched = payload.clone();
+        // Walk the main header to the COD (SOC, then `marker | Lseg | body`).
+        let mut cod = 2;
+        while patched[cod..cod + 2] != [0xFF, 0x52] {
+            assert_ne!(patched[cod..cod + 2], [0xFF, 0x90], "the header has a COD");
+            cod += 2 + usize::from(u16::from_be_bytes([patched[cod + 2], patched[cod + 3]]));
+        }
+        patched[cod + 12] |= 0x40;
+        // The premise: the codec refuses it for the style bit, as `Unsupported`.
+        match rust_j2k::decode(&patched) {
+            Err(rust_j2k::Error::Unsupported(m)) => assert!(m.contains("code-block style"), "{m}"),
+            other => panic!("expected the style refusal, got {:?}", other.map(|_| ())),
+        }
+        let err = decode_jpeg2000_reduced(&patched, &template, 1, 226, 169)
+            .expect_err("a feature the codec does not decode");
+        assert!(matches!(err, FieldglassError::Parse(_)), "{err:?}");
+    }
+
+    /// A COC for component 0 outranks the COD (A.6.2); one for another
+    /// component does not; a header that stops short has no answer.
+    #[test]
+    fn a_coc_overrides_the_cod_for_component_zero_only() {
+        let codestream = |segments: &[&[u8]]| {
+            let mut b = vec![0xFF, 0x4F, 0xFF, 0x51, 0, 41, 0, 0];
+            b.extend_from_slice(&[0; 32]); // Xsiz … YTOsiz
+            b.extend_from_slice(&[0, 1, 7, 1, 1]); // Csiz = 1, Ssiz, XRsiz, YRsiz
+            for s in segments {
+                b.extend_from_slice(s);
+            }
+            b.extend_from_slice(&[0xFF, 0x90]); // SOT ends the main header
+            b
+        };
+        // COD (Lcod 12): Scod, SGcod (prog, layers, MCT), NL = 3, xcb, ycb, style, transform.
+        let cod: &[u8] = &[0xFF, 0x52, 0, 12, 0, 0, 0, 1, 0, 3, 4, 4, 0, 1];
+        // COC (Lcoc 9): Ccoc, Scoc, NL, xcb, ycb, style, transform.
+        let coc = |component: u8, nl: u8| [0xFF, 0x53, 0, 9, component, 0, nl, 4, 4, 0, 1];
+        assert_eq!(read_decomposition_levels(&codestream(&[cod])), Some(3));
+        assert_eq!(
+            read_decomposition_levels(&codestream(&[cod, &coc(0, 1)])),
+            Some(1)
+        );
+        assert_eq!(
+            read_decomposition_levels(&codestream(&[cod, &coc(1, 1)])),
+            Some(3)
+        );
+        assert_eq!(read_decomposition_levels(&codestream(&[])), None);
+        let whole = codestream(&[cod]);
+        assert_eq!(read_decomposition_levels(&whole[..whole.len() - 8]), None);
     }
 
     /// The extent rounds each bound before the difference (ISO B.2, B.5), so

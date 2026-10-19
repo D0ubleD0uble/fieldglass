@@ -332,7 +332,7 @@ fn a_message_without_a_pyramid_refuses_a_reduction() {
     let err = session
         .decode_display(0, &DisplayDecodeOptions::new(30))
         .expect_err("thirty levels");
-    assert!(matches!(err.code(), "unsupported" | "decode"), "{err:?}");
+    assert_eq!(err.code(), "unsupported", "{err:?}");
 
     let netcdf = open(NETCDF);
     for reduce in [0, 1] {
@@ -388,4 +388,85 @@ fn a_corrupt_codestream_is_a_decode_error_not_a_refusal() {
         .decode_display(0, &DisplayDecodeOptions::new(6))
         .expect_err("six levels of a six-resolution codestream");
     assert_eq!(err.code(), "unsupported", "{err:?}");
+}
+
+/// The RAP message with `patch` applied to the bytes of its §7 codestream.
+fn rap_with_codestream(patch: impl FnOnce(&mut [u8])) -> Vec<u8> {
+    let mut bytes = std::fs::read(RAP).expect("RAP");
+    let mut at = 16;
+    loop {
+        let len = u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+        if bytes[at + 4] == 7 {
+            patch(&mut bytes[at + 5..at + len]);
+            return bytes;
+        }
+        at += len;
+    }
+}
+
+/// A SIZ image origin that is not zero has no coarse raster (batch review 23):
+/// a reduced level of it is `ceil(x1 / 2^r) - ceil(x0 / 2^r)` wide, which is
+/// the wrong width for some origins and the odd columns for others. Reduction
+/// zero reads it as it always did, so the answer above it is `unsupported`.
+#[test]
+fn a_non_zero_image_origin_is_unsupported_above_reduction_zero() {
+    let bytes = rap_with_codestream(|cs| {
+        // SIZ: SOC (2), marker (2), Lsiz (2), Rsiz (2), Xsiz at 8, Ysiz 12,
+        // XOsiz 16, YOsiz 20, XTsiz 24. Origin 1, with the extent and tile
+        // grown by one so the image stays the same size.
+        for at in [8, 24] {
+            let v = u32::from_be_bytes(cs[at..at + 4].try_into().unwrap()) + 1;
+            cs[at..at + 4].copy_from_slice(&v.to_be_bytes());
+        }
+        cs[16..20].copy_from_slice(&1u32.to_be_bytes());
+    });
+    let session = Session::open(bytes).expect("the sections still frame");
+    let err = session
+        .decode_display(0, &DisplayDecodeOptions::new(1))
+        .expect_err("an origin at one");
+    assert_eq!(err.code(), "unsupported", "{err:?}");
+    assert!(err.message().contains("image origin"), "{err:?}");
+    // Reduction zero is not refused on the origin.
+    session
+        .decode_display(0, &DisplayDecodeOptions::new(0))
+        .expect("reduction zero still decodes");
+}
+
+/// The codec reports `Unsupported` for more than a reduction past the pyramid
+/// (#1182): here the COD's code-block style sets an HTJ2K bit, which it does
+/// not decode at any level. Asking at reduction zero is no answer, so the
+/// reply is `decode`, as it is at reduction zero, and a level the codestream
+/// does carry is not blamed on the level.
+#[test]
+fn a_codestream_the_codec_refuses_for_another_reason_is_a_decode_error() {
+    let bytes = rap_with_codestream(|cs| {
+        // Walk the main header's marker segments (SOC, then `marker | Lseg |
+        // body`) to the COD, rather than searching for its bytes, which could
+        // match inside another segment.
+        let mut cod = 2;
+        while cs[cod..cod + 2] != [0xff, 0x52] {
+            assert_ne!(cs[cod..cod + 2], [0xff, 0x90], "the main header has a COD");
+            cod += 2 + usize::from(u16::from_be_bytes([cs[cod + 2], cs[cod + 3]]));
+        }
+        // Marker (2), Lcod (2), Scod (1), SGcod (4), then NL, xcb, ycb, style.
+        cs[cod + 12] |= 0x40;
+    });
+    let session = Session::open(bytes).expect("the sections still frame");
+    for reduce in [0, 1, 5] {
+        let err = session
+            .decode_display(0, &DisplayDecodeOptions::new(reduce))
+            .expect_err("a code-block style the codec does not decode");
+        assert_eq!(err.code(), "decode", "reduce {reduce}: {err:?}");
+        // The premise: the codec's refusal is the style bit, not a damaged
+        // header.
+        assert!(err.message().contains("code-block style"), "{err:?}");
+    }
+    // The same message, intact, still tells a caller the pyramid's depth.
+    let err = open(RAP)
+        .decode_display(0, &DisplayDecodeOptions::new(6))
+        .expect_err("six levels of a five-level pyramid");
+    assert_eq!(err.code(), "unsupported", "{err:?}");
+    open(RAP)
+        .decode_display(0, &DisplayDecodeOptions::new(5))
+        .expect("the last level the pyramid carries");
 }

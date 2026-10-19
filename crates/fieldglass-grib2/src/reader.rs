@@ -580,7 +580,10 @@ impl<S: ByteSource> Grib2Reader<S> {
     /// reduction zero rather than being handed a differently-wrong field. So is
     /// a level past the codestream's pyramid. A codestream that does not decode
     /// at all is [`FieldglassError::Parse`], since reduction zero would fail
-    /// the same way.
+    /// the same way. That includes a feature the codec does not decode at any
+    /// level: only a reduction above the COD's decomposition levels, or a
+    /// codestream whose SIZ image origin is not zero, is a level refusal
+    /// (#1182).
     ///
     /// - **Any packing but §5.40.** There is no pyramid to climb: 5.0 is
     ///   random-access already, and 5.2 / 5.3 / 5.41 / 5.42 are sequential and
