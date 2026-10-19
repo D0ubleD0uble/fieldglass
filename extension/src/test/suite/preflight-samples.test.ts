@@ -29,7 +29,7 @@ suite("preflight_samples.js", () => {
   for (const name of ["netcdf4_dimscale.nc", "ersst_v5_187001_cdf1.nc", "regular_latlon_surface.grib2"]) {
     test(`renders ${name}`, () => {
       const out = run(name);
-      assert.ok(!/FAILED/.test(out), out);
+      assert.ok(!/FAILED|undefined/.test(out), out);
       assert.match(out, /render: \d+x\d+/);
     });
   }

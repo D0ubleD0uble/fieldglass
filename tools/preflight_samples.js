@@ -93,7 +93,7 @@ function main() {
   const dir = path.resolve(REPO, process.argv[2] || 'samples');
   const files = fs.readdirSync(dir).filter((f) => /\.(grib2|grib1|grib|grb2|nc|nc4)$/.test(f)).sort();
   if (!files.length) {
-    console.log(`No sample files in ${path.relative(REPO, dir)}/ - run tools/fetch_samples.sh first.`);
+    console.log(`No sample files in ${path.relative(REPO, dir)}/ — run tools/fetch_samples.sh first.`);
     return;
   }
   for (const f of files) {
