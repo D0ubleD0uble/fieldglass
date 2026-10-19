@@ -974,6 +974,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "auto",
+          "total": 496,
+          "usedMax": 311.0986328125,
+          "usedMin": 270.466796875
+        },
         "scale": "linear",
         "t0": 270.466796875,
         "t1": 311.0986328125
@@ -1041,6 +1052,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "manual",
+          "total": 496,
+          "usedMax": 1000.0,
+          "usedMin": 1.0
+        },
         "scale": "log10",
         "t0": 0.0,
         "t1": 3.0
@@ -1128,6 +1150,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "auto",
+          "total": 496,
+          "usedMax": 311.0986328125,
+          "usedMin": 270.466796875
+        },
         "rgbaLen": 1984,
         "width": 16
       }
@@ -1214,6 +1247,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "auto",
+          "total": 496,
+          "usedMax": 311.0986328125,
+          "usedMin": 270.466796875
+        },
         "rgbaLen": 1984,
         "width": 16
       }
@@ -3012,6 +3056,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 8192,
+          "rangeSource": "auto",
+          "total": 8192,
+          "usedMax": 1.0,
+          "usedMin": 1.0
+        },
         "scale": "linear",
         "t0": 1.0,
         "t1": 1.0
@@ -3079,6 +3134,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 8192,
+          "rangeSource": "manual",
+          "total": 8192,
+          "usedMax": 1000.0,
+          "usedMin": 1.0
+        },
         "scale": "log10",
         "t0": 0.0,
         "t1": 3.0
@@ -3166,6 +3232,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 8192,
+          "rangeSource": "auto",
+          "total": 8192,
+          "usedMax": 1.0,
+          "usedMin": 1.0
+        },
         "rgbaLen": 32768,
         "width": 128
       }
@@ -3252,6 +3329,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 8192,
+          "rangeSource": "auto",
+          "total": 8192,
+          "usedMax": 1.0,
+          "usedMin": 1.0
+        },
         "rgbaLen": 32768,
         "width": 128
       }
@@ -5298,6 +5386,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 8192,
+          "rangeSource": "auto",
+          "total": 8192,
+          "usedMax": 312.07421875,
+          "usedMin": 235.01171875
+        },
         "scale": "linear",
         "t0": 235.01171875,
         "t1": 312.07421875
@@ -5365,6 +5464,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 8192,
+          "rangeSource": "manual",
+          "total": 8192,
+          "usedMax": 1000.0,
+          "usedMin": 1.0
+        },
         "scale": "log10",
         "t0": 0.0,
         "t1": 3.0
@@ -5452,6 +5562,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 8192,
+          "rangeSource": "auto",
+          "total": 8192,
+          "usedMax": 312.07421875,
+          "usedMin": 235.01171875
+        },
         "rgbaLen": 32768,
         "width": 128
       }
@@ -5538,6 +5659,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 8192,
+          "rangeSource": "auto",
+          "total": 8192,
+          "usedMax": 312.07421875,
+          "usedMin": 235.01171875
+        },
         "rgbaLen": 32768,
         "width": 128
       }
@@ -7667,6 +7799,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 6045,
+          "rangeSource": "auto",
+          "total": 6045,
+          "usedMax": 102712.0,
+          "usedMin": 97392.0
+        },
         "scale": "linear",
         "t0": 97392.0,
         "t1": 102712.0
@@ -7734,6 +7877,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 6045,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 6045,
+          "rangeSource": "manual",
+          "total": 6045,
+          "usedMax": 1000.0,
+          "usedMin": 1.0
+        },
         "scale": "log10",
         "t0": 0.0,
         "t1": 3.0
@@ -7821,6 +7975,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 6045,
+          "rangeSource": "auto",
+          "total": 6045,
+          "usedMax": 102712.0,
+          "usedMin": 97392.0
+        },
         "rgbaLen": 24180,
         "width": 93
       }
@@ -7907,6 +8072,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 6045,
+          "rangeSource": "auto",
+          "total": 6045,
+          "usedMax": 102712.0,
+          "usedMin": 97392.0
+        },
         "rgbaLen": 24180,
         "width": 93
       }
@@ -9711,6 +9887,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 720,
+          "rangeSource": "auto",
+          "total": 720,
+          "usedMax": 293.1221618652344,
+          "usedMin": 273.1499938964844
+        },
         "scale": "linear",
         "t0": 273.1499938964844,
         "t1": 293.1221618652344
@@ -9778,6 +9965,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 720,
+          "rangeSource": "manual",
+          "total": 720,
+          "usedMax": 1000.0,
+          "usedMin": 1.0
+        },
         "scale": "log10",
         "t0": 0.0,
         "t1": 3.0
@@ -9865,6 +10063,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 720,
+          "rangeSource": "auto",
+          "total": 720,
+          "usedMax": 293.1221618652344,
+          "usedMin": 273.1499938964844
+        },
         "rgbaLen": 2880,
         "width": 24
       }
@@ -9951,6 +10160,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 720,
+          "rangeSource": "auto",
+          "total": 720,
+          "usedMax": 293.1221618652344,
+          "usedMin": 273.1499938964844
+        },
         "rgbaLen": 2880,
         "width": 24
       }
@@ -11747,6 +11967,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "auto",
+          "total": 496,
+          "usedMax": 273.1499938964844,
+          "usedMin": 273.1499938964844
+        },
         "scale": "linear",
         "t0": 273.1499938964844,
         "t1": 273.1499938964844
@@ -11814,6 +12045,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "manual",
+          "total": 496,
+          "usedMax": 1000.0,
+          "usedMin": 1.0
+        },
         "scale": "log10",
         "t0": 0.0,
         "t1": 3.0
@@ -11901,6 +12143,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "auto",
+          "total": 496,
+          "usedMax": 273.1499938964844,
+          "usedMin": 273.1499938964844
+        },
         "rgbaLen": 1984,
         "width": 16
       }
@@ -11987,6 +12240,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "auto",
+          "total": 496,
+          "usedMax": 273.1499938964844,
+          "usedMin": 273.1499938964844
+        },
         "rgbaLen": 1984,
         "width": 16
       }
@@ -13532,6 +13796,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "auto",
+          "total": 496,
+          "usedMax": 273.1499938964844,
+          "usedMin": 273.1499938964844
+        },
         "scale": "linear",
         "t0": 273.1499938964844,
         "t1": 273.1499938964844
@@ -13599,6 +13874,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "manual",
+          "total": 496,
+          "usedMax": 1000.0,
+          "usedMin": 1.0
+        },
         "scale": "log10",
         "t0": 0.0,
         "t1": 3.0
@@ -13686,6 +13972,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "auto",
+          "total": 496,
+          "usedMax": 273.1499938964844,
+          "usedMin": 273.1499938964844
+        },
         "rgbaLen": 1984,
         "width": 16
       }
@@ -13772,6 +14069,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "auto",
+          "total": 496,
+          "usedMax": 273.1499938964844,
+          "usedMin": 273.1499938964844
+        },
         "rgbaLen": 1984,
         "width": 16
       }
@@ -15447,6 +15755,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 259920,
+          "rangeSource": "auto",
+          "total": 259920,
+          "usedMax": 317.30284704719855,
+          "usedMin": 230.99377270421934
+        },
         "scale": "linear",
         "t0": 230.99377270421934,
         "t1": 317.30284704719855
@@ -15514,6 +15833,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 259920,
+          "rangeSource": "manual",
+          "total": 259920,
+          "usedMax": 1000.0,
+          "usedMin": 1.0
+        },
         "scale": "log10",
         "t0": 0.0,
         "t1": 3.0
@@ -15601,6 +15931,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 259920,
+          "rangeSource": "auto",
+          "total": 259920,
+          "usedMax": 317.30284704719855,
+          "usedMin": 230.99377270421934
+        },
         "rgbaLen": 1039680,
         "width": 720
       }
@@ -15687,6 +16028,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 259920,
+          "rangeSource": "auto",
+          "total": 259920,
+          "usedMax": 317.30284704719855,
+          "usedMin": 230.99377270421934
+        },
         "rgbaLen": 1039680,
         "width": 720
       }
@@ -17484,6 +17836,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 364,
+          "rangeSource": "auto",
+          "total": 364,
+          "usedMax": 191.0,
+          "usedMin": 0.0
+        },
         "scale": "linear",
         "t0": 0.0,
         "t1": 191.0
@@ -17551,6 +17914,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 364,
+          "rangeSource": "manual",
+          "total": 364,
+          "usedMax": 1000.0,
+          "usedMin": 1.0
+        },
         "scale": "log10",
         "t0": 0.0,
         "t1": 3.0
@@ -17638,6 +18012,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 364,
+          "rangeSource": "auto",
+          "total": 364,
+          "usedMax": 191.0,
+          "usedMin": 0.0
+        },
         "rgbaLen": 1456,
         "width": 26
       }
@@ -17724,6 +18109,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 364,
+          "rangeSource": "auto",
+          "total": 364,
+          "usedMax": 191.0,
+          "usedMin": 0.0
+        },
         "rgbaLen": 1456,
         "width": 26
       }
@@ -19529,6 +19925,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 40,
+          "rangeSource": "auto",
+          "total": 40,
+          "usedMax": 47.0,
+          "usedMin": 0.0
+        },
         "scale": "linear",
         "t0": 0.0,
         "t1": 47.0
@@ -19596,6 +20003,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 40,
+          "rangeSource": "manual",
+          "total": 40,
+          "usedMax": 1000.0,
+          "usedMin": 1.0
+        },
         "scale": "log10",
         "t0": 0.0,
         "t1": 3.0
@@ -19683,6 +20101,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 40,
+          "rangeSource": "auto",
+          "total": 40,
+          "usedMax": 47.0,
+          "usedMin": 0.0
+        },
         "rgbaLen": 160,
         "width": 8
       }
@@ -19769,6 +20198,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 40,
+          "rangeSource": "auto",
+          "total": 40,
+          "usedMax": 47.0,
+          "usedMin": 0.0
+        },
         "rgbaLen": 160,
         "width": 8
       }
@@ -21550,6 +21990,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 12825,
+          "rangeSource": "auto",
+          "total": 12825,
+          "usedMax": 75.20960766077042,
+          "usedMin": 0.20960766077041626
+        },
         "scale": "linear",
         "t0": 0.20960766077041626,
         "t1": 75.20960766077042
@@ -21617,6 +22068,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 43,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 12825,
+          "rangeSource": "manual",
+          "total": 12825,
+          "usedMax": 1000.0,
+          "usedMin": 1.0
+        },
         "scale": "log10",
         "t0": 0.0,
         "t1": 3.0
@@ -21704,6 +22166,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 12825,
+          "rangeSource": "auto",
+          "total": 12825,
+          "usedMax": 75.20960766077042,
+          "usedMin": 0.20960766077041626
+        },
         "rgbaLen": 51300,
         "width": 135
       }
@@ -21790,6 +22263,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 12825,
+          "rangeSource": "auto",
+          "total": 12825,
+          "usedMax": 75.20960766077042,
+          "usedMin": 0.20960766077041626
+        },
         "rgbaLen": 51300,
         "width": 135
       }
@@ -24628,6 +25112,356 @@
       "expect": null
     },
     {
+      "id": "render/range_clamped",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": "viridis",
+        "colormapTable": null,
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": 280.0,
+        "rangeMax": 300.0,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null
+      },
+      "expect": {
+        "height": 31,
+        "opaque": 496,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 124,
+            "rgba": [
+              67,
+              56,
+              129,
+              255
+            ]
+          },
+          {
+            "i": 248,
+            "rgba": [
+              36,
+              135,
+              141,
+              255
+            ]
+          },
+          {
+            "i": 372,
+            "rgba": [
+              253,
+              231,
+              37,
+              255
+            ]
+          },
+          {
+            "i": 495,
+            "rgba": [
+              253,
+              231,
+              37,
+              255
+            ]
+          }
+        ],
+        "range": {
+          "above": 141,
+          "below": 77,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "manual",
+          "total": 496,
+          "usedMax": 300.0,
+          "usedMin": 280.0
+        },
+        "rgbaLen": 1984,
+        "width": 16
+      }
+    },
+    {
+      "id": "palette/range_clamped",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": "viridis",
+        "colormapTable": null,
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": 280.0,
+        "rangeMax": 300.0,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "range": {
+          "above": 141,
+          "below": 77,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "manual",
+          "total": 496,
+          "usedMax": 300.0,
+          "usedMin": 280.0
+        },
+        "scale": "linear",
+        "t0": 280.0,
+        "t1": 300.0
+      }
+    },
+    {
+      "id": "render/range_min_only",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": "viridis",
+        "colormapTable": null,
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": 290.0,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null
+      },
+      "expect": {
+        "height": 31,
+        "opaque": 496,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 124,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 248,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 372,
+            "rgba": [
+              34,
+              162,
+              134,
+              255
+            ]
+          },
+          {
+            "i": 495,
+            "rgba": [
+              33,
+              149,
+              139,
+              255
+            ]
+          }
+        ],
+        "range": {
+          "above": 0,
+          "below": 246,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "manual_min",
+          "total": 496,
+          "usedMax": 311.0986328125,
+          "usedMin": 290.0
+        },
+        "rgbaLen": 1984,
+        "width": 16
+      }
+    },
+    {
+      "id": "palette/range_min_only",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": "viridis",
+        "colormapTable": null,
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": 290.0,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "range": {
+          "above": 0,
+          "below": 246,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "manual_min",
+          "total": 496,
+          "usedMax": 311.0986328125,
+          "usedMin": 290.0
+        },
+        "scale": "linear",
+        "t0": 290.0,
+        "t1": 311.0986328125
+      }
+    },
+    {
       "id": "palette/colormap_table",
       "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
       "op": "palette",
@@ -25458,6 +26292,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "auto",
+          "total": 496,
+          "usedMax": 311.0986328125,
+          "usedMin": 270.466796875
+        },
         "scale": "linear",
         "t0": 270.466796875,
         "t1": 311.0986328125
@@ -26314,6 +27159,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 496,
+          "rangeSource": "auto",
+          "total": 496,
+          "usedMax": 311.0986328125,
+          "usedMin": 270.466796875
+        },
         "rgbaLen": 1984,
         "width": 16
       }
@@ -26626,6 +27482,17 @@
             ]
           }
         ],
+        "range": {
+          "above": 2,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 38194,
+          "rangeSource": "auto",
+          "total": 38194,
+          "usedMax": 319.0826416015625,
+          "usedMin": 271.4576416015625
+        },
         "rgbaLen": 152776,
         "width": 226
       }
@@ -26764,6 +27631,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 2,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 38194,
+          "rangeSource": "auto",
+          "total": 38194,
+          "usedMax": 319.0826416015625,
+          "usedMin": 271.4576416015625
+        },
         "scale": "linear",
         "t0": 271.4576416015625,
         "t1": 319.0826416015625
@@ -26831,6 +27709,17 @@
           0,
           0
         ],
+        "range": {
+          "above": 0,
+          "below": 0,
+          "center": null,
+          "outOfRange": "clamp",
+          "present": 38194,
+          "rangeSource": "manual",
+          "total": 38194,
+          "usedMax": 320.0,
+          "usedMin": 270.0
+        },
         "scale": "linear",
         "t0": 270.0,
         "t1": 320.0

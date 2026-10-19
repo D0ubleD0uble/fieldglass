@@ -2417,6 +2417,50 @@ impl Session {
         build_palette(extremes, options).map(|(palette, _)| palette)
     }
 
+    /// The range [`palette`](Self::palette) spans for the same `options`, with
+    /// the cells of `field` counted against it (#1156).
+    ///
+    /// It is the [`Raster::range`] [`render`](Self::render) reports for the
+    /// same field and options, counts included, without painting: a GPU host
+    /// colours from the palette and labels its legend from this. The counts
+    /// cost one pass over the field.
+    ///
+    /// # Errors
+    ///
+    /// As [`palette`](Self::palette), with the same `RangeRefusal`.
+    #[cfg(feature = "render")]
+    pub fn palette_range(
+        &self,
+        field: &Field,
+        options: &PaletteOptions,
+    ) -> Result<ColourRange, Error> {
+        count_range(
+            &Cells::from(field),
+            field.stats.min.zip(field.stats.max),
+            options,
+        )
+    }
+
+    /// [`palette_range`](Self::palette_range) for a field decoded to draw: the
+    /// range [`palette_display`](Self::palette_display) spans, from the full
+    /// field's `full` statistics, with the display field's cells counted. It
+    /// is the range [`render_display`](Self::render_display) reports.
+    ///
+    /// # Errors
+    ///
+    /// As [`palette_display`](Self::palette_display).
+    #[cfg(feature = "render")]
+    pub fn palette_display_range(
+        &self,
+        field: &DisplayField,
+        full: Option<&Stats>,
+        options: &PaletteOptions,
+    ) -> Result<ColourRange, Error> {
+        let extremes =
+            crate::full_field_extremes(full, field.mask.contains(&1), options.min, options.max)?;
+        count_range(&Cells::from(field), extremes, options)
+    }
+
     /// Paint a field to RGBA on the CPU. The fallback path: a GPU host colours
     /// from [`Session::palette`] instead. The raster is the field's `ni × nj`,
     /// so a field not holding one value per cell is refused (#913).
@@ -2980,6 +3024,24 @@ fn paint_cells(
         height: field.nj,
         range: range.counted(&counts, u64::from(field.ni) * u64::from(field.nj)),
     })
+}
+
+/// The range [`paint_cells`] reports for the same cells and options, counted
+/// without painting: [`Session::palette_range`] and
+/// [`Session::palette_display_range`] (#1156).
+///
+/// Refuses a field whose values are not one per cell, as `paint_cells` does,
+/// so the two never disagree about what `total` counts.
+#[cfg(feature = "render")]
+fn count_range(
+    field: &Cells<'_>,
+    extremes: Option<(f64, f64)>,
+    options: &PaletteOptions,
+) -> Result<ColourRange, Error> {
+    require_field_shape(field)?;
+    let (palette, range) = build_palette(extremes, options)?;
+    let counts = palette.count(&field.values.to_f64(), Some(field.mask));
+    Ok(range.counted(&counts, u64::from(field.ni) * u64::from(field.nj)))
 }
 
 // ---------------------------------------------------------------------------

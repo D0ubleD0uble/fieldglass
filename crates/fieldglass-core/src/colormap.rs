@@ -151,7 +151,8 @@ fn entry(t: f64) -> u8 {
     (t * 255.0).round() as u8
 }
 
-/// What [`Palette::paint_counted`] counted while it coloured a raster.
+/// What [`Palette::paint_counted`] counted while it coloured a raster, or
+/// [`Palette::count`] without colouring it.
 ///
 /// Every cell counted is one painted in the same pass, so a host that reports
 /// "12 cells below the range" is describing the picture it shows.
@@ -489,23 +490,46 @@ impl Palette {
     /// both the count and the colour are read from that, so counting costs two
     /// comparisons per cell rather than a second logarithm.
     fn counted_rgba(&self, v: f64, counts: &mut PaintCounts) -> [u8; 4] {
-        if !v.is_finite() {
-            return self.masked_rgba;
-        }
-        counts.present += 1;
-        match transformed(v, self.scale) {
-            Some(tv) => {
-                // Compared in the transformed domain rather than read off the
-                // clamped position, which rounds a value a hair past an end
-                // onto it.
-                counts.below += u64::from(tv < self.t0);
-                counts.above += u64::from(tv > self.t1);
-                self.entry_rgba(entry(clamped_position(tv, self.t0, self.t1)))
-            }
-            // Finite and with no logarithm: non-positive under `Log10`. It
-            // paints as missing, not clamped, so it is not counted as below.
+        match self.tally(v, counts) {
+            Some(tv) => self.entry_rgba(entry(clamped_position(tv, self.t0, self.t1))),
             None => self.masked_rgba,
         }
+    }
+
+    /// Count one unmasked cell, and hand back its transformed value when it
+    /// takes a colour: the counting half of [`counted_rgba`](Self::counted_rgba),
+    /// which [`count`](Self::count) runs alone.
+    #[inline]
+    fn tally(&self, v: f64, counts: &mut PaintCounts) -> Option<f64> {
+        if !v.is_finite() {
+            return None;
+        }
+        counts.present += 1;
+        // Finite and with no logarithm: non-positive under `Log10`. It paints
+        // as missing, not clamped, so it is not counted as below.
+        let tv = transformed(v, self.scale)?;
+        // Compared in the transformed domain rather than read off the clamped
+        // position, which rounds a value a hair past an end onto it.
+        counts.below += u64::from(tv < self.t0);
+        counts.above += u64::from(tv > self.t1);
+        Some(tv)
+    }
+
+    /// The counts [`paint_counted`](Self::paint_counted) would take over these
+    /// cells, without painting them (#1156).
+    ///
+    /// For a GPU host, which colours the cells itself from this palette and
+    /// still wants to say how many were clamped. A cell the mask clears, or
+    /// that `mask` does not reach, is not present, as in the painter.
+    pub fn count(&self, values: &[f64], mask: Option<&[u8]>) -> PaintCounts {
+        let mut counts = PaintCounts::default();
+        for (i, &v) in values.iter().enumerate() {
+            if mask.is_some_and(|m| m.get(i).copied().unwrap_or(0) == 0) {
+                continue;
+            }
+            self.tally(v, &mut counts);
+        }
+        counts
     }
 
     /// Paint a row-major grid into an RGBA byte buffer suitable for
@@ -765,6 +789,32 @@ mod tests {
         let flat = Palette::build(viridis, false, 5.0, 5.0, ScaleMode::Linear);
         let (_, counts) = flat.paint_counted(&[5.0, 5.0], None, 2, 1, false);
         assert_eq!((counts.present, counts.below, counts.above), (2, 0, 0));
+    }
+
+    #[test]
+    fn count_is_the_counts_paint_counted_takes() {
+        let viridis = Colormap::by_name("viridis").expect("the default colormap");
+        let values = [0.5, 1.0, 1.5, 2.0, 3.0, f64::NAN, 7.0, 1.2, -4.0, 0.0];
+        let mask = [1, 1, 1, 1, 1, 1, 0, 1, 1, 1];
+        for (lo, hi, scale) in [
+            (1.0, 2.0, ScaleMode::Linear),
+            (1.0, 2.0, ScaleMode::Log10),
+            (5.0, 5.0, ScaleMode::Linear),
+        ] {
+            let p = Palette::build(viridis, false, lo, hi, scale);
+            let (_, painted) = p.paint_counted(&values, Some(&mask), 5, 2, false);
+            assert_eq!(
+                p.count(&values, Some(&mask)),
+                painted,
+                "{scale:?} {lo}..{hi}"
+            );
+            let (_, unmasked) = p.paint_counted(&values, None, 5, 2, false);
+            assert_eq!(p.count(&values, None), unmasked, "{scale:?} {lo}..{hi}");
+        }
+        // A mask shorter than the values masks the cells it does not reach, as
+        // the painter does.
+        let p = Palette::build(viridis, false, 1.0, 2.0, ScaleMode::Linear);
+        assert_eq!(p.count(&[0.0, 3.0, 1.5], Some(&[1])).present, 1);
     }
 
     /// The exact viridis LUT the renderer produced before the colormap registry

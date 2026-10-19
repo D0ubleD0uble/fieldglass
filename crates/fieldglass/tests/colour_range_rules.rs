@@ -296,3 +296,81 @@ fn a_center_centres_the_range() {
     );
     assert_eq!(raster.range.center, Some(80000.0));
 }
+
+/// Rule 7: a palette reports the range it spans, the one `render` paints over
+/// for the same options, with the counts taken over the same cells (#1156). A
+/// GPU host colours from the palette, so this is its legend's range.
+#[test]
+fn a_palette_reports_the_range_render_paints_over() {
+    let (session, field) = gfs();
+    let (lo, hi) = stats(&field);
+    let mut centred = range(None, None);
+    centred.center = Some(80000.0);
+    for (label, o) in [
+        ("auto", range(None, None)),
+        ("manual", range(Some(60000.0), Some(90000.0))),
+        ("min alone", range(Some(70000.0), None)),
+        ("max alone", range(None, Some(80000.0))),
+        ("log10", log10(Some(60000.0), None)),
+        ("centred", centred),
+    ] {
+        let raster = session.render(&field, &o, false).expect("renders");
+        let r = session.palette_range(&field, &o).expect("a range");
+        assert_eq!(r, raster.range, "{label}");
+        let p = session.palette(&field, &o).expect("a palette");
+        let (lo, hi) = r.used().expect("a range to paint over");
+        let (t0, t1) = if o.scale.as_deref() == Some("log10") {
+            (lo.log10(), hi.log10())
+        } else {
+            (lo, hi)
+        };
+        assert_eq!((p.t0, p.t1), (t0, t1), "{label}: the palette spans it");
+    }
+    assert_eq!(
+        session
+            .palette_range(&field, &range(None, None))
+            .unwrap()
+            .used(),
+        Some((lo, hi))
+    );
+    // Refused as `palette` refuses, with the same fields.
+    let (_, from_range) = refused(session.palette_range(&field, &range(Some(9.0), Some(3.0))));
+    let (_, from_palette) = refused(session.palette(&field, &range(Some(9.0), Some(3.0))));
+    assert_eq!(from_range, from_palette);
+}
+
+/// The display variant: `palette_display_range` is the range
+/// `render_display` paints over, from the full field's stats (#1156).
+#[test]
+fn a_display_palette_reports_the_range_render_display_paints_over() {
+    let session = Session::open(RAP.to_vec()).expect("opens");
+    let full = session
+        .decode(0, &DecodeOptions::default())
+        .expect("decodes");
+    let coarse = session
+        .decode_display(0, &fieldglass::DisplayDecodeOptions::new(1))
+        .expect("a coarse field");
+    for o in [range(None, None), range(Some(270.0), Some(300.0))] {
+        let raster = session
+            .render_display(&coarse, Some(&full.stats), &o, false)
+            .expect("renders");
+        let r = session
+            .palette_display_range(&coarse, Some(&full.stats), &o)
+            .expect("a range");
+        assert_eq!(r, raster.range);
+        assert_eq!(r.total, u64::from(coarse.ni) * u64::from(coarse.nj));
+    }
+    // The automatic range is the full field's, not the coarse field's own.
+    let r = session
+        .palette_display_range(&coarse, Some(&full.stats), &range(None, None))
+        .unwrap();
+    assert_eq!((r.used_min, r.used_max), (full.stats.min, full.stats.max));
+    assert!(
+        session
+            .palette_display_range(&coarse, None, &range(None, None))
+            .is_err()
+    );
+}
+
+const RAP: &[u8] =
+    include_bytes!("../../fieldglass-grib2/tests/fixtures/rap_jpeg2000_lambert.grib2");
