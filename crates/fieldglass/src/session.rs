@@ -1605,8 +1605,8 @@ impl Session {
     /// reduced grid, alternate-row or column-major scanning, and a grid family
     /// with no derivable coarse grid (Gaussian among them), and a level past
     /// the codestream's pyramid. A caller falls back to a lower level. A
-    /// codestream that does not decode is [`Error::Decode`], as it is at
-    /// reduction zero. [`Error::WrongAddressing`] for a variable container.
+    /// codestream that does not decode, or uses a JPEG 2000 feature the codec
+    /// does not implement, is [`Error::Decode`], as it is at reduction zero. [`Error::WrongAddressing`] for a variable container.
     pub fn decode_display(
         &self,
         index: u32,

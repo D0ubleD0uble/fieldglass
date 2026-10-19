@@ -980,6 +980,59 @@ fn read_siz(codestream: &[u8], reduction: u8) -> Option<SizImage> {
     })
 }
 
+/// The number of wavelet decomposition levels component 0 carries, read from
+/// the main header's COD, or COC for component 0 where one overrides it
+/// (ISO/IEC 15444-1 A.6.1 and A.6.2, Tables A-12 to A-15). A codestream of `NL`
+/// levels has `NL + 1` resolutions, and `rust_j2k` refuses a reduction of more
+/// than `NL` as `Unsupported`.
+///
+/// This is how a reduction past the pyramid is told from the codec's other
+/// `Unsupported`s (#1182), which it raises for features it does not decode at
+/// any level. `rust_j2k` 0.3.0 does not expose its parsed header, so this reads
+/// the two markers itself; walking marker segments from SIZ to the first tile
+/// part, and reading nothing it does not need.
+///
+/// `None` when the main header has no readable COD. A tile-part header can
+/// override the count for its own tile (a tile COD or COC); this does not read
+/// those, so a codestream that does is told apart on its main header's word.
+fn read_decomposition_levels(codestream: &[u8]) -> Option<u8> {
+    let components = u16::from_be_bytes([*codestream.get(40)?, *codestream.get(41)?]);
+    // SOC (2), then segments of `marker (2) | Lseg (2) | body (Lseg - 2)`.
+    let mut at = 2usize;
+    let (mut cod, mut coc) = (None, None);
+    while let Some(head) = codestream.get(at..at + 4) {
+        let marker = u16::from_be_bytes([head[0], head[1]]);
+        // The first tile part (SOT) or its data (SOD) ends the main header.
+        if marker == 0xFF90 || marker == 0xFF93 {
+            break;
+        }
+        let len = usize::from(u16::from_be_bytes([head[2], head[3]]));
+        let body = codestream.get(at + 4..(at + 2).checked_add(len)?)?;
+        match marker {
+            // Scod (1), SGcod (4), then SPcod: NL first.
+            0xFF52 => cod = body.get(5).copied(),
+            // Ccoc (1 byte, or 2 from 257 components), Scoc (1), SPcoc: NL first.
+            0xFF53 => {
+                let (component, rest) = if components < 257 {
+                    (u16::from(*body.first()?), body.get(1..)?)
+                } else {
+                    (
+                        u16::from_be_bytes([*body.first()?, *body.get(1)?]),
+                        body.get(2..)?,
+                    )
+                };
+                if component == 0 {
+                    coc = rest.get(1).copied();
+                }
+            }
+            _ => {}
+        }
+        at = (at + 2).checked_add(len)?;
+    }
+    // COC outranks COD for its component (A.6.2).
+    coc.or(cod)
+}
+
 /// Refuse a codestream that is not one unsigned scalar grid. The same two
 /// rules each decoder applies to the decoded image, applied to SIZ so a
 /// codestream that breaks them is refused before it is decoded.
@@ -1136,7 +1189,10 @@ fn decode_jpeg2000_packing(
 /// not exist.
 ///
 /// **Errors.** [`FieldglassError::UnsupportedSection`] only for a level this
-/// codestream has no resolution for, which a lower level would serve. A
+/// codestream has no resolution for, which a lower level would serve: a
+/// `reduction` above the decomposition levels its COD states. Any other
+/// `Unsupported` the codec raises is a feature it does not decode at any level,
+/// and is [`FieldglassError::Parse`] like the rest (#1182). A
 /// codestream that is broken, or is not the single unsigned component
 /// `grid_jpeg` writes, or does not match the §3 grid, is
 /// [`FieldglassError::Parse`]: no level would decode it, so a caller told
@@ -1218,11 +1274,18 @@ pub(crate) fn decode_jpeg2000_reduced(
     .map_err(|e| {
         let detail =
             format!("JPEG 2000 packing: decode at resolution reduction {reduction} failed: {e}");
-        // The codec's `Unsupported` is the one that can mean "not at this
-        // level": a reduction past a component's pyramid. Everything else it
-        // reports is a broken codestream, which no level would decode.
+        // The codec's `Unsupported` means "outside the decoded subset" and is
+        // raised for far more than a reduction past the pyramid: a feature it
+        // does not decode fails at every level, and a caller told "unsupported"
+        // would ask at reduction zero and fail again (#1182). So only a
+        // reduction beyond the decomposition levels the codestream states is
+        // "not at this level"; everything else is a decode failure.
         match e {
-            rust_j2k::Error::Unsupported(_) => FieldglassError::UnsupportedSection(detail),
+            rust_j2k::Error::Unsupported(_)
+                if read_decomposition_levels(ds_payload).is_some_and(|nl| reduction > nl) =>
+            {
+                FieldglassError::UnsupportedSection(detail)
+            }
             _ => FieldglassError::Parse(detail),
         }
     })?;
@@ -3647,6 +3710,75 @@ mod reduced_jpeg2000_tests {
                 assert_eq!((siz.components, siz.signed), (1, false), "{fixture}");
             }
         }
+    }
+
+    /// The count read from the header is the one the codec enforces: the last
+    /// reduction it decodes is the count, and one more is refused. The
+    /// reduced decoder files the refusal as a level, and a codestream the codec
+    /// refuses at every level as a decode failure (#1182).
+    #[test]
+    fn the_decomposition_levels_are_the_depth_the_codec_enforces() {
+        let (payload, template) = sections_of("rap_jpeg2000_lambert.grib2");
+        let levels = read_decomposition_levels(&payload).expect("RAP has a COD");
+        assert_eq!(levels, 5);
+        let at = |r: u8| {
+            rust_j2k::decode_with(
+                &payload,
+                rust_j2k::DecodeOptions::default().with_resolution_reduction(r),
+            )
+        };
+        at(levels).expect("the deepest level");
+        assert!(matches!(
+            at(levels + 1),
+            Err(rust_j2k::Error::Unsupported(_))
+        ));
+
+        let err = decode_jpeg2000_reduced(&payload, &template, levels + 1, 8, 6)
+            .expect_err("past the pyramid");
+        assert!(
+            matches!(err, FieldglassError::UnsupportedSection(_)),
+            "{err:?}"
+        );
+
+        // An HTJ2K style bit in the COD: the codec's `Unsupported`, at any level.
+        let mut patched = payload.clone();
+        let cod = patched.windows(2).position(|w| w == [0xFF, 0x52]).unwrap();
+        patched[cod + 12] |= 0x40;
+        let err = decode_jpeg2000_reduced(&patched, &template, 1, 226, 169)
+            .expect_err("a feature the codec does not decode");
+        assert!(matches!(err, FieldglassError::Parse(_)), "{err:?}");
+    }
+
+    /// A COC for component 0 outranks the COD (A.6.2); one for another
+    /// component does not; a header that stops short has no answer.
+    #[test]
+    fn a_coc_overrides_the_cod_for_component_zero_only() {
+        let codestream = |segments: &[&[u8]]| {
+            let mut b = vec![0xFF, 0x4F, 0xFF, 0x51, 0, 41, 0, 0];
+            b.extend_from_slice(&[0; 32]); // Xsiz … YTOsiz
+            b.extend_from_slice(&[0, 1, 7, 1, 1]); // Csiz = 1, Ssiz, XRsiz, YRsiz
+            for s in segments {
+                b.extend_from_slice(s);
+            }
+            b.extend_from_slice(&[0xFF, 0x90]); // SOT ends the main header
+            b
+        };
+        // COD (Lcod 12): Scod, SGcod (prog, layers, MCT), NL = 3, xcb, ycb, style, transform.
+        let cod: &[u8] = &[0xFF, 0x52, 0, 12, 0, 0, 0, 1, 0, 3, 4, 4, 0, 1];
+        // COC (Lcoc 9): Ccoc, Scoc, NL, xcb, ycb, style, transform.
+        let coc = |component: u8, nl: u8| [0xFF, 0x53, 0, 9, component, 0, nl, 4, 4, 0, 1];
+        assert_eq!(read_decomposition_levels(&codestream(&[cod])), Some(3));
+        assert_eq!(
+            read_decomposition_levels(&codestream(&[cod, &coc(0, 1)])),
+            Some(1)
+        );
+        assert_eq!(
+            read_decomposition_levels(&codestream(&[cod, &coc(1, 1)])),
+            Some(3)
+        );
+        assert_eq!(read_decomposition_levels(&codestream(&[])), None);
+        let whole = codestream(&[cod]);
+        assert_eq!(read_decomposition_levels(&whole[..whole.len() - 8]), None);
     }
 
     /// The extent rounds each bound before the difference (ISO B.2, B.5), so

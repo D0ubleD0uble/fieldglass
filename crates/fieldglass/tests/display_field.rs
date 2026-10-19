@@ -332,7 +332,7 @@ fn a_message_without_a_pyramid_refuses_a_reduction() {
     let err = session
         .decode_display(0, &DisplayDecodeOptions::new(30))
         .expect_err("thirty levels");
-    assert!(matches!(err.code(), "unsupported" | "decode"), "{err:?}");
+    assert_eq!(err.code(), "unsupported", "{err:?}");
 
     let netcdf = open(NETCDF);
     for reduce in [0, 1] {
@@ -388,4 +388,50 @@ fn a_corrupt_codestream_is_a_decode_error_not_a_refusal() {
         .decode_display(0, &DisplayDecodeOptions::new(6))
         .expect_err("six levels of a six-resolution codestream");
     assert_eq!(err.code(), "unsupported", "{err:?}");
+}
+
+/// The RAP message with `patch` applied to the bytes of its §7 codestream.
+fn rap_with_codestream(patch: impl FnOnce(&mut [u8])) -> Vec<u8> {
+    let mut bytes = std::fs::read(RAP).expect("RAP");
+    let mut at = 16;
+    loop {
+        let len = u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+        if bytes[at + 4] == 7 {
+            patch(&mut bytes[at + 5..at + len]);
+            return bytes;
+        }
+        at += len;
+    }
+}
+
+/// The codec reports `Unsupported` for more than a reduction past the pyramid
+/// (#1182): here the COD's code-block style sets an HTJ2K bit, which it does
+/// not decode at any level. Asking at reduction zero is no answer, so the
+/// reply is `decode`, as it is at reduction zero, and a level the codestream
+/// does carry is not blamed on the level.
+#[test]
+fn a_codestream_the_codec_refuses_for_another_reason_is_a_decode_error() {
+    let bytes = rap_with_codestream(|cs| {
+        let cod = cs
+            .windows(2)
+            .position(|w| w == [0xff, 0x52])
+            .expect("the codestream has a COD");
+        // Marker (2), Lcod (2), Scod (1), SGcod (4), then NL, xcb, ycb, style.
+        cs[cod + 12] |= 0x40;
+    });
+    let session = Session::open(bytes).expect("the sections still frame");
+    for reduce in [0, 1, 5] {
+        let err = session
+            .decode_display(0, &DisplayDecodeOptions::new(reduce))
+            .expect_err("a code-block style the codec does not decode");
+        assert_eq!(err.code(), "decode", "reduce {reduce}: {err:?}");
+    }
+    // The same message, intact, still tells a caller the pyramid's depth.
+    let err = open(RAP)
+        .decode_display(0, &DisplayDecodeOptions::new(6))
+        .expect_err("six levels of a five-level pyramid");
+    assert_eq!(err.code(), "unsupported", "{err:?}");
+    open(RAP)
+        .decode_display(0, &DisplayDecodeOptions::new(5))
+        .expect("the last level the pyramid carries");
 }
