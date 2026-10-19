@@ -417,6 +417,12 @@ fn unreadable(what: &str, e: &dyn std::fmt::Display) -> RenderError {
 /// `deny_unknown_fields` never applies: `["f64"]` would read as decode options
 /// here and be refused by the browser module. Every options object and request
 /// this handle reads goes through this first (#1073).
+///
+/// Both hosts do the same: an array, a string or a number is `invalid_option`,
+/// and `null` or `undefined` is the default (#1210). The one input they take
+/// beyond that is a plain object keyed `"0"`, `"1"`, … as `sliceIndices`: napi
+/// hands a `Uint32Array` over as exactly that object, so it cannot be told from
+/// a typed array here, and the browser module reads it as the array too.
 pub(crate) fn object_or_absent(
     value: Option<serde_json::Value>,
     what: &str,
@@ -1592,7 +1598,8 @@ mod tests {
     }
 
     /// A `Uint32Array` reaches `serde_json` as an index-keyed object, and is
-    /// read as the array it is, as the browser module reads it.
+    /// read as the array it is, as the browser module reads it. A plain
+    /// `{ "0": 0, … }` is taken the same way on both hosts (#1210).
     #[test]
     fn a_typed_array_of_slice_indices_reads_as_its_array() {
         let as_napi_hands_it = json!({

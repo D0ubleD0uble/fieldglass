@@ -168,6 +168,30 @@ check(
 const unpacked = values.every((v, i) => present[i] === 0 || (v >= 250 && v <= 875));
 check('values are physical units, not stored codes', unpacked);
 
+// A typed array of indices, or the index-keyed object the Node addon receives
+// one as, reads as the array it holds on both hosts; an object keyed by anything
+// else is refused (#1210).
+{
+  const slice = (sliceIndices) => ({ variable: variables[0].index, yDim: 0, xDim: 1, sliceIndices });
+  const want = Array.from(field.values());
+  for (const [name, indices] of [
+    ['a Uint32Array', new Uint32Array([0, 0])],
+    ['an index-keyed object', { 0: 0, 1: 0 }],
+  ]) {
+    const got = handle.decodeSlice(slice(indices), {});
+    equal(`sliceIndices as ${name} decodes the same field`, Array.from(got.values()), want);
+  }
+  for (const bad of [{ time: 0 }, { 0: 0, 2: 0 }]) {
+    let code = null;
+    try {
+      handle.decodeSlice(slice(bad), {});
+    } catch (e) {
+      code = e.code ?? null;
+    }
+    equal(`sliceIndices ${JSON.stringify(bad)} is invalid_option`, code, 'invalid_option');
+  }
+}
+
 // Asking the message question of a variable container names the call to make
 // instead of failing on the index.
 try {

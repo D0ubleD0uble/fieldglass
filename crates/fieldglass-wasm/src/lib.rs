@@ -185,6 +185,12 @@ fn from_js<T: serde::de::DeserializeOwned + Default>(value: JsValue) -> Result<T
     if value.is_undefined() || value.is_null() {
         return Ok(T::default());
     }
+    // serde reads a struct from a JS array, field by field, so `["f64"]` would
+    // decode at `auto` width; the Node addon refuses it, and so does this (#1210).
+    // A string or number serde refuses itself, but in its own words.
+    if !value.is_object() || js_sys::Array::is_array(&value) {
+        return Err(unreadable("options object", &"it is not an object"));
+    }
     // `invalid_option`, with its `code`, as every other refused argument is and
     // as the Node addon refuses the same object (#1073).
     serde_wasm_bindgen::from_value(value).map_err(|e| unreadable("options object", &e))
@@ -235,7 +241,37 @@ fn request<T: serde::de::DeserializeOwned + Fields>(
             ));
         }
     }
+    let value = index_keyed_indices(object)?.unwrap_or(value);
     serde_wasm_bindgen::from_value(value).map_err(|e| unreadable(what, &e))
+}
+
+/// A copy of `request` whose `sliceIndices`, a plain object keyed `"0"`, `"1"`,
+/// …, is the array it spells; `None` when it is anything else, which
+/// serde-wasm-bindgen then reads or refuses as it stands.
+///
+/// The Node addon receives a `Uint32Array` as exactly such an object and reads
+/// it as the array, so a plain `{ 0: 1 }` is taken there too. This host takes it
+/// for the same reason, rather than the two refusing different inputs (#1210).
+fn index_keyed_indices(request: &js_sys::Object) -> Result<Option<JsValue>, JsValue> {
+    let indices = js_sys::Reflect::get(request, &JsValue::from_str("sliceIndices"))?;
+    if !indices.is_object()
+        || js_sys::Array::is_array(&indices)
+        || js_sys::ArrayBuffer::is_view(&indices)
+    {
+        return Ok(None);
+    }
+    let object: &js_sys::Object = indices.unchecked_ref();
+    let array = js_sys::Array::new();
+    for i in 0..js_sys::Object::keys(object).length() {
+        let key = JsValue::from_str(&i.to_string());
+        if !js_sys::Reflect::has(object, &key)? {
+            return Ok(None);
+        }
+        array.push(&js_sys::Reflect::get(object, &key)?);
+    }
+    let copy = js_sys::Object::assign(&js_sys::Object::new(), request);
+    js_sys::Reflect::set(&copy, &JsValue::from_str("sliceIndices"), &array)?;
+    Ok(Some(copy.into()))
 }
 
 /// The keys a request object may hold, for [`request`]. Spelt as the wire

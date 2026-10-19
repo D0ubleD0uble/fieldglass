@@ -179,6 +179,19 @@ equal(
   thrown(() => handle.decodeDisplay(0, { reduce: 300 })) !== null,
   true,
 );
+// An options argument is an object, `null` or left out; an array, a string or a
+// number is the caller's mistake, refused as the Node addon refuses it. serde
+// reads a struct from an array field by field, so `["f64"]` once decoded at
+// `auto` width instead (#1210).
+for (const bad of [['f64'], 'f64', 3]) {
+  const what = JSON.stringify(bad);
+  equal(`decode refuses ${what} as options`, thrown(() => handle.decode(0, bad))?.code, 'invalid_option');
+  equal(`decodeDisplay refuses ${what} as options`, thrown(() => handle.decodeDisplay(0, bad))?.code, 'invalid_option');
+  equal(`warp refuses ${what} as options`, thrown(() => handle.warp(full, bad))?.code, 'invalid_option');
+  equal(`palette refuses ${what} as options`, thrown(() => handle.palette(full, bad))?.code, 'invalid_option');
+}
+equal('null and undefined stay the default', [thrown(() => handle.palette(full, null)), thrown(() => handle.palette(full, undefined))], [null, null]);
+
 // The binding refuses the wrong class at runtime as well as in TypeScript.
 equal(
   'probe refuses a display field',
