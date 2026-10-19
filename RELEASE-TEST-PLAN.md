@@ -228,7 +228,6 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/members_*.grib2` | 23 |
 | `B: samples/0.6.0/hsv.cpt`, `F: crates/fieldglass-core/tests/fixtures/cpt/*.cpt` | 9 |
 | `F: crates/fieldglass-zarr/tests/fixtures/stores/*` | 2 |
-| `F: extension/src/test/fixtures/regular_latlon_surface.grib2`, `eta_lambert_msg0.grib2`; `F: crates/fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc`, `oisst_avhrr_v2.nc` (copied to a scratch folder) | 47 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc` | 18, 19, 20, 22 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc` | 3, 4, 27, 44 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/goes_geostationary*.nc`, `goes16_abi_cmip.nc` | 21, 40 |
@@ -1501,99 +1500,54 @@ python3 -m http.server 8001
 
 With Compare on, the probe and the contours read the combined map. In 0.5.0
 the line plot and the zonal average still read Field A alone. Tick Line plot
-and Zonal average for every check here. The caption of each names the
-operation (`A − B`) when it is combined.
+for the checks that plot through a cell, and Zonal average for the zonal
+ones; each replaces the other. The caption of each starts with the operation
+(`A − B ·`) when it is combined.
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`, axes `lon` (X) and `lat` (Y)
 
 - [ ] Set `time` to 100 (2024-04-10), choose Compare `A − B` and set Field B's
       `time` to 10 (2024-01-11). Click a cell in northern mid-latitudes, say
       45° N 10° E, and plot along `lon`. The line is a row of the difference
-      map: values of a few kelvin either side of zero (spring against
-      winter), and the caption names `A − B`. Failure looks like a line of
-      temperatures between about 230 and 310 K, which is Field A alone. At the
+      map: mostly above zero, from about −5 to +27 K (spring warmer than
+      winter), and the caption starts with `A − B`. Failure looks like a line
+      of temperatures near 270 to 290 K, which is Field A alone. At the
       clicked longitude the line meets the value the readout gives for that
-      cell.
+      cell, about +7.1 K at 45° N 10° E.
 - [ ] Plot along `lat` instead: the same, a column of the difference map.
 - [ ] **Priority.** Plot along `time`. This runs along a held axis. Field A
       steps along the axis and Field B stays on the day it is drawn at, so the
-      line is Field A on each day minus Field B on 2024-01-11. It crosses zero
-      at the `2024-01-11` tick, the day Field B is on, and meets the dashed
-      rule (day 100) at the value the readout gives for the cell. Failure
-      looks like absolute temperatures, a line that is zero all the way, or
-      one that is not zero on 2024-01-11.
+      line is Field A on each day minus Field B on 2024-01-11. It is zero on
+      2024-01-11, the day Field B is on (read the axis for that date), and meets
+      the dashed rule (day 100) at the value the readout gives for the cell.
+      Failure looks like absolute temperatures, a line that is zero all the
+      way, or one that is not zero on 2024-01-11.
 - [ ] Set Field B's `time` to 200 and click the cell again: the whole line has
-      moved by one constant, and now crosses zero at the `2024-07-19` tick. Step
+      moved by one constant, and is now zero on 2024-07-19. Day 100 reads about
+      −15.6 K. Step
       Field A to another day and click again: the line is the same, only the
       dashed rule has moved, because Field B stays where it is drawn.
 - [ ] Zonal average, with Field A and Field B both on day 100: the line is flat
       at zero, one point per row. Set Field B's `time` to 10: it is no longer
       flat, and is above zero in the northern mid-latitudes. Set Compare back to
-      off: the line returns to absolute temperatures near 250 to 300 K.
+      off: the line returns to absolute temperatures, about 220 to 300 K.
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, message 0 (UGRD)
 
 - [ ] Tick Zonal average with Compare off and note the numbers in the caption.
-      Choose Compare `A + B` with Field B the same message 0: the line has the
-      same shape and its numbers are exactly twice what you noted. Failure
+      Choose Compare `A + B` with Field B `#0 · UGRD …`, the same message: the line has the
+      same shape and its numbers are twice what you noted (the last digit may
+      differ by one). Failure
       looks like unchanged numbers, which is Field A alone.
-- [ ] Choose `A − B` with Field B message 0: a flat line at zero. Pick Field B
-      message 1 (VGRD): the line is the zonal mean of u minus v, not u.
+- [ ] Choose `A − B` with Field B `#0 · UGRD …`: a flat line at zero. Pick
+      Field B `#1 · VGRD …`: the numbers differ from both the Compare-off ones
+      and zero, the zonal mean of u minus v.
 
 `crates/fieldglass/tests/decode_line.rs` (`a_combined_line_is_the_combined_map_along_the_axis`,
 `a_combined_line_is_the_combine_of_the_slices_it_crosses`) and
 `extension/src/test/suite/compare-readouts.test.ts` (the NetCDF line along each
 axis and the zonal average, and the GRIB zonal average) compare every point
 against A op B. The browser package has no Compare line.
-
-## 47. File: Revert File rewrites the editor and its panels (#1217)
-
-Revert reads the file from disk again. In 0.5.0 the editor kept the old table
-or dump, and a NetCDF file's open panels stayed on the old bytes. You make the
-replaced file yourself, with the editor open.
-
-```sh
-mkdir -p /tmp/fg-revert
-F=extension/src/test/fixtures
-cat $F/regular_latlon_surface.grib2 $F/eta_lambert_msg0.grib2 > /tmp/fg-revert/pair.grib2
-cp crates/fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc /tmp/fg-revert/sst.nc
-```
-
-**`/tmp/fg-revert/pair.grib2`**: temperature, then pressure
-
-- [ ] Open it. The table lists message 0 as temperature and message 1 as
-      pressure. Leave the tab open and, in a terminal, swap the messages:
-      `cat $F/eta_lambert_msg0.grib2 $F/regular_latlon_surface.grib2 > /tmp/fg-revert/pair.grib2`.
-      With the Fieldglass tab focused, run *File: Revert File* from the Command
-      Palette. The table now lists pressure as message 0 and temperature as
-      message 1. Failure looks like the old order.
-- [ ] Click row 0. The panel's heading is `Message 0` with the pressure
-      parameter, the new file's message 0, not temperature.
-
-A click on the old table cannot be made by hand, because the table is gone once
-the page is rewritten. `extension/src/test/suite/revert.test.ts` (`a GRIB
-editor's table is written from the reverted file, and the old table's rows open
-nothing`) sends one from the old page and checks that no panel opens.
-
-**`/tmp/fg-revert/sst.nc`**: ERSST, which has `sst` only
-
-- [ ] Open it, click Render for `sst` and leave the panel open. Overwrite the
-      file with OISST, which has `ice` and `sst`:
-      `cp crates/fieldglass-netcdf/tests/fixtures/oisst_avhrr_v2.nc /tmp/fg-revert/sst.nc`.
-      Focus the metadata tab and run *File: Revert File*. The page now has a
-      Render button for `ice` as well as `sst`. The open panel redraws on its
-      own, still titled `sst`, and its variable picker lists `ice` and `sst`.
-      Failure looks like a page and a picker with `sst` alone.
-- [ ] Render `ice` from the page. Overwrite the file with ERSST again
-      (`cp crates/fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc /tmp/fg-revert/sst.nc`)
-      and revert. The `ice` panel says `ice is no longer in the file, so
-      nothing was drawn. Pick a variable to draw.` rather than drawing `sst`
-      under the name `ice`.
-
-`revert.test.ts` (`a NetCDF editor and its slice panel are written from the
-reverted file`) holds the second panel and the old dump's Render button.
-
----
 
 ## No manual check
 
@@ -1676,7 +1630,8 @@ reverted file`) holds the second panel and the old dump's Render button.
   a number to `decode`, `decodeDisplay`, `warp` and `palette` and expects
   `invalid_option` (null and undefined stay the default), and
   `crates/fieldglass-wasm/tests/node/netcdf.mjs` does the same for
-  `sliceIndices`, accepting a typed array or an index-keyed object only.
+  `sliceIndices`, which takes an array, a typed array or an index-keyed object
+  and refuses any other object.
 - **A panel whose file changed draws the variable it was showing, even on a
   four-dimensional variable (#1202).** The fault is a message from the old page
   arriving just after the redraw, a window no click can hit.
@@ -1690,6 +1645,14 @@ reverted file`) holds the second panel and the old dump's Render button.
   tell; the rule is held by
   `extension/src/test/suite/one-handle.test.ts` (`the panel's listing typesets
   each variable's units, for a NetCDF file and a Zarr store`).
+- **File: Revert File reads the file again into the editor and its panels
+  (#1217).** VS Code runs a custom editor's revert only when the document has
+  unsaved edits, and a Fieldglass document has none (the P1 edit is switched
+  off), so the command does nothing a user can see.
+  `extension/src/test/suite/revert.test.ts` (`a GRIB editor's table is written
+  from the reverted file, and the old table's rows open nothing`, `a NetCDF
+  editor and its slice panel are written from the reverted file`) calls the
+  provider's revert directly and holds both editors and the slice panel.
 - **Rust API** (breaking changes and additions) and **Internal**: no user
   interface, except the error kinds they add, which reach a user as the
   messages §32 checks. Those that change what a user sees have tests: a dense
