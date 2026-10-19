@@ -1603,10 +1603,12 @@ impl Session {
     /// [`Error::Unsupported`] for a message that has no coarse field to give:
     /// any GRIB1 message, a GRIB2 packing other than JPEG 2000, a bitmap, a
     /// reduced grid, alternate-row or column-major scanning, and a grid family
-    /// with no derivable coarse grid (Gaussian among them), and a level past
-    /// the codestream's pyramid. A caller falls back to a lower level. A
+    /// with no derivable coarse grid (Gaussian among them), a level past the
+    /// codestream's pyramid, and a codestream whose image origin is not zero.
+    /// A caller falls back to a lower level. A
     /// codestream that does not decode, or uses a JPEG 2000 feature the codec
-    /// does not implement, is [`Error::Decode`], as it is at reduction zero. [`Error::WrongAddressing`] for a variable container.
+    /// does not implement, is [`Error::Decode`], as it is at reduction zero.
+    /// [`Error::WrongAddressing`] for a variable container.
     pub fn decode_display(
         &self,
         index: u32,

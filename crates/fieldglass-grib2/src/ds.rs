@@ -930,6 +930,8 @@ struct SizImage {
     components: u16,
     /// Whether component 0 is signed (bit 7 of its `Ssiz`).
     signed: bool,
+    /// `XOsiz` and `YOsiz`, the image's origin on the reference grid.
+    origin: (u64, u64),
     /// Component 0's width at the requested resolution reduction.
     width: u64,
     /// Component 0's height at the requested resolution reduction.
@@ -975,6 +977,7 @@ fn read_siz(codestream: &[u8], reduction: u8) -> Option<SizImage> {
     Some(SizImage {
         components: u16::from_be_bytes([head[40], head[41]]),
         signed: head[42] & 0x80 != 0,
+        origin: (x_offset, y_offset),
         width: extent(x_size, x_offset, x_sampling),
         height: extent(y_size, y_offset, y_sampling),
     })
@@ -1192,8 +1195,11 @@ fn decode_jpeg2000_packing(
 /// codestream has no resolution for, which a lower level would serve: a
 /// `reduction` above the decomposition levels its COD states. Any other
 /// `Unsupported` the codec raises is a feature it does not decode at any level,
-/// and is [`FieldglassError::Parse`] like the rest (#1182). A
-/// codestream that is broken, or is not the single unsigned component
+/// and is [`FieldglassError::Parse`] like the rest (#1182). The other
+/// [`FieldglassError::UnsupportedSection`] is a SIZ image origin that is not
+/// zero, above `reduction` 0: a reduced level of such an image is not the
+/// coarse raster of the full field, and reduction 0 decodes it, so a lower
+/// level serves. A codestream that is broken, or is not the single unsigned component
 /// `grid_jpeg` writes, or does not match the §3 grid, is
 /// [`FieldglassError::Parse`]: no level would decode it, so a caller told
 /// "unsupported" and falling back to reduction zero would fail again (#1082).
@@ -1248,8 +1254,8 @@ pub(crate) fn decode_jpeg2000_reduced(
 
     // The shape SIZ states at this level must be the shape the §3 grid reduces
     // to, checked before anything is decoded (#848): a 1 × 1 grid's codestream
-    // can state 8192 × 8192. Same rounding, and the same zero-origin caveat,
-    // as the decoded-shape check below, which stays as the decoder's own word.
+    // can state 8192 × 8192. Same rounding as the decoded-shape check below,
+    // which stays as the decoder's own word.
     if let Some(siz) = read_siz(ds_payload, reduction) {
         // A codestream that is not one `grid_jpeg` writes fails at every
         // resolution, so it is a decode failure here and not a refusal: see the
@@ -1258,6 +1264,17 @@ pub(crate) fn decode_jpeg2000_reduced(
             FieldglassError::UnsupportedSection(detail) => FieldglassError::Parse(detail),
             other => other,
         })?;
+        // A non-zero origin makes a reduced level ceil(x1 / 2^r) - ceil(x0 / 2^r),
+        // which is not the coarse raster of the full field: some origins give a
+        // different width, others the same width over the odd columns. The
+        // full-resolution decode is unaffected, so a lower level serves (#1182).
+        if reduction > 0 && siz.origin != (0, 0) {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "JPEG 2000 packing: codestream's image origin is {}, {} and has no coarse \
+                 raster at resolution reduction {reduction}",
+                siz.origin.0, siz.origin.1
+            )));
+        }
         if siz.width != u64::from(expected_ni) || siz.height != u64::from(expected_nj) {
             return Err(FieldglassError::Parse(format!(
                 "JPEG 2000 packing: codestream's SIZ gives a {}×{} image at resolution \
@@ -1307,16 +1324,9 @@ pub(crate) fn decode_jpeg2000_reduced(
     // a codestream that is not the raster at all — transposed, or sized to some
     // other field — before its samples are read row-major into one.
     //
-    // What it does **not** catch, and cannot: a non-zero image origin. JPEG 2000
-    // sizes a reduced level as `ceil(x1 / 2^r) - ceil(x0 / 2^r)`, which equals
-    // `ceil((x1 - x0) / 2^r)` for many non-zero `x0` — `x0 = 1, x1 = 453` gives
-    // 226 at `r = 1`, the same as a 452-wide grid with the origin at zero, while
-    // the samples retained are the *odd* full-resolution columns. Every
-    // `grid_jpeg` encoder writes a zero origin, and `rust_j2k` 0.3.0's `Image`
-    // exposes only the reduced extents, so there is nothing here to compare
-    // against; the zero origin is an assumption, stated rather than checked.
-    // The full-resolution path makes the same assumption more quietly, by
-    // reading the samples in order.
+    // A non-zero image origin would pass this when the widths happen to agree
+    // (`x0 = 1, x1 = 453` gives 226 at `r = 1`, over the *odd* columns), so the
+    // SIZ origin is refused above, before the decode, above reduction 0.
     if component.width != expected_ni || component.height != expected_nj {
         return Err(FieldglassError::Parse(format!(
             "JPEG 2000 packing: resolution reduction {reduction} gives a {}×{} image, but the \
@@ -3626,10 +3636,9 @@ mod reduced_jpeg2000_tests {
     ///
     /// JPEG 2000 sizes a reduced level as `ceil(x1 / 2^r) - ceil(x0 / 2^r)`,
     /// which is `ceil(n / 2^r)` only when the image origin is zero. Every
-    /// `grid_jpeg` codestream puts it there, so the two agree — but a
-    /// codestream that did not would hand back a raster a column narrower with
-    /// nothing to say so, which is what this refuses. Asked with the shape the
-    /// grid really reduces to, the same call succeeds.
+    /// `grid_jpeg` codestream puts it there, so the two agree; a codestream
+    /// that is some other shape is refused. Asked with the shape the grid
+    /// really reduces to, the same call succeeds.
     #[test]
     fn a_codestream_that_is_not_the_shape_the_grid_reduces_to_is_refused() {
         let (payload, template) = sections_of("rap_jpeg2000_lambert.grib2");
@@ -3742,8 +3751,18 @@ mod reduced_jpeg2000_tests {
 
         // An HTJ2K style bit in the COD: the codec's `Unsupported`, at any level.
         let mut patched = payload.clone();
-        let cod = patched.windows(2).position(|w| w == [0xFF, 0x52]).unwrap();
+        // Walk the main header to the COD (SOC, then `marker | Lseg | body`).
+        let mut cod = 2;
+        while patched[cod..cod + 2] != [0xFF, 0x52] {
+            assert_ne!(patched[cod..cod + 2], [0xFF, 0x90], "the header has a COD");
+            cod += 2 + usize::from(u16::from_be_bytes([patched[cod + 2], patched[cod + 3]]));
+        }
         patched[cod + 12] |= 0x40;
+        // The premise: the codec refuses it for the style bit, as `Unsupported`.
+        match rust_j2k::decode(&patched) {
+            Err(rust_j2k::Error::Unsupported(m)) => assert!(m.contains("code-block style"), "{m}"),
+            other => panic!("expected the style refusal, got {:?}", other.map(|_| ())),
+        }
         let err = decode_jpeg2000_reduced(&patched, &template, 1, 226, 169)
             .expect_err("a feature the codec does not decode");
         assert!(matches!(err, FieldglassError::Parse(_)), "{err:?}");
