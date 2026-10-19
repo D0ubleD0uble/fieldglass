@@ -1872,9 +1872,10 @@ export class FieldglassEditorProvider
       }
       const a = { variable: spec.variableIndex, alongDim: req.alongDim, sliceIndices: indices };
       // On a difference map, the line through the combined field (#1208):
-      // Field B's slice with the same cell written in, so along an axis of the
-      // map the line is a row or column of it, and along a held axis Field B
-      // keeps its distance from Field A.
+      // Field B's slice with the same cell written in. Along an axis of the
+      // map the line is a row or column of it; along a held axis Field B stays
+      // where it is drawn, as it does while Field A steps (the owner's
+      // decision on #1208).
       const compare = resolveNetcdfCompare(req);
       const indicesB = compare
         ? lineIndices({ ...spec, variableIndex: compare.variableIndexB, sliceIndices: compare.sliceIndicesB }, req.gridI, req.gridJ)
@@ -1889,6 +1890,7 @@ export class FieldglassEditorProvider
             a,
             b: { variable: compare.variableIndexB, alongDim: req.alongDim, sliceIndices: indicesB },
             op: compare.op,
+            holdB: req.alongDim !== spec.yDim && req.alongDim !== spec.xDim,
           })
           : docHandle.decodeLine(a);
         panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result });

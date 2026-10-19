@@ -107,20 +107,20 @@ fn the_along_axis_index_is_ignored() {
 }
 
 /// A line through a combined map (#1208): along an axis of the map, a row of
-/// `A − B`; along a held axis, the comparison stepped along it with `b` kept
-/// as far from `a` as the two positions say, so the point at `a`'s own entry
-/// is the map's value and a step with no `b` is absent.
+/// `A − B`; along a held axis, Field A stepped along it against Field B where
+/// it is drawn (the owner's decision on #1208), so the point at `a`'s own
+/// entry is the map's value.
 #[test]
 fn a_combined_line_is_the_combined_map_along_the_axis() {
     use fieldglass::{CombineOp, LineRequest};
     let session = open(DIMSCALE);
     let t = variable(&session, "temperature");
-    // `t·12 + j·4 + i`: time 1 less time 0 is 12 everywhere, and a cell less
-    // the next one along lon is −1.
+    // `t·12 + j·4 + i`: time 1 less time 0 is 12 everywhere.
     let row = session
         .decode_line_combined(
             &LineRequest::new(t, 2, vec![1, 2, 0]),
             &LineRequest::new(t, 2, vec![0, 2, 0]),
+            false,
             CombineOp::Difference,
             &opts(),
         )
@@ -136,90 +136,89 @@ fn a_combined_line_is_the_combined_map_along_the_axis() {
         (Some(12.0), Some(12.0), 4)
     );
 
+    // Along time, A at the cell `[6, 18]` against B's one cell, time 0's 6.
     let along_time = session
         .decode_line_combined(
             &LineRequest::new(t, 0, vec![1, 1, 2]),
             &LineRequest::new(t, 0, vec![0, 1, 2]),
+            true,
             CombineOp::Difference,
             &opts(),
         )
         .expect("the line along time");
-    assert_eq!(points(&along_time), vec![None, Some(12.0)]);
+    assert_eq!(points(&along_time), vec![Some(0.0), Some(12.0)]);
 
-    // The same entry along the axis is each step against itself.
+    // B held at time 1 instead, and at another cell: `[6, 18] + 19`.
     let sum = session
         .decode_line_combined(
             &LineRequest::new(t, 0, vec![0, 1, 2]),
-            &LineRequest::new(t, 0, vec![0, 1, 3]),
+            &LineRequest::new(t, 0, vec![1, 1, 3]),
+            true,
             CombineOp::Sum,
             &opts(),
         )
         .expect("the sum along time");
-    // `[6, 18] + [7, 19]`.
-    assert_eq!(points(&sum), vec![Some(13.0), Some(37.0)]);
+    assert_eq!(points(&sum), vec![Some(25.0), Some(37.0)]);
 }
 
 /// Each point of a combined line is the combine of the two slices' cells, on
-/// every multi-axis variable of the fixture, along every axis.
+/// every axis, with `b` read along the axis or held at its own position.
 #[test]
 fn a_combined_line_is_the_combine_of_the_slices_it_crosses() {
     use fieldglass::{CombineOp, LineRequest};
     let session = open(DIMSCALE);
     let t = variable(&session, "temperature");
-    let cell = |time: u32, j: u32, i: u32| -> Option<f64> {
+    let cell = |p: [u32; 3]| -> Option<f64> {
         let field = session
-            .decode_slice(t, 1, 2, &[time, 0, 0], &DecodeOptions::new(Dtype::F64))
+            .decode_slice(t, 1, 2, &[p[0], 0, 0], &DecodeOptions::new(Dtype::F64))
             .expect("slice");
-        let k = (j as usize) * (field.ni as usize) + i as usize;
+        let k = (p[1] as usize) * (field.ni as usize) + p[2] as usize;
         (field.mask[k] == 1).then(|| field.values.to_f64()[k])
     };
-    for (along, a, b) in [
-        (0u32, [1u32, 2, 3], [0u32, 0, 1]),
-        (1, [0, 1, 3], [1, 0, 3]),
-        (2, [1, 0, 2], [0, 2, 0]),
-    ] {
-        let line = session
-            .decode_line_combined(
-                &LineRequest::new(t, along, a.to_vec()),
-                &LineRequest::new(t, along, b.to_vec()),
-                CombineOp::Ratio,
-                &opts(),
-            )
-            .expect("the line");
-        let shift = i64::from(b[along as usize]) - i64::from(a[along as usize]);
-        let got = points(&line);
-        for (k, got) in got.iter().enumerate() {
-            let at = |p: [u32; 3], k: i64| -> Option<[u32; 3]> {
-                let mut p = p;
-                p[along as usize] = u32::try_from(k).ok()?;
-                Some(p)
-            };
-            let k = k as i64;
-            let want_a = at(a, k).and_then(|p| cell(p[0], p[1], p[2]));
-            let want_b = at(b, k + shift)
-                .filter(|p| p[along as usize] < [2, 3, 4][along as usize])
-                .and_then(|p| cell(p[0], p[1], p[2]));
-            let want = fieldglass::combine_cell(want_a, want_b, CombineOp::Ratio);
-            match (got, want) {
-                (Some(g), Some(w)) => assert!(
-                    (g - w).abs() <= 1e-6 * w.abs().max(1.0),
-                    "along {along}, point {k}: {g} against {w}"
-                ),
-                (g, w) => assert_eq!(*g, w, "along {along}, point {k}"),
+    for hold_b in [false, true] {
+        for (along, a, b) in [
+            (0u32, [1u32, 2, 3], [0u32, 0, 1]),
+            (1, [0, 1, 3], [1, 0, 3]),
+            (2, [1, 0, 2], [0, 2, 0]),
+        ] {
+            let line = session
+                .decode_line_combined(
+                    &LineRequest::new(t, along, a.to_vec()),
+                    &LineRequest::new(t, along, b.to_vec()),
+                    hold_b,
+                    CombineOp::Ratio,
+                    &opts(),
+                )
+                .expect("the line");
+            for (k, got) in points(&line).iter().enumerate() {
+                let step = |p: [u32; 3]| {
+                    let mut p = p;
+                    p[along as usize] = k as u32;
+                    p
+                };
+                let want_b = if hold_b { cell(b) } else { cell(step(b)) };
+                let want = fieldglass::combine_cell(cell(step(a)), want_b, CombineOp::Ratio);
+                match (got, want) {
+                    (Some(g), Some(w)) => assert!(
+                        (g - w).abs() <= 1e-6 * w.abs().max(1.0),
+                        "hold {hold_b}, along {along}, point {k}: {g} against {w}"
+                    ),
+                    (g, w) => assert_eq!(*g, w, "hold {hold_b}, along {along}, point {k}"),
+                }
             }
         }
     }
 }
 
-/// What a combined line refuses: two axes, a position off the axis, a message
-/// stream.
+/// What a combined line refuses: two axes, a held position off the axis, a
+/// message stream.
 #[test]
 fn a_combined_line_refuses_what_it_cannot_read() {
     use fieldglass::{CombineOp, LineRequest};
     let session = open(DIMSCALE);
     let t = variable(&session, "temperature");
     let refused = |a: LineRequest, b: LineRequest| {
-        session.decode_line_combined(&a, &b, CombineOp::Difference, &opts())
+        session.decode_line_combined(&a, &b, true, CombineOp::Difference, &opts())
     };
     match refused(
         LineRequest::new(t, 0, vec![0, 0, 0]),
@@ -244,6 +243,7 @@ fn a_combined_line_refuses_what_it_cannot_read() {
         grib.decode_line_combined(
             &LineRequest::new(0, 0, vec![0, 0]),
             &LineRequest::new(0, 0, vec![0, 0]),
+            false,
             CombineOp::Difference,
             &opts(),
         ),

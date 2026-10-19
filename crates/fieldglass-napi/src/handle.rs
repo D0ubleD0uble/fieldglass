@@ -531,16 +531,38 @@ pub(crate) fn grid_target(value: serde_json::Value) -> Result<GridTarget, Render
 /// request (#1208).
 pub(crate) fn combined_lines(
     value: serde_json::Value,
-) -> Result<(LineRequest, LineRequest, String), RenderError> {
+) -> Result<(LineRequest, LineRequest, String, bool), RenderError> {
+    // `holdB` is the one key a combined line adds to a combined map's three.
+    let mut value = value;
+    let hold_b = match &mut value {
+        serde_json::Value::Object(map) => map.remove("holdB"),
+        _ => None,
+    };
+    let hold_b = match hold_b {
+        Some(serde_json::Value::Bool(hold)) => hold,
+        Some(other) => {
+            return Err(unreadable(
+                "combined line",
+                &format!("`holdB` is true or false, not {other}"),
+            ));
+        }
+        None => {
+            return Err(unreadable(
+                "combined line",
+                &"it takes `holdB`: whether the line runs along a held axis",
+            ));
+        }
+    };
     match combined_parts(value, "combined line")? {
         Ok((a, b, op)) => Ok((
             read_request(a, "line `a`")?,
             read_request(b, "line `b`")?,
             op,
+            hold_b,
         )),
         Err(_) => Err(unreadable(
             "combined line",
-            &"it takes `a` and `b`, two line requests, and `op`",
+            &"it takes `a` and `b`, two line requests, `op` and `holdB`",
         )),
     }
 }
@@ -741,16 +763,17 @@ impl Handle {
         self.decode_line(line, options).map_err(|e| e.throw(&env))
     }
 
-    /// One line through a combined map (#1208): `{ a, b, op }`, two line
-    /// requests along the same `alongDim`, combined point by point under
+    /// One line through a combined map (#1208): `{ a, b, op, holdB }`, two
+    /// line requests along the same `alongDim`, combined point by point under
     /// `op`, a `value` from `combineOps()`.
     ///
-    /// Each request's entry for `alongDim` counts here: `b` is read as far
-    /// along the axis from `a` as those two entries are apart, so the point at
-    /// `a`'s entry is the combined map's value there, and a step with no `b`
-    /// is absent. Through a cell of the map along one of its own axes, write
-    /// the cell into both and the line is a row or column of the map. Named,
-    /// with units and coordinates, as `a`'s line.
+    /// `holdB` says which kind of axis the line runs along. `false`, an axis
+    /// of the map: `b` is read along it too, and through a cell written into
+    /// both requests the line is a row or column of the combined map. `true`,
+    /// a held axis (a time or a level): `b` is its one cell at its own
+    /// position, its entry for `alongDim` included, combined with every step
+    /// of `a`, so the point at `a`'s entry is the combined map's value there.
+    /// Named, with units and coordinates, as `a`'s line.
     #[napi(js_name = "decodeLineCombined")]
     pub fn decode_line_combined_for_js(
         &self,
@@ -1089,7 +1112,7 @@ impl Handle {
         line: serde_json::Value,
         options: Option<serde_json::Value>,
     ) -> Result<LineResult, RenderError> {
-        let (mut a, mut b, op) = combined_lines(line)?;
+        let (mut a, mut b, op, hold_b) = combined_lines(line)?;
         if a.along_dim != b.along_dim {
             return Err(Error::invalid_option(format!(
                 "the two lines of a combined line run along the same axis; `a` reads along \
@@ -1101,7 +1124,9 @@ impl Handle {
         a.variable = self.resolve_variable(a.variable)?;
         b.variable = self.resolve_variable(b.variable)?;
         let options = decode_options(options)?;
-        on_slices!(self.inner()?, |h| h.line_combined(&a, &b, &op, &options)).ok_or_else(|| {
+        on_slices!(self.inner()?, |h| h
+            .line_combined(&a, &b, hold_b, &op, &options))
+        .ok_or_else(|| {
             wrong_addressing(
                 Addressing::Messages,
                 "`decodeLineCombined` addresses variables; a message has no axes to read along",
@@ -1860,7 +1885,7 @@ mod tests {
         let line = |variable: u32, j: u32| json!({ "variable": variable, "alongDim": 3, "sliceIndices": [0, 0, j, 0] });
         let combined = handle
             .decode_line_combined(
-                json!({ "a": line(sst, 40), "b": line(ssta, 40), "op": "a_minus_b" }),
+                json!({ "a": line(sst, 40), "b": line(ssta, 40), "op": "a_minus_b", "holdB": false }),
                 None,
             )
             .expect("the combined row");
@@ -1927,7 +1952,7 @@ mod tests {
                 let line = |variable: u32| json!({ "variable": variable, "alongDim": along, "sliceIndices": at });
                 let combined = handle
                     .decode_line_combined(
-                        json!({ "a": line(t), "b": line(a), "op": "a_minus_b" }),
+                        json!({ "a": line(t), "b": line(a), "op": "a_minus_b", "holdB": false }),
                         None,
                     )
                     .expect("the combined line");
@@ -2006,17 +2031,55 @@ mod tests {
         assert_eq!(code(&e), Some("invalid_option"), "{e}");
     }
 
+    /// Along a held axis, `holdB` reads Field B once, at its own position,
+    /// and combines it with every step of Field A (#1208): on
+    /// `temperature(time, lat, lon) = t·12 + j·4 + i`, A at the cell is
+    /// `[6, 18]` along time and B at time 0 is 6.
+    #[test]
+    fn a_held_combined_line_reads_b_once() {
+        let handle = Handle::from_vec(
+            include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc").to_vec(),
+        )
+        .expect("opens");
+        let t = handle
+            .variables()
+            .expect("lists")
+            .iter()
+            .find(|v| v.name == "temperature")
+            .map(|v| v.index)
+            .expect("listed");
+        let line = |at: [u32; 3]| json!({ "variable": t, "alongDim": 0, "sliceIndices": at });
+        let combined = |hold_b: bool| {
+            points(
+                &handle
+                    .decode_line_combined(
+                        json!({ "a": line([1, 1, 2]), "b": line([0, 1, 2]), "op": "a_minus_b", "holdB": hold_b }),
+                        None,
+                    )
+                    .expect("the line"),
+            )
+        };
+        assert_eq!(combined(true), vec![Some(0.0), Some(12.0)]);
+        assert_eq!(
+            combined(false),
+            vec![Some(0.0), Some(0.0)],
+            "read along, B steps with A"
+        );
+    }
+
     #[test]
     fn a_combined_line_reads_strictly() {
         let (handle, sst, ssta) = ersst();
         let line = |variable: u32, along: u32| json!({ "variable": variable, "alongDim": along, "sliceIndices": [0, 0, 0, 0] });
         for bad in [
             line(sst, 3),
-            json!({ "a": line(sst, 3), "b": line(ssta, 3) }),
-            json!({ "a": line(sst, 3), "b": line(ssta, 3), "op": "a_minus_b", "c": 0 }),
-            json!({ "a": 0, "b": line(ssta, 3), "op": "a_minus_b" }),
-            json!({ "a": line(sst, 3), "b": line(ssta, 2), "op": "a_minus_b" }),
-            json!({ "a": line(sst, 3), "b": line(ssta, 3), "op": "a_times_b" }),
+            json!({ "a": line(sst, 3), "b": line(ssta, 3), "holdB": false }),
+            json!({ "a": line(sst, 3), "b": line(ssta, 3), "op": "a_minus_b" }),
+            json!({ "a": line(sst, 3), "b": line(ssta, 3), "op": "a_minus_b", "holdB": 1 }),
+            json!({ "a": line(sst, 3), "b": line(ssta, 3), "op": "a_minus_b", "holdB": false, "c": 0 }),
+            json!({ "a": 0, "b": line(ssta, 3), "op": "a_minus_b", "holdB": false }),
+            json!({ "a": line(sst, 3), "b": line(ssta, 2), "op": "a_minus_b", "holdB": false }),
+            json!({ "a": line(sst, 3), "b": line(ssta, 3), "op": "a_times_b", "holdB": false }),
         ] {
             let e = handle
                 .decode_line_combined(bad.clone(), None)
@@ -2026,7 +2089,7 @@ mod tests {
         let grib = Handle::from_vec(GRIB2.to_vec()).expect("opens");
         let e = grib
             .decode_line_combined(
-                json!({ "a": line(0, 0), "b": line(0, 0), "op": "a_minus_b" }),
+                json!({ "a": line(0, 0), "b": line(0, 0), "op": "a_minus_b", "holdB": false }),
                 None,
             )
             .expect_err("a message has no axes");

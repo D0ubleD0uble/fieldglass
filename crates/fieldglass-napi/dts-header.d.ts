@@ -23,11 +23,13 @@ export interface CombinedFields {
 export type GridTarget = GridField | CombinedFields
 
 /** Two lines combined point by point under `op`, as `decodeLineCombined`
- *  reads them: the line through a combined map. */
+ *  reads them: the line through a combined map. `holdB` is whether the line
+ *  runs along a held axis, where `b` is its one cell. */
 export interface CombinedLines {
   a: LineRequest
   b: LineRequest
   op: string
+  holdB: boolean
 }
 
 /** `close()`, under the name `using` calls. */

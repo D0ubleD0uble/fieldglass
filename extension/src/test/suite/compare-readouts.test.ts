@@ -120,14 +120,15 @@ suite("The line plot and the zonal average on a Compare map read the map (#1208)
       const { gridI: i, gridJ: j } = probe;
       assert.strictEqual(probe.value, aMinusB(j, i), "the probe reads A − B");
 
-      // Along time: the comparison stepped along the axis, Field B kept the
-      // same distance behind Field A, so the point where the map sits is the
-      // value the probe read, and the steps with no Field B are absent.
+      // Along time: Field A stepped along the axis against Field B where it
+      // is drawn, as the map shows while Field A's stepper moves (the owner's
+      // decision on #1208). Every step has a value, and the point where the
+      // map sits is the value the probe read.
       const alongTime = (await panel.waitSent(isType("lineResult"), from, "the line along time")).result;
       assert.ok(alongTime, "a line along time");
       assertClose(
         points(alongTime),
-        STEPS.map((_, t) => (t - (TA - TB) >= 0 ? v(t, j, i) - v(t - (TA - TB), j, i) : null)),
+        STEPS.map((_, t) => v(t, j, i) - v(TB, j, i)),
         "the line along time",
       );
       assert.strictEqual(points(alongTime)[TA], probe.value, "where the map sits, the line reads the probe's value");

@@ -2437,6 +2437,7 @@ impl NetcdfFile {
         &self,
         a: &fieldglass::LineRequest,
         b: &fieldglass::LineRequest,
+        hold_b: bool,
         op: &str,
         options: &fieldglass::DecodeOptions,
     ) -> Result<LineResult, RenderError> {
@@ -2451,6 +2452,7 @@ impl NetcdfFile {
             (name_a, &a.slice_indices),
             (name_b, &b.slice_indices),
             a.along_dim,
+            hold_b,
             op,
             options,
         )?
@@ -3402,11 +3404,15 @@ impl ZarrStore {
         &self,
         a: &fieldglass::LineRequest,
         b: &fieldglass::LineRequest,
+        hold_b: bool,
         op: &str,
         options: &fieldglass::DecodeOptions,
     ) -> Result<LineResult, RenderError> {
         let op = fieldglass::op_from_wire(op)?;
-        Ok(self.session.decode_line_combined(a, b, op, options)?.into())
+        Ok(self
+            .session
+            .decode_line_combined(a, b, hold_b, op, options)?
+            .into())
     }
 
     /// One 2-D slice's values, packed at the width `options` asks for: the

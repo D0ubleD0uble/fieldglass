@@ -382,12 +382,15 @@ export interface CombinedFields {
 export type GridTarget = GridField | CombinedFields;
 
 /** Two lines combined point by point under `op` (#1208): the line plot
- *  through a Compare map. Both run along the same `alongDim`, and `b` is read
- *  as far along it from `a` as their two entries for it are apart. */
+ *  through a Compare map. Both run along the same `alongDim`. Along an axis of
+ *  the map (`holdB` false) `b` is read along it too; along a held axis
+ *  (`holdB` true) `b` is its one cell at its own position, its entry for
+ *  `alongDim` included, combined with every step of `a`. */
 export interface CombinedLines {
   a: LineRequest;
   b: LineRequest;
   op: string;
+  holdB: boolean;
 }
 
 /** The polylines an overlay projects (#72): flat `[lat, lon, …]` and how many
@@ -469,10 +472,8 @@ export interface Handle {
    *  `line.sliceIndices` — the entry for `alongDim` is ignored (#172). */
   decodeLine(line: LineRequest, options?: DecodeOptions | null): LineResult;
   /** One line through a combined map (#1208): `a` and `b` along the same
-   *  axis, combined point by point. Here each request's entry for `alongDim`
-   *  counts: `b` is read as far along the axis from `a` as the two entries
-   *  are apart, so the point at `a`'s entry is the map's value, and a step
-   *  with no `b` is absent. Named as `a`'s line. */
+   *  axis, combined point by point; see {@link CombinedLines} for `holdB`.
+   *  The point at `a`'s entry is the map's value. Named as `a`'s line. */
   decodeLineCombined(line: CombinedLines, options?: DecodeOptions | null): LineResult;
   /** Decode a message to draw, at a reduced resolution (#1082): `reduce`
    *  discards that many of a JPEG 2000 message's finest wavelet levels. The

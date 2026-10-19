@@ -1027,14 +1027,18 @@ pub fn line_through(
 /// [`line_through`] takes them. Both lines run along `along_dim`, which must be
 /// the same axis, by name and length, in each array.
 ///
-/// Unlike a single line, each position's entry for `along_dim` counts: `b` is
-/// read as far along the axis from `a` as those two entries are apart, so the
-/// comparison on screen keeps its spacing as the line steps along. A map that
-/// differences two times is plotted along time as that same difference at
-/// every step, and the point at `a`'s own entry is the map's value. A step
-/// where `b` would fall off either end of the axis is absent. For an axis of
-/// the map itself, a host writes the cell into both positions, and the line is
-/// a row or column of the combined map.
+/// `hold_b` says which kind of axis the line runs along, which only the host
+/// knows:
+///
+/// * `false`, an axis of the map itself: `b` is read along it too, point for
+///   point, and the line is a row or column of the combined map. A host writes
+///   the clicked cell into both positions. Each entry for `along_dim` is
+///   ignored, as on a single line.
+/// * `true`, a held axis (a time or a level): `b` is the one value at its own
+///   position, its entry for `along_dim` included, combined with every step of
+///   `a`. That is what the map shows as Field A steps along the axis with
+///   Field B where it is drawn, so the point at `a`'s own entry is the map's
+///   value (#1208).
 ///
 /// Both lines are read at full precision and combined by the rule
 /// [`crate::combine_values`] applies to every cell, then packed under
@@ -1044,7 +1048,7 @@ pub fn line_through(
 /// # Errors
 ///
 /// Whatever [`line_through`] reports for either line; [`Error::InvalidOption`]
-/// for an entry for `along_dim` past the end of the axis; and
+/// for a held `b` whose entry for `along_dim` is past the end of the axis; and
 /// [`Error::Unsupported`] when the two lines do not run along the same axis.
 #[cfg(all(feature = "analysis", any(feature = "netcdf", feature = "zarr")))]
 pub fn line_through_combined(
@@ -1052,6 +1056,7 @@ pub fn line_through_combined(
     a: (&str, &[u32]),
     b: (&str, &[u32]),
     along_dim: u32,
+    hold_b: bool,
     op: CombineOp,
     options: &DecodeOptions,
 ) -> Result<Line, Error> {
@@ -1070,19 +1075,6 @@ pub fn line_through_combined(
             ),
         });
     }
-    // `line_through` has checked each position holds one entry per axis.
-    let along = along_dim as usize;
-    let at = |indices: &[u32], which: &str| -> Result<i64, Error> {
-        let at = indices[along];
-        if at as usize >= n {
-            return Err(Error::invalid_option(format!(
-                "`{which}`'s index {at} along `{}` is past the end of it (length {n})",
-                line_a.dimension
-            )));
-        }
-        Ok(i64::from(at))
-    };
-    let shift = at(b.1, "b")? - at(a.1, "a")?;
     let points = |line: &Line| -> Vec<Option<f64>> {
         let values = line.values.to_f64();
         line.mask
@@ -1092,14 +1084,25 @@ pub fn line_through_combined(
             .collect()
     };
     let (points_a, points_b) = (points(&line_a), points(&line_b));
+    // A held `b` is its one cell: the point of its line at its own entry.
+    // `line_through` has checked the position holds one entry per axis.
+    let held = if hold_b {
+        let at = b.1[along_dim as usize] as usize;
+        let Some(&cell) = points_b.get(at) else {
+            return Err(Error::invalid_option(format!(
+                "`b`'s index {at} along `{}` is past the end of it (length {n})",
+                line_a.dimension
+            )));
+        };
+        Some(cell)
+    } else {
+        None
+    };
     let cells: Vec<Option<f64>> = points_a
         .iter()
         .enumerate()
         .map(|(k, &value_a)| {
-            let value_b = i64::try_from(k)
-                .ok()
-                .and_then(|k| usize::try_from(k + shift).ok())
-                .and_then(|k| points_b.get(k).copied().flatten());
+            let value_b = held.unwrap_or_else(|| points_b.get(k).copied().flatten());
             crate::combine::combine_cell(value_a, value_b, op)
         })
         .collect();
@@ -2307,11 +2310,13 @@ impl Session {
     /// One line through a combined map (#1208): line `a` combined point by
     /// point with line `b` under `op`, both along the same `along_dim`.
     ///
-    /// Each request is what [`Session::decode_line`] takes, except that its
-    /// entry for `along_dim` counts: `b` is read as far along the axis from `a`
-    /// as those entries are apart. See `line_through_combined` for the rule
-    /// and what the line is labelled with (named in prose: it needs `netcdf`
-    /// or `zarr` as well, and this method is on every build with `analysis`).
+    /// Each request is what [`Session::decode_line`] takes. With `hold_b`
+    /// false the line runs along an axis of the map and `b` is read along it
+    /// too; with `hold_b` true it runs along a held axis (a time or a level)
+    /// and `b` is its one cell at its own position, combined with every step
+    /// of `a`. See `line_through_combined` for the rule and what the line is
+    /// labelled with (named in prose: it needs `netcdf` or `zarr` as well, and
+    /// this method is on every build with `analysis`).
     ///
     /// # Errors
     ///
@@ -2323,11 +2328,12 @@ impl Session {
         &self,
         a: &LineRequest,
         b: &LineRequest,
+        hold_b: bool,
         op: CombineOp,
         options: &DecodeOptions,
     ) -> Result<Line, Error> {
         #[cfg(not(any(feature = "netcdf", feature = "zarr")))]
-        let _ = (a, b, op, options);
+        let _ = (a, b, hold_b, op, options);
         if a.along_dim != b.along_dim {
             return Err(Error::invalid_option(format!(
                 "the two lines of a combined line run along the same axis; `a` reads along \
@@ -2365,6 +2371,7 @@ impl Session {
                     (name(a.variable)?, &a.slice_indices),
                     (name(b.variable)?, &b.slice_indices),
                     a.along_dim,
+                    hold_b,
                     op,
                     options,
                 )
