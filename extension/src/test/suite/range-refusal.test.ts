@@ -14,6 +14,7 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as vscode from "vscode";
 
 import { extensionPath, isType, type Msg, openEditor, openReal, provider, type RealPanel } from "./real-panel";
 
@@ -148,6 +149,163 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       const state = await panel.drive([]);
       assert.strictEqual(state.rangeNote, null, "an automatic range is healed, not reported at the fields");
     } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // A fixture pair on two grids, so a Compare of them fails before the range
+  // is read (#1174).
+  function twoGrids(): { dir: string; file: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1174-"));
+    const file = path.join(dir, "two-grids.grib2");
+    const other = path.join(extensionPath(), "src", "test", "fixtures", "eta_lambert_msg0.grib2");
+    fs.writeFileSync(file, Buffer.concat([fs.readFileSync(FIXTURE), fs.readFileSync(other)]));
+    return { dir, file };
+  }
+
+  test("a render error that is not about the range leaves the standing refusal up (#1174)", async () => {
+    const p = await provider();
+    const { dir, file } = twoGrids();
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await answer(
+        panel,
+        [MANUAL, { id: "range-min", value: 300 }, { id: "range-max", value: 290 }],
+        refusedAt("both"),
+        "the inverted range refused",
+      );
+      // Field B on another grid: combined_field fails before the range is read.
+      const from = panel.sent.length;
+      await panel.drive([
+        { id: "compare-op", value: "a_minus_b" },
+        { id: "compare-field-b", value: 1 },
+      ]);
+      const err = await panel.waitSent(
+        (m: Msg) => m.type === "gridError" && !m.rangeRefusal,
+        from,
+        "the different-grid error, which carries no range refusal",
+      );
+      assert.ok(err.error, "an error about the grids");
+      let state = await panel.drive([]);
+      assert.strictEqual(state.rangeNote, "minimum 300 is not below maximum 290; set a minimum below the maximum");
+      assert.deepStrictEqual(state.rangeInvalid, ["range-min", "range-max"], "the fields are still marked");
+      // The refusal still stands, so contours are not asked for with the bad range.
+      const asked = panel.received.length;
+      state = await panel.drive([{ id: "overlay-contours", checked: true }]);
+      assert.ok(!panel.received.slice(asked).some(isType("contourRequest")), "no contours over a refused range");
+      assert.strictEqual(state.rangeNote !== null, true, "the note is still up after ticking Contours");
+
+      // Editing the range fields ends it: the refusal was said of the old values.
+      await panel.drive([{ id: "range-min", value: 200 }]);
+      state = await panel.drive([]);
+      assert.strictEqual(state.rangeNote, null);
+      assert.deepStrictEqual(state.rangeInvalid, []);
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("Export PNG while the range is refused says so and exports nothing (#1174)", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    // The last step exports for real: answer the save dialog, which would
+    // otherwise stay open and keep the window's focus for every later suite.
+    const savedDialog = vscode.window.showSaveDialog;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await answer(
+        panel,
+        [MANUAL, { id: "range-min", value: 300 }, { id: "range-max", value: 290 }],
+        refusedAt("both"),
+        "the inverted range refused",
+      );
+      const asked = panel.received.length;
+      let state = await panel.drive([{ id: "export-png", click: true }]);
+      assert.ok(!panel.received.slice(asked).some(isType("exportPng")), "no PNG is written of the old picture");
+      assert.ok(state.exportStatus.startsWith("Export failed:"), state.exportStatus);
+      assert.ok(state.exportStatus.includes("range fields"), state.exportStatus);
+
+      // Fixing the range clears the line; the export then goes ahead.
+      await answer(panel, [{ id: "range-min", value: 200 }], (m: Msg) => m.type === "gridReady", "the redraw");
+      state = await panel.drive([]);
+      assert.strictEqual(state.exportStatus, "");
+      const before = panel.received.length;
+      const sentBefore = panel.sent.length;
+      await panel.drive([{ id: "export-png", click: true }]);
+      assert.ok(panel.received.slice(before).some(isType("exportPng")), "export works once the range holds");
+      // Wait for the host's answer, so the save dialog has been asked (and
+      // answered by the stub) before the stub is put back. Otherwise the real
+      // dialog can open after the test and hold the window's focus.
+      const done = await panel.waitSent(isType("exportPngDone"), sentBefore, "the PNG export's outcome");
+      assert.strictEqual(done.outcome?.status, "cancelled");
+    } finally {
+      vscode.window.showSaveDialog = savedDialog;
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  test("switching log back to linear clears a Manual log10 refusal even when the render then fails for another reason (#1174)", async () => {
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1174-"));
+    const file = path.join(dir, "three.grib2");
+    const a = fs.readFileSync(FIXTURE);
+    const other = fs.readFileSync(path.join(extensionPath(), "src", "test", "fixtures", "eta_lambert_msg0.grib2"));
+    fs.writeFileSync(file, Buffer.concat([a, a, other]));
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    // The test ends with an export click, which asks for a save dialog: answer
+    // it, or a real native dialog opens and keeps the window's focus.
+    const savedDialog = vscode.window.showSaveDialog;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      // Manual, the minimum left to the data, log on: drawn, the floor is positive.
+      await answer(
+        panel,
+        [MANUAL, { id: "range-min", value: "" }, { id: "range-max", value: 400 }, { id: "scale-log", checked: true }],
+        (m: Msg) => m.type === "gridReady" && m.options.scaleMode === "log10",
+        "log10 drawn",
+      );
+      // A minus A is zero: the data's minimum has no logarithm, and Manual keeps the refusal.
+      await answer(
+        panel,
+        [{ id: "compare-op", value: "a_minus_b" }, { id: "compare-field-b", value: 1 }],
+        (m: Msg) => m.type === "gridError" && m.rangeRefusal?.reason === "log10_not_positive",
+        "the log10 refusal under a Manual range",
+      );
+      let state = await panel.drive([]);
+      assert.notStrictEqual(state.rangeNote, null, "the refusal is up");
+      // Field B on another grid: the render fails for a reason that is not the range.
+      const from = panel.sent.length;
+      await panel.drive([{ id: "compare-field-b", value: 2 }]);
+      await panel.waitSent((m: Msg) => m.type === "gridError" && !m.rangeRefusal, from, "the different-grid error");
+      state = await panel.drive([]);
+      assert.notStrictEqual(state.rangeNote, null, "still up after the unrelated error");
+      // Back to linear: a change to the range, so the refusal goes with it.
+      const f2 = panel.sent.length;
+      await panel.drive([{ id: "scale-log", checked: false }]);
+      await panel.waitSent((m: Msg) => m.type === "gridError" && !m.rangeRefusal, f2, "the grid error again");
+      const sentBefore = panel.sent.length;
+      state = await panel.drive([{ id: "export-png", click: true }]);
+      assert.strictEqual(state.rangeNote, null);
+      assert.deepStrictEqual(state.rangeInvalid, []);
+      assert.ok(!state.exportStatus.includes("range fields"), "export is no longer blocked by the range");
+      // The export went to the host, which asked the (stubbed) dialog: wait for
+      // that before the stub is put back.
+      await panel.waitSent(isType("exportPngDone"), sentBefore, "the PNG export's outcome");
+    } finally {
+      vscode.window.showSaveDialog = savedDialog;
       panel.dispose();
       editor.close();
       fs.rmSync(dir, { recursive: true, force: true });

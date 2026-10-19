@@ -1471,6 +1471,11 @@ python3 -m http.server 8001
 - [ ] Max cleared, min `400`. The note reads `minimum 400 is above the
       field's maximum … (taken from the data); set a maximum too`, and only
       the min field is outlined.
+- [ ] Min `300`, max `290` again, then click Export PNG: nothing is saved,
+      and the line under the toolbar says the export failed and points at the
+      range fields. Open Compare and pick a Field B on another grid (needs a
+      file with two grids): the grid error shows, and the note under the
+      fields stays up. Change either field and the note and that line go.
 - [ ] Min `280`. The map draws from 280 to the maximum, and the note and the
       outlines go.
 

@@ -90,6 +90,8 @@ export interface PageState {
   /** The focused element as `tag#id.class`, suffixed ` in #unavailable` when
    *  it is inside the line. */
   focused: string | null;
+  /** `document.hasFocus()`: false when the window behind the page is not focused. */
+  docHasFocus: boolean;
   projection: string;
   /** Whether the projection `<select>` itself is disabled. */
   projectionDisabled: boolean;
@@ -541,6 +543,7 @@ const DRIVER = `
         controlDisplay: controlsBy((el) => getComputedStyle(el).display),
         controlShown: controlsBy((el) => el.getClientRects().length > 0),
         unavailable: unavailableLine(),
+        docHasFocus: document.hasFocus(),
         focused: document.activeElement ? describe(document.activeElement) + (document.activeElement.closest('#unavailable') ? ' in #unavailable' : '') : null,
         projection: picker.value,
         projectionDisabled: picker.disabled,
@@ -841,7 +844,13 @@ const DRIVER = `
         if (!el) throw new Error('no ' + (a.selector || '#' + a.id));
         // A disclosure opens the way a click on its summary opens it.
         if ('open' in a) { if (el.open !== a.open) el.querySelector('summary').click(); continue; }
-        if ('focus' in a) { el.focus(); continue; }
+        if ('focus' in a) {
+          // As the Tab key moves focus: the page has focus, and the focus is
+          // keyboard-visible whatever the pointer did last, so a ring shows.
+          window.focus();
+          el.focus({ focusVisible: true });
+          continue;
+        }
         // A button pressed as a user presses it.
         if ('click' in a) { el.click(); continue; }
         // A narrower or wider panel, as a user drags its edge.
