@@ -26,7 +26,8 @@
 //! Linear memory never shrinks, and an animation holds many fields at once, so
 //! **the façade keeps no decode cache**. [`Handle::decode`] hands a [`WasmField`]
 //! to JS and JS owns it; `warp`, `render`, `probe`, and `contours` take it back
-//! by reference. Call `field.free()` when you are done with one — a dropped JS
+//! by reference. [`Handle::decode_display`] hands over a [`WasmDisplayField`]
+//! the same way. Call `field.free()` when you are done with one — a dropped JS
 //! reference does not release the wasm allocation until the host's
 //! `FinalizationRegistry` runs, if it runs at all.
 //!
@@ -58,7 +59,8 @@
 //! targets make that rare; treat the Worker as disposable and restart it.
 
 use fieldglass::{
-    ContourOptions, DecodeOptions, Field, Isoline, PaletteOptions, Session, WarpOptions,
+    ContourOptions, DecodeOptions, DisplayDecodeOptions, DisplayField, Field, Isoline,
+    PaletteOptions, Session, Stats, WarpOptions,
 };
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
@@ -360,7 +362,8 @@ impl Handle {
 
     /// Decode one message. `options` is `{ dtype?: "auto" | "f32" | "f64" }`.
     ///
-    /// The returned field is yours; free it when you are done.
+    /// The returned field is yours; free it when you are done. For a map drawn
+    /// coarser than the file, see [`Handle::decode_display`].
     pub fn decode(
         &self,
         index: u32,
@@ -369,6 +372,37 @@ impl Handle {
         let options: DecodeOptions = from_js(options)?;
         let field = self.session.decode(index, &options).map_err(throw)?;
         Ok(WasmField { field })
+    }
+
+    /// Decode one message to **draw**, at a reduced resolution: `options` is
+    /// `{ reduce?: number, dtype?: "auto" | "f32" | "f64" }` (#1082).
+    ///
+    /// `reduce` discards that many of a JPEG 2000 message's finest wavelet
+    /// levels, so `1` decodes a field half the size on each axis in about a
+    /// quarter of the time. The values are then a low-pass the file does not
+    /// hold, on every `2^reduce`-th point of its grid, so this returns a
+    /// [`WasmDisplayField`] and not a `WasmField`: `renderDisplay`,
+    /// `warpDisplay` and `paletteDisplay` take it, and `probe`, `contours`,
+    /// `combine` and the shader accessors do not, which TypeScript checks. Its
+    /// `grid()` is the derived grid. For the numbers, call `decode`.
+    ///
+    /// `reduce: 0` (the default) is `decode`'s field, for any message. Above
+    /// zero, a message with no coarse field (GRIB1, a packing other than JPEG
+    /// 2000, a bitmap, a reduced grid, or a grid family with no coarse grid)
+    /// throws `unsupported`; ask again at `0`. Free the field when you are done.
+    #[wasm_bindgen(js_name = decodeDisplay)]
+    pub fn decode_display(
+        &self,
+        index: u32,
+        #[wasm_bindgen(unchecked_param_type = "DisplayDecodeOptions | null | undefined")]
+        options: JsValue,
+    ) -> Result<WasmDisplayField, JsValue> {
+        let options: DisplayDecodeOptions = from_js(options)?;
+        let field = self
+            .session
+            .decode_display(index, &options)
+            .map_err(throw)?;
+        Ok(WasmDisplayField { field })
     }
 
     /// Resample a field onto a geographic box without painting it.
@@ -390,17 +424,27 @@ impl Handle {
     ) -> Result<JsValue, JsValue> {
         let options: WarpOptions = from_js(options)?;
         let out = self.session.warp(&field.field, &options).map_err(throw)?;
-        let object = js_sys::Object::new();
-        set(
-            &object,
-            "values",
-            js_sys::Float32Array::from(&out.values[..]),
-        )?;
-        set(&object, "mask", js_sys::Uint8Array::from(&out.mask[..]))?;
-        set(&object, "width", JsValue::from_f64(f64::from(out.width)))?;
-        set(&object, "height", JsValue::from_f64(f64::from(out.height)))?;
-        set(&object, "bounds", to_js(&out.bounds)?)?;
-        Ok(object.into())
+        warped_object(&out)
+    }
+
+    /// [`Handle::warp`] for a field from [`Handle::decode_display`], on the grid
+    /// it was decoded onto: the same options and the same object back. The
+    /// values are display values, as a warp's always are.
+    #[wasm_bindgen(
+        js_name = warpDisplay,
+        unchecked_return_type = "{ values: Float32Array; mask: Uint8Array; width: number; height: number; bounds: [number, number, number, number] }"
+    )]
+    pub fn warp_display(
+        &self,
+        field: &WasmDisplayField,
+        #[wasm_bindgen(unchecked_param_type = "WarpOptions | null | undefined")] options: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let options: WarpOptions = from_js(options)?;
+        let out = self
+            .session
+            .warp_display(&field.field, &options)
+            .map_err(throw)?;
+        warped_object(&out)
     }
 
     /// The colour decision as data: `{ lut, t0, t1, span, scale, maskedRgba }`.
@@ -429,21 +473,37 @@ impl Handle {
             .session
             .palette(&field.field, &options)
             .map_err(throw)?;
-        let object = js_sys::Object::new();
-        set(&object, "lut", js_sys::Uint8Array::from(&palette.lut[..]))?;
-        set(&object, "t0", JsValue::from_f64(palette.t0))?;
-        set(&object, "t1", JsValue::from_f64(palette.t1))?;
-        // The one number the shader divides by, precomputed here so a host
-        // cannot subtract two large `f64`s in JS and hand the shader a value
-        // that already lost its precision.
-        set(&object, "span", JsValue::from_f64(palette.t1 - palette.t0))?;
-        set(&object, "scale", JsValue::from_str(palette.scale.as_str()))?;
-        set(
-            &object,
-            "maskedRgba",
-            js_sys::Uint8Array::from(&palette.masked_rgba[..]),
-        )?;
-        Ok(object.into())
+        palette_object(&palette)
+    }
+
+    /// [`Handle::palette`] for a field from [`Handle::decode_display`], with
+    /// its automatic range taken from `fullStats`: the `stats()` of the same
+    /// message from `decode`, held from an earlier full decode (#1082).
+    ///
+    /// Never from the display field's own values, which a wavelet low-pass
+    /// moves: a map drawn at any reduction colours a value as the full map
+    /// does. `fullStats` may be `null` when `min` and `max` are both given.
+    /// Throws `invalid_option` when an end is left to the data and `fullStats`
+    /// is `null`, states no range over a field with present cells, or is not a
+    /// range.
+    #[wasm_bindgen(
+        js_name = paletteDisplay,
+        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: \"linear\" | \"log10\"; maskedRgba: Uint8Array }"
+    )]
+    pub fn palette_display(
+        &self,
+        field: &WasmDisplayField,
+        #[wasm_bindgen(unchecked_param_type = "Stats | null")] full_stats: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
+        options: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let full = full_stats_from_js(full_stats)?;
+        let options: PaletteOptions = from_js(options)?;
+        let palette = self
+            .session
+            .palette_display(&field.field, full.as_ref(), &options)
+            .map_err(throw)?;
+        palette_object(&palette)
     }
 
     /// Paint a field to RGBA on the CPU — the fallback, and the oracle the
@@ -469,6 +529,27 @@ impl Handle {
         let raster = self
             .session
             .render(&field.field, &options, flip_y)
+            .map_err(throw)?;
+        Ok(js_sys::Uint8Array::from(&raster.rgba[..]))
+    }
+
+    /// [`Handle::render`] for a field from [`Handle::decode_display`]: its own
+    /// `ni × nj` raster, coloured over the range [`Handle::palette_display`]
+    /// takes from `fullStats`, with `flipY` as `render` reads it.
+    #[wasm_bindgen(js_name = renderDisplay)]
+    pub fn render_display(
+        &self,
+        field: &WasmDisplayField,
+        #[wasm_bindgen(unchecked_param_type = "Stats | null")] full_stats: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
+        options: JsValue,
+        flip_y: bool,
+    ) -> Result<js_sys::Uint8Array, JsValue> {
+        let full = full_stats_from_js(full_stats)?;
+        let options: PaletteOptions = from_js(options)?;
+        let raster = self
+            .session
+            .render_display(&field.field, full.as_ref(), &options, flip_y)
             .map_err(throw)?;
         Ok(js_sys::Uint8Array::from(&raster.rgba[..]))
     }
@@ -610,6 +691,55 @@ fn set(object: &js_sys::Object, key: &str, value: impl Into<JsValue>) -> Result<
     Ok(())
 }
 
+/// A warp's output as `warp` and `warpDisplay` hand it over, with typed arrays.
+fn warped_object(out: &fieldglass::Warped) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set(
+        &object,
+        "values",
+        js_sys::Float32Array::from(&out.values[..]),
+    )?;
+    set(&object, "mask", js_sys::Uint8Array::from(&out.mask[..]))?;
+    set(&object, "width", JsValue::from_f64(f64::from(out.width)))?;
+    set(&object, "height", JsValue::from_f64(f64::from(out.height)))?;
+    set(&object, "bounds", to_js(&out.bounds)?)?;
+    Ok(object.into())
+}
+
+/// A palette as `palette` and `paletteDisplay` hand it over.
+fn palette_object(palette: &fieldglass::Palette) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set(&object, "lut", js_sys::Uint8Array::from(&palette.lut[..]))?;
+    set(&object, "t0", JsValue::from_f64(palette.t0))?;
+    set(&object, "t1", JsValue::from_f64(palette.t1))?;
+    // The one number the shader divides by, precomputed here so a host
+    // cannot subtract two large `f64`s in JS and hand the shader a value
+    // that already lost its precision.
+    set(&object, "span", JsValue::from_f64(palette.t1 - palette.t0))?;
+    set(&object, "scale", JsValue::from_str(palette.scale.as_str()))?;
+    set(
+        &object,
+        "maskedRgba",
+        js_sys::Uint8Array::from(&palette.masked_rgba[..]),
+    )?;
+    Ok(object.into())
+}
+
+/// The full field's `Stats` a display drawing call takes, as a page passes it
+/// back from `field.stats()`: `null` or `undefined` is none.
+fn full_stats_from_js(value: JsValue) -> Result<Option<Stats>, JsValue> {
+    if value.is_undefined() || value.is_null() {
+        return Ok(None);
+    }
+    serde_wasm_bindgen::from_value(value)
+        .map(Some)
+        .map_err(|e| {
+            throw(fieldglass::Error::invalid_option(format!(
+                "could not read the full-field stats: {e}"
+            )))
+        })
+}
+
 /// One decoded field, owned by the caller.
 #[wasm_bindgen]
 #[derive(Debug)]
@@ -697,6 +827,67 @@ impl WasmField {
     /// declares (#637); `null` otherwise. Show it beside the field —
     /// "shown at T359 of T7999" — since the map is smoother than the file, and
     /// read a point's full-detail value with `Handle.fullDetail`.
+    #[wasm_bindgen(unchecked_return_type = "SpectralTruncation | null")]
+    pub fn truncation(&self) -> Result<JsValue, JsValue> {
+        match &self.field.truncation {
+            Some(t) => to_js(t),
+            None => Ok(JsValue::NULL),
+        }
+    }
+}
+
+/// A field decoded to draw, from [`Handle::decode_display`], owned by the
+/// caller (#1082).
+///
+/// Deliberately not a [`WasmField`]: above reduction zero its values are a
+/// wavelet low-pass on a derived grid, so it has no `values()`, `stats()` or
+/// `mask()` to measure with, and the calls that measure (`probe`, `contours`,
+/// `combine`, the shader accessors) take a `WasmField` only. Its `reduction()`
+/// is what a `WasmField` lacks, so neither class is assignable to the other in
+/// TypeScript. Free it when you are done.
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct WasmDisplayField {
+    field: DisplayField,
+}
+
+#[wasm_bindgen]
+impl WasmDisplayField {
+    /// How many wavelet levels were discarded: `0` is the message's own field.
+    pub fn reduction(&self) -> u8 {
+        self.field.reduction
+    }
+
+    /// Grid columns: `ceil(ni / 2^reduction)` of the message's.
+    pub fn ni(&self) -> u32 {
+        self.field.ni
+    }
+
+    /// Grid rows: `ceil(nj / 2^reduction)` of the message's.
+    pub fn nj(&self) -> u32 {
+        self.field.nj
+    }
+
+    /// Where the field sits: above reduction zero, the **derived** grid (every
+    /// `2^reduction`-th point of the message's), never the message's own.
+    #[wasm_bindgen(unchecked_return_type = "Georef")]
+    pub fn grid(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.field.georef)
+    }
+
+    /// The parameter's name, as [`WasmField::parameter`].
+    #[wasm_bindgen(unchecked_return_type = "string | null")]
+    pub fn parameter(&self) -> JsValue {
+        nullable_text(self.field.parameter.as_deref())
+    }
+
+    /// The parameter's units, as [`WasmField::units`].
+    #[wasm_bindgen(unchecked_return_type = "string | null")]
+    pub fn units(&self) -> JsValue {
+        nullable_text(self.field.units.as_deref())
+    }
+
+    /// As [`WasmField::truncation`]; only a reduction-zero field has one.
     #[wasm_bindgen(unchecked_return_type = "SpectralTruncation | null")]
     pub fn truncation(&self) -> Result<JsValue, JsValue> {
         match &self.field.truncation {

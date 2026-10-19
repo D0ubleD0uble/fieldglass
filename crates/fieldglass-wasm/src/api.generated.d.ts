@@ -433,6 +433,96 @@ export interface DimensionInfo {
 }
 
 /**
+ * How a decode to **draw** should be shaped: `Session::decode_display`'s
+ * options (#1082).
+ *
+ * A type of its own rather than a field on `DecodeOptions`, because the two
+ * decodes return different types: `decode` a `Field`, whose values are the
+ * file's, and `decode_display` a `DisplayField`, whose values may not be.
+ */
+export interface DisplayDecodeOptions {
+  /**
+   * Element type to decode into, as `DecodeOptions::dtype`.
+   */
+  dtype?: Dtype;
+  /**
+   * How many of the finest JPEG 2000 wavelet levels to discard: `0` (the
+   * default) is the message's own field, `1` half the size on each axis, `2`
+   * a quarter. Only a GRIB2 message packed as JPEG 2000 (§5.40) honours a
+   * non-zero value, and only on a regular grid with no bitmap; every other
+   * message refuses one as `Error::Unsupported` rather than decoding in
+   * full and pretending.
+   */
+  reduce?: number;
+}
+
+/**
+ * A field decoded to **draw**, possibly at a reduced resolution (#1082):
+ * what `Session::decode_display` returns.
+ *
+ * Above reduction zero its values are a JPEG 2000 wavelet low-pass, which
+ * no GRIB message holds, on a grid derived from the message's own
+ * (`GridGeometry::subsampled`). They are right to look at and wrong to
+ * measure, so this is a type of its own rather than a `Field` with a
+ * flag. `render_display`, `warp_display` and `palette_display` take it;
+ * `Session::probe`, contours, combine and a CSV export take only a
+ * `Field`, so handing them one of these does not compile (and is a type
+ * error in the hosts' TypeScript). For the numbers, decode the message
+ * again with `Session::decode`.
+ *
+ * No `Stats` either. A wavelet low-pass is not bounded by the field it
+ * came from: it trims some extremes and overshoots others (the RAP
+ * fixture's maximum by 0.69 K at reduction 1), so a range taken from these
+ * values would not be the file's, and would differ between viewers at
+ * different reductions. The drawing calls take the full
+ * field's stats from the caller instead.
+ */
+export interface DisplayField {
+  /**
+   * The values to draw, in scan order, `ni * nj` of them. Read `mask`
+   * before a value. Above reduction zero these are wavelet averages,
+   * not the message's values.
+   */
+  values: Values;
+  /**
+   * One byte per cell: `1` present, `0` absent. Same length as `values`.
+   */
+  mask: number[];
+  /**
+   * Grid columns: `ceil(ni / 2^reduction)` of the message's.
+   */
+  ni: number;
+  /**
+   * Grid rows: `ceil(nj / 2^reduction)` of the message's.
+   */
+  nj: number;
+  /**
+   * Where the cells sit. Above reduction zero this is the **derived**
+   * grid, every `2^reduction`-th point of the message's, never the
+   * message's own.
+   */
+  georef: Georef;
+  /**
+   * How many of the finest wavelet levels were discarded: `0` is the
+   * message's own field, `1` half the size on each axis, `2` a quarter.
+   */
+  reduction: number;
+  /**
+   * As `Field::truncation`. Only a reduction-zero field can carry one,
+   * since a spectral message has no pyramid.
+   */
+  truncation: SpectralTruncation | null;
+  /**
+   * As `Field::parameter`.
+   */
+  parameter: string | null;
+  /**
+   * As `Field::units`.
+   */
+  units: string | null;
+}
+
+/**
  * Which element type a caller wants back from a decode.
  */
 export type Dtype =

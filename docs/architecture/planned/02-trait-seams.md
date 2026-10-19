@@ -348,33 +348,67 @@ facts rather than plans:
   are not the message's numbers" is to ask again at reduction zero, not to
   branch on a code.
 
-**The host half is not built, and the sequence below is what it would be.**
-It turns on a decision nobody has made: `Session::render`, `warp` and `palette`
-all take `&Field`, and so do `probe`, `contours` and `combine`. A
-`DisplayField` that the first three accept and the last three reject needs
-either a sealed trait bound on the render methods — which every binding then
-has to monomorphise anyway, since neither wasm-bindgen nor napi crosses a
-generic — or a parallel `render_display` / `warp_display` / `palette_display`
-on the host surface. ADR-0006 decision 2 ("no generics, lifetimes, or trait
-objects") bears on the first and `api_rules.rs` enforces it for types; it says
-nothing about method bounds, which is precisely the gap. Until that is settled
-the capability is reachable from the format crate and from nothing else.
+**The host half is built (#1082)**, as parallel methods. The owner chose them
+over a sealed trait bound on 2026-10-16: the bound would still need two methods
+in every binding, since neither wasm-bindgen nor napi crosses a generic, and it
+puts a generic on the host surface that ADR-0006 decision 2 rules out. A single
+field type with a reduction flag was rejected too, because misuse would fail
+only when it ran.
+
+* `Session::decode_display(i, &DisplayDecodeOptions { reduce, dtype })` returns
+  a `DisplayField`: values, mask, shape, a `Georef` built on
+  `GridGeometry::subsampled(r)`, and the `reduction`. It is its own options
+  type, not a field on `DecodeOptions`, because the two decodes return
+  different types. At reduction zero it is `decode`'s field for every message,
+  so a host that picks the level from the zoom has one code path.
+* `render_display`, `warp_display` and `palette_display` take a
+  `DisplayField`; `probe`, `contours`, `combine` and CSV take only a `Field`.
+  Handing them a display field is a compile error in Rust (`compile_fail`
+  doctests on `Session::decode_display`) and a type error in
+  the browser module's TypeScript (`WasmDisplayField` lacks `stats()` and has
+  `reduction()`, so neither class is assignable to the other; `package.mjs`
+  type-checks the misuse). The drawing half shares one implementation through
+  a private borrowed view of either type.
+* **The colour range is the full field's**, from `Stats` the caller supplies
+  (`full: Option<&Stats>`), never the display field's own: a wavelet low-pass
+  trims some extremes and overshoots others (the RAP fixture's maximum by
+  0.69 K at reduction 1), so its own range would differ between viewers at
+  different reductions. This is #880's rule 6, applied through
+  `fieldglass::full_field_extremes`, which both hosts call. `None` is allowed
+  only when both ends are manual.
+* A refusal above reduction zero is `Error::Unsupported`, so a host falls back
+  to reduction zero. The reader's refusals are `UnsupportedSection`, which the
+  general mapping files under `decode`; `decode_display` maps them itself.
+* The browser module binds `decodeDisplay`, `renderDisplay`, `warpDisplay` and
+  `paletteDisplay` on its `Handle`. The Node addon binds `decodeDisplay`, which
+  returns a `DisplayGrid` class, and `renderDisplay` on `Grib2Handle`; its
+  `renderGrid` pipeline is both the render and the warp, so a reprojection
+  target warps the coarse grid from its own geometry. Neither host caches the
+  display field: it is the caller's.
+* The conformance suite has the four as ops (`decodeDisplay`,
+  `renderDisplay`, `warpDisplay`, `paletteDisplay`) over the RAP fixture, with
+  the full stats passed back, and the two refusals: a message with no pyramid
+  (`unsupported`) and an automatic range with no stats (`invalid_option`).
+  The browser runner replays all four; the addon's replays the decode and the
+  render, and skips the other two because it has no warp or palette call.
 
 ```mermaid
 sequenceDiagram
     participant H as host
     participant S as Session (fieldglass)
-    participant M as Grib2Message
+    participant R as Grib2Reader
     participant J as rust_j2k
-    participant G as GridGeometry (From, in grib2)
-    H->>S: decode(i, { reduce: r })
-    S->>M: decode_with(DecodeOptions { reduce: r })
-    M->>J: decode_with(bytes, resolution_reduction = r)
-    J-->>M: ni/2^r × nj/2^r samples
-    M->>G: from(gds, r) — first point kept, dx·2^r, last point recomputed
-    M-->>S: values, mask, derived geometry
+    participant G as GridGeometry (core)
+    H->>S: decode_display(i, { reduce: r })
+    S->>R: decode_message_raster_with(i, DecodeOptions(r))
+    R->>J: decode_with(bytes, resolution_reduction = r)
+    J-->>R: ceil(ni/2^r) × ceil(nj/2^r) samples
+    R->>G: subsampled(r), first point kept, dx·2^r, last point recomputed
+    R-->>S: DisplayRaster (values, derived geometry)
     S-->>H: DisplayField
-    Note over H,S: render / warp only — probe, csv, contours, stats take a Field
+    H->>S: render_display / palette_display(field, full stats, opts)
+    H->>S: warp_display(field, opts), which takes no stats
+    Note over H,S: probe, csv, contours, combine take a Field and refuse this by type
 ```
 
 ## Presentation is data, not a seam

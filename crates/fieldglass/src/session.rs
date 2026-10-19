@@ -45,8 +45,9 @@ use crate::api::{ColourRange, Warped};
 // Only the message streams name a placement themselves; a slice's comes from
 // `Georef::from_slice`.
 use crate::api::{
-    Addressing, DimensionInfo, Dtype, Field, FullDetail, Georef, LeftOutArray, Line, MessageInfo,
-    MessageProbe, Probe, Scan, SourceFormat, Stats, Values, VariableInfo, VectorPairing,
+    Addressing, DimensionInfo, DisplayField, Dtype, Field, FullDetail, Georef, LeftOutArray, Line,
+    MessageInfo, MessageProbe, Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
+    VectorPairing,
 };
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use crate::api::{GridSupport, Placement};
@@ -91,6 +92,43 @@ impl DecodeOptions {
     #[must_use]
     pub fn new(dtype: Dtype) -> Self {
         Self { dtype }
+    }
+}
+
+/// How a decode to **draw** should be shaped: [`Session::decode_display`]'s
+/// options (#1082).
+///
+/// A type of its own rather than a field on [`DecodeOptions`], because the two
+/// decodes return different types: `decode` a [`Field`], whose values are the
+/// file's, and `decode_display` a [`DisplayField`], whose values may not be.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+#[non_exhaustive]
+pub struct DisplayDecodeOptions {
+    /// How many of the finest JPEG 2000 wavelet levels to discard: `0` (the
+    /// default) is the message's own field, `1` half the size on each axis, `2`
+    /// a quarter. Only a GRIB2 message packed as JPEG 2000 (§5.40) honours a
+    /// non-zero value, and only on a regular grid with no bitmap; every other
+    /// message refuses one as [`Error::Unsupported`] rather than decoding in
+    /// full and pretending.
+    #[serde(default)]
+    pub reduce: u8,
+    /// Element type to decode into, as [`DecodeOptions::dtype`].
+    #[serde(default)]
+    pub dtype: Dtype,
+}
+
+impl DisplayDecodeOptions {
+    /// The reduction, with the source's own element width. A constructor for
+    /// the reason [`DecodeOptions::new`] gives.
+    #[must_use]
+    pub fn new(reduce: u8) -> Self {
+        Self {
+            reduce,
+            dtype: Dtype::Auto,
+        }
     }
 }
 
@@ -1502,6 +1540,175 @@ impl Session {
         }
     }
 
+    /// Decode message `index` to **draw**, at the resolution `options` asks
+    /// for (#1082).
+    ///
+    /// A zoomed-out map samples a grid far more coarsely than it is stored, and
+    /// a JPEG 2000 (§5.40) message can answer coarsely without decoding the
+    /// whole field: on the committed RAP fixture a reduction of 1 decodes in
+    /// about a quarter of the time. The values are then a wavelet low-pass the
+    /// message does not hold, on every `2^r`-th point of its grid, so what comes
+    /// back is a [`DisplayField`] and not a [`Field`]: `render_display`,
+    /// `warp_display` and `palette_display` take it (named, not linked: they
+    /// are behind `render`, and this method is not), and nothing that measures
+    /// does.
+    ///
+    /// ```compile_fail,E0308
+    /// # use fieldglass::{DisplayDecodeOptions, Session};
+    /// # fn demo(session: &Session) {
+    /// let coarse = session.decode_display(0, &DisplayDecodeOptions::new(1)).unwrap();
+    /// // A display field is not a `Field`, so it cannot be probed.
+    /// session.probe(&coarse, 40.0, -100.0);
+    /// # }
+    /// ```
+    ///
+    /// Nor contoured, nor combined:
+    ///
+    /// ```compile_fail,E0308
+    /// # use fieldglass::{ContourOptions, DisplayDecodeOptions, Session};
+    /// # fn demo(session: &Session) {
+    /// let coarse = session.decode_display(0, &DisplayDecodeOptions::new(1)).unwrap();
+    /// session.contours(&coarse, &[], &ContourOptions::default());
+    /// # }
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// # use fieldglass::{CombineOp, DisplayDecodeOptions, Session};
+    /// # fn demo(session: &Session) {
+    /// let coarse = session.decode_display(0, &DisplayDecodeOptions::new(1)).unwrap();
+    /// session.combine(&coarse, &coarse, CombineOp::Difference);
+    /// # }
+    /// ```
+    ///
+    /// The same calls on a full decode compile, so each block above fails for
+    /// the reason it says and not for a typo:
+    ///
+    /// ```
+    /// # use fieldglass::{CombineOp, ContourOptions, DecodeOptions, Dtype, Session};
+    /// # fn demo(session: &Session) {
+    /// let full = session.decode(0, &DecodeOptions::new(Dtype::Auto)).unwrap();
+    /// session.probe(&full, 40.0, -100.0);
+    /// session.contours(&full, &[], &ContourOptions::default());
+    /// session.combine(&full, &full, CombineOp::Difference);
+    /// # }
+    /// ```
+    ///
+    /// At reduction zero this is [`decode`](Self::decode)'s field, values,
+    /// placement and labels alike, for every message `decode` serves: a host
+    /// that picks the reduction from the zoom has one code path.
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`decode`](Self::decode) raises, and above reduction zero
+    /// [`Error::Unsupported`] for a message that has no coarse field to give:
+    /// any GRIB1 message, a GRIB2 packing other than JPEG 2000, a bitmap, a
+    /// reduced grid, alternate-row or column-major scanning, and a grid family
+    /// with no derivable coarse grid (Gaussian among them), and a level past
+    /// the codestream's pyramid. A caller falls back to a lower level. A
+    /// codestream that does not decode is [`Error::Decode`], as it is at
+    /// reduction zero. [`Error::WrongAddressing`] for a variable container.
+    pub fn decode_display(
+        &self,
+        index: u32,
+        options: &DisplayDecodeOptions,
+    ) -> Result<DisplayField, Error> {
+        // Before anything else, for the reason `decode` gives, and naming this
+        // call rather than `decode`.
+        #[cfg(any(feature = "netcdf", feature = "zarr"))]
+        if matches!(self.reader, Reader::Arrays(_)) {
+            return Err(wrong_addressing(
+                Addressing::Variables,
+                "decode_display",
+                "decode_slice",
+            ));
+        }
+        let decode = DecodeOptions::new(options.dtype.clone());
+        if options.reduce == 0 {
+            let field = self.decode(index, &decode)?;
+            return Ok(DisplayField {
+                values: field.values,
+                mask: field.mask,
+                ni: field.ni,
+                nj: field.nj,
+                georef: field.georef,
+                reduction: 0,
+                truncation: field.truncation,
+                parameter: field.parameter,
+                units: field.units,
+            });
+        }
+        match &self.reader {
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(r) => {
+                let i = self.check_index(index)?;
+                let raster = r
+                    .decode_message_raster_with(
+                        i,
+                        fieldglass_grib2::DecodeOptions::new(options.reduce),
+                    )
+                    // The reader's refusals are `UnsupportedSection`, which the
+                    // general mapping files under `decode` — a corrupt file. A
+                    // message that has no coarse field is a valid one asked for
+                    // something it cannot give, and the caller's answer is to
+                    // ask at reduction zero, which is what `unsupported` means.
+                    // The reader keeps `UnsupportedSection` for exactly those
+                    // refusals; a codestream that does not decode is `Parse`
+                    // there, and stays `decode` here.
+                    .map_err(|e| match e {
+                        fieldglass_core::FieldglassError::UnsupportedSection(detail) => {
+                            Error::Unsupported { detail }
+                        }
+                        other => Error::from(other),
+                    })?;
+                let msg = &r.messages[i];
+                let (_, parameter, units) = grib2_parameter(msg);
+                let (ni, nj) = (raster.ni(), raster.nj());
+                let (values, mask, _) = pack_values(raster.display_values(), &decode);
+                Ok(DisplayField {
+                    values,
+                    mask,
+                    ni,
+                    nj,
+                    // The derived geometry, never the message's own: the coarse
+                    // raster is every `2^r`-th point, and on the GDS it would
+                    // draw at `1/2^r` of its size. A reduced grid and the two
+                    // scanning orders that are undone after the decode are
+                    // refused above, so the scan bits are the message's own and
+                    // there are no points per row to state.
+                    georef: Georef::from_slice(
+                        raster.geometry(),
+                        grib2_scan(msg),
+                        &msg.gds.template_name(),
+                        ni,
+                        nj,
+                    ),
+                    reduction: raster.resolution_reduction(),
+                    truncation: None,
+                    parameter,
+                    units,
+                })
+            }
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => {
+                self.check_index(index)?;
+                Err(Error::Unsupported {
+                    detail: format!(
+                        "resolution reduction {} was asked of a GRIB1 message, and only \
+                         GRIB2 JPEG 2000 (§5.40) carries the resolution pyramid a reduced \
+                         decode reads; decode it at reduction 0",
+                        options.reduce
+                    ),
+                })
+            }
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(_) => Err(wrong_addressing(
+                Addressing::Variables,
+                "decode_display",
+                "decode_slice",
+            )),
+        }
+    }
+
     /// The dataset's shared dimensions, in the order the file declares them.
     ///
     /// Shared is the point: two variables naming the same dimension are on the
@@ -2135,6 +2342,25 @@ impl Session {
         warp_field(field, options)
     }
 
+    /// [`warp`](Self::warp) for a field decoded to draw (#1082), on the grid it
+    /// was decoded onto — the derived one, above reduction zero.
+    ///
+    /// The output is display values, as `warp`'s always are, so nothing here
+    /// needs the full field: the window and the raster size are the caller's,
+    /// and the cells are sampled from the coarse grid by its own geometry.
+    ///
+    /// # Errors
+    ///
+    /// As [`warp`](Self::warp).
+    #[cfg(feature = "render")]
+    pub fn warp_display(
+        &self,
+        field: &DisplayField,
+        options: &WarpOptions,
+    ) -> Result<Warped, Error> {
+        warp_cells(&Cells::from(field), options)
+    }
+
     /// The colour decision, as data (ADR-0006 decision 3). The CPU painter
     /// reads the same value, so it is the oracle a GPU path is checked against
     /// rather than a second colour implementation.
@@ -2151,7 +2377,42 @@ impl Session {
     /// range the rule refuses, with the refusal's fields on it.
     #[cfg(feature = "render")]
     pub fn palette(&self, field: &Field, options: &PaletteOptions) -> Result<Palette, Error> {
-        build_palette(field, options).map(|(palette, _)| palette)
+        build_palette(field.stats.min.zip(field.stats.max), options).map(|(palette, _)| palette)
+    }
+
+    /// [`palette`](Self::palette) for a field decoded to draw (#1082), with its
+    /// automatic range taken from **the full field's** statistics, which the
+    /// caller supplies, never from the display field's own values.
+    ///
+    /// A wavelet low-pass trims some of a field's extremes and overshoots
+    /// others, so a coarse field's own range is not the file's, and two viewers
+    /// at different reductions would get different colours for the same
+    /// message. `full` is therefore the
+    /// [`Stats`] of the same message decoded with [`decode`](Self::decode), held
+    /// from an earlier full decode (the rule #880 settled: the automatic range
+    /// is the whole decoded field's). A display cell outside it takes the end's
+    /// colour, as any out-of-range cell does.
+    ///
+    /// `full` may be `None` when [`PaletteOptions::min`] and
+    /// [`PaletteOptions::max`] are both given, since the range needs no data
+    /// then.
+    ///
+    /// # Errors
+    ///
+    /// As [`palette`](Self::palette), and [`Error::InvalidOption`] when an end
+    /// is left to the data and `full` is `None`, or states no range while the
+    /// display field has present cells, or is not a range (an end missing, not
+    /// finite, or the minimum above the maximum).
+    #[cfg(feature = "render")]
+    pub fn palette_display(
+        &self,
+        field: &DisplayField,
+        full: Option<&Stats>,
+        options: &PaletteOptions,
+    ) -> Result<Palette, Error> {
+        let extremes =
+            crate::full_field_extremes(full, field.mask.contains(&1), options.min, options.max)?;
+        build_palette(extremes, options).map(|(palette, _)| palette)
     }
 
     /// Paint a field to RGBA on the CPU. The fallback path: a GPU host colours
@@ -2175,35 +2436,35 @@ impl Session {
         options: &PaletteOptions,
         flip_y: bool,
     ) -> Result<Raster, Error> {
-        // The raster is the field's stated shape, so that has to be the shape
-        // of the values it holds (#913).
-        require_field_shape(field)?;
-        let (palette, range) = build_palette(field, options)?;
-        let values = field.values.to_f64();
-        let flip = field.georef.scan.flips_source_rows(flip_y);
-        let (rgba, counts) =
-            palette.paint_counted(&values, Some(&field.mask), field.ni, field.nj, flip);
-        // `paint` answers an empty buffer for a raster whose byte count this
-        // target cannot address — `usize` is 32 bits on wasm32, the host this
-        // exists for. Say so, rather than handing back dimensions with no
-        // pixels behind them for a host to read off the end of.
-        let expected = (field.ni as usize)
-            .checked_mul(field.nj as usize)
-            .and_then(|px| px.checked_mul(4));
-        if Some(rgba.len()) != expected {
-            return Err(Error::Unsupported {
-                detail: format!(
-                    "a {}×{} RGBA raster does not fit this target's address space",
-                    field.ni, field.nj
-                ),
-            });
-        }
-        Ok(Raster {
-            rgba,
-            width: field.ni,
-            height: field.nj,
-            range: range.counted(&counts, u64::from(field.ni) * u64::from(field.nj)),
-        })
+        paint_cells(
+            &Cells::from(field),
+            field.stats.min.zip(field.stats.max),
+            options,
+            flip_y,
+        )
+    }
+
+    /// [`render`](Self::render) for a field decoded to draw (#1082): its own
+    /// `ni × nj` raster, coloured over the range
+    /// [`palette_display`](Self::palette_display) chooses from the full field's
+    /// `full` statistics, so a coarse map and the full one colour a value alike.
+    /// [`Raster::range`] counts the display field's cells.
+    ///
+    /// # Errors
+    ///
+    /// As [`render`](Self::render), and as
+    /// [`palette_display`](Self::palette_display) for `full`.
+    #[cfg(feature = "render")]
+    pub fn render_display(
+        &self,
+        field: &DisplayField,
+        full: Option<&Stats>,
+        options: &PaletteOptions,
+        flip_y: bool,
+    ) -> Result<Raster, Error> {
+        let extremes =
+            crate::full_field_extremes(full, field.mask.contains(&1), options.min, options.max)?;
+        paint_cells(&Cells::from(field), extremes, options, flip_y)
     }
 
     /// Sample one geographic point out of a field.
@@ -2473,7 +2734,7 @@ fn optional_values(field: &Field) -> Vec<Option<f64>> {
 /// 70,000 × 70,000 with four values, and a raster that size is gigabytes of
 /// nothing.
 #[cfg(feature = "render")]
-fn require_field_shape(field: &Field) -> Result<(), Error> {
+fn require_field_shape(field: &Cells<'_>) -> Result<(), Error> {
     let cells = usize::try_from(u64::from(field.ni) * u64::from(field.nj)).ok();
     if cells == Some(field.values.len()) {
         return Ok(());
@@ -2487,8 +2748,57 @@ fn require_field_shape(field: &Field) -> Result<(), Error> {
     )))
 }
 
+/// What the drawing calls read of a field: its values, mask, shape and
+/// placement, borrowed from a [`Field`] or a [`DisplayField`] (#1082).
+///
+/// So `render` / `render_display` and `warp` / `warp_display` are one
+/// implementation each, and the two field types differ only in where a colour
+/// range comes from, which is the one thing they must differ in. Private: the
+/// public surface keeps the two types apart, and this is how the drawing half
+/// treats them alike without letting a display field reach anything that
+/// measures.
+#[cfg(feature = "render")]
+struct Cells<'a> {
+    values: &'a Values,
+    mask: &'a [u8],
+    ni: u32,
+    nj: u32,
+    georef: &'a Georef,
+}
+
+#[cfg(feature = "render")]
+impl<'a> From<&'a Field> for Cells<'a> {
+    fn from(f: &'a Field) -> Self {
+        Self {
+            values: &f.values,
+            mask: &f.mask,
+            ni: f.ni,
+            nj: f.nj,
+            georef: &f.georef,
+        }
+    }
+}
+
+#[cfg(feature = "render")]
+impl<'a> From<&'a DisplayField> for Cells<'a> {
+    fn from(f: &'a DisplayField) -> Self {
+        Self {
+            values: &f.values,
+            mask: &f.mask,
+            ni: f.ni,
+            nj: f.nj,
+            georef: &f.georef,
+        }
+    }
+}
+
 #[cfg(feature = "render")]
 fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
+    warp_cells(&Cells::from(field), options)
+}
+
+#[cfg(feature = "render")]
+fn warp_cells(field: &Cells<'_>, options: &WarpOptions) -> Result<Warped, Error> {
     let geometry = &field.georef.geometry;
     // Refused before the window is resolved, so a bad size is reported as a bad
     // size rather than being masked by a grid that also states no extent.
@@ -2598,22 +2908,27 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     })
 }
 
-/// The palette for `field` under `options`, and the range it was built over.
+/// The palette for a field whose present-cell range is `extremes`, under
+/// `options`, and the range it was built over.
 ///
-/// The range is [`crate::colour_range()`] over the field's own statistics, so
-/// this host and the addon choose it by one rule (#1155). A field with no
-/// present cell and an automatic range has no range: the palette is built over
-/// a placeholder domain no cell reads, every cell paints transparent, and the
-/// range reports `null` ends rather than an error (#880 item 1).
+/// The range is [`crate::colour_range()`] over those extremes (a field's own
+/// statistics, or for a display field the full field's), so this host and the
+/// addon choose it by one rule (#1155). A field with no present cell and an
+/// automatic range has no range: the palette is built over a placeholder
+/// domain no cell reads, every cell paints transparent, and the range reports
+/// `null` ends rather than an error (#880 item 1).
 #[cfg(feature = "render")]
-fn build_palette(field: &Field, options: &PaletteOptions) -> Result<(Palette, ColourRange), Error> {
+fn build_palette(
+    extremes: Option<(f64, f64)>,
+    options: &PaletteOptions,
+) -> Result<(Palette, ColourRange), Error> {
     let colormap = crate::render::resolve_colormap(
         options.colormap_table.as_deref(),
         options.colormap.as_deref(),
     )?;
     let scale = crate::render::parse_scale(options.scale.as_deref())?;
     let range = crate::colour_range(
-        field.stats.min.zip(field.stats.max),
+        extremes,
         options.min,
         options.max,
         options.center,
@@ -2624,6 +2939,45 @@ fn build_palette(field: &Field, options: &PaletteOptions) -> Result<(Palette, Co
         Palette::build(&colormap, options.reversed, min, max, scale),
         range,
     ))
+}
+
+/// Paint `field`'s own `ni × nj` raster over the range `extremes` gives:
+/// [`Session::render`] and [`Session::render_display`].
+#[cfg(feature = "render")]
+fn paint_cells(
+    field: &Cells<'_>,
+    extremes: Option<(f64, f64)>,
+    options: &PaletteOptions,
+    flip_y: bool,
+) -> Result<Raster, Error> {
+    // The raster is the field's stated shape, so that has to be the shape
+    // of the values it holds (#913).
+    require_field_shape(field)?;
+    let (palette, range) = build_palette(extremes, options)?;
+    let values = field.values.to_f64();
+    let flip = field.georef.scan.flips_source_rows(flip_y);
+    let (rgba, counts) = palette.paint_counted(&values, Some(field.mask), field.ni, field.nj, flip);
+    // `paint` answers an empty buffer for a raster whose byte count this
+    // target cannot address (`usize` is 32 bits on wasm32, the host this
+    // exists for). Say so, rather than handing back dimensions with no
+    // pixels behind them for a host to read off the end of.
+    let expected = (field.ni as usize)
+        .checked_mul(field.nj as usize)
+        .and_then(|px| px.checked_mul(4));
+    if Some(rgba.len()) != expected {
+        return Err(Error::Unsupported {
+            detail: format!(
+                "a {}×{} RGBA raster does not fit this target's address space",
+                field.ni, field.nj
+            ),
+        });
+    }
+    Ok(Raster {
+        rgba,
+        width: field.ni,
+        height: field.nj,
+        range: range.counted(&counts, u64::from(field.ni) * u64::from(field.nj)),
+    })
 }
 
 // ---------------------------------------------------------------------------

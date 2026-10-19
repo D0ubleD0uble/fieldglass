@@ -189,6 +189,93 @@ function fieldObservation(field) {
   };
 }
 
+/** The keys of a `decodeDisplay` observation this binding answers (#1082).
+ *  `WasmDisplayField` has no `values()` or `mask()` by design, since its values
+ *  are not the file's, so the recorded `dtype`, lengths and samples are not
+ *  asked here; `renderDisplay` and `warpDisplay` cover the values. */
+const DISPLAY_FIELD_KEYS = ['ni', 'nj', 'reduction', 'parameter', 'units', 'georef', 'truncation'];
+
+/** The three display drawing calls, and the display field itself. */
+function displayObservation(handle, display, op, args) {
+  if (op === 'decodeDisplay') {
+    return {
+      ni: display.ni(),
+      nj: display.nj(),
+      reduction: display.reduction(),
+      parameter: display.parameter(),
+      units: display.units(),
+      georef: georef(display.grid()),
+      truncation: wire(display.truncation(), `${current}: truncation`),
+    };
+  }
+  if (op === 'warpDisplay') {
+    return warpObservation(
+      handle.warpDisplay(display, {
+        bilinear: args.bilinear ?? true,
+        bounds: args.bounds ?? null,
+        width: args.width ?? null,
+        height: args.height ?? null,
+      }),
+    );
+  }
+  // The stats a page holds from its own full decode of the same message.
+  let stats = null;
+  if (args.fullStats !== false) {
+    const full = handle.decode(args.index, { dtype: 'auto' });
+    try {
+      stats = full.stats();
+    } finally {
+      full.free();
+    }
+  }
+  if (op === 'paletteDisplay') {
+    return paletteObservation(handle.paletteDisplay(display, stats, paletteOptions(args)));
+  }
+  const rgba = handle.renderDisplay(display, stats, paletteOptions(args), args.flipY ?? false);
+  return rasterObservation(rgba, display.ni(), display.nj());
+}
+
+function warpObservation(out) {
+  return {
+    width: out.width,
+    height: out.height,
+    bounds: Array.from(out.bounds),
+    len: out.values.length,
+    maskOnes: out.mask.reduce((n, m) => n + (m === 1 ? 1 : 0), 0),
+    samples: sampleIndices(out.values.length).map((i) => ({
+      i,
+      v: out.mask[i] === 1 ? real(out.values[i]) : null,
+      m: out.mask[i],
+    })),
+  };
+}
+
+function paletteObservation(p) {
+  return {
+    t0: real(p.t0),
+    t1: real(p.t1),
+    scale: p.scale,
+    lutLen: p.lut.length,
+    lutSamples: sampleIndices(p.lut.length).map((i) => ({ i, b: p.lut[i] })),
+    maskedRgba: Array.from(p.maskedRgba),
+  };
+}
+
+function rasterObservation(rgba, width, height) {
+  let opaque = 0;
+  for (let k = 3; k < rgba.length; k += 4) if (rgba[k] === 255) opaque += 1;
+  return {
+    width,
+    height,
+    rgbaLen: rgba.length,
+    opaque,
+    pixels: sampleIndices(rgba.length / 4).map((i) => ({
+      i,
+      rgba: Array.from(rgba.subarray(i * 4, i * 4 + 4)),
+    })),
+  };
+}
+
 /** What the browser host answers for one case. Failures become the same
  *  `{ error: { code, hasMessage } }` shape the Rust runner records — and the
  *  code is really there, because `throw()` sets it on the JS `Error`. */
@@ -298,6 +385,21 @@ function withHandle(caseSpec, handle) {
     return wire(d, `${current}: fullDetail`);
   }
 
+  // A field decoded to draw (#1082), and the three calls that draw one. The
+  // drawing calls take the full field's stats from a decode of the same
+  // message, as a page holds them, unless the case says to pass none.
+  if (['decodeDisplay', 'renderDisplay', 'warpDisplay', 'paletteDisplay'].includes(op)) {
+    const display = handle.decodeDisplay(args.index, {
+      reduce: args.reduce ?? 0,
+      dtype: args.dtype ?? 'auto',
+    });
+    try {
+      return displayObservation(handle, display, op, args);
+    } finally {
+      display.free();
+    }
+  }
+
   // Everything else decodes first. The field is owned by this side, so it is
   // freed as soon as the observation is built.
   const field = handle.decode(args.index, decodeOptions(args));
@@ -323,54 +425,26 @@ function withHandle(caseSpec, handle) {
         }
       }
       case 'warp': {
-        const out = handle.warp(field, {
-          bilinear: args.bilinear ?? true,
-          bounds: args.bounds ?? null,
-          // The caller's own output raster (#465). Passed through as `null`
-          // rather than omitted when the case does not name one, so this
-          // adapter states the whole option set the façade takes.
-          width: args.width ?? null,
-          height: args.height ?? null,
-        });
-        return {
-          width: out.width,
-          height: out.height,
-          bounds: Array.from(out.bounds),
-          len: out.values.length,
-          maskOnes: out.mask.reduce((n, m) => n + (m === 1 ? 1 : 0), 0),
-          samples: sampleIndices(out.values.length).map((i) => ({
-            i,
-            v: out.mask[i] === 1 ? real(out.values[i]) : null,
-            m: out.mask[i],
-          })),
-        };
+        // The caller's own output raster (#465), passed through as `null`
+        // rather than omitted when the case does not name one, so this
+        // adapter states the whole option set the façade takes.
+        return warpObservation(
+          handle.warp(field, {
+            bilinear: args.bilinear ?? true,
+            bounds: args.bounds ?? null,
+            width: args.width ?? null,
+            height: args.height ?? null,
+          }),
+        );
       }
-      case 'palette': {
-        const p = handle.palette(field, paletteOptions(args));
-        return {
-          t0: real(p.t0),
-          t1: real(p.t1),
-          scale: p.scale,
-          lutLen: p.lut.length,
-          lutSamples: sampleIndices(p.lut.length).map((i) => ({ i, b: p.lut[i] })),
-          maskedRgba: Array.from(p.maskedRgba),
-        };
-      }
-      case 'render': {
-        const rgba = handle.render(field, paletteOptions(args), args.flipY ?? false);
-        let opaque = 0;
-        for (let k = 3; k < rgba.length; k += 4) if (rgba[k] === 255) opaque += 1;
-        return {
-          width: field.ni(),
-          height: field.nj(),
-          rgbaLen: rgba.length,
-          opaque,
-          pixels: sampleIndices(rgba.length / 4).map((i) => ({
-            i,
-            rgba: Array.from(rgba.subarray(i * 4, i * 4 + 4)),
-          })),
-        };
-      }
+      case 'palette':
+        return paletteObservation(handle.palette(field, paletteOptions(args)));
+      case 'render':
+        return rasterObservation(
+          handle.render(field, paletteOptions(args), args.flipY ?? false),
+          field.ni(),
+          field.nj(),
+        );
       case 'probe': {
         const p = handle.probe(field, args.lat ?? 0, args.lon ?? 0);
         // `null` off the grid, like every absent value here: an `undefined`
@@ -469,7 +543,12 @@ for (const entry of suite.cases) {
   if (observed && observed.error && typeof observed.error.code === 'string') {
     codesSeen.add(observed.error.code);
   }
-  const lines = compare(expect, observed, suite.tolerance);
+  // A display field answers only the keys `DISPLAY_FIELD_KEYS` names.
+  const expected =
+    caseSpec.op === 'decodeDisplay' && !expect.error
+      ? Object.fromEntries(DISPLAY_FIELD_KEYS.map((k) => [k, expect[k]]))
+      : expect;
+  const lines = compare(expected, observed, suite.tolerance);
   if (lines.length) {
     failures += 1;
     console.error(`FAIL ${caseSpec.id}`);

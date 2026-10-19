@@ -87,6 +87,19 @@ handle.contours(field, new Float64Array([]), { min: 270, max: 300 });
 const other = handle.decode(1, {});
 const diff = handle.combine(field, other, 'a_minus_b');
 
+// A zoomed-out map at a coarser JPEG 2000 level (#1082). `reduce: 1` is half
+// the size on each axis. The values are not the file's, so this is a
+// WasmDisplayField: only the three *Display calls take it, and TypeScript
+// refuses it to probe, contours and combine. The colour range is the full
+// field's, from its stats; pass `null` only with both `min` and `max` set.
+// A message with no coarse field throws `unsupported`; ask again at 0.
+const coarse = handle.decodeDisplay(0, { reduce: 1 });
+coarse.grid();                     // the derived grid: every second point
+handle.renderDisplay(coarse, field.stats(), {}, false);
+handle.warpDisplay(coarse, { bounds: [24, 50, -125, -66], width: 512, height: 512 });
+handle.paletteDisplay(coarse, field.stats(), {});
+
+coarse.free();
 diff.free();
 other.free();
 field.free();
@@ -243,7 +256,8 @@ that where it lines the two pictures up.
 Linear memory never shrinks and an animation holds many fields at once, so
 **the façade keeps no decode cache**. `decode()` hands a field to JS and JS owns
 it; `warp`, `render`, `probe`, `contours`, `combine`, and the shader accessors take it back
-by reference. Call `free()` on a field and on the handle when you are done —
+by reference; `decodeDisplay()` hands over a display field the same way. Call
+`free()` on a field and on the handle when you are done —
 a dropped JS reference does not release the wasm allocation until the host's
 `FinalizationRegistry` runs, if it runs at all.
 
@@ -471,12 +485,18 @@ already measured 1,637,153 and 643,516 (4.6%), and 1,623,582 and 638,372
 result and refusal types, and the contour options. The rest is the merges since
 #854.
 
+#1082 re-recorded it from the `ci.yml` run on its PR (#1185, `214eb524` merged
+onto `f0eebc2f`), whose drift read 1.1% for both builds: 18,733 raw bytes and
+5,965 gzipped above the previous baseline figures, and 18,283 and 7,231 above
+`+simd128`'s. That is the reduced-resolution decode, its display field and its
+three drawing calls.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,646,074 | 647,947 |
-| `+simd128` | 1,632,855 | 643,377 |
+| baseline | 1,664,807 | 653,912 |
+| `+simd128` | 1,651,138 | 650,608 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

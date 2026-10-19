@@ -1135,6 +1135,13 @@ fn decode_jpeg2000_packing(
 /// for a level the codestream does not carry has asked for a field that does
 /// not exist.
 ///
+/// **Errors.** [`FieldglassError::UnsupportedSection`] only for a level this
+/// codestream has no resolution for, which a lower level would serve. A
+/// codestream that is broken, or is not the single unsigned component
+/// `grid_jpeg` writes, or does not match the §3 grid, is
+/// [`FieldglassError::Parse`]: no level would decode it, so a caller told
+/// "unsupported" and falling back to reduction zero would fail again (#1082).
+///
 /// The caller ([`crate::Grib2Reader::decode_message_raster_with`]) owns every
 /// precondition this relies on — no bitmap, a regular raster, plain scan order
 /// — so the only checks here are the ones about the codestream itself. The
@@ -1188,9 +1195,15 @@ pub(crate) fn decode_jpeg2000_reduced(
     // can state 8192 × 8192. Same rounding, and the same zero-origin caveat,
     // as the decoded-shape check below, which stays as the decoder's own word.
     if let Some(siz) = read_siz(ds_payload, reduction) {
-        check_siz_kind(&siz)?;
+        // A codestream that is not one `grid_jpeg` writes fails at every
+        // resolution, so it is a decode failure here and not a refusal: see the
+        // note on errors above.
+        check_siz_kind(&siz).map_err(|e| match e {
+            FieldglassError::UnsupportedSection(detail) => FieldglassError::Parse(detail),
+            other => other,
+        })?;
         if siz.width != u64::from(expected_ni) || siz.height != u64::from(expected_nj) {
-            return Err(FieldglassError::UnsupportedSection(format!(
+            return Err(FieldglassError::Parse(format!(
                 "JPEG 2000 packing: codestream's SIZ gives a {}×{} image at resolution \
                  reduction {reduction}, but the §3 grid reduces to {expected_ni}×{expected_nj}",
                 siz.width, siz.height
@@ -1203,20 +1216,26 @@ pub(crate) fn decode_jpeg2000_reduced(
         rust_j2k::DecodeOptions::default().with_resolution_reduction(reduction),
     )
     .map_err(|e| {
-        FieldglassError::UnsupportedSection(format!(
-            "JPEG 2000 packing: decode at resolution reduction {reduction} failed: {e}"
-        ))
+        let detail =
+            format!("JPEG 2000 packing: decode at resolution reduction {reduction} failed: {e}");
+        // The codec's `Unsupported` is the one that can mean "not at this
+        // level": a reduction past a component's pyramid. Everything else it
+        // reports is a broken codestream, which no level would decode.
+        match e {
+            rust_j2k::Error::Unsupported(_) => FieldglassError::UnsupportedSection(detail),
+            _ => FieldglassError::Parse(detail),
+        }
     })?;
 
     if image.components.len() != 1 {
-        return Err(FieldglassError::UnsupportedSection(format!(
+        return Err(FieldglassError::Parse(format!(
             "JPEG 2000 packing: codestream holds {} components but grid_jpeg is single-component",
             image.components.len()
         )));
     }
     let component = image.component(0).expect("length checked to be 1");
     if component.signed {
-        return Err(FieldglassError::UnsupportedSection(
+        return Err(FieldglassError::Parse(
             "JPEG 2000 packing: signed component is unsupported".into(),
         ));
     }
@@ -1236,7 +1255,7 @@ pub(crate) fn decode_jpeg2000_reduced(
     // The full-resolution path makes the same assumption more quietly, by
     // reading the samples in order.
     if component.width != expected_ni || component.height != expected_nj {
-        return Err(FieldglassError::UnsupportedSection(format!(
+        return Err(FieldglassError::Parse(format!(
             "JPEG 2000 packing: resolution reduction {reduction} gives a {}×{} image, but the \
              §3 grid reduces to {expected_ni}×{expected_nj}",
             component.width, component.height

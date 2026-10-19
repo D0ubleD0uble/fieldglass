@@ -66,9 +66,11 @@ use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteRange, ByteSource};
 use std::borrow::Cow;
 
-use crate::api::{Dtype, Field, Line};
+use crate::api::{DisplayField, Dtype, Field, Line, Stats};
 use crate::error::Error;
-use crate::session::{ContourOptions, DecodeOptions, PaletteOptions, Session, WarpOptions};
+use crate::session::{
+    ContourOptions, DecodeOptions, DisplayDecodeOptions, PaletteOptions, Session, WarpOptions,
+};
 
 /// The recorded suite, as it ships in the crate.
 ///
@@ -154,6 +156,17 @@ pub enum Op {
     /// [`Session::decode_line`], with [`Args::variable`], [`Args::along_dim`]
     /// and [`Args::slice_indices`] (#172).
     DecodeLine,
+    /// [`Session::decode_display`] at [`Args::reduce`] (#1082): the field to
+    /// draw, on the derived grid.
+    DecodeDisplay,
+    /// [`Session::render_display`] of a [`Op::DecodeDisplay`] field, with the
+    /// full field's stats passed back unless [`Args::full_stats`] is `false`.
+    RenderDisplay,
+    /// [`Session::warp_display`], which takes no stats.
+    WarpDisplay,
+    /// [`Session::palette_display`], with the full stats as for
+    /// [`Op::RenderDisplay`].
+    PaletteDisplay,
 }
 
 /// Everything a runner needs to reproduce one call.
@@ -244,6 +257,13 @@ pub struct Args {
     /// The axis [`Op::DecodeLine`] reads along, as a position in the variable's
     /// own dimensions (#172).
     pub along_dim: Option<u32>,
+    /// [`DisplayDecodeOptions::reduce`] for the display ops (#1082).
+    pub reduce: Option<u8>,
+    /// Whether a display drawing op passes the full field's stats back, as a
+    /// host would from its own full decode. `None` and `true` pass them, from
+    /// `decode` of the same message; `false` passes none, which only a case
+    /// with both range ends manual survives.
+    pub full_stats: Option<bool>,
 }
 
 /// One case: an operation on a fixture, and what it produced.
@@ -780,6 +800,81 @@ pub fn cases() -> Vec<Case> {
         });
     }
 
+    // ---- A JPEG 2000 message drawn at a coarser level (#1082) ---------------
+    //
+    // RAP, NCEP's own Lambert surface temperature: the derived grid, the
+    // display field drawn and warped, its range taken from the full field's
+    // stats, and the two refusals a host branches on. `f64` so the addon,
+    // whose fields are always `f64`, compares the samples too.
+    let rap = format!("{G2}rap_jpeg2000_lambert.grib2");
+    let display = |reduce: u8| Args {
+        dtype: Some(Dtype::F64),
+        reduce: Some(reduce),
+        ..Args::default()
+    };
+    for (id, op, args) in [
+        ("reduced/decode_display", Op::DecodeDisplay, display(1)),
+        // Reduction zero is `decode`'s field.
+        ("reduced/decode_display_r0", Op::DecodeDisplay, display(0)),
+        (
+            "reduced/render_display",
+            Op::RenderDisplay,
+            Args {
+                colormap: Some("viridis".to_string()),
+                reversed: Some(false),
+                scale: Some("linear".to_string()),
+                flip_y: Some(false),
+                ..display(1)
+            },
+        ),
+        (
+            "reduced/warp_display",
+            Op::WarpDisplay,
+            Args {
+                bilinear: Some(true),
+                width: Some(64),
+                height: Some(48),
+                ..display(1)
+            },
+        ),
+        ("reduced/palette_display", Op::PaletteDisplay, display(1)),
+        // Both ends manual reads no data, so no stats are needed.
+        (
+            "reduced/palette_display_manual",
+            Op::PaletteDisplay,
+            Args {
+                full_stats: Some(false),
+                range_min: Some(270.0),
+                range_max: Some(320.0),
+                ..display(1)
+            },
+        ),
+        // An end left to the data and no stats to take it from.
+        (
+            "error/display_without_full_stats",
+            Op::PaletteDisplay,
+            Args {
+                full_stats: Some(false),
+                ..display(1)
+            },
+        ),
+    ] {
+        out.push(Case {
+            id: id.to_string(),
+            fixture: rap.clone(),
+            op,
+            args,
+        });
+    }
+    // Simple packing has no pyramid: refused as `unsupported`, so a host asks
+    // again at reduction zero.
+    out.push(Case {
+        id: "error/display_without_a_pyramid".to_string(),
+        fixture: latlon.clone(),
+        op: Op::DecodeDisplay,
+        args: display(1),
+    });
+
     // ---- The error cases, one per `Error` code -----------------------------
     //
     // Every code in `Suite::error_codes` has to be reachable through a call a
@@ -1131,6 +1226,116 @@ fn field_value(field: &Field) -> Value {
     })
 }
 
+/// What a field decoded to draw contributes to an observation (#1082): the
+/// shape [`field_value`] records, with the `reduction` in place of the stats a
+/// display field does not carry.
+fn display_field_value(field: &DisplayField) -> Value {
+    let values = field.values.to_f64();
+    let samples: Vec<Value> = sample_indices(values.len())
+        .into_iter()
+        .map(|i| {
+            json!({
+                "i": count(i),
+                "v": real(
+                    (field.mask.get(i).copied().unwrap_or(0) == 1)
+                        .then(|| values.get(i).copied())
+                        .flatten(),
+                ),
+                "m": count(usize::from(field.mask.get(i).copied().unwrap_or(0))),
+            })
+        })
+        .collect();
+    json!({
+        "dtype": match field.values.dtype() {
+            Dtype::F32 => "f32",
+            Dtype::F64 => "f64",
+            Dtype::Auto => "auto",
+        },
+        "len": count(values.len()),
+        "maskLen": count(field.mask.len()),
+        "maskOnes": count(field.mask.iter().filter(|&&m| m == 1).count()),
+        "ni": field.ni,
+        "nj": field.nj,
+        "reduction": field.reduction,
+        "parameter": field.parameter,
+        "units": field.units,
+        "georef": georef_value(&field.georef),
+        "truncation": value_of(&field.truncation),
+        "samples": samples,
+    })
+}
+
+/// A warp's observation: [`Op::Warp`] and [`Op::WarpDisplay`].
+fn warped_value(warped: &crate::api::Warped) -> Value {
+    let samples: Vec<Value> = sample_indices(warped.values.len())
+        .into_iter()
+        .map(|i| {
+            json!({
+                "i": count(i),
+                // `f32` widened, because a JS host reads a
+                // `Float32Array` and the two must be the same number.
+                // Masked as above: no value, not a stale one.
+                "v": real(
+                    (warped.mask.get(i).copied().unwrap_or(0) == 1)
+                        .then(|| warped.values.get(i).map(|&v| f64::from(v)))
+                        .flatten(),
+                ),
+                "m": count(usize::from(warped.mask.get(i).copied().unwrap_or(0))),
+            })
+        })
+        .collect();
+    json!({
+        "width": warped.width,
+        "height": warped.height,
+        "bounds": warped.bounds,
+        "len": count(warped.values.len()),
+        "maskOnes": count(warped.mask.iter().filter(|&&m| m == 1).count()),
+        "samples": samples,
+    })
+}
+
+/// A palette's observation: [`Op::Palette`] and [`Op::PaletteDisplay`].
+fn palette_value(palette: &fieldglass_core::colormap::Palette) -> Value {
+    let lut: Vec<Value> = sample_indices(palette.lut.len())
+        .into_iter()
+        .map(|i| json!({ "i": count(i), "b": count(usize::from(palette.lut[i])) }))
+        .collect();
+    json!({
+        "t0": real(Some(palette.t0)),
+        "t1": real(Some(palette.t1)),
+        "scale": palette.scale.as_str(),
+        "lutLen": count(palette.lut.len()),
+        "lutSamples": lut,
+        "maskedRgba": palette.masked_rgba.iter().map(|&b| count(usize::from(b))).collect::<Vec<_>>(),
+    })
+}
+
+/// A painted raster's observation: [`Op::Render`] and [`Op::RenderDisplay`].
+fn raster_value(raster: &crate::session::Raster) -> Value {
+    let pixels: Vec<Value> = sample_indices(raster.rgba.len() / 4)
+        .into_iter()
+        .map(|p| {
+            let k = p * 4;
+            json!({
+                "i": count(p),
+                "rgba": raster.rgba[k..k + 4]
+                    .iter()
+                    .map(|&b| count(usize::from(b)))
+                    .collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    json!({
+        "width": raster.width,
+        "height": raster.height,
+        "rgbaLen": count(raster.rgba.len()),
+        // Alpha, not colour: the one per-pixel decision that says
+        // whether the warp placed anything there.
+        "opaque": count(raster.rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count()),
+        "pixels": pixels,
+    })
+}
+
 /// The observation for a line, in the portable spelling [`field_value`] uses
 /// (#172): masked points as `null`, counts as integers, and the coordinates
 /// through [`real`] so a non-finite one is named rather than silently nulled.
@@ -1180,6 +1385,16 @@ fn error_value(e: &Error) -> Value {
 fn decode_options(args: &Args) -> DecodeOptions {
     DecodeOptions {
         dtype: args.dtype.clone().unwrap_or_default(),
+    }
+}
+
+/// Warp options from a case's [`Args`].
+fn warp_options(args: &Args) -> WarpOptions {
+    WarpOptions {
+        bilinear: args.bilinear.unwrap_or(true),
+        bounds: args.bounds,
+        width: args.width,
+        height: args.height,
     }
 }
 
@@ -1264,6 +1479,22 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
 
     let field =
         |index: u32| -> Result<Field, Error> { session.decode(index, &decode_options(&case.args)) };
+    let display = || -> Result<DisplayField, Error> {
+        let mut options = DisplayDecodeOptions::new(case.args.reduce.unwrap_or(0));
+        options.dtype = case.args.dtype.clone().unwrap_or_default();
+        session.decode_display(case.args.index, &options)
+    };
+    // The stats a host holds from its own full decode of the same message.
+    let full_stats = || -> Result<Option<Stats>, Error> {
+        if case.args.full_stats == Some(false) {
+            return Ok(None);
+        }
+        Ok(Some(
+            session
+                .decode(case.args.index, &DecodeOptions::new(Dtype::Auto))?
+                .stats,
+        ))
+    };
 
     let value = match case.op {
         Op::Open => json!({
@@ -1287,86 +1518,31 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         }
         Op::Decode => field_value(&field(case.args.index)?),
         Op::Warp => {
-            let field = field(case.args.index)?;
-            let options = WarpOptions {
-                bilinear: case.args.bilinear.unwrap_or(true),
-                bounds: case.args.bounds,
-                width: case.args.width,
-                height: case.args.height,
-            };
-            let warped = session.warp(&field, &options)?;
-            let samples: Vec<Value> = sample_indices(warped.values.len())
-                .into_iter()
-                .map(|i| {
-                    json!({
-                        "i": count(i),
-                        // `f32` widened, because a JS host reads a
-                        // `Float32Array` and the two must be the same number.
-                        // Masked as above: no value, not a stale one.
-                        "v": real(
-                            (warped.mask.get(i).copied().unwrap_or(0) == 1)
-                                .then(|| warped.values.get(i).map(|&v| f64::from(v)))
-                                .flatten(),
-                        ),
-                        "m": count(usize::from(warped.mask.get(i).copied().unwrap_or(0))),
-                    })
-                })
-                .collect();
-            json!({
-                "width": warped.width,
-                "height": warped.height,
-                "bounds": warped.bounds,
-                "len": count(warped.values.len()),
-                "maskOnes": count(warped.mask.iter().filter(|&&m| m == 1).count()),
-                "samples": samples,
-            })
+            warped_value(&session.warp(&field(case.args.index)?, &warp_options(&case.args))?)
         }
         Op::Palette => {
-            let field = field(case.args.index)?;
-            let palette = session.palette(&field, &palette_options(&case.args))?;
-            let lut: Vec<Value> = sample_indices(palette.lut.len())
-                .into_iter()
-                .map(|i| json!({ "i": count(i), "b": count(usize::from(palette.lut[i])) }))
-                .collect();
-            json!({
-                "t0": real(Some(palette.t0)),
-                "t1": real(Some(palette.t1)),
-                "scale": palette.scale.as_str(),
-                "lutLen": count(palette.lut.len()),
-                "lutSamples": lut,
-                "maskedRgba": palette.masked_rgba.iter().map(|&b| count(usize::from(b))).collect::<Vec<_>>(),
-            })
+            palette_value(&session.palette(&field(case.args.index)?, &palette_options(&case.args))?)
         }
-        Op::Render => {
-            let field = field(case.args.index)?;
-            let raster = session.render(
-                &field,
-                &palette_options(&case.args),
-                case.args.flip_y.unwrap_or(false),
-            )?;
-            let pixels: Vec<Value> = sample_indices(raster.rgba.len() / 4)
-                .into_iter()
-                .map(|p| {
-                    let k = p * 4;
-                    json!({
-                        "i": count(p),
-                        "rgba": raster.rgba[k..k + 4]
-                            .iter()
-                            .map(|&b| count(usize::from(b)))
-                            .collect::<Vec<_>>(),
-                    })
-                })
-                .collect();
-            json!({
-                "width": raster.width,
-                "height": raster.height,
-                "rgbaLen": count(raster.rgba.len()),
-                // Alpha, not colour: the one per-pixel decision that says
-                // whether the warp placed anything there.
-                "opaque": count(raster.rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count()),
-                "pixels": pixels,
-            })
+        Op::Render => raster_value(&session.render(
+            &field(case.args.index)?,
+            &palette_options(&case.args),
+            case.args.flip_y.unwrap_or(false),
+        )?),
+        Op::DecodeDisplay => display_field_value(&display()?),
+        Op::WarpDisplay => {
+            warped_value(&session.warp_display(&display()?, &warp_options(&case.args))?)
         }
+        Op::PaletteDisplay => palette_value(&session.palette_display(
+            &display()?,
+            full_stats()?.as_ref(),
+            &palette_options(&case.args),
+        )?),
+        Op::RenderDisplay => raster_value(&session.render_display(
+            &display()?,
+            full_stats()?.as_ref(),
+            &palette_options(&case.args),
+            case.args.flip_y.unwrap_or(false),
+        )?),
         Op::Probe => {
             let field = field(case.args.index)?;
             let probe = session.probe(

@@ -35,13 +35,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
     Addressing, Affine, AxisUnits, AxisValues, ColourRange, CombineOpInfo, ContourOptions,
-    DecodeOptions, DimensionInfo, Dtype, Error, Field, FullDetail, Georef, GridSupport,
-    Identification, Isoline, LeftOutArray, LeftOutCause, Line, MessageIdentity, MessageInfo,
-    MessageProbe, OutOfRange, PaletteOptions, PixelProbe, Placement, Positive, Probe, Projected,
-    RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Raster, RenderOptions,
-    ResolvedOptions, SourceFormat, SpectralTruncation, StatisticalStep, Stats, SurfaceCodes,
-    TargetKind, Values, VariableInfo, VectorOptions, VectorPairing, Vertical, WarpOptions,
-    WarpTarget, Warped,
+    DecodeOptions, DimensionInfo, DisplayDecodeOptions, DisplayField, Dtype, Error, Field,
+    FullDetail, Georef, GridSupport, Identification, Isoline, LeftOutArray, LeftOutCause, Line,
+    MessageIdentity, MessageInfo, MessageProbe, OutOfRange, PaletteOptions, PixelProbe, Placement,
+    Positive, Probe, Projected, RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Raster,
+    RenderOptions, ResolvedOptions, SourceFormat, SpectralTruncation, StatisticalStep, Stats,
+    SurfaceCodes, TargetKind, Values, VariableInfo, VectorOptions, VectorPairing, Vertical,
+    WarpOptions, WarpTarget, Warped,
 };
 // The window planner's (#1083), behind `zarr`, a default feature.
 use fieldglass::{ChunkRef, WindowPlan, WindowRequest};
@@ -113,6 +113,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Values", Class::Wire, ""),
     ("Stats", Class::Wire, ""),
     ("Field", Class::Wire, ""),
+    // A field decoded to draw, possibly at a reduced resolution (#1082).
+    ("DisplayField", Class::Wire, ""),
     // A line through an array (#172): a profile or time series at a cell.
     ("Line", Class::Wire, ""),
     ("MessageInfo", Class::Wire, ""),
@@ -170,6 +172,7 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Error", Class::Wire, ""),
     // --- session.rs ---------------------------------------------------------
     ("DecodeOptions", Class::Wire, ""),
+    ("DisplayDecodeOptions", Class::Wire, ""),
     ("WarpOptions", Class::Wire, ""),
     ("PaletteOptions", Class::Wire, ""),
     // The range contours are spaced over (#1155).
@@ -534,6 +537,7 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<Values>();
     is_wire_shaped::<Stats>();
     is_wire_shaped::<Field>();
+    is_wire_shaped::<DisplayField>();
     is_wire_shaped::<MessageInfo>();
     is_wire_shaped::<CombineOpInfo>();
     is_wire_shaped::<Warped>();
@@ -549,6 +553,7 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<RangeEnd>();
     is_wire_shaped::<Error>();
     is_wire_shaped::<DecodeOptions>();
+    is_wire_shaped::<DisplayDecodeOptions>();
     is_wire_shaped::<WarpOptions>();
     is_wire_shaped::<PaletteOptions>();
     is_wire_shaped::<ContourOptions>();
@@ -732,6 +737,7 @@ fn every_wire_type_round_trips_through_json() {
         r#"{"code":"invalid_option","detail":"x","rangeRefusal":null}"#,
     );
     round_trip::<DecodeOptions>("DecodeOptions", r#"{"dtype":"f64"}"#);
+    round_trip::<DisplayDecodeOptions>("DisplayDecodeOptions", r#"{"reduce":1,"dtype":"auto"}"#);
     round_trip::<WarpOptions>(
         "WarpOptions",
         r#"{"bilinear":true,"bounds":null,"width":512,"height":384}"#,
@@ -750,6 +756,10 @@ fn every_wire_type_round_trips_through_json() {
     // `GEOREF` stands in for the nested document, so the one `Georef` spelling
     // above is the only place its field names are written out.
     round_trip::<Field>("Field", &FIELD_JSON.replace("GEOREF", GEOREF_JSON));
+    round_trip::<DisplayField>(
+        "DisplayField",
+        &DISPLAY_FIELD_JSON.replace("GEOREF", GEOREF_JSON),
+    );
     round_trip::<Line>("Line", LINE_JSON);
     round_trip::<MessageInfo>(
         "MessageInfo",
@@ -870,6 +880,8 @@ const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever
 /// A `Field`, with the smallest raster that still has a mask and statistics.
 const LINE_JSON: &str = r#"{"values":{"dtype":"f64","data":[6.0,18.0]},"mask":[1,1],"stats":{"min":6.0,"max":18.0,"validCount":2},"variable":"temperature","units":"K","dimension":"time","coordinates":[0.0,6.0],"coordinateUnits":"hours since 2020-01-01 00:00:00","coordinateVertical":null}"#;
 const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"truncation":{"declared":7999,"truncatedTo":359},"stats":{"min":1.0,"max":3.0,"validCount":3},"parameter":"Temperature","units":"K"}"#;
+/// A `DisplayField`: a `Field`'s layout with a reduction and no statistics.
+const DISPLAY_FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"reduction":1,"truncation":null,"parameter":"Temperature","units":"K"}"#;
 
 /// A GRIB1 `MessageIdentity` with every optional field present.
 const MESSAGE_IDENTITY_GRIB1_JSON: &str = r#"{"edition":"grib1","tableVersion":128,"parameter":167,"localCentre":98,"levelType":1,"levelOctets":[0,0],"referenceTime":"2026-01-01T00:00:00Z","timeUnit":1,"p1":6,"p2":0,"timeRange":0,"gridType":0,"gridNumber":255,"dimensions":[360,181]}"#;
@@ -917,11 +929,13 @@ const ROUND_TRIPPED: &[&str] = &[
     "Raster",
     "Error",
     "DecodeOptions",
+    "DisplayDecodeOptions",
     "WarpOptions",
     "PaletteOptions",
     "ContourOptions",
     "Georef",
     "Field",
+    "DisplayField",
     "Line",
     "MessageInfo",
     "CombineOpInfo",
@@ -2013,6 +2027,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
 
     check_schema::<Georef>("Georef");
     check_schema::<Field>("Field");
+    check_schema::<DisplayField>("DisplayField");
     check_schema::<Line>("Line");
     check_schema::<MessageInfo>("MessageInfo");
     check_schema::<CombineOpInfo>("CombineOpInfo");
@@ -2033,6 +2048,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<Error>("Error");
     check_schema::<RenderOptions>("RenderOptions");
     check_schema::<DecodeOptions>("DecodeOptions");
+    check_schema::<DisplayDecodeOptions>("DisplayDecodeOptions");
     check_schema::<WarpOptions>("WarpOptions");
     check_schema::<PaletteOptions>("PaletteOptions");
     check_schema::<ContourOptions>("ContourOptions");
@@ -2082,6 +2098,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
 const SCHEMA_CHECKED: &[&str] = &[
     "Georef",
     "Field",
+    "DisplayField",
     "Line",
     "MessageInfo",
     "CombineOpInfo",
@@ -2102,6 +2119,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "Error",
     "RenderOptions",
     "DecodeOptions",
+    "DisplayDecodeOptions",
     "WarpOptions",
     "PaletteOptions",
     "ContourOptions",
@@ -2216,6 +2234,7 @@ const UPDATE_SCHEMA_ENV: &str = "FIELDGLASS_UPDATE_SCHEMA";
 /// what a host passes back is the object it received, with every key present.
 const SENT: &[&str] = &[
     "DecodeOptions",
+    "DisplayDecodeOptions",
     "WarpOptions",
     "PaletteOptions",
     "ContourOptions",
@@ -2290,7 +2309,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
         )*};
     }
     register!(returned:
-        SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, Line,
+        SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, DisplayField, Line,
         MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, VectorPairing, LeftOutArray, LeftOutCause,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
         Error, Raster, ColourRange, RangeSource, OutOfRange, RangeRefusal, RangeRefusalReason, RangeEnd,
@@ -2298,7 +2317,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
         WindowPlan, ChunkRef,
     );
     register!(sent:
-        DecodeOptions, WarpOptions, PaletteOptions, ContourOptions, RenderOptions, VectorOptions,
+        DecodeOptions, DisplayDecodeOptions, WarpOptions, PaletteOptions, ContourOptions, RenderOptions, VectorOptions,
         CandidateOptions, Query, SourceSpec, WindowRequest,
     );
 
