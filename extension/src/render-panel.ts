@@ -2590,7 +2590,7 @@ export function renderImagePanelHtml(
         }
 
         function blit(payload) {
-          askedKeys.shift();
+          takeAskedKey(payload);
           clearGesturePreview();
           const canvas = document.getElementById('canvas');
           if (!canvas) return;
@@ -2799,7 +2799,7 @@ export function renderImagePanelHtml(
           // A frame that fails ends playback rather than retrying it forever.
           stopAnimation();
           const err = msg.error || 'render failed';
-          const askedKey = askedKeys.length ? askedKeys.shift() : fieldKey();
+          const askedKey = takeAskedKey(msg);
           mountAnswered = true;
           // A refused colour range is said once, at the fields it is about
           // (showRangeRefusal); the status line only points there (#1155).
@@ -2854,15 +2854,30 @@ export function renderImagePanelHtml(
           }
         }
 
-        // Ask for a render, noting the field it asks for. The host answers each
-        // request once and in order, so the answers are matched to these keys
-        // first-in first-out: a refusal is said of the field its request
-        // named, not of whatever is chosen by the time it arrives (#1186).
-        const askedKeys = [];
+        // Each render request carries an id, and the field it asks for is kept
+        // under it until the host's answer (which echoes the id) comes back. A
+        // refusal is said of the field its request named, not of whatever is
+        // chosen by the time it arrives (#1186). An answer with no id the page
+        // knows (the host refusing on its own) is taken to be about the field
+        // chosen now.
+        let renderSeq = 0;
+        const askedKeys = new Map();
+        function newAsk() {
+          const seq = ++renderSeq;
+          askedKeys.set(seq, fieldKey());
+          if (askedKeys.size > 64) askedKeys.delete(askedKeys.keys().next().value);
+          return seq;
+        }
+        function takeAskedKey(msg) {
+          if (msg && typeof msg.seq === 'number' && askedKeys.has(msg.seq)) {
+            const key = askedKeys.get(msg.seq);
+            askedKeys.delete(msg.seq);
+            return key;
+          }
+          return fieldKey();
+        }
         function postRerender() {
-          askedKeys.push(fieldKey());
-          if (askedKeys.length > 64) askedKeys.shift();
-          vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(true), sliceFields(), compareRequest()));
+          vscode.postMessage(Object.assign({ type: 'rerenderRequest', seq: newAsk() }, currentOptions(true), sliceFields(), compareRequest()));
         }
 
         // The field selection a refusal was said of: the message, the variable
@@ -2874,13 +2889,18 @@ export function renderImagePanelHtml(
 
         // A refusal that holds whatever the data is: it names only what was
         // typed. The ones that took an end from the data (one end typed and the
-        // other left to the field; a center against the field's end) go stale
-        // when the field does.
+        // other left to the field; a center mirrored about the field's ends)
+        // go stale when the field does.
         function refusalIsDataFree(refusal) {
           switch (refusal.reason) {
-            case 'not_finite':
             case 'center_with_both_ends':
+            case 'center_outside':
               return true;
+            case 'not_finite':
+              // A typed value that is not a number names no given value. A center
+              // that pushes an end past the largest number does, and that
+              // reach comes from the data's ends.
+              return refusal.given == null;
             case 'inverted':
               return refusal.end === 'both';
             case 'log10_not_positive':
@@ -4914,7 +4934,7 @@ export function renderImagePanelHtml(
         // painted in storage order, then asks for the axis, and draws again
         // only if the axis turns its rows over (#1043).
         const readyOptions = currentOptions(true);
-        vscode.postMessage(Object.assign({ type: 'ready' }, readyOptions, sliceFields(), compareRequest()));
+        vscode.postMessage(Object.assign({ type: 'ready', seq: newAsk() }, readyOptions, sliceFields(), compareRequest()));
         //
         // Restoring the page asked for its axes already, ahead of the ready,
         // and a page written again has those requests dropped. So they are

@@ -332,7 +332,75 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       const state = await panel.drive([]);
       assert.strictEqual(state.rangeNote, null, "no note about the old field's maximum");
       assert.deepStrictEqual(state.rangeInvalid, []);
+      // Each answer names the request it answers, so the panel knows which
+      // field a refusal was said of.
+      const answers = panel.sent.filter((m: Msg) => m.type === "gridReady" || m.type === "gridError");
+      assert.ok(answers.length >= 3, "the renders were answered");
+      assert.ok(
+        answers.every((m: Msg) => typeof m.seq === "number"),
+        "every render answer echoes its request's seq",
+      );
+      assert.strictEqual(new Set(answers.map((m: Msg) => m.seq)).size, answers.length, "one seq each");
     } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a refusal that names only typed values stands for any field, until the range is edited (#1186)", async () => {
+    const p = await provider();
+    const { dir, file } = twoGrids();
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    const savedDialog = vscode.window.showSaveDialog;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      // The panel disables log10 whenever the typed minimum is not above 0, so
+      // the typed-only refusal a user can reach is the inverted pair.
+      await answer(
+        panel,
+        [MANUAL, { id: "range-min", value: 300 }, { id: "range-max", value: 290 }],
+        refusedAt("both"),
+        "the inverted range refused",
+      );
+      // Field B on another grid fails before the range is read, and a second
+      // field change after it: the refusal is about the typed values, so it
+      // stands through both.
+      for (const b of [1, 0]) {
+        const from = panel.sent.length;
+        await panel.drive([
+          { id: "compare-op", value: "a_minus_b" },
+          { id: "compare-field-b", value: b },
+        ]);
+        await panel.waitSent((m: Msg) => m.type === "gridError", from, `the answer with B = ${b}`);
+        const state = await panel.drive([]);
+        assert.notStrictEqual(state.rangeNote, null, `still up with B = ${b}`);
+        assert.deepStrictEqual(state.rangeInvalid, ["range-min", "range-max"]);
+      }
+      // Back on the other grid, an edit of the range ends it while the render
+      // still fails for the grids.
+      let from = panel.sent.length;
+      await panel.drive([{ id: "compare-field-b", value: 1 }]);
+      await panel.waitSent((m: Msg) => m.type === "gridError", from, "the grid error");
+      from = panel.sent.length;
+      await panel.drive([{ id: "scale-log", checked: true }]);
+      const err = await panel.waitSent(
+        (m: Msg) => m.type === "gridError" && !m.rangeRefusal,
+        from,
+        "the grid error after the log toggle",
+      );
+      assert.ok(err.error);
+      const sentBefore = panel.sent.length;
+      const state = await panel.drive([{ id: "export-png", click: true }]);
+      assert.strictEqual(state.rangeNote, null, "the edit ended the refusal");
+      assert.deepStrictEqual(state.rangeInvalid, []);
+      assert.ok(!state.exportStatus.includes("range fields"), "export is not blocked by the range");
+      await panel.waitSent(isType("exportPngDone"), sentBefore, "the PNG export's outcome");
+    } finally {
+      vscode.window.showSaveDialog = savedDialog;
       panel.dispose();
       editor.close();
       fs.rmSync(dir, { recursive: true, force: true });
