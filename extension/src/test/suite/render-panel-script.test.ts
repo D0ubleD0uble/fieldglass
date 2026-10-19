@@ -8,6 +8,10 @@
 //   and finds the one it was showing by name (#839). It used to keep the list
 //   it opened with, so a variable number the new file reuses drew another
 //   variable under the old name.
+// - What a page the panel has written over sends is not served, its `ready`
+//   included (#1202). The provider took the first `ready` after a rewrite as
+//   the new page's, so a ready the old page posted late drew the variable at
+//   its old number in the new file.
 // - Every helper the script injects with `.toString()` reaches the page, shown
 //   by using it (#841). The script parse check cannot see an unbound name, so a
 //   dropped injection parses fine and throws only when it is called.
@@ -19,6 +23,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
+import { PanelHandleGate } from "../../provider";
 import { UNPLACED_REASON } from "../../render-panel";
 import {
   type Editor,
@@ -245,6 +250,89 @@ suite("The render panel's own script", function () {
     }
   });
 
+  // The same, on a four-dimensional variable. Restored, the page asks for its
+  // axis labels before its `ready`, so the first request the provider reads
+  // after the change is an axis request, and it writes the page again while
+  // that `ready` is still on its way. The ready was posted by a page that is
+  // gone, naming `sst` by its number in the old file, and is not the new
+  // page's (#1202).
+  test("a slice panel finds its variable by name when its page asks for axes first (#1202)", async () => {
+    // `sst` is first of ERSST's two variables and second of OISST's.
+    const first = fs.readFileSync(netcdfFixture("ersst_v5_187001_cdf1.nc"));
+    const second = fs.readFileSync(netcdfFixture("oisst_avhrr_v2.nc"));
+    const before = indexOf(first, "sst");
+    const after = indexOf(second, "sst");
+    assert.notStrictEqual(before, after, "sst moves");
+    const { panel, change, done } = await changingFile(first, "sst");
+    try {
+      const opened = await panel.waitSent(isType("gridReady"), 0, "the first render");
+      assert.strictEqual(opened.messageIndex, before);
+
+      await change(second);
+      const from = panel.sent.length;
+      const received = panel.received.length;
+      panel.rebuild();
+      const reply = await panel.waitSent(drawnOrRefused, from, "the restored render");
+      // The page did ask for an axis ahead of its ready, or this test does not
+      // reach the case it is about.
+      const asked = panel.received.slice(received);
+      const firstAxis = asked.findIndex(isType("axisRequest"));
+      const firstReady = asked.findIndex(isType("ready"));
+      assert.ok(firstAxis >= 0 && firstAxis < firstReady, `asked ${asked.map((m) => m.type).join(", ")}`);
+      assert.strictEqual(reply.type, "gridReady", `${reply.error ?? ""}`);
+      assert.strictEqual(reply.messageIndex, after, "sst at its number in the new file");
+      assert.match(reply.titleLine, /^sst\b/);
+      // Nothing is drawn under another variable's name afterwards either.
+      const state = await panel.drive([]);
+      const others = panel.sent.slice(from).filter((m) => m.type === "gridReady" && !/^sst\b/.test(m.titleLine));
+      assert.deepStrictEqual(others.map((m) => m.titleLine), [], "every render after the change draws sst");
+      assert.strictEqual(state.sliceVariable, "sst");
+      assert.deepStrictEqual(state.sliceVariables, ["ice", "sst"]);
+      assert.match(state.title, /^sst\b/);
+    } finally {
+      done();
+    }
+  });
+
+  // A `ready` from a page the panel has written over is not answered, however
+  // late it arrives: here after the new page's own (#1202). It names `sst` by
+  // its number in the old file, which is `ice` in the new one.
+  test("a ready from a page the panel has written over is not served (#1202)", async () => {
+    const first = fs.readFileSync(netcdfFixture("ersst_v5_187001_cdf1.nc"));
+    const second = fs.readFileSync(netcdfFixture("oisst_avhrr_v2.nc"));
+    const after = indexOf(second, "sst");
+    const { panel, change, done } = await changingFile(first, "sst");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const old = panel.received.filter(isType("ready")).pop();
+      assert.ok(old, "the first page's ready");
+
+      // The first request after the change has the page written again.
+      await change(second);
+      let from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      const restored = await panel.waitSent(drawnOrRefused, from, "the render after the change");
+      assert.strictEqual(restored.type, "gridReady", `${restored.error ?? ""}`);
+      assert.strictEqual(restored.messageIndex, after);
+
+      // The old page's ready arrives now.
+      from = panel.sent.length;
+      const seq = 990_001;
+      await panel.sendAsPage({ ...old, seq });
+      // A request after it is answered, so the ready has been read by then.
+      await panel.drive([{ id: "flip-y", checked: false }]);
+      const next = await panel.waitSent(isType("gridReady"), from, "the render after it");
+      assert.match(next.titleLine, /^sst\b/);
+      assert.deepStrictEqual(
+        panel.sent.slice(from).filter((m) => m.seq === seq).map((m) => `${m.type} ${m.titleLine ?? m.error}`),
+        [],
+        "the old page's ready is not answered",
+      );
+    } finally {
+      done();
+    }
+  });
+
   // The new file reuses the variable's number for another variable and does
   // not have it at all. Nothing is drawn under the old name: the panel says
   // the variable is gone and offers the new file's variables.
@@ -387,5 +475,44 @@ suite("The render panel's own script", function () {
     } finally {
       panel.dispose();
     }
+  });
+});
+
+// The gate both kinds of render panel read requests through, on its own.
+suite("A render panel's handle gate (#1202)", () => {
+  const serve = () => true;
+
+  test("only the page written last is served, and a page written again waits for its ready", () => {
+    const gate = new PanelHandleGate<string>("a");
+    const old = gate.page;
+    assert.strictEqual(gate.admit({ type: "ready", page: old }, "a", serve), true);
+    assert.strictEqual(gate.admit({ type: "ready" }, "a", serve), false, "an unnumbered message");
+
+    gate.rewrite("b");
+    const now = gate.page;
+    assert.notStrictEqual(now, old, "a page written again has a number of its own");
+    assert.strictEqual(gate.admit({ type: "ready", page: old }, "b", serve), false, "the old page's ready");
+    assert.strictEqual(gate.admit({ type: "axisRequest", page: now }, "b", serve), false, "before its ready");
+    assert.strictEqual(gate.admit({ type: "ready", page: now }, "b", serve), true);
+    assert.strictEqual(gate.admit({ type: "ready", page: old }, "b", serve), false, "after it too");
+    assert.strictEqual(gate.admit({ type: "rerenderRequest", page: old }, "b", serve), false);
+    assert.strictEqual(gate.admit({ type: "rerenderRequest", page: now }, "b", serve), true);
+    // A PNG export reads the page's own pixels.
+    assert.strictEqual(gate.admit({ type: "exportPng", page: old }, "b", serve), true);
+  });
+
+  test("a page kept for a new file keeps its number", () => {
+    const gate = new PanelHandleGate<string>("a");
+    const page = gate.page;
+    let adopted: string | undefined;
+    const served = gate.admit({ type: "rerenderRequest", page }, "b", (h) => {
+      adopted = h;
+      gate.keep(h);
+      return true;
+    });
+    assert.strictEqual(served, true);
+    assert.strictEqual(adopted, "b");
+    assert.strictEqual(gate.page, page);
+    assert.strictEqual(gate.admit({ type: "rerenderRequest", page }, "b", () => false), true, "served, not adopted again");
   });
 });

@@ -787,6 +787,12 @@ const DRIVER = `
         api.postMessage({ type: 'test:controls', tag: m.tag, controls: controls() });
         return;
       }
+      // A message posted to the provider as it is, as some page of this
+      // panel's would post it: one already replaced, say (#1202).
+      if (m && m.type === 'test:send') {
+        api.postMessage(m.message);
+        return;
+      }
       if (m && m.type === 'test:perturb') {
         const done = perturb(m.skip, m.values);
         api.postMessage({ type: 'test:perturbed', tag: m.tag, moved: done.moved, stuck: done.stuck, unknown: done.unknown });
@@ -909,6 +915,10 @@ export interface RealPanel {
   drag(from: [number, number], to: [number, number], outside?: boolean): Promise<void>;
   /** Post `m` to the page as the provider would. */
   post(m: Msg): Promise<void>;
+  /** Have the page post `m` to the provider exactly as given, unnumbered
+   *  unless `m.page` says otherwise, as a page this panel showed before
+   *  would have posted it (#1202). Resolves once the provider has heard it. */
+  sendAsPage(m: Msg): Promise<void>;
   /** Every control on the page, by id (radio groups as `radio:<name>`). */
   controls(): Promise<Record<string, string | boolean>>;
   /** Move every enabled control off its value, as a user would. `values`
@@ -1051,6 +1061,16 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       // Recorded in `sent` by the wrapper above, like the provider's own.
       await panel.webview.postMessage(m);
     },
+    sendAsPage: async (m) => {
+      const from = received.length;
+      const wire = JSON.stringify(m);
+      await panel.webview.postMessage({ type: "test:send", message: m });
+      // The provider's handler and this recorder hear the same event.
+      await waitUntil(
+        () => (received.slice(from).some((r) => JSON.stringify(r) === wire) ? true : undefined),
+        `the page's ${m.type}`,
+      );
+    },
     controls: async () => {
       const mine = ++tag;
       await panel.webview.postMessage({ type: "test:controls", tag: mine });
@@ -1150,6 +1170,16 @@ export async function openEditor(p: FieldglassEditorProvider, file: string): Pro
       for (const cb of onDispose.splice(0)) cb();
     },
   };
+}
+
+/** The number the provider wrote the page `html` with, which the page sends
+ *  back on every message (#1202). A stand-in webview that posts what the page
+ *  would has to carry it too, or the provider takes the message for a page it
+ *  has replaced. */
+export function pageNumberOf(html: string): number {
+  const page = /const PAGE = (\d+);/.exec(html);
+  assert.ok(page, "the panel script is numbered");
+  return Number(page[1]);
 }
 
 export const isType = (type: string) => (m: Msg) => m && m.type === type;
