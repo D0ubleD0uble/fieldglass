@@ -1018,6 +1018,103 @@ pub fn line_through(
     })
 }
 
+/// One line through a combined map (#1208): line `a` combined point by point
+/// with line `b` under `op` — the implementation behind
+/// [`Session::decode_line_combined`], keyed by name for the reason
+/// [`line_through`] is.
+///
+/// `a` and `b` each name an array and a position on every axis of it, as
+/// [`line_through`] takes them. Both lines run along `along_dim`, which must be
+/// the same axis, by name and length, in each array.
+///
+/// `hold_b` says which kind of axis the line runs along, which only the host
+/// knows:
+///
+/// * `false`, an axis of the map itself: `b` is read along it too, point for
+///   point, and the line is a row or column of the combined map. A host writes
+///   the clicked cell into both positions. Each entry for `along_dim` is
+///   ignored, as on a single line.
+/// * `true`, a held axis (a time or a level): `b` is the one value at its own
+///   position, its entry for `along_dim` included, combined with every step of
+///   `a`. That is what the map shows as Field A steps along the axis with
+///   Field B where it is drawn, so the point at `a`'s own entry is the map's
+///   value (#1208).
+///
+/// Both lines are read at full precision and combined by the rule
+/// [`crate::combine_values`] applies to every cell, then packed under
+/// `options`. The name, units, axis and coordinates are `a`'s: the caption
+/// `A − B` is the host's to compose, as for [`Session::combine`].
+///
+/// # Errors
+///
+/// Whatever [`line_through`] reports for either line; [`Error::InvalidOption`]
+/// for a held `b` whose entry for `along_dim` is past the end of the axis; and
+/// [`Error::Unsupported`] when the two lines do not run along the same axis.
+#[cfg(all(feature = "analysis", any(feature = "netcdf", feature = "zarr")))]
+pub fn line_through_combined(
+    source: &dyn ArraySource,
+    a: (&str, &[u32]),
+    b: (&str, &[u32]),
+    along_dim: u32,
+    hold_b: bool,
+    op: CombineOp,
+    options: &DecodeOptions,
+) -> Result<Line, Error> {
+    let exact = DecodeOptions::new(Dtype::F64);
+    let line_a = line_through(source, a.0, along_dim, a.1, &exact)?;
+    let line_b = line_through(source, b.0, along_dim, b.1, &exact)?;
+    let n = line_a.mask.len();
+    if line_a.dimension != line_b.dimension || n != line_b.mask.len() {
+        return Err(Error::Unsupported {
+            detail: format!(
+                "the two lines of a combined line run along the same axis; `a` runs along `{}` \
+                 ({n} points), `b` along `{}` ({} points)",
+                line_a.dimension,
+                line_b.dimension,
+                line_b.mask.len()
+            ),
+        });
+    }
+    let points = |line: &Line| -> Vec<Option<f64>> {
+        let values = line.values.to_f64();
+        line.mask
+            .iter()
+            .zip(values.iter())
+            .map(|(&m, &v)| (m == 1).then_some(v))
+            .collect()
+    };
+    let (points_a, points_b) = (points(&line_a), points(&line_b));
+    // A held `b` is its one cell: the point of its line at its own entry.
+    // `line_through` has checked the position holds one entry per axis.
+    let held = if hold_b {
+        let at = b.1[along_dim as usize] as usize;
+        let Some(&cell) = points_b.get(at) else {
+            return Err(Error::invalid_option(format!(
+                "`b`'s index {at} along `{}` is past the end of it (length {n})",
+                line_a.dimension
+            )));
+        };
+        Some(cell)
+    } else {
+        None
+    };
+    let cells: Vec<Option<f64>> = points_a
+        .iter()
+        .enumerate()
+        .map(|(k, &value_a)| {
+            let value_b = held.unwrap_or_else(|| points_b.get(k).copied().flatten());
+            crate::combine::combine_cell(value_a, value_b, op)
+        })
+        .collect();
+    let (values, mask, stats) = pack_values(&cells, options);
+    Ok(Line {
+        values,
+        mask,
+        stats,
+        ..line_a
+    })
+}
+
 /// One axis of the array named `array` in `source` — the implementation behind
 /// [`Session::axis_values`], keyed by name for the reason [`line_through`] is
 /// (#171).
@@ -2206,6 +2303,78 @@ impl Session {
                     count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
                 })?;
                 line_through(source, &var.name, along_dim, indices, options)
+            }
+        }
+    }
+
+    /// One line through a combined map (#1208): line `a` combined point by
+    /// point with line `b` under `op`, both along the same `along_dim`.
+    ///
+    /// Each request is what [`Session::decode_line`] takes. With `hold_b`
+    /// false the line runs along an axis of the map and `b` is read along it
+    /// too; with `hold_b` true it runs along a held axis (a time or a level)
+    /// and `b` is its one cell at its own position, combined with every step
+    /// of `a`. See `line_through_combined` for the rule and what the line is
+    /// labelled with (named in prose: it needs `netcdf` or `zarr` as well, and
+    /// this method is on every build with `analysis`).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidOption`] when the two requests read along different
+    /// axes, [`Error::WrongAddressing`] for a message stream, and otherwise
+    /// what [`Session::decode_line`] and `line_through_combined` report.
+    #[cfg(feature = "analysis")]
+    pub fn decode_line_combined(
+        &self,
+        a: &LineRequest,
+        b: &LineRequest,
+        hold_b: bool,
+        op: CombineOp,
+        options: &DecodeOptions,
+    ) -> Result<Line, Error> {
+        #[cfg(not(any(feature = "netcdf", feature = "zarr")))]
+        let _ = (a, b, hold_b, op, options);
+        if a.along_dim != b.along_dim {
+            return Err(Error::invalid_option(format!(
+                "the two lines of a combined line run along the same axis; `a` reads along \
+                 dimension {}, `b` along dimension {}",
+                a.along_dim, b.along_dim
+            )));
+        }
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => Err(wrong_addressing(
+                Addressing::Messages,
+                "decode_line_combined",
+                "decode",
+            )),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => Err(wrong_addressing(
+                Addressing::Messages,
+                "decode_line_combined",
+                "decode",
+            )),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(arrays) => {
+                let source = arrays.source.as_ref();
+                let vars = renderable_arrays(source.group());
+                let name = |variable: u32| {
+                    vars.get(variable as usize).map(|v| v.name.as_str()).ok_or(
+                        Error::NoSuchMessage {
+                            index: variable,
+                            count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
+                        },
+                    )
+                };
+                line_through_combined(
+                    source,
+                    (name(a.variable)?, &a.slice_indices),
+                    (name(b.variable)?, &b.slice_indices),
+                    a.along_dim,
+                    hold_b,
+                    op,
+                    options,
+                )
             }
         }
     }

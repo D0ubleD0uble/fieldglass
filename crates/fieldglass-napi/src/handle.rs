@@ -516,38 +516,84 @@ fn grid_field(value: serde_json::Value) -> Result<GridField, RenderError> {
 /// What a pipeline call draws, read strictly: an object naming `a`, `b` or
 /// `op` is a combination and must name all three and nothing else.
 pub(crate) fn grid_target(value: serde_json::Value) -> Result<GridTarget, RenderError> {
-    if let serde_json::Value::Object(map) = &value
-        && ["a", "b", "op"].iter().any(|k| map.contains_key(*k))
-    {
-        let serde_json::Value::Object(mut map) = value else {
-            unreachable!("matched as an object above");
-        };
-        if let Some(extra) = map.keys().find(|k| !["a", "b", "op"].contains(&k.as_str())) {
-            return Err(unreadable(
-                "combined target",
-                &format!("unknown key `{extra}`; it takes `a`, `b` and `op`"),
-            ));
-        }
-        let (Some(a), Some(b), Some(op)) = (map.remove("a"), map.remove("b"), map.remove("op"))
-        else {
-            return Err(unreadable(
-                "combined target",
-                &"it takes all of `a`, `b` and `op`",
-            ));
-        };
-        let serde_json::Value::String(op) = op else {
-            return Err(unreadable(
-                "combined target",
-                &"`op` is a `combineOps()` value",
-            ));
-        };
-        return Ok(GridTarget::Combined {
+    match combined_parts(value, "combined target")? {
+        Ok((a, b, op)) => Ok(GridTarget::Combined {
             a: grid_field(a)?,
             b: grid_field(b)?,
             op,
-        });
+        }),
+        Err(value) => grid_field(value).map(GridTarget::One),
     }
-    grid_field(value).map(GridTarget::One)
+}
+
+/// Two lines combined point by point, read strictly as `grid_target` reads a
+/// combined map: `{ a, b, op }` and nothing else, `a` and `b` each a line
+/// request (#1208).
+pub(crate) fn combined_lines(
+    value: serde_json::Value,
+) -> Result<(LineRequest, LineRequest, String, bool), RenderError> {
+    // `holdB` is the one key a combined line adds to a combined map's three.
+    let mut value = value;
+    let hold_b = match &mut value {
+        serde_json::Value::Object(map) => map.remove("holdB"),
+        _ => None,
+    };
+    let hold_b = match hold_b {
+        Some(serde_json::Value::Bool(hold)) => hold,
+        Some(other) => {
+            return Err(unreadable(
+                "combined line",
+                &format!("`holdB` is true or false, not {other}"),
+            ));
+        }
+        None => {
+            return Err(unreadable(
+                "combined line",
+                &"it takes `holdB`: whether the line runs along a held axis",
+            ));
+        }
+    };
+    match combined_parts(value, "combined line")? {
+        Ok((a, b, op)) => Ok((
+            read_request(a, "line `a`")?,
+            read_request(b, "line `b`")?,
+            op,
+            hold_b,
+        )),
+        Err(_) => Err(unreadable(
+            "combined line",
+            &"it takes `a` and `b`, two line requests, `op` and `holdB`",
+        )),
+    }
+}
+
+/// An object naming `a`, `b` or `op`, taken apart: all three and nothing
+/// else, `op` a string. Anything else is handed back as it came, as one field.
+#[allow(clippy::type_complexity)]
+fn combined_parts(
+    value: serde_json::Value,
+    what: &str,
+) -> Result<Result<(serde_json::Value, serde_json::Value, String), serde_json::Value>, RenderError>
+{
+    let serde_json::Value::Object(mut map) = value else {
+        return Ok(Err(value));
+    };
+    if !["a", "b", "op"].iter().any(|k| map.contains_key(*k)) {
+        return Ok(Err(serde_json::Value::Object(map)));
+    }
+    if let Some(extra) = map.keys().find(|k| !["a", "b", "op"].contains(&k.as_str())) {
+        return Err(unreadable(
+            what,
+            &format!("unknown key `{extra}`; it takes `a`, `b` and `op`"),
+        ));
+    }
+    let (Some(a), Some(b), Some(op)) = (map.remove("a"), map.remove("b"), map.remove("op")) else {
+        return Err(unreadable(what, &"it takes all of `a`, `b` and `op`"));
+    };
+    let serde_json::Value::String(op) = op else {
+        return Err(unreadable(what, &"`op` is a `combineOps()` value"));
+    };
+    Ok(Ok((a, b, op)))
 }
 
 /// The two slices of a combined slice target, which are drawn on the same
@@ -717,6 +763,28 @@ impl Handle {
         self.decode_line(line, options).map_err(|e| e.throw(&env))
     }
 
+    /// One line through a combined map (#1208): `{ a, b, op, holdB }`, two
+    /// line requests along the same `alongDim`, combined point by point under
+    /// `op`, a `value` from `combineOps()`.
+    ///
+    /// `holdB` says which kind of axis the line runs along. `false`, an axis
+    /// of the map: `b` is read along it too, and through a cell written into
+    /// both requests the line is a row or column of the combined map. `true`,
+    /// a held axis (a time or a level): `b` is its one cell at its own
+    /// position, its entry for `alongDim` included, combined with every step
+    /// of `a`, so the point at `a`'s entry is the combined map's value there.
+    /// Named, with units and coordinates, as `a`'s line.
+    #[napi(js_name = "decodeLineCombined")]
+    pub fn decode_line_combined_for_js(
+        &self,
+        env: Env,
+        #[napi(ts_arg_type = "CombinedLines")] line: serde_json::Value,
+        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<serde_json::Value>,
+    ) -> napi::Result<LineResult> {
+        self.decode_line_combined(line, options)
+            .map_err(|e| e.throw(&env))
+    }
+
     /// Decode one message to **draw**, at a reduced resolution (#1082):
     /// `options` is `{ reduce?, dtype? }`, the browser module's
     /// `decodeDisplay` options.
@@ -841,14 +909,15 @@ impl Handle {
 
     /// Each row's mean over longitude, against latitude (#240). Refused for a
     /// grid whose rows are not circles of latitude (rotated, projected,
-    /// curvilinear).
+    /// curvilinear). A combined target is averaged as the combined map, not
+    /// as `a` (#1208), and named as `a` is.
     #[napi(js_name = "zonalMean")]
     pub fn zonal_mean_for_js(
         &self,
         env: Env,
-        #[napi(ts_arg_type = "GridField")] field: serde_json::Value,
+        #[napi(ts_arg_type = "GridTarget")] target: serde_json::Value,
     ) -> napi::Result<LineResult> {
-        self.zonal_mean(field).map_err(|e| e.throw(&env))
+        self.zonal_mean(target).map_err(|e| e.throw(&env))
     }
 
     /// One field as CSV, as its UTF-8 bytes to write straight to disk (#341):
@@ -1037,6 +1106,34 @@ impl Handle {
         })?
     }
 
+    /// See `decode_line_combined_for_js`.
+    pub(crate) fn decode_line_combined(
+        &self,
+        line: serde_json::Value,
+        options: Option<serde_json::Value>,
+    ) -> Result<LineResult, RenderError> {
+        let (mut a, mut b, op, hold_b) = combined_lines(line)?;
+        if a.along_dim != b.along_dim {
+            return Err(Error::invalid_option(format!(
+                "the two lines of a combined line run along the same axis; `a` reads along \
+                 dimension {}, `b` along dimension {}",
+                a.along_dim, b.along_dim
+            ))
+            .into());
+        }
+        a.variable = self.resolve_variable(a.variable)?;
+        b.variable = self.resolve_variable(b.variable)?;
+        let options = decode_options(options)?;
+        on_slices!(self.inner()?, |h| h
+            .line_combined(&a, &b, hold_b, &op, &options))
+        .ok_or_else(|| {
+            wrong_addressing(
+                Addressing::Messages,
+                "`decodeLineCombined` addresses variables; a message has no axes to read along",
+            )
+        })?
+    }
+
     /// See `decode_display_for_js`.
     pub(crate) fn decode_display(
         &self,
@@ -1113,17 +1210,37 @@ impl Handle {
     }
 
     /// See `zonal_mean_for_js`.
-    pub(crate) fn zonal_mean(&self, field: serde_json::Value) -> Result<LineResult, RenderError> {
-        match (self.inner()?, self.resolve_field(grid_field(field)?)?) {
-            (Inner::Grib1(h), GridField::Message(i)) => Ok(h.zonal_mean(i)?),
-            (Inner::Grib2(h), GridField::Message(i)) => Ok(h.zonal_mean(i)?),
-            (Inner::Netcdf(h), GridField::Slice(s)) => {
-                Ok(h.zonal_mean(s.variable, s.y_dim, s.x_dim, s.slice_indices)?)
-            }
-            (Inner::Zarr(h), GridField::Slice(s)) => {
-                Ok(h.zonal_mean(s.variable, s.y_dim, s.x_dim, s.slice_indices)?)
-            }
-            (inner, _) => Err(wrong_target(inner)),
+    pub(crate) fn zonal_mean(&self, target: serde_json::Value) -> Result<LineResult, RenderError> {
+        let inner = self.inner()?;
+        match self.resolve(grid_target(target)?)? {
+            GridTarget::One(field) => match (inner, field) {
+                (Inner::Grib1(h), GridField::Message(i)) => Ok(h.zonal_mean(i)?),
+                (Inner::Grib2(h), GridField::Message(i)) => Ok(h.zonal_mean(i)?),
+                (Inner::Netcdf(h), GridField::Slice(s)) => {
+                    Ok(h.zonal_mean(s.variable, s.y_dim, s.x_dim, s.slice_indices)?)
+                }
+                (Inner::Zarr(h), GridField::Slice(s)) => {
+                    Ok(h.zonal_mean(s.variable, s.y_dim, s.x_dim, s.slice_indices)?)
+                }
+                (inner, _) => Err(wrong_target(inner)),
+            },
+            GridTarget::Combined { a, b, op } => match (inner, a, b) {
+                (Inner::Grib1(h), GridField::Message(a), GridField::Message(b)) => {
+                    Ok(h.zonal_mean_combined(a, b, &op)?)
+                }
+                (Inner::Grib2(h), GridField::Message(a), GridField::Message(b)) => {
+                    Ok(h.zonal_mean_combined(a, b, &op)?)
+                }
+                (Inner::Netcdf(h), GridField::Slice(a), GridField::Slice(b)) => {
+                    same_axes(&a, &b)?;
+                    Ok(h.zonal_mean_slice_combined(&a, &b, &op)?)
+                }
+                (Inner::Zarr(h), GridField::Slice(a), GridField::Slice(b)) => {
+                    same_axes(&a, &b)?;
+                    Ok(h.zonal_mean_slice_combined(&a, &b, &op)?)
+                }
+                (inner, _, _) => Err(wrong_target(inner)),
+            },
         }
     }
 
@@ -1735,5 +1852,247 @@ mod tests {
         let grib2 = Handle::from_vec(GRIB2.to_vec()).expect("opens");
         let e = grib2.set_p1(0, 7).expect_err("refused");
         assert_eq!(code(&e), Some("unsupported"), "{e}");
+    }
+
+    /// A line's points, absent ones as `None`.
+    fn points(line: &LineResult) -> Vec<Option<f64>> {
+        line.values
+            .iter()
+            .zip(&line.mask)
+            .map(|(&v, &m)| (m == 1).then_some(v))
+            .collect()
+    }
+
+    /// `sst` less `ssta` along latitude row `j`, from the two single lines.
+    fn row_difference(handle: &Handle, sst: u32, ssta: u32, j: u32) -> Vec<Option<f64>> {
+        let row = |variable: u32| {
+            let line = json!({ "variable": variable, "alongDim": 3, "sliceIndices": [0, 0, j, 0] });
+            points(&handle.decode_line(line, None).expect("a row"))
+        };
+        row(sst)
+            .into_iter()
+            .zip(row(ssta))
+            .map(|(a, b)| fieldglass::combine_cell(a, b, fieldglass::CombineOp::Difference))
+            .collect()
+    }
+
+    /// A combined line and a combined zonal mean read the map the combined
+    /// target draws (#1208): each point the two fields' combine, and each
+    /// row's mean the mean of the combined row.
+    #[test]
+    fn a_combined_line_and_zonal_mean_read_the_combined_map() {
+        let (handle, sst, ssta) = ersst();
+        let line = |variable: u32, j: u32| json!({ "variable": variable, "alongDim": 3, "sliceIndices": [0, 0, j, 0] });
+        let combined = handle
+            .decode_line_combined(
+                json!({ "a": line(sst, 40), "b": line(ssta, 40), "op": "a_minus_b", "holdB": false }),
+                None,
+            )
+            .expect("the combined row");
+        let want = row_difference(&handle, sst, ssta, 40);
+        assert!(want.iter().any(Option::is_some), "the row has sea in it");
+        assert_eq!(points(&combined), want);
+        assert_eq!(combined.variable.as_deref(), Some("sst"), "named as `a`");
+
+        let zonal = handle
+            .zonal_mean(json!({ "a": slice(sst), "b": slice(ssta), "op": "a_minus_b" }))
+            .expect("the combined zonal mean");
+        let rows = u32::try_from(zonal.values.len()).expect("rows");
+        let got = points(&zonal);
+        for j in 0..rows {
+            let row: Vec<f64> = row_difference(&handle, sst, ssta, j)
+                .into_iter()
+                .flatten()
+                .collect();
+            let want = (!row.is_empty()).then(|| row.iter().sum::<f64>() / row.len() as f64);
+            match (got[j as usize], want) {
+                (Some(g), Some(w)) => assert!((g - w).abs() < 1e-9, "row {j}: {g} against {w}"),
+                (g, w) => assert_eq!(g, w, "row {j}"),
+            }
+        }
+
+        // A message stream's combined zonal mean: a message and itself summed
+        // is twice the message.
+        let pair = Handle::from_vec([GRIB2, GRIB2].concat()).expect("opens");
+        let single = pair.zonal_mean(json!(0)).expect("one message");
+        let sum = pair
+            .zonal_mean(json!({ "a": 0, "b": 1, "op": "a_plus_b" }))
+            .expect("the sum");
+        let doubled: Vec<Option<f64>> = points(&single)
+            .into_iter()
+            .map(|v| v.map(|v| 2.0 * v))
+            .collect();
+        assert_eq!(points(&sum), doubled);
+    }
+
+    /// A store answers a combined line and zonal mean as its NetCDF twin does,
+    /// though the store goes through `Session` and the file through its own
+    /// reader: `t − a` along each axis, and averaged by row (#1208).
+    #[test]
+    fn a_store_combines_as_its_netcdf_twin_does() {
+        let store = open_store("../fieldglass-zarr/tests/fixtures/stores/cf_v3".to_string())
+            .expect("the store opens");
+        let twin = Handle::from_vec(
+            std::fs::read("../fieldglass-zarr/tests/fixtures/cf_twin.nc").expect("the twin"),
+        )
+        .expect("the twin opens");
+        let index = |handle: &Handle, name: &str| {
+            handle
+                .variables()
+                .expect("lists")
+                .iter()
+                .find(|v| v.name == name)
+                .map(|v| v.index)
+                .expect("listed")
+        };
+        let answers = |handle: &Handle| {
+            let (t, a) = (index(handle, "t"), index(handle, "a"));
+            let mut out = Vec::new();
+            for (along, at) in [(1u32, [2u32, 0u32]), (0, [0, 3])] {
+                let line = |variable: u32| json!({ "variable": variable, "alongDim": along, "sliceIndices": at });
+                let combined = handle
+                    .decode_line_combined(
+                        json!({ "a": line(t), "b": line(a), "op": "a_minus_b", "holdB": false }),
+                        None,
+                    )
+                    .expect("the combined line");
+                let single = |variable: u32| {
+                    points(&handle.decode_line(line(variable), None).expect("a line"))
+                };
+                let want: Vec<Option<f64>> = single(t)
+                    .into_iter()
+                    .zip(single(a))
+                    .map(|(x, y)| fieldglass::combine_cell(x, y, fieldglass::CombineOp::Difference))
+                    .collect();
+                assert_eq!(points(&combined), want, "along {along}");
+                out.push(points(&combined));
+            }
+            let slice = |variable: u32| json!({ "variable": variable, "yDim": 0, "xDim": 1, "sliceIndices": [0, 0] });
+            let zonal = handle
+                .zonal_mean(json!({ "a": slice(t), "b": slice(a), "op": "a_minus_b" }))
+                .expect("the combined zonal mean");
+            out.push(points(&zonal));
+            out
+        };
+        let (from_store, from_twin) = (answers(&store), answers(&twin));
+        assert!(from_store[2].iter().any(Option::is_some), "a zonal mean");
+        assert_eq!(from_store, from_twin);
+    }
+
+    /// A GRIB1 file's combined zonal mean (#1208): a message and itself
+    /// summed is twice it, and their ratio is one wherever the message is not
+    /// zero.
+    #[test]
+    fn a_grib1_combined_zonal_mean_reads_the_combined_map() {
+        let one: &[u8] =
+            include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
+        let pair = Handle::from_vec([one, one].concat()).expect("opens");
+        let single = points(&pair.zonal_mean(json!(0)).expect("one message"));
+        assert!(single.iter().any(Option::is_some), "a zonal mean");
+        let sum = pair
+            .zonal_mean(json!({ "a": 0, "b": 1, "op": "a_plus_b" }))
+            .expect("the sum");
+        let doubled: Vec<Option<f64>> = single.iter().map(|v| v.map(|v| 2.0 * v)).collect();
+        assert_eq!(points(&sum), doubled);
+        let mean = pair
+            .zonal_mean(json!({ "a": 0, "b": 1, "op": "mean" }))
+            .expect("the mean");
+        assert_eq!(
+            points(&mean),
+            single,
+            "the mean of a message and itself is the message"
+        );
+    }
+
+    /// A combined zonal mean of two fields that do not line up is refused, as
+    /// the combined map is: two GRIB1 grids, or two slices on other axes.
+    #[test]
+    fn a_combined_zonal_mean_of_misaligned_fields_is_refused() {
+        let latlon: &[u8] =
+            include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
+        let gaussian: &[u8] =
+            include_bytes!("../../fieldglass-grib1/tests/fixtures/reduced_gg_n32.grib1");
+        let pair = Handle::from_vec([latlon, gaussian].concat()).expect("opens");
+        let e = pair
+            .zonal_mean(json!({ "a": 0, "b": 1, "op": "a_minus_b" }))
+            .expect_err("two grids");
+        // The words the alignment gate uses for the map, which is refused too.
+        assert!(e.to_string().contains("different grids"), "{e}");
+        let render = pair
+            .render_grid(json!({ "a": 0, "b": 1, "op": "a_minus_b" }), opts("source"))
+            .expect_err("the map is refused too");
+        assert!(render.to_string().contains("different grids"), "{render}");
+
+        let (handle, sst, _) = ersst();
+        let other = json!({ "variable": sst, "yDim": 3, "xDim": 2, "sliceIndices": [0, 0, 0, 0] });
+        let e = handle
+            .zonal_mean(json!({ "a": slice(sst), "b": other, "op": "a_minus_b" }))
+            .expect_err("two slices on other axes");
+        assert_eq!(code(&e), Some("invalid_option"), "{e}");
+    }
+
+    /// Along a held axis, `holdB` reads Field B once, at its own position,
+    /// and combines it with every step of Field A (#1208): on
+    /// `temperature(time, lat, lon) = t·12 + j·4 + i`, A at the cell is
+    /// `[6, 18]` along time and B at time 0 is 6.
+    #[test]
+    fn a_held_combined_line_reads_b_once() {
+        let handle = Handle::from_vec(
+            include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc").to_vec(),
+        )
+        .expect("opens");
+        let t = handle
+            .variables()
+            .expect("lists")
+            .iter()
+            .find(|v| v.name == "temperature")
+            .map(|v| v.index)
+            .expect("listed");
+        let line = |at: [u32; 3]| json!({ "variable": t, "alongDim": 0, "sliceIndices": at });
+        let combined = |hold_b: bool| {
+            points(
+                &handle
+                    .decode_line_combined(
+                        json!({ "a": line([1, 1, 2]), "b": line([0, 1, 2]), "op": "a_minus_b", "holdB": hold_b }),
+                        None,
+                    )
+                    .expect("the line"),
+            )
+        };
+        assert_eq!(combined(true), vec![Some(0.0), Some(12.0)]);
+        assert_eq!(
+            combined(false),
+            vec![Some(0.0), Some(0.0)],
+            "read along, B steps with A"
+        );
+    }
+
+    #[test]
+    fn a_combined_line_reads_strictly() {
+        let (handle, sst, ssta) = ersst();
+        let line = |variable: u32, along: u32| json!({ "variable": variable, "alongDim": along, "sliceIndices": [0, 0, 0, 0] });
+        for bad in [
+            line(sst, 3),
+            json!({ "a": line(sst, 3), "b": line(ssta, 3), "holdB": false }),
+            json!({ "a": line(sst, 3), "b": line(ssta, 3), "op": "a_minus_b" }),
+            json!({ "a": line(sst, 3), "b": line(ssta, 3), "op": "a_minus_b", "holdB": 1 }),
+            json!({ "a": line(sst, 3), "b": line(ssta, 3), "op": "a_minus_b", "holdB": false, "c": 0 }),
+            json!({ "a": 0, "b": line(ssta, 3), "op": "a_minus_b", "holdB": false }),
+            json!({ "a": line(sst, 3), "b": line(ssta, 2), "op": "a_minus_b", "holdB": false }),
+            json!({ "a": line(sst, 3), "b": line(ssta, 3), "op": "a_times_b", "holdB": false }),
+        ] {
+            let e = handle
+                .decode_line_combined(bad.clone(), None)
+                .expect_err("refused");
+            assert_eq!(code(&e), Some("invalid_option"), "{bad}: {e}");
+        }
+        let grib = Handle::from_vec(GRIB2.to_vec()).expect("opens");
+        let e = grib
+            .decode_line_combined(
+                json!({ "a": line(0, 0), "b": line(0, 0), "op": "a_minus_b", "holdB": false }),
+                None,
+            )
+            .expect_err("a message has no axes");
+        assert_eq!(code(&e), Some("wrong_addressing"), "{e}");
     }
 }

@@ -381,6 +381,18 @@ export interface CombinedFields {
 /** What the map pipeline draws: one field, or two combined. */
 export type GridTarget = GridField | CombinedFields;
 
+/** Two lines combined point by point under `op` (#1208): the line plot
+ *  through a Compare map. Both run along the same `alongDim`. Along an axis of
+ *  the map (`holdB` false) `b` is read along it too; along a held axis
+ *  (`holdB` true) `b` is its one cell at its own position, its entry for
+ *  `alongDim` included, combined with every step of `a`. */
+export interface CombinedLines {
+  a: LineRequest;
+  b: LineRequest;
+  op: string;
+  holdB: boolean;
+}
+
 /** The polylines an overlay projects (#72): flat `[lat, lon, …]` and how many
  *  points each ring has. */
 export interface Polylines {
@@ -459,6 +471,10 @@ export interface Handle {
   /** One line along `line.alongDim`, every other axis held at
    *  `line.sliceIndices` — the entry for `alongDim` is ignored (#172). */
   decodeLine(line: LineRequest, options?: DecodeOptions | null): LineResult;
+  /** One line through a combined map (#1208): `a` and `b` along the same
+   *  axis, combined point by point; see {@link CombinedLines} for `holdB`.
+   *  The point at `a`'s entry is the map's value. Named as `a`'s line. */
+  decodeLineCombined(line: CombinedLines, options?: DecodeOptions | null): LineResult;
   /** Decode a message to draw, at a reduced resolution (#1082): `reduce`
    *  discards that many of a JPEG 2000 message's finest wavelet levels. The
    *  values are not the file's, so the result is a {@link DisplayGrid}, which
@@ -486,8 +502,9 @@ export interface Handle {
    *  target reads the combined map (#329). */
   probePixel(target: GridTarget, options: RenderOptions, px: number, py: number): ProbeResult | null;
   /** Each row's mean over longitude, against latitude (#240). Throws for a grid
-   *  whose rows are not circles of latitude (rotated, projected, curvilinear). */
-  zonalMean(field: GridField): LineResult;
+   *  whose rows are not circles of latitude (rotated, projected, curvilinear).
+   *  A combined target is averaged as the combined map (#1208). */
+  zonalMean(target: GridTarget): LineResult;
   /** One field as CSV, as its UTF-8 bytes to write straight to disk (#341).
    *  `format` is `"matrix"` (a 2-D grid of values) or `"long"` (a
    *  `lat,lon,value` table); missing points are empty value cells. */

@@ -90,6 +90,10 @@ NAPI_ONLY: dict[str, str] = {
     "projectVectors": "arrows in the map pipeline's pixel space",
     "probePixel": "a pixel of the map pipeline's raster; the browser's `probe` reads a point",
     "zonalMean": "the extension's zonal-mean plot",
+    "decodeLineCombined": (
+        "the extension's line plot through a Compare map; the browser has no "
+        "Compare line plot yet (`Session::decode_line_combined` is ready for it)"
+    ),
     "exportCsv": "the extension's CSV export",
     "sliceGrid": "the slice picker's placement answers, without the geometry",
     "axisValues": "a cross-section's axis labels",

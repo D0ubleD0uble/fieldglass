@@ -140,7 +140,8 @@ export interface PageState {
   /** The Compare row's Field B, `null` when the panel has no such row. */
   compareFieldB: string | null;
   canvasVisibility: string;
-  /** The line plot (#172, #1037), `null` for a panel with no Line plot box. */
+  /** The line plot (#172, #1037), `null` for a panel with none. A GRIB panel
+   *  has one, for its zonal average, but no Line plot box (`boxShown` false). */
   linePlot: LinePlotState | null;
   /** A slice panel's axis rails (#171, #1043), `null` for a GRIB panel. */
   rails: RailsState | null;
@@ -444,17 +445,19 @@ const DRIVER = `
       };
     }
     function linePlot() {
+      // A GRIB panel has the plot, for its zonal average, but no Line plot
+      // box or axis picker.
+      if (!byId('line-panel')) return null;
       const toggle = byId('line-toggle');
-      if (!toggle) return null;
       const label = byId('line-axis-label');
       const read = (node) => node.tagName === 'SELECT'
         ? (node.selectedOptions[0] ? node.selectedOptions[0].textContent : '')
         : node.textContent;
       return {
-        boxShown: labelOf('line-toggle').getClientRects().length > 0,
-        checked: toggle.checked,
+        boxShown: !!toggle && labelOf('line-toggle').getClientRects().length > 0,
+        checked: !!toggle && toggle.checked,
         shown: byId('line-panel').getClientRects().length > 0,
-        label: label.getClientRects().length > 0 ? Array.from(label.childNodes).map(read).join('') : null,
+        label: label && label.getClientRects().length > 0 ? Array.from(label.childNodes).map(read).join('') : null,
         caption: byId('line-caption').textContent,
         plot: lineGeometry(),
       };

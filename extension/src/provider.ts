@@ -129,6 +129,12 @@ export function sliceTarget(
   };
 }
 
+/** What a message panel draws: its message, or that message combined with
+ *  message B (#239). */
+export function messageTarget(index: number, compare: GribCompare | null | undefined): GridTarget {
+  return compare ? { a: index, b: compare.messageIndexB, op: compare.op } : index;
+}
+
 /** The name a render panel calls its file or store by (#1038): the last part
  *  of its path, as the explorer shows it. A store is a directory, and a
  *  trailing separator does not hide its name. */
@@ -1032,7 +1038,7 @@ export class FieldglassEditorProvider
         // (B); otherwise a plain single-field render. Both return the same
         // paint-ready RGBA, so the panel displays them identically.
         const rendered = docHandle.renderGrid(
-          compare ? { a: shown.index, b: compare.messageIndexB, op: compare.op } : shown.index,
+          messageTarget(shown.index, compare),
           options,
         );
         panel.webview.postMessage({
@@ -1108,7 +1114,7 @@ export class FieldglassEditorProvider
       const compare = resolveGribCompare(req);
       try {
         const c = docHandle.projectContours(
-          compare ? { a: shown.index, b: compare.messageIndexB, op: compare.op } : shown.index,
+          messageTarget(shown.index, compare),
           options,
           { interval },
         );
@@ -1173,12 +1179,14 @@ export class FieldglassEditorProvider
 
     // The field's zonal mean (#240). A refusal travels with the reply, because
     // the reason — a rotated or projected grid has no latitude circles to average
-    // along — is what the panel should say instead of an empty plot.
-    const zonal = (seq?: number) => {
+    // along — is what the panel should say instead of an empty plot. A
+    // difference map's is the combined field's, not field A's (#1208).
+    const zonal = (req: { seq?: number }) => {
+      const seq = req.seq;
       const docHandle = this._handlesByDoc.get(key);
       if (!docHandle) return;
       try {
-        const result = docHandle.zonalMean(shown.index);
+        const result = docHandle.zonalMean(messageTarget(shown.index, resolveGribCompare(req)));
         panel.webview.postMessage({ type: "zonalResult", seq, messageIndex: shown.index, result, error: null });
       } catch (err) {
         panel.webview.postMessage({
@@ -1202,7 +1210,7 @@ export class FieldglassEditorProvider
       const compare = resolveGribCompare(req);
       try {
         const result = docHandle.probePixel(
-          compare ? { a: shown.index, b: compare.messageIndexB, op: compare.op } : shown.index,
+          messageTarget(shown.index, compare),
           options,
           px,
           py,
@@ -1264,7 +1272,7 @@ export class FieldglassEditorProvider
           return;
         }
         if (m.type === "zonalRequest") {
-          zonal((m as { seq?: number }).seq);
+          zonal(m as { seq?: number });
           return;
         }
         // Export CSV beside Export PNG (#1039): the message the panel draws,
@@ -1830,13 +1838,13 @@ export class FieldglassEditorProvider
     };
 
     // The slice's zonal mean (#240), with the refusal passed through as on the
-    // GRIB panel.
+    // GRIB panel. A difference map's is the combined field's (#1208).
     const zonal = (req: { slice?: SliceSpec; seq?: number }) => {
       const docHandle = subject.handle();
       if (!docHandle) return;
       const spec = req.slice ?? initial;
       try {
-        const result = docHandle.zonalMean(sliceOf(spec));
+        const result = docHandle.zonalMean(sliceTarget(spec, resolveNetcdfCompare(req)));
         panel.webview.postMessage({ type: "zonalResult", seq: req.seq, messageIndex: spec.variableIndex, result, error: null });
       } catch (err) {
         panel.webview.postMessage({
@@ -1862,12 +1870,29 @@ export class FieldglassEditorProvider
         panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
         return;
       }
+      const a = { variable: spec.variableIndex, alongDim: req.alongDim, sliceIndices: indices };
+      // On a difference map, the line through the combined field (#1208):
+      // Field B's slice with the same cell written in. Along an axis of the
+      // map the line is a row or column of it; along a held axis Field B stays
+      // where it is drawn, as it does while Field A steps (the owner's
+      // decision on #1208).
+      const compare = resolveNetcdfCompare(req);
+      const indicesB = compare
+        ? lineIndices({ ...spec, variableIndex: compare.variableIndexB, sliceIndices: compare.sliceIndicesB }, req.gridI, req.gridJ)
+        : null;
+      if (compare && !indicesB) {
+        panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
+        return;
+      }
       try {
-        const result = docHandle.decodeLine({
-          variable: spec.variableIndex,
-          alongDim: req.alongDim,
-          sliceIndices: indices,
-        });
+        const result = compare && indicesB
+          ? docHandle.decodeLineCombined({
+            a,
+            b: { variable: compare.variableIndexB, alongDim: req.alongDim, sliceIndices: indicesB },
+            op: compare.op,
+            holdB: req.alongDim !== spec.yDim && req.alongDim !== spec.xDim,
+          })
+          : docHandle.decodeLine(a);
         panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result });
       } catch {
         panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
@@ -2338,7 +2363,9 @@ export interface ProbeRequest {
 }
 
 /** `lineRequest` posted by the render panel once a probe has resolved a cell
- *  (#172): plot the variable through that cell along `alongDim`. */
+ *  (#172): plot the variable through that cell along `alongDim`. A Compare
+ *  map's carries its `compare` rider, read by {@link resolveNetcdfCompare}
+ *  (#1208). */
 export interface LineRequest {
   type: "lineRequest";
   /** Echoed in `lineResult` (and `zonalResult`), as `ProbeRequest.seq`. */

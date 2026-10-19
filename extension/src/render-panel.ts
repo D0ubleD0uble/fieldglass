@@ -3710,6 +3710,19 @@ export function renderImagePanelHtml(
         let probedCell = null;
         // The line on screen, so a resize can draw it again at the new width.
         let lastLine = null;
+        // What the plot asked for last is of: on a Compare map, the operation,
+        // as the status line names it (#1208), and nothing for one field.
+        let lineOf = '';
+
+        // The operation a request's compare rider names, as its menu entry
+        // reads, or '' for one field.
+        function compareOpLabel(rider) {
+          const op = rider && rider.compare ? rider.compare.op : '';
+          const opEl = document.getElementById('compare-op');
+          if (!op || !opEl) return '';
+          const entry = Array.from(opEl.options).find((o) => o.value === op);
+          return entry ? entry.text : '';
+        }
 
         // Put the plot away. The readout's cell is kept, so the plot can come
         // back for it; hideLine forgets that too, for a readout cleared.
@@ -3804,7 +3817,10 @@ export function renderImagePanelHtml(
         function requestLine() {
           const sel = document.getElementById('line-axis');
           if (!lineCell || !sel || sel.value === '') return;
-          vscode.postMessage({
+          // On a Compare map, the line through the map drawn (#1208).
+          const rider = drawnCompareRequest();
+          lineOf = compareOpLabel(rider);
+          vscode.postMessage(Object.assign({
             type: 'lineRequest',
             seq: ++lineSeq,
             alongDim: Number(sel.value),
@@ -3812,7 +3828,7 @@ export function renderImagePanelHtml(
             gridJ: lineCell.gridJ,
             // The slice the probed cell is a cell of (#1145).
             slice: drawnSpec(),
-          });
+          }, rider));
         }
 
         {
@@ -3859,7 +3875,7 @@ export function renderImagePanelHtml(
           const alongDim = Number(document.getElementById('line-axis').value);
           const spec = drawnSpec();
           const here = spec ? spec.sliceIndices[alongDim] : null;
-          drawLine(msg.result, here, 'No line through this cell.');
+          drawLine(msg.result, here, 'No line through this cell.', lineOf);
         }
 
         // --- Zonal average (#240) --------------------------------------------
@@ -3876,8 +3892,11 @@ export function renderImagePanelHtml(
 
         function requestZonal() {
           if (awaitingPick) return;
-          // Of the field on screen (#1145).
-          vscode.postMessage(Object.assign({ type: 'zonalRequest', seq: ++lineSeq }, drawnSliceFields()));
+          // Of the field on screen (#1145), a Compare map's combined field
+          // included (#1208).
+          const rider = drawnCompareRequest();
+          lineOf = compareOpLabel(rider);
+          vscode.postMessage(Object.assign({ type: 'zonalRequest', seq: ++lineSeq }, drawnSliceFields(), rider));
         }
 
         {
@@ -3902,13 +3921,14 @@ export function renderImagePanelHtml(
           // A refusal says why — a rotated or projected grid has no latitude
           // circles to average along — rather than leaving an empty plot.
           const reason = msg.error ? 'No zonal average: ' + msg.error : 'No zonal average for this field.';
-          drawLine(msg.result, null, reason);
+          drawLine(msg.result, null, reason, lineOf);
         }
 
         // Draw one line into the panel: a cell's profile or a field's zonal mean.
         // markIndex is the point to rule a dashed line through — where the
-        // slice on screen sits — or null for none.
-        function drawLine(line, markIndex, emptyText) {
+        // slice on screen sits — or null for none. The last argument names
+        // the operation of a Compare map's line, which the caption leads with.
+        function drawLine(line, markIndex, emptyText, of) {
           const panel = document.getElementById('line-panel');
           const svg = document.getElementById('line-plot');
           const caption = document.getElementById('line-caption');
@@ -3917,7 +3937,8 @@ export function renderImagePanelHtml(
           while (svg.firstChild) svg.removeChild(svg.firstChild);
           // Kept before anything is drawn, the empty answer included, so a resize
           // redraws what is on screen rather than the line before it.
-          lastLine = { line: line, markIndex: markIndex, emptyText: emptyText };
+          lastLine = { line: line, markIndex: markIndex, emptyText: emptyText, of: of };
+          const lead = of ? of + ' · ' : '';
           // The size this plot is drawn for, as the rails record theirs, once
           // its class (a profile is taller) has settled that size.
           const fit = () => { svg.dataset.fitted = sizeKey(svg.getBoundingClientRect()); };
@@ -3946,7 +3967,7 @@ export function renderImagePanelHtml(
           svg.classList.toggle('profile', !!vertical);
           fit();
           if (!present.length) {
-            caption.textContent = (line.variable || 'Values') + ' across ' + along + ': no data at this cell.';
+            caption.textContent = lead + (line.variable || 'Values') + ' across ' + along + ': no data at this cell.';
             return;
           }
 
@@ -4091,7 +4112,7 @@ export function renderImagePanelHtml(
           // A line with no name (#775) is captioned as values, not as nothing.
           // The range is written with "to" and a true minus (#1037), and
           // "across" as the axis picker's label has it.
-          caption.textContent = (line.variable || 'Values') + ' across ' + along + ' · ' +
+          caption.textContent = lead + (line.variable || 'Values') + ' across ' + along + ' · ' +
             range + units +
             ' · ' + present.length + ' of ' + n + ' points';
         }
@@ -4934,7 +4955,7 @@ export function renderImagePanelHtml(
             const svg = document.getElementById('line-plot');
             const panel = document.getElementById('line-panel');
             if (svg && lastLine && panel && !panel.hidden && svg.dataset.fitted !== sizeKey(svg.getBoundingClientRect())) {
-              drawLine(lastLine.line, lastLine.markIndex, lastLine.emptyText);
+              drawLine(lastLine.line, lastLine.markIndex, lastLine.emptyText, lastLine.of);
             }
           }
           window.addEventListener('resize', refitIfStale);

@@ -1533,6 +1533,30 @@ impl Grib1File {
         zonal_mean_of(&raw, &placed, name.as_deref(), units.as_deref())
     }
 
+    /// The zonal mean of a combined map (#1208): the two messages combined
+    /// under `op`, as the map draws them, then averaged. Named as message
+    /// `a` is.
+    pub(crate) fn zonal_mean_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: &str,
+    ) -> napi::Result<LineResult> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(op).into_napi()?;
+        let (raw_a, placed_a) = self.resolved(message_index_a)?;
+        let (raw_b, placed_b) = self.resolved(message_index_b)?;
+        let combined = combined_field(
+            &placed_a,
+            raw_a.as_ref(),
+            &placed_b,
+            raw_b.as_ref(),
+            op.as_str(),
+        )?;
+        let (name, units) = self.stream.parameter(message_index_a)?;
+        zonal_mean_of(&combined, &placed_a, name.as_deref(), units.as_deref())
+    }
+
     /// Patch the PDS `p1` (forecast period) octet of one message and return a
     /// fresh file: the handle's `setP1`. A caller opens a new handle over those
     /// bytes, so a handle's state never changes under an edit.
@@ -1815,6 +1839,30 @@ impl Grib2File {
         let (raw, placed) = self.resolved(message_index)?;
         let (name, units) = self.stream.parameter(message_index)?;
         zonal_mean_of(&raw, &placed, name.as_deref(), units.as_deref())
+    }
+
+    /// The zonal mean of a combined map (#1208): the two messages combined
+    /// under `op`, as the map draws them, then averaged. Named as message
+    /// `a` is.
+    pub(crate) fn zonal_mean_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: &str,
+    ) -> napi::Result<LineResult> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(op).into_napi()?;
+        let (raw_a, placed_a) = self.resolved(message_index_a)?;
+        let (raw_b, placed_b) = self.resolved(message_index_b)?;
+        let combined = combined_field(
+            &placed_a,
+            raw_a.as_ref(),
+            &placed_b,
+            raw_b.as_ref(),
+            op.as_str(),
+        )?;
+        let (name, units) = self.stream.parameter(message_index_a)?;
+        zonal_mean_of(&combined, &placed_a, name.as_deref(), units.as_deref())
     }
 
     /// The handle's `renderGrid` for one message. The refusal is the engine's, so
@@ -2382,6 +2430,35 @@ impl NetcdfFile {
         Ok(fieldglass::line_through(&arrays, name, along_dim, &slice_indices, options)?.into())
     }
 
+    /// One line through a combined map — `fieldglass::line_through_combined`
+    /// over this handle's own reader and view, as `line` is (#1208). The two
+    /// requests read along the same axis, which the handle has checked.
+    pub(crate) fn line_combined(
+        &self,
+        a: &fieldglass::LineRequest,
+        b: &fieldglass::LineRequest,
+        hold_b: bool,
+        op: &str,
+        options: &fieldglass::DecodeOptions,
+    ) -> Result<LineResult, RenderError> {
+        let op = fieldglass::op_from_wire(op)?;
+        let var_a = self.renderable(a.variable)?;
+        let var_b = self.renderable(b.variable)?;
+        let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
+        let name_a = var_a.name.strip_prefix('/').unwrap_or(&var_a.name);
+        let name_b = var_b.name.strip_prefix('/').unwrap_or(&var_b.name);
+        Ok(fieldglass::line_through_combined(
+            &arrays,
+            (name_a, &a.slice_indices),
+            (name_b, &b.slice_indices),
+            a.along_dim,
+            hold_b,
+            op,
+            options,
+        )?
+        .into())
+    }
+
     /// One 2-D slice's values, packed at the width `options` asks for: the
     /// handle's `decodeSlice` (#1073). The plane the renders draw, from the same
     /// memo, so a decode and a repaint of one slice read the file once.
@@ -2462,6 +2539,33 @@ impl NetcdfFile {
             &placed,
             Some(&var.name),
             self.slice_units(&var).as_deref(),
+        )
+    }
+
+    /// The zonal mean of two slices combined (#1208): combined under `op`, as
+    /// the map draws them, then averaged. Named as slice `a` is. The two are on
+    /// the same axes, which the handle has checked.
+    pub(crate) fn zonal_mean_slice_combined(
+        &self,
+        a: &fieldglass::SliceRequest,
+        b: &fieldglass::SliceRequest,
+        op: &str,
+    ) -> napi::Result<LineResult> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(op).into_napi()?;
+        let (y, x) = (a.y_dim as usize, a.x_dim as usize);
+        let var_a = self.renderable(a.variable)?;
+        let var_b = self.renderable(b.variable)?;
+        let plane_a = self.slice_plane(&var_a, y, x, &a.slice_indices)?;
+        let plane_b = self.slice_plane(&var_b, y, x, &b.slice_indices)?;
+        let placed_a = self.slice_placed(&var_a, y, x)?;
+        let placed_b = self.slice_placed(&var_b, y, x)?;
+        let combined = combined_field(&placed_a, &plane_a, &placed_b, &plane_b, op.as_str())?;
+        zonal_mean_of(
+            &combined,
+            &placed_a,
+            Some(&var_a.name),
+            self.slice_units(&var_a).as_deref(),
         )
     }
 
@@ -3294,6 +3398,23 @@ impl ZarrStore {
             .into())
     }
 
+    /// One line through a combined map — `Session::decode_line_combined`,
+    /// through this handle's session (#1208).
+    pub(crate) fn line_combined(
+        &self,
+        a: &fieldglass::LineRequest,
+        b: &fieldglass::LineRequest,
+        hold_b: bool,
+        op: &str,
+        options: &fieldglass::DecodeOptions,
+    ) -> Result<LineResult, RenderError> {
+        let op = fieldglass::op_from_wire(op)?;
+        Ok(self
+            .session
+            .decode_line_combined(a, b, hold_b, op, options)?
+            .into())
+    }
+
     /// One 2-D slice's values, packed at the width `options` asks for: the
     /// handle's `decodeSlice`, which is `Session::decode_slice` (#1073).
     pub(crate) fn decode_slice(
@@ -3366,6 +3487,34 @@ impl ZarrStore {
             &values,
             field.parameter.as_deref(),
             field.units.as_deref(),
+        )
+        .map(LineResult::from)
+        .into_napi()
+    }
+
+    /// The zonal mean of two slices combined — see
+    /// `NetcdfFile::zonal_mean_slice_combined`; combined through this handle's
+    /// session, as its other combined calls are (#1208).
+    pub(crate) fn zonal_mean_slice_combined(
+        &self,
+        a: &fieldglass::SliceRequest,
+        b: &fieldglass::SliceRequest,
+        op: &str,
+    ) -> napi::Result<LineResult> {
+        let (combined, values) = self.combined(
+            a.variable,
+            a.y_dim,
+            a.x_dim,
+            &a.slice_indices,
+            b.variable,
+            &b.slice_indices,
+            op,
+        )?;
+        fieldglass::render::zonal_mean(
+            &combined.source(),
+            &values,
+            combined.parameter.as_deref(),
+            combined.units.as_deref(),
         )
         .map(LineResult::from)
         .into_napi()
