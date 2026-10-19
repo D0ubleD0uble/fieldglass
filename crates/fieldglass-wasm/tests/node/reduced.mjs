@@ -112,8 +112,13 @@ for (const [what, options] of [['reduce: 0', { reduce: 0 }], ['no options', unde
 }
 
 // --- drawing ------------------------------------------------------------------
-const rgba = handle.renderDisplay(coarse, stats, { colormap: 'viridis' }, false);
-equal('renderDisplay paints the coarse raster', rgba.length, coarse.ni() * coarse.nj() * 4);
+const painted = handle.renderDisplay(coarse, stats, { colormap: 'viridis' }, false);
+const { rgba } = painted;
+equal('renderDisplay paints the coarse raster', [rgba.length, painted.width, painted.height], [
+  coarse.ni() * coarse.nj() * 4,
+  coarse.ni(),
+  coarse.nj(),
+]);
 let opaque = 0;
 for (let k = 3; k < rgba.length; k += 4) if (rgba[k] !== 0) opaque += 1;
 equal('every coarse cell is painted', opaque, coarse.ni() * coarse.nj());
@@ -124,6 +129,17 @@ const shown = handle.paletteDisplay(coarse, stats, {});
 const reference = handle.palette(full, {});
 equal('paletteDisplay ranges over the full field’s stats', [shown.t0, shown.t1], [reference.t0, reference.t1]);
 equal('and is the same lookup table', Array.from(shown.lut), Array.from(reference.lut));
+
+// Both report the range they used (#1156): the full field's ends, with the
+// coarse field's own cells counted. A low-pass overshoots the full field's
+// maximum here, and those cells take the top colour and say so.
+equal('renderDisplay reports the full field’s range', [painted.range.usedMin, painted.range.usedMax], [stats.min, stats.max]);
+equal('paletteDisplay reports the range renderDisplay used', shown.range, painted.range);
+equal('counted over the coarse cells', [painted.range.total, painted.range.present], [
+  coarse.ni() * coarse.nj(),
+  coarse.ni() * coarse.nj(),
+]);
+equal('the overshoot is counted above', painted.range.above > 0, true);
 
 // One window at one size, for both fields: they cover the same ground.
 const window = handle.warp(full, { bilinear: false }).bounds;
@@ -149,7 +165,7 @@ equal(
 );
 equal(
   'both ends manual needs no stats',
-  handle.renderDisplay(coarse, null, { min: 270, max: 320 }, false).length,
+  handle.renderDisplay(coarse, null, { min: 270, max: 320 }, false).rgba.length,
   coarse.ni() * coarse.nj() * 4,
 );
 const simple = wasm.open(new Uint8Array(readFileSync(SIMPLE)));

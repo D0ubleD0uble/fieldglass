@@ -9,8 +9,9 @@
 // handle (`fieldglass-napi`'s `range_rule_tests`). This checks the binding's
 // part, over the same committed GFS message #880 measured: real JavaScript
 // `NaN` and `Infinity` reach the rule, a refusal arrives as an `Error` with
-// `code` and `rangeRefusal` on it, and an empty field paints rather than
-// throwing.
+// `code` and `rangeRefusal` on it, an empty field paints rather than
+// throwing, and `render` and `palette` report the range they used (#1156).
+// `range_hosts.mjs` compares that range with the addon's.
 //
 // A CI gate, like `netcdf.mjs`: it needs only a committed fixture and a built
 // `pkg/nodejs`, and it fails loudly when either is missing.
@@ -78,12 +79,17 @@ const allClear = (rgba) => rgba.every((b, i) => i % 4 !== 3 || b === 0);
   const empty = handle.combine(field, zeros, 'ratio');
   equal('rule 1: the ratio has no present cell', empty.stats().validCount, 0);
   for (const scale of ['linear', 'log10']) {
-    let rgba = null;
+    let raster = null;
     equal(`rule 1 (${scale}): render does not throw`, thrown(() => {
-      rgba = handle.render(empty, { scale }, false);
+      raster = handle.render(empty, { scale }, false);
     }), null);
-    equal(`rule 1 (${scale}): every pixel is transparent`, rgba !== null && allClear(rgba), true);
-    equal(`rule 1 (${scale}): palette does not throw`, thrown(() => handle.palette(empty, { scale })), null);
+    equal(`rule 1 (${scale}): every pixel is transparent`, raster !== null && allClear(raster.rgba), true);
+    equal(`rule 1 (${scale}): and the range is null`, raster && [raster.range.usedMin, raster.range.usedMax, raster.range.present], [null, null, 0]);
+    let palette = null;
+    equal(`rule 1 (${scale}): palette does not throw`, thrown(() => {
+      palette = handle.palette(empty, { scale });
+    }), null);
+    equal(`rule 1 (${scale}): the palette reports the same null range`, palette && palette.range, raster && raster.range);
   }
   empty.free();
   zeros.free();
@@ -202,6 +208,78 @@ for (const scale of ['linear', 'log10']) {
   equal('center: symmetric about it', [p.t0, p.t1], [80000 - reach, 80000 + reach]);
   const e = thrown(() => handle.palette(field, { center: 80000, min: 70000, max: 90000 }));
   equal('center: refused beside two ends', e && e.rangeRefusal.reason, 'center_with_both_ends');
+}
+
+// Rule 7: both hosts report the range they used (#1156). `render` returns
+// `Session::render`'s `Raster` — `{ rgba, width, height, range }` — and a
+// palette carries the range it spans, the one `render` reports for the same
+// options, counts included, so a GPU page labels its legend from it.
+{
+  const ni = field.ni();
+  const nj = field.nj();
+  for (const [label, options] of [
+    ['auto', null],
+    ['manual', { min: 60000, max: 90000 }],
+    ['min alone', { min: 70000 }],
+    ['max alone', { max: 80000 }],
+    ['log10', { min: 60000, scale: 'log10' }],
+    ['centred', { center: 80000 }],
+  ]) {
+    const r = handle.render(field, options, false);
+    equal(`rule 7 (${label}): render's raster`, [r.rgba.constructor.name, r.width, r.height, r.rgba.length], [
+      'Uint8Array',
+      ni,
+      nj,
+      ni * nj * 4,
+    ]);
+    equal(`rule 7 (${label}): every key of the range`, Object.keys(r.range).sort(), [
+      'above',
+      'below',
+      'center',
+      'outOfRange',
+      'present',
+      'rangeSource',
+      'total',
+      'usedMax',
+      'usedMin',
+    ]);
+    equal(`rule 7 (${label}): the palette reports render's range`, handle.palette(field, options).range, r.range);
+  }
+
+  // The counts are the cells': every present cell, and the ones each end clamps.
+  const values = field.values();
+  const mask = field.mask();
+  let present = 0;
+  let below = 0;
+  let above = 0;
+  values.forEach((v, i) => {
+    if (mask[i] !== 1) return;
+    present += 1;
+    if (v < 60000) below += 1;
+    if (v > 90000) above += 1;
+  });
+  equal('rule 7: the range result of a clamped render', handle.render(field, { min: 60000, max: 90000 }, false).range, {
+    usedMin: 60000,
+    usedMax: 90000,
+    rangeSource: 'manual',
+    center: null,
+    outOfRange: 'clamp',
+    below,
+    above,
+    present,
+    total: ni * nj,
+  });
+  equal('rule 7: cells clamp at both ends', below > 0 && above > 0, true);
+  const auto = handle.render(field, null, false).range;
+  equal('rule 7: an automatic range is the field\'s, with nothing outside it', [
+    auto.usedMin,
+    auto.usedMax,
+    auto.rangeSource,
+    auto.below,
+    auto.above,
+  ], [lo, hi, 'auto', 0, 0]);
+  equal('rule 7: one end given', handle.render(field, { max: 80000 }, false).range.rangeSource, 'manual_max');
+  equal('rule 7: a center is echoed', handle.render(field, { center: 80000 }, false).range.center, 80000);
 }
 
 field.free();

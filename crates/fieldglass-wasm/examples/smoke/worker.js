@@ -82,7 +82,7 @@ async function run({ bytes, canvas, messageIndex, paletteOptions }) {
   const palette = handle.palette(field, paletteOptions);
 
   // The CPU oracle: exactly what a canvas would show without a GPU.
-  const cpu = handle.render(field, paletteOptions, false);
+  const cpu = handle.render(field, paletteOptions, false).rgba;
 
   // The GPU path: the same palette, the same field, through the exported
   // shader and nothing else.
