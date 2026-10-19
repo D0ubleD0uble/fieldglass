@@ -240,8 +240,8 @@ classDiagram
         +decodeDisplay(i, opts) DisplayField — #1082
         +renderDisplay / warpDisplay / paletteDisplay(display, full stats, opts)
         +warp(field, opts) Field
-        +render(field, opts) RGBA
-        +palette(opts) Palette
+        +render(field, opts) RGBA, size and ColourRange — #1156
+        +palette(opts) Palette and its ColourRange — #1156
         +probe(field, lat, lon)
         +contours(field, levels, opts)
         +combine(a, b, op) Field — #579
@@ -300,6 +300,7 @@ classDiagram
         +index(v) u8 — what the CPU painter emits
         +paint(values, mask, w, h, flip_y) RGBA
         +paint_counted(...) RGBA and PaintCounts, one pass
+        +count(values, mask) PaintCounts, no paint — #1156
     }
     class RenderedGrid {
         <<napi>>
@@ -355,4 +356,8 @@ caller's optional `min`, `max` and `center`, and returns a `ColourRange` or an
 `invalid_option` carrying a `RangeRefusal`. `Session::palette` and `render`,
 the addon's render path and both contour paths call it, and
 `Palette::paint_counted` fills the range's below, above and present counts in
-the pass that paints.
+the pass that paints. Both hosts report the range they used (#1156): the
+addon's `RenderedGrid.range`, and the browser module's `render(...).range` and
+`palette(...).range`. A palette paints nothing, so `Session::palette_range`
+counts the field's cells with `Palette::count`, and its range equals the one
+`render` reports for the same options.

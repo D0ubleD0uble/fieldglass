@@ -231,8 +231,7 @@ function displayObservation(handle, display, op, args) {
   if (op === 'paletteDisplay') {
     return paletteObservation(handle.paletteDisplay(display, stats, paletteOptions(args)));
   }
-  const rgba = handle.renderDisplay(display, stats, paletteOptions(args), args.flipY ?? false);
-  return rasterObservation(rgba, display.ni(), display.nj());
+  return rasterObservation(handle.renderDisplay(display, stats, paletteOptions(args), args.flipY ?? false));
 }
 
 function warpObservation(out) {
@@ -250,6 +249,14 @@ function warpObservation(out) {
   };
 }
 
+/** The colour range a render or a palette reports (#1156), as the suite
+ *  records it: the ends and the center through `real`, the rest as given. */
+function rangeObservation(range) {
+  const r = wire(range, `${current}: range`);
+  if (r === null) return null;
+  return { ...r, usedMin: real(r.usedMin), usedMax: real(r.usedMax), center: real(r.center) };
+}
+
 function paletteObservation(p) {
   return {
     t0: real(p.t0),
@@ -258,10 +265,14 @@ function paletteObservation(p) {
     lutLen: p.lut.length,
     lutSamples: sampleIndices(p.lut.length).map((i) => ({ i, b: p.lut[i] })),
     maskedRgba: Array.from(p.maskedRgba),
+    range: rangeObservation(p.range),
   };
 }
 
-function rasterObservation(rgba, width, height) {
+/** What `render` and `renderDisplay` return: `{ rgba, width, height, range }`,
+ *  `Session::render`'s `Raster` with the bytes as a `Uint8Array`. */
+function rasterObservation(raster) {
+  const { rgba, width, height } = raster;
   let opaque = 0;
   for (let k = 3; k < rgba.length; k += 4) if (rgba[k] === 255) opaque += 1;
   return {
@@ -273,6 +284,7 @@ function rasterObservation(rgba, width, height) {
       i,
       rgba: Array.from(rgba.subarray(i * 4, i * 4 + 4)),
     })),
+    range: rangeObservation(raster.range),
   };
 }
 
@@ -440,11 +452,7 @@ function withHandle(caseSpec, handle) {
       case 'palette':
         return paletteObservation(handle.palette(field, paletteOptions(args)));
       case 'render':
-        return rasterObservation(
-          handle.render(field, paletteOptions(args), args.flipY ?? false),
-          field.ni(),
-          field.nj(),
-        );
+        return rasterObservation(handle.render(field, paletteOptions(args), args.flipY ?? false));
       case 'probe': {
         const p = handle.probe(field, args.lat ?? 0, args.lon ?? 0);
         // `null` off the grid, like every absent value here: an `undefined`

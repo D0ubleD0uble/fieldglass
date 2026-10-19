@@ -272,7 +272,9 @@ export interface ChunkRef {
  * The counts are taken in the pass that paints, over the painted
  * raster's cells: `Session::render` counts the source grid's cells, and
  * the Node addon's render counts the pixels of the raster it warped to
- * (the source grid's again for its source projection).
+ * (the source grid's again for its source projection), and
+ * `Session::palette_range` counts the source grid's cells without
+ * painting them, for a host that colours on the GPU (#1156).
  *
  * A present cell is counted in `below` or
  * `above` only when it took an end's colour. Under a log10

@@ -279,24 +279,176 @@ fn a_center_centres_the_range() {
     );
 }
 
+/// The automatic contour levels for GFS message 0 over its own range, the list
+/// `Session::contours` pins in `crates/fieldglass/tests/colour_range_rules.rs`
+/// and the browser module's in `colour_range.mjs`. Pinned here too, so the
+/// three hosts are held to one list rather than each to "the levels moved"
+/// (#1156).
+const AUTO_LEVELS: [f64; 9] = [
+    55000.0, 60000.0, 65000.0, 70000.0, 75000.0, 80000.0, 85000.0, 90000.0, 95000.0,
+];
+
+/// The automatic levels over a manual 60000..90000, as those tests pin them.
+const MANUAL_LEVELS: [f64; 5] = [65000.0, 70000.0, 75000.0, 80000.0, 85000.0];
+
+/// The runs `projectContours` draws at exactly `levels`, one level at a time.
+///
+/// This host hands back projected runs, not the levels they trace, so a level
+/// list is read through the handle by drawing each level alone: a range just
+/// around it, with an interval that puts one level inside that range and none
+/// at its ends, then the runs of each in order. Equal runs mean the same
+/// levels, since a level's isolines depend on that level and the field alone.
+fn runs_at(h: &Grib2Handle, levels: &[f64]) -> (Vec<f64>, Vec<u32>) {
+    let (mut xy, mut lengths) = (Vec::new(), Vec::new());
+    for &level in levels {
+        let one = h
+            .project_contours(
+                0,
+                with_range(Some(level - 1.0), Some(level + 1.0)),
+                Some(5000.0),
+            )
+            .expect("contours");
+        assert!(!one.seg_lengths.is_empty(), "level {level} has isolines");
+        xy.extend_from_slice(&one.xy);
+        lengths.extend_from_slice(&one.seg_lengths);
+    }
+    (xy, lengths)
+}
+
 /// A manual range spaces the automatic contour levels here as `Session`'s
-/// contours do (#1155), and a range the render refuses, contours refuse.
+/// contours do (#1155): the same level lists, automatic and over a manual
+/// range (#1156).
 #[test]
 fn a_manual_range_spaces_the_automatic_contours() {
     let h = gfs();
-    let auto = h
-        .project_contours(0, opts("source"), None)
-        .expect("contours");
-    let manual = h
-        .project_contours(0, with_range(Some(60000.0), Some(90000.0)), None)
-        .expect("contours");
-    assert_ne!(
-        auto.xy.as_ref(),
-        manual.xy.as_ref(),
-        "the manual range moved the levels"
+    for (label, options, levels) in [
+        ("auto", opts("source"), &AUTO_LEVELS[..]),
+        (
+            "manual",
+            with_range(Some(60000.0), Some(90000.0)),
+            &MANUAL_LEVELS[..],
+        ),
+    ] {
+        let drawn = h.project_contours(0, options, None).expect("contours");
+        let (xy, lengths) = runs_at(&h, levels);
+        assert_eq!(drawn.seg_lengths.as_ref(), &lengths[..], "{label}");
+        assert_eq!(drawn.xy.as_ref(), &xy[..], "{label}");
+    }
+}
+
+/// A range the render refuses, every contour call refuses in the render's
+/// fields: the API's `code` and `RangeRefusal`, not prose alone (#1156). One
+/// call per handle and per combined variant, each of which used to drop them.
+#[test]
+fn contours_refuse_a_range_in_the_renders_fields() {
+    let inverted = || with_range(Some(90000.0), Some(60000.0));
+    let check = |what: &str, r: Result<ProjectedOverlay, RenderError>| {
+        let Err(e) = r else {
+            panic!("{what}: the range was not refused");
+        };
+        let api = e.api().unwrap_or_else(|| panic!("{what}: {}", e.reason()));
+        assert_eq!(api.code(), "invalid_option", "{what}");
+        let refusal = api.range_refusal().expect("a colour-range refusal");
+        assert_eq!(
+            (refusal.reason, refusal.end),
+            (RangeRefusalReason::Inverted, RangeEnd::Both),
+            "{what}"
+        );
+    };
+
+    let g2 = gfs();
+    // The render refuses it in the same fields.
+    let (_, from_render) = refused(g2.render_grid(0, inverted()));
+    let Err(e) = g2.project_contours(0, inverted(), None) else {
+        panic!("the contours drew");
+    };
+    assert_eq!(
+        e.api().and_then(fieldglass::Error::range_refusal),
+        Some(&from_render)
     );
-    assert!(
-        h.project_contours(0, with_range(Some(90000.0), Some(60000.0)), None)
-            .is_err()
+    check("grib2", g2.project_contours(0, inverted(), None));
+    check(
+        "grib2 combined",
+        g2.project_contours_combined(0, 0, "a_plus_b".to_string(), inverted(), None),
+    );
+
+    let g1 = Grib1Handle::from_vec(
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1").to_vec(),
+    )
+    .expect("GRIB1 opens");
+    let refuse_g1 = || with_range(Some(1e9), Some(-1e9));
+    check("grib1", g1.project_contours(0, refuse_g1(), None));
+    check(
+        "grib1 combined",
+        g1.project_contours_combined(0, 0, "a_plus_b".to_string(), refuse_g1(), None),
+    );
+
+    let nc = NetcdfHandle::from_bytes(
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc")
+            .to_vec()
+            .into(),
+    )
+    .expect("NetCDF opens");
+    let var = nc
+        .variables()
+        .into_iter()
+        .find(|v| v.name == "sst")
+        .expect("sst");
+    let (v, y, x) = (
+        var.variable_index as u32,
+        var.detected_y_dim.expect("a y axis") as u32,
+        var.detected_x_dim.expect("an x axis") as u32,
+    );
+    let at = vec![0; var.dims.len()];
+    check(
+        "netcdf",
+        nc.project_contours(v, y, x, at.clone(), refuse_g1(), None),
+    );
+    check(
+        "netcdf combined",
+        nc.project_contours_slice_combined(
+            v,
+            y,
+            x,
+            at.clone(),
+            v,
+            at,
+            "a_plus_b".to_string(),
+            refuse_g1(),
+            None,
+        ),
+    );
+
+    let zarr =
+        ZarrHandle::from_directory("../fieldglass-zarr/tests/fixtures/stores/cf_v3".to_string())
+            .expect("the store opens");
+    let t = zarr
+        .variables()
+        .into_iter()
+        .find(|v| v.name == "t")
+        .expect("t");
+    let (v, y, x) = (
+        t.variable_index as u32,
+        t.detected_y_dim.expect("a y axis") as u32,
+        t.detected_x_dim.expect("an x axis") as u32,
+    );
+    let at = vec![0; t.dims.len()];
+    check(
+        "zarr",
+        zarr.project_contours(v, y, x, at.clone(), refuse_g1(), None),
+    );
+    check(
+        "zarr combined",
+        zarr.project_contours_slice_combined(
+            v,
+            y,
+            x,
+            at.clone(),
+            v,
+            at,
+            "a_plus_b".to_string(),
+            refuse_g1(),
+            None,
+        ),
     );
 }

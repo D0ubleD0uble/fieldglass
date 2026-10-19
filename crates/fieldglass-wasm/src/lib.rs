@@ -88,6 +88,24 @@ pub use zarr::open_store;
 #[wasm_bindgen(typescript_custom_section)]
 const API_DECLARATIONS: &str = include_str!("api.generated.d.ts");
 
+/// What `render` and `renderDisplay` return (#1156): the API's `Raster`, with
+/// the bytes as a `Uint8Array`. Written here rather than generated, because
+/// the schema's `rgba` is the JSON array the wire spells it as.
+#[wasm_bindgen(typescript_custom_section)]
+const RENDERED_RASTER: &str = r#"
+/** A painted raster: `Raster` with `rgba` as a `Uint8Array`. */
+export interface RenderedRaster {
+  /** Non-premultiplied RGBA, `width * height * 4` bytes, row-major from the top-left. */
+  rgba: Uint8Array;
+  /** Raster columns: the field's `ni`. */
+  width: number;
+  /** Raster rows: the field's `nj`. */
+  height: number;
+  /** The range the cells were coloured over, and how many fell outside it. */
+  range: ColourRange;
+}
+"#;
+
 /// The shader snippet a GPU host pastes into its own fragment program.
 ///
 /// One string, exported rather than described, so an app composes it and never
@@ -447,7 +465,8 @@ impl Handle {
         warped_object(&out)
     }
 
-    /// The colour decision as data: `{ lut, t0, t1, span, scale, maskedRgba }`.
+    /// The colour decision as data: `{ lut, t0, t1, span, scale, maskedRgba,
+    /// range }`.
     ///
     /// `lut` is 256 RGBA entries with any reversal already applied — the CPU
     /// painter's own table. Upload it as a 256 × 1 `RGBA8` texture sampled
@@ -459,8 +478,15 @@ impl Handle {
     /// below zero — throws `invalid_option` with `e.rangeRefusal` set. A field
     /// with no present cell and no manual range is not refused: every cell is
     /// masked, and the domain is a placeholder no cell reads.
+    ///
+    /// `range` is the `ColourRange` the palette spans, the one [`Handle::render`]
+    /// reports for the same field and options, counts included (#1156): its two
+    /// ends in data units (unlogged under log10, where `t0`/`t1` are logged),
+    /// which ends were given, the center, and how many present cells fall
+    /// below and above it and take an end's colour. Label a legend from it.
+    /// Counting costs one pass over the field.
     #[wasm_bindgen(
-        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: \"linear\" | \"log10\"; maskedRgba: Uint8Array }"
+        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: \"linear\" | \"log10\"; maskedRgba: Uint8Array; range: ColourRange }"
     )]
     pub fn palette(
         &self,
@@ -473,7 +499,11 @@ impl Handle {
             .session
             .palette(&field.field, &options)
             .map_err(throw)?;
-        palette_object(&palette)
+        let range = self
+            .session
+            .palette_range(&field.field, &options)
+            .map_err(throw)?;
+        palette_object(&palette, &range)
     }
 
     /// [`Handle::palette`] for a field from [`Handle::decode_display`], with
@@ -485,10 +515,11 @@ impl Handle {
     /// does. `fullStats` may be `null` when `min` and `max` are both given.
     /// Throws `invalid_option` when an end is left to the data and `fullStats`
     /// is `null`, states no range over a field with present cells, or is not a
-    /// range.
+    /// range. `range` is the one [`Handle::render_display`] reports, with the
+    /// display field's cells counted.
     #[wasm_bindgen(
         js_name = paletteDisplay,
-        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: \"linear\" | \"log10\"; maskedRgba: Uint8Array }"
+        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: \"linear\" | \"log10\"; maskedRgba: Uint8Array; range: ColourRange }"
     )]
     pub fn palette_display(
         &self,
@@ -503,7 +534,11 @@ impl Handle {
             .session
             .palette_display(&field.field, full.as_ref(), &options)
             .map_err(throw)?;
-        palette_object(&palette)
+        let range = self
+            .session
+            .palette_display_range(&field.field, full.as_ref(), &options)
+            .map_err(throw)?;
+        palette_object(&palette, &range)
     }
 
     /// Paint a field to RGBA on the CPU — the fallback, and the oracle the
@@ -515,28 +550,37 @@ impl Handle {
     /// straight through; composing `grid().scan.jPositive` yourself would flip
     /// twice.
     ///
+    /// Returns `{ rgba, width, height, range }`: the RGBA bytes as a
+    /// `Uint8Array`, the field's `ni × nj`, and the `ColourRange` the cells
+    /// were coloured over, with how many fell below and above it (#1156). The
+    /// Node addon's render reports the same range for the same field and
+    /// options.
+    ///
     /// The range follows [`Handle::palette`]'s rule, and a field with no
-    /// present cell paints fully transparent rather than throwing.
-    #[wasm_bindgen(js_name = render)]
+    /// present cell paints fully transparent rather than throwing, with a
+    /// `null` `usedMin` and `usedMax`.
+    #[wasm_bindgen(js_name = render, unchecked_return_type = "RenderedRaster")]
     pub fn render(
         &self,
         field: &WasmField,
         #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
         options: JsValue,
         flip_y: bool,
-    ) -> Result<js_sys::Uint8Array, JsValue> {
+    ) -> Result<JsValue, JsValue> {
         let options: PaletteOptions = from_js(options)?;
         let raster = self
             .session
             .render(&field.field, &options, flip_y)
             .map_err(throw)?;
-        Ok(js_sys::Uint8Array::from(&raster.rgba[..]))
+        raster_object(&raster)
     }
 
     /// [`Handle::render`] for a field from [`Handle::decode_display`]: its own
     /// `ni × nj` raster, coloured over the range [`Handle::palette_display`]
-    /// takes from `fullStats`, with `flipY` as `render` reads it.
-    #[wasm_bindgen(js_name = renderDisplay)]
+    /// takes from `fullStats`, with `flipY` as `render` reads it. The same
+    /// `{ rgba, width, height, range }` back, the range counting the display
+    /// field's cells.
+    #[wasm_bindgen(js_name = renderDisplay, unchecked_return_type = "RenderedRaster")]
     pub fn render_display(
         &self,
         field: &WasmDisplayField,
@@ -544,14 +588,14 @@ impl Handle {
         #[wasm_bindgen(unchecked_param_type = "PaletteOptions | null | undefined")]
         options: JsValue,
         flip_y: bool,
-    ) -> Result<js_sys::Uint8Array, JsValue> {
+    ) -> Result<JsValue, JsValue> {
         let full = full_stats_from_js(full_stats)?;
         let options: PaletteOptions = from_js(options)?;
         let raster = self
             .session
             .render_display(&field.field, full.as_ref(), &options, flip_y)
             .map_err(throw)?;
-        Ok(js_sys::Uint8Array::from(&raster.rgba[..]))
+        raster_object(&raster)
     }
 
     /// Sample one geographic point. `null` when the point is off the grid or
@@ -706,8 +750,27 @@ fn warped_object(out: &fieldglass::Warped) -> Result<JsValue, JsValue> {
     Ok(object.into())
 }
 
-/// A palette as `palette` and `paletteDisplay` hand it over.
-fn palette_object(palette: &fieldglass::Palette) -> Result<JsValue, JsValue> {
+/// A painted raster as `render` and `renderDisplay` hand it over: the API's
+/// `Raster`, with the bytes as a typed array rather than an array of numbers.
+fn raster_object(raster: &fieldglass::Raster) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set(&object, "rgba", js_sys::Uint8Array::from(&raster.rgba[..]))?;
+    set(&object, "width", JsValue::from_f64(f64::from(raster.width)))?;
+    set(
+        &object,
+        "height",
+        JsValue::from_f64(f64::from(raster.height)),
+    )?;
+    set(&object, "range", to_js(&raster.range)?)?;
+    Ok(object.into())
+}
+
+/// A palette as `palette` and `paletteDisplay` hand it over, with the range it
+/// spans (#1156).
+fn palette_object(
+    palette: &fieldglass::Palette,
+    range: &fieldglass::ColourRange,
+) -> Result<JsValue, JsValue> {
     let object = js_sys::Object::new();
     set(&object, "lut", js_sys::Uint8Array::from(&palette.lut[..]))?;
     set(&object, "t0", JsValue::from_f64(palette.t0))?;
@@ -722,6 +785,7 @@ fn palette_object(palette: &fieldglass::Palette) -> Result<JsValue, JsValue> {
         "maskedRgba",
         js_sys::Uint8Array::from(&palette.masked_rgba[..]),
     )?;
+    set(&object, "range", to_js(range)?)?;
     Ok(object.into())
 }
 

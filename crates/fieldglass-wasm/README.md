@@ -67,7 +67,7 @@ field.values();                    // Float32Array or Float64Array — see `dtyp
 field.mask();                      // Uint8Array, 1 present / 0 absent
 field.grid();                      // kind, boundsLonlat, placement, proj4, affine, scan
 
-const palette = handle.palette(field, {});    // { lut, t0, t1, span, scale, maskedRgba }
+const palette = handle.palette(field, {});    // { lut, t0, t1, span, scale, maskedRgba, range }
 handle.shaderValues(field, {});    // Float32Array: transformed and rebased by t0
 handle.shaderMask(field, {});      // Uint8Array the shader tests
 
@@ -75,7 +75,10 @@ handle.shaderMask(field, {});      // Uint8Array the shader tests
 // `height` go together; one alone throws `invalid_option`. Without them the
 // output is the source `ni × nj`, as before.
 handle.warp(field, { bounds: [24, 50, -125, -66], width: 512, height: 512 });
-handle.render(field, {}, false);   // RGBA, north up — see below
+const { rgba, width, height, range } = handle.render(field, {}, false);   // RGBA, north up — see below
+// `range` is the color range used, as the VS Code extension reports it: usedMin,
+// usedMax, rangeSource, center, and how many cells fell below and above it.
+// `palette.range` is the same range, for a legend drawn beside the GPU path.
 handle.probe(field, lat, lon);
 handle.contours(field, new Float64Array([280, 290]), {});
 // No levels: nice ones over the range render uses for the same min, max, center and scale.

@@ -782,6 +782,115 @@ pub fn cases() -> Vec<Case> {
     }
 
     let latlon = format!("{G2}regular_latlon_surface.grib2");
+    // The range a render and a palette report (#1156), off the automatic
+    // default: both ends inside the data, so cells clamp at each end and the
+    // counts are not zero, and one end alone, so the other comes from the
+    // data. The field runs 270.47..311.10.
+    //
+    // Two more pin the counting where it can part from the painting: a field
+    // with masked cells (complex packing with missing values, 46 of its 496
+    // cells absent), so `present` is below `total`, and each width a host can
+    // decode to, since `palette_range` counts an `f32` field by widening it
+    // cell by cell rather than through the painter's copy.
+    let mvm = format!("{G2}complex_mvm1_regular_latlon.grib2");
+    for (id, op, fixture, dtype, min, max) in [
+        (
+            "render/range_clamped",
+            Op::Render,
+            &latlon,
+            None,
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "palette/range_clamped",
+            Op::Palette,
+            &latlon,
+            None,
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "render/range_min_only",
+            Op::Render,
+            &latlon,
+            None,
+            Some(290.0),
+            None,
+        ),
+        (
+            "palette/range_min_only",
+            Op::Palette,
+            &latlon,
+            None,
+            Some(290.0),
+            None,
+        ),
+        (
+            "render/range_masked",
+            Op::Render,
+            &mvm,
+            None,
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "palette/range_masked",
+            Op::Palette,
+            &mvm,
+            None,
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "render/range_masked_f32",
+            Op::Render,
+            &mvm,
+            Some(Dtype::F32),
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "palette/range_masked_f32",
+            Op::Palette,
+            &mvm,
+            Some(Dtype::F32),
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "render/range_masked_f64",
+            Op::Render,
+            &mvm,
+            Some(Dtype::F64),
+            Some(280.0),
+            Some(300.0),
+        ),
+        (
+            "palette/range_masked_f64",
+            Op::Palette,
+            &mvm,
+            Some(Dtype::F64),
+            Some(280.0),
+            Some(300.0),
+        ),
+    ] {
+        out.push(Case {
+            id: id.to_string(),
+            fixture: fixture.clone(),
+            op,
+            args: Args {
+                dtype,
+                colormap: Some("viridis".to_string()),
+                reversed: Some(false),
+                scale: Some("linear".to_string()),
+                range_min: min,
+                range_max: max,
+                flip_y: Some(false),
+                ..Args::default()
+            },
+        });
+    }
     for (id, op) in [
         ("palette/colormap_table", Op::Palette),
         ("render/colormap_table", Op::Render),
@@ -1333,7 +1442,36 @@ fn raster_value(raster: &crate::session::Raster) -> Value {
         // whether the warp placed anything there.
         "opaque": count(raster.rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count()),
         "pixels": pixels,
+        "range": range_value(&raster.range),
     })
+}
+
+/// The colour range a render or a palette reports (#1155, #1156), every field
+/// of it: the ends and the center as reals, the counts as integers so they
+/// compare exactly, and the two tags as their wire strings.
+fn range_value(range: &crate::api::ColourRange) -> Value {
+    json!({
+        "usedMin": real(range.used_min),
+        "usedMax": real(range.used_max),
+        "rangeSource": value_of(&range.range_source),
+        "center": real(range.center),
+        "outOfRange": value_of(&range.out_of_range),
+        "below": range.below,
+        "above": range.above,
+        "present": range.present,
+        "total": range.total,
+    })
+}
+
+/// A palette's observation with the range it spans beside it (#1156), as the
+/// browser host hands the two over in one object.
+fn ranged_palette_value(
+    palette: &fieldglass_core::colormap::Palette,
+    range: &crate::api::ColourRange,
+) -> Value {
+    let mut v = palette_value(palette);
+    v["range"] = range_value(range);
+    v
 }
 
 /// The observation for a line, in the portable spelling [`field_value`] uses
@@ -1521,7 +1659,12 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             warped_value(&session.warp(&field(case.args.index)?, &warp_options(&case.args))?)
         }
         Op::Palette => {
-            palette_value(&session.palette(&field(case.args.index)?, &palette_options(&case.args))?)
+            let field = field(case.args.index)?;
+            let options = palette_options(&case.args);
+            ranged_palette_value(
+                &session.palette(&field, &options)?,
+                &session.palette_range(&field, &options)?,
+            )
         }
         Op::Render => raster_value(&session.render(
             &field(case.args.index)?,
@@ -1532,11 +1675,14 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         Op::WarpDisplay => {
             warped_value(&session.warp_display(&display()?, &warp_options(&case.args))?)
         }
-        Op::PaletteDisplay => palette_value(&session.palette_display(
-            &display()?,
-            full_stats()?.as_ref(),
-            &palette_options(&case.args),
-        )?),
+        Op::PaletteDisplay => {
+            let (display, full) = (display()?, full_stats()?);
+            let options = palette_options(&case.args);
+            ranged_palette_value(
+                &session.palette_display(&display, full.as_ref(), &options)?,
+                &session.palette_display_range(&display, full.as_ref(), &options)?,
+            )
+        }
         Op::RenderDisplay => raster_value(&session.render_display(
             &display()?,
             full_stats()?.as_ref(),

@@ -19,7 +19,7 @@
 //! | `open` | `Grib1Handle::from_bytes` / `Grib2Handle::from_bytes`, `count()` | which format accepted the bytes, and the message count |
 //! | `message` | `message(i)` | the whole `MessageInfo`, key for key, as the addon hands it to JavaScript (#574) |
 //! | `decode` | `decode_grid(i)` | raster shape, value count, mask sum, the sampled cells |
-//! | `render` | `render_grid(i, …)` with `projection: "source"` | raster shape, RGBA length, opaque count, the sampled pixels |
+//! | `render` | `render_grid(i, …)` with `projection: "source"` | raster shape, RGBA length, opaque count, the sampled pixels, and the colour range it reports (#1156) |
 //! | `variables` | `NetcdfHandle::variables()` | each variable's name, axes, element type and detected image axes, in order |
 //! | `dimensions` | `NetcdfHandle::metadata().dimensions` | every dimension's name and length |
 //! | `decode_slice` | `NetcdfHandle::render_slice(…)` with `projection: "source"` | the slice's raster shape and how many of its cells are present |
@@ -377,6 +377,10 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
                 "rgbaLen": rgba.len(),
                 "opaque": rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count(),
                 "pixels": pixels,
+                // The range the render reports (#1156), which the browser host
+                // reports too: in the source projection a pixel is a cell, so
+                // the counts are the source grid's, as `Session::render`'s are.
+                "range": raster.range,
             }))
         }
         Op::Variables => {
@@ -579,6 +583,10 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
                 "rgbaLen": rgba.len(),
                 "opaque": rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count(),
                 "pixels": pixels,
+                // The range the render reports (#1156), which the browser host
+                // reports too: in the source projection a pixel is a cell, so
+                // the counts are the source grid's, as `Session::render`'s are.
+                "range": raster.range,
             }))
         }
         Op::Warp
