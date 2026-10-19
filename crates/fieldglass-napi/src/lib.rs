@@ -1842,7 +1842,9 @@ impl Grib2Handle {
             options.range_min,
             options.range_max,
         )?;
-        render_over(&field.placed.source(), &field.values, options, extremes)
+        let mut rendered = render_over(&field.placed.source(), &field.values, options, extremes)?;
+        rendered.truncation = field.truncation.clone().map(Into::into);
+        Ok(rendered)
     }
 
     /// One message's metadata as the fieldglass API states it — see
@@ -2124,6 +2126,9 @@ pub struct DisplayGrid {
     georef: fieldglass::Georef,
     /// How many wavelet levels were discarded.
     reduction: u8,
+    /// A band-limited spectral map's label (#637), which only a reduction-zero
+    /// field can carry; `renderDisplay` hands it back as `renderGrid` does.
+    truncation: Option<fieldglass::SpectralTruncation>,
 }
 
 impl DisplayGrid {
@@ -2133,6 +2138,7 @@ impl DisplayGrid {
             placed: Placed::from_georef(field.georef.clone()),
             georef: field.georef,
             reduction: field.reduction,
+            truncation: field.truncation,
         }
     }
 }

@@ -231,3 +231,28 @@ fn refusals_carry_their_codes() {
         "no_such_message"
     );
 }
+
+/// At reduction 0 a band-limited spectral map keeps its "shown at T359 of
+/// T383" label through `renderDisplay`, as it has through `renderGrid` (#637).
+#[test]
+fn a_band_limited_spectral_map_keeps_its_label_at_reduction_zero() {
+    const T383: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/spectral_simple_t383.grib2");
+    let h = Grib2Handle::from_vec(T383.to_vec()).expect("opens");
+    let want = h
+        .render_grid(0, opts("source"))
+        .expect("renders")
+        .truncation;
+    assert!(want.is_some(), "the fixture is band-limited");
+    let display = h.decode_display(0, reduce(0)).expect("reduction zero");
+    let manual = RenderOptions {
+        range_min: Some(-1.0e6),
+        range_max: Some(1.0e6),
+        ..opts("source")
+    };
+    let got = h
+        .render_display(&display, None, &manual)
+        .expect("renders")
+        .truncation;
+    assert_eq!(got, want);
+}

@@ -577,7 +577,10 @@ impl<S: ByteSource> Grib2Reader<S> {
     ///
     /// Every refusal below is [`FieldglassError::UnsupportedSection`], so a
     /// caller that asked for a level this message cannot serve falls back to
-    /// reduction zero rather than being handed a differently-wrong field.
+    /// reduction zero rather than being handed a differently-wrong field. So is
+    /// a level past the codestream's pyramid. A codestream that does not decode
+    /// at all is [`FieldglassError::Parse`], since reduction zero would fail
+    /// the same way.
     ///
     /// - **Any packing but §5.40.** There is no pyramid to climb: 5.0 is
     ///   random-access already, and 5.2 / 5.3 / 5.41 / 5.42 are sequential and

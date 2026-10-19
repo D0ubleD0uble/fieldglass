@@ -1603,8 +1603,10 @@ impl Session {
     /// [`Error::Unsupported`] for a message that has no coarse field to give:
     /// any GRIB1 message, a GRIB2 packing other than JPEG 2000, a bitmap, a
     /// reduced grid, alternate-row or column-major scanning, and a grid family
-    /// with no derivable coarse grid (Gaussian among them). A caller falls back
-    /// to reduction zero. [`Error::WrongAddressing`] for a variable container.
+    /// with no derivable coarse grid (Gaussian among them), and a level past
+    /// the codestream's pyramid. A caller falls back to a lower level. A
+    /// codestream that does not decode is [`Error::Decode`], as it is at
+    /// reduction zero. [`Error::WrongAddressing`] for a variable container.
     pub fn decode_display(
         &self,
         index: u32,
@@ -1649,6 +1651,9 @@ impl Session {
                     // message that has no coarse field is a valid one asked for
                     // something it cannot give, and the caller's answer is to
                     // ask at reduction zero, which is what `unsupported` means.
+                    // The reader keeps `UnsupportedSection` for exactly those
+                    // refusals; a codestream that does not decode is `Parse`
+                    // there, and stays `decode` here.
                     .map_err(|e| match e {
                         fieldglass_core::FieldglassError::UnsupportedSection(detail) => {
                             Error::Unsupported { detail }

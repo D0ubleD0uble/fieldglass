@@ -304,6 +304,11 @@ fn the_full_field_stats_are_checked() {
             .expect_err(what);
         assert_eq!(err.code(), "invalid_option", "{what}: {err:?}");
         assert!(err.range_refusal().is_none(), "{what}: not a range refusal");
+        // Both ends manual reads no data, so the same stats are not refused.
+        let palette = session
+            .palette_display(&coarse, Some(&stats), &manual)
+            .unwrap_or_else(|e| panic!("{what} with a manual range: {e:?}"));
+        assert_eq!((palette.t0, palette.t1), (270.0, 320.0), "{what}");
     }
 }
 
@@ -348,4 +353,39 @@ fn the_options_read_from_json() {
         serde_json::from_str(r#"{"reduce":2,"dtype":"f32"}"#).expect("both");
     assert_eq!(options.reduce, 2);
     assert_eq!(options.dtype, Dtype::F32);
+}
+
+/// The RAP message with the back half of its §7 codestream overwritten: the
+/// sections still frame, and the packets are garbage.
+fn corrupt_rap() -> Vec<u8> {
+    let mut bytes = std::fs::read(RAP).expect("RAP");
+    // GRIB2: a 16-byte §0, then sections of `length (4) | number (1) | …`.
+    let mut at = 16;
+    loop {
+        let len = u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+        if bytes[at + 4] == 7 {
+            let (start, end) = (at + 5, at + len);
+            let half = start + (end - start) / 2;
+            bytes[half..end].fill(0xff);
+            return bytes;
+        }
+        at += len;
+    }
+}
+
+/// A corrupt codestream is a decode failure, not a message that "has no
+/// coarse field": `unsupported` tells a caller to ask at reduction 0, which
+/// would fail the same way.
+#[test]
+fn a_corrupt_codestream_is_a_decode_error_not_a_refusal() {
+    let session = Session::open(corrupt_rap()).expect("the sections still frame");
+    let err = session
+        .decode_display(0, &DisplayDecodeOptions::new(1))
+        .expect_err("garbage packets");
+    assert_eq!(err.code(), "decode", "{err:?}");
+    // A level past the pyramid on an intact message is still a refusal.
+    let err = open(RAP)
+        .decode_display(0, &DisplayDecodeOptions::new(6))
+        .expect_err("six levels of a six-resolution codestream");
+    assert_eq!(err.code(), "unsupported", "{err:?}");
 }

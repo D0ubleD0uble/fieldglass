@@ -196,6 +196,10 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "degenerate/warp/sized_window",
     "degenerate/warp/window",
     "error/decode",
+    // A message with no coarse field, and a display range with no full-field
+    // stats to take its automatic end from (#1082).
+    "error/display_without_a_pyramid",
+    "error/display_without_full_stats",
     "error/invalid_option",
     // A colormap table sent beside a colormap name (#236): refused rather than
     // choosing one, by every host.

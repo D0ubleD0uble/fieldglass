@@ -23,6 +23,8 @@
 //! | `variables` | `NetcdfHandle::variables()` | each variable's name, axes, element type and detected image axes, in order |
 //! | `dimensions` | `NetcdfHandle::metadata().dimensions` | every dimension's name and length |
 //! | `decode_slice` | `NetcdfHandle::render_slice(…)` with `projection: "source"` | the slice's raster shape and how many of its cells are present |
+//! | `decode_display` | `Grib2Handle::decode_display(i, { reduce })` | raster shape, reduction, the derived `Georef`, value count, mask sum, the sampled cells (#1082) |
+//! | `render_display` | `render_display(display, stats, …)` with `projection: "source"`, the stats from `decode_grid`'s present cells | as `render` |
 //! | the error cases | the same calls | that the call fails, and on the same input |
 //!
 //! The variable ops (#679) reach NetCDF through the handle the extension uses
@@ -60,7 +62,8 @@
 //! * `probe`, `probe_message` and `full_detail` — napi probes an output
 //!   *pixel*; the suite probes a geographic point. Two different questions,
 //!   not two answers to one.
-//! * `warp`, `palette`, `contours`, `combine` — napi exposes no operation with
+//! * `warp`, `palette`, `contours`, `combine`, and `warp_display` and
+//!   `palette_display` for the same reasons as the first two — napi exposes no operation with
 //!   these shapes; its render does the warp inline, its contours come back as
 //!   projected polylines, and its combine paints in the same call, so there is
 //!   no combined *field* to compare. That last one is covered instead by the
@@ -110,6 +113,10 @@ const COMPARED: &[Op] = &[
     Op::Dimensions,
     Op::DecodeSlice,
     Op::DecodeLine,
+    // A field decoded to draw (#1082): `Grib2Handle::decodeDisplay`, and its
+    // render through `renderDisplay` in the source projection.
+    Op::DecodeDisplay,
+    Op::RenderDisplay,
 ];
 
 /// Skipped ops and why — see the module docs for the long form.
@@ -135,6 +142,15 @@ const SKIPPED: &[(Op, &str)] = &[
         Op::Combine,
         "napi has no combine-without-render operation; `renderGridCombined` \
          paints in the same call (#574)",
+    ),
+    (
+        Op::WarpDisplay,
+        "napi has no warp-without-paint operation; `renderDisplay` warps inline \
+         on a reprojection target, as `renderGrid` does",
+    ),
+    (
+        Op::PaletteDisplay,
+        "napi has no palette-as-data operation, for a display grid or any other",
     ),
 ];
 
@@ -208,6 +224,22 @@ impl Handle {
         }
     }
 
+    /// `decodeDisplay`, which only the GRIB2 handle has: GRIB1 has no JPEG
+    /// 2000 pyramid, and a variable container is not message-addressed.
+    fn decode_display(
+        &self,
+        index: u32,
+        options: serde_json::Value,
+    ) -> Result<(&Grib2Handle, DisplayGrid), String> {
+        match self {
+            Self::Grib2(h) => h
+                .decode_display(index, Some(options))
+                .map(|d| (h, d))
+                .map_err(|e| e.reason()),
+            Self::Grib1(_) | Self::Netcdf(_) => Err("no decodeDisplay on this handle".into()),
+        }
+    }
+
     fn render_grid(&self, index: u32, options: RenderOptions) -> napi::Result<RenderedGrid> {
         match self {
             Self::Grib1(h) => h.render_grid(index, options).map_err(Into::into),
@@ -255,6 +287,11 @@ fn render_options(args: &Args) -> RenderOptions {
         width: None,
         height: None,
     }
+}
+
+/// `decodeDisplay`'s options for a case, as JavaScript would send them.
+fn display_options(args: &Args) -> Value {
+    json!({ "reduce": args.reduce.unwrap_or(0), "dtype": args.dtype })
 }
 
 /// What this host answers for one case, in the suite's own observation shape.
@@ -473,13 +510,86 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
         // `COMPARED` gates the entry, so nothing else reaches here. Written as
         // an explicit arm rather than a wildcard so that adding an op to
         // `COMPARED` without adding its adapter fails to compile.
+        Op::DecodeDisplay => {
+            let Ok((_, display)) =
+                handle.decode_display(case.args.index, display_options(&case.args))
+            else {
+                return Some(failed());
+            };
+            let samples: Vec<Value> = sample_indices(display.values.len())
+                .into_iter()
+                .map(|i| {
+                    let v = display.values[i];
+                    json!({ "i": i, "v": v, "m": usize::from(v.is_some()) })
+                })
+                .collect();
+            let mut georef = display.grid().ok()?;
+            if let Some(obj) = georef.as_object_mut() {
+                obj.remove("geometry");
+            }
+            Some(json!({
+                "len": display.values.len(),
+                "maskOnes": display.values.iter().flatten().count(),
+                "ni": display.width(),
+                "nj": display.height(),
+                "reduction": display.reduction(),
+                "georef": georef,
+                "samples": samples,
+            }))
+        }
+        Op::RenderDisplay => {
+            let Ok((grib2, display)) =
+                handle.decode_display(case.args.index, display_options(&case.args))
+            else {
+                return Some(failed());
+            };
+            // The stats a caller holds from its own full decode: this host has
+            // no stats call, so they are the present-cell range of `decodeGrid`.
+            let stats = if case.args.full_stats == Some(false) {
+                None
+            } else {
+                let Ok(full) = grib2.decode_grid(case.args.index) else {
+                    return Some(failed());
+                };
+                let present = || {
+                    full.values
+                        .iter()
+                        .zip(full.mask.iter())
+                        .filter(|&(_, &m)| m == 1)
+                        .map(|(&v, _)| v)
+                };
+                Some(json!({
+                    "min": present().reduce(f64::min),
+                    "max": present().reduce(f64::max),
+                    "validCount": present().count(),
+                }))
+            };
+            let Ok(raster) = grib2.render_display(&display, stats, &render_options(&case.args))
+            else {
+                return Some(failed());
+            };
+            let rgba: &[u8] = &raster.rgba;
+            let pixels: Vec<Value> = sample_indices(rgba.len() / 4)
+                .into_iter()
+                .map(|p| json!({ "i": p, "rgba": rgba[p * 4..p * 4 + 4].to_vec() }))
+                .collect();
+            Some(json!({
+                "width": raster.width,
+                "height": raster.height,
+                "rgbaLen": rgba.len(),
+                "opaque": rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count(),
+                "pixels": pixels,
+            }))
+        }
         Op::Warp
         | Op::Palette
         | Op::Probe
         | Op::ProbeMessage
         | Op::FullDetail
         | Op::Contours
-        | Op::Combine => None,
+        | Op::Combine
+        | Op::WarpDisplay
+        | Op::PaletteDisplay => None,
     }
 }
 
@@ -523,7 +633,7 @@ fn asks_the_same_question(case: &Case, expect: &Value) -> bool {
     if case.args.short_read.is_some() {
         return false;
     }
-    if case.op != Op::Decode {
+    if case.op != Op::Decode && case.op != Op::DecodeDisplay {
         return true;
     }
     if expect.get("error").is_some() {

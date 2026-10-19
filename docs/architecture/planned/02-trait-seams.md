@@ -385,6 +385,12 @@ only when it ran.
   `renderGrid` pipeline is both the render and the warp, so a reprojection
   target warps the coarse grid from its own geometry. Neither host caches the
   display field: it is the caller's.
+* The conformance suite has the four as ops (`decodeDisplay`,
+  `renderDisplay`, `warpDisplay`, `paletteDisplay`) over the RAP fixture, with
+  the full stats passed back, and the two refusals: a message with no pyramid
+  (`unsupported`) and an automatic range with no stats (`invalid_option`).
+  The browser runner replays all four; the addon's replays the decode and the
+  render, and skips the other two because it has no warp or palette call.
 
 ```mermaid
 sequenceDiagram
@@ -400,7 +406,8 @@ sequenceDiagram
     R->>G: subsampled(r), first point kept, dx·2^r, last point recomputed
     R-->>S: DisplayRaster (values, derived geometry)
     S-->>H: DisplayField
-    H->>S: render_display / warp_display / palette_display(field, full stats)
+    H->>S: render_display / palette_display(field, full stats, opts)
+    H->>S: warp_display(field, opts), which takes no stats
     Note over H,S: probe, csv, contours, combine take a Field and refuse this by type
 ```
 

@@ -55,13 +55,14 @@ pub const AUTO_CONTOUR_LEVELS: usize = 8;
 /// this: `Session::render_display` and `palette_display`, and the Node addon's
 /// display render.
 ///
-/// `full` may be `None` when `min` and `max` are both given, since the rule
-/// reads no data then. `display_has_values` is whether the display field has a
+/// When `min` and `max` are both given the rule reads no data, so `full` may be
+/// `None` and is not checked; a good one is still passed on, for a refusal's
+/// `field_min` and `field_max`. `display_has_values` is whether the display field has a
 /// present cell.
 ///
 /// # Errors
 ///
-/// [`Error::InvalidOption`] when an end is left to the data and `full` is
+/// [`Error::InvalidOption`], only when an end is left to the data: when `full` is
 /// `None`; when `full` states no present cell and the display field has some
 /// (it would paint transparent and say nothing); and when `full` is not a
 /// range: one end missing, an end not finite, or the minimum above the
@@ -72,11 +73,17 @@ pub fn full_field_extremes(
     min: Option<f64>,
     max: Option<f64>,
 ) -> Result<Option<(f64, f64)>, Error> {
-    let both_manual = min.is_some() && max.is_some();
+    let range = |stats: &Stats| match (stats.min, stats.max) {
+        (Some(lo), Some(hi)) if lo.is_finite() && hi.is_finite() && lo <= hi => Some((lo, hi)),
+        _ => None,
+    };
+    // Both ends manual: the rule reads no data, so stats it would ignore are
+    // not refused. Good ones are still passed on, for a refusal's
+    // `field_min` / `field_max`.
+    if min.is_some() && max.is_some() {
+        return Ok(full.and_then(range));
+    }
     let Some(stats) = full else {
-        if both_manual {
-            return Ok(None);
-        }
         return Err(Error::invalid_option(
             "a display field's automatic colour range is the full field's, and no full-field \
              stats were given; pass the stats of the same message decoded at reduction 0, or \
@@ -84,10 +91,12 @@ pub fn full_field_extremes(
                 .to_string(),
         ));
     };
+    if let Some(extremes) = range(stats) {
+        return Ok(Some(extremes));
+    }
     match (stats.min, stats.max) {
-        (Some(lo), Some(hi)) if lo.is_finite() && hi.is_finite() && lo <= hi => Ok(Some((lo, hi))),
         (None, None) => {
-            if !both_manual && display_has_values {
+            if display_has_values {
                 return Err(Error::invalid_option(
                     "the full-field stats state no present cell, and this display field has \
                      some; pass the stats of the same message decoded at reduction 0"
