@@ -526,8 +526,8 @@ three drawing calls.
 
 `full` is the `@fieldglass/wasm/full` entry (#1158), `build.sh web
 --features=fetchplan,zarr`, recorded from the `ci.yml` run on its PR (#1177,
-`e405255b`): 28.5% above the baseline it was measured beside (647,947
-gzipped, before #1082), and 28.1% raw.
+`3d897b4e`, rebased onto #1082's merge): 28.4% above the baseline gzipped,
+and 28.0% raw. That is the fetch planner and the Zarr stores.
 
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
@@ -535,7 +535,7 @@ gzipped, before #1082), and 28.1% raw.
 |---|---:|---:|
 | baseline | 1,664,807 | 653,912 |
 | `+simd128` | 1,651,138 | 650,608 |
-| full | 2,108,202 | 832,652 |
+| full | 2,130,575 | 839,579 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
