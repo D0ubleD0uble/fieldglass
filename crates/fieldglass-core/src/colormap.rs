@@ -521,9 +521,12 @@ impl Palette {
     /// For a GPU host, which colours the cells itself from this palette and
     /// still wants to say how many were clamped. A cell the mask clears, or
     /// that `mask` does not reach, is not present, as in the painter.
-    pub fn count(&self, values: &[f64], mask: Option<&[u8]>) -> PaintCounts {
+    ///
+    /// The values are an iterator so a caller holding `f32`s widens them as it
+    /// goes rather than copying the field to count it.
+    pub fn count(&self, values: impl IntoIterator<Item = f64>, mask: Option<&[u8]>) -> PaintCounts {
         let mut counts = PaintCounts::default();
-        for (i, &v) in values.iter().enumerate() {
+        for (i, v) in values.into_iter().enumerate() {
             if mask.is_some_and(|m| m.get(i).copied().unwrap_or(0) == 0) {
                 continue;
             }
@@ -804,17 +807,17 @@ mod tests {
             let p = Palette::build(viridis, false, lo, hi, scale);
             let (_, painted) = p.paint_counted(&values, Some(&mask), 5, 2, false);
             assert_eq!(
-                p.count(&values, Some(&mask)),
+                p.count(values, Some(&mask)),
                 painted,
                 "{scale:?} {lo}..{hi}"
             );
             let (_, unmasked) = p.paint_counted(&values, None, 5, 2, false);
-            assert_eq!(p.count(&values, None), unmasked, "{scale:?} {lo}..{hi}");
+            assert_eq!(p.count(values, None), unmasked, "{scale:?} {lo}..{hi}");
         }
         // A mask shorter than the values masks the cells it does not reach, as
         // the painter does.
         let p = Palette::build(viridis, false, 1.0, 2.0, ScaleMode::Linear);
-        assert_eq!(p.count(&[0.0, 3.0, 1.5], Some(&[1])).present, 1);
+        assert_eq!(p.count([0.0, 3.0, 1.5], Some(&[1])).present, 1);
     }
 
     /// The exact viridis LUT the renderer produced before the colormap registry

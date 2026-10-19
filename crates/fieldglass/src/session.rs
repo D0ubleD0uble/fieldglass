@@ -3040,7 +3040,13 @@ fn count_range(
 ) -> Result<ColourRange, Error> {
     require_field_shape(field)?;
     let (palette, range) = build_palette(extremes, options)?;
-    let counts = palette.count(&field.values.to_f64(), Some(field.mask));
+    // Widened as it goes: a palette is the cheap call, and a copy of the field
+    // to count it would be the largest allocation it makes.
+    let mask = Some(field.mask);
+    let counts = match field.values {
+        Values::F32(v) => palette.count(v.iter().map(|&x| f64::from(x)), mask),
+        Values::F64(v) => palette.count(v.iter().copied(), mask),
+    };
     Ok(range.counted(&counts, u64::from(field.ni) * u64::from(field.nj)))
 }
 
