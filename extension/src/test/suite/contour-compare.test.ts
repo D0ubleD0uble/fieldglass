@@ -38,13 +38,17 @@ suite("Contours follow Compare (#1149)", () => {
       await panel.waitSent(isType("contourReady"), from, "the contours");
 
       const contourRequests = (): Msg[] => panel.received.filter((m: Msg) => m && m.type === "contourRequest");
-      const waitRequest = async (n: number, why: string): Promise<Msg> => {
+      // The contours follow the map drawn (#1145), so a change that draws
+      // more than once asks once per map: wait for the one with the rider.
+      const waitRequest = async (n: number, compare: object, why: string): Promise<Msg> => {
         const deadline = Date.now() + 10_000;
-        while (contourRequests().length <= n) {
-          assert.ok(Date.now() < deadline, `no contourRequest for ${why}`);
+        const json = JSON.stringify(compare);
+        for (;;) {
+          const got = contourRequests().slice(n).find((m) => JSON.stringify(m.compare) === json);
+          if (got) return got;
+          assert.ok(Date.now() < deadline, `no contourRequest for ${why}: ${JSON.stringify(contourRequests().slice(n))}`);
           await new Promise((r) => setTimeout(r, 50));
         }
-        return contourRequests()[n];
       };
 
       let n = contourRequests().length;
@@ -52,13 +56,11 @@ suite("Contours follow Compare (#1149)", () => {
         { id: "compare-op", value: "a_minus_b" },
         { id: "compare-field-b", value: 1 },
       ]);
-      const on = await waitRequest(n, "Compare switched on");
-      assert.deepStrictEqual(on.compare, { op: "a_minus_b", messageIndexB: 1 });
+      await waitRequest(n, { op: "a_minus_b", messageIndexB: 1 }, "Compare switched on");
 
       n = contourRequests().length;
       await panel.drive([{ id: "compare-field-b", value: 2 }]);
-      const other = await waitRequest(n, "a changed Field B");
-      assert.deepStrictEqual(other.compare, { op: "a_minus_b", messageIndexB: 2 });
+      await waitRequest(n, { op: "a_minus_b", messageIndexB: 2 }, "a changed Field B");
     } finally {
       panel.dispose();
       editor.close();
