@@ -54,10 +54,11 @@ and let `Symbol.dispose` do it.
 | `@fieldglass/wasm` | Everything above: open, decode, place, warp, paint, probe, contour and combine GRIB1, GRIB2 and NetCDF. |
 | `@fieldglass/wasm/full` | All of that, plus Zarr stores and a fetch planner for GRIB sidecars. About 29% larger to download. |
 
-Use the default unless a page opens a Zarr store or reads parts of remote files. The full entry plans
-which byte ranges of a GRIB file to fetch from its `.idx` or `.index` sidecar,
-and reads a lat/lon window of a Zarr store from just the chunks it touches.
-Nothing in either entry does I/O: the page fetches, and passes the bytes in.
+Use the default unless a page opens a Zarr store or reads parts of remote files.
+The full entry plans which byte ranges of a GRIB file to fetch from its `.idx`
+or `.index` sidecar, and reads a lat/lon window of a Zarr store from just the
+chunks it touches. Nothing in either entry does I/O: the page fetches, and
+passes the bytes in.
 
 ```js
 import init, { parseWgrib2Idx, httpRangeHeader, verifyEnvelope, open } from '@fieldglass/wasm/full';
