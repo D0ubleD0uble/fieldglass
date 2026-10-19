@@ -158,7 +158,7 @@ own codecs:
 
 ## Scope of this first cut
 
-GRIB1, GRIB2 and NetCDF — whichever of the three this build compiled in — and
+GRIB1, GRIB2, NetCDF and Zarr — whichever of the four this build compiled in — and
 every grid family the engine can project: lat/lon,
 Gaussian, Mercator, rotated lat/lon, Lambert conformal, polar stereographic,
 transverse Mercator, Lambert azimuthal equal-area, and the geostationary space

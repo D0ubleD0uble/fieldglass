@@ -1,11 +1,12 @@
 {
   "name": "@fieldglass/wasm",
   "version": "0.0.0",
-  "description": "Read GRIB1, GRIB2 and NetCDF in the browser. Pure Rust decoders compiled to WebAssembly, meant to run in a Web Worker.",
+  "description": "Read GRIB1, GRIB2, NetCDF and Zarr in the browser. Zarr needs the @fieldglass/wasm/full import. Pure Rust decoders compiled to WebAssembly, meant to run in a Web Worker.",
   "keywords": [
     "grib",
     "grib2",
     "netcdf",
+    "zarr",
     "meteorology",
     "weather",
     "wasm",
