@@ -201,6 +201,10 @@ pub use render::{
     PixelProbe, Projected, RenderOptions, ResolvedOptions, TargetKind, VectorOptions, WarpTarget,
 };
 pub use session::PlacedSlice;
+/// One line through a combined map, for a host that holds an `ArraySource`
+/// rather than a `Session` (#1208).
+#[cfg(all(feature = "analysis", any(feature = "netcdf", feature = "zarr")))]
+pub use session::line_through_combined;
 /// A lat/lon box over a variable, planned into the chunks it touches and
 /// decoded from them alone (#1083).
 #[cfg(feature = "zarr")]

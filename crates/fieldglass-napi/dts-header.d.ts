@@ -22,6 +22,14 @@ export interface CombinedFields {
 /** What the map pipeline draws: one field, or two combined. */
 export type GridTarget = GridField | CombinedFields
 
+/** Two lines combined point by point under `op`, as `decodeLineCombined`
+ *  reads them: the line through a combined map. */
+export interface CombinedLines {
+  a: LineRequest
+  b: LineRequest
+  op: string
+}
+
 /** `close()`, under the name `using` calls. */
 export interface Handle {
   [Symbol.dispose](): void
