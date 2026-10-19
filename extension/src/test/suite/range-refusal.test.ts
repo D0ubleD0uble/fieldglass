@@ -239,8 +239,14 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       state = await panel.drive([]);
       assert.strictEqual(state.exportStatus, "");
       const before = panel.received.length;
+      const sentBefore = panel.sent.length;
       await panel.drive([{ id: "export-png", click: true }]);
       assert.ok(panel.received.slice(before).some(isType("exportPng")), "export works once the range holds");
+      // Wait for the host's answer, so the save dialog has been asked (and
+      // answered by the stub) before the stub is put back. Otherwise the real
+      // dialog can open after the test and hold the window's focus.
+      const done = await panel.waitSent(isType("exportPngDone"), sentBefore, "the PNG export's outcome");
+      assert.strictEqual(done.outcome?.status, "cancelled");
     } finally {
       vscode.window.showSaveDialog = savedDialog;
       panel.dispose();
