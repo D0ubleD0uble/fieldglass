@@ -134,7 +134,8 @@ function paletteOptions(args) {
 }
 
 function decodeOptions(args) {
-  return { dtype: args.dtype ?? 'auto' };
+  // A case may send the object as it stands, to pin a refusal (#1073).
+  return args.decodeOptions ?? { dtype: args.dtype ?? 'auto' };
 }
 
 /** What a line contributes to an observation —
@@ -357,12 +358,18 @@ function withHandle(caseSpec, handle) {
   // rather than a message decoded by index.
   if (op === 'variables') return wire(handle.variables(), `${current}: variables`);
   if (op === 'dimensions') return wire(handle.dimensions(), `${current}: dimensions`);
+  // What the listing leaves out and why (#1073): the same two lists the Node
+  // addon's `leftOut()` and `undrawable()` return, held to one recording.
+  if (op === 'leftOut') return wire(handle.leftOut(), `${current}: leftOut`);
+  if (op === 'undrawable') return wire(handle.undrawable(), `${current}: undrawable`);
   if (op === 'decodeSlice') {
     const slice = handle.decodeSlice(
-      args.variable,
-      args.yDim,
-      args.xDim,
-      new Uint32Array(args.sliceIndices ?? []),
+      {
+        variable: args.variable,
+        yDim: args.yDim,
+        xDim: args.xDim,
+        sliceIndices: args.sliceIndices ?? [],
+      },
       decodeOptions(args),
     );
     try {
@@ -374,9 +381,7 @@ function withHandle(caseSpec, handle) {
   if (op === 'decodeLine') {
     return lineObservation(
       handle.decodeLine(
-        args.variable,
-        args.alongDim,
-        new Uint32Array(args.sliceIndices ?? []),
+        { variable: args.variable, alongDim: args.alongDim, sliceIndices: args.sliceIndices ?? [] },
         decodeOptions(args),
       ),
     );
@@ -389,11 +394,11 @@ function withHandle(caseSpec, handle) {
     return wire(p, `${current}: probeMessage`);
   }
 
-  // The full-detail value alone (#818): `Handle.fullDetail(index, lat, lon)`,
+  // The full-detail value alone (#818): `Handle.probeFullDetail(index, lat, lon)`,
   // which nothing else drives. `wire` refuses an `undefined` where the suite
   // records `null`, and the recorded points are not symmetric under a swap.
   if (op === 'fullDetail') {
-    const d = handle.fullDetail(args.index, args.lat ?? 0, args.lon ?? 0);
+    const d = handle.probeFullDetail(args.index, args.lat ?? 0, args.lon ?? 0);
     return wire(d, `${current}: fullDetail`);
   }
 

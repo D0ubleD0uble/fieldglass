@@ -43,7 +43,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "messages",
@@ -81,7 +82,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -221,7 +223,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -338,7 +341,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -455,7 +459,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -572,7 +577,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -644,7 +650,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -721,7 +728,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -793,7 +801,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -870,7 +879,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -942,7 +952,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -1020,7 +1031,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -1098,7 +1110,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -1195,7 +1208,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -1292,7 +1306,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 0.0,
@@ -1332,7 +1347,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -1366,7 +1382,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -1400,7 +1417,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -1434,7 +1452,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 8,
@@ -1494,7 +1513,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 3,
@@ -1540,7 +1560,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -1657,7 +1678,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -1774,7 +1796,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -1891,7 +1914,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -2008,7 +2032,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -2125,7 +2150,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "messages",
@@ -2163,7 +2189,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -2303,7 +2330,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -2420,7 +2448,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -2537,7 +2566,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -2654,7 +2684,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -2726,7 +2757,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -2803,7 +2835,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -2875,7 +2908,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -2952,7 +2986,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -3024,7 +3059,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -3102,7 +3138,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -3180,7 +3217,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 64,
@@ -3277,7 +3315,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 64,
@@ -3374,7 +3413,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 0.0,
@@ -3414,7 +3454,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 92.44444444444444,
@@ -3454,7 +3495,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -3488,7 +3530,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -3522,7 +3565,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 0,
@@ -3564,7 +3608,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 3,
@@ -3610,7 +3655,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -3727,7 +3773,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -3844,7 +3891,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -3961,7 +4009,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -4078,7 +4127,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -4195,7 +4245,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "messages",
@@ -4233,7 +4284,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -4438,7 +4490,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -4620,7 +4673,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -4802,7 +4856,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -4984,7 +5039,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -5056,7 +5112,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -5133,7 +5190,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -5205,7 +5263,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -5282,7 +5341,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -5354,7 +5414,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -5432,7 +5493,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -5510,7 +5572,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 64,
@@ -5607,7 +5670,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 64,
@@ -5704,7 +5768,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 0.0,
@@ -5744,7 +5809,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 92.44444444444444,
@@ -5784,7 +5850,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -5818,7 +5885,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -5852,7 +5920,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 8,
@@ -5912,7 +5981,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 3,
@@ -5958,7 +6028,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -6140,7 +6211,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -6322,7 +6394,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -6504,7 +6577,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -6686,7 +6760,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -6868,7 +6943,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "messages",
@@ -6906,7 +6982,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "MSLET",
@@ -7046,7 +7123,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -7163,7 +7241,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -7280,7 +7359,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -7397,7 +7477,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -7469,7 +7550,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -7546,7 +7628,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -7618,7 +7701,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -7695,7 +7779,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -7767,7 +7852,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -7845,7 +7931,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -7923,7 +8010,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 65,
@@ -8020,7 +8108,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 65,
@@ -8117,7 +8206,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -8151,7 +8241,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 46.83247311335374,
@@ -8191,7 +8282,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -8225,7 +8317,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -8259,7 +8352,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 11,
@@ -8325,7 +8419,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 3,
@@ -8371,7 +8466,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -8488,7 +8584,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -8605,7 +8702,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -8722,7 +8820,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -8839,7 +8938,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -8956,7 +9056,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "messages",
@@ -8994,7 +9095,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -9134,7 +9236,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -9251,7 +9354,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -9368,7 +9472,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -9485,7 +9590,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -9557,7 +9663,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -9634,7 +9741,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -9706,7 +9814,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -9783,7 +9892,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -9855,7 +9965,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -9933,7 +10044,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -10011,7 +10123,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 30,
@@ -10108,7 +10221,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 30,
@@ -10205,7 +10319,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -10239,7 +10354,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -10273,7 +10389,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -10307,7 +10424,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -10341,7 +10459,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 10,
@@ -10405,7 +10524,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 3,
@@ -10451,7 +10571,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -10568,7 +10689,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -10685,7 +10807,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -10802,7 +10925,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -10919,7 +11043,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -11036,7 +11161,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "messages",
@@ -11074,7 +11200,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -11214,7 +11341,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -11331,7 +11459,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -11448,7 +11577,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -11565,7 +11695,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -11637,7 +11768,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -11714,7 +11846,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -11786,7 +11919,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -11863,7 +11997,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -11935,7 +12070,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -12013,7 +12149,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -12091,7 +12228,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -12188,7 +12326,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -12285,7 +12424,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -12319,7 +12459,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -12353,7 +12494,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -12387,7 +12529,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -12421,7 +12564,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 0,
@@ -12463,7 +12607,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 3,
@@ -12509,7 +12654,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -12626,7 +12772,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -12743,7 +12890,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -12860,7 +13008,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -12977,7 +13126,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -13094,7 +13244,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "messages",
@@ -13132,7 +13283,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -13256,7 +13408,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -13357,7 +13510,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -13458,7 +13612,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -13559,7 +13714,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -13598,7 +13754,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -13642,7 +13799,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -13681,7 +13839,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -13725,7 +13884,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -13764,7 +13924,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -13842,7 +14003,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -13920,7 +14082,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -14017,7 +14180,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -14114,7 +14278,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -14148,7 +14313,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -14182,7 +14348,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -14216,7 +14383,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -14250,7 +14418,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 0,
@@ -14292,7 +14461,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 3,
@@ -14338,7 +14508,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -14439,7 +14610,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -14540,7 +14712,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -14641,7 +14814,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -14742,7 +14916,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -14843,7 +15018,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "messages",
@@ -14881,7 +15057,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -15002,7 +15179,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -15119,7 +15297,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -15236,7 +15415,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -15353,7 +15533,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -15425,7 +15606,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -15502,7 +15684,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -15574,7 +15757,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -15651,7 +15835,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -15723,7 +15908,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -15801,7 +15987,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -15879,7 +16066,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 361,
@@ -15976,7 +16164,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 361,
@@ -16073,7 +16262,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 0.0,
@@ -16113,7 +16303,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 520.0,
@@ -16153,7 +16344,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 20.0,
@@ -16193,7 +16385,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 380.0,
@@ -16233,7 +16426,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 8,
@@ -16293,7 +16487,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 3,
@@ -16339,7 +16534,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -16456,7 +16652,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -16573,7 +16770,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -16690,7 +16888,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -16807,7 +17006,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -16924,7 +17124,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "messages",
@@ -16962,7 +17163,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -17083,7 +17285,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -17200,7 +17403,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -17317,7 +17521,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -17434,7 +17639,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -17506,7 +17712,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -17583,7 +17790,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -17655,7 +17863,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -17732,7 +17941,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -17804,7 +18014,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -17882,7 +18093,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -17960,7 +18172,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 14,
@@ -18057,7 +18270,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 14,
@@ -18154,7 +18368,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 0.0,
@@ -18194,7 +18409,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 18.77777777777778,
@@ -18234,7 +18450,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 0.7222222222222223,
@@ -18274,7 +18491,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 13.722222222222223,
@@ -18314,7 +18532,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 9,
@@ -18376,7 +18595,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 3,
@@ -18422,7 +18642,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -18539,7 +18760,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -18656,7 +18878,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -18773,7 +18996,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -18890,7 +19114,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -19007,7 +19232,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "messages",
@@ -19045,7 +19271,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "2t",
@@ -19172,7 +19399,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -19289,7 +19517,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -19406,7 +19635,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -19523,7 +19753,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -19595,7 +19826,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -19672,7 +19904,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -19744,7 +19977,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -19821,7 +20055,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -19893,7 +20128,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -19971,7 +20207,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -20049,7 +20286,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 5,
@@ -20146,7 +20384,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 5,
@@ -20243,7 +20482,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -20277,7 +20517,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -20311,7 +20552,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -20345,7 +20587,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -20379,7 +20622,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 9,
@@ -20441,7 +20685,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 3,
@@ -20487,7 +20732,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -20604,7 +20850,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -20721,7 +20968,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -20838,7 +21086,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -20955,7 +21204,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -21072,7 +21322,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "messages",
@@ -21110,7 +21361,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "WIND",
@@ -21237,7 +21489,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -21354,7 +21607,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -21471,7 +21725,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -21588,7 +21843,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -21660,7 +21916,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -21737,7 +21994,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -21809,7 +22067,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -21886,7 +22145,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -21958,7 +22218,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -22036,7 +22297,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -22114,7 +22376,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 95,
@@ -22211,7 +22474,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 95,
@@ -22308,7 +22572,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -22342,7 +22607,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "i": 65.22455255090016,
@@ -22382,7 +22648,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -22416,7 +22683,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -22450,7 +22718,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 7,
@@ -22508,7 +22777,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "levelCount": 3,
@@ -22554,7 +22824,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -22671,7 +22942,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -22788,7 +23060,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -22905,7 +23178,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -23022,7 +23296,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -23139,7 +23414,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "variables",
@@ -23177,7 +23453,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": [
         {
@@ -23266,7 +23543,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": [
         {
@@ -23284,6 +23562,105 @@
         {
           "length": 1,
           "name": "time"
+        }
+      ]
+    },
+    {
+      "id": "ersst/left_out",
+      "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
+      "op": "leftOut",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": []
+    },
+    {
+      "id": "ersst/undrawable",
+      "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
+      "op": "undrawable",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": [
+        {
+          "cause": {
+            "code": "coordinate"
+          },
+          "name": "lat",
+          "reason": "a coordinate: the values along the \"lat\" axis"
+        },
+        {
+          "cause": {
+            "code": "coordinate"
+          },
+          "name": "lev",
+          "reason": "a coordinate: the values along the \"lev\" axis"
+        },
+        {
+          "cause": {
+            "code": "coordinate"
+          },
+          "name": "lon",
+          "reason": "a coordinate: the values along the \"lon\" axis"
+        },
+        {
+          "cause": {
+            "code": "coordinate"
+          },
+          "name": "time",
+          "reason": "a coordinate: the values along the \"time\" axis"
         }
       ]
     },
@@ -23322,7 +23699,8 @@
         ],
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -23444,7 +23822,8 @@
         ],
         "alongDim": 2,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "coordinateUnits": "degrees_north",
@@ -23679,7 +24058,8 @@
         ],
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -23801,7 +24181,8 @@
         ],
         "alongDim": 2,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "coordinateUnits": "degrees_north",
@@ -24031,7 +24412,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "addressing": "variables",
@@ -24069,7 +24451,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": [
         {
@@ -24158,7 +24541,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": [
         {
@@ -24176,6 +24560,105 @@
         {
           "length": 32,
           "name": "lon"
+        }
+      ]
+    },
+    {
+      "id": "oisst/left_out",
+      "fixture": "fieldglass-netcdf/tests/fixtures/oisst_avhrr_v2.nc",
+      "op": "leftOut",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": []
+    },
+    {
+      "id": "oisst/undrawable",
+      "fixture": "fieldglass-netcdf/tests/fixtures/oisst_avhrr_v2.nc",
+      "op": "undrawable",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": [
+        {
+          "cause": {
+            "code": "coordinate"
+          },
+          "name": "lat",
+          "reason": "a coordinate: the values along the \"lat\" axis"
+        },
+        {
+          "cause": {
+            "code": "coordinate"
+          },
+          "name": "lon",
+          "reason": "a coordinate: the values along the \"lon\" axis"
+        },
+        {
+          "cause": {
+            "code": "coordinate"
+          },
+          "name": "time",
+          "reason": "a coordinate: the values along the \"time\" axis"
+        },
+        {
+          "cause": {
+            "code": "coordinate"
+          },
+          "name": "zlev",
+          "reason": "a coordinate: the values along the \"zlev\" axis"
         }
       ]
     },
@@ -24214,7 +24697,8 @@
         ],
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -24336,7 +24820,8 @@
         ],
         "alongDim": 2,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "coordinateUnits": "degrees_north",
@@ -24457,7 +24942,8 @@
         ],
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -24579,7 +25065,8 @@
         ],
         "alongDim": 2,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "coordinateUnits": "degrees_north",
@@ -24695,7 +25182,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -24819,7 +25307,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -24939,7 +25428,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "fullDetail": {
@@ -24986,7 +25476,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "truncation": {
@@ -25026,7 +25517,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "truncation": {
@@ -25066,7 +25558,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "fullDetail": null,
@@ -25107,7 +25600,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": null
     },
@@ -25141,7 +25635,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -25238,7 +25733,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -25316,7 +25812,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -25413,7 +25910,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -25491,7 +25989,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -25588,7 +26087,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -25666,7 +26166,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -25763,7 +26264,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -25841,7 +26343,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -25938,7 +26441,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -26785,7 +27289,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -27632,7 +28137,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 31,
@@ -27729,7 +28235,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": 1,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -27842,7 +28349,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": 0,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -27955,7 +28463,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": 1,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "height": 169,
@@ -28052,7 +28561,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": 1,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "bounds": [
@@ -28124,7 +28634,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": 1,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -28202,7 +28713,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": 1,
-        "fullStats": false
+        "fullStats": false,
+        "decodeOptions": null
       },
       "expect": {
         "lutLen": 1024,
@@ -28280,7 +28792,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": 1,
-        "fullStats": false
+        "fullStats": false,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -28319,7 +28832,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": 1,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -28358,7 +28872,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -28397,7 +28912,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -28436,7 +28952,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -28475,11 +28992,54 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
           "code": "short_read",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "error/invalid_option_dtype",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": {
+          "dtype": "f16"
+        }
+      },
+      "expect": {
+        "error": {
+          "code": "invalid_option",
           "hasMessage": true
         }
       }
@@ -29283,7 +29843,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -29322,7 +29883,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -29361,7 +29923,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -29400,7 +29963,8 @@
         "sliceIndices": null,
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -29442,7 +30006,8 @@
         ],
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -29450,6 +30015,179 @@
           "hasMessage": true
         }
       }
+    },
+    {
+      "id": "unsupported_type/left_out",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc",
+      "op": "leftOut",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": [
+        {
+          "cause": {
+            "code": "unsupported_dtype",
+            "dtype": "compound"
+          },
+          "name": "station_info",
+          "reason": "unsupported section: HDF5 datatype class 6 (compound)"
+        },
+        {
+          "cause": {
+            "code": "unsupported_dtype",
+            "dtype": "variable-length"
+          },
+          "name": "visits",
+          "reason": "unsupported section: HDF5 datatype class 9 (variable-length)"
+        }
+      ]
+    },
+    {
+      "id": "unsupported_type/undrawable",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc",
+      "op": "undrawable",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": [
+        {
+          "cause": {
+            "code": "too_few_dimensions",
+            "rank": 1
+          },
+          "name": "temperature",
+          "reason": "has 1 dimension(s), and a map needs two"
+        },
+        {
+          "cause": {
+            "code": "coordinate"
+          },
+          "name": "time",
+          "reason": "a coordinate: the values along the \"time\" axis"
+        }
+      ]
+    },
+    {
+      "id": "latlon/left_out",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "leftOut",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": []
+    },
+    {
+      "id": "latlon/undrawable",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "undrawable",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": []
     },
     {
       "id": "source_only/decode_slice",
@@ -29484,7 +30222,8 @@
         ],
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f32",
@@ -29588,7 +30327,8 @@
         ],
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "dtype": "f64",
@@ -29697,7 +30437,8 @@
         ],
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -29741,7 +30482,8 @@
         ],
         "alongDim": null,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -29783,7 +30525,8 @@
         ],
         "alongDim": 0,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -29825,7 +30568,8 @@
         ],
         "alongDim": 2,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -29869,7 +30613,8 @@
         ],
         "alongDim": 9,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {
@@ -29913,7 +30658,8 @@
         ],
         "alongDim": 2,
         "reduce": null,
-        "fullStats": null
+        "fullStats": null,
+        "decodeOptions": null
       },
       "expect": {
         "error": {

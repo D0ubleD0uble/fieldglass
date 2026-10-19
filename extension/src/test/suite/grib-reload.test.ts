@@ -55,7 +55,7 @@ function field(number: number): Buffer {
 function labels(bytes: Buffer): string[] {
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const h = native.Grib2Handle.fromBytes(bytes);
+  const h = native.open(bytes);
   return Array.from({ length: h.count() }, (_, i) => gribFieldLabel(h.message(i)));
 }
 
@@ -63,7 +63,7 @@ function labels(bytes: Buffer): string[] {
 function heading(bytes: Buffer, index: number): string {
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const m = native.Grib2Handle.fromBytes(bytes).message(index);
+  const m = native.open(bytes).message(index);
   return `Message ${index} — ${m.parameter}` + (m.units ? ` (${m.units})` : "");
 }
 

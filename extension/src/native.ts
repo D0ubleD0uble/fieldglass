@@ -13,17 +13,22 @@
 //
 // Every object the addon returns carries every key, and a field with nothing to
 // report is `null`, never missing (#574). So an optional field below is
-// `field: T | null`, and the one `?` left is on `RenderOptions`, which the
-// extension sends rather than receives. Guard with `!= null` or `??`, which see
-// both `null` and `undefined`.
+// `field: T | null`, and a `?` is left only on an object the extension sends
+// rather than receives (`RenderOptions`, `ContourSpacing`, `VectorPair`). Guard
+// with `!= null` or `??`, which see both `null` and `undefined`.
+//
+// The addon exports one `Handle` (#1073), from `open(bytes)` or
+// `openStore(path)`, whose opening, listing and decoding calls are the browser
+// package's, name for name.
 
 import * as path from "path";
 
 import { nativeNotLoaded, reportProblem } from "./problems";
 
-import type { AxisValues, ColourRange, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, MessageInfo, Placement, Stats, VectorPairing, Vertical } from "./api.generated";
+import type { Addressing, AxisValues, ColourRange, DecodeOptions, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, LineRequest, MessageInfo, Placement, SliceRequest, SourceFormat, Stats, VariableInfo, VectorPairing, Vertical } from "./api.generated";
 
 export type {
+  Addressing,
   AxisValues,
   ColourRange,
   Georef,
@@ -31,9 +36,14 @@ export type {
   Identification,
   LeftOutArray,
   LeftOutCause,
+  LineRequest,
   MessageInfo,
   Placement,
   RangeRefusal,
+  SliceRequest,
+  SourceFormat,
+  DimensionInfo,
+  VariableInfo,
   VectorPairing,
   Vertical,
 } from "./api.generated";
@@ -154,8 +164,8 @@ export interface RenderOptions {
    *  it: the azimuthal and world ones keep the aspect their projection fixes,
    *  and "source" paints the array as stored.
    *
-   *  Read by renderGrid, projectOverlay, projectContours and probe alike (and
-   *  by their *Combined siblings), so a caller that sets it for one must set it
+   *  Read by renderGrid, projectOverlay, projectContours and probePixel alike
+   *  (combined targets too), so a caller that sets it for one must set it
    *  for all of them or the overlays and the probe will be reading a different
    *  raster than the image. The panel does not set it yet (#403). */
   width?: number;
@@ -219,7 +229,7 @@ export interface ProjectedVectors {
 }
 
 export interface RenderedGrid {
-  rgba: Buffer;
+  rgba: Uint8Array;
   width: number;
   height: number;
   /** The range the field was painted over; `null` when the range was
@@ -252,11 +262,16 @@ export interface SpectralTruncation {
   truncatedTo: number;
 }
 
+/** One decoded field, from {@link Handle.decode} or {@link Handle.decodeSlice}:
+ *  `values` at the width `dtype` asked for, a masked cell's value `0`, so read
+ *  `mask` first. `stats` is what {@link Handle.renderDisplayGrid} takes back. */
 export interface DecodedGrid {
-  values: Float64Array;
-  mask: Buffer;
-  width: number;
-  height: number;
+  values: Float32Array | Float64Array;
+  dtype: "f32" | "f64";
+  mask: Uint8Array;
+  ni: number;
+  nj: number;
+  stats: Stats;
 }
 
 /** Geographic polylines projected into the warped raster's pixel space for
@@ -330,231 +345,9 @@ export interface CombineOpInfo {
   label: string;
 }
 
-export interface Grib1Handle {
-  /** How many messages the file holds; `message(i)` answers for each `i` below
-   *  it. The browser package's `count()`. */
-  count(): number;
-  /** One message's metadata as the fieldglass API states it, the same
-   *  `MessageInfo` the browser package returns. Every key is present; a field
-   *  with nothing to report is `null` (#574). */
-  message(messageIndex: number): MessageInfo;
-  /** One message's field, resolved: a spectral message has no raster of its
-   *  own and comes back synthesized onto a global lat/lon grid (#580), the
-   *  same grid `renderGrid` paints. */
-  decodeGrid(messageIndex: number): DecodedGrid;
-  /** Serialize one message's decoded field as CSV, returned as its UTF-8 bytes
-   *  (a `Buffer` written straight to disk — see #341). `format` is `"matrix"`
-   *  (a 2-D grid of values) or `"long"` (a `lat,lon,value` table); missing
-   *  points are empty value cells. The long format needs per-point
-   *  coordinates, so it covers the same grids as `projectContours`. */
-  exportCsv(messageIndex: number, format: string): Buffer;
-  /** Each row's mean over longitude, against latitude (#240). Throws for a grid
-   *  whose rows are not circles of latitude (rotated, projected, curvilinear). */
-  zonalMean(messageIndex: number): LineResult;
-  setP1(messageIndex: number, value: number): Buffer;
-  renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
-  /** Render message A combined element-wise with message B under `op`. Both
-   *  messages must sit on the same grid; the result renders through the normal
-   *  pipeline against A's geometry. */
-  renderGridCombined(
-    messageIndexA: number,
-    messageIndexB: number,
-    op: CombineOp,
-    options: RenderOptions,
-  ): RenderedGrid;
-  projectOverlay(
-    messageIndex: number,
-    options: RenderOptions,
-    latlon: Float64Array,
-    ringLengths: Uint32Array,
-  ): ProjectedOverlay;
-  /** Contour isolines for this message, projected onto the render raster (#238).
-   *  `interval` sets a manual level spacing; omitted picks ~8 nice levels over
-   *  the used range. Errors for grid types whose forward geolocation isn't wired
-   *  (geostationary scan-angle grids). */
-  projectContours(
-    messageIndex: number,
-    options: RenderOptions,
-    interval?: number,
-  ): ProjectedOverlay;
-  /** Arrows for a vector field built from two messages (#241): `u` eastward and
-   *  `v` northward, or along the grid's own axes, as each message's
-   *  `MessageInfo.uvRelativeToGrid` reports. One arrow is one run of five
-   *  vertices, in the same pixel space the coastlines come back in. Throws when
-   *  the two messages are not on the same grid, as a combine would (#793), or
-   *  state different component frames (#805). `gridRelative` overrides the
-   *  frame the pair states; left out, the pair's own is used. */
-  projectVectors(
-    messageIndexU: number,
-    messageIndexV: number,
-    options: RenderOptions,
-    spacing?: number,
-    gridRelative?: boolean,
-  ): ProjectedVectors;
-  /** Read the field under a rendered pixel (#172): the point-probe readout.
-   *  `px`/`py` are output-raster pixels (post-flip). Undefined when the pixel is
-   *  off the raster or off the globe. */
-  probe(
-    messageIndex: number,
-    options: RenderOptions,
-    px: number,
-    py: number,
-  ): ProbeResult | null;
-  /** Probe a difference/sum/… map (#329): reads the combined field, so the
-   *  readout matches the displayed map, not field A. */
-  probeCombined(
-    messageIndexA: number,
-    messageIndexB: number,
-    op: string,
-    options: RenderOptions,
-    px: number,
-    py: number,
-  ): ProbeResult | null;
-  /** Contour a difference/sum/… map (#329): traces the combined field. */
-  projectContoursCombined(
-    messageIndexA: number,
-    messageIndexB: number,
-    op: string,
-    options: RenderOptions,
-    interval?: number,
-  ): ProjectedOverlay;
-}
-
-export interface Grib2Handle {
-  /** Sibling to {@link Grib1Handle.count}. */
-  count(): number;
-  /** Sibling to {@link Grib1Handle.message}. */
-  message(messageIndex: number): MessageInfo;
-  /** Sibling to {@link Grib1Handle.decodeGrid}; HEALPix resolves the same way
-   *  a spectral message does. */
-  decodeGrid(messageIndex: number): DecodedGrid;
-  /** Sibling to {@link Grib1Handle.exportCsv}. */
-  exportCsv(messageIndex: number, format: string): Buffer;
-  /** Each row's mean over longitude, against latitude (#240). Throws for a grid
-   *  whose rows are not circles of latitude (rotated, projected, curvilinear). */
-  zonalMean(messageIndex: number): LineResult;
-  renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
-  /** Sibling to {@link Grib1Handle.renderGridCombined}. */
-  renderGridCombined(
-    messageIndexA: number,
-    messageIndexB: number,
-    op: CombineOp,
-    options: RenderOptions,
-  ): RenderedGrid;
-  projectOverlay(
-    messageIndex: number,
-    options: RenderOptions,
-    latlon: Float64Array,
-    ringLengths: Uint32Array,
-  ): ProjectedOverlay;
-  /** Sibling to {@link Grib1Handle.projectContours}. */
-  projectContours(
-    messageIndex: number,
-    options: RenderOptions,
-    interval?: number,
-  ): ProjectedOverlay;
-  /** Arrows for a vector field built from two messages (#241): `u` eastward and
-   *  `v` northward, or along the grid's own axes, as each message's
-   *  `MessageInfo.uvRelativeToGrid` reports. One arrow is one run of five
-   *  vertices, in the same pixel space the coastlines come back in. Throws when
-   *  the two messages are not on the same grid, as a combine would (#793), or
-   *  state different component frames (#805). `gridRelative` overrides the
-   *  frame the pair states; left out, the pair's own is used. */
-  projectVectors(
-    messageIndexU: number,
-    messageIndexV: number,
-    options: RenderOptions,
-    spacing?: number,
-    gridRelative?: boolean,
-  ): ProjectedVectors;
-  /** Read the field under a rendered pixel (#172): the point-probe readout.
-   *  `px`/`py` are output-raster pixels (post-flip). Undefined when the pixel is
-   *  off the raster or off the globe. */
-  probe(
-    messageIndex: number,
-    options: RenderOptions,
-    px: number,
-    py: number,
-  ): ProbeResult | null;
-  /** Sibling to {@link Grib1Handle.probeCombined} (#329). */
-  probeCombined(
-    messageIndexA: number,
-    messageIndexB: number,
-    op: string,
-    options: RenderOptions,
-    px: number,
-    py: number,
-  ): ProbeResult | null;
-  /** Sibling to {@link Grib1Handle.projectContoursCombined} (#329). */
-  projectContoursCombined(
-    messageIndexA: number,
-    messageIndexB: number,
-    op: string,
-    options: RenderOptions,
-    interval?: number,
-  ): ProjectedOverlay;
-  /** Decode a message to draw, at a reduced resolution (#1082): `reduce`
-   *  discards that many of a JPEG 2000 message's finest wavelet levels. The
-   *  values are not the file's, so the result is a {@link DisplayGrid}, which
-   *  only `renderDisplay` takes. Throws `unsupported` above `reduce: 0` for a
-   *  message with no coarse field. */
-  decodeDisplay(messageIndex: number, options?: DisplayDecodeOptions | null): DisplayGrid;
-  /** Paint a {@link DisplayGrid} through the `renderGrid` pipeline. The
-   *  automatic colour range is the full field's, from `fullStats`; `null` is
-   *  allowed only when both range ends are set. */
-  renderDisplay(field: DisplayGrid, fullStats: Stats | null, options: RenderOptions): RenderedGrid;
-}
-
-export interface Grib1HandleCtor {
-  fromBytes(bytes: Uint8Array): Grib1Handle;
-}
-
-export interface Grib2HandleCtor {
-  fromBytes(bytes: Uint8Array): Grib2Handle;
-}
-
-/** A message decoded to draw, from {@link Grib2Handle.decodeDisplay} (#1082).
- *  It carries no values or stats to measure with, and the handle's measuring
- *  calls take message indices, so it cannot reach them. */
-export interface DisplayGrid {
-  /** Wavelet levels discarded; `0` is the message's own field. */
-  reduction(): number;
-  width(): number;
-  height(): number;
-  /** The derived grid above reduction zero, never the message's own. */
-  grid(): Georef;
-}
-
 // ---------------------------------------------------------------------------
 // NetCDF 2-D slice rendering (#122)
 // ---------------------------------------------------------------------------
-
-/** One axis (dimension) of a renderable NetCDF variable, for the picker's
- *  index controls. */
-export interface NetcdfAxis {
-  name: string;
-  length: number;
-}
-
-/** A NetCDF variable the render panel can draw, with its dimensions and the
- *  CF-detected horizontal-axis positions. `detectedYDim` / `detectedXDim` are
- *  axis indices (into `dims`) the picker pre-fills the Y / X selectors with;
- *  `null` means detection found no coordinate variable and the user assigns
- *  that axis by hand. */
-export interface NetcdfVariableMeta {
-  variableIndex: number;
-  name: string;
-  ncType: string;
-  dims: NetcdfAxis[];
-  detectedYDim: number | null;
-  detectedXDim: number | null;
-  /** The axis index of the time dimension, which the panel animates along
-   *  (#170); `null` when the variable has none. Never an image axis. */
-  detectedTimeDim: number | null;
-  /** The variable's CF `units`, typeset for display the way a GRIB unit is
-   *  (ADR-0007); `null` when the variable declares none (#775). */
-  units: string | null;
-}
 
 /** Where one slice sits, as the render panel asks it (#574): the family to
  *  caption, whether it can be placed, and whether the reprojection targets may
@@ -571,239 +364,156 @@ export interface SliceGrid {
   supports: GridSupport;
 }
 
-export interface NetcdfHandle {
-  /** Dataset metadata from the reader this handle already holds — the same
-   *  value {@link FieldglassNative.openNetcdf} returns for the same bytes.
-   *  Preferred when a handle is being kept anyway: calling both parses and
-   *  copies the whole file twice. */
-  metadata(): DatasetMeta;
-  variables(): NetcdfVariableMeta[];
-  renderSlice(
-    variableIndex: number,
-    yDim: number,
-    xDim: number,
-    sliceIndices: number[],
-    options: RenderOptions,
-  ): RenderedGrid;
-  /** Serialize one decoded slice as CSV — `"matrix"` or `"long"`
-   *  (`lat,lon,value`), missing points as empty cells. The slice is picked as
-   *  in {@link renderSlice}; the long format needs geolocated geometry — a
-   *  regular lat/lon grid, or a WRF projection. See the GRIB counterparts. */
-  exportCsv(
-    variableIndex: number,
-    yDim: number,
-    xDim: number,
-    sliceIndices: number[],
-    format: string,
-  ): Buffer;
-  /** Render one slice combined element-wise with a second slice under `op`
-   *  (#239). Field B is a slice of `variableIndexB` at `sliceIndicesB`, sharing
-   *  the same image axes; the common case is two time steps of one variable.
-   *  Both slices must resolve to the same grid. */
-  renderSliceCombined(
-    variableIndexA: number,
-    yDim: number,
-    xDim: number,
-    sliceIndicesA: number[],
-    variableIndexB: number,
-    sliceIndicesB: number[],
-    op: CombineOp,
-    options: RenderOptions,
-  ): RenderedGrid;
-  projectOverlay(
-    variableIndex: number,
-    yDim: number,
-    xDim: number,
-    options: RenderOptions,
-    latlon: Float64Array,
-    ringLengths: Uint32Array,
-  ): ProjectedOverlay;
-  /** Contour isolines for one slice, projected onto the render raster (#238).
-   *  A slice is contourable wherever its synthesised geometry lands on a
-   *  geolocated family — every one but a GOES scan-angle grid. */
-  projectContours(
-    variableIndex: number,
-    yDim: number,
-    xDim: number,
-    sliceIndices: number[],
-    options: RenderOptions,
-    interval?: number,
-  ): ProjectedOverlay;
-  /** Point-probe readout for one slice (#172). Sibling to {@link Grib1Handle.probe}. */
-  probe(
-    variableIndex: number,
-    yDim: number,
-    xDim: number,
-    sliceIndices: number[],
-    options: RenderOptions,
-    px: number,
-    py: number,
-  ): ProbeResult | null;
-  /** One line along `alongDim`, every other axis held at `sliceIndices` — the
-   *  entry for `alongDim` is ignored (#172). */
-  line(variableIndex: number, alongDim: number, sliceIndices: number[]): LineResult;
-  /** The slice's zonal mean, against latitude (#240). Throws for a slice whose
-   *  rows are not circles of latitude. */
-  zonalMean(variableIndex: number, yDim: number, xDim: number, sliceIndices: number[]): LineResult;
-  /** The coordinate values along one axis, for labelling a cross-section
-   *  (#171). Reads the coordinate array only, never the field. */
-  axisValues(variableIndex: number, dim: number): AxisValues;
-  /** Where the slice on these image axes sits (#574). Decodes nothing. */
-  sliceGrid(variableIndex: number, yDim: number, xDim: number): SliceGrid;
-  /** Probe a NetCDF difference/sum/… map (#329): reads the combined field of
-   *  slice A and slice B, so the readout matches the displayed map, not A. */
-  probeSliceCombined(
-    variableIndexA: number,
-    yDim: number,
-    xDim: number,
-    sliceIndicesA: number[],
-    variableIndexB: number,
-    sliceIndicesB: number[],
-    op: string,
-    options: RenderOptions,
-    px: number,
-    py: number,
-  ): ProbeResult | null;
-  /** Contour a NetCDF difference/sum/… map (#329): traces the combined field. */
-  projectContoursSliceCombined(
-    variableIndexA: number,
-    yDim: number,
-    xDim: number,
-    sliceIndicesA: number[],
-    variableIndexB: number,
-    sliceIndicesB: number[],
-    op: string,
-    options: RenderOptions,
-    interval?: number,
-  ): ProjectedOverlay;
+/** One field of a file, as the map pipeline addresses it: a message index for
+ *  a GRIB file, or one slice of a variable for a NetCDF file or a Zarr store. */
+export type GridField = number | SliceRequest;
+
+/** Two fields combined cell by cell under `op` (#239, #329): the difference
+ *  map. `op` is a {@link CombineOp}, a `value` from `combineOps()`; Rust refuses
+ *  any other. Both must sit on the same grid, and two slices on the same axes;
+ *  the result is drawn against `a`'s grid. */
+export interface CombinedFields {
+  a: GridField;
+  b: GridField;
+  op: string;
 }
 
-export interface NetcdfHandleCtor {
-  fromBytes(bytes: Uint8Array): NetcdfHandle;
+/** What the map pipeline draws: one field, or two combined. */
+export type GridTarget = GridField | CombinedFields;
+
+/** The polylines an overlay projects (#72): flat `[lat, lon, …]` and how many
+ *  points each ring has. */
+export interface Polylines {
+  latlon: Float64Array;
+  ringLengths: Uint32Array;
 }
 
-/** What the slice render panel needs of a handle.
- *
- *  Both {@link NetcdfHandle} and {@link ZarrHandle} satisfy it structurally, which
- *  is what lets one panel drive either without knowing which container answered
- *  (#659). The signatures are identical on purpose: a store answers the same
- *  questions a NetCDF file does, and two shapes for one question is how the two
- *  hosts drifted apart in the first place (#662).
- *
- *  Compare mode is included. `Session::combine` runs the alignment gate and the
- *  arithmetic, so a combined field arrives like any other and a store gets
- *  difference maps for free. */
-export interface SlicePanelHandle {
-  variables(): NetcdfVariableMeta[];
-  renderSlice(
-    variableIndex: number,
-    yDim: number,
-    xDim: number,
-    sliceIndices: number[],
-    options: RenderOptions,
-  ): RenderedGrid;
-  exportCsv(
-    variableIndex: number,
-    yDim: number,
-    xDim: number,
-    sliceIndices: number[],
-    format: string,
-  ): Buffer;
-  projectOverlay(
-    variableIndex: number,
-    yDim: number,
-    xDim: number,
-    options: RenderOptions,
-    latlon: Float64Array,
-    ringLengths: Uint32Array,
-  ): ProjectedOverlay;
-  projectContours(
-    variableIndex: number,
-    yDim: number,
-    xDim: number,
-    sliceIndices: number[],
-    options: RenderOptions,
-    interval?: number,
-  ): ProjectedOverlay;
-  probe(
-    variableIndex: number,
-    yDim: number,
-    xDim: number,
-    sliceIndices: number[],
-    options: RenderOptions,
-    px: number,
-    py: number,
-  ): ProbeResult | null;
-  /** One line along `alongDim`, every other axis held at `sliceIndices` — the
-   *  entry for `alongDim` is ignored (#172). */
-  line(variableIndex: number, alongDim: number, sliceIndices: number[]): LineResult;
-  /** The slice's zonal mean, against latitude (#240). Throws for a slice whose
-   *  rows are not circles of latitude. */
-  zonalMean(variableIndex: number, yDim: number, xDim: number, sliceIndices: number[]): LineResult;
-  /** The coordinate values along one axis, for labelling a cross-section
-   *  (#171). Reads the coordinate array only, never the field. */
-  axisValues(variableIndex: number, dim: number): AxisValues;
-  /** Where the slice on these image axes sits (#574). Decodes nothing. */
-  sliceGrid(variableIndex: number, yDim: number, xDim: number): SliceGrid;
-  renderSliceCombined(
-    variableIndexA: number,
-    yDim: number,
-    xDim: number,
-    sliceIndicesA: number[],
-    variableIndexB: number,
-    sliceIndicesB: number[],
-    op: CombineOp,
-    options: RenderOptions,
-  ): RenderedGrid;
-  probeSliceCombined(
-    variableIndexA: number,
-    yDim: number,
-    xDim: number,
-    sliceIndicesA: number[],
-    variableIndexB: number,
-    sliceIndicesB: number[],
-    op: string,
-    options: RenderOptions,
-    px: number,
-    py: number,
-  ): ProbeResult | null;
-  projectContoursSliceCombined(
-    variableIndexA: number,
-    yDim: number,
-    xDim: number,
-    sliceIndicesA: number[],
-    variableIndexB: number,
-    sliceIndicesB: number[],
-    op: string,
-    options: RenderOptions,
-    interval?: number,
-  ): ProjectedOverlay;
+/** How contours are spaced (#238). `interval` left out picks about eight round
+ *  levels over the range painted. */
+export interface ContourSpacing {
+  interval?: number;
 }
 
-/** A Zarr store, opened from a directory (#659).
+/** Two messages drawn as arrows (#241). `u` eastward and `v` northward, or
+ *  along the grid's own axes, as each message's `MessageInfo.uvRelativeToGrid`
+ *  reports; `gridRelative` overrides the frame the pair states, and left out
+ *  the pair's own is used. */
+export interface VectorPair {
+  u: number;
+  v: number;
+  spacing?: number;
+  gridRelative?: boolean;
+}
+
+/** A variable's two image axes, without a position on the rest: all that
+ *  placing a slice needs. */
+export interface SliceAxes {
+  variable: number;
+  yDim: number;
+  xDim: number;
+}
+
+/** An open container: a GRIB file, a NetCDF file or a Zarr store (#1073).
  *
- *  A store is a folder rather than a file, so this is the one handle that takes
- *  a path instead of bytes. It reuses {@link NetcdfVariableMeta} because a store
- *  answers the same question a NetCDF file does, which is what lets the existing
- *  slice picker drive it unchanged. */
-export interface ZarrHandle extends SlicePanelHandle {
-  /** The arrays the store holds and this build will not read (#709), each with
-   *  the reader's reason and a `cause` code (#1129). Shown so a user sees *why*
-   *  a name is absent from the variable list. */
+ *  The browser package's `Handle` has the same shape for opening, listing and
+ *  decoding: `count`, `message`, `variables`, `leftOut`, `undrawable`,
+ *  `decode`, `decodeSlice`, `decodeLine`, `decodeDisplay`, `format`,
+ *  `addressing` and `close` are spelt and called the same in both. The rest is
+ *  the panel's map pipeline, which draws a {@link GridTarget}. A message
+ *  question asked of a variable container, or the reverse, throws with
+ *  `code: "wrong_addressing"`.
+ *
+ *  `close()` releases the file now rather than when the garbage collector runs;
+ *  `[Symbol.dispose]` is the same method, so `using` works. */
+export interface Handle {
+  close(): void;
+  [Symbol.dispose](): void;
+  format(): SourceFormat;
+  addressing(): Addressing;
+  /** How many messages the file holds; `message(i)` answers for each `i` below
+   *  it. Zero for a variable container. */
+  count(): number;
+  /** One message's metadata as the fieldglass API states it, the same
+   *  `MessageInfo` the browser package returns. Every key is present; a field
+   *  with nothing to report is `null` (#574). */
+  message(index: number): MessageInfo;
+  /** The variables a slice can be drawn from, as the browser package lists
+   *  them (#1073): `index` is the position every slice request names, and
+   *  `units` is the file's own spelling, which {@link FieldglassNative.typesetUnits}
+   *  typesets for display. Empty for a message stream. */
+  variables(): VariableInfo[];
+  /** The arrays the container holds and this build will not read (#709), each
+   *  with the reader's reason and a `cause` code (#1129). */
   leftOut(): LeftOutArray[];
-  /** The arrays the store reads that no map can be drawn from, each with why
-   *  (#1129). With {@link leftOut} and the variable list, every array once. */
+  /** The arrays the container reads that no map can be drawn from, each with
+   *  why (#1129). With {@link leftOut} and the variable list, every array once. */
   undrawable(): LeftOutArray[];
+  /** A NetCDF file's dimensions, attributes and variables, for the metadata
+   *  view. Throws for any other container. */
+  metadata(): DatasetMeta;
+  /** One message's field, resolved: a spectral or HEALPix message comes back on
+   *  the global lat/lon grid `renderGrid` paints (#580). */
+  decode(index: number, options?: DecodeOptions | null): DecodedGrid;
+  /** One slice of a variable, as {@link decode} returns a message. */
+  decodeSlice(slice: SliceRequest, options?: DecodeOptions | null): DecodedGrid;
+  /** One line along `line.alongDim`, every other axis held at
+   *  `line.sliceIndices` — the entry for `alongDim` is ignored (#172). */
+  decodeLine(line: LineRequest, options?: DecodeOptions | null): LineResult;
+  /** Decode a message to draw, at a reduced resolution (#1082): `reduce`
+   *  discards that many of a JPEG 2000 message's finest wavelet levels. The
+   *  values are not the file's, so the result is a {@link DisplayGrid}, which
+   *  only `renderDisplayGrid` takes. Throws `unsupported` above `reduce: 0` for
+   *  a message with no coarse field. */
+  decodeDisplay(index: number, options?: DisplayDecodeOptions | null): DisplayGrid;
+  /** Decode, project and paint `target` under `options`. */
+  renderGrid(target: GridTarget, options: RenderOptions): RenderedGrid;
+  /** Paint a {@link DisplayGrid} through the `renderGrid` pipeline. The
+   *  automatic colour range is the full field's, from `fullStats`; `null` is
+   *  allowed only when both range ends are set. */
+  renderDisplayGrid(field: DisplayGrid, fullStats: Stats | null, options: RenderOptions): RenderedGrid;
+  /** Geographic polylines projected onto the raster `renderGrid` paints for
+   *  this target and these options (#72). Geometry only. */
+  projectOverlay(target: GridTarget, options: RenderOptions, lines: Polylines): ProjectedOverlay;
+  /** Contour isolines of the target, projected onto its render raster (#238).
+   *  A combined target is contoured as the combined map (#329). */
+  projectContours(target: GridTarget, options: RenderOptions, spacing?: ContourSpacing | null): ProjectedOverlay;
+  /** Arrows for a vector field built from two messages (#241). One arrow is one
+   *  run of five vertices. Throws when the two are not on the same grid (#793)
+   *  or state different component frames (#805). */
+  projectVectors(pair: VectorPair, options: RenderOptions): ProjectedVectors;
+  /** The field under a rendered pixel (#172): `px`/`py` are output-raster
+   *  pixels (post-flip). `null` off the raster or off the globe. A combined
+   *  target reads the combined map (#329). */
+  probePixel(target: GridTarget, options: RenderOptions, px: number, py: number): ProbeResult | null;
+  /** Each row's mean over longitude, against latitude (#240). Throws for a grid
+   *  whose rows are not circles of latitude (rotated, projected, curvilinear). */
+  zonalMean(field: GridField): LineResult;
+  /** One field as CSV, as its UTF-8 bytes to write straight to disk (#341).
+   *  `format` is `"matrix"` (a 2-D grid of values) or `"long"` (a
+   *  `lat,lon,value` table); missing points are empty value cells. */
+  exportCsv(field: GridField, format: "matrix" | "long"): Uint8Array;
+  /** Where the slice on these image axes sits (#574). Decodes nothing. */
+  sliceGrid(axes: SliceAxes): SliceGrid;
+  /** The coordinate values along one axis, for labelling a cross-section
+   *  (#171). Reads the coordinate array only, never the field. */
+  axisValues(variable: number, dim: number): AxisValues;
+  /** Patch one GRIB1 message's PDS `P1` octet and return the whole edited
+   *  file. Throws for any other container. */
+  setP1(index: number, value: number): Uint8Array;
 }
 
-export interface ZarrHandleCtor {
-  /** Open the store rooted at `path`. Throws when the directory holds none of
-   *  `zarr.json`, `.zmetadata`, `.zgroup` or `.zarray`. */
-  fromDirectory(path: string): ZarrHandle;
-  /** Whether a directory looks like a store, without opening it — what the
-   *  folder picker asks so it can refuse in its own words. The `.zarr` suffix is
-   *  a convention and is **not** what this checks. */
-  isStore(path: string): boolean;
+/** A message decoded to draw, from {@link Handle.decodeDisplay} (#1082).
+ *  It carries no values or stats to measure with, and the handle's measuring
+ *  calls take a {@link GridTarget}, which this is not. */
+export interface DisplayGrid {
+  /** Wavelet levels discarded; `0` is the message's own field. */
+  reduction(): number;
+  ni(): number;
+  nj(): number;
+  /** The derived grid above reduction zero, never the message's own. */
+  grid(): Georef;
+  close(): void;
+  [Symbol.dispose](): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -811,8 +521,19 @@ export interface ZarrHandleCtor {
 // ---------------------------------------------------------------------------
 
 export interface FieldglassNative {
+  /** `"grib1"`, `"grib2"`, `"netcdf"` or `"unknown"`, from the bytes alone. */
   detectBytes(bytes: Uint8Array): string;
-  openNetcdf(bytes: Uint8Array): DatasetMeta;
+  /** Open a GRIB1, GRIB2 or NetCDF file from its bytes; the format is detected.
+   *  Throws with `code: "unsupported_format"` for anything else. */
+  open(bytes: Uint8Array): Handle;
+  /** Open the Zarr store rooted at the directory `path` (#659). Throws when the
+   *  directory holds none of `zarr.json`, `.zmetadata`, `.zgroup` or
+   *  `.zarray`. */
+  openStore(path: string): Handle;
+  /** Whether a directory looks like a store, without opening it — what the
+   *  folder picker asks so it can refuse in its own words. The `.zarr` suffix
+   *  is a convention and is **not** what this checks. */
+  isStore(path: string): boolean;
   /** The colormap registry, in picker order; the first entry is the default. */
   colormaps(): ColormapInfo[];
   /** Read a GMT colour palette table from its text. Throws with the line and
@@ -824,10 +545,9 @@ export interface FieldglassNative {
    *  `"Second-order (SPD-2)"`; an identifier with no label comes back as
    *  itself. */
   packingLabel(packing: string): string;
-  Grib1Handle: Grib1HandleCtor;
-  Grib2Handle: Grib2HandleCtor;
-  NetcdfHandle: NetcdfHandleCtor;
-  ZarrHandle: ZarrHandleCtor;
+  /** A unit string typeset for display (ADR-0007), as the panel shows a
+   *  variable's units; blank comes back empty. */
+  typesetUnits(units: string): string;
 }
 
 let cached: FieldglassNative | undefined;

@@ -90,6 +90,20 @@ class Rendering(unittest.TestCase):
         out = self.render({"Info": RETURNED, "Grid": GRID})
         self.assertIn("  bounds: [number, number, number, number] | null;", out)
 
+    def test_an_array_a_caller_may_pass_typed_says_so(self):
+        # #1073: slice indices a page holds as a `Uint32Array`.
+        typed = {
+            "type": "object",
+            "properties": {
+                "at": {"type": "array", "items": {"type": "integer"}, gen.TYPED_ARRAY: "Uint32Array"}
+            },
+            "required": ["at"],
+        }
+        self.assertIn("  at: number[] | Uint32Array;", self.render({"Req": typed}))
+        typed["properties"]["at"][gen.TYPED_ARRAY] = "Uint32"
+        with self.assertRaises(gen.SchemaError):
+            self.render({"Req": typed})
+
     def test_required_fields_keep_their_declaration_order(self):
         out = self.render({"Info": RETURNED, "Grid": GRID})
         order = [out.index(f"  {k}:") for k in ("name", "edition", "grid", "bounds")]

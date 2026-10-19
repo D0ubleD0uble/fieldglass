@@ -149,8 +149,8 @@ suite("Render panel buttons follow the theme (#1118)", function () {
     const fixtures = path.join(ext.extensionPath, "src", "test", "fixtures");
     const grib = path.join(fixtures, "regular_latlon_surface.grib2");
     const nc = path.join(fixtures, "netcdf_classic_dummy.nc");
-    const messages = [native.Grib2Handle.fromBytes(fs.readFileSync(grib)).message(0)];
-    const ncHandle = native.NetcdfHandle.fromBytes(fs.readFileSync(nc));
+    const messages = [native.open(fs.readFileSync(grib)).message(0)];
+    const ncHandle = native.open(fs.readFileSync(nc));
     const variables = ncHandle.variables();
     assert.ok(variables.length > 0, "the NetCDF fixture has a renderable variable");
 

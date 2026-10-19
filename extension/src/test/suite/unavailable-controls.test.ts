@@ -49,11 +49,11 @@ function crateFixture(crate: string, name: string): string {
 function variableIndex(file: string, name: string): number {
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const v = native.NetcdfHandle.fromBytes(fs.readFileSync(file))
+  const v = native.open(fs.readFileSync(file))
     .variables()
     .find((x) => x.name === name);
   assert.ok(v, `${path.basename(file)} has ${name}`);
-  return v.variableIndex;
+  return v.index;
 }
 
 /** The committed §3.20 polar stereographic fixture on an Earth of 80 km with
@@ -194,7 +194,7 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
     const { file, done } = tempFile("tiny_earth_pair.grib2", tinyEarthPair());
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const meta = native.Grib2Handle.fromBytes(fs.readFileSync(file)).message(0);
+    const meta = native.open(fs.readFileSync(file)).message(0);
     assert.strictEqual(meta.placement, "unplaceable", "the grid is not placed");
 
     const editor = await openEditor(p, file);

@@ -1,4 +1,4 @@
-//! A directory on disk as an [`ObjectSource`] (#659, ADR-0005 decision 1).
+//! A directory on disk as an `ObjectSource` (#659, ADR-0005 decision 1).
 //!
 //! A Zarr store is a **directory**, not a file: a key per metadata document and
 //! a key per chunk, laid out as nested folders. Every other container this addon
@@ -10,23 +10,22 @@
 //! # Lazy, not slurped
 //!
 //! The obvious implementation reads the whole tree into a
-//! [`MemoryObjects`](fieldglass::MemoryObjects) at open. That is wrong for the
+//! `MemoryObjects` at open. That is wrong for the
 //! thing this exists to read: a store's chunks are the bulk of it, a viewer
 //! looks at one slice, and the metadata documents that describe the whole
 //! hierarchy are a few kilobytes. So a `get` is one `read`, and nothing is held
 //! but the root path.
 //!
-//! # Why [`list_children`] and not [`list`]
+//! # Why `list_children` and not `list`
 //!
-//! [`list`](ObjectSource::list) returns every key beneath a prefix, which for a
+//! `list` returns every key beneath a prefix, which for a
 //! directory means walking the whole tree — every chunk of every array — to find
-//! a handful of metadata documents. [`list_children`] returns the immediate
+//! a handful of metadata documents. `list_children` returns the immediate
 //! children, which is one `read_dir`, and the store walker descends through it
 //! (#708). Overriding it is the entire reason a directory-backed source is cheap
 //! to open: on a store with a million chunks, opening reads the directories the
 //! groups live in and never enumerates a chunk.
 //!
-//! [`list_children`]: ObjectSource::list_children
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};

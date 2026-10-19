@@ -11,7 +11,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { loadNative, type NetcdfVariableMeta } from "../../native";
+import { loadNative, type VariableInfo } from "../../native";
 import {
   axisTickIndices,
   formatAxisValue,
@@ -43,7 +43,7 @@ function readerFixture(name: string): Buffer {
   return fs.readFileSync(p);
 }
 
-function sst(): { handle: ReturnType<typeof netcdf>; v: NetcdfVariableMeta } {
+function sst(): { handle: ReturnType<typeof netcdf>; v: VariableInfo } {
   const handle = netcdf(fixture("ersst_v5_187001_cdf1.nc"));
   const v = handle.variables().find((x) => x.name.endsWith("sst"));
   assert.ok(v, "sst is renderable");
@@ -53,7 +53,7 @@ function sst(): { handle: ReturnType<typeof netcdf>; v: NetcdfVariableMeta } {
 function netcdf(bytes: Buffer) {
   const native = loadNative();
   assert.ok(native, "native module must load");
-  return native.NetcdfHandle.fromBytes(bytes);
+  return native.open(bytes);
 }
 
 suite("Cross-sections", () => {
@@ -186,12 +186,12 @@ suite("Cross-sections", () => {
 
   test("the addon reports an axis's coordinates and units", () => {
     const { handle, v } = sst();
-    const time = handle.axisValues(v.variableIndex, 0);
+    const time = handle.axisValues(v.index, 0);
     assert.strictEqual(time.dimension, "time");
     assert.strictEqual(time.units, "minutes since 1870-01-01 00:00");
     assert.deepStrictEqual(time.coordinates, [0], "January 1870, the file's one step");
 
-    const lat = handle.axisValues(v.variableIndex, 2);
+    const lat = handle.axisValues(v.index, 2);
     assert.strictEqual(lat.units, "degrees_north");
     assert.strictEqual(lat.coordinates?.length, lat.length);
     assert.strictEqual(lat.coordinates?.[0], -88);
@@ -200,7 +200,7 @@ suite("Cross-sections", () => {
     const wrf = netcdf(readerFixture("wrf_lambert.nc"));
     const t2 = wrf.variables().find((x) => x.name === "T2");
     assert.ok(t2, "T2 is renderable");
-    const wrfTime = wrf.axisValues(t2.variableIndex, 0);
+    const wrfTime = wrf.axisValues(t2.index, 0);
     assert.strictEqual(wrfTime.coordinates, null);
     assert.strictEqual(wrfTime.length, 1);
   });
@@ -209,16 +209,16 @@ suite("Cross-sections", () => {
     const { handle, v } = sst();
     const base = { projection: "source" as const, resampling: "nearest" as const, flipY: false };
     // Time by latitude: 89 columns of latitude, one row of time.
-    const plot = handle.renderSlice(v.variableIndex, 0, 2, [0, 0, 0, 0], base);
+    const plot = handle.renderGrid({ variable: v.index, yDim: 0, xDim: 2, sliceIndices: [0, 0, 0, 0] }, base);
     assert.deepStrictEqual([plot.width, plot.height], [89, 1]);
     assert.strictEqual(plot.usedLatMin, null, "no geographic extent");
     // And the map target refuses it rather than inventing one.
     assert.throws(
-      () => handle.renderSlice(v.variableIndex, 0, 2, [0, 0, 0, 0], { ...base, projection: "equirectangular" }),
+      () => handle.renderGrid({ variable: v.index, yDim: 0, xDim: 2, sliceIndices: [0, 0, 0, 0] }, { ...base, projection: "equirectangular" }),
       /lat|reproject|grid/i,
     );
     // The real map pair still reprojects.
-    const map = handle.renderSlice(v.variableIndex, 2, 3, [0, 0, 0, 0], { ...base, projection: "equirectangular" });
+    const map = handle.renderGrid({ variable: v.index, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] }, { ...base, projection: "equirectangular" });
     assert.ok(map.width > 0 && map.usedLatMin != null, "lat by lon is still a map");
   });
 
@@ -228,7 +228,7 @@ suite("Cross-sections", () => {
     const { v } = sst();
     const slice: SlicePanelData = {
       variables: [v],
-      initial: { variableIndex: v.variableIndex, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] },
+      initial: { variableIndex: v.index, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] },
     };
     const meta = { grid: { label: "latlon" }, reprojectable: true } as unknown as PanelField;
     const html = renderImagePanelHtml(

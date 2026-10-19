@@ -57,6 +57,9 @@ import {
   type SlicePanelData,
 } from "../../render-panel";
 
+/** The CSV the addon hands back, as text: its UTF-8 bytes (#341, #1073). */
+const utf8 = (bytes: Uint8Array): string => new TextDecoder("utf-8").decode(bytes);
+
 /** The real colormap registry from Rust. The panel is fed the same data in
  *  production, so the panel tests exercise the actual names and stops rather
  *  than a fixture that could drift from the registry. */
@@ -262,7 +265,7 @@ suite("Render pipeline", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
-    const handle = native.Grib1Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
     const messages = listMessages(handle);
     assert.ok(messages.length > 0, "GRIB1 fixture should contain at least one message");
 
@@ -279,17 +282,17 @@ suite("Render pipeline", () => {
     });
   });
 
-  test("GRIB1: renderGridCombined produces a difference field (#239)", () => {
+  test("GRIB1: renderGrid of a combined target produces a difference field (#239)", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
-    const handle = native.Grib1Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
     const n = listMessages(handle).length;
     assert.ok(n >= 1, "fixture should contain at least one message");
 
     // A − A: every present cell is exactly zero, so the used range collapses —
     // a property independent of how many messages the fixture holds.
-    const self = handle.renderGridCombined(0, 0, "a_minus_b", defaultRenderOptions());
+    const self = handle.renderGrid({ a: 0, b: 0, op: "a_minus_b" }, defaultRenderOptions());
     assert.strictEqual(self.usedMin, 0, "self-difference minimum is 0");
     assert.strictEqual(self.usedMax, 0, "self-difference maximum is 0");
     assert.strictEqual(
@@ -299,12 +302,12 @@ suite("Render pipeline", () => {
     );
 
     // Comparing distinct messages renders a valid grid of the same geometry.
-    const other = handle.renderGridCombined(0, n - 1, "a_minus_b", defaultRenderOptions());
+    const other = handle.renderGrid({ a: 0, b: n - 1, op: "a_minus_b" }, defaultRenderOptions());
     assert.strictEqual(other.rgba.length, other.width * other.height * 4);
 
     // A bad op is a clear error, not a silent mis-render.
     assert.throws(
-      () => handle.renderGridCombined(0, 0, "product" as never, defaultRenderOptions()),
+      () => handle.renderGrid({ a: 0, b: 0, op: "product" as never }, defaultRenderOptions()),
       /unknown combine op/,
     );
   });
@@ -313,24 +316,24 @@ suite("Render pipeline", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
-    const handle = native.Grib1Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
     const options = defaultRenderOptions();
 
     // Self-difference A−A is 0 at every present point, so a probed present pixel
     // reads 0 — the combined value, not field A's value there.
-    const r = handle.probeCombined(0, 0, "a_minus_b", options, 1, 1);
+    const r = handle.probePixel({ a: 0, b: 0, op: "a_minus_b" }, options, 1, 1);
     if (r && r.value != null) {
       assert.strictEqual(r.value, 0, "A−A probe reads the combined 0, not field A");
     }
     // A bad op errors here too, not a silent single-field fallback.
     assert.throws(
-      () => handle.probeCombined(0, 0, "product" as never, options, 0, 0),
+      () => handle.probePixel({ a: 0, b: 0, op: "product" as never }, options, 0, 0),
       /unknown combine op/,
     );
     // Contours of the combined field return runs. This fixture is a
     // polar-stereographic grid, which the contour path refused until #470 wired
     // the planar families' forward geolocation in.
-    const c = handle.projectContoursCombined(0, 0, "a_plus_b", options, undefined);
+    const c = handle.projectContours({ a: 0, b: 0, op: "a_plus_b" }, options, { interval: undefined });
     assert.ok(c.xy.length > 0, "A+A over a real wind field crosses interior levels");
     assert.strictEqual(c.xy.length % 2, 0, "xy is a flat (x, y) list");
   });
@@ -339,24 +342,24 @@ suite("Render pipeline", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("spectral_simple_t63.grib2"));
-    const handle = native.Grib2Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
     const options = defaultRenderOptions();
 
     // A spectral message has no grid; the resolve seam synthesizes one, so these
     // features (which used to fail before Render was the only one that worked)
     // now run against the synthesized lat/lon grid.
-    const csv = handle.exportCsv(0, "matrix").toString("utf8");
+    const csv = utf8(handle.exportCsv(0, "matrix"));
     assert.ok(csv.length > 0, "spectral CSV export produces content");
-    const r = handle.probe(0, options, 10, 10);
+    const r = handle.probePixel(0, options, 10, 10);
     assert.ok(r != null && r.value != null, "spectral probe reads a value");
-    const c = handle.projectContours(0, options, undefined);
+    const c = handle.projectContours(0, options, { interval: undefined });
     assert.ok(c.xy.length > 0, "spectral contours project onto the synthesized grid");
   });
 
   test("GRIB2 spectral past T359: the map is labelled, the probe reads both values, the CSV says so (#637)", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
-    const handle = native.Grib2Handle.fromBytes(fs.readFileSync(fixturePath("spectral_simple_t383.grib2")));
+    const handle = native.open(fs.readFileSync(fixturePath("spectral_simple_t383.grib2")));
     const meta = handle.message(0);
     assert.deepStrictEqual(meta.truncation, { declared: 383, truncatedTo: 359 });
     assert.strictEqual(composeTruncationNote(meta), "shown at T359 of T383");
@@ -376,7 +379,7 @@ suite("Render pipeline", () => {
     // cursor) and the file's T383 value at the same cell. At 120°E, 45.5°N
     // (source pixel 240, 89) pyshtools gives these two
     // (`spectral_simple_t383.truncation.oracle.json`).
-    const probe = handle.probe(0, defaultRenderOptions(), 240, 89);
+    const probe = handle.probePixel(0, defaultRenderOptions(), 240, 89);
     assert.ok(probe?.value != null, "the probe reads a value");
     assert.ok(Math.abs(probe.value - 325.60207852938714) < 1e-7, `T359 value, got ${probe.value}`);
     assert.ok(probe.fullDetailValue != null, "the probe reads the full-detail value");
@@ -391,37 +394,37 @@ suite("Render pipeline", () => {
       "325.60 K shown · 318.40 K at full detail (T383)",
     );
 
-    const csv = handle.exportCsv(0, "matrix").toString("utf8");
+    const csv = utf8(handle.exportCsv(0, "matrix"));
     assert.ok(csv.startsWith("# spectral field shown at T359 of T383"), csv.slice(0, 80));
 
     // Below the limit there is no note, and the probe has one value.
-    const t63 = native.Grib2Handle.fromBytes(fs.readFileSync(fixturePath("spectral_simple_t63.grib2")));
+    const t63 = native.open(fs.readFileSync(fixturePath("spectral_simple_t63.grib2")));
     assert.strictEqual(composeTruncationNote(t63.message(0)), null);
-    const one = t63.probe(0, defaultRenderOptions(), 240, 89);
+    const one = t63.probePixel(0, defaultRenderOptions(), 240, 89);
     assert.ok(one?.value != null && one.fullDetailValue == null, "one value below the limit");
     assert.strictEqual(composeProbeValue(one, ""), Number(one.value).toPrecision(5));
-    assert.ok(!t63.exportCsv(0, "matrix").toString("utf8").startsWith("#"));
+    assert.ok(!utf8(t63.exportCsv(0, "matrix")).startsWith("#"));
   });
 
   test("GRIB2 Lambert: contours and the source probe geolocate the grid (#470)", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("eta_lambert_msg0.grib2"));
-    const handle = native.Grib2Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
     assert.strictEqual(handle.message(0).grid?.label, "lambert");
     const options = defaultRenderOptions();
 
     // Both used to refuse a planar grid for want of per-point coordinates.
-    const source = handle.projectContours(0, options, undefined);
+    const source = handle.projectContours(0, options, { interval: undefined });
     assert.ok(source.xy.length > 0, "contours project onto the Lambert source raster");
     assert.strictEqual(source.xy.length % 2, 0, "xy is a flat (x, y) list");
 
-    const warped = handle.projectContours(0, { ...options, projection: "equirectangular" }, undefined);
+    const warped = handle.projectContours(0, { ...options, projection: "equirectangular" }, { interval: undefined });
     assert.ok(warped.xy.length > 0, "and onto a reprojected target");
 
     // The source-projection probe reads the same forward map, so a pixel over
     // the grid now reports where it is as well as what it is.
-    const probe = handle.probe(0, options, 46, 32);
+    const probe = handle.probePixel(0, options, 46, 32);
     assert.ok(probe, "a pixel inside the raster probes");
     assert.ok(
       probe.lat != null && Math.abs(probe.lat - 40.605725) < 1e-3,
@@ -437,7 +440,7 @@ suite("Render pipeline", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
-    const handle = native.Grib1Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
 
     const eqr: RenderOptions = {
       projection: "equirectangular",
@@ -491,7 +494,7 @@ suite("Render pipeline", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
-    const handle = native.Grib1Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
 
     const merc = handle.renderGrid(0, {
       projection: "web_mercator",
@@ -522,7 +525,7 @@ suite("Render pipeline", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
-    const handle = native.Grib1Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
 
     // Free-form orthographic centre (lon/lat), not a named preset.
     const ortho = handle.renderGrid(0, {
@@ -557,7 +560,7 @@ suite("Render pipeline", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
-    const handle = native.Grib2Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
     const messages = listMessages(handle);
     assert.ok(messages.length > 0, "GRIB2 fixture should contain at least one message");
 
@@ -575,7 +578,7 @@ suite("Render pipeline", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("spectral_simple_t63.grib2"));
-    const handle = native.Grib2Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
     const messages = listMessages(handle);
     assert.strictEqual(messages[0].grid?.label, "spherical_harmonic", "T63 spectral");
     // The message itself has no raster: its declared grid has no points...
@@ -604,7 +607,7 @@ suite("Render pipeline", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("spectral_simple_t63.grib1"));
-    const handle = native.Grib1Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
     const messages = listMessages(handle);
     assert.strictEqual(messages[0].grid?.label, "spherical_harmonic", "T63 spectral");
     assert.strictEqual(messages[0].grid?.placement, "no_raster", "spectral message declares no raster");
@@ -620,46 +623,23 @@ suite("Render pipeline", () => {
     );
   });
 
-  test("NetCDF: openNetcdf returns populated DatasetMeta for classic CDF", () => {
-    // NetCDF has no render-panel path today, but the editor opens these
-    // files and the dataset table is populated from `openNetcdf`. Pin its
-    // contract so a regression in the napi binding for this format gets
+  test("NetCDF: Handle.metadata returns populated DatasetMeta for both backings", () => {
+    // The editor's dataset table is populated from the handle it keeps for
+    // rendering (#411); `openNetcdf` built a second reader and is gone (#1073).
+    // Pin the contract so a regression in the napi binding for this format gets
     // caught here rather than as a blank table in the editor.
     const native = loadNative();
     assert.ok(native, "native module must load");
-    const bytes = fs.readFileSync(fixturePath("netcdf_classic_dummy.nc"));
-    const dataset = native.openNetcdf(bytes);
-
-    assert.strictEqual(dataset.backing, "classic");
-    assert.ok(dataset.fullyParsed,
+    const classic = native.open(fs.readFileSync(fixturePath("netcdf_classic_dummy.nc"))).metadata();
+    assert.strictEqual(classic.backing, "classic");
+    assert.ok(classic.fullyParsed,
       "classic CDF should be fully parsed (HDF5/NetCDF-4 deep parsing is a " +
       "separate workstream; classic should not regress)");
-    assert.ok(dataset.dimensions.length > 0, "expected at least one dimension");
-    assert.ok(dataset.variables.length > 0, "expected at least one variable");
-  });
-
-  test("NetCDF: NetcdfHandle.metadata matches openNetcdf", () => {
-    // The editor now takes its dataset table from the handle it keeps for
-    // rendering, rather than opening the file a second time through
-    // `openNetcdf` (#411). That is only sound if the two agree, so pin it —
-    // for both backings, since they take different paths through
-    // `dataset_meta_from`.
-    const native = loadNative();
-    assert.ok(native, "native module must load");
-    for (const fixture of ["netcdf_classic_dummy.nc", "netcdf4_dimscale.nc"]) {
-      const bytes = fs.readFileSync(fixturePath(fixture));
-      const viaOpen = native.openNetcdf(bytes);
-      const viaHandle = native.NetcdfHandle.fromBytes(bytes).metadata();
-      assert.deepStrictEqual(
-        JSON.parse(JSON.stringify(viaHandle)),
-        JSON.parse(JSON.stringify(viaOpen)),
-        `${fixture}: handle metadata diverged from openNetcdf`,
-      );
-      assert.ok(
-        viaHandle.variables.length > 0,
-        `${fixture}: empty metadata would make this comparison vacuous`,
-      );
-    }
+    assert.ok(classic.dimensions.length > 0, "expected at least one dimension");
+    assert.ok(classic.variables.length > 0, "expected at least one variable");
+    const hdf5 = native.open(fs.readFileSync(fixturePath("netcdf4_dimscale.nc"))).metadata();
+    assert.strictEqual(hdf5.backing, "hdf5");
+    assert.ok(hdf5.variables.length > 0, "expected at least one variable");
   });
 
   test("NetCDF: a 13 KB file whose variable reads whole as 2.9 GB is refused, not allocated (#847)", () => {
@@ -679,13 +659,13 @@ suite("Render pipeline", () => {
       "oom_large_fill_dataset.h5",
     );
     assert.ok(fs.existsSync(seed), `fuzz seed missing: ${seed}`);
-    const handle = native.NetcdfHandle.fromBytes(fs.readFileSync(seed));
+    const handle = native.open(fs.readFileSync(seed));
     const large = handle
       .variables()
       .find((v) => v.dims.reduce((n, d) => n * d.length, 1) === 146_800_704);
     assert.ok(large, "the seed offers its large dataset");
     assert.throws(
-      () => handle.renderSlice(large.variableIndex, 0, 1, [0, 0], defaultRenderOptions()),
+      () => handle.renderGrid({ variable: large.index, yDim: 0, xDim: 1, sliceIndices: [0, 0] }, defaultRenderOptions()),
       /asks for 146800704 values at once.*more than the 67108864 one field may hold.*The file itself is fine/,
     );
   });
@@ -1061,10 +1041,10 @@ suite("render-panel HTML", () => {
     // so this is the gate the rest of the toolchain does not provide.
     const native = loadNative();
     assert.ok(native, "native module must load");
-    const handle = native.NetcdfHandle.fromBytes(fs.readFileSync(fixturePath("netcdf4_dimscale.nc")));
+    const handle = native.open(fs.readFileSync(fixturePath("netcdf4_dimscale.nc")));
     const slice: SlicePanelData = {
       variables: handle.variables(),
-      initial: { variableIndex: handle.variables()[0].variableIndex, yDim: 1, xDim: 2, sliceIndices: [0, 0, 0] },
+      initial: { variableIndex: handle.variables()[0].index, yDim: 1, xDim: 2, sliceIndices: [0, 0, 0] },
     };
     for (const [label, html] of [
       ["message", renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, fakeMeta(), "summary", registry(), combineOps())],
@@ -1103,15 +1083,15 @@ suite("render-panel HTML", () => {
       "netcdf4_large_sparse.nc",
     );
     assert.ok(fs.existsSync(file), `fixture missing: ${file}`);
-    const handle = native.NetcdfHandle.fromBytes(fs.readFileSync(file));
+    const handle = native.open(fs.readFileSync(file));
     const t2m = handle.variables().find((v) => v.name === "t2m");
     assert.ok(t2m, "t2m is offered");
-    const stored = handle.renderSlice(t2m.variableIndex, 1, 2, [7, 0, 0], defaultRenderOptions());
+    const stored = handle.renderGrid({ variable: t2m.index, yDim: 1, xDim: 2, sliceIndices: [7, 0, 0] }, defaultRenderOptions());
     assert.ok(stored.width > 0 && stored.height > 0);
     assert.strictEqual(stored.usedMax, 90);
     assert.strictEqual(stored.usedMin, -90);
     for (let step = 0; step < 12; step++) {
-      const frame = handle.renderSlice(t2m.variableIndex, 1, 2, [step, 0, 0], defaultRenderOptions());
+      const frame = handle.renderGrid({ variable: t2m.index, yDim: 1, xDim: 2, sliceIndices: [step, 0, 0] }, defaultRenderOptions());
       assert.strictEqual(frame.usedMax == null, step !== 7, `time step ${step}`);
     }
   });
@@ -1124,8 +1104,8 @@ suite("render-panel HTML", () => {
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(file);
     const handle = file.endsWith(".grib1")
-      ? native.Grib1Handle.fromBytes(bytes)
-      : native.Grib2Handle.fromBytes(bytes);
+      ? native.open(bytes)
+      : native.open(bytes);
     return handle.message(0);
   }
 
@@ -1224,7 +1204,7 @@ suite("render-panel HTML", () => {
       at += bytes.readUInt32BE(at);
     }
     bytes.writeUInt16BE(4, at + 12);
-    const meta = native.Grib2Handle.fromBytes(bytes).message(0);
+    const meta = native.open(bytes).message(0);
     assert.strictEqual(meta.placement, "unsupported");
     const html = renderHtml(
       { cspSource: "" } as unknown as vscode.Webview,
@@ -1261,7 +1241,7 @@ suite("render-panel HTML", () => {
       assert.strictEqual(bytes[gds + 5], 5, "a polar stereographic GDS");
       bytes.writeUIntBE(step, gds + 20, 3);
       bytes.writeUIntBE(step, gds + 23, 3);
-      return native.Grib1Handle.fromBytes(bytes).message(0);
+      return native.open(bytes).message(0);
     };
     // GRIB2: the §3.20 fixture on an Earth of `radius` m under 100 km cells,
     // the edit placement.rs and point-operations.test.ts make (#1002).
@@ -1276,7 +1256,7 @@ suite("render-panel HTML", () => {
       bytes.writeUInt32BE(radius, at + 16);
       bytes.writeUInt32BE(100_000_000, at + 55);
       bytes.writeUInt32BE(100_000_000, at + 59);
-      return native.Grib2Handle.fromBytes(bytes).message(0);
+      return native.open(bytes).message(0);
     };
     const table = (meta: MessageInfo) =>
       renderHtml({ cspSource: "" } as unknown as vscode.Webview, "grib2", "x.grib2", [meta], undefined, undefined, false);
@@ -1470,7 +1450,7 @@ suite("overlay projection (native)", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
-    return native.Grib1Handle.fromBytes(bytes);
+    return native.open(bytes);
   }
 
   test("projectOverlay maps coastline into the warped raster's pixel space", () => {
@@ -1481,7 +1461,7 @@ suite("overlay projection (native)", () => {
       resampling: "nearest",
       flipY: false,
     };
-    const out = handle.projectOverlay(0, eqr, coast.latlon, coast.ringLengths);
+    const out = handle.projectOverlay(0, eqr, { latlon: coast.latlon, ringLengths: coast.ringLengths });
     const total = Array.from(out.segLengths).reduce((a, b) => a + b, 0);
     assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
     assert.ok(out.xy.length > 0, "coastline should project to a non-empty geometry");
@@ -1493,7 +1473,7 @@ suite("overlay projection (native)", () => {
     // on the source projection too, not only the warped targets.
     const handle = grib1Handle();
     const coast = loadVectorLayer("coastline");
-    const out = handle.projectOverlay(0, defaultRenderOptions(), coast.latlon, coast.ringLengths);
+    const out = handle.projectOverlay(0, defaultRenderOptions(), { latlon: coast.latlon, ringLengths: coast.ringLengths });
     const total = Array.from(out.segLengths).reduce((a, b) => a + b, 0);
     assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
     assert.ok(out.xy.length > 0, "coastline should project onto the source raster");
@@ -1516,7 +1496,7 @@ suite("overlay projection (native)", () => {
       boundsLonMax: 10,
     };
     assert.throws(
-      () => handle.projectOverlay(0, opts, coast.latlon, coast.ringLengths),
+      () => handle.projectOverlay(0, opts, { latlon: coast.latlon, ringLengths: coast.ringLengths }),
       /Web Mercator/,
     );
   });
@@ -1531,7 +1511,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
-    return native.NetcdfHandle.fromBytes(bytes);
+    return native.open(bytes);
   }
 
   test("variables() detects the horizontal axes of a 4-D field", () => {
@@ -1544,34 +1524,28 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.strictEqual(sst.detectedXDim, 3);
   });
 
-  test("renderSlice paints a slice in source and equirectangular projections", () => {
+  test("renderGrid paints a slice in source and equirectangular projections", () => {
     const handle = netcdfHandle();
     const sst = handle.variables().find((v) => v.name === "sst");
     assert.ok(sst);
     const indices = sst.dims.map(() => 0);
-    const source = handle.renderSlice(
-      sst.variableIndex,
-      sst.detectedYDim ?? 2,
-      sst.detectedXDim ?? 3,
-      indices,
+    const source = handle.renderGrid(
+      { variable: sst.index, yDim: sst.detectedYDim ?? 2, xDim: sst.detectedXDim ?? 3, sliceIndices: indices },
       defaultRenderOptions(),
     );
     assert.strictEqual(source.width, 180);
     assert.strictEqual(source.height, 89);
     assert.strictEqual(source.rgba.length, 180 * 89 * 4);
 
-    const warped = handle.renderSlice(
-      sst.variableIndex,
-      2,
-      3,
-      indices,
+    const warped = handle.renderGrid(
+      { variable: sst.index, yDim: 2, xDim: 3, sliceIndices: indices },
       { projection: "equirectangular", resampling: "nearest", flipY: false },
     );
     assert.ok(warped.width > 0 && warped.height > 0);
     assert.ok(warped.usedLatMin !== undefined, "warp echoes its extent back");
   });
 
-  test("renderSliceCombined differences two slices of a variable (#239)", () => {
+  test("renderGrid of a combined slice target differences two slices of a variable (#239)", () => {
     const handle = netcdfHandle();
     const sst = handle.variables().find((v) => v.name === "sst");
     assert.ok(sst);
@@ -1579,10 +1553,9 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const [y, x] = [sst.detectedYDim ?? 2, sst.detectedXDim ?? 3];
 
     // A − A on identical slice indices: every present cell is exactly 0.
-    const self = handle.renderSliceCombined(
-      sst.variableIndex, y, x, indices,
-      sst.variableIndex, indices,
-      "a_minus_b", defaultRenderOptions(),
+    const self = handle.renderGrid(
+      { a: { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, b: { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, op: "a_minus_b" },
+      defaultRenderOptions(),
     );
     assert.strictEqual(self.usedMin, 0, "self-difference minimum is 0");
     assert.strictEqual(self.usedMax, 0, "self-difference maximum is 0");
@@ -1592,19 +1565,17 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     // same geometry (the "two levels / two time steps" workflow).
     const bIndices = indices.slice();
     bIndices[1] = Math.min(1, Math.max(0, sst.dims[1].length - 1)); // lev axis
-    const diff = handle.renderSliceCombined(
-      sst.variableIndex, y, x, indices,
-      sst.variableIndex, bIndices,
-      "a_minus_b", defaultRenderOptions(),
+    const diff = handle.renderGrid(
+      { a: { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, b: { variable: sst.index, yDim: y, xDim: x, sliceIndices: bIndices }, op: "a_minus_b" },
+      defaultRenderOptions(),
     );
     assert.strictEqual(diff.rgba.length, diff.width * diff.height * 4);
 
     // A bad op is a clear error.
     assert.throws(
-      () => handle.renderSliceCombined(
-        sst.variableIndex, y, x, indices,
-        sst.variableIndex, indices,
-        "product" as never, defaultRenderOptions(),
+      () => handle.renderGrid(
+        { a: { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, b: { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, op: "product" as never },
+        defaultRenderOptions(),
       ),
       /unknown combine op/,
     );
@@ -1618,21 +1589,28 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const [y, x] = [sst.detectedYDim ?? 2, sst.detectedXDim ?? 3];
 
     // Auto levels: a real SST field has interior isolines.
-    const auto = handle.projectContours(sst.variableIndex, y, x, indices, {
+    const auto = handle.projectContours(
+      { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices },
+      {
       projection: "equirectangular",
       resampling: "nearest",
       flipY: false,
-    });
+    },
+    );
     assert.ok(auto.xy.length > 0, "auto-level contours produce runs");
     assert.strictEqual(auto.xy.length % 2, 0, "xy is flat (x, y) pairs");
     assert.ok(auto.segLengths.length > 0, "runs are grouped by vertex count");
 
     // A manual interval also produces runs (a different set of levels).
-    const manual = handle.projectContours(sst.variableIndex, y, x, indices, {
+    const manual = handle.projectContours(
+      { variable: sst.index, yDim: y, xDim: x, sliceIndices: indices },
+      {
       projection: "source",
       resampling: "nearest",
       flipY: false,
-    }, 2);
+    },
+      { interval: 2 },
+    );
     assert.ok(manual.xy.length > 0, "manual-interval contours produce runs");
   });
 
@@ -1645,7 +1623,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const opts = { projection: "source" as const, resampling: "nearest" as const, flipY: false };
 
     // A pixel well inside the 180×89 grid resolves to a cell.
-    const r = handle.probe(sst.variableIndex, y, x, indices, opts, 90, 44);
+    const r = handle.probePixel({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, opts, 90, 44);
     assert.ok(r, "an in-grid pixel returns a result");
     assert.strictEqual(r.gridI, 90);
     assert.strictEqual(r.gridJ, 44);
@@ -1656,7 +1634,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
 
     // A click past the raster is nothing.
     assert.strictEqual(
-      handle.probe(sst.variableIndex, y, x, indices, opts, 9999, 9999),
+      handle.probePixel({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, opts, 9999, 9999),
       null,
       "off-raster returns null",
     );
@@ -1667,7 +1645,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   function dimscaleHandle() {
     const native = loadNative();
     assert.ok(native, "native module must load");
-    return native.NetcdfHandle.fromBytes(fs.readFileSync(fixturePath("netcdf4_dimscale.nc")));
+    return native.open(fs.readFileSync(fixturePath("netcdf4_dimscale.nc")));
   }
 
   // --- Zonal average (#240) ---------------------------------------------------
@@ -1675,7 +1653,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   test("zonalMean averages each GRIB row as eccodes does (#240)", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
-    const handle = native.Grib2Handle.fromBytes(fs.readFileSync(fixturePath("regular_latlon_surface.grib2")));
+    const handle = native.open(fs.readFileSync(fixturePath("regular_latlon_surface.grib2")));
     const zonal = handle.zonalMean(0);
     assert.strictEqual(zonal.dimension, "latitude");
     assert.strictEqual(zonal.coordinateUnits, "degrees_north");
@@ -1698,7 +1676,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   test("zonalMean refuses a projected grid, and says why (#240)", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
-    const handle = native.Grib2Handle.fromBytes(fs.readFileSync(fixturePath("eta_lambert_msg0.grib2")));
+    const handle = native.open(fs.readFileSync(fixturePath("eta_lambert_msg0.grib2")));
     assert.throws(() => handle.zonalMean(0), /circles of latitude/);
   });
 
@@ -1707,7 +1685,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const sst = handle.variables().find((v) => v.name === "sst");
     assert.ok(sst);
     const [y, x] = [sst.detectedYDim ?? 2, sst.detectedXDim ?? 3];
-    const zonal = handle.zonalMean(sst.variableIndex, y, x, sst.dims.map(() => 0));
+    const zonal = handle.zonalMean({ variable: sst.index, yDim: y, xDim: x, sliceIndices: sst.dims.map(() => 0) });
     assert.strictEqual(zonal.values.length, sst.dims[y].length, "one point per latitude row");
     assert.ok(zonal.coordinates && zonal.coordinates.length === zonal.values.length);
     // ERSST masks land, so a row can be a gap; the ocean rows are sea
@@ -1724,7 +1702,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const handle = dimscaleHandle();
     const t = handle.variables().find((v) => v.name === "temperature");
     assert.ok(t, "the fixture's 3-D variable");
-    const line = handle.line(t.variableIndex, 0, [0, 1, 2]);
+    const line = handle.decodeLine({ variable: t.index, alongDim: 0, sliceIndices: [0, 1, 2] });
     assert.deepStrictEqual(line.values, [6, 18]);
     assert.deepStrictEqual(line.mask, [1, 1]);
     assert.strictEqual(line.dimension, "time");
@@ -1740,16 +1718,16 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const t = handle.variables().find((v) => v.name === "temperature");
     assert.ok(t);
     // `ds['temperature'][1, 2, :]` → [20, 21, 22, 23].
-    const line = handle.line(t.variableIndex, 2, [1, 2, 0]);
+    const line = handle.decodeLine({ variable: t.index, alongDim: 2, sliceIndices: [1, 2, 0] });
     assert.deepStrictEqual(line.values, [20, 21, 22, 23]);
-    assert.deepStrictEqual(handle.line(t.variableIndex, 2, [1, 2, 3]).values, line.values);
+    assert.deepStrictEqual(handle.decodeLine({ variable: t.index, alongDim: 2, sliceIndices: [1, 2, 3] }).values, line.values);
   });
 
   test("line refuses an axis the variable does not have", () => {
     const handle = dimscaleHandle();
     const t = handle.variables().find((v) => v.name === "temperature");
     assert.ok(t);
-    assert.throws(() => handle.line(t.variableIndex, 9, [0, 0, 0]), /along_dim 9/);
+    assert.throws(() => handle.decodeLine({ variable: t.index, alongDim: 9, sliceIndices: [0, 0, 0] }), /along_dim 9/);
   });
 
   test("lineIndices writes the probed cell into the slice on screen (#172)", () => {
@@ -1769,12 +1747,9 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(sst);
     const coast = loadVectorLayer("coastline");
     const out = handle.projectOverlay(
-      sst.variableIndex,
-      2,
-      3,
+      { variable: sst.index, yDim: 2, xDim: 3, sliceIndices: [] },
       { projection: "equirectangular", resampling: "nearest", flipY: false },
-      coast.latlon,
-      coast.ringLengths,
+      { latlon: coast.latlon, ringLengths: coast.ringLengths },
     );
     const total = Array.from(out.segLengths).reduce((a, b) => a + b, 0);
     assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
@@ -1814,7 +1789,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
         path.join(__dirname, "..", "..", "..", "..", "crates", "fieldglass-netcdf",
           "tests", "fixtures", fixture),
       );
-      const handle = native.NetcdfHandle.fromBytes(bytes);
+      const handle = native.open(bytes);
       const v = handle.variables().find((x) => x.name === name);
       assert.ok(v, `${label}: ${name} is renderable`);
 
@@ -1831,8 +1806,8 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       assert.ok(v.dims[x].length > 1, `${label}: X axis has extent`);
 
       // And the default actually geolocates — reprojection is what #218 is for.
-      const rendered = handle.renderSlice(
-        v.variableIndex, y, x, v.dims.map(() => 0),
+      const rendered = handle.renderGrid(
+        { variable: v.index, yDim: y, xDim: x, sliceIndices: v.dims.map(() => 0) },
         { projection: "equirectangular", resampling: "nearest", flipY: false },
       );
       assert.ok(
@@ -1873,21 +1848,19 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   //
   // It used to build its meta from a stub that said `latlon`, `placed` and
   // reprojectable for every slice, so a slice with no coordinates was offered
-  // every map target and each one then failed in `renderSlice`. The answers now
+  // every map target and each one then failed in `renderGrid`. The answers now
   // come from `sliceGrid`, which asks the placement the handle renders from.
   test("a netcdf slice panel offers the map targets exactly where the slice is placed", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const handle = native.NetcdfHandle.fromBytes(fs.readFileSync(fixturePath("netcdf4_dimscale.nc")));
+    const handle = native.open(fs.readFileSync(fixturePath("netcdf4_dimscale.nc")));
     const variables = handle.variables();
     const picker = (name: string) => {
       const v = variables.find((x) => x.name === name);
       assert.ok(v, `the fixture has ${name}`);
       const rank = v.dims.length;
       const grid = handle.sliceGrid(
-        v.variableIndex,
-        v.detectedYDim ?? rank - 2,
-        v.detectedXDim ?? rank - 1,
+        { variable: v.index, yDim: v.detectedYDim ?? rank - 2, xDim: v.detectedXDim ?? rank - 1 },
       );
       const html = renderImagePanelHtml(
         { cspSource: "" } as unknown as vscode.Webview,
@@ -1931,7 +1904,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
-    const variables = native.NetcdfHandle.fromBytes(bytes).variables();
+    const variables = native.open(bytes).variables();
     const sst = variables.find((v) => v.name === "sst");
     assert.ok(sst, "the fixture has an sst variable");
 
@@ -1976,7 +1949,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
-    const variables = native.NetcdfHandle.fromBytes(bytes).variables();
+    const variables = native.open(bytes).variables();
     const sst = variables.find((v) => v.name === "sst");
     assert.ok(sst, "the fixture has an sst variable");
 
@@ -2030,7 +2003,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
-    const messages = listMessages(native.Grib1Handle.fromBytes(bytes));
+    const messages = listMessages(native.open(bytes));
     const html = renderHtml(
       { cspSource: "" } as unknown as vscode.Webview,
       "grib1",
@@ -2072,7 +2045,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
-    const handle = native.NetcdfHandle.fromBytes(bytes);
+    const handle = native.open(bytes);
     const html = renderHtml(
       { cspSource: "" } as unknown as vscode.Webview,
       "netcdf",
@@ -2100,7 +2073,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
-    const meta = native.NetcdfHandle.fromBytes(bytes).metadata();
+    const meta = native.open(bytes).metadata();
 
     const sst = meta.variables.find((v) => v.name === "sst");
     assert.ok(sst, "the fixture has an sst variable");
@@ -2141,7 +2114,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("netcdf4_unsupported_type.nc"));
-    const meta = native.NetcdfHandle.fromBytes(bytes).metadata();
+    const meta = native.open(bytes).metadata();
 
     assert.ok(
       meta.fullyParsed,
@@ -2191,7 +2164,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
-    const messages = listMessages(native.Grib1Handle.fromBytes(bytes));
+    const messages = listMessages(native.open(bytes));
 
     // This fixture is time range 10: P1 spans octets 19 and 20 as one 16-bit
     // value, so no single octet can be offered and the cell stays read-only.
@@ -2262,7 +2235,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
-    const [message] = listMessages(native.Grib2Handle.fromBytes(bytes));
+    const [message] = listMessages(native.open(bytes));
     const blank: MessageInfo = {
       ...message,
       parameter: null,
@@ -2302,7 +2275,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
-    const [message] = listMessages(native.Grib2Handle.fromBytes(bytes));
+    const [message] = listMessages(native.open(bytes));
     assert.strictEqual(message.identification.edition, "grib2");
     const withStatus = (productionStatus: string, subCentre: string | null): MessageInfo => ({
       ...message,
@@ -2343,7 +2316,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("spectral_simple_t63.grib2"));
-    const meta = native.Grib2Handle.fromBytes(bytes).message(0);
+    const meta = native.open(bytes).message(0);
     assert.strictEqual(
       meta.level,
       meta.levelType,
@@ -2392,7 +2365,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const slice: SlicePanelData = {
       variables,
       initial: {
-        variableIndex: sst.variableIndex,
+        variableIndex: sst.index,
         yDim: 2,
         xDim: 3,
         sliceIndices: sst.dims.map(() => 0),

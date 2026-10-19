@@ -19,17 +19,17 @@ import {
   type ColourRange,
   type CombineOpInfo,
   type DatasetMeta,
-  type Grib1Handle,
-  type Grib2Handle,
+  type FieldglassNative,
   type GridSupport,
+  type GridTarget,
+  type Handle,
   type Identification,
   type MessageInfo,
-  type NetcdfHandle,
-  type NetcdfVariableMeta,
+  type VariableInfo,
   type RangeRefusal,
+  type SliceAxes,
   type SliceGrid,
-  type SlicePanelHandle,
-  type ZarrHandle,
+  type SliceRequest,
   type RenderedGrid,
   type RenderOptions,
 } from "./native";
@@ -79,14 +79,54 @@ const FORMAT_LABELS: Record<string, string> = {
  *  rather than a list call of the addon's own: the two hosts answer with the
  *  same `MessageInfo`. Built on each call, so a caller that needs it repeatedly
  *  should hold the result. */
-export function listMessages(handle: Grib1Handle | Grib2Handle): MessageInfo[] {
+export function listMessages(handle: Handle): MessageInfo[] {
   return Array.from({ length: handle.count() }, (_, i) => handle.message(i));
 }
 
-/** Narrow a handle to {@link Grib1Handle} by the `setP1` method only GRIB1
- *  exposes — a real type guard so callers don't need an `as` assertion. */
-function isGrib1Handle(handle: Grib1Handle | Grib2Handle): handle is Grib1Handle {
-  return "setP1" in handle;
+/** A handle's variables, as the panel shows them: the browser package's
+ *  listing (#1073) with each `units` typeset for display (ADR-0007), the way a
+ *  GRIB message's units arrive. */
+export function listVariables(native: FieldglassNative, handle: Handle): VariableInfo[] {
+  return handle.variables().map((v) => ({
+    ...v,
+    units: v.units == null ? null : native.typesetUnits(v.units) || null,
+  }));
+}
+
+/** {@link listVariables} with the addon this extension loaded. */
+function listVariablesOf(handle: Handle): VariableInfo[] {
+  const native = loadNative();
+  return native ? listVariables(native, handle) : handle.variables();
+}
+
+/** A panel's slice as the handle's `SliceRequest` (#1073): the panel names the
+ *  variable `variableIndex`, the handle `variable`. */
+export function sliceOf(spec: SliceSpec): SliceRequest {
+  return {
+    variable: spec.variableIndex,
+    yDim: spec.yDim,
+    xDim: spec.xDim,
+    sliceIndices: spec.sliceIndices,
+  };
+}
+
+/** A panel's slice without its held positions: what placing it takes. */
+function axesOf(spec: SliceSpec): SliceAxes {
+  return { variable: spec.variableIndex, yDim: spec.yDim, xDim: spec.xDim };
+}
+
+/** What a slice panel draws: its slice, or that slice combined with Field B,
+ *  a slice of `variableIndexB` on the same axes at `sliceIndicesB` (#239). */
+export function sliceTarget(
+  spec: SliceSpec,
+  compare: { variableIndexB: number; sliceIndicesB: number[]; op: CombineOp } | null | undefined,
+): GridTarget {
+  if (!compare) return sliceOf(spec);
+  return {
+    a: sliceOf(spec),
+    b: sliceOf({ ...spec, variableIndex: compare.variableIndexB, sliceIndices: compare.sliceIndicesB }),
+    op: compare.op,
+  };
 }
 
 /** The name a render panel calls its file or store by (#1038): the last part
@@ -180,7 +220,7 @@ export type PngExportOutcome =
  * handle has gone.
  */
 interface SlicePanelSubject {
-  handle(): SlicePanelHandle | undefined;
+  handle(): Handle | undefined;
   gone: string;
   exportDir: vscode.Uri;
   /** The container's name, which the caption opens with: `"NetCDF"`, `"Zarr"`. */
@@ -268,20 +308,20 @@ export class FieldglassEditorProvider
     const native = loadNative();
     if (!native) return;
     const name = sourceName(storeUri);
-    if (!native.ZarrHandle.isStore(storeUri.fsPath)) {
+    if (!native.isStore(storeUri.fsPath)) {
       // A folder of stores is the likely mistake, so name the stores in it.
-      const inside = await childStores(storeUri, (p) => native.ZarrHandle.isStore(p));
+      const inside = await childStores(storeUri, (p) => native.isStore(p));
       await reportProblem("error", notAStore(storeUri.fsPath, name, inside.stores, inside.partial, MAX_FOLDERS_EXAMINED));
       return;
     }
-    let handle: ZarrHandle;
+    let handle: Handle;
     try {
-      handle = native.ZarrHandle.fromDirectory(storeUri.fsPath);
+      handle = native.openStore(storeUri.fsPath);
     } catch (err) {
       await reportProblem("error", couldNotOpen("Zarr store", name, storeUri.fsPath, err));
       return;
     }
-    const variables = handle.variables();
+    const variables = listVariables(native, handle);
     if (variables.length === 0) {
       // A store that opened but holds nothing drawable. `leftOut` and
       // `undrawable` say why for each of its arrays (#1129), and
@@ -293,7 +333,7 @@ export class FieldglassEditorProvider
       return;
     }
     this._zarrHandlesByStore.set(storeUri.toString(), handle);
-    this.openZarrRenderPanel(storeUri, variables[0].variableIndex);
+    this.openZarrRenderPanel(storeUri, variables[0].index);
   }
 
   /** Ask for a `.cpt` file, import it, and offer it in every open render panel.
@@ -350,21 +390,22 @@ export class FieldglassEditorProvider
   // All panels currently rendering each document, keyed by uri.toString().
   private readonly _panelsByDoc = new Map<string, Set<vscode.WebviewPanel>>();
 
-  // Reader handles per document. Parsed once; subsequent decode / render
-  // calls reuse the same `Grib{1,2}Handle` rather than re-parsing the
-  // buffer on every napi call (was #41 — closed by the handle API).
-  private readonly _handlesByDoc = new Map<string, Grib1Handle | Grib2Handle>();
+  // GRIB handles per document. Parsed once; subsequent decode / render calls
+  // reuse the same handle rather than re-parsing the buffer on every napi call
+  // (was #41 — closed by the handle API).
+  private readonly _handlesByDoc = new Map<string, Handle>();
 
-  // NetCDF reader handles per document, parallel to `_handlesByDoc` (the
-  // NetCDF surface differs — `variables()` / `renderSlice()` rather than
-  // `message(i)` / `renderGrid()`). Built lazily when a NetCDF file is opened
-  // and dropped with the last panel (see `trackPanel`).
-  private readonly _netcdfHandlesByDoc = new Map<string, NetcdfHandle>();
+  // NetCDF handles per document, parallel to `_handlesByDoc`: the same `Handle`
+  // type (#1073), kept apart because a NetCDF document is opened through the
+  // metadata view and its slice panels rather than the message list. Built
+  // lazily when a NetCDF file is opened and dropped with the last panel (see
+  // `trackPanel`).
+  private readonly _netcdfHandlesByDoc = new Map<string, Handle>();
   /** Zarr store handles, keyed by the store directory's URI (#659).
    *
    * Not by document, because a store has none: a custom editor cannot bind to a
    * directory, so a store arrives from the "Open Zarr Store…" command. */
-  private readonly _zarrHandlesByStore = new Map<string, ZarrHandle>();
+  private readonly _zarrHandlesByStore = new Map<string, Handle>();
 
   // -------------------------------------------------------------------------
   // CustomEditorProvider lifecycle
@@ -394,17 +435,16 @@ export class FieldglassEditorProvider
     const handle = native ? this.openOrReuseHandle(document, format) : undefined;
     const messages = handle ? listMessages(handle) : undefined;
     let dataset: DatasetMeta | undefined;
-    let netcdfVariables: NetcdfVariableMeta[] | undefined;
+    let netcdfVariables: VariableInfo[] | undefined;
     if (native && format === "netcdf") {
       // One reader for the whole open. The handle is retained for rendering
-      // anyway, and it can answer for the metadata too — calling `openNetcdf`
-      // as well built a second reader over the same bytes, parsing and copying
-      // the file twice for a value we already had (#411).
+      // anyway, and it answers for the metadata too, so the file is parsed and
+      // copied once (#411).
       const ncHandle = this.openOrReuseNetcdfHandle(document);
       try {
         dataset = ncHandle?.metadata();
       } catch (err) {
-        console.error("[Fieldglass] NetcdfHandle.metadata failed:", err);
+        console.error("[Fieldglass] Handle.metadata failed:", err);
         // Leave `dataset` undefined; the renderer will fall back to the
         // "no messages found" status string with the format badge intact.
       }
@@ -412,9 +452,9 @@ export class FieldglassEditorProvider
       // metadata view. A backing without a render path yet (HDF5, #169) returns
       // an empty list, so the dump shows without render buttons.
       try {
-        netcdfVariables = ncHandle?.variables();
+        netcdfVariables = ncHandle && native ? listVariables(native, ncHandle) : undefined;
       } catch (err) {
-        console.error("[Fieldglass] NetcdfHandle.variables failed:", err);
+        console.error("[Fieldglass] Handle.variables failed:", err);
       }
     }
     const headerBytes = format === "unknown" ? header : undefined;
@@ -580,7 +620,7 @@ export class FieldglassEditorProvider
   /** Export one GRIB message's decoded field to a CSV file the user picks.
    *  Asks for the layout (long `lat,lon,value` or a 2-D matrix), guards a
    *  very large export behind a confirm, then writes the CSV to disk. (The
-   *  whole field is serialized to a `Buffer` in one pass — not streamed.) */
+   *  whole field is serialized to bytes in one pass — not streamed.) */
   private async handleExportCsv(
     document: FieldglassDocument,
     messageIndex: number,
@@ -614,7 +654,7 @@ export class FieldglassEditorProvider
     const format = await this.pickCsvFormat(longCsv, placed, fieldA);
     if (!format) return;
 
-    let csv: Buffer;
+    let csv: Uint8Array;
     try {
       csv = handle.exportCsv(messageIndex, format);
     } catch (err) {
@@ -636,11 +676,15 @@ export class FieldglassEditorProvider
    *  offered and then refused. `placed` picks the reason: a field nothing
    *  places has no position anywhere, where a placed one is only not yet
    *  supported for its family. */
-  private async pickCsvFormat(longCsv: boolean, placed: boolean, fieldA = false): Promise<string | undefined> {
-    const matrix = { label: "Matrix — a 2-D grid of values", format: "matrix" };
+  private async pickCsvFormat(
+    longCsv: boolean,
+    placed: boolean,
+    fieldA = false,
+  ): Promise<"matrix" | "long" | undefined> {
+    const matrix = { label: "Matrix — a 2-D grid of values", format: "matrix" as const };
     const pick = await vscode.window.showQuickPick(
       longCsv
-        ? [{ label: "Long — one lat,lon,value row per grid point", format: "long" }, matrix]
+        ? [{ label: "Long — one lat,lon,value row per grid point", format: "long" as const }, matrix]
         : [matrix],
       {
         // With Compare on the panel shows the combined map, but the CSV
@@ -658,7 +702,7 @@ export class FieldglassEditorProvider
   /** Confirm a large export, prompt for a destination, and write the CSV.
    *  Shared by the GRIB and NetCDF export commands. The dialog starts in
    *  `exportDir` on `defaultName`, as the PNG export's does (#1039). */
-  private async saveCsv(csv: Buffer, exportDir: vscode.Uri, defaultName: string): Promise<void> {
+  private async saveCsv(csv: Uint8Array, exportDir: vscode.Uri, defaultName: string): Promise<void> {
     // Guard a large export: writing tens of megabytes is slow and easy to do
     // by accident on a big grid, so confirm above ~50 MB. `csv` already holds
     // the UTF-8 bytes (from napi), so this is the exact write size — no scan or
@@ -718,7 +762,7 @@ export class FieldglassEditorProvider
     let longCsv = false;
     let placed = false;
     try {
-      const grid = handle.sliceGrid(spec.variableIndex, spec.yDim, spec.xDim);
+      const grid = handle.sliceGrid(axesOf(spec));
       longCsv = grid.supports.longCsv;
       placed = offersOverlays(grid.placement);
     } catch {
@@ -727,15 +771,9 @@ export class FieldglassEditorProvider
     const format = await this.pickCsvFormat(longCsv, placed, fieldA);
     if (!format) return;
 
-    let csv: Buffer;
+    let csv: Uint8Array;
     try {
-      csv = handle.exportCsv(
-        spec.variableIndex,
-        spec.yDim,
-        spec.xDim,
-        spec.sliceIndices,
-        format
-      );
+      csv = handle.exportCsv(sliceOf(spec), format);
     } catch (err) {
       void vscode.window.showErrorMessage(
         `Fieldglass: CSV export failed: ${err instanceof Error ? err.message : err}`
@@ -744,9 +782,9 @@ export class FieldglassEditorProvider
     }
 
     // Named as the PNG of this slice is (#1039, #1112).
-    let variable: NetcdfVariableMeta | undefined;
+    let variable: VariableInfo | undefined;
     try {
-      variable = handle.variables().find((v) => v.variableIndex === spec.variableIndex);
+      variable = handle.variables().find((v) => v.index === spec.variableIndex);
     } catch {
       // Named by the variable's index below.
     }
@@ -814,7 +852,7 @@ export class FieldglassEditorProvider
    *
    * The panel script never decodes the values itself — every paint runs
    * via `handle.renderGrid(meta.index, options)` on the provider
-   * side and ships a paint-ready RGBA Buffer over postMessage. Picker
+   * side and ships paint-ready RGBA bytes over postMessage. Picker
    * changes (projection / resampling / range / flip-y) flow back as
    * `rerenderRequest` and trigger a fresh `renderGrid` call.
    */
@@ -882,7 +920,7 @@ export class FieldglassEditorProvider
     // step or range, and grid. Exactly one match is drawn under its own
     // heading. None, or more than one, is refused, and the new file's messages
     // are offered instead (`picking`); nothing is drawn until one is picked.
-    const gate = new PanelHandleGate<Grib1Handle | Grib2Handle>(opened);
+    const gate = new PanelHandleGate<Handle>(opened);
     const refuse = (ask: { seq?: number } = {}) => {
       if (!picking) return;
       panel.webview.postMessage({
@@ -893,7 +931,7 @@ export class FieldglassEditorProvider
         pickMessages: picking,
       } satisfies GridErrorMessage);
     };
-    const adopt = (current: Grib1Handle | Grib2Handle, ask: { seq?: number } = {}): boolean => {
+    const adopt = (current: Handle, ask: { seq?: number } = {}): boolean => {
       const next = listMessages(current);
       // The same messages in the same places: the file is the one the page was
       // written from (an editor closed and opened again, say). The page's
@@ -961,14 +999,10 @@ export class FieldglassEditorProvider
         // A difference map combines this message (A) with the chosen message
         // (B); otherwise a plain single-field render. Both return the same
         // paint-ready RGBA, so the panel displays them identically.
-        const rendered = compare
-          ? docHandle.renderGridCombined(
-              shown.index,
-              compare.messageIndexB,
-              compare.op,
-              options,
-            )
-          : docHandle.renderGrid(shown.index, options);
+        const rendered = docHandle.renderGrid(
+          compare ? { a: shown.index, b: compare.messageIndexB, op: compare.op } : shown.index,
+          options,
+        );
         panel.webview.postMessage(
           { ...buildGridReadyMessage(rendered, shown, options, { kind: "message", name: source }), ...ask },
         );
@@ -994,12 +1028,10 @@ export class FieldglassEditorProvider
       const options = resolveRerenderOptions(req.options ?? {});
       const layers: OverlayLayerPayload[] = [];
       const project = (name: string, geom: OverlayGeometry) => {
-        const projected = docHandle.projectOverlay(
-          shown.index,
-          options,
-          geom.latlon,
-          geom.ringLengths,
-        );
+        const projected = docHandle.projectOverlay(shown.index, options, {
+          latlon: geom.latlon,
+          ringLengths: geom.ringLengths,
+        });
         layers.push({ name, xy: projected.xy, segLengths: projected.segLengths });
       };
       try {
@@ -1039,10 +1071,11 @@ export class FieldglassEditorProvider
       // A difference-map contour traces the combined field, not field A (#329).
       const compare = resolveGribCompare(req);
       try {
-        const c = compare
-          ? docHandle.projectContoursCombined(
-              shown.index, compare.messageIndexB, compare.op, options, interval)
-          : docHandle.projectContours(shown.index, options, interval);
+        const c = docHandle.projectContours(
+          compare ? { a: shown.index, b: compare.messageIndexB, op: compare.op } : shown.index,
+          options,
+          { interval },
+        );
         panel.webview.postMessage({
           type: "contourReady",
           messageIndex: shown.index,
@@ -1074,11 +1107,8 @@ export class FieldglassEditorProvider
       const spacing = isNonNegativeInt(req.spacing) && req.spacing > 0 ? req.spacing : undefined;
       try {
         const arrows = docHandle.projectVectors(
-          shown.index,
-          req.messageIndexV,
+          { u: shown.index, v: req.messageIndexV, spacing, gridRelative: req.gridRelative === true },
           options,
-          spacing,
-          req.gridRelative === true,
         );
         // Whether the two are a u/v pair is Rust's answer (#1049); the names
         // are what the note says it about.
@@ -1135,10 +1165,12 @@ export class FieldglassEditorProvider
       // A click on a difference map reads the combined field, not field A (#329).
       const compare = resolveGribCompare(req);
       try {
-        const result = compare
-          ? docHandle.probeCombined(
-              shown.index, compare.messageIndexB, compare.op, options, px, py)
-          : docHandle.probe(shown.index, options, px, py);
+        const result = docHandle.probePixel(
+          compare ? { a: shown.index, b: compare.messageIndexB, op: compare.op } : shown.index,
+          options,
+          px,
+          py,
+        );
         panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: shown.index, result });
       } catch {
         // A probe never blocks the user; swallow and report nothing.
@@ -1244,14 +1276,14 @@ export class FieldglassEditorProvider
     let handle = this._handlesByDoc.get(document.uri.toString());
     if (!handle) {
       try {
-        handle = native.Grib1Handle.fromBytes(document.bytes);
+        handle = native.open(document.bytes);
       } catch (err) {
         console.error("[Fieldglass] setP1 lazy handle init failed:", err);
         vscode.window.showErrorMessage(`Fieldglass: failed to parse GRIB1: ${err}`);
         return;
       }
     }
-    if (!isGrib1Handle(handle)) {
+    if (handle.format() !== "grib1") {
       vscode.window.showErrorMessage(
         "Fieldglass: setP1 only applies to GRIB1 documents",
       );
@@ -1350,7 +1382,7 @@ export class FieldglassEditorProvider
     const native = loadNative();
     if (!native) return undefined;
     try {
-      const handle = native.Grib1Handle.fromBytes(document.bytes);
+      const handle = native.open(document.bytes);
       this._handlesByDoc.set(document.uri.toString(), handle);
       return listMessages(handle);
     } catch (err) {
@@ -1367,18 +1399,15 @@ export class FieldglassEditorProvider
   private openOrReuseHandle(
     document: FieldglassDocument,
     format: string,
-  ): Grib1Handle | Grib2Handle | undefined {
+  ): Handle | undefined {
     const key = document.uri.toString();
     const cached = this._handlesByDoc.get(key);
     if (cached) return cached;
     const native = loadNative();
     if (!native) return undefined;
     try {
-      const handle: Grib1Handle | Grib2Handle | undefined = format === "grib1"
-        ? native.Grib1Handle.fromBytes(document.bytes)
-        : format === "grib2"
-        ? native.Grib2Handle.fromBytes(document.bytes)
-        : undefined;
+      const handle: Handle | undefined =
+        format === "grib1" || format === "grib2" ? native.open(document.bytes) : undefined;
       if (handle) {
         this._handlesByDoc.set(key, handle);
         // Drop the cached handle when the document is closed.
@@ -1399,14 +1428,14 @@ export class FieldglassEditorProvider
   /** Get-or-build the cached NetCDF reader handle for a document. */
   private openOrReuseNetcdfHandle(
     document: FieldglassDocument,
-  ): NetcdfHandle | undefined {
+  ): Handle | undefined {
     const key = document.uri.toString();
     const cached = this._netcdfHandlesByDoc.get(key);
     if (cached) return cached;
     const native = loadNative();
     if (!native) return undefined;
     try {
-      const handle = native.NetcdfHandle.fromBytes(document.bytes);
+      const handle = native.open(document.bytes);
       this._netcdfHandlesByDoc.set(key, handle);
       return handle;
     } catch (err) {
@@ -1422,7 +1451,7 @@ export class FieldglassEditorProvider
   /**
    * Pop a render tab for one NetCDF variable. Mirrors {@link openRenderPanel}
    * but drives the two-tier slice picker: every paint renders the chosen 2-D
-   * plane via `handle.renderSlice(...)`, and the picker (variable / axis / index
+   * plane via `handle.renderGrid(slice, …)`, and the picker (variable / axis / index
    * controls) flows its {@link SliceSpec} back on each `rerenderRequest`.
    */
   /** Open the slice panel for a NetCDF document. */
@@ -1475,19 +1504,19 @@ export class FieldglassEditorProvider
 
   /** The slice panel, over whichever container answered.
    *
-   * Both handles satisfy `SlicePanelHandle` with identical signatures, so nothing
+   * Both handles satisfy `Handle` with identical signatures, so nothing
    * below this line knows which one it has (#659). What differs is in the
    * `subject`: how to re-fetch the handle, where an export starts, and the
    * container's name.
    */
   private openSliceRenderPanel(
     subject: SlicePanelSubject,
-    handle: SlicePanelHandle,
+    handle: Handle,
     variableIndex: number,
   ): void {
-    let variables = handle.variables();
+    let variables = listVariablesOf(handle);
     let initialVar =
-      variables.find((v) => v.variableIndex === variableIndex) ?? variables[0];
+      variables.find((v) => v.index === variableIndex) ?? variables[0];
     if (!initialVar) return;
 
     let initial = defaultSliceSpec(initialVar);
@@ -1496,15 +1525,15 @@ export class FieldglassEditorProvider
     // and axis pair. A slice the handle cannot place at all still opens, on the
     // source view alone. Keyed by handle as well, since a document reopened
     // under the panel brings a new one.
-    const grids = new WeakMap<SlicePanelHandle, Map<string, SliceGrid | null>>();
-    const gridOf = (h: SlicePanelHandle, spec: SliceSpec): SliceGrid | null => {
+    const grids = new WeakMap<Handle, Map<string, SliceGrid | null>>();
+    const gridOf = (h: Handle, spec: SliceSpec): SliceGrid | null => {
       let known = grids.get(h);
       if (!known) grids.set(h, (known = new Map()));
       const key = `${spec.variableIndex}:${spec.yDim}:${spec.xDim}`;
       if (!known.has(key)) {
         let grid: SliceGrid | null = null;
         try {
-          grid = h.sliceGrid(spec.variableIndex, spec.yDim, spec.xDim);
+          grid = h.sliceGrid(axesOf(spec));
         } catch (err) {
           console.error("[Fieldglass] sliceGrid failed:", err);
         }
@@ -1515,8 +1544,8 @@ export class FieldglassEditorProvider
     // The axis values the export name reads each held dimension's coordinate
     // from (#1112), per handle and asked for once: every animation frame
     // renders, and a coordinate array does not change under one handle.
-    const axes = new WeakMap<SlicePanelHandle, Map<string, AxisValues | null>>();
-    const axisOf = (h: SlicePanelHandle, variableIndex: number) => {
+    const axes = new WeakMap<Handle, Map<string, AxisValues | null>>();
+    const axisOf = (h: Handle, variableIndex: number) => {
       let known = axes.get(h);
       if (!known) axes.set(h, (known = new Map()));
       const cache = known;
@@ -1535,7 +1564,7 @@ export class FieldglassEditorProvider
     // The tab names the variable drawn and the file or store (#1038). It
     // follows the variable: set again by every render, from the variable the
     // render drew.
-    const titleOf = (v: NetcdfVariableMeta): string =>
+    const titleOf = (v: VariableInfo): string =>
       composeTabTitle(cleanTitlePart(v.name) || "variable", subject.source);
     const panel = vscode.window.createWebviewPanel(
       "fieldglass.render",
@@ -1563,13 +1592,13 @@ export class FieldglassEditorProvider
     // variables can be others, or the same ones numbered differently, so the
     // panel is written again from the new file, and the page restores its
     // selection by the variable's name (#839).
-    const gate = new PanelHandleGate<SlicePanelHandle>(handle);
+    const gate = new PanelHandleGate<Handle>(handle);
     // Said in place of the first render after that, when the variable the page
     // was showing is no longer in the file.
     let refusal: string | null = null;
-    const adopt = (current: SlicePanelHandle, asked: SliceSpec | undefined, ask: { seq?: number } = {}): void => {
-      const name = (variables.find((v) => v.variableIndex === asked?.variableIndex) ?? initialVar).name;
-      const next = current.variables();
+    const adopt = (current: Handle, asked: SliceSpec | undefined, ask: { seq?: number } = {}): void => {
+      const name = (variables.find((v) => v.index === asked?.variableIndex) ?? initialVar).name;
+      const next = listVariablesOf(current);
       const same = next.find((v) => v.name === name);
       const opened = same ?? next[0];
       if (!opened) {
@@ -1599,8 +1628,8 @@ export class FieldglassEditorProvider
     // one the panel opened on, and the heading and probe units have to follow
     // it; labelling every render with `initialVar` reported the opening
     // variable's units against whatever was on screen.
-    const renderedVar = (spec: SliceSpec): NetcdfVariableMeta =>
-      variables.find((v) => v.variableIndex === spec.variableIndex) ?? initialVar;
+    const renderedVar = (spec: SliceSpec): VariableInfo =>
+      variables.find((v) => v.index === spec.variableIndex) ?? initialVar;
 
     const paint = (requested: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare, ask: { seq?: number } = {}) => {
       const docHandle = subject.handle();
@@ -1630,24 +1659,7 @@ export class FieldglassEditorProvider
         // A difference map combines this slice (A) with a second slice (B) —
         // the same or another variable at its own indices; otherwise a plain
         // single-slice render. Both return the same paint-ready RGBA.
-        const rendered = compare
-          ? docHandle.renderSliceCombined(
-              spec.variableIndex,
-              spec.yDim,
-              spec.xDim,
-              spec.sliceIndices,
-              compare.variableIndexB,
-              compare.sliceIndicesB,
-              compare.op,
-              options,
-            )
-          : docHandle.renderSlice(
-              spec.variableIndex,
-              spec.yDim,
-              spec.xDim,
-              spec.sliceIndices,
-              options,
-            );
+        const rendered = docHandle.renderGrid(sliceTarget(spec, compare), options);
         shown = { meta: sliceField(renderedVar(spec), grid), grid };
         // Every animation frame renders, and the tab is renamed only when the
         // variable changed.
@@ -1697,14 +1709,10 @@ export class FieldglassEditorProvider
       const options = resolveRerenderOptions(req.options ?? {});
       const layers: OverlayLayerPayload[] = [];
       const project = (name: string, geom: OverlayGeometry) => {
-        const projected = docHandle.projectOverlay(
-          spec.variableIndex,
-          spec.yDim,
-          spec.xDim,
-          options,
-          geom.latlon,
-          geom.ringLengths,
-        );
+        const projected = docHandle.projectOverlay(sliceOf(spec), options, {
+          latlon: geom.latlon,
+          ringLengths: geom.ringLengths,
+        });
         layers.push({ name, xy: projected.xy, segLengths: projected.segLengths });
       };
       try {
@@ -1740,12 +1748,7 @@ export class FieldglassEditorProvider
       // A difference-map contour traces the combined field, not slice A (#329).
       const compare = resolveNetcdfCompare(req);
       try {
-        const c = compare
-          ? docHandle.projectContoursSliceCombined(
-              spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices,
-              compare.variableIndexB, compare.sliceIndicesB, compare.op, options, interval)
-          : docHandle.projectContours(
-              spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices, options, interval);
+        const c = docHandle.projectContours(sliceTarget(spec, compare), options, { interval });
         panel.webview.postMessage({
           type: "contourReady",
           messageIndex: spec.variableIndex,
@@ -1770,7 +1773,7 @@ export class FieldglassEditorProvider
       if (!docHandle) return;
       const spec = req.slice ?? initial;
       try {
-        const result = docHandle.zonalMean(spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices);
+        const result = docHandle.zonalMean(sliceOf(spec));
         panel.webview.postMessage({ type: "zonalResult", seq: req.seq, messageIndex: spec.variableIndex, result, error: null });
       } catch (err) {
         panel.webview.postMessage({
@@ -1797,7 +1800,11 @@ export class FieldglassEditorProvider
         return;
       }
       try {
-        const result = docHandle.line(spec.variableIndex, req.alongDim, indices);
+        const result = docHandle.decodeLine({
+          variable: spec.variableIndex,
+          alongDim: req.alongDim,
+          sliceIndices: indices,
+        });
         panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result });
       } catch {
         panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
@@ -1846,12 +1853,7 @@ export class FieldglassEditorProvider
       // A click on a difference map reads the combined field, not slice A (#329).
       const compare = resolveNetcdfCompare(req);
       try {
-        const result = compare
-          ? docHandle.probeSliceCombined(
-              spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices,
-              compare.variableIndexB, compare.sliceIndicesB, compare.op, options, px, py)
-          : docHandle.probe(
-              spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices, options, px, py);
+        const result = docHandle.probePixel(sliceTarget(spec, compare), options, px, py);
         panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: spec.variableIndex, result });
       } catch {
         panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
@@ -2310,17 +2312,17 @@ export interface OverlayLayerPayload {
 /**
  * Compose the `gridReady` payload posted to the render panel's webview.
  *
- * napi hands back `rendered.rgba` as a Node `Buffer`, whose
- * `constructor.name === "Buffer"`. VS Code's webview serializer
- * (`extHostWebviewMessaging.ts::getTypedArrayType`) only recognises the
- * standard TypedArray constructor names (`Uint8Array`, `Float64Array`,
- * …) and silently falls back to default JSON for anything else —
- * `Buffer.prototype.toJSON` emits `{type:"Buffer", data:[…]}`, which the
- * webview script then fails to blit (`new ImageData` throws on length 0).
+ * napi hands back `rendered.rgba` as a `Uint8Array` since #1073; it was a
+ * Node `Buffer`, whose `constructor.name === "Buffer"`. VS Code's webview
+ * serializer (`extHostWebviewMessaging.ts::getTypedArrayType`) only
+ * recognises the standard TypedArray constructor names (`Uint8Array`,
+ * `Float64Array`, …) and silently falls back to default JSON for anything
+ * else — `Buffer.prototype.toJSON` emits `{type:"Buffer", data:[…]}`, which
+ * the webview script then fails to blit (`new ImageData` throws on length 0).
  *
- * Wrapping as a plain `Uint8Array` view makes the serializer ship the
- * bytes as a binary reference, and the webview revives it as a real
- * `Uint8Array` on the other side. Pinned by `render.test.ts`.
+ * The payload is still wrapped as a plain `Uint8Array` view, so a caller that
+ * hands in a `Buffer` (a test, a future host) cannot reintroduce that. Pinned
+ * by `render.test.ts`.
  */
 /** The closed set of projection strings the picker can emit and the Rust
  *  side accepts. Pinned by `resolveRerenderOptions` so adding a target to
@@ -2536,7 +2538,7 @@ export function buildGridReadyMessage(
 
 /** Reads one variable's axis values for {@link heldSliceParts}: `null` for an
  *  axis the handle cannot give values for, which is then named by index. */
-function axisReader(handle: SlicePanelHandle, variableIndex: number): (dim: number) => AxisValues | null {
+function axisReader(handle: Handle, variableIndex: number): (dim: number) => AxisValues | null {
   return (dim) => {
     try {
       return handle.axisValues(variableIndex, dim);
@@ -2551,7 +2553,7 @@ function axisReader(handle: SlicePanelHandle, variableIndex: number): (dim: numb
  *  {@link composeExportName} writes it. `variable` is `undefined` when the
  *  handle no longer lists it, and the name then carries the index. */
 function sliceExportName(
-  variable: Pick<NetcdfVariableMeta, "name" | "dims"> | undefined,
+  variable: Pick<VariableInfo, "name" | "dims"> | undefined,
   spec: SliceSpec,
   source: string,
   ext: ExportExtension,
@@ -2637,12 +2639,12 @@ function productionStatus(id: Identification): string | null {
 
 /** The slice the render panel opens on: the variable's CF-detected horizontal
  *  axes (falling back to the first two dimensions) with every held index at 0. */
-function defaultSliceSpec(v: NetcdfVariableMeta): SliceSpec {
+function defaultSliceSpec(v: VariableInfo): SliceSpec {
   const yDim = v.detectedYDim ?? 0;
   let xDim = v.detectedXDim ?? (yDim === 0 ? 1 : 0);
   if (xDim === yDim) xDim = yDim === 0 ? 1 : 0;
   return {
-    variableIndex: v.variableIndex,
+    variableIndex: v.index,
     yDim,
     xDim,
     sliceIndices: v.dims.map(() => 0),
@@ -2660,9 +2662,9 @@ function defaultSliceSpec(v: NetcdfVariableMeta): SliceSpec {
  *  variable or axes with a different answer, so every slice render sends its
  *  own in `GridReadyMessage.sliceGrid` and the picker follows that (#822). */
 export function sliceField(
-  v: NetcdfVariableMeta,
+  v: VariableInfo,
   grid: SliceGrid | null,
-  index = v.variableIndex,
+  index = v.index,
 ): PanelField {
   return {
     index,
@@ -2688,7 +2690,7 @@ export function sliceField(
 
 /** The heading a render of this variable is labelled with. */
 function sliceTitle(
-  v: NetcdfVariableMeta,
+  v: VariableInfo,
   index: number,
 ): Pick<PanelField, "index" | "parameter" | "units"> {
   return { index, parameter: v.name, units: v.units };
@@ -2728,7 +2730,7 @@ export function describeProjection(meta: MessageInfo): string {
 
 function renderDatasetBody(
   d: DatasetMeta,
-  netcdfVariables?: NetcdfVariableMeta[],
+  netcdfVariables?: VariableInfo[],
 ): string {
   // Long attribute strings are common in CF-Convention NetCDF files; truncate
   // for the row view but keep the full text in the title attribute so users
@@ -2762,7 +2764,7 @@ function renderDatasetBody(
     const buttons = netcdfVariables
       .map(
         (v) =>
-          `<button type="button" class="netcdf-render-btn" data-variable-index="${v.variableIndex}">Render ${escapeHtml(v.name)}</button>`,
+          `<button type="button" class="netcdf-render-btn" data-variable-index="${v.index}">Render ${escapeHtml(v.name)}</button>`,
       )
       .join(" ");
     sections.push(`
@@ -2929,7 +2931,7 @@ export function renderHtml(
   dataset: DatasetMeta | undefined,
   headerBytes: Uint8Array | undefined,
   editable: boolean,
-  netcdfVariables?: NetcdfVariableMeta[]
+  netcdfVariables?: VariableInfo[]
 ): string {
   // FORMAT_LABELS is a closed Record<string, string>; `format` originates
   // from native detect_bytes which returns one of a fixed set of tokens.

@@ -465,9 +465,9 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
     fs.writeFileSync(file, bytes);
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const air = native.NetcdfHandle.fromBytes(bytes).variables().find((v) => v.name === "air");
+    const air = native.open(bytes).variables().find((v) => v.name === "air");
     assert.ok(air, "air is renderable");
-    return { dir, file, air: air.variableIndex, empty: classicNetcdf([["time", 3]], []) };
+    return { dir, file, air: air.index, empty: classicNetcdf([["time", 3]], []) };
   }
 
   test("every render answer of a slice panel echoes its request's seq, and a refusal ends with its variable (#1194)", async () => {

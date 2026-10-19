@@ -150,6 +150,13 @@ pub enum Op {
     Variables,
     /// [`Session::dimensions`].
     Dimensions,
+    /// [`Session::left_out`]: the arrays a container holds and this build will
+    /// not read, each with its reason and `cause` (#709, #1129). Both hosts bind
+    /// it as `leftOut()`, for every format (#1073).
+    LeftOut,
+    /// [`Session::undrawable`]: the arrays a container reads that no map can be
+    /// drawn from (#1129), bound as `undrawable()` on both hosts (#1073).
+    Undrawable,
     /// [`Session::decode_slice`], with [`Args::variable`], [`Args::y_dim`],
     /// [`Args::x_dim`] and [`Args::slice_indices`].
     DecodeSlice,
@@ -264,6 +271,11 @@ pub struct Args {
     /// `decode` of the same message; `false` passes none, which only a case
     /// with both range ends manual survives.
     pub full_stats: Option<bool>,
+    /// The decode options object exactly as a host sends it, in place of
+    /// [`Args::dtype`] (#1073). `dtype` is typed so a typo cannot slip into a
+    /// case; this is how a case pins what a host does with an option it cannot
+    /// read, which is `invalid_option` on every host.
+    pub decode_options: Option<Value>,
 }
 
 /// One case: an operation on a fixture, and what it produced.
@@ -672,6 +684,12 @@ pub fn cases() -> Vec<Case> {
         push("open", Op::Open, Args::default());
         push("variables", Op::Variables, Args::default());
         push("dimensions", Op::Dimensions, Args::default());
+        // What the listing leaves out, and why: both hosts' `leftOut()` and
+        // `undrawable()` (#1073). Neither subject leaves an array out, and both
+        // hold coordinate arrays no map is drawn from, so between them and the
+        // `unsupported_type` subject below every list is pinned empty and not.
+        push("left_out", Op::LeftOut, Args::default());
+        push("undrawable", Op::Undrawable, Args::default());
         for variable in 0..*variables {
             push(
                 &format!("decode_slice/{variable}"),
@@ -1039,6 +1057,18 @@ pub fn cases() -> Vec<Case> {
         },
     });
     out.push(Case {
+        // An options object a host cannot read: a width no decode has. Every
+        // host reads the object it is sent, and refuses this one the same way
+        // rather than throwing an error with no code (#1073).
+        id: "error/invalid_option_dtype".to_string(),
+        fixture: latlon.clone(),
+        op: Op::Decode,
+        args: Args {
+            decode_options: Some(json!({ "dtype": "f16" })),
+            ..Args::default()
+        },
+    });
+    out.push(Case {
         // A table and a name in one request: refused rather than choosing.
         id: "error/invalid_option_table_and_name".to_string(),
         fixture: latlon.clone(),
@@ -1106,6 +1136,27 @@ pub fn cases() -> Vec<Case> {
         op: Op::DecodeSlice,
         args: slice(0, vec![0, 0]),
     });
+
+    // A NetCDF-4 file with a compound and a variable-length variable this build
+    // does not decode: the one subject whose `leftOut()` is not empty, so the
+    // reason and the `cause` a host shows for each are held to one recording
+    // (#1073). And a message stream, which answers both lists empty rather
+    // than refusing the question.
+    let unsupported = format!("{NC}netcdf4_unsupported_type.nc");
+    let stream = format!("{G2}regular_latlon_surface.grib2");
+    for (id, fixture, op) in [
+        ("unsupported_type/left_out", &unsupported, Op::LeftOut),
+        ("unsupported_type/undrawable", &unsupported, Op::Undrawable),
+        ("latlon/left_out", &stream, Op::LeftOut),
+        ("latlon/undrawable", &stream, Op::Undrawable),
+    ] {
+        out.push(Case {
+            id: id.to_string(),
+            fixture: fixture.clone(),
+            op,
+            args: Args::default(),
+        });
+    }
 
     // A slice with no coordinates at all: a 10×10 HDF5 dataset nothing places,
     // which renders in grid coordinates. Its georef records `unplaceable`, the
@@ -1518,11 +1569,15 @@ fn error_value(e: &Error) -> Value {
     json!({ "error": { "code": e.code(), "hasMessage": !e.message().is_empty() } })
 }
 
-/// Decode options from a case's [`Args`]. Infallible: [`Args::dtype`] is the
-/// typed enum, so there is no string left to reject.
-fn decode_options(args: &Args) -> DecodeOptions {
-    DecodeOptions {
-        dtype: args.dtype.clone().unwrap_or_default(),
+/// Decode options from a case's [`Args`]: [`Args::decode_options`] read the
+/// way a host reads the object it was sent, or [`Args::dtype`].
+fn decode_options(args: &Args) -> Result<DecodeOptions, Error> {
+    match &args.decode_options {
+        Some(raw) => serde_json::from_value(raw.clone())
+            .map_err(|e| Error::invalid_option(format!("could not read the options object: {e}"))),
+        None => Ok(DecodeOptions {
+            dtype: args.dtype.clone().unwrap_or_default(),
+        }),
     }
 }
 
@@ -1615,8 +1670,9 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         None => Session::open(truncated.to_vec())?,
     };
 
-    let field =
-        |index: u32| -> Result<Field, Error> { session.decode(index, &decode_options(&case.args)) };
+    let field = |index: u32| -> Result<Field, Error> {
+        session.decode(index, &decode_options(&case.args)?)
+    };
     let display = || -> Result<DisplayField, Error> {
         let mut options = DisplayDecodeOptions::new(case.args.reduce.unwrap_or(0));
         options.dtype = case.args.dtype.clone().unwrap_or_default();
@@ -1738,6 +1794,8 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         }
         Op::Variables => value_of(&session.variables()),
         Op::Dimensions => value_of(&session.dimensions()),
+        Op::LeftOut => value_of(&session.left_out()),
+        Op::Undrawable => value_of(&session.undrawable()),
         Op::DecodeSlice => {
             // Missing rather than defaulted, for the reason `combine_op` is: a
             // slice case that lost an axis would otherwise record a real field
@@ -1757,7 +1815,7 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
                 y_dim,
                 x_dim,
                 indices,
-                &decode_options(args),
+                &decode_options(args)?,
             )?)
         }
         Op::DecodeLine => {
@@ -1770,7 +1828,7 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             let variable = args.variable.ok_or_else(missing)?;
             let along = args.along_dim.ok_or_else(missing)?;
             let indices = args.slice_indices.as_deref().ok_or_else(missing)?;
-            line_value(&session.decode_line(variable, along, indices, &decode_options(args))?)
+            line_value(&session.decode_line(variable, along, indices, &decode_options(args)?)?)
         }
     };
     Ok(value)

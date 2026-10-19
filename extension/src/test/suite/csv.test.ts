@@ -1,7 +1,7 @@
 // Integration tests for CSV export through the native binding the extension
 // talks to. The formatting itself is unit-tested in Rust (`fieldglass-core`);
 // these pin the extension-facing `exportCsv` binding and its round-trip
-// agreement with `decodeGrid` on a real fixture.
+// agreement with `decode` on a real fixture.
 
 import * as assert from "assert";
 import * as fs from "fs";
@@ -10,6 +10,9 @@ import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import type { FieldglassApi } from "../../extension";
+
+/** The CSV the addon hands back, as text: its UTF-8 bytes (#341, #1073). */
+const utf8 = (bytes: Uint8Array): string => new TextDecoder("utf-8").decode(bytes);
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -23,22 +26,22 @@ function grib2Handle() {
   const native = loadNative();
   assert.ok(native, "native binding required");
   const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
-  return native.Grib2Handle.fromBytes(bytes);
+  return native.open(bytes);
 }
 
 suite("CSV export", () => {
-  test("exportCsv matrix round-trips against decodeGrid", () => {
+  test("exportCsv matrix round-trips against decode", () => {
     const handle = grib2Handle();
-    const grid = handle.decodeGrid(0);
-    const csv = handle.exportCsv(0, "matrix").toString("utf8");
+    const grid = handle.decode(0);
+    const csv = utf8(handle.exportCsv(0, "matrix"));
 
     const rows = csv.replace(/\n$/, "").split("\n").map((r) => r.split(","));
-    assert.strictEqual(rows.length, grid.height, "one row per grid row");
-    assert.strictEqual(rows[0].length, grid.width, "one cell per grid column");
+    assert.strictEqual(rows.length, grid.nj, "one row per grid row");
+    assert.strictEqual(rows[0].length, grid.ni, "one cell per grid column");
 
-    for (let j = 0; j < grid.height; j++) {
-      for (let i = 0; i < grid.width; i++) {
-        const k = j * grid.width + i;
+    for (let j = 0; j < grid.nj; j++) {
+      for (let i = 0; i < grid.ni; i++) {
+        const k = j * grid.ni + i;
         const cell = rows[j][i];
         if (grid.mask[k] === 0) {
           assert.strictEqual(cell, "", `masked cell (${i},${j}) must be empty`);
@@ -54,14 +57,14 @@ suite("CSV export", () => {
 
   test("exportCsv long has a header and one row per grid point", () => {
     const handle = grib2Handle();
-    const grid = handle.decodeGrid(0);
-    const csv = handle.exportCsv(0, "long").toString("utf8");
+    const grid = handle.decode(0);
+    const csv = utf8(handle.exportCsv(0, "long"));
 
     const lines = csv.replace(/\n$/, "").split("\n");
     assert.strictEqual(lines[0], "lat,lon,value", "header row");
     assert.strictEqual(
       lines.length - 1,
-      grid.width * grid.height,
+      grid.ni * grid.nj,
       "one data row per grid point"
     );
     // Every data row is `lat,lon,value` (three fields); the value may be empty.
@@ -72,7 +75,7 @@ suite("CSV export", () => {
 
   test("exportCsv rejects an unknown format", () => {
     const handle = grib2Handle();
-    assert.throws(() => handle.exportCsv(0, "tsv"), /unknown CSV format/);
+    assert.throws(() => handle.exportCsv(0, "tsv" as "matrix"), /unknown CSV format/);
   });
 });
 
@@ -81,7 +84,7 @@ suite("CSV export (Lambert)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("eta_lambert_msg0.grib2"));
-    return native.Grib2Handle.fromBytes(bytes);
+    return native.open(bytes);
   }
 
   // A projected grid used to refuse the long format for want of per-point
@@ -92,7 +95,7 @@ suite("CSV export (Lambert)", () => {
     const meta = handle.message(0);
     assert.strictEqual(meta.grid?.label, "lambert");
 
-    const csv = handle.exportCsv(0, "long").toString("utf8");
+    const csv = utf8(handle.exportCsv(0, "long"));
     const lines = csv.replace(/\n$/, "").split("\n");
     assert.strictEqual(lines[0], "lat,lon,value");
     assert.strictEqual(
@@ -123,7 +126,7 @@ suite("CSV export (NetCDF)", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
-    const handle = native.NetcdfHandle.fromBytes(bytes);
+    const handle = native.open(bytes);
     const sst = handle.variables().find((v) => v.name === "sst");
     assert.ok(sst, "sst must be renderable");
     const y = sst.detectedYDim ?? 2;
@@ -134,7 +137,7 @@ suite("CSV export (NetCDF)", () => {
 
   test("exportCsv matrix is a rectangular grid of the slice", () => {
     const { handle, sst, y, x, indices } = netcdfSst();
-    const csv = handle.exportCsv(sst.variableIndex, y, x, indices, "matrix").toString("utf8");
+    const csv = utf8(handle.exportCsv({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, "matrix"));
     const rows = csv.replace(/\n$/, "").split("\n").map((r) => r.split(","));
     assert.ok(rows.length > 1, "more than one row");
     const cols = rows[0].length;
@@ -146,16 +149,16 @@ suite("CSV export (NetCDF)", () => {
 
   test("exportCsv long has a header and one row per grid point", () => {
     const { handle, sst, y, x, indices } = netcdfSst();
-    const matrix = handle
-      .exportCsv(sst.variableIndex, y, x, indices, "matrix")
-      .toString("utf8")
+    const matrix = utf8(
+      handle.exportCsv({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, "matrix"),
+    )
       .replace(/\n$/, "")
       .split("\n");
     const cells = matrix.length * matrix[0].split(",").length;
 
-    const long = handle
-      .exportCsv(sst.variableIndex, y, x, indices, "long")
-      .toString("utf8")
+    const long = utf8(
+      handle.exportCsv({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, "long"),
+    )
       .replace(/\n$/, "")
       .split("\n");
     assert.strictEqual(long[0], "lat,lon,value", "header row");
@@ -168,7 +171,7 @@ suite("CSV export (NetCDF)", () => {
   test("exportCsv rejects an unknown format", () => {
     const { handle, sst, y, x, indices } = netcdfSst();
     assert.throws(
-      () => handle.exportCsv(sst.variableIndex, y, x, indices, "tsv"),
+      () => handle.exportCsv({ variable: sst.index, yDim: y, xDim: x, sliceIndices: indices }, "tsv" as "matrix"),
       /unknown CSV format/,
     );
   });

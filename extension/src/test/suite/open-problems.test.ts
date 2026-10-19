@@ -69,7 +69,7 @@ function storesIn(folder: string): string[] {
   assert.ok(native, "native binding required");
   return fs
     .readdirSync(folder, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && native.ZarrHandle.isStore(path.join(folder, e.name)))
+    .filter((e) => e.isDirectory() && native.isStore(path.join(folder, e.name)))
     .map((e) => e.name)
     .sort();
 }
@@ -294,7 +294,7 @@ suite("Open problems (#1040)", () => {
     for (const store of ["a1", "a2"]) {
       fs.mkdirSync(path.join(dir, store));
       fs.writeFileSync(path.join(dir, store, ".zgroup"), '{"zarr_format": 2}');
-      assert.ok(native.ZarrHandle.isStore(path.join(dir, store)), `${store} should be a store`);
+      assert.ok(native.isStore(path.join(dir, store)), `${store} should be a store`);
     }
     for (let i = 0; i < MAX_FOLDERS_EXAMINED + 10; i += 1) {
       fs.mkdirSync(path.join(dir, `z${String(i).padStart(4, "0")}`));
@@ -323,7 +323,7 @@ suite("Open problems (#1040)", () => {
     // The only store sorts last, past the folders looked at.
     fs.mkdirSync(path.join(dir, "zzzz"));
     fs.writeFileSync(path.join(dir, "zzzz", ".zgroup"), '{"zarr_format": 2}');
-    assert.ok(native.ZarrHandle.isStore(path.join(dir, "zzzz")));
+    assert.ok(native.isStore(path.join(dir, "zzzz")));
 
     const p = await provider();
     const shown = await capture(DETAILS, () => p.openZarrStore(vscode.Uri.file(dir)));
@@ -346,7 +346,7 @@ suite("Open problems (#1040)", () => {
     const target = p as unknown as Record<string, unknown>;
     const realOpen = target.openZarrRenderPanel;
     w.showOpenDialog = () => Promise.resolve([vscode.Uri.file(zarrFixtures("stores", "cf_v3"))]);
-    // A store that opens, then a failure past `fromDirectory`.
+    // A store that opens, then a failure past `openStore`.
     target.openZarrRenderPanel = () => {
       throw new Error("panel failed");
     };

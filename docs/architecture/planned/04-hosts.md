@@ -31,6 +31,48 @@ flowchart LR
     class cat,fetch,gpu,canvas2 planned
 ```
 
+## One JavaScript API
+
+The two JavaScript hosts bind `Session` under one shape (#1073). Each exports a
+`Handle` from `open(bytes)` (a GRIB or NetCDF file) or `openStore(…)` (a Zarr
+store: a directory in Node, the fetched objects in the browser), and an
+operation both hosts have is spelt the same and takes the same arguments in
+both, the camelCase of its `Session` name:
+
+| | both hosts |
+|---|---|
+| open | `open(bytes)`, `openStore(…)`, `combineOps()` |
+| ask first | `format()`, `addressing()` |
+| list | `count()`, `message(index)`, `variables()`, `leftOut()`, `undrawable()` |
+| decode | `decode(index, { dtype })`, `decodeSlice({ variable, yDim, xDim, sliceIndices }, { dtype })`, `decodeLine({ variable, alongDim, sliceIndices }, { dtype })`, `decodeDisplay(index, { reduce, dtype })` |
+| release | `close()`, which is also `[Symbol.dispose]`, so `using` works |
+
+The return types are each host's own, because the bulk buffers are (ADR-0006
+decision 1). Beyond the table the browser module has the GPU path (`warp`,
+`palette`, `shaderValues`, …) over fields the page holds, and the addon has the
+extension's map pipeline (`renderGrid`, `probePixel`, `projectContours`, …)
+over a memo, addressed by a target: a message index, a slice, or `{ a, b, op }`.
+No name means two operations: the browser's `probe` reads a point of a field,
+so the addon's pixel read is `probePixel`. Arguments are objects rather than
+positional runs, parameters are camelCase, bytes cross as `Uint8Array`, and no
+Rust doc link reaches either `.d.ts`. `tools/check_js_api.py` holds each host's
+generated declarations to this in CI.
+
+**Synchronous, with the async names reserved.** The bytes-in path stays the
+primary one (ADR-0005), and fieldglass-app uses it. The asynchronous layer
+(#1085) lands beside it, purely additively, under names reserved now:
+
+* `load(source, { signal })`, beside `open(bytes)`: the library-side fetch,
+  resolving to the same `Handle`;
+* `<name>Async(…the same arguments, { signal })` beside each long call
+  (`decodeAsync`, `decodeSliceAsync`, `renderGridAsync`, `warpAsync`, …),
+  resolving to what the synchronous call returns. On the addon these run as
+  napi `AsyncTask`s off the extension host's main thread.
+
+`{ signal }` follows WHATWG: an already-aborted signal rejects at once, and an
+abort rejects with `signal.reason`. Neither host may declare a reserved name
+before #1085; the same checker fails if one does.
+
 ## One window of a Zarr store
 
 A store is many objects, and the browser fetches only the ones a view needs.

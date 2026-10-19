@@ -178,12 +178,12 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
     // `temperature` is time × lat × lon: three axes to plot a line along.
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const temperature = native.NetcdfHandle.fromBytes(fs.readFileSync(file))
+    const temperature = native.open(fs.readFileSync(file))
       .variables()
       .find((v) => v.name === "temperature");
     assert.ok(temperature, "the fixture has temperature");
     const editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.variableIndex }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.index }));
     try {
       const moved = await roundTrip(
         panel,
@@ -253,7 +253,7 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
     fourDimensionStore(store);
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const variables = native.ZarrHandle.fromDirectory(store).variables();
+    const variables = native.openStore(store).variables();
     const t = variables.find((v) => v.name === "t");
     const u = variables.find((v) => v.name === "u");
     assert.ok(t && u, "the store has t and u");
@@ -263,13 +263,13 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
       await panel.waitSent(drawnOrRefused, 0, "the first render");
       await settle(panel);
       const first = (await panel.controls())["slice-variable"];
-      const other = first === String(t.variableIndex) ? u : t;
+      const other = first === String(t.index) ? u : t;
       // Another control changed, which saves the panel with Animate on its
       // default; shown again; then moved to the variable whose time sits
       // elsewhere.
       await panel.drive([{ id: "anim-speed", value: 5 }]);
       await rebuilt(panel);
-      await panel.drive([{ id: "slice-variable", value: other.variableIndex }]);
+      await panel.drive([{ id: "slice-variable", value: other.index }]);
       await settle(panel);
       assert.strictEqual(
         (await panel.controls())["animate-dim"],

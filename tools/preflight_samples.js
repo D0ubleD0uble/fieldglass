@@ -14,8 +14,8 @@ const REPO = path.resolve(__dirname, '..');
 const m = require(path.join(REPO, 'extension/bin/fieldglass.linux-x64-gnu.node'));
 const opts = { projection: 'equirectangular', resampling: 'nearest', flipY: false };
 
-function grib(HandleName, buf, label) {
-  const h = m[HandleName].fromBytes(buf);
+function grib(buf, label) {
+  const h = m.open(buf);
   const msgs = Array.from({ length: h.count() }, (_, i) => h.message(i));
   const i = msgs.findIndex((x) => x.reprojectable);
   const idx = i >= 0 ? i : 0;
@@ -42,10 +42,10 @@ function range(r) {
 }
 
 function netcdf(buf, label) {
-  const h = m.NetcdfHandle.fromBytes(buf);
+  const h = m.open(buf);
   const vars = h.variables();
   if (!vars.length) {
-    const d = m.openNetcdf(buf);
+    const d = h.metadata();
     return console.log(`  ${label}: ${d.backingLabel} | 0 renderable vars${d.note ? ` | note: ${d.note}` : ''}`);
   }
   const v = vars.find((x) => x.detectedYDim != null && x.detectedXDim != null) || vars[0];
@@ -53,7 +53,10 @@ function netcdf(buf, label) {
   if (v.detectedYDim == null || v.detectedXDim == null) return console.log('         (no CF axes detected — needs manual axis pick)');
   const slice = v.dims.map(() => 0);
   try {
-    const r = h.renderSlice(v.variableIndex, v.detectedYDim, v.detectedXDim, slice, opts);
+    const r = h.renderGrid(
+      { variable: v.variableIndex, yDim: v.detectedYDim, xDim: v.detectedXDim, sliceIndices: slice },
+      opts,
+    );
     console.log(`         render: ${r.width}x${r.height} | ${r.projectionSummary} | ${range(r)}`);
   } catch (e) {
     console.log(`         RENDER FAILED: ${e.message}`);
@@ -70,8 +73,7 @@ for (const f of files) {
   const buf = fs.readFileSync(path.join(dir, f));
   const fmt = m.detectBytes(buf);
   try {
-    if (fmt === 'grib2') grib('Grib2Handle', buf, `${f} [${fmt}]`);
-    else if (fmt === 'grib1') grib('Grib1Handle', buf, `${f} [${fmt}]`);
+    if (fmt === 'grib2' || fmt === 'grib1') grib(buf, `${f} [${fmt}]`);
     else if (fmt === 'netcdf') netcdf(buf, `${f} [${fmt}]`);
     else console.log(`  ${f}: UNKNOWN format (${fmt})`);
   } catch (e) {

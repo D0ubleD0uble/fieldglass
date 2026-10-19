@@ -228,7 +228,7 @@ suite("Compare map band-limit label (#814)", () => {
     const editor = vscode.window.createWebviewPanel("fieldglass.viewer", "t63_t383", vscode.ViewColumn.One, {});
     await provider.resolveCustomEditor(doc, editor);
 
-    const handle = native.Grib2Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
     const [t63, t383] = [handle.message(0), handle.message(1)];
     assert.strictEqual(t63.truncation, null, "T63 fits the 0.5° grid");
     assert.deepStrictEqual(t383.truncation, { declared: 383, truncatedTo: 359 });
@@ -321,7 +321,7 @@ suite("Compare map band-limit label (#814)", () => {
     assert.ok(native, "native binding required");
     const fixtures = path.join(
       vscode.extensions.getExtension(EXT_ID)!.extensionPath, "src", "test", "fixtures");
-    const meta = native.Grib2Handle.fromBytes(
+    const meta = native.open(
       fs.readFileSync(path.join(fixtures, "spectral_simple_t383.grib2"))).message(0);
     const html = renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, meta, "summary", [], []);
     assert.ok(html.includes("function composeSubtitle("), "the panel script defines composeSubtitle");

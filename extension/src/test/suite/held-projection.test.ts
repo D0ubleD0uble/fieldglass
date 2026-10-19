@@ -21,11 +21,11 @@ const FILE = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dims
 function variableIndex(name: string): number {
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const v = native.NetcdfHandle.fromBytes(fs.readFileSync(FILE))
+  const v = native.open(fs.readFileSync(FILE))
     .variables()
     .find((x) => x.name === name);
   assert.ok(v, `the fixture has ${name}`);
-  return v.variableIndex;
+  return v.index;
 }
 
 /** The slice's own controls, which the steps below move on purpose, and the

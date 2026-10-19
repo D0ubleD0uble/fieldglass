@@ -160,7 +160,7 @@ try {
       '): Promise<[MessageInfo, MessageProbe | null, FullDetail | null]> {',
       '  await init();',
       '  const handle = open(bytes);',
-      '  return [handle.message(0), handle.probeMessage(0, 45.5, 120), handle.fullDetail(0, 45.5, 120)];',
+      '  return [handle.message(0), handle.probeMessage(0, 45.5, 120), handle.probeFullDetail(0, 45.5, 120)];',
       '}',
       '',
       '// A field decoded to draw is not a field (#1082). Each misuse below must be',
@@ -201,6 +201,21 @@ try {
       '  const bare: Uint8Array = handle.render(field, {}, false);',
       '  void bare;',
       '  return [rgba, low, shown, handle.renderDisplay(coarse, field.stats(), {}, false).range.below];',
+      '}',
+      '',
+      '// One shape with the Node addon (#1073): a slice and a line are one object',
+      '// each, every class closes, and `using` releases a handle at the block end.',
+      'export function shape(bytes: Uint8Array): number {',
+      '  using handle = open(bytes);',
+      '  using slice = handle.decodeSlice({ variable: 0, yDim: 0, xDim: 1, sliceIndices: [0, 0] });',
+      "  handle.decodeLine({ variable: 0, alongDim: 0, sliceIndices: [0, 0] }, { dtype: 'f64' });",
+      '  // @ts-expect-error the slice is one object, not four arguments',
+      '  handle.decodeSlice(0, 0, 1, [0, 0]);',
+      '  // @ts-expect-error a key the request does not take',
+      '  handle.decodeSlice({ variable: 0, yDim: 0, xDim: 1, sliceIndex: [0, 0] });',
+      '  const field = handle.decode(0);',
+      '  field.close();',
+      '  return slice.ni();',
       '}',
       '',
     ].join('\n');
@@ -301,10 +316,12 @@ try {
   check('netcdf addressing', dataset.addressing() === 'variables', dataset.addressing());
   const [variable] = dataset.variables();
   const slice = dataset.decodeSlice(
-    variable.index,
-    0,
-    1,
-    new Uint32Array(variable.dims.length),
+    {
+      variable: variable.index,
+      yDim: 0,
+      xDim: 1,
+      sliceIndices: new Array(variable.dims.length).fill(0),
+    },
     {},
   );
   check('netcdf raster', slice.ni() === 4 && slice.nj() === 3, `${slice.ni()}x${slice.nj()}`);

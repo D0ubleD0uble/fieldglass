@@ -12,7 +12,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { loadNative, type NetcdfVariableMeta } from "../../native";
+import { loadNative, type VariableInfo } from "../../native";
 import {
   defaultAnimationDim,
   nextFrame,
@@ -27,10 +27,10 @@ function fixture(name: string): Buffer {
   return fs.readFileSync(path.join(ext.extensionPath, "src", "test", "fixtures", name));
 }
 
-function variable(file: string, name: string): NetcdfVariableMeta {
+function variable(file: string, name: string): VariableInfo {
   const native = loadNative();
   assert.ok(native, "native module must load");
-  const found = native.NetcdfHandle.fromBytes(fixture(file))
+  const found = native.open(fixture(file))
     .variables()
     .find((v) => v.name === name || v.name.endsWith(`/${name}`));
   assert.ok(found, `${file} has ${name}`);
@@ -73,12 +73,12 @@ suite("Time animation", () => {
   test("a range locked for playback holds across frames with different extremes", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
-    const handle = native.NetcdfHandle.fromBytes(fixture("netcdf4_dimscale.nc"));
+    const handle = native.open(fixture("netcdf4_dimscale.nc"));
     const v = variable("netcdf4_dimscale.nc", "temperature");
     const y = v.detectedYDim ?? 1;
     const x = v.detectedXDim ?? 2;
     const base = { projection: "source" as const, resampling: "nearest" as const, flipY: false };
-    const frames = [0, 1].map((t) => handle.renderSlice(v.variableIndex, y, x, [t, 0, 0], base));
+    const frames = [0, 1].map((t) => handle.renderGrid({ variable: v.index, yDim: y, xDim: x, sliceIndices: [t, 0, 0] }, base));
     assert.notDeepStrictEqual(
       [frames[0].usedMin, frames[0].usedMax],
       [frames[1].usedMin, frames[1].usedMax],
@@ -89,7 +89,7 @@ suite("Time animation", () => {
     assert.ok(lo != null && hi != null, "the first frame has a range to hold");
     const lock = { ...base, rangeMin: lo, rangeMax: hi };
     for (const t of [0, 1]) {
-      const r = handle.renderSlice(v.variableIndex, y, x, [t, 0, 0], lock);
+      const r = handle.renderGrid({ variable: v.index, yDim: y, xDim: x, sliceIndices: [t, 0, 0] }, lock);
       assert.deepStrictEqual([r.usedMin, r.usedMax], [frames[0].usedMin, frames[0].usedMax], `step ${t}`);
     }
   });
@@ -100,7 +100,7 @@ suite("Time animation", () => {
     const v = variable("netcdf4_dimscale.nc", "temperature");
     const slice: SlicePanelData = {
       variables: [v],
-      initial: { variableIndex: v.variableIndex, yDim: 1, xDim: 2, sliceIndices: [0, 0, 0] },
+      initial: { variableIndex: v.index, yDim: 1, xDim: 2, sliceIndices: [0, 0, 0] },
     };
     const meta = { grid: { label: "latlon" }, reprojectable: true } as unknown as PanelField;
     const webview = { cspSource: "" } as unknown as vscode.Webview;

@@ -37,11 +37,11 @@ use fieldglass::{
     Addressing, Affine, AxisUnits, AxisValues, ColourRange, CombineOpInfo, ContourOptions,
     DecodeOptions, DimensionInfo, DisplayDecodeOptions, DisplayField, Dtype, Error, Field,
     FullDetail, Georef, GridSupport, Identification, Isoline, LeftOutArray, LeftOutCause, Line,
-    MessageIdentity, MessageInfo, MessageProbe, OutOfRange, PaletteOptions, PixelProbe, Placement,
-    Positive, Probe, Projected, RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Raster,
-    RenderOptions, ResolvedOptions, SourceFormat, SpectralTruncation, StatisticalStep, Stats,
-    SurfaceCodes, TargetKind, Values, VariableInfo, VectorOptions, VectorPairing, Vertical,
-    WarpOptions, WarpTarget, Warped,
+    LineRequest, MessageIdentity, MessageInfo, MessageProbe, OutOfRange, PaletteOptions,
+    PixelProbe, Placement, Positive, Probe, Projected, RangeEnd, RangeRefusal, RangeRefusalReason,
+    RangeSource, Raster, RenderOptions, ResolvedOptions, SliceRequest, SourceFormat,
+    SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo,
+    VectorOptions, VectorPairing, Vertical, WarpOptions, WarpTarget, Warped,
 };
 // The window planner's (#1083), behind `zarr`, a default feature.
 use fieldglass::{ChunkRef, WindowPlan, WindowRequest};
@@ -173,6 +173,9 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     // --- session.rs ---------------------------------------------------------
     ("DecodeOptions", Class::Wire, ""),
     ("DisplayDecodeOptions", Class::Wire, ""),
+    // What a JS host's `decodeSlice` and `decodeLine` take (#1073).
+    ("SliceRequest", Class::Wire, ""),
+    ("LineRequest", Class::Wire, ""),
     ("WarpOptions", Class::Wire, ""),
     ("PaletteOptions", Class::Wire, ""),
     // The range contours are spaced over (#1155).
@@ -554,6 +557,8 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<Error>();
     is_wire_shaped::<DecodeOptions>();
     is_wire_shaped::<DisplayDecodeOptions>();
+    is_wire_shaped::<SliceRequest>();
+    is_wire_shaped::<LineRequest>();
     is_wire_shaped::<WarpOptions>();
     is_wire_shaped::<PaletteOptions>();
     is_wire_shaped::<ContourOptions>();
@@ -738,6 +743,14 @@ fn every_wire_type_round_trips_through_json() {
     );
     round_trip::<DecodeOptions>("DecodeOptions", r#"{"dtype":"f64"}"#);
     round_trip::<DisplayDecodeOptions>("DisplayDecodeOptions", r#"{"reduce":1,"dtype":"auto"}"#);
+    round_trip::<SliceRequest>(
+        "SliceRequest",
+        r#"{"variable":1,"yDim":2,"xDim":3,"sliceIndices":[4,0,0,0]}"#,
+    );
+    round_trip::<LineRequest>(
+        "LineRequest",
+        r#"{"variable":1,"alongDim":2,"sliceIndices":[4,0,0,0]}"#,
+    );
     round_trip::<WarpOptions>(
         "WarpOptions",
         r#"{"bilinear":true,"bounds":null,"width":512,"height":384}"#,
@@ -930,6 +943,8 @@ const ROUND_TRIPPED: &[&str] = &[
     "Error",
     "DecodeOptions",
     "DisplayDecodeOptions",
+    "SliceRequest",
+    "LineRequest",
     "WarpOptions",
     "PaletteOptions",
     "ContourOptions",
@@ -2049,6 +2064,8 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<RenderOptions>("RenderOptions");
     check_schema::<DecodeOptions>("DecodeOptions");
     check_schema::<DisplayDecodeOptions>("DisplayDecodeOptions");
+    check_schema::<SliceRequest>("SliceRequest");
+    check_schema::<LineRequest>("LineRequest");
     check_schema::<WarpOptions>("WarpOptions");
     check_schema::<PaletteOptions>("PaletteOptions");
     check_schema::<ContourOptions>("ContourOptions");
@@ -2120,6 +2137,8 @@ const SCHEMA_CHECKED: &[&str] = &[
     "RenderOptions",
     "DecodeOptions",
     "DisplayDecodeOptions",
+    "SliceRequest",
+    "LineRequest",
     "WarpOptions",
     "PaletteOptions",
     "ContourOptions",
@@ -2235,6 +2254,8 @@ const UPDATE_SCHEMA_ENV: &str = "FIELDGLASS_UPDATE_SCHEMA";
 const SENT: &[&str] = &[
     "DecodeOptions",
     "DisplayDecodeOptions",
+    "SliceRequest",
+    "LineRequest",
     "WarpOptions",
     "PaletteOptions",
     "ContourOptions",
@@ -2406,7 +2427,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     );
     register!(returned ["zarr"]: WindowPlan, ChunkRef);
     register!(sent ["always"]:
-        DecodeOptions, DisplayDecodeOptions, WarpOptions, PaletteOptions, ContourOptions, RenderOptions, VectorOptions,
+        DecodeOptions, DisplayDecodeOptions, SliceRequest, LineRequest, WarpOptions, PaletteOptions, ContourOptions, RenderOptions, VectorOptions,
     );
     register!(sent ["fetchplan"]: CandidateOptions, Query, SourceSpec);
     register!(sent ["zarr"]: WindowRequest);

@@ -292,9 +292,26 @@ Linear memory never shrinks and an animation holds many fields at once, so
 **the façade keeps no decode cache**. `decode()` hands a field to JS and JS owns
 it; `warp`, `render`, `probe`, `contours`, `combine`, and the shader accessors take it back
 by reference; `decodeDisplay()` hands over a display field the same way. Call
-`free()` on a field and on the handle when you are done —
-a dropped JS reference does not release the wasm allocation until the host's
-`FinalizationRegistry` runs, if it runs at all.
+`close()` (or `free()`, the same) on a field and on the handle when you are
+done, or open it with `using`, which calls `[Symbol.dispose]` at the end of the
+block — a dropped JS reference does not release the wasm allocation until the
+host's `FinalizationRegistry` runs, if it runs at all.
+
+### One shape with the Node binding
+
+The repository's Node binding (`fieldglass-napi`, internal to the VS Code
+extension) binds the same `Session` with the same shape (#1073): `open`,
+`format`, `addressing`, `count`, `message`, `variables`, `leftOut`,
+`undrawable`, `decode`, `decodeSlice`, `decodeLine`, `decodeDisplay` and `close`
+take the same arguments and mean the same things in both, and
+`tools/check_js_api.py` holds both generated declarations to that.
+`decodeSlice` and `decodeLine` take one object, `{ variable, yDim, xDim,
+sliceIndices }` and `{ variable, alongDim, sliceIndices }`, where `variable` is a
+position in `variables()` and `sliceIndices` may be a `Uint32Array`, and refuse
+a key they do not know. `close()` is harmless twice, and every other call on a
+closed object throws. Everything here is synchronous; `load(source, { signal })`
+and `<name>Async` are reserved for the asynchronous layer (#1085), which adds to
+these names rather than renaming them.
 
 Every accessor that returns a typed array **copies** out of linear memory. A
 view into it dangles the moment wasm grows the heap, so a host that wants to

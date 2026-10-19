@@ -75,7 +75,7 @@ suite("A render panel names its file or store (#1038)", function () {
     const file = fixture(path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2"));
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const meta = native.Grib2Handle.fromBytes(fs.readFileSync(file)).message(0);
+    const meta = native.open(fs.readFileSync(file)).message(0);
     assert.ok(meta.abbreviation, "the fixture's message has an abbreviation");
 
     const editor = await openEditor(p, file);
@@ -108,19 +108,19 @@ suite("A render panel names its file or store (#1038)", function () {
     const stores = ["cf_v2", "cf_v3"].map((s) => fixture(path.join(ZARR_FIXTURES(), "stores", s)));
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const variables = native.NetcdfHandle.fromBytes(fs.readFileSync(twin)).variables();
+    const variables = native.open(fs.readFileSync(twin)).variables();
     const a = variables.find((v) => v.name === "a");
     const t = variables.find((v) => v.name === "t");
     assert.ok(a && t, `the twin has a and t, got ${variables.map((v) => v.name).join(", ")}`);
     // The stores open on their first variable; the twin is opened on the same.
     // Each numbers its variables its own way, so t is found in each.
-    const tIn = new Map<string, number>([["cf_twin.nc", t.variableIndex]]);
+    const tIn = new Map<string, number>([["cf_twin.nc", t.index]]);
     for (const store of stores) {
-      const vars = native.ZarrHandle.fromDirectory(store).variables();
+      const vars = native.openStore(store).variables();
       assert.strictEqual(vars[0].name, "a", `${store} opens on a`);
       const tv = vars.find((v) => v.name === "t");
       assert.ok(tv, `${store} has t`);
-      tIn.set(path.basename(store), tv.variableIndex);
+      tIn.set(path.basename(store), tv.index);
     }
 
     const editor = await openEditor(p, twin);
@@ -128,7 +128,7 @@ suite("A render panel names its file or store (#1038)", function () {
     try {
       panels.push({
         source: "cf_twin.nc",
-        panel: await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: a.variableIndex })),
+        panel: await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: a.index })),
       });
       for (const store of stores) {
         panels.push({ source: path.basename(store), panel: await openReal(p, () => p.openZarrStore(vscode.Uri.file(store))) });

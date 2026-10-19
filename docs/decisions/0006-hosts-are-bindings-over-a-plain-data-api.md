@@ -94,6 +94,22 @@ in and out of a `Field`. Two entry points, one gate and one arithmetic; that is
 the pattern to follow if another operation needs a second shape, not a second
 implementation.
 
+#### Amendment, 2026-10-19 (#1073): one shape in both JavaScript hosts
+
+Decision 1 said every host is a binding of `Session`, and the Node addon still
+shipped four classes, one per container, with its own names for the questions
+the browser module asks (`decodeGrid` for `decode`, a ten-argument
+`probeSliceCombined`). The owner decided on 2026-10-16 to converge the names now
+and add the asynchronous layer later. Both hosts now export one `Handle`, and
+an operation both have is spelt the same and takes the same arguments: the
+camelCase of its `Session` name, with request objects rather than positional
+runs (`SliceRequest`, `LineRequest`, schema types both read). What only one host
+has keeps a name the other does not use. `tools/check_js_api.py` holds each
+host's generated declarations to that, and the names `load` and `<name>Async`
+are reserved for #1085, which adds to them rather than renaming. The
+synchronous bytes-in path stays the primary one, as ADR-0005 has it. The two
+packages stay two (the owner's decision on #1087; revisit at #1090).
+
 ### 2. API types follow rules a test can enforce
 
 Every type on the `Session` surface:

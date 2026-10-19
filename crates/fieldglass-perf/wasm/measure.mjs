@@ -127,12 +127,17 @@ function runChild(id) {
         handle.dimensions();
         return () => {};
       case 'slice': {
-        const f = handle.decodeSlice(variable, 1, 2, new Uint32Array([SLICE_PLANE, 0, 0]), {});
+        const f = handle.decodeSlice(
+          { variable, yDim: 1, xDim: 2, sliceIndices: new Uint32Array([SLICE_PLANE, 0, 0]) },
+          {},
+        );
         return () => f.free();
       }
       case 'scrub':
         for (let frame = 0; frame < SCRUB_FRAMES; frame++) {
-          handle.decodeSlice(variable, 1, 2, new Uint32Array([frame, 0, 0]), {}).free();
+          handle
+            .decodeSlice({ variable, yDim: 1, xDim: 2, sliceIndices: new Uint32Array([frame, 0, 0]) }, {})
+            .free();
         }
         return () => {};
       case 'warp':

@@ -159,7 +159,7 @@ suite("Imported color tables", () => {
       {} as vscode.CustomDocumentOpenContext,
       new vscode.CancellationTokenSource().token,
     );
-    const meta = native.Grib2Handle.fromBytes(fs.readFileSync(fixture)).message(0);
+    const meta = native.open(fs.readFileSync(fixture)).message(0);
 
     // A stand-in panel: the HTML the provider writes is the thing under test.
     const onDispose: (() => void)[] = [];
@@ -206,7 +206,7 @@ suite("Imported color tables", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2"));
-    const handle = native.Grib2Handle.fromBytes(bytes);
+    const handle = native.open(bytes);
     // One colour for the low half of the ramp and another for the high half, so
     // a field with any spread paints both and nothing else.
     const table = Array.from({ length: 256 }, (_, i) => (i < 128 ? [200, 10, 20] : [30, 40, 250])).flat();

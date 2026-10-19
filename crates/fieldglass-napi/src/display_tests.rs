@@ -1,7 +1,7 @@
 //! A reduced-resolution decode through the GRIB2 handle the extension calls
 //! (#1082).
 //!
-//! `decodeDisplay` hands back a [`DisplayGrid`] on the derived grid, and
+//! `decodeDisplay` hands back a `DisplayGrid` on the derived grid, and
 //! `renderDisplay` paints it through the same projection pipeline as
 //! `renderGrid`: the source view as stored, and a reprojection warped from the
 //! coarse grid's own geometry. The colour range is the full field's, from the
@@ -16,8 +16,8 @@ const RAP: &[u8] =
 const SIMPLE: &[u8] =
     include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2");
 
-fn rap() -> Grib2Handle {
-    Grib2Handle::from_vec(RAP.to_vec()).expect("RAP opens")
+fn rap() -> Grib2File {
+    Grib2File::from_vec(RAP.to_vec()).expect("RAP opens")
 }
 
 fn reduce(r: u8) -> Option<serde_json::Value> {
@@ -51,14 +51,14 @@ fn a_rap_message_decodes_at_reduction_one_onto_the_derived_grid() {
         .decode_display(0, reduce(1))
         .expect("decodes at reduction 1");
     let (_, placed) = h.resolved(0).expect("the full field");
-    assert_eq!(display.reduction(), 1);
+    assert_eq!(display.reduction().unwrap(), 1);
     assert_eq!(
-        (display.width(), display.height()),
+        (display.ni().unwrap(), display.nj().unwrap()),
         (placed.ni.div_ceil(2), placed.nj.div_ceil(2))
     );
     assert_eq!(
         display.values.len(),
-        (display.width() * display.height()) as usize
+        (display.ni().unwrap() * display.nj().unwrap()) as usize
     );
     let derived = placed
         .geometry
@@ -75,13 +75,13 @@ fn a_rap_message_decodes_at_reduction_one_onto_the_derived_grid() {
     assert_eq!(grid.geometry, derived);
     assert_eq!(
         (grid.ni, grid.nj),
-        (Some(display.width()), Some(display.height()))
+        (Some(display.ni().unwrap()), Some(display.nj().unwrap()))
     );
 
     // No options, and reduction zero, are the message's own field.
     for options in [None, Some(serde_json::Value::Null), reduce(0)] {
         let same = h.decode_display(0, options).expect("reduction zero");
-        assert_eq!(same.reduction(), 0);
+        assert_eq!(same.reduction().unwrap(), 0);
         assert_eq!(*same.placed.geometry, *placed.geometry);
         let (raw, _) = h.resolved(0).expect("full");
         assert_eq!(same.values, *raw);
@@ -102,7 +102,7 @@ fn a_display_grid_renders_and_warps() {
         .expect("the source view paints");
     assert_eq!(
         (source.width, source.height),
-        (display.width() as i32, display.height() as i32)
+        (display.ni().unwrap() as i32, display.nj().unwrap() as i32)
     );
     assert_eq!(opaque(&source), display.values.iter().flatten().count());
 
@@ -210,7 +210,7 @@ fn refusals_carry_their_codes() {
         .expect("a manual range needs no stats");
 
     // A message with no pyramid, and options that do not read.
-    let simple = Grib2Handle::from_vec(SIMPLE.to_vec()).expect("opens");
+    let simple = Grib2File::from_vec(SIMPLE.to_vec()).expect("opens");
     let decode_code = |r: Result<DisplayGrid, RenderError>| -> String {
         r.expect_err("refused")
             .api()
@@ -238,7 +238,7 @@ fn refusals_carry_their_codes() {
 fn a_band_limited_spectral_map_keeps_its_label_at_reduction_zero() {
     const T383: &[u8] =
         include_bytes!("../../fieldglass-grib2/tests/fixtures/spectral_simple_t383.grib2");
-    let h = Grib2Handle::from_vec(T383.to_vec()).expect("opens");
+    let h = Grib2File::from_vec(T383.to_vec()).expect("opens");
     let want = h
         .render_grid(0, opts("source"))
         .expect("renders")

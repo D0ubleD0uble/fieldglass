@@ -52,15 +52,23 @@ enum Sidecar {
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct MessageManifest {
-    sidecar: Sidecar,
+    /// `None` once closed.
+    sidecar: Option<Sidecar>,
 }
 
 impl MessageManifest {
-    fn manifest(&self) -> &dyn fieldglass::fetchplan::MessageManifest {
-        match &self.sidecar {
-            Sidecar::Wgrib2(idx) => idx,
-            Sidecar::Ecmwf(idx) => idx,
-        }
+    /// The parsed sidecar, or the refusal a closed manifest gives.
+    fn manifest(&self) -> Result<&dyn fieldglass::fetchplan::MessageManifest, JsValue> {
+        Ok(
+            match self
+                .sidecar
+                .as_ref()
+                .ok_or_else(|| super::closed("manifest"))?
+            {
+                Sidecar::Wgrib2(idx) => idx,
+                Sidecar::Ecmwf(idx) => idx,
+            },
+        )
     }
 }
 
@@ -73,7 +81,7 @@ impl MessageManifest {
 pub fn parse_wgrib2_idx(key: &str, text: &str) -> Result<MessageManifest, JsValue> {
     let idx = Wgrib2Idx::parse(key, text).map_err(|e| throw(e.into()))?;
     Ok(MessageManifest {
-        sidecar: Sidecar::Wgrib2(idx),
+        sidecar: Some(Sidecar::Wgrib2(idx)),
     })
 }
 
@@ -84,24 +92,31 @@ pub fn parse_wgrib2_idx(key: &str, text: &str) -> Result<MessageManifest, JsValu
 pub fn parse_ecmwf_index(key: &str, text: &str) -> Result<MessageManifest, JsValue> {
     let idx = EcmwfIndex::parse(key, text).map_err(|e| throw(e.into()))?;
     Ok(MessageManifest {
-        sidecar: Sidecar::Ecmwf(idx),
+        sidecar: Some(Sidecar::Ecmwf(idx)),
     })
 }
 
 #[wasm_bindgen]
 impl MessageManifest {
+    /// Release the parsed sidecar now: the same as `free()`, and as `[Symbol.dispose]`, so
+    /// `using` releases it at the end of its block (#1073). Any call on it
+    /// afterwards throws, except `close()` itself, which is harmless twice.
+    pub fn close(&mut self) {
+        self.sidecar = None;
+    }
+
     /// Every record, in the sidecar's order. A `.idx` states no length, so the
     /// last record's range is `openEnded`.
     #[wasm_bindgen(unchecked_return_type = "PlanItem[]")]
     pub fn items(&self) -> Result<JsValue, JsValue> {
-        to_js(&self.manifest().items())
+        to_js(&self.manifest()?.items())
     }
 
     /// One item per GRIB message: the records of an `n.m` message share one
     /// fetch, so they collapse onto the first.
     #[wasm_bindgen(unchecked_return_type = "PlanItem[]")]
     pub fn messages(&self) -> Result<JsValue, JsValue> {
-        to_js(&self.manifest().messages())
+        to_js(&self.manifest()?.messages())
     }
 
     /// The records a query selects, through the GRIB2 parameter tables.
@@ -118,14 +133,14 @@ impl MessageManifest {
     #[wasm_bindgen(unchecked_return_type = "PlanItem[]")]
     pub fn select(
         &self,
-        #[wasm_bindgen(unchecked_param_type = "Query | null | undefined")] query: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "Query | null")] query: JsValue,
     ) -> Result<JsValue, JsValue> {
         let query: Query = if query.is_undefined() || query.is_null() {
             Query::default()
         } else {
             strict(query, "query")?
         };
-        to_js(&self.manifest().select(&query, resolver()))
+        to_js(&self.manifest()?.select(&query, resolver()))
     }
 }
 

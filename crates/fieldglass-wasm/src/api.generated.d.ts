@@ -1085,6 +1085,32 @@ export interface Line {
 }
 
 /**
+ * Which line through a variable a host asks for: the variable, the axis to
+ * read along, and a position on every axis (#1073).
+ *
+ * What a JavaScript host's `decodeLine` takes as one object, where
+ * `Session::decode_line` takes the same three as arguments, for the reason
+ * `SliceRequest` gives. `slice_indices` holds one entry per axis, the one
+ * read along included and ignored. Every key is required and an unknown one
+ * is refused.
+ */
+export interface LineRequest {
+  /**
+   * Which variable, as the host's `variables()` numbers it.
+   */
+  variable: number;
+  /**
+   * The axis to read along, as a position in the variable's axes.
+   */
+  alongDim: number;
+  /**
+   * A position on every axis of the variable, in its declared order, the
+   * one read along ignored. A JavaScript host also takes a `Uint32Array`.
+   */
+  sliceIndices: number[] | Uint32Array;
+}
+
+/**
  * The facts that make a GRIB message the same message in another copy of
  * its file (#959): the parameter, the level, the reference time, the
  * forecast step or time range, and the grid. This is how wgrib2 and
@@ -1972,6 +1998,45 @@ export interface RenderOptions {
    * the sizing described on `height`.
    */
   width?: number | null;
+}
+
+/**
+ * Which slice of a variable a host asks for: the variable, its two image axes,
+ * and a position on every axis (#1073).
+ *
+ * What a JavaScript host's `decodeSlice` takes as one object, where
+ * `Session::decode_slice` takes the same four as arguments. The object is
+ * the JS shape because four positional numbers are four chances to pass them
+ * in the wrong order, and the hosts take it identically so that code written
+ * against one reads against the other.
+ *
+ * `variable` is a position in `variables()` on every host: the list
+ * `Session::variables` returns. `y_dim` and `x_dim` are
+ * positions in that variable's axes, and `slice_indices` holds **one entry per
+ * axis** in the same order, the two image axes ignored rather than absent.
+ *
+ * **On the wire** it is a camelCase object. Every key is required and an
+ * unknown one is refused: a misspelt `sliceIndex` dropped silently would
+ * decode the first time step and label it the one asked for.
+ */
+export interface SliceRequest {
+  /**
+   * Which variable, as the host's `variables()` numbers it.
+   */
+  variable: number;
+  /**
+   * Which of its axes runs down the rows.
+   */
+  yDim: number;
+  /**
+   * Which of its axes runs across the columns.
+   */
+  xDim: number;
+  /**
+   * A position on every axis of the variable, in its declared order, the two
+   * image axes ignored. A JavaScript host also takes a `Uint32Array`.
+   */
+  sliceIndices: number[] | Uint32Array;
 }
 
 /**

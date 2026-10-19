@@ -201,6 +201,9 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "error/display_without_a_pyramid",
     "error/display_without_full_stats",
     "error/invalid_option",
+    // A decode options object no host can read (#1073): refused with the
+    // code, on every host.
+    "error/invalid_option_dtype",
     // A colormap table sent beside a colormap name (#236): refused rather than
     // choosing one, by every host.
     "error/invalid_option_table_and_name",

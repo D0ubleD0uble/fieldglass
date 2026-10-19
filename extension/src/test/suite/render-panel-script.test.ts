@@ -46,9 +46,9 @@ function netcdfFixture(name: string): string {
 function indexOf(bytes: Buffer, name: string): number {
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const v = native.NetcdfHandle.fromBytes(bytes).variables().find((x) => x.name === name);
+  const v = native.open(bytes).variables().find((x) => x.name === name);
   assert.ok(v, `the file has ${name}`);
-  return v.variableIndex;
+  return v.index;
 }
 
 /** A copy of a NetCDF file in a temporary folder, opened in the editor with a
@@ -88,7 +88,7 @@ async function changingFile(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const handles = (p as any)._netcdfHandlesByDoc as Map<string, unknown>;
       assert.ok(handles.has(vscode.Uri.file(file).toString()), "the document has a handle to replace");
-      handles.set(vscode.Uri.file(file).toString(), native.NetcdfHandle.fromBytes(bytes));
+      handles.set(vscode.Uri.file(file).toString(), native.open(bytes));
     },
     done: () => {
       panel.dispose();
@@ -215,12 +215,16 @@ suite("The render panel's own script", function () {
   // The new file has the variable, under another number, and something else
   // under the old one. The panel is restored after the change.
   test("a slice panel finds its variable by name in a file that changed (#839)", async () => {
-    const first = fs.readFileSync(netcdfFixture("missing_value_classic.nc"));
-    const second = fs.readFileSync(netcdfFixture("cf_packed_data.nc"));
-    const before = indexOf(first, "temp");
-    const after = indexOf(second, "temp");
-    assert.notStrictEqual(before, after, "temp moves");
-    const { panel, change, done } = await changingFile(first, "temp");
+    // `plain_deflate` is last of one file's five variables and first of the
+    // other's: a number is a position in the list (#1073), so it moves with the
+    // list. Two-dimensional in both, so the page asks for no axis labels before
+    // its `ready`.
+    const first = fs.readFileSync(netcdfFixture("hdf5_fletcher32.h5"));
+    const second = fs.readFileSync(netcdfFixture("hdf5_zstd.h5"));
+    const before = indexOf(first, "plain_deflate");
+    const after = indexOf(second, "plain_deflate");
+    assert.notStrictEqual(before, after, "plain_deflate moves");
+    const { panel, change, done } = await changingFile(first, "plain_deflate");
     try {
       const opened = await panel.waitSent(isType("gridReady"), 0, "the first render");
       assert.strictEqual(opened.messageIndex, before);
@@ -230,12 +234,12 @@ suite("The render panel's own script", function () {
       panel.rebuild();
       const reply = await panel.waitSent(drawnOrRefused, from, "the restored render");
       assert.strictEqual(reply.type, "gridReady", `${reply.error ?? ""}`);
-      assert.strictEqual(reply.messageIndex, after, "temp at its number in the new file");
-      assert.match(reply.titleLine, /^temp\b/);
+      assert.strictEqual(reply.messageIndex, after, "plain_deflate at its number in the new file");
+      assert.match(reply.titleLine, /^plain_deflate\b/);
       const state = await panel.drive([]);
-      assert.strictEqual(state.sliceVariable, "temp");
-      assert.deepStrictEqual(state.sliceVariables, ["temp"]);
-      assert.match(state.title, /^temp\b/);
+      assert.strictEqual(state.sliceVariable, "plain_deflate");
+      assert.deepStrictEqual(state.sliceVariables, ["plain_deflate", "shuffle_zstd", "zstd", "zstd_fletcher32", "zstd_high"]);
+      assert.match(state.title, /^plain_deflate\b/);
     } finally {
       done();
     }

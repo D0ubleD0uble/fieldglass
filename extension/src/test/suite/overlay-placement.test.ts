@@ -40,11 +40,11 @@ suite("Overlays follow placement (#840)", function () {
     const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const variables = native.NetcdfHandle.fromBytes(fs.readFileSync(file)).variables();
+    const variables = native.open(fs.readFileSync(file)).variables();
     const index = (name: string) => {
       const v = variables.find((x) => x.name === name);
       assert.ok(v, `the fixture has ${name}`);
-      return v.variableIndex;
+      return v.index;
     };
     const temperature = index("temperature");
     const latBnds = index("lat_bnds");
@@ -145,13 +145,13 @@ suite("Overlays follow placement (#840)", function () {
     const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const latBnds = native.NetcdfHandle.fromBytes(fs.readFileSync(file))
+    const latBnds = native.open(fs.readFileSync(file))
       .variables()
       .find((v) => v.name === "lat_bnds");
     assert.ok(latBnds, "the fixture has lat_bnds");
 
     const editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: latBnds.variableIndex }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: latBnds.index }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const state = await panel.drive([{ id: "overlay-coastlines", checked: true }]);
@@ -177,7 +177,7 @@ suite("Overlays follow placement (#840)", function () {
     fs.writeFileSync(file, Buffer.concat([bytes, bytes]));
     const native = loadNative();
     assert.ok(native, "native binding required");
-    const meta = native.Grib2Handle.fromBytes(fs.readFileSync(file)).message(0);
+    const meta = native.open(fs.readFileSync(file)).message(0);
     assert.strictEqual(meta.placement, "unplaceable");
 
     const editor = await openEditor(p, file);

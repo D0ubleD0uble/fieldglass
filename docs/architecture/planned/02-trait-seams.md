@@ -381,8 +381,8 @@ only when it ran.
   general mapping files under `decode`; `decode_display` maps them itself.
 * The browser module binds `decodeDisplay`, `renderDisplay`, `warpDisplay` and
   `paletteDisplay` on its `Handle`. The Node addon binds `decodeDisplay`, which
-  returns a `DisplayGrid` class, and `renderDisplay` on `Grib2Handle`; its
-  `renderGrid` pipeline is both the render and the warp, so a reprojection
+  returns a `DisplayGrid` class, and `renderDisplayGrid` on its `Handle`
+  (#1073); that pipeline is both the render and the warp, so a reprojection
   target warps the coarse grid from its own geometry. Neither host caches the
   display field: it is the caller's.
 * The conformance suite has the four as ops (`decodeDisplay`,
