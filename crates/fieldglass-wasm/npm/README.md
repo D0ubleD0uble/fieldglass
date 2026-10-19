@@ -1,6 +1,7 @@
 # @fieldglass/wasm
 
-Read GRIB1, GRIB2 and NetCDF in the browser.
+Read GRIB1, GRIB2, NetCDF and Zarr in the browser. Zarr stores open through
+`@fieldglass/wasm/full`.
 
 Pure Rust decoders compiled to WebAssembly: no C library, no emscripten
 runtime, no system dependency. One module, and a `.wasm` file beside it.
@@ -91,6 +92,7 @@ at `@fieldglass/wasm/fieldglass_wasm_bg.wasm` and
 | GRIB2 | Every registered §5 packing template, and every grid family the project projects. |
 | GRIB1 | Including second-order packing and spherical-harmonic fields. |
 | NetCDF | Classic (CDF-1/2/5) and NetCDF-4 over HDF5, with the CF conventions applied. |
+| Zarr | v2 and v3 stores. Only in `@fieldglass/wasm/full`. |
 
 ## Types
 
