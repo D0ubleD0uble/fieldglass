@@ -1684,7 +1684,7 @@ impl Grib1Handle {
 
     /// Contour a difference/sum/… map (#329): decode both fields, combine under
     /// `op`, and trace the *combined* field's isolines — so contours follow the
-    /// displayed map, not field A. Same geometry gate as [`Self::project_contours`].
+    /// displayed map, not field A. Same geometry gate as `projectContours`.
     #[napi(js_name = "projectContoursCombined")]
     pub fn project_contours_combined_for_js(
         &self,
@@ -2037,7 +2037,7 @@ impl Grib2Handle {
     }
 
     /// Contour isolines for this message, projected onto the render raster.
-    /// Sibling to [`Grib1Handle::project_contours`].
+    /// Sibling to `Grib1Handle.projectContours`.
     #[napi(js_name = "projectContours")]
     pub fn project_contours_for_js(
         &self,
@@ -2096,7 +2096,7 @@ impl Grib2Handle {
     }
 
     /// Contour a difference/sum/… map (#329) — sibling to
-    /// [`Grib1Handle::project_contours_combined`]. Traces the combined field's
+    /// `Grib1Handle.projectContoursCombined`. Traces the combined field's
     /// isolines so contours follow the displayed map, not field A.
     #[napi(js_name = "projectContoursCombined")]
     pub fn project_contours_combined_for_js(
@@ -2743,7 +2743,7 @@ impl NetcdfHandle {
     }
 
     /// Contour isolines for one slice, projected onto the render raster (#238).
-    /// Sibling to [`Grib1Handle::project_contours`]. The slice's geometry is
+    /// Sibling to `Grib1Handle.projectContours`. The slice's geometry is
     /// synthesised from the file's coordinates or projection attributes, so a
     /// NetCDF grid is contourable wherever that synthesis lands on a geolocated
     /// family — every one but a GOES scan-angle (space view) grid.
@@ -2845,7 +2845,7 @@ impl NetcdfHandle {
 
     /// Contour a NetCDF difference/sum/… map (#329): the two slices are combined
     /// under `op` and the *combined* field's isolines are traced. Sibling to
-    /// [`Self::project_contours`].
+    /// `projectContours`.
     #[napi(js_name = "projectContoursSliceCombined")]
     #[allow(clippy::too_many_arguments)]
     pub fn project_contours_slice_combined_for_js(
