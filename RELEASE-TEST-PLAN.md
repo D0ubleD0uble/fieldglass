@@ -1545,6 +1545,15 @@ python3 -m http.server 8001
   before the render`, `a restored section, before its turned-over render
   arrives`, `a GRIB map, after picking a projection, before its render
   arrives`).
+- **A click or Export CSV while a variable, image axis or Compare redraw is
+  pending (#1145).** Same window as #1114, too short to hit by hand.
+  `extension/src/test/suite/drawn-slice.test.ts` holds the render back, then
+  reads the axis labels, clicks and exports (`after a variable switch, before
+  its render arrives`, `after a Y-axis switch, before its render arrives`,
+  `with Compare on, after Field B and the operation change, before the render
+  arrives`, `a GRIB Compare map, after the operation changes, before the
+  render arrives`, `Export CSV during a variable switch saves the field on
+  screen, named for it`).
 - **A late probe, line or zonal reply for an older click or render (#1146).**
   The reply has to land after a newer render or in the wrong order, which a
   person cannot arrange by clicking. `extension/src/test/suite/probe-seq.test.ts`

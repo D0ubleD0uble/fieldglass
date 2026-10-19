@@ -1003,9 +1003,13 @@ export class FieldglassEditorProvider
           compare ? { a: shown.index, b: compare.messageIndexB, op: compare.op } : shown.index,
           options,
         );
-        panel.webview.postMessage(
-          { ...buildGridReadyMessage(rendered, shown, options, { kind: "message", name: source }), ...ask },
-        );
+        panel.webview.postMessage({
+          ...buildGridReadyMessage(rendered, shown, options, { kind: "message", name: source }),
+          ...ask,
+          // The rider this map combined with, which the probe, the contours
+          // and the CSV export follow until the next map lands (#1145).
+          compare: compare ?? null,
+        } satisfies GridReadyMessage);
       } catch (err) {
         panel.webview.postMessage({
           type: "gridError",
@@ -1686,6 +1690,8 @@ export class FieldglassEditorProvider
           slice: spec,
           compareSliceIndicesB:
             compare && compare.variableIndexB === spec.variableIndex ? compare.sliceIndicesB : null,
+          // The rider this map combined with, as for a GRIB panel (#1145).
+          compare: compare ?? null,
         } satisfies GridReadyMessage);
       } catch (err) {
         // The answers go with the error too. The picker has moved onto this
@@ -2089,12 +2095,20 @@ export interface GridReadyMessage {
    *  one field. */
   sliceGrid?: SliceAnswer;
   /** A slice panel's slice actually drawn, which the subtitle names by its
-   *  coordinates (#1041). Absent for a GRIB panel. */
+   *  coordinates (#1041). The rails, the probe, the line plot, the zonal
+   *  average, the overlays and the CSV export read it too (#1145), not the
+   *  pickers. Absent for a GRIB panel. */
   slice?: SliceSpec;
   /** Field B's indices when the map drawn is a difference of two slices of
    *  the same variable, `null` when it is not (#1041). Absent for a GRIB
    *  panel. */
   compareSliceIndicesB?: number[] | null;
+  /** The Compare rider the map drawn combined with, as the provider took it
+   *  (after its own fallback to a single field), or `null` for a single
+   *  field (#1145). The probe, the contours and the CSV export follow it, not
+   *  the Compare controls, which a render still on its way will follow.
+   *  Absent only from a message built outside a render panel. */
+  compare?: GribCompare | NetcdfCompare | null;
 }
 
 /** A slice's answers as the render panel takes them; see

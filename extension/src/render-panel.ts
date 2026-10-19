@@ -1785,23 +1785,38 @@ export function renderImagePanelHtml(
         let axisCache = {};
         let axisPending = {};
 
+        // Whether the slice the pickers hold is a cross-section: what the
+        // next render is, and what the controls are set up for. The rails
+        // ask it of the slice on screen (#1145).
         function isCrossSection() {
-          if (!sliceState) return false;
-          const v = sliceVariable(sliceState.variableIndex);
+          return isCrossSectionOf(sliceState);
+        }
+
+        function isCrossSectionOf(spec) {
+          if (!spec) return false;
+          const v = sliceVariable(spec.variableIndex);
           if (!v) return false;
-          return !isMapSlice(sliceState.yDim, sliceState.xDim, v.detectedYDim, v.detectedXDim);
+          return !isMapSlice(spec.yDim, spec.xDim, v.detectedYDim, v.detectedXDim);
         }
 
         function axisKey(dim) {
-          return sliceState ? sliceState.variableIndex + ':' + dim : '';
+          return axisKeyOf(sliceState, dim);
+        }
+
+        // An axis of the variable a slice spec is of, as the cache files it.
+        function axisKeyOf(spec, dim) {
+          return spec ? spec.variableIndex + ':' + dim : '';
         }
 
         // Ask the host for an axis's coordinates once, then redraw the rails.
-        function requestAxis(dim) {
-          const key = axisKey(dim);
+        // The axis is of the slice the pickers hold, or of the slice spec
+        // given: the rails ask for the axes of the slice on screen (#1145).
+        function requestAxis(dim, spec) {
+          const of = spec || sliceState;
+          const key = axisKeyOf(of, dim);
           if (!key || axisCache[key] !== undefined || axisPending[key]) return;
           axisPending[key] = true;
-          vscode.postMessage(Object.assign({ type: 'axisRequest', dim: dim }, sliceFields()));
+          vscode.postMessage({ type: 'axisRequest', dim: dim, slice: of });
         }
 
         function handleAxisResult(msg) {
@@ -1941,22 +1956,24 @@ export function renderImagePanelHtml(
           const railX = document.getElementById('axis-x');
           const caption = document.getElementById('axis-caption');
           if (!railY || !railX || !caption) return;
-          const cross = isCrossSection();
+          // The rails label the image on screen: its slice (#1145) and its
+          // orientation (#1114), not the ones a render on its way will have.
+          // The pickers can be on another variable or axis pair meanwhile.
+          const spec = drawnSpec();
+          const cross = isCrossSectionOf(spec);
           railY.toggleAttribute('hidden', !cross);
           railX.toggleAttribute('hidden', !cross);
           caption.toggleAttribute('hidden', !cross);
-          if (!cross || !sliceState || !lastPayload) {
+          if (!cross || !spec || !lastPayload) {
             railY.innerHTML = '';
             railX.innerHTML = '';
             return;
           }
-          const v = sliceVariable(sliceState.variableIndex);
+          const v = sliceVariable(spec.variableIndex);
           if (!v) return;
-          // The orientation the image on screen was drawn with, not the one
-          // a render on its way will have (#1114).
           const flip = drawnFlipY();
-          const axisY = axisCache[axisKey(sliceState.yDim)];
-          const axisX = axisCache[axisKey(sliceState.xDim)];
+          const axisY = axisCache[axisKeyOf(spec, spec.yDim)];
+          const axisX = axisCache[axisKeyOf(spec, spec.xDim)];
           const rows = lastPayload.height;
           const cols = lastPayload.width;
 
@@ -1994,7 +2011,7 @@ export function renderImagePanelHtml(
             const units = shown && !/ since /i.test(shown) ? ' (' + shown + ')' : '';
             return base + units;
           };
-          caption.textContent = 'x: ' + name(axisX, sliceState.xDim) + ' · y: ' + name(axisY, sliceState.yDim);
+          caption.textContent = 'x: ' + name(axisX, spec.xDim) + ' · y: ' + name(axisY, spec.yDim);
         }
 
         // Take a slice render's own answer to whether it can be reprojected
@@ -2172,6 +2189,15 @@ export function renderImagePanelHtml(
           if (cross && sliceState) {
             requestAxis(sliceState.yDim);
             requestAxis(sliceState.xDim);
+          }
+          // And the axes of the slice on screen, which the rails label
+          // (#1145). Asked for here, not as the rails are drawn: an axis
+          // answer redraws them, and a closed file's answer caches nothing,
+          // so asking from there would ask again on every answer.
+          const drawn = drawnSpec();
+          if (drawn !== sliceState && isCrossSectionOf(drawn)) {
+            requestAxis(drawn.yDim, drawn);
+            requestAxis(drawn.xDim, drawn);
           }
           syncProjectionControls();
           drawAxisRails();
@@ -2700,6 +2726,30 @@ export function renderImagePanelHtml(
         let drawnSliceB = null;
         let drawnTruncation = null;
 
+        // The slice of the image on screen (#1145): what the rails label, and
+        // what the probe, the line plot, the zonal average, the overlays and
+        // the CSV export read. The pickers can have moved on while a render is
+        // on its way, or after one failed or was refused, and then they
+        // describe an image not drawn. Before the first render there is no
+        // image, and a request is about the one to come.
+        function drawnSpec() {
+          return drawnSlice || sliceState;
+        }
+
+        // sliceFields() for the image on screen.
+        function drawnSliceFields() {
+          const spec = drawnSpec();
+          return spec ? { slice: spec } : {};
+        }
+
+        // compareRequest() for the image on screen (#1145): the operation and
+        // Field B its render combined, as the provider took them, or none for
+        // a single field. The Compare controls' own until the first render.
+        function drawnCompareRequest() {
+          if (!lastPayload || !('compare' in lastPayload)) return compareRequest();
+          return lastPayload.compare ? { compare: lastPayload.compare } : {};
+        }
+
         // The subtitle's slice part: each held dimension of the drawn slice by
         // its coordinate. Left out until every one of its axes is known, so
         // the line never names a slice by index and then by value. The export
@@ -2744,6 +2794,8 @@ export function renderImagePanelHtml(
           drawnSlice = msg.slice || null;
           drawnSliceB = Array.isArray(msg.compareSliceIndicesB) ? msg.compareSliceIndicesB : null;
           updateSubtitle();
+          // The line plot offers the drawn variable's axes (#1145).
+          fillLineAxes();
           if (typeof msg.parameterUnits === 'string') UNITS = msg.parameterUnits;
           if (typeof msg.defaultPngName === 'string') DEFAULT_PNG_NAME = msg.defaultPngName;
           // A slice panel's picker and Overlay row follow the slice on screen.
@@ -3194,7 +3246,7 @@ export function renderImagePanelHtml(
             o.projection, o.projectionPreset, o.centerLat, o.centerLon, !!o.flipY,
             o.boundsLatMin, o.boundsLatMax, o.boundsLonMin, o.boundsLonMax,
             o.width, o.height,
-            sliceState ? [sliceState.variableIndex, sliceState.yDim, sliceState.xDim] : null,
+            drawnSpec() ? [drawnSpec().variableIndex, drawnSpec().yDim, drawnSpec().xDim] : null,
             overlaysOffered(),
           ]);
         }
@@ -3216,11 +3268,11 @@ export function renderImagePanelHtml(
             o.width, o.height,
             lastPayload.usedMin, lastPayload.usedMax,
             Number.isFinite(iv) && iv > 0 ? iv : null,
-            sliceFields(),
+            drawnSliceFields(),
             // The rider requestContours sends: contours follow the combined
             // field, and under a manual range nothing above moves when
             // Compare or Field B does (#1149).
-            compareRequest(),
+            drawnCompareRequest(),
           ]);
         }
 
@@ -3257,7 +3309,7 @@ export function renderImagePanelHtml(
             options: currentOptions(),
             graticuleSpacing: Math.min(90, Math.max(5,
               Number((document.getElementById('graticule-spacing') || {}).value) || 30)),
-          }, state, sliceFields()));
+          }, state, drawnSliceFields()));
         }
 
         function handleOverlayReady(msg) {
@@ -3383,8 +3435,9 @@ export function renderImagePanelHtml(
             // A positive interval overrides the automatic levels; blank = auto.
             interval: Number.isFinite(iv) && iv > 0 ? iv : undefined,
             // Carry the compare rider so a difference map contours the combined
-            // field, not field A (#329).
-          }, sliceFields(), compareRequest()));
+            // field, not field A (#329). The slice and rider of the image on
+            // screen, which the contours are drawn over (#1145).
+          }, drawnSliceFields(), drawnCompareRequest()));
         }
 
         function handleContourReady(msg) {
@@ -3610,10 +3663,11 @@ export function renderImagePanelHtml(
           const py = Math.floor((clientY - rect.top) / rect.height * lastPayload.height);
           if (px < 0 || py < 0 || px >= lastPayload.width || py >= lastPayload.height) return;
           // Carry the compare rider so a click on a difference map reads the
-          // combined field, not field A (#329).
+          // combined field, not field A (#329). The slice and the rider are
+          // the image's on screen, not the pickers' (#1145).
           vscode.postMessage(Object.assign(
             { type: 'probeRequest', seq: ++probeSeq, px: px, py: py, options: currentOptions() },
-            sliceFields(), compareRequest()));
+            drawnSliceFields(), drawnCompareRequest()));
         }
 
         function handleProbeResult(msg) {
@@ -3670,15 +3724,18 @@ export function renderImagePanelHtml(
         // Every axis with more than one step. A non-horizontal one first — a
         // time series or a vertical profile, which is what the plot is for — but
         // the horizontal axes too, where a line is a transect through the cell.
+        // They are the drawn slice's, since the cell plotted is a cell of the
+        // image on screen (#1145).
         function lineAxes() {
-          if (!sliceState) return [];
-          const v = sliceVariable(sliceState.variableIndex);
+          const spec = drawnSpec();
+          if (!spec) return [];
+          const v = sliceVariable(spec.variableIndex);
           if (!v) return [];
           const axes = v.dims
             .map((d, i) => ({ i: i, name: d.name, length: d.length }))
             .filter((d) => d.length > 1);
-          const held = axes.filter((d) => d.i !== sliceState.yDim && d.i !== sliceState.xDim);
-          const horizontal = axes.filter((d) => d.i === sliceState.yDim || d.i === sliceState.xDim);
+          const held = axes.filter((d) => d.i !== spec.yDim && d.i !== spec.xDim);
+          const horizontal = axes.filter((d) => d.i === spec.yDim || d.i === spec.xDim);
           return held.concat(horizontal);
         }
 
@@ -3700,7 +3757,8 @@ export function renderImagePanelHtml(
           // The picker's label names what is plotted: the variable, through
           // the clicked point, across the axis chosen (#1037).
           const name = document.getElementById('line-variable');
-          const v = sliceState ? sliceVariable(sliceState.variableIndex) : null;
+          const spec = drawnSpec();
+          const v = spec ? sliceVariable(spec.variableIndex) : null;
           if (name) name.textContent = v && v.name ? v.name : 'Values';
           const previous = sel.value !== '' ? sel.value : preferredLineAxis;
           sel.innerHTML = axes
@@ -3740,7 +3798,8 @@ export function renderImagePanelHtml(
             alongDim: Number(sel.value),
             gridI: lineCell.gridI,
             gridJ: lineCell.gridJ,
-            slice: sliceState,
+            // The slice the probed cell is a cell of (#1145).
+            slice: drawnSpec(),
           });
         }
 
@@ -3786,7 +3845,8 @@ export function renderImagePanelHtml(
           if (msg.seq !== lineSeq) return;
           if (!lineCell) return;
           const alongDim = Number(document.getElementById('line-axis').value);
-          const here = sliceState ? sliceState.sliceIndices[alongDim] : null;
+          const spec = drawnSpec();
+          const here = spec ? spec.sliceIndices[alongDim] : null;
           drawLine(msg.result, here, 'No line through this cell.');
         }
 
@@ -3804,7 +3864,8 @@ export function renderImagePanelHtml(
 
         function requestZonal() {
           if (awaitingPick) return;
-          vscode.postMessage(Object.assign({ type: 'zonalRequest', seq: ++lineSeq }, sliceFields()));
+          // Of the field on screen (#1145).
+          vscode.postMessage(Object.assign({ type: 'zonalRequest', seq: ++lineSeq }, drawnSliceFields()));
         }
 
         {
@@ -4884,17 +4945,18 @@ export function renderImagePanelHtml(
             toolbar.addEventListener('input', snapshotState);
           }
           // Export CSV sits beside Export PNG in every panel (#1039). A slice
-          // panel exports the live slice, carrying the current {variableIndex,
-          // yDim, xDim, sliceIndices} via sliceFields(); a GRIB panel exports
-          // the message it draws, which the provider knows. With Compare on,
-          // either exports Field A, not the difference, and the layout prompt
-          // says so (fieldA).
+          // panel exports the slice on screen, as PNG export does (#1145):
+          // while a render is on its way, or after one failed or was refused,
+          // the pickers name a field not drawn. A GRIB panel exports the
+          // message it draws, which the provider knows. With a Compare map on
+          // screen, either exports Field A, not the difference, and the layout
+          // prompt says so (fieldA).
           const exportCsvBtn = document.getElementById('export-csv');
           if (exportCsvBtn) {
             exportCsvBtn.addEventListener('click', () => {
-              const fieldA = !!compareRequest().compare;
+              const fieldA = !!drawnCompareRequest().compare;
               vscode.postMessage(SLICE
-                ? Object.assign({ type: 'exportSliceCsv', fieldA: fieldA }, sliceFields())
+                ? Object.assign({ type: 'exportSliceCsv', fieldA: fieldA }, drawnSliceFields())
                 : { type: 'exportCsv', fieldA: fieldA });
             });
           }
