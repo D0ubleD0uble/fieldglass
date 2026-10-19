@@ -16,7 +16,18 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { extensionPath, isType, type Msg, openEditor, openReal, provider, type RealPanel } from "./real-panel";
+import { loadNative } from "../../native";
+import {
+  classicNetcdf,
+  type Editor,
+  extensionPath,
+  isType,
+  type Msg,
+  openEditor,
+  openReal,
+  provider,
+  type RealPanel,
+} from "./real-panel";
 
 const FIXTURE = path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2");
 
@@ -401,6 +412,109 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       await panel.waitSent(isType("exportPngDone"), sentBefore, "the PNG export's outcome");
     } finally {
       vscode.window.showSaveDialog = savedDialog;
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a refusal read off the data goes when the file is rewritten and the message is gone (#1194)", async () => {
+    const p = await provider();
+    const { dir, file } = twoGrids();
+    let editor: Editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      const first = await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const past = Math.ceil(first.usedMax as number) + 1000;
+      await answer(
+        panel,
+        [MANUAL, { id: "range-max", value: "" }, { id: "range-min", value: past }],
+        refusedAt("min", past),
+        "the minimum past the data refused",
+      );
+      assert.notStrictEqual((await panel.drive([])).rangeNote, null, "the refusal is up");
+      // Message 0 is gone: the file now holds only the other grid's message.
+      editor.close();
+      fs.writeFileSync(file, fs.readFileSync(path.join(extensionPath(), "src", "test", "fixtures", "eta_lambert_msg0.grib2")));
+      editor = await openEditor(p, file);
+      const from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      const gone = await panel.waitSent(isType("gridError"), from, "the refusal of the missing message");
+      assert.ok(gone.pickMessages, "the new file's messages are offered");
+      assert.strictEqual(typeof gone.seq, "number", "the answer echoes its request's seq");
+      const state = await panel.drive([]);
+      assert.strictEqual(state.rangeNote, null, "no note about a field that no longer exists");
+      assert.deepStrictEqual(state.rangeInvalid, []);
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /** A NetCDF file of `air(time, lat, lon)`, and a file with no variable. */
+  function sliceFile(): { dir: string; file: string; air: number; empty: Buffer } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1194-"));
+    const file = path.join(dir, "air.nc");
+    const bytes = classicNetcdf(
+      [["time", 3], ["lat", 3], ["lon", 4]],
+      [
+        { name: "air", dims: ["time", "lat", "lon"], attrs: { units: "K" }, values: Array.from({ length: 36 }, (_, i) => 250 + i) },
+      ],
+    );
+    fs.writeFileSync(file, bytes);
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const air = native.NetcdfHandle.fromBytes(bytes).variables().find((v) => v.name === "air");
+    assert.ok(air, "air is renderable");
+    return { dir, file, air: air.variableIndex, empty: classicNetcdf([["time", 3]], []) };
+  }
+
+  test("every render answer of a slice panel echoes its request's seq, and a refusal ends with its variable (#1194)", async () => {
+    const p = await provider();
+    const { dir, file, air, empty } = sliceFile();
+    let editor: Editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air }));
+    try {
+      const first = await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const past = Math.ceil(first.usedMax as number) + 1000;
+      await answer(
+        panel,
+        [MANUAL, { id: "range-max", value: "" }, { id: "range-min", value: past }],
+        refusedAt("min", past),
+        "the minimum past the data refused",
+      );
+      assert.notStrictEqual((await panel.drive([])).rangeNote, null, "the refusal is up");
+      // The file loses its variables under the panel.
+      editor.close();
+      fs.writeFileSync(file, empty);
+      editor = await openEditor(p, file);
+      const from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      const gone = await panel.waitSent(
+        (m: Msg) => m.type === "gridError" && String(m.error).includes("no longer has a variable"),
+        from,
+        "the error for a file with no variable",
+      );
+      assert.strictEqual(typeof gone.seq, "number", "the answer echoes its request's seq");
+      const state = await panel.drive([]);
+      assert.strictEqual(state.rangeNote, null, "no note about a variable that no longer exists");
+      assert.deepStrictEqual(state.rangeInvalid, []);
+      // Every ready or rerender asked is answered once, under its own seq, the
+      // refusals included. (The file stays without a variable, so a request of
+      // any other kind is answered with the same error, and has no render's seq
+      // to echo.)
+      const asked = panel.received
+        .filter((m: Msg) => m.type === "ready" || m.type === "rerenderRequest")
+        .map((m: Msg) => m.seq);
+      const answers = panel.sent.filter((m: Msg) => m.type === "gridReady" || m.type === "gridError");
+      assert.ok(asked.length >= 5, `the renders were asked: ${asked.length}`);
+      assert.deepStrictEqual(
+        answers.map((m: Msg) => m.seq).filter((s: unknown) => typeof s === "number"),
+        asked,
+        "each render answer echoes its request's seq, in order",
+      );
+    } finally {
       panel.dispose();
       editor.close();
       fs.rmSync(dir, { recursive: true, force: true });
