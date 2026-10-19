@@ -132,6 +132,91 @@ impl DisplayDecodeOptions {
     }
 }
 
+/// Which slice of a variable a host asks for: the variable, its two image axes,
+/// and a position on every axis (#1073).
+///
+/// What a JavaScript host's `decodeSlice` takes as one object, where
+/// [`Session::decode_slice`] takes the same four as arguments. The object is
+/// the JS shape because four positional numbers are four chances to pass them
+/// in the wrong order, and the hosts take it identically so that code written
+/// against one reads against the other.
+///
+/// `variable` is an index from the host's own `variables()` list: a position in
+/// [`Session::variables`] for the browser module, and the file's numbering that
+/// the Node addon's list reports for a NetCDF file. `y_dim` and `x_dim` are
+/// positions in that variable's axes, and `slice_indices` holds **one entry per
+/// axis** in the same order, the two image axes ignored rather than absent.
+///
+/// **On the wire** it is a camelCase object. Every key is required and an
+/// unknown one is refused: a misspelt `sliceIndex` dropped silently would
+/// decode the first time step and label it the one asked for.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+#[non_exhaustive]
+pub struct SliceRequest {
+    /// Which variable, as the host's `variables()` numbers it.
+    pub variable: u32,
+    /// Which of its axes runs down the rows.
+    pub y_dim: u32,
+    /// Which of its axes runs across the columns.
+    pub x_dim: u32,
+    /// A position on every axis of the variable, in its declared order, the two
+    /// image axes ignored.
+    pub slice_indices: Vec<u32>,
+}
+
+impl SliceRequest {
+    /// A request, from its parts. A constructor for the reason
+    /// [`DecodeOptions::new`] gives.
+    #[must_use]
+    pub fn new(variable: u32, y_dim: u32, x_dim: u32, slice_indices: Vec<u32>) -> Self {
+        Self {
+            variable,
+            y_dim,
+            x_dim,
+            slice_indices,
+        }
+    }
+}
+
+/// Which line through a variable a host asks for: the variable, the axis to
+/// read along, and a position on every axis (#1073).
+///
+/// What a JavaScript host's `decodeLine` takes as one object, where
+/// [`Session::decode_line`] takes the same three as arguments, for the reason
+/// [`SliceRequest`] gives. `slice_indices` holds one entry per axis, the one
+/// read along included and ignored. Every key is required and an unknown one
+/// is refused.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+#[non_exhaustive]
+pub struct LineRequest {
+    /// Which variable, as the host's `variables()` numbers it.
+    pub variable: u32,
+    /// The axis to read along, as a position in the variable's axes.
+    pub along_dim: u32,
+    /// A position on every axis of the variable, in its declared order, the
+    /// one read along ignored.
+    pub slice_indices: Vec<u32>,
+}
+
+impl LineRequest {
+    /// A request, from its parts. A constructor for the reason
+    /// [`DecodeOptions::new`] gives.
+    #[must_use]
+    pub fn new(variable: u32, along_dim: u32, slice_indices: Vec<u32>) -> Self {
+        Self {
+            variable,
+            along_dim,
+            slice_indices,
+        }
+    }
+}
+
 /// How a field should be resampled onto a geographic box.
 #[cfg(feature = "render")]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -514,10 +599,13 @@ impl Arrays {
 /// Shared by every decode that hands back values — a field (message or slice)
 /// and a line (#172) — so a line through a field cannot disagree with the field
 /// about which of its cells are masked.
-pub(crate) fn pack_values(
-    raw: &[Option<f64>],
-    options: &DecodeOptions,
-) -> (Values, Vec<u8>, Stats) {
+///
+/// Public for a host that keeps decoded values of its own: `fieldglass-napi`
+/// memoises the engine's `Vec<Option<f64>>` per message and per plane, and
+/// packs from that memo for its `decode` and `decodeSlice` (#1073), so the
+/// element width it reports under [`Dtype::Auto`] is this rule's and not a
+/// second one. The pattern `combine_values` set (ADR-0006, #579).
+pub fn pack_values(raw: &[Option<f64>], options: &DecodeOptions) -> (Values, Vec<u8>, Stats) {
     let mut values = Vec::with_capacity(raw.len());
     let mut mask = Vec::with_capacity(raw.len());
     let mut min = f64::INFINITY;
@@ -779,6 +867,29 @@ fn left_out_wire(l: fieldglass_core::LeftOut) -> LeftOutArray {
         reason: l.reason,
         cause,
     }
+}
+
+/// The arrays `source` holds and this build will not read — the
+/// implementation behind [`Session::left_out`], for a host that holds an
+/// [`ArraySource`] rather than a `Session` (#1073).
+///
+/// `fieldglass-napi` reads NetCDF through its own reader and view, so without
+/// this its list would be a second derivation of one answer, and the two hosts
+/// could disagree about which arrays a file leaves out.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn left_out_of(source: &dyn ArraySource) -> Vec<LeftOutArray> {
+    source.left_out().into_iter().map(left_out_wire).collect()
+}
+
+/// The arrays `source` reads that no map can be drawn from — the
+/// implementation behind [`Session::undrawable`], for the host
+/// [`left_out_of`] serves (#1073).
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn undrawable_of(source: &dyn ArraySource) -> Vec<LeftOutArray> {
+    fieldglass_core::cf::undrawable_arrays(source.group())
+        .into_iter()
+        .map(left_out_wire)
+        .collect()
 }
 
 /// One line through the array named `array` in `source` — the implementation
@@ -1760,7 +1871,7 @@ impl Session {
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => Vec::new(),
             #[cfg(any(feature = "netcdf", feature = "zarr"))]
-            Reader::Arrays(a) => a.source.left_out().into_iter().map(left_out_wire).collect(),
+            Reader::Arrays(a) => left_out_of(a.source.as_ref()),
         }
     }
 
@@ -1779,10 +1890,7 @@ impl Session {
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => Vec::new(),
             #[cfg(any(feature = "netcdf", feature = "zarr"))]
-            Reader::Arrays(a) => fieldglass_core::cf::undrawable_arrays(a.source.group())
-                .into_iter()
-                .map(left_out_wire)
-                .collect(),
+            Reader::Arrays(a) => undrawable_of(a.source.as_ref()),
         }
     }
 

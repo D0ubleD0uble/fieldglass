@@ -120,7 +120,10 @@ equal(
 
 // Two dimensions, so `sliceIndices` has two entries and both are ignored: the
 // contract is one entry per dimension in declared order, never a reduced list.
-const field = handle.decodeSlice(variables[0].index, 0, 1, new Uint32Array([0, 0]), {});
+const field = handle.decodeSlice(
+  { variable: variables[0].index, yDim: 0, xDim: 1, sliceIndices: [0, 0] },
+  {},
+);
 
 equal('raster width', field.ni(), 4);
 equal('raster height', field.nj(), 3);
@@ -179,7 +182,7 @@ try {
 // silently taking zero is how a viewer shows the first time step and labels it
 // the last.
 try {
-  handle.decodeSlice(variables[0].index, 0, 1, new Uint32Array([0]), {});
+  handle.decodeSlice({ variable: variables[0].index, yDim: 0, xDim: 1, sliceIndices: [0] }, {});
   check('a short sliceIndices throws', false, 'it returned');
 } catch (e) {
   check('a short sliceIndices throws invalid_option', e.code === 'invalid_option', `code was ${e.code}`);

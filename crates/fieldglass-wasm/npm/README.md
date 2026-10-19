@@ -26,8 +26,8 @@ if (handle.addressing() === 'messages') {
   const [variable] = handle.variables();
   // One entry per dimension, in declared order; the two horizontal ones are
   // ignored rather than absent.
-  const at = new Uint32Array(variable.dims.length);
-  const field = handle.decodeSlice(variable.index, 0, 1, at, {});
+  const sliceIndices = new Array(variable.dims.length).fill(0);
+  const field = handle.decodeSlice({ variable: variable.index, yDim: 0, xDim: 1, sliceIndices }, {});
   console.log(field.parameter(), field.stats());
   field.free();
 }

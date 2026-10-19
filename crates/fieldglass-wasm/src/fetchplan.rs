@@ -90,6 +90,11 @@ pub fn parse_ecmwf_index(key: &str, text: &str) -> Result<MessageManifest, JsVal
 
 #[wasm_bindgen]
 impl MessageManifest {
+    /// Release the parsed sidecar now: the same as `free()`, and as `[Symbol.dispose]`, so
+    /// `using` releases it at the end of its block (#1073). Any call on it
+    /// afterwards throws.
+    pub fn close(self) {}
+
     /// Every record, in the sidecar's order. A `.idx` states no length, so the
     /// last record's range is `openEnded`.
     #[wasm_bindgen(unchecked_return_type = "PlanItem[]")]

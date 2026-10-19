@@ -1,104 +1,88 @@
 //! This host, run through the ADR-0006 conformance suite (#573).
 //!
 //! The suite lives in `fieldglass` as data (`conformance/suite.json`) and its
-//! reference runner drives `Session`. This one drives **the napi handles the
-//! extension actually calls** and checks they produce the same observations.
+//! reference runner drives `Session`. This one drives **the `Handle` the
+//! extension actually calls** — the same dispatch its JavaScript methods run,
+//! through their Rust twins — and checks it produces the same observations.
 //! That is the whole point of decision 3: a rule about "hosts are thin
 //! bindings" is a rule about code review until a second implementation has to
 //! agree with the first.
 //!
 //! # What this runner covers, and what it cannot yet
 //!
-//! `fieldglass-napi` binds a *different shape* from the browser host. Its three
-//! handles decode by index and probe by pixel rather than by latitude and
-//! longitude. So the runner takes the operations whose answers are directly
-//! comparable:
+//! Since #1073 this host's `Handle` has the browser module's shape for opening,
+//! listing and decoding, so those ops are compared call for call:
 //!
 //! | suite op | napi call | compared |
 //! |---|---|---|
-//! | `open` | `Grib1Handle::from_bytes` / `Grib2Handle::from_bytes`, `count()` | which format accepted the bytes, and the message count |
+//! | `open` | `open(bytes)`, `format()`, `addressing()`, `count()` | which format accepted the bytes, how it is addressed, and the message count |
 //! | `message` | `message(i)` | the whole `MessageInfo`, key for key, as the addon hands it to JavaScript (#574) |
-//! | `decode` | `decode_grid(i)` | raster shape, value count, mask sum, the sampled cells |
-//! | `render` | `render_grid(i, …)` with `projection: "source"` | raster shape, RGBA length, opaque count, the sampled pixels, and the colour range it reports (#1156) |
-//! | `variables` | `NetcdfHandle::variables()` | each variable's name, axes, element type and detected image axes, in order |
-//! | `dimensions` | `NetcdfHandle::metadata().dimensions` | every dimension's name and length |
-//! | `decode_slice` | `NetcdfHandle::render_slice(…)` with `projection: "source"` | the slice's raster shape and how many of its cells are present |
-//! | `decode_display` | `Grib2Handle::decode_display(i, { reduce })` | raster shape, reduction, the derived `Georef`, value count, mask sum, the sampled cells (#1082) |
-//! | `render_display` | `render_display(display, stats, …)` with `projection: "source"`, the stats from `decode_grid`'s present cells | as `render` |
+//! | `decode` | `decode(i, { dtype })` | width, raster shape, value count, mask sum, stats, the sampled cells |
+//! | `render` | `renderGrid(i, …)` with `projection: "source"` | raster shape, RGBA length, opaque count, the sampled pixels, and the colour range it reports (#1156) |
+//! | `variables` | `variables()` | each variable's name, axes, element type and detected image axes, in order |
+//! | `dimensions` | `metadata().dimensions` | every dimension's name and length |
+//! | `left_out` | `leftOut()` | every array left out, with its reason and `cause` (#1073) |
+//! | `undrawable` | `undrawable()` | every array no map is drawn from, with its reason and `cause` (#1073) |
+//! | `decode_slice` | `decodeSlice({ variable, yDim, xDim, sliceIndices }, { dtype })` | as `decode` |
+//! | `decode_line` | `decodeLine({ variable, alongDim, sliceIndices }, { dtype })` | the line's values, mask, labels, coordinates and stats |
+//! | `decode_display` | `decodeDisplay(i, { reduce })` | raster shape, reduction, the derived `Georef`, value count, mask sum, the sampled cells (#1082) |
+//! | `render_display` | `renderDisplayGrid(display, stats, …)` with `projection: "source"`, the stats `decode` returns | as `render` |
 //! | the error cases | the same calls | that the call fails, and on the same input |
 //!
-//! The variable ops (#679) reach NetCDF through the handle the extension uses
-//! for it, which answers in its own shape, so two things the API answers are
-//! left out, each on purpose:
+//! Two things the API answers are left out of the variable ops, each on
+//! purpose:
 //!
 //! * a variable's `units` — this host typesets them for display (ADR-0007) and
 //!   the API hands over the file's own spelling, so the two differ by design;
-//! * a variable's `index` — this host numbers variables by their place in the
-//!   file, the API by their place in the list it offers. Both lists are
-//!   compared in order, so the list position is checked anyway.
+//! * a variable's `index` — this host numbers a NetCDF file's variables by
+//!   their place in the file, the API by their place in the list it offers.
+//!   Both lists are compared in order, so the list position is checked anyway,
+//!   and a slice case's position is translated through the list.
 //!
-//! And `decode_slice` is compared through a render because this host has no
-//! call that hands back a slice's values: in the source projection a present
-//! cell paints one opaque pixel and a masked one paints none, so the raster
-//! shape and the opaque count are the slice's shape and presence, and nothing
-//! about the numbers in it. The characterisation golden pins those.
+//! The `decode` row is the one that has caught a real host divergence: the
+//! GRIB decode used to take the raw path while every other call resolved, so a
+//! spectral or HEALPix message failed here and answered everywhere else. It
+//! resolves now (#580), and those cases are the first in the suite to pin the
+//! synthesised grid across two bindings.
 //!
-//! The `decode` row is the one that has caught a real host divergence:
-//! `decode_grid` used to take the raw path while every other call on the
-//! handles resolved, so a spectral or HEALPix message failed here and answered
-//! everywhere else. It resolves now (#580), and those cases are the first in
-//! the suite to pin the synthesised grid across two bindings.
+//! `warp`, `palette`, `probe`, `probe_message`, `full_detail`, `contours`,
+//! `combine`, `warp_display` and `palette_display` are **not** compared:
 //!
-//! `message` is compared through the handles' `message(i)`, which crosses the
-//! API's own `MessageInfo` through serde, and is what the extension's message
-//! list reads (#574). So the fields a message list shows (the parameter, level,
-//! lead time, identification and grid) are held to the recording through this
-//! binding too, where before only direct host-to-host tests pinned them.
+//! * the probes — this host's `probePixel` reads an output *pixel*; the suite
+//!   probes a geographic point. Two different questions, not two answers to
+//!   one.
+//! * the rest — this host's pipeline does the warp and the palette inside
+//!   `renderGrid`, returns contours as projected polylines, and combines inside
+//!   the same call, so there is no warped raster, palette or combined *field*
+//!   to compare. The characterisation golden records `renderGrid`, `probePixel`
+//!   and `projectContours` over combined targets across the whole corpus, and
+//!   `combine::tests` in `fieldglass` pins the alignment gate itself.
 //!
-//! `warp`, `palette`, `probe`, `probe_message`, `full_detail` and `contours`
-//! are **not** compared, and each for a reason that is a task rather than an
-//! oversight:
-//!
-//! * `probe`, `probe_message` and `full_detail` — napi probes an output
-//!   *pixel*; the suite probes a geographic point. Two different questions,
-//!   not two answers to one.
-//! * `warp`, `palette`, `contours`, `combine`, and `warp_display` and
-//!   `palette_display` for the same reasons as the first two — napi exposes no operation with
-//!   these shapes; its render does the warp inline, its contours come back as
-//!   projected polylines, and its combine paints in the same call, so there is
-//!   no combined *field* to compare. That last one is covered instead by the
-//!   characterisation golden, which records `renderGridCombined`,
-//!   `probeCombined` and `projectContoursCombined` over the whole corpus, and
-//!   by `combine::tests` in `fieldglass` for the alignment gate itself.
-//!
-//! Writing an adapter for those would mean writing the code #464 is deleting.
 //! The row `every_comparable_op_is_actually_compared` keeps that list honest:
 //! it is the *only* place the skip is stated, so an op that becomes comparable
 //! and is not added fails here.
 //!
 //! # Why the error mapping is checked loosely
 //!
-//! `Error::code()` is the stable half of the API contract, and this host
-//! **drops it**: `IntoNapi` renders the error's `Display` into a
-//! `napi::Error`'s reason and the code goes nowhere. So the strongest thing
-//! this runner can assert today is that the same input fails, not that it fails
-//! with the same code. That is recorded as
-//! [`THE_NAPI_ERROR_MAPPING_LOSES_THE_CODE`] rather than left as a silent gap,
-//! and it is what a host binding has to fix to pass the suite in full.
+//! `Error::code()` is the stable half of the API contract. The `Handle` throws
+//! an API refusal with its `code`, as the browser module does, but a few
+//! refusals are this host's own prose (a variable index the NetCDF reader does
+//! not list, a closed handle) and carry none. So this runner asserts that the
+//! same input fails, not that it fails with the same code. That is recorded as
+//! `THE_NAPI_ERROR_MAPPING_LOSES_THE_CODE` rather than left as a silent gap.
 
 use super::*;
 use fieldglass::conformance::{self, Args, Case, Op, RecordedCase, Tolerance, sample_indices};
 use serde_json::{Value, json};
 
-/// This host maps an API error onto a `napi::Error`, which carries a reason
-/// string and no code. A JS caller therefore cannot branch on
-/// `fieldglass::Error::code()` the way the wasm host's `e.code` lets one.
+/// Some of this host's refusals are its own prose with no `code`, so a JS
+/// caller cannot always branch on `fieldglass::Error::code()` the way the
+/// wasm host's `e.code` lets one.
 ///
 /// Named rather than described so the gap is greppable from the issue that
-/// closes it (#574 collapses this crate onto `fieldglass::Session`, at which
-/// point the mapping has one place to live).
+/// closes it.
 const THE_NAPI_ERROR_MAPPING_LOSES_THE_CODE: &str =
-    "napi::Error carries a reason, not a code; the suite compares failure, not the code";
+    "some napi refusals are prose with no code; the suite compares failure, not the code";
 
 /// The suite ops this runner compares, and the ops it skips with the reason.
 ///
@@ -111,10 +95,12 @@ const COMPARED: &[Op] = &[
     Op::Render,
     Op::Variables,
     Op::Dimensions,
+    Op::LeftOut,
+    Op::Undrawable,
     Op::DecodeSlice,
     Op::DecodeLine,
-    // A field decoded to draw (#1082): `Grib2Handle::decodeDisplay`, and its
-    // render through `renderDisplay` in the source projection.
+    // A field decoded to draw (#1082): `decodeDisplay`, and its render through
+    // `renderDisplayGrid` in the source projection.
     Op::DecodeDisplay,
     Op::RenderDisplay,
 ];
@@ -123,16 +109,19 @@ const COMPARED: &[Op] = &[
 const SKIPPED: &[(Op, &str)] = &[
     (Op::Warp, "napi has no warp-without-paint operation"),
     (Op::Palette, "napi has no palette-as-data operation"),
-    (Op::Probe, "napi probes a pixel, the suite probes a point"),
+    (
+        Op::Probe,
+        "napi's `probePixel` reads a pixel, the suite probes a point",
+    ),
     (
         Op::ProbeMessage,
-        "napi probes a pixel, the suite probes a point; its two-value spectral probe \
-         (#637) is pinned by `lib.rs` tests and the characterisation golden's T383 rows",
+        "napi's `probePixel` reads a pixel, the suite probes a point; its two-value spectral \
+         probe (#637) is pinned by `lib.rs` tests and the characterisation golden's T383 rows",
     ),
     (
         Op::FullDetail,
-        "napi probes a pixel, the suite probes a point; its full-detail value rides \
-         on the pixel probe, pinned with `ProbeMessage`'s",
+        "napi's `probePixel` reads a pixel, the suite probes a point; its full-detail value \
+         rides on the pixel probe, pinned with `ProbeMessage`'s",
     ),
     (
         Op::Contours,
@@ -140,13 +129,13 @@ const SKIPPED: &[(Op, &str)] = &[
     ),
     (
         Op::Combine,
-        "napi has no combine-without-render operation; `renderGridCombined` \
-         paints in the same call (#574)",
+        "napi has no combine-without-render operation; `renderGrid` paints a combined target \
+         in the same call (#574)",
     ),
     (
         Op::WarpDisplay,
-        "napi has no warp-without-paint operation; `renderDisplay` warps inline \
-         on a reprojection target, as `renderGrid` does",
+        "napi has no warp-without-paint operation; `renderDisplayGrid` warps inline on a \
+         reprojection target, as `renderGrid` does",
     ),
     (
         Op::PaletteDisplay,
@@ -158,107 +147,6 @@ const SKIPPED: &[(Op, &str)] = &[
 fn read(fixture: &str) -> Vec<u8> {
     let path = format!("../{fixture}");
     std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
-}
-
-/// One open file, through whichever handle accepted the bytes.
-enum Handle {
-    Grib1(Grib1Handle),
-    Grib2(Grib2Handle),
-    // Boxed: a NetCDF handle carries its dataset view and two caches, several
-    // times the size of a GRIB one.
-    Netcdf(Box<NetcdfHandle>),
-}
-
-impl Handle {
-    /// Open exactly the way the extension does: take the handle for the format
-    /// the bytes declare, and report a failure rather than falling through to
-    /// another reader.
-    fn open(bytes: &[u8]) -> Result<(Self, &'static str), String> {
-        match fieldglass::detect_from_bytes(bytes) {
-            fieldglass::Format::Grib1 => Grib1Handle::from_bytes(bytes.to_vec().into())
-                .map(|h| (Self::Grib1(h), "grib1"))
-                .map_err(|e| e.to_string()),
-            fieldglass::Format::Grib2 => Grib2Handle::from_bytes(bytes.to_vec().into())
-                .map(|h| (Self::Grib2(h), "grib2"))
-                .map_err(|e| e.to_string()),
-            fieldglass::Format::NetCdf => NetcdfHandle::from_bytes(bytes.to_vec().into())
-                .map(|h| (Self::Netcdf(Box::new(h)), "netcdf"))
-                .map_err(|e| e.to_string()),
-            other => Err(format!("not a container this host opens: {other:?}")),
-        }
-    }
-
-    /// How many messages the file holds. `None` for NetCDF: this host opens
-    /// it with a handle that has no message list at all, rather than one that
-    /// answers zero, so there is no count to compare.
-    fn count(&self) -> Option<usize> {
-        match self {
-            Self::Grib1(h) => Some(h.count() as usize),
-            Self::Grib2(h) => Some(h.count() as usize),
-            Self::Netcdf(_) => None,
-        }
-    }
-
-    /// Which of the two ways the file is addressed. On this host that is which
-    /// handle opened it, which is exactly the choice the extension routes on.
-    fn addressing(&self) -> &'static str {
-        match self {
-            Self::Grib1(_) | Self::Grib2(_) => "messages",
-            Self::Netcdf(_) => "variables",
-        }
-    }
-
-    fn message(&self, index: u32) -> napi::Result<Value> {
-        match self {
-            Self::Grib1(h) => h.message(index),
-            Self::Grib2(h) => h.message(index),
-            Self::Netcdf(_) => Err(no_messages()),
-        }
-    }
-
-    fn decode_grid(&self, index: u32) -> napi::Result<DecodedGrid> {
-        match self {
-            Self::Grib1(h) => h.decode_grid(index),
-            Self::Grib2(h) => h.decode_grid(index),
-            Self::Netcdf(_) => Err(no_messages()),
-        }
-    }
-
-    /// `decodeDisplay`, which only the GRIB2 handle has: GRIB1 has no JPEG
-    /// 2000 pyramid, and a variable container is not message-addressed.
-    fn decode_display(
-        &self,
-        index: u32,
-        options: serde_json::Value,
-    ) -> Result<(&Grib2Handle, DisplayGrid), String> {
-        match self {
-            Self::Grib2(h) => h
-                .decode_display(index, Some(options))
-                .map(|d| (h, d))
-                .map_err(|e| e.reason()),
-            Self::Grib1(_) | Self::Netcdf(_) => Err("no decodeDisplay on this handle".into()),
-        }
-    }
-
-    fn render_grid(&self, index: u32, options: RenderOptions) -> napi::Result<RenderedGrid> {
-        match self {
-            Self::Grib1(h) => h.render_grid(index, options).map_err(Into::into),
-            Self::Grib2(h) => h.render_grid(index, options).map_err(Into::into),
-            Self::Netcdf(_) => Err(no_messages()),
-        }
-    }
-}
-
-/// What asking a message question of the NetCDF handle comes to on this host:
-/// it has no such call, so the question fails, which is what the API's
-/// `wrong_addressing` says too.
-fn no_messages() -> napi::Error {
-    napi::Error::from_reason("a NetCDF handle holds variables, not messages")
-}
-
-/// Asking a variable question of a GRIB handle, the other way round.
-fn no_variables() -> Value {
-    failed()
 }
 
 /// The suite's palette knobs, as this host's `RenderOptions` states them.
@@ -289,20 +177,88 @@ fn render_options(args: &Args) -> RenderOptions {
     }
 }
 
+/// `decode`'s options for a case, as JavaScript would send them.
+fn decode_options(args: &Args) -> Option<Value> {
+    Some(json!({ "dtype": args.dtype }))
+}
+
 /// `decodeDisplay`'s options for a case, as JavaScript would send them.
-fn display_options(args: &Args) -> Value {
-    json!({ "reduce": args.reduce.unwrap_or(0), "dtype": args.dtype })
+fn display_options(args: &Args) -> Option<Value> {
+    Some(json!({ "reduce": args.reduce.unwrap_or(0), "dtype": args.dtype }))
+}
+
+/// A decoded field in the shape `fieldglass::conformance`'s field observation
+/// takes, for the keys this host's object answers.
+fn decoded_value(grid: &DecodedGrid) -> Value {
+    let values: Vec<f64> = match &grid.values {
+        napi::Either::A(v) => v.iter().map(|&x| f64::from(x)).collect(),
+        napi::Either::B(v) => v.to_vec(),
+    };
+    let mask: &[u8] = &grid.mask;
+    let samples: Vec<Value> = sample_indices(values.len())
+        .into_iter()
+        .map(|i| {
+            let present = mask.get(i).copied().unwrap_or(0) == 1;
+            json!({
+                "i": i,
+                // A masked cell's value is not data; read the mask first, the
+                // way the DTO's own doc tells a host to.
+                "v": present.then(|| values[i]),
+                "m": usize::from(present),
+            })
+        })
+        .collect();
+    json!({
+        "dtype": grid.dtype,
+        "len": values.len(),
+        "maskLen": mask.len(),
+        "maskOnes": mask.iter().filter(|&&m| m == 1).count(),
+        "ni": grid.ni,
+        "nj": grid.nj,
+        "stats": grid.stats,
+        "samples": samples,
+    })
+}
+
+/// A painted raster in the suite's render observation shape.
+fn raster_value(raster: &RenderedGrid) -> Value {
+    let rgba: &[u8] = &raster.rgba;
+    let pixels: Vec<Value> = sample_indices(rgba.len() / 4)
+        .into_iter()
+        .map(|p| json!({ "i": p, "rgba": rgba[p * 4..p * 4 + 4].to_vec() }))
+        .collect();
+    json!({
+        "width": raster.width,
+        "height": raster.height,
+        "rgbaLen": rgba.len(),
+        "opaque": rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count(),
+        "pixels": pixels,
+        // The range the render reports (#1156), which the browser host reports
+        // too: in the source projection a pixel is a cell, so the counts are
+        // the source grid's, as `Session::render`'s are.
+        "range": raster.range,
+    })
+}
+
+/// The API's `variable` is a position in the list it offers; this host's slice
+/// calls take the number its own `variables()` reports, which for a NetCDF file
+/// is the variable's place in the file. The two lists are the same variables in
+/// the same order (the `variables` cases check that), so the position
+/// translates. `None` when the list has no such position.
+fn host_variable(handle: &crate::Handle, position: Option<u32>) -> Option<i32> {
+    handle
+        .variables()
+        .ok()?
+        .get(position? as usize)
+        .map(|v| v.variable_index)
 }
 
 /// What this host answers for one case, in the suite's own observation shape.
 ///
 /// `None` means "this op is not comparable through this binding"; a failure
 /// becomes the error observation, exactly as the reference runner's does.
-///
-/// `expect` is the recorded observation, consulted for one thing only — see
-/// [`asks_the_same_question`].
-fn observe(case: &Case, expect: &Value) -> Option<Value> {
-    if !COMPARED.contains(&case.op) || !asks_the_same_question(case, expect) {
+fn observe(case: &Case) -> Option<Value> {
+    if !COMPARED.contains(&case.op) || !asks_the_same_question(case) {
         return None;
     }
     let bytes = read(&case.fixture);
@@ -311,284 +267,103 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
         None => &bytes[..],
     };
 
-    let (handle, format) = match Handle::open(bytes) {
-        Ok(v) => v,
-        Err(_) => return Some(failed()),
+    let Ok(handle) = crate::Handle::from_vec(bytes.to_vec()) else {
+        return Some(failed());
     };
+    let args = &case.args;
 
-    match case.op {
-        Op::Open => {
-            let mut open = json!({ "format": format, "addressing": handle.addressing() });
-            if let Some(count) = handle.count() {
-                open["count"] = json!(count);
-            }
-            Some(open)
-        }
-        Op::Message => {
-            let Ok(mut info) = handle.message(case.args.index) else {
-                return Some(failed());
-            };
-            // The suite leaves `geometry` out of every `Georef` it records:
-            // it is `core`'s tagged enum and outside the host contract.
+    let observed = match case.op {
+        Op::Open => (|| -> Result<Value, RenderError> {
+            Ok(json!({
+                "format": handle.format()?,
+                "addressing": handle.addressing()?,
+                "count": handle.count()?,
+            }))
+        })(),
+        Op::Message => handle.message(args.index).map(|mut info| {
+            // The suite leaves `geometry` out of every `Georef` it records: it
+            // is `core`'s tagged enum and outside the host contract.
             if let Some(grid) = info.get_mut("grid").and_then(Value::as_object_mut) {
                 grid.remove("geometry");
             }
-            Some(info)
-        }
-        Op::Decode => {
-            let Ok(grid) = handle.decode_grid(case.args.index) else {
-                return Some(failed());
-            };
-            let values: &[f64] = &grid.values;
-            let mask: &[u8] = &grid.mask;
-            let samples: Vec<Value> = sample_indices(values.len())
-                .into_iter()
-                .map(|i| {
-                    json!({
-                        "i": i,
-                        // A masked cell is `f64::NAN` on this side and has no
-                        // value at all on the API's; read the mask first, the
-                        // way the DTO's own doc tells a host to.
-                        "v": (mask.get(i).copied().unwrap_or(0) == 1).then(|| values[i]),
-                        "m": usize::from(mask.get(i).copied().unwrap_or(0)),
+            info
+        }),
+        Op::Decode => handle
+            .decode(args.index, decode_options(args))
+            .map(|grid| decoded_value(&grid)),
+        Op::Render => handle
+            .render_grid(json!(args.index), render_options(args))
+            .map(|raster| raster_value(&raster)),
+        Op::Variables => handle.variables().map(|variables| {
+            Value::Array(
+                variables
+                    .iter()
+                    .map(|v| {
+                        json!({
+                            "name": v.name,
+                            "dims": axes(v.dims.iter().map(|d| (d.name.as_str(), d.length))),
+                            "dtype": v.nc_type,
+                            "detectedYDim": v.detected_y_dim,
+                            "detectedXDim": v.detected_x_dim,
+                            "detectedTimeDim": v.detected_time_dim,
+                        })
                     })
-                })
-                .collect();
-            Some(json!({
-                "len": values.len(),
-                "maskOnes": mask.iter().filter(|&&m| m == 1).count(),
-                "ni": grid.width,
-                "nj": grid.height,
-                "samples": samples,
-            }))
-        }
-        Op::Render => {
-            let Ok(raster) = handle.render_grid(case.args.index, render_options(&case.args)) else {
-                return Some(failed());
-            };
-            let rgba: &[u8] = &raster.rgba;
-            let pixels: Vec<Value> = sample_indices(rgba.len() / 4)
-                .into_iter()
-                .map(|p| json!({ "i": p, "rgba": rgba[p * 4..p * 4 + 4].to_vec() }))
-                .collect();
-            Some(json!({
-                "width": raster.width,
-                "height": raster.height,
-                "rgbaLen": rgba.len(),
-                "opaque": rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count(),
-                "pixels": pixels,
-                // The range the render reports (#1156), which the browser host
-                // reports too: in the source projection a pixel is a cell, so
-                // the counts are the source grid's, as `Session::render`'s are.
-                "range": raster.range,
-            }))
-        }
-        Op::Variables => {
-            let Handle::Netcdf(h) = &handle else {
-                return Some(no_variables());
-            };
-            let variables: Vec<Value> = h
-                .variables()
-                .iter()
-                .map(|v| {
-                    json!({
-                        "name": v.name,
-                        "dims": axes(v.dims.iter().map(|d| (d.name.as_str(), d.length))),
-                        "dtype": v.nc_type,
-                        "detectedYDim": v.detected_y_dim,
-                        "detectedXDim": v.detected_x_dim,
-                        "detectedTimeDim": v.detected_time_dim,
-                    })
-                })
-                .collect();
-            Some(Value::Array(variables))
-        }
-        Op::Dimensions => {
-            let Handle::Netcdf(h) = &handle else {
-                return Some(no_variables());
-            };
-            let meta = h.metadata();
-            Some(axes(
-                meta.dimensions.iter().map(|d| (d.name.as_str(), d.length)),
-            ))
-        }
+                    .collect(),
+            )
+        }),
+        Op::Dimensions => handle
+            .metadata()
+            .map(|meta| axes(meta.dimensions.iter().map(|d| (d.name.as_str(), d.length)))),
+        Op::LeftOut => handle.left_out(),
+        Op::Undrawable => handle.undrawable(),
         Op::DecodeSlice => {
-            let Handle::Netcdf(h) = &handle else {
-                return Some(no_variables());
-            };
-            let args = &case.args;
-            let (Some(position), Some(y_dim), Some(x_dim), Some(indices)) = (
-                args.variable,
-                args.y_dim,
-                args.x_dim,
-                args.slice_indices.clone(),
-            ) else {
+            let Some(variable) = host_variable(&handle, args.variable) else {
                 return Some(failed());
             };
-            // The API's `variable` is a position in the list it offers; this
-            // host's `render_slice` takes the variable's place in the file.
-            // The two lists are the same variables in the same order (the
-            // `variables` cases check that), so the position translates.
-            let Some(variable) = h
-                .variables()
-                .get(position as usize)
-                .map(|v| v.variable_index)
-            else {
-                return Some(failed());
-            };
-            let Ok(raster) = h.render_slice(
-                u32::try_from(variable).unwrap_or(u32::MAX),
-                y_dim,
-                x_dim,
-                indices,
-                render_options(args),
-            ) else {
-                return Some(failed());
-            };
-            let rgba: &[u8] = &raster.rgba;
-            Some(json!({
-                "ni": raster.width,
-                "nj": raster.height,
-                "len": rgba.len() / 4,
-                // Source projection, nearest resampling: one pixel per cell,
-                // opaque exactly where the cell is present.
-                "maskOnes": rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count(),
-            }))
+            handle
+                .decode_slice(
+                    json!({
+                        "variable": variable,
+                        "yDim": args.y_dim,
+                        "xDim": args.x_dim,
+                        "sliceIndices": args.slice_indices,
+                    }),
+                    decode_options(args),
+                )
+                .map(|grid| decoded_value(&grid))
         }
         Op::DecodeLine => {
-            let Handle::Netcdf(h) = &handle else {
-                return Some(no_variables());
-            };
-            let args = &case.args;
-            let (Some(position), Some(along), Some(indices)) =
-                (args.variable, args.along_dim, args.slice_indices.clone())
-            else {
+            let Some(variable) = host_variable(&handle, args.variable) else {
                 return Some(failed());
             };
-            // A position in the API's list, as for `DecodeSlice`; this handle
-            // takes the variable's place in the file.
-            let Some(variable) = h
-                .variables()
-                .get(position as usize)
-                .map(|v| v.variable_index)
-            else {
-                return Some(failed());
-            };
-            let Ok(line) = h.line(u32::try_from(variable).unwrap_or(u32::MAX), along, indices)
-            else {
-                return Some(failed());
-            };
-            // `fieldglass::conformance::line_value`, less `dtype`: the handle
-            // hands every line back as `f64` and reports no width, so it has no
-            // honest answer to give — the same omission `DecodeSlice` makes. The
-            // library and browser runners still hold `dtype` to the recording.
-            // Every other field is compared, values and coordinates included.
-            let real = |v: Option<f64>| match v {
-                None => Value::Null,
-                Some(x) if x.is_finite() => json!(x),
-                Some(_) => json!("nonFinite"),
-            };
-            let points: Vec<Value> = line
-                .values
-                .iter()
-                .zip(&line.mask)
-                .map(|(&v, &m)| real((m == 1).then_some(v)))
-                .collect();
-            let valid = line.mask.iter().filter(|&&m| m == 1).count();
-            Some(json!({
-                "len": line.values.len(),
-                "maskLen": line.mask.len(),
-                "maskOnes": valid,
-                "variable": line.variable,
-                "units": line.units,
-                "dimension": line.dimension,
-                "coordinates": line
-                    .coordinates
-                    .as_ref()
-                    .map(|c| c.iter().map(|&x| real(Some(x))).collect::<Vec<_>>()),
-                "coordinateUnits": line.coordinate_units,
-                "stats": { "min": line.min, "max": line.max, "validCount": valid },
-                "points": points,
-            }))
+            handle
+                .decode_line(
+                    json!({
+                        "variable": variable,
+                        "alongDim": args.along_dim,
+                        "sliceIndices": args.slice_indices,
+                    }),
+                    decode_options(args),
+                )
+                .map(|line| line_value(&line))
         }
+        Op::DecodeDisplay => handle
+            .decode_display(args.index, display_options(args))
+            .and_then(|display| display_value(&display)),
+        Op::RenderDisplay => (|| -> Result<Value, RenderError> {
+            let display = handle.decode_display(args.index, display_options(args))?;
+            // The stats a caller holds from its own full decode: `decode`'s.
+            let stats = if args.full_stats == Some(false) {
+                None
+            } else {
+                Some(handle.decode(args.index, decode_options(args))?.stats)
+            };
+            let raster = handle.render_display_grid(&display, stats, &render_options(args))?;
+            Ok(raster_value(&raster))
+        })(),
         // `COMPARED` gates the entry, so nothing else reaches here. Written as
         // an explicit arm rather than a wildcard so that adding an op to
         // `COMPARED` without adding its adapter fails to compile.
-        Op::DecodeDisplay => {
-            let Ok((_, display)) =
-                handle.decode_display(case.args.index, display_options(&case.args))
-            else {
-                return Some(failed());
-            };
-            let samples: Vec<Value> = sample_indices(display.values.len())
-                .into_iter()
-                .map(|i| {
-                    let v = display.values[i];
-                    json!({ "i": i, "v": v, "m": usize::from(v.is_some()) })
-                })
-                .collect();
-            let mut georef = display.grid().ok()?;
-            if let Some(obj) = georef.as_object_mut() {
-                obj.remove("geometry");
-            }
-            Some(json!({
-                "len": display.values.len(),
-                "maskOnes": display.values.iter().flatten().count(),
-                "ni": display.width(),
-                "nj": display.height(),
-                "reduction": display.reduction(),
-                "georef": georef,
-                "samples": samples,
-            }))
-        }
-        Op::RenderDisplay => {
-            let Ok((grib2, display)) =
-                handle.decode_display(case.args.index, display_options(&case.args))
-            else {
-                return Some(failed());
-            };
-            // The stats a caller holds from its own full decode: this host has
-            // no stats call, so they are the present-cell range of `decodeGrid`.
-            let stats = if case.args.full_stats == Some(false) {
-                None
-            } else {
-                let Ok(full) = grib2.decode_grid(case.args.index) else {
-                    return Some(failed());
-                };
-                let present = || {
-                    full.values
-                        .iter()
-                        .zip(full.mask.iter())
-                        .filter(|&(_, &m)| m == 1)
-                        .map(|(&v, _)| v)
-                };
-                Some(json!({
-                    "min": present().reduce(f64::min),
-                    "max": present().reduce(f64::max),
-                    "validCount": present().count(),
-                }))
-            };
-            let Ok(raster) = grib2.render_display(&display, stats, &render_options(&case.args))
-            else {
-                return Some(failed());
-            };
-            let rgba: &[u8] = &raster.rgba;
-            let pixels: Vec<Value> = sample_indices(rgba.len() / 4)
-                .into_iter()
-                .map(|p| json!({ "i": p, "rgba": rgba[p * 4..p * 4 + 4].to_vec() }))
-                .collect();
-            Some(json!({
-                "width": raster.width,
-                "height": raster.height,
-                "rgbaLen": rgba.len(),
-                "opaque": rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count(),
-                "pixels": pixels,
-                // The range the render reports (#1156), which the browser host
-                // reports too: in the source projection a pixel is a cell, so
-                // the counts are the source grid's, as `Session::render`'s are.
-                "range": raster.range,
-            }))
-        }
         Op::Warp
         | Op::Palette
         | Op::Probe
@@ -597,8 +372,68 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
         | Op::Contours
         | Op::Combine
         | Op::WarpDisplay
-        | Op::PaletteDisplay => None,
+        | Op::PaletteDisplay => return None,
+    };
+    Some(observed.unwrap_or_else(|_| failed()))
+}
+
+/// A line in `fieldglass::conformance::line_value`'s shape, less `dtype`: this
+/// host hands every line back as numbers and reports no width, so it has no
+/// honest answer to give. The library and browser runners still hold `dtype`
+/// to the recording. Every other field is compared, values and coordinates
+/// included.
+fn line_value(line: &LineResult) -> Value {
+    let real = |v: Option<f64>| match v {
+        None => Value::Null,
+        Some(x) if x.is_finite() => json!(x),
+        Some(_) => json!("nonFinite"),
+    };
+    let points: Vec<Value> = line
+        .values
+        .iter()
+        .zip(&line.mask)
+        .map(|(&v, &m)| real((m == 1).then_some(v)))
+        .collect();
+    let valid = line.mask.iter().filter(|&&m| m == 1).count();
+    json!({
+        "len": line.values.len(),
+        "maskLen": line.mask.len(),
+        "maskOnes": valid,
+        "variable": line.variable,
+        "units": line.units,
+        "dimension": line.dimension,
+        "coordinates": line
+            .coordinates
+            .as_ref()
+            .map(|c| c.iter().map(|&x| real(Some(x))).collect::<Vec<_>>()),
+        "coordinateUnits": line.coordinate_units,
+        "stats": { "min": line.min, "max": line.max, "validCount": valid },
+        "points": points,
+    })
+}
+
+/// A display grid in the suite's display observation shape.
+fn display_value(display: &DisplayGrid) -> Result<Value, RenderError> {
+    let samples: Vec<Value> = sample_indices(display.values.len())
+        .into_iter()
+        .map(|i| {
+            let v = display.values[i];
+            json!({ "i": i, "v": v, "m": usize::from(v.is_some()) })
+        })
+        .collect();
+    let mut georef = display.grid()?;
+    if let Some(obj) = georef.as_object_mut() {
+        obj.remove("geometry");
     }
+    Ok(json!({
+        "len": display.values.len(),
+        "maskOnes": display.values.iter().flatten().count(),
+        "ni": display.ni(),
+        "nj": display.nj(),
+        "reduction": display.reduction(),
+        "georef": georef,
+        "samples": samples,
+    }))
 }
 
 /// A list of named axes in the shape `DimensionInfo` serialises to.
@@ -615,43 +450,23 @@ fn axes<'a>(axes: impl Iterator<Item = (&'a str, f64)>) -> Value {
 
 /// Whether this host's call is an answer to the *same question* the case asks.
 ///
-/// Two, and both are real differences in surface rather than in numbers.
-///
 /// **A short-serving source (#707, #709).** A case with `short_read` set opens
 /// through `Session::open_source` over a source that serves fewer bytes than it
-/// was asked for. This host's handles take a JS `Buffer` — the addon reads the
-/// file itself — so it has no transport and cannot be in a truncated-transfer
-/// state at all; asking it that question would compare a whole-file decode with
-/// a truncated one and call the difference a divergence. The same reason
-/// `short_read` was unreachable through `Session` before #709 gave it a
-/// source-taking constructor. When this host gains one (#659's directory store,
-/// #114's large files), the case becomes comparable and this arm should go.
+/// was asked for. This host's `open` takes the bytes — the addon reads the file
+/// itself — so it has no transport and cannot be in a truncated-transfer state
+/// at all; asking it that question would compare a whole-file decode with a
+/// truncated one and call the difference a divergence. When this host gains a
+/// source-taking open (#114's large files), the case becomes comparable and
+/// this check should go.
 ///
-/// **A narrowed decode.** A real difference in surface too:
-/// `decode_grid` has no `dtype` knob and always answers `Float64Array`, while
-/// the suite's `decode` cases ask for each of `auto`, `f32` and `f64`. Where
-/// the API narrowed to `f32`, the two calls decoded the same field to different
-/// widths on purpose, and comparing them would be comparing a downcast with the
-/// thing it was cast from.
-///
-/// So a decode case is comparable when the API answered `f64` — which covers
-/// every `dtype: "f64"` case and every `auto` case over a field that did not
-/// narrow — or when it failed, where the width never arose.
-fn asks_the_same_question(case: &Case, expect: &Value) -> bool {
-    if case.args.short_read.is_some() {
-        return false;
-    }
-    if case.op != Op::Decode && case.op != Op::DecodeDisplay {
-        return true;
-    }
-    if expect.get("error").is_some() {
-        return true;
-    }
-    expect.get("dtype").and_then(Value::as_str) == Some("f64")
+/// Every other case is the same question since #1073: `decode`,
+/// `decodeSlice` and `decodeDisplay` take the suite's `dtype`.
+fn asks_the_same_question(case: &Case) -> bool {
+    case.args.short_read.is_none()
 }
 
 /// The shape this runner records for a failed call: that it failed, and
-/// nothing about how, because [`THE_NAPI_ERROR_MAPPING_LOSES_THE_CODE`].
+/// nothing about how, because `THE_NAPI_ERROR_MAPPING_LOSES_THE_CODE`.
 fn failed() -> Value {
     json!({ "failed": true })
 }
@@ -659,7 +474,7 @@ fn failed() -> Value {
 /// Reduce a reference observation to the keys this runner produces, so the two
 /// are compared on exactly the ground they share.
 ///
-/// An error observation on either side collapses to [`failed`]. Everything else
+/// An error observation on either side collapses to `failed`. Everything else
 /// is projected key by key — a key this host does not answer is dropped, and a
 /// key it answers that the reference does not is a *failure*, not a skip.
 ///
@@ -696,7 +511,7 @@ fn this_host_agrees_with_the_conformance_suite() {
     let mut failures = Vec::new();
 
     for RecordedCase { case, expect } in &suite.cases {
-        let Some(observed) = observe(case, expect) else {
+        let Some(observed) = observe(case) else {
             continue;
         };
         compared += 1;
@@ -716,7 +531,7 @@ fn this_host_agrees_with_the_conformance_suite() {
     let comparable = suite
         .cases
         .iter()
-        .filter(|r| COMPARED.contains(&r.case.op) && asks_the_same_question(&r.case, &r.expect))
+        .filter(|r| COMPARED.contains(&r.case.op) && asks_the_same_question(&r.case))
         .count();
     assert_eq!(
         compared, comparable,

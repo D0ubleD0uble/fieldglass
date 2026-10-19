@@ -205,13 +205,15 @@ pub use session::PlacedSlice;
 /// decoded from them alone (#1083).
 #[cfg(feature = "zarr")]
 pub use session::{ChunkRef, WindowPlan, WindowRequest};
-pub use session::{DecodeOptions, DisplayDecodeOptions, Session};
+pub use session::{
+    DecodeOptions, DisplayDecodeOptions, LineRequest, Session, SliceRequest, pack_values,
+};
 #[cfg(feature = "render")]
 pub use session::{PaletteOptions, Raster, WarpOptions};
 /// One line through a named array, and one axis of it with its coordinates, for
 /// a host that holds an `ArraySource` rather than a `Session` (#172, #171).
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
-pub use session::{axis_values, line_through};
+pub use session::{axis_values, left_out_of, line_through, undrawable_of};
 
 // The seams a **host** implements, and the error they return. `Session::open`
 // takes bytes and `Session::open_store` takes an `impl ObjectSource`, so a host

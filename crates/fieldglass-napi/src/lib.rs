@@ -24,6 +24,13 @@ use std::sync::Mutex;
 #[cfg(test)]
 mod characterisation;
 mod directory_store;
+// The one handle this addon exports, and the module functions that open one
+// (#1073).
+mod handle;
+pub use handle::{
+    ContourSpacing, Handle, Polylines, SliceAxes, VectorPair, is_store, open, open_store,
+    wire_dispose,
+};
 
 // This host, run through the ADR-0006 conformance suite that ships in
 // `fieldglass` (#573). Test only, and the second runner of one set of
@@ -37,7 +44,7 @@ mod range_rule_tests;
 #[cfg(test)]
 mod display_tests;
 
-/// Bridge a foreign crate's error into a [`napi::Error`] by its `Display` text.
+/// Bridge a foreign crate's error into a `napi::Error` by its `Display` text.
 ///
 /// `impl From<FieldglassError> for napi::Error` is what this would rather be,
 /// but the orphan rule forbids it: both types are foreign to this crate. An
@@ -50,7 +57,7 @@ mod display_tests;
 /// is wrong: it re-wraps the reason and drops the original `napi::Status` to
 /// `GenericFailure`. A `napi::Result` needs no bridging; use `?` on it.
 trait IntoNapi<T> {
-    /// Map the error side to a [`napi::Error`] carrying its `Display` text.
+    /// Map the error side to a `napi::Error` carrying its `Display` text.
     fn into_napi(self) -> napi::Result<T>;
 }
 
@@ -186,7 +193,7 @@ fn to_js(dto: Result<serde_json::Value, serde_json::Error>) -> napi::Result<serd
 /// Detect the format of a file from its raw bytes.
 /// Returns "grib1" | "grib2" | "netcdf" | "unknown".
 #[napi]
-pub fn detect_bytes(bytes: napi::bindgen_prelude::Buffer) -> String {
+pub fn detect_bytes(bytes: napi::bindgen_prelude::Uint8Array) -> String {
     match detect_from_bytes(&bytes) {
         Format::Grib1 => "grib1".to_string(),
         Format::Grib2 => "grib2".to_string(),
@@ -305,7 +312,7 @@ pub struct DatasetMeta {
     /// The file-level attributes, in declared order.
     pub global_attributes: Vec<AttributeMeta>,
     /// Every variable in the file, in declared order — coordinate variables
-    /// included, unlike [`NetcdfHandle::variables`].
+    /// included, unlike `NetcdfFile::variables`.
     pub variables: Vec<VariableMeta>,
     /// HDF5 superblock version, when applicable. `null` for classic files.
     pub hdf5_superblock_version: Option<i32>,
@@ -320,7 +327,7 @@ pub struct DatasetMeta {
     pub unsupported_variables: Vec<UnsupportedVariableMeta>,
 }
 
-/// One NetCDF-4 dataset the reader declined, for [`DatasetMeta::unsupported_variables`].
+/// One NetCDF-4 dataset the reader declined, for `DatasetMeta::unsupported_variables`.
 #[napi(object)]
 #[derive(Debug)]
 pub struct UnsupportedVariableMeta {
@@ -328,15 +335,6 @@ pub struct UnsupportedVariableMeta {
     pub name: String,
     /// Why it could not be described, as the decoder phrased it.
     pub reason: String,
-}
-
-/// Parse a NetCDF file from raw bytes and return the top-level dataset
-/// metadata. Errors only for files that are neither classic CDF nor HDF5;
-/// HDF5 files succeed with `fully_parsed = false`.
-#[napi]
-pub fn open_netcdf(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<DatasetMeta> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).into_napi()?;
-    Ok(dataset_meta_from(&reader))
 }
 
 fn dataset_meta_from(reader: &NetcdfReader) -> DatasetMeta {
@@ -509,72 +507,6 @@ fn hdf5_attribute_meta(a: &Hdf5Attribute) -> AttributeMeta {
     }
 }
 
-/// Decoded values for one NetCDF variable, flattened for the JS boundary.
-/// Mirrors [`DecodedGrid`] but carries the full N-D `shape` (a NetCDF variable
-/// may be 1-D, 3-D, 4-D, …) instead of a single width/height.
-#[napi(object)]
-pub struct DecodedVariable {
-    /// Row-major (C / on-disk order) values; `f64::NAN` at masked / fill
-    /// positions (read `mask` to distinguish a real value from a fill).
-    pub values: napi::bindgen_prelude::Float64Array,
-    /// Parallel to `values`: `1` present, `0` equal to the variable's
-    /// `_FillValue`.
-    pub mask: napi::bindgen_prelude::Buffer,
-    /// Dimension lengths in declared (C) order; the unlimited dimension
-    /// contributes the file's record count.
-    pub shape: Vec<u32>,
-}
-
-/// Decode one NetCDF variable's values by index. Works for classic (CDF-1/2/5)
-/// and NetCDF-4 / HDF5 backings; for HDF5 a "variable" is a root-group dataset
-/// in name-sorted order. Errors for `char` / string variables (text, not
-/// numbers), datasets stored with a layout not yet decoded (e.g. a version-4
-/// chunk index), and out-of-range indices.
-///
-/// **These are the raw on-disk codes**, sentinels masked into `mask` and
-/// nothing else applied — this calls `decode_variable_raw`. It does *not*
-/// mirror the GRIB `decode_grid` surface, which its doc claimed until #664:
-/// `decode_grid` returns a renderable field in the parameter's own units, and a
-/// packed CF variable comes back here as integer codes. The CF mask-and-scale
-/// is applied at the render seam instead (`unpack_cf_data`, #184/#186), which
-/// is what `NetcdfHandle`'s entry points go through.
-#[napi]
-pub fn decode_netcdf_variable(
-    bytes: napi::bindgen_prelude::Buffer,
-    variable_index: u32,
-) -> napi::Result<DecodedVariable> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).into_napi()?;
-    let raw = reader
-        .decode_variable_raw(variable_index as usize)
-        .into_napi()?;
-    let shape = reader
-        .variable_shape(variable_index as usize)
-        .into_napi()?
-        .into_iter()
-        .map(|d| {
-            u32::try_from(d)
-                .map_err(|_| napi::Error::from_reason(format!("dimension length {d} exceeds u32")))
-        })
-        .collect::<napi::Result<Vec<u32>>>()?;
-
-    let mut values = vec![0.0f64; raw.len()];
-    let mut mask = vec![0u8; raw.len()];
-    for (i, v) in raw.iter().enumerate() {
-        match v {
-            Some(x) => {
-                values[i] = *x;
-                mask[i] = 1;
-            }
-            None => values[i] = f64::NAN,
-        }
-    }
-    Ok(DecodedVariable {
-        values: napi::bindgen_prelude::Float64Array::new(values),
-        mask: mask.into(),
-        shape,
-    })
-}
-
 // ---------------------------------------------------------------------------
 // Reader handles + render entry  (closes #41 + the Rust-side render rewrite
 // from #45)
@@ -595,29 +527,25 @@ pub struct RenderOptions {
     /// hemisphere preset (`"north"` (default), `"south"`). Ignored by the
     /// lat/lon-box targets. `None`/unknown falls back to the default.
     ///
-    /// Superseded by [`center_lat`]/[`center_lon`] when those are supplied: the
+    /// Superseded by `center_lat`/`center_lon` when those are supplied: the
     /// free-form centre wins, the preset is only the fallback. Retained so
     /// callers that still send a preset keep working.
     ///
-    /// [`center_lat`]: RenderOptions::center_lat
-    /// [`center_lon`]: RenderOptions::center_lon
     pub projection_preset: Option<String>,
     /// Free-form projection centre for the azimuthal targets (degrees).
     /// `"orthographic"` reads both: `center_lat` is the centre latitude
     /// (clamped to ±90° downstream) and `center_lon` the centre longitude.
     /// `"polar_stereographic"` reads only `center_lon` as the central meridian
     /// (the meridian oriented toward the bottom edge); its pole is the
-    /// hemisphere from [`projection_preset`]. The world targets
+    /// hemisphere from `projection_preset`. The world targets
     /// (`"mollweide"`, `"robinson"`, `"equal_earth"`) likewise read only
     /// `center_lon`, as their central meridian. Either field `None` falls back
     /// to the preset/default for that component. Ignored by the lat/lon-box
     /// targets.
     ///
-    /// [`projection_preset`]: RenderOptions::projection_preset
     pub center_lat: Option<f64>,
-    /// Free-form projection-centre longitude — see [`center_lat`].
+    /// Free-form projection-centre longitude — see `center_lat`.
     ///
-    /// [`center_lat`]: RenderOptions::center_lat
     pub center_lon: Option<f64>,
     /// `"nearest"` or `"bilinear"`. A grid that is a list of cell centres
     /// downgrades to nearest whatever this says, since its index-adjacent
@@ -641,7 +569,7 @@ pub struct RenderOptions {
     /// the `"equirectangular"` target. When all four are `Some` and form a
     /// valid box (`lat_max > lat_min`, `lon_max > lon_min`) the warp renders
     /// that window; otherwise it falls back to the computed source-grid bounds
-    /// (echoed back in [`RenderedGrid`] so a UI can pre-fill these inputs).
+    /// (echoed back in `RenderedGrid` so a UI can pre-fill these inputs).
     /// `lon_min`/`lon_max` may lie outside [-180, 180] to describe a window
     /// that crosses the antimeridian.
     pub bounds_lat_min: Option<f64>,
@@ -651,7 +579,7 @@ pub struct RenderOptions {
     pub bounds_lon_min: Option<f64>,
     /// East edge of the manual extent — see `bounds_lat_min`.
     pub bounds_lon_max: Option<f64>,
-    /// Name of the colormap to paint with — one of the names [`colormaps`]
+    /// Name of the colormap to paint with — one of the names `colormaps`
     /// reports (`"viridis"`, `"plasma"`, `"turbo"`, `"rdbu"`, …). `None` uses
     /// the default (`"viridis"`), so a caller that never sets it renders
     /// exactly as before. An unknown name is an error rather than a silent
@@ -659,7 +587,7 @@ pub struct RenderOptions {
     pub colormap: Option<String>,
     /// A colormap as its lookup table instead of by name: 768 bytes, 256 RGB
     /// entries from the low end to the high end, which is what
-    /// [`parse_color_table`] hands back for an imported colour table. Naming a
+    /// `parse_color_table` hands back for an imported colour table. Naming a
     /// `colormap` as well is an error, and so is any other length.
     pub colormap_table: Option<Vec<u8>>,
     /// Flip the colormap end-for-end (blue↔red on a diverging map, dark↔light
@@ -702,7 +630,7 @@ pub struct RenderOptions {
 #[napi(object)]
 #[derive(Debug)]
 pub struct ColormapInfo {
-    /// Stable wire name — what [`RenderOptions::colormap`] takes.
+    /// Stable wire name — what `RenderOptions::colormap` takes.
     pub name: String,
     /// Human-readable label for the picker.
     pub label: String,
@@ -739,10 +667,10 @@ pub fn colormaps() -> Vec<ColormapInfo> {
 #[derive(Debug)]
 pub struct ParsedColorTable {
     /// Evenly spaced `#rrggbb` stops for the legend, sampled from `table`, as
-    /// [`ColormapInfo::stops`] are for a registered colormap.
+    /// `ColormapInfo::stops` are for a registered colormap.
     pub stops: Vec<String>,
     /// The 768-byte lookup table to paint with: what
-    /// [`RenderOptions::colormap_table`] takes.
+    /// `RenderOptions::colormap_table` takes.
     pub table: Vec<u8>,
     /// How many slices the file held, for a confirmation message.
     pub slices: u32,
@@ -793,7 +721,7 @@ pub fn combine_ops() -> Vec<CombineOpInfo> {
         .collect()
 }
 
-/// Output of [`Grib1Handle::render_grid_for_js`] / [`Grib2Handle::render_grid_for_js`].
+/// Output of `Grib1File::render_grid_for_js` / `Grib2File::render_grid_for_js`.
 /// `rgba` is a paint-ready buffer the webview blits straight to canvas
 /// via `putImageData`.
 ///
@@ -810,7 +738,7 @@ pub fn combine_ops() -> Vec<CombineOpInfo> {
 #[napi(object, use_nullable = true)]
 pub struct RenderedGrid {
     /// RGBA bytes, `width * height * 4` long.
-    pub rgba: napi::bindgen_prelude::Buffer,
+    pub rgba: napi::bindgen_prelude::Uint8Array,
     /// Raster columns.
     pub width: i32,
     /// Raster rows.
@@ -848,13 +776,13 @@ pub struct RenderedGrid {
     /// Set when the map is a spectral field band-limited below the truncation
     /// its message declares (#637): the label a host shows beside it, "shown
     /// at T359 of T7999". For a combined map it is the operands' label under
-    /// [`fieldglass::combine_truncation`], so a difference map keeps the label
+    /// `fieldglass::combine_truncation`, so a difference map keeps the label
     /// of either side that is band-limited. `null` for every other map.
     pub truncation: Option<SpectralTruncation>,
 }
 
 /// The band limit of a rendered spectral map (#637): `fieldglass`'s
-/// [`SpectralTruncation`](fieldglass::SpectralTruncation) as this host's
+/// `SpectralTruncation` as this host's
 /// object.
 #[napi(object)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -902,7 +830,7 @@ impl ProjectedOverlay {
 
 /// Projected vector arrows, plus the speed the longest one stands for (#241).
 ///
-/// The runs are [`ProjectedOverlay`]'s shape — five vertices per arrow — so the
+/// The runs are `ProjectedOverlay`'s shape — five vertices per arrow — so the
 /// same canvas code draws them. `referenceSpeed` is what a legend puts beside a
 /// full-length reference arrow, in the components' own units; `null` when no
 /// arrow was drawn (#871). `referenceLength` is how long that arrow is drawn
@@ -949,41 +877,93 @@ impl ProjectedVectors {
     }
 }
 
-/// Decoded grid values + presence mask returned by the handle-based
-/// `decode_grid`. `values[k]` is the decoded value at scan-order index
-/// `k`; `mask[k]` is `1` when present and `0` when bitmap-masked.
+/// One decoded field, as `decode` and `decodeSlice` return it (#1073).
 ///
-/// Not consumed by the render panel today — `render_grid` returns
-/// paint-ready RGBA instead. Kept on the napi surface for future
-/// "export raw values" consumers (e.g. a notebook-style data probe);
-/// the JS code path is dormant.
+/// The same packing the browser module's field has: `values` at the width the
+/// `dtype` option asked for (`"auto"` keeps the source's own, by
+/// `fieldglass::pack_values`'s rule), a masked cell's value is `0`, and `mask`
+/// says which are present. Read `mask` before a value.
+///
+/// A plain object rather than a class with accessors, because this addon hands
+/// every bulk buffer over as a property; the field is the caller's, and nothing
+/// on the handle takes it back.
 #[napi(object)]
 pub struct DecodedGrid {
-    /// The decoded values in scan order, `width * height` of them.
-    pub values: napi::bindgen_prelude::Float64Array,
-    /// One byte per value: `1` present, `0` bitmap-masked.
-    pub mask: napi::bindgen_prelude::Buffer,
+    /// The values in scan order, `ni * nj` of them, at `dtype`'s width.
+    pub values:
+        napi::Either<napi::bindgen_prelude::Float32Array, napi::bindgen_prelude::Float64Array>,
+    /// The width `values` is at.
+    #[napi(ts_type = "\"f32\" | \"f64\"")]
+    pub dtype: String,
+    /// One byte per value: `1` present, `0` masked.
+    pub mask: napi::bindgen_prelude::Uint8Array,
     /// Grid columns.
-    pub width: i32,
+    pub ni: u32,
     /// Grid rows.
-    pub height: i32,
+    pub nj: u32,
+    /// The present cells' minimum, maximum and count: what `renderDisplayGrid`
+    /// takes back as the full field's stats.
+    #[napi(ts_type = "Stats")]
+    pub stats: serde_json::Value,
 }
 
-/// Written out rather than derived for the four DTOs above: their payloads are
-/// napi typed arrays (`Buffer`, `Float64Array`, `Uint32Array`), which carry no
+/// A decoded field for JavaScript: `raw` packed by the API's rule at the width
+/// `options` asks for.
+fn decoded_grid(
+    raw: &[Option<f64>],
+    ni: u32,
+    nj: u32,
+    options: &fieldglass::DecodeOptions,
+) -> napi::Result<DecodedGrid> {
+    let (values, mask, stats) = fieldglass::pack_values(raw, options);
+    decoded_grid_of(values, mask, ni, nj, &stats)
+}
+
+/// `decoded_grid` for a field the session already packed.
+fn decoded_from_field(field: fieldglass::Field) -> napi::Result<DecodedGrid> {
+    decoded_grid_of(field.values, field.mask, field.ni, field.nj, &field.stats)
+}
+
+/// The one place a packed field becomes the object JavaScript reads.
+fn decoded_grid_of(
+    values: fieldglass::Values,
+    mask: Vec<u8>,
+    ni: u32,
+    nj: u32,
+    stats: &fieldglass::Stats,
+) -> napi::Result<DecodedGrid> {
+    let (values, dtype) = match values {
+        fieldglass::Values::F32(v) => (
+            napi::Either::A(napi::bindgen_prelude::Float32Array::new(v)),
+            "f32",
+        ),
+        fieldglass::Values::F64(v) => (
+            napi::Either::B(napi::bindgen_prelude::Float64Array::new(v)),
+            "f64",
+        ),
+        // `Values` is `#[non_exhaustive]`; a width added later must be decided
+        // here rather than read as nothing.
+        other => {
+            return Err(napi::Error::from_reason(format!(
+                "a values width this host does not hand over: {other:?}"
+            )));
+        }
+    };
+    Ok(DecodedGrid {
+        values,
+        dtype: dtype.to_string(),
+        mask: mask.into(),
+        ni,
+        nj,
+        stats: to_js(serde_json::to_value(stats))?,
+    })
+}
+
+/// Written out rather than derived for the DTOs above: their payloads are
+/// napi typed arrays (`Uint8Array`, `Float64Array`, `Uint32Array`), which carry no
 /// `Debug`. Printing the bytes would be useless anyway — a render buffer is
 /// megabytes — so each payload prints as its length and the scalar fields print
 /// as themselves, which is what a failing assertion needs to read.
-impl std::fmt::Debug for DecodedVariable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DecodedVariable")
-            .field("values.len", &self.values.len())
-            .field("mask.len", &self.mask.len())
-            .field("shape", &self.shape)
-            .finish()
-    }
-}
-
 impl std::fmt::Debug for RenderedGrid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RenderedGrid")
@@ -1037,11 +1017,17 @@ impl std::fmt::Debug for ProjectedOverlay {
 
 impl std::fmt::Debug for DecodedGrid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let len = match &self.values {
+            napi::Either::A(v) => v.len(),
+            napi::Either::B(v) => v.len(),
+        };
         f.debug_struct("DecodedGrid")
-            .field("values.len", &self.values.len())
+            .field("values.len", &len)
+            .field("dtype", &self.dtype)
             .field("mask.len", &self.mask.len())
-            .field("width", &self.width)
-            .field("height", &self.height)
+            .field("ni", &self.ni)
+            .field("nj", &self.nj)
+            .field("stats", &self.stats)
             .finish()
     }
 }
@@ -1074,7 +1060,7 @@ impl MessageStream {
         }
     }
 
-    /// Message `index` as the API states it, in its wire form — see [`to_js`].
+    /// Message `index` as the API states it, in its wire form — see `to_js`.
     fn message_info(&self, index: u32) -> napi::Result<serde_json::Value> {
         let info = self.session.message(index).into_napi()?;
         to_js(serde_json::to_value(&info))
@@ -1083,7 +1069,7 @@ impl MessageStream {
     /// Where message `index`'s values land, as the characterisation golden
     /// records it: the synthesis grid for a spectral or HEALPix message and the
     /// declared raster otherwise, refused when it has no raster to display —
-    /// what [`placed`](Self::placed) renders from, in its wire form.
+    /// what `placed` renders from, in its wire form.
     #[cfg(test)]
     fn resolved_georef(&self, index: u32) -> napi::Result<fieldglass::Georef> {
         let placed = self.session.place_message(index).into_napi()?;
@@ -1104,7 +1090,7 @@ impl MessageStream {
     /// characterisation golden recorded the refusal, so the check stays here,
     /// where the question is a display one, rather than moving into `Session`.
     ///
-    /// **The geometry path only.** [`resolved`](Self::resolved) decodes first and
+    /// **The geometry path only.** `resolved` decodes first and
     /// lets the decoder refuse, because its reason is the more useful one.
     fn placed(&self, index: u32) -> napi::Result<Placed> {
         let placed = self.session.place_message(index).into_napi()?;
@@ -1158,7 +1144,7 @@ impl MessageStream {
         Ok(rendered)
     }
 
-    /// [`render`](Self::render) for a combined map: `index_a` combined with
+    /// `render` for a combined map: `index_a` combined with
     /// `index_b` under `op`, labelled with the band limit either operand
     /// carries (#814). Both GRIB handles' `render_grid_combined`.
     fn render_combined(
@@ -1196,7 +1182,7 @@ impl MessageStream {
     /// along the grid's axes (`true`) or east and north.
     ///
     /// Each message states its own (GRIB1 GDS octet 17, GRIB2 Flag Table 3.3,
-    /// bit 5); [`fieldglass::component_frame`] refuses a pair whose two differ
+    /// bit 5); `fieldglass::component_frame` refuses a pair whose two differ
     /// and otherwise resolves `requested` against them.
     fn component_frame(&self, u: u32, v: u32, requested: Option<bool>) -> napi::Result<bool> {
         let stated = |i: u32| -> napi::Result<Option<bool>> {
@@ -1263,7 +1249,7 @@ impl MessageStream {
         Ok(probed)
     }
 
-    /// [`probe`](Self::probe) for a combined map (#329): the combined field's
+    /// `probe` for a combined map (#329): the combined field's
     /// cell and value, and where either operand is band-limited, the operation
     /// applied at full detail beside it — each band-limited operand's full sum
     /// at the cell, the other's own value (#637).
@@ -1372,6 +1358,71 @@ impl MessageStream {
     }
 }
 
+impl MessageStream {
+    /// Decode one message to **draw**, at a reduced resolution (#1082):
+    /// `options` is `{ reduce?, dtype? }`, the browser module's `decodeDisplay`
+    /// options, read strictly by serde.
+    ///
+    /// A `DisplayGrid` and not values: only `renderDisplayGrid` takes it, and
+    /// the measuring calls take a message index, which this is not. `reduce: 0`
+    /// is the message's own field; above zero, a message with no coarse field
+    /// (any GRIB1 message, a packing other than JPEG 2000) is refused as
+    /// `unsupported`. Not memoised: the object is the caller's.
+    fn decode_display(
+        &self,
+        message_index: u32,
+        options: Option<serde_json::Value>,
+    ) -> Result<DisplayGrid, RenderError> {
+        let options: fieldglass::DisplayDecodeOptions = match options {
+            None | Some(serde_json::Value::Null) => fieldglass::DisplayDecodeOptions::default(),
+            Some(v) => serde_json::from_value(v).map_err(|e| {
+                fieldglass::Error::invalid_option(format!("could not read the options object: {e}"))
+            })?,
+        };
+        let field = self.session.decode_display(message_index, &options)?;
+        Ok(DisplayGrid::new(field))
+    }
+}
+
+/// Paint a `DisplayGrid` under `options`, through the same projection pipeline
+/// as `renderGrid`: `projection: "source"` paints the coarse grid as stored, and
+/// a reprojection target warps it from the coarse grid's own geometry (#1082).
+///
+/// The automatic colour range is **the full field's**, from `full_stats`: the
+/// stats of the same message at full resolution, which the caller holds. Never
+/// the display grid's own values, which a wavelet low-pass moves. `full_stats`
+/// may be `null` when `rangeMin` and `rangeMax` are both set; otherwise a
+/// missing or malformed one is `invalid_option`.
+fn render_display_grid(
+    field: &DisplayGrid,
+    full_stats: Option<serde_json::Value>,
+    options: &RenderOptions,
+) -> Result<RenderedGrid, RenderError> {
+    if field.closed {
+        return Err(closed_display_grid().into());
+    }
+    let full: Option<fieldglass::Stats> = match full_stats {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) => Some(serde_json::from_value(v).map_err(|e| {
+            fieldglass::Error::invalid_option(format!("could not read the full-field stats: {e}"))
+        })?),
+    };
+    let extremes = fieldglass::full_field_extremes(
+        full.as_ref(),
+        field.values.iter().any(Option::is_some),
+        options.range_min,
+        options.range_max,
+    )?;
+    let mut rendered = render_over(&field.placed.source(), &field.values, options, extremes)?;
+    rendered.truncation = field.truncation.clone().map(Into::into);
+    Ok(rendered)
+}
+
+/// What a closed display grid answers.
+fn closed_display_grid() -> napi::Error {
+    napi::Error::from_reason("this display grid was closed; decode it again".to_string())
+}
+
 /// The refusal every GRIB display entry point gives a message whose grid has no
 /// dimensions — see `MessageStream::placed`.
 fn no_display_raster() -> napi::Error {
@@ -1383,16 +1434,15 @@ fn no_display_raster() -> napi::Error {
 /// A `MessageStream` plus the file's bytes. Every display entry point below
 /// resolves a message through the stream, which is where decoding, synthesis of
 /// a spectral field onto its global grid, and the one value memo all live —
-/// shared with [`Grib2Handle`], which is the same stream without the bytes.
+/// shared with `Grib2File`, which is the same stream without the bytes.
 ///
-/// `bytes` is kept because [`Self::set_p1`] hands a freshly edited file back to
+/// `bytes` is kept because `Self::set_p1` hands a freshly edited file back to
 /// JavaScript and a session returns no bytes. It is the *same* allocation the
 /// session reads through (`Arc<[u8]>`), so opening a file still costs one copy
 /// on top of the buffer JavaScript holds — the saving #411 made, kept. GRIB2 has
 /// no edit path, which is the whole of the asymmetry.
-#[napi]
 #[derive(Debug)]
-pub struct Grib1Handle {
+pub struct Grib1File {
     /// The file, shared with the session reading it rather than copied.
     ///
     /// Kept because the `P1` edit returns a whole new file, and a session hands
@@ -1402,18 +1452,9 @@ pub struct Grib1Handle {
     stream: MessageStream,
 }
 
-#[napi]
-impl Grib1Handle {
-    /// Open the supplied buffer once; the handle keeps the session alive for
-    /// the lifetime of the JS object.
-    #[napi(factory)]
-    pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
-        Self::from_vec(bytes.to_vec())
-    }
-
+impl Grib1File {
     /// How many messages the file holds: `message(i)` answers for every `i`
     /// below it. The browser host's `count()`, and `fieldglass::Session::count`.
-    #[napi]
     pub fn count(&self) -> u32 {
         self.stream.session.count()
     }
@@ -1424,7 +1465,6 @@ impl Grib1Handle {
     /// Every key is present, and a field with nothing to report is `null`,
     /// never missing (#574). Built on each call, so a caller listing a file
     /// asks once per message and keeps what it gets.
-    #[napi(ts_return_type = "MessageInfo")]
     pub fn message(&self, message_index: u32) -> napi::Result<serde_json::Value> {
         self.stream.message_info(message_index)
     }
@@ -1438,10 +1478,13 @@ impl Grib1Handle {
     /// first and comes back as an ordinary field (#330, #580). Reading the
     /// coefficients themselves is `Grib1Reader::decode_spectral_message` in
     /// Rust; this is the renderable field.
-    #[napi]
-    pub fn decode_grid(&self, message_index: u32) -> napi::Result<DecodedGrid> {
+    pub fn decode(
+        &self,
+        message_index: u32,
+        options: &fieldglass::DecodeOptions,
+    ) -> napi::Result<DecodedGrid> {
         let (raw, placed) = self.resolved(message_index)?;
-        Ok(decoded_grid_from(&raw, placed.ni, placed.nj))
+        decoded_grid(&raw, placed.ni, placed.nj, options)
     }
 
     /// Serialize one message's decoded field as CSV — `"matrix"` (a 2-D grid of
@@ -1453,63 +1496,32 @@ impl Grib1Handle {
     /// set is refused with an error that names every family in it — the
     /// authoritative list, read out of the table the gate itself consults, so
     /// it cannot drift from what is actually accepted (#470).
-    #[napi]
-    pub fn export_csv(
-        &self,
-        message_index: u32,
-        format: String,
-    ) -> napi::Result<napi::bindgen_prelude::Buffer> {
+    pub fn export_csv(&self, message_index: u32, format: String) -> napi::Result<Vec<u8>> {
         self.stream.csv(message_index, &format).map(csv_buffer)
     }
 
     /// Each row's mean over longitude, against latitude (#240) — see
     /// `fieldglass::render::zonal_mean`. Refused for a grid whose rows are not
     /// circles of latitude.
-    #[napi]
     pub fn zonal_mean(&self, message_index: u32) -> napi::Result<LineResult> {
         let (raw, placed) = self.resolved(message_index)?;
         let (name, units) = self.stream.parameter(message_index)?;
         zonal_mean_of(&raw, &placed, name.as_deref(), units.as_deref())
     }
 
-    /// Patch the PDS `p1` (forecast period) octet of one message and
-    /// return a fresh byte buffer. Callers reconstruct a new
-    /// [`Grib1Handle`] from those bytes — handle state is immutable
-    /// across edits.
-    #[napi]
-    pub fn set_p1(
-        &self,
-        message_index: u32,
-        value: u32,
-    ) -> napi::Result<napi::bindgen_prelude::Buffer> {
-        self.patched_p1_bytes(message_index, value).map(Into::into)
-    }
-
-    /// [`set_p1`](Self::set_p1) without the JS `Buffer`, so the patch itself is
-    /// reachable from an ordinary Rust test.
+    /// Patch the PDS `p1` (forecast period) octet of one message and return a
+    /// fresh file: the handle's `setP1`. A caller opens a new handle over those
+    /// bytes, so a handle's state never changes under an edit.
     ///
     /// The copy happens here rather than being served from a copy the handle
     /// keeps: the bytes come from the reader, which owns the only one (#411).
     /// Editing is rare and already allocates a whole new file either way, so
     /// this costs the same as before while the handle costs a file less.
-    fn patched_p1_bytes(&self, message_index: u32, value: u32) -> napi::Result<Vec<u8>> {
+    pub(crate) fn patched_p1_bytes(&self, message_index: u32, value: u32) -> napi::Result<Vec<u8>> {
         fieldglass::grib1::with_p1_octet(&self.bytes, message_index, value).into_napi()
     }
 
-    /// Compose decode + reprojection warp + viridis colormap into a
-    /// paint-ready RGBA buffer.
-    #[napi(js_name = "renderGrid")]
-    pub fn render_grid_for_js(
-        &self,
-        env: Env,
-        message_index: u32,
-        options: RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
-        self.render_grid(message_index, options)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// [`render_grid_for_js`](Self::render_grid_for_js), keeping the engine's refusal
+    /// `render_grid_for_js`, keeping the engine's refusal
     /// rather than throwing it, for this crate's callers and tests (#1155).
     pub(crate) fn render_grid(
         &self,
@@ -1519,26 +1531,7 @@ impl Grib1Handle {
         self.stream.render(message_index, &options)
     }
 
-    /// Render `message_index_a` combined element-wise with `message_index_b`
-    /// under `op` (one of the `value` tags `combineOps()` reports) — the
-    /// difference-map workflow. Both
-    /// messages must sit on the same grid; the result renders through the
-    /// normal pipeline (projection, overlays, palette, scaling, bounds) against
-    /// the primary message's geometry.
-    #[napi(js_name = "renderGridCombined")]
-    pub fn render_grid_combined_for_js(
-        &self,
-        env: Env,
-        message_index_a: u32,
-        message_index_b: u32,
-        op: String,
-        options: RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
-        self.render_grid_combined(message_index_a, message_index_b, op, options)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// [`render_grid_combined_for_js`](Self::render_grid_combined_for_js), keeping the engine's refusal
+    /// `render_grid_combined_for_js`, keeping the engine's refusal
     /// rather than throwing it, for this crate's callers and tests (#1155).
     pub(crate) fn render_grid_combined(
         &self,
@@ -1555,7 +1548,6 @@ impl Grib1Handle {
     /// onto the same raster `render_grid` produces for these `options`,
     /// returning pixel-space runs for the overlay layer (#72). Geometry-only:
     /// it never decodes values, so toggling the overlay never re-decodes.
-    #[napi]
     pub fn project_overlay(
         &self,
         message_index: u32,
@@ -1573,24 +1565,7 @@ impl Grib1Handle {
         .map(ProjectedOverlay::from_polylines)
     }
 
-    /// Extract contour isolines from this message and project them onto the same
-    /// raster `render_grid` produces, as pixel-space runs for the overlay canvas
-    /// (#238). `interval` sets a manual level spacing; `None` picks ~8 nice
-    /// levels over the used range. Errors for grid types whose forward
-    /// geolocation isn't wired yet (projected + reduced grids).
-    #[napi(js_name = "projectContours")]
-    pub fn project_contours_for_js(
-        &self,
-        env: Env,
-        message_index: u32,
-        options: RenderOptions,
-        interval: Option<f64>,
-    ) -> napi::Result<ProjectedOverlay> {
-        self.project_contours(message_index, options, interval)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// The call behind [`Self::project_contours_for_js`], keeping the
+    /// The call behind `Self::project_contours_for_js`, keeping the
     /// engine's refusal rather than throwing it, for this crate's callers
     /// and tests (#1156).
     pub(crate) fn project_contours(
@@ -1618,7 +1593,6 @@ impl Grib1Handle {
     ///
     /// Two messages that are not a u/v pair at all (wind speed with wind
     /// direction) are drawn, and `pairing` says so (#1049).
-    #[napi]
     pub fn project_vectors(
         &self,
         message_index_u: u32,
@@ -1652,7 +1626,6 @@ impl Grib1Handle {
     /// Read the field under a rendered pixel (#172): the point-probe readout.
     /// `(px, py)` are output-raster pixels (post-flip). `None` when the pixel is
     /// off the raster or off the globe.
-    #[napi]
     pub fn probe(
         &self,
         message_index: u32,
@@ -1667,7 +1640,6 @@ impl Grib1Handle {
     /// combine them under `op`, then read the *combined* field there — so the
     /// readout matches the displayed map, not field A. `None` off-raster/-globe;
     /// errors if the two fields aren't on the same grid.
-    #[napi]
     #[allow(clippy::too_many_arguments)]
     pub fn probe_combined(
         &self,
@@ -1682,24 +1654,7 @@ impl Grib1Handle {
             .probe_combined(message_index_a, message_index_b, &op, &options, px, py)
     }
 
-    /// Contour a difference/sum/… map (#329): decode both fields, combine under
-    /// `op`, and trace the *combined* field's isolines — so contours follow the
-    /// displayed map, not field A. Same geometry gate as `projectContours`.
-    #[napi(js_name = "projectContoursCombined")]
-    pub fn project_contours_combined_for_js(
-        &self,
-        env: Env,
-        message_index_a: u32,
-        message_index_b: u32,
-        op: String,
-        options: RenderOptions,
-        interval: Option<f64>,
-    ) -> napi::Result<ProjectedOverlay> {
-        self.project_contours_combined(message_index_a, message_index_b, op, options, interval)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// The call behind [`Self::project_contours_combined_for_js`], keeping the
+    /// The call behind `Self::project_contours_combined_for_js`, keeping the
     /// engine's refusal rather than throwing it, for this crate's callers
     /// and tests (#1156).
     pub(crate) fn project_contours_combined(
@@ -1726,7 +1681,7 @@ impl Grib1Handle {
     }
 }
 
-impl Grib1Handle {
+impl Grib1File {
     /// A handle over `bytes`, for callers that are not JavaScript.
     pub(crate) fn from_vec(bytes: Vec<u8>) -> napi::Result<Self> {
         let bytes: std::sync::Arc<[u8]> = bytes.into();
@@ -1758,128 +1713,44 @@ impl Grib1Handle {
 
 /// A GRIB2 file held open across napi calls, read through `fieldglass::Session`.
 ///
-/// [`Grib1Handle`] without the bytes: GRIB2 has no edit path, so nothing needs
+/// `Grib1File` without the bytes: GRIB2 has no edit path, so nothing needs
 /// the file back once the session has it. Decoding, synthesis and the value memo
 /// are the shared `MessageStream`'s.
-#[napi]
 #[derive(Debug)]
-pub struct Grib2Handle {
+pub struct Grib2File {
     stream: MessageStream,
 }
 
-#[napi]
-impl Grib2Handle {
-    /// Open a GRIB2 file's bytes and keep the session behind the handle, so
-    /// later calls index the file rather than re-parsing it.
-    #[napi(factory)]
-    pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
-        Self::from_vec(bytes.to_vec())
-    }
-
-    /// How many messages the file holds — see [`Grib1Handle::count`].
-    #[napi]
+impl Grib2File {
+    /// How many messages the file holds — see `Grib1File::count`.
     pub fn count(&self) -> u32 {
         self.stream.session.count()
     }
 
-    /// Decode one message to **draw**, at a reduced resolution (#1082):
-    /// `options` is `{ reduce?: number, dtype?: "auto" | "f32" | "f64" }`, the
-    /// browser module's `decodeDisplay` options.
-    ///
-    /// `reduce` discards that many of a JPEG 2000 message's finest wavelet
-    /// levels, so `1` is a field half the size on each axis. Those values are a
-    /// low-pass the file does not hold, on every `2^reduce`-th point of its
-    /// grid, so this returns a [`DisplayGrid`] and not a message index: only
-    /// [`render_display`](Self::render_display_for_js) takes it, and the probe,
-    /// contours, CSV and combined calls take message indices, so a display
-    /// grid cannot reach them. `reduce: 0` is the message's own field. Above
-    /// zero, a message with no coarse field throws with `code: "unsupported"`;
-    /// ask again at `0`. Not cached: the object is the caller's.
-    #[napi(js_name = "decodeDisplay")]
-    pub fn decode_display_for_js(
-        &self,
-        env: Env,
-        message_index: u32,
-        #[napi(ts_arg_type = "DisplayDecodeOptions | null | undefined")] options: Option<
-            serde_json::Value,
-        >,
-    ) -> napi::Result<DisplayGrid> {
-        self.decode_display(message_index, options)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// [`decode_display_for_js`](Self::decode_display_for_js), keeping the
-    /// engine's refusal rather than throwing it, for this crate's tests.
+    /// The handle's `decodeDisplay` for this file — see
+    /// `MessageStream::decode_display`.
+    #[cfg(test)]
     pub(crate) fn decode_display(
         &self,
         message_index: u32,
         options: Option<serde_json::Value>,
     ) -> Result<DisplayGrid, RenderError> {
-        let options: fieldglass::DisplayDecodeOptions = match options {
-            None | Some(serde_json::Value::Null) => fieldglass::DisplayDecodeOptions::default(),
-            Some(v) => serde_json::from_value(v).map_err(|e| {
-                fieldglass::Error::invalid_option(format!("could not read the options object: {e}"))
-            })?,
-        };
-        let field = self
-            .stream
-            .session
-            .decode_display(message_index, &options)?;
-        Ok(DisplayGrid::new(field))
+        self.stream.decode_display(message_index, options)
     }
 
-    /// Paint a [`DisplayGrid`] under `options`, through the same projection
-    /// pipeline as `renderGrid`: `projection: "source"` paints the coarse grid
-    /// as stored, and a reprojection target warps it from the coarse grid's
-    /// own geometry (#1082).
-    ///
-    /// The automatic colour range is **the full field's**, from `fullStats`:
-    /// the stats of the same message at full resolution, which the caller
-    /// holds. Never the display grid's own values, which a wavelet low-pass
-    /// moves. `fullStats` may be `null` when `rangeMin` and `rangeMax` are both
-    /// set; otherwise a missing or malformed one throws `invalid_option`.
-    #[napi(js_name = "renderDisplay")]
-    pub fn render_display_for_js(
-        &self,
-        env: Env,
-        field: &DisplayGrid,
-        #[napi(ts_arg_type = "Stats | null")] full_stats: Option<serde_json::Value>,
-        options: RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
-        self.render_display(field, full_stats, &options)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// [`render_display_for_js`](Self::render_display_for_js), keeping the
-    /// engine's refusal rather than throwing it, for this crate's tests.
+    /// The handle's `renderDisplayGrid` — see `render_display_grid`.
+    #[cfg(test)]
     pub(crate) fn render_display(
         &self,
         field: &DisplayGrid,
         full_stats: Option<serde_json::Value>,
         options: &RenderOptions,
     ) -> Result<RenderedGrid, RenderError> {
-        let full: Option<fieldglass::Stats> = match full_stats {
-            None | Some(serde_json::Value::Null) => None,
-            Some(v) => Some(serde_json::from_value(v).map_err(|e| {
-                fieldglass::Error::invalid_option(format!(
-                    "could not read the full-field stats: {e}"
-                ))
-            })?),
-        };
-        let extremes = fieldglass::full_field_extremes(
-            full.as_ref(),
-            field.values.iter().any(Option::is_some),
-            options.range_min,
-            options.range_max,
-        )?;
-        let mut rendered = render_over(&field.placed.source(), &field.values, options, extremes)?;
-        rendered.truncation = field.truncation.clone().map(Into::into);
-        Ok(rendered)
+        render_display_grid(field, full_stats, options)
     }
 
     /// One message's metadata as the fieldglass API states it — see
-    /// [`Grib1Handle::message`].
-    #[napi(ts_return_type = "MessageInfo")]
+    /// `Grib1File::message`.
     pub fn message(&self, message_index: u32) -> napi::Result<serde_json::Value> {
         self.stream.message_info(message_index)
     }
@@ -1893,10 +1764,13 @@ impl Grib2Handle {
     /// Reading the coefficients or the pixel list themselves is
     /// `Grib2Reader::decode_spectral_message` / `decode_message_values` in
     /// Rust; this is the renderable field.
-    #[napi]
-    pub fn decode_grid(&self, message_index: u32) -> napi::Result<DecodedGrid> {
+    pub fn decode(
+        &self,
+        message_index: u32,
+        options: &fieldglass::DecodeOptions,
+    ) -> napi::Result<DecodedGrid> {
         let (raw, placed) = self.resolved(message_index)?;
-        Ok(decoded_grid_from(&raw, placed.ni, placed.nj))
+        decoded_grid(&raw, placed.ni, placed.nj, options)
     }
 
     /// Serialize one message's decoded field as CSV. `format` is `"matrix"` (a
@@ -1908,40 +1782,20 @@ impl Grib2Handle {
     /// an error that names every family in it — the authoritative list, read
     /// out of the table the gate itself consults, so it cannot drift from what
     /// is actually accepted (#470).
-    #[napi]
-    pub fn export_csv(
-        &self,
-        message_index: u32,
-        format: String,
-    ) -> napi::Result<napi::bindgen_prelude::Buffer> {
+    pub fn export_csv(&self, message_index: u32, format: String) -> napi::Result<Vec<u8>> {
         self.stream.csv(message_index, &format).map(csv_buffer)
     }
 
     /// Each row's mean over longitude, against latitude (#240) — see
     /// `fieldglass::render::zonal_mean`. Refused for a grid whose rows are not
     /// circles of latitude.
-    #[napi]
     pub fn zonal_mean(&self, message_index: u32) -> napi::Result<LineResult> {
         let (raw, placed) = self.resolved(message_index)?;
         let (name, units) = self.stream.parameter(message_index)?;
         zonal_mean_of(&raw, &placed, name.as_deref(), units.as_deref())
     }
 
-    /// Decode one message and paint it into a raster under `options`. A
-    /// spectral message is synthesized onto a global lat/lon grid first, so
-    /// this takes any message index the file has.
-    #[napi(js_name = "renderGrid")]
-    pub fn render_grid_for_js(
-        &self,
-        env: Env,
-        message_index: u32,
-        options: RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
-        self.render_grid(message_index, options)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// [`render_grid_for_js`](Self::render_grid_for_js), keeping the engine's refusal
+    /// `render_grid_for_js`, keeping the engine's refusal
     /// rather than throwing it, for this crate's callers and tests (#1155).
     pub(crate) fn render_grid(
         &self,
@@ -1951,26 +1805,7 @@ impl Grib2Handle {
         self.stream.render(message_index, &options)
     }
 
-    /// Render `message_index_a` combined element-wise with `message_index_b`
-    /// under `op` (one of the `value` tags `combineOps()` reports) — the
-    /// difference-map workflow. Sibling to
-    /// [`Grib1Handle::render_grid_combined_for_js`]; both messages must sit on the same
-    /// grid, and the result renders through the normal pipeline against the
-    /// primary message's geometry.
-    #[napi(js_name = "renderGridCombined")]
-    pub fn render_grid_combined_for_js(
-        &self,
-        env: Env,
-        message_index_a: u32,
-        message_index_b: u32,
-        op: String,
-        options: RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
-        self.render_grid_combined(message_index_a, message_index_b, op, options)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// [`render_grid_combined_for_js`](Self::render_grid_combined_for_js), keeping the engine's refusal
+    /// `render_grid_combined_for_js`, keeping the engine's refusal
     /// rather than throwing it, for this crate's callers and tests (#1155).
     pub(crate) fn render_grid_combined(
         &self,
@@ -1984,8 +1819,7 @@ impl Grib2Handle {
     }
 
     /// Project geographic polylines onto the same raster `render_grid`
-    /// produces for these `options` (#72). Sibling to [`Grib1Handle::project_overlay`].
-    #[napi]
+    /// produces for these `options` (#72). Sibling to `Grib1File::project_overlay`.
     pub fn project_overlay(
         &self,
         message_index: u32,
@@ -2004,8 +1838,7 @@ impl Grib2Handle {
     }
 
     /// Arrows for a vector field built from two messages (#241). Sibling to
-    /// [`Grib1Handle::project_vectors`].
-    #[napi]
+    /// `Grib1File::project_vectors`.
     pub fn project_vectors(
         &self,
         message_index_u: u32,
@@ -2036,21 +1869,7 @@ impl Grib2Handle {
         .map(|arrows| ProjectedVectors::from_arrows(arrows, pairing))
     }
 
-    /// Contour isolines for this message, projected onto the render raster.
-    /// Sibling to `Grib1Handle.projectContours`.
-    #[napi(js_name = "projectContours")]
-    pub fn project_contours_for_js(
-        &self,
-        env: Env,
-        message_index: u32,
-        options: RenderOptions,
-        interval: Option<f64>,
-    ) -> napi::Result<ProjectedOverlay> {
-        self.project_contours(message_index, options, interval)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// The call behind [`Self::project_contours_for_js`], keeping the
+    /// The call behind `Self::project_contours_for_js`, keeping the
     /// engine's refusal rather than throwing it, for this crate's callers
     /// and tests (#1156).
     pub(crate) fn project_contours(
@@ -2065,8 +1884,7 @@ impl Grib2Handle {
     }
 
     /// Point-probe readout for this message. Sibling to
-    /// [`Grib1Handle::probe`].
-    #[napi]
+    /// `Grib1File::probe`.
     pub fn probe(
         &self,
         message_index: u32,
@@ -2078,9 +1896,8 @@ impl Grib2Handle {
     }
 
     /// Probe a difference/sum/… map (#329) — sibling to
-    /// [`Grib1Handle::probe_combined`]. Reads the combined field so the readout
+    /// `Grib1File::probe_combined`. Reads the combined field so the readout
     /// matches the displayed map, not field A.
-    #[napi]
     #[allow(clippy::too_many_arguments)]
     pub fn probe_combined(
         &self,
@@ -2095,24 +1912,7 @@ impl Grib2Handle {
             .probe_combined(message_index_a, message_index_b, &op, &options, px, py)
     }
 
-    /// Contour a difference/sum/… map (#329) — sibling to
-    /// `Grib1Handle.projectContoursCombined`. Traces the combined field's
-    /// isolines so contours follow the displayed map, not field A.
-    #[napi(js_name = "projectContoursCombined")]
-    pub fn project_contours_combined_for_js(
-        &self,
-        env: Env,
-        message_index_a: u32,
-        message_index_b: u32,
-        op: String,
-        options: RenderOptions,
-        interval: Option<f64>,
-    ) -> napi::Result<ProjectedOverlay> {
-        self.project_contours_combined(message_index_a, message_index_b, op, options, interval)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// The call behind [`Self::project_contours_combined_for_js`], keeping the
+    /// The call behind `Self::project_contours_combined_for_js`, keeping the
     /// engine's refusal rather than throwing it, for this crate's callers
     /// and tests (#1156).
     pub(crate) fn project_contours_combined(
@@ -2139,7 +1939,7 @@ impl Grib2Handle {
     }
 }
 
-impl Grib2Handle {
+impl Grib2File {
     /// A handle over `bytes`, for callers that are not JavaScript.
     pub(crate) fn from_vec(bytes: Vec<u8>) -> napi::Result<Self> {
         let session = fieldglass::Session::open(bytes).into_napi()?;
@@ -2167,7 +1967,7 @@ impl Grib2Handle {
 }
 
 /// A GRIB2 message decoded to draw, at a reduced resolution (#1082): what
-/// `Grib2Handle.decodeDisplay` returns and `renderDisplay` takes.
+/// `Grib2File.decodeDisplay` returns and `renderDisplay` takes.
 ///
 /// A class rather than a plain object for the reason the browser module's
 /// `WasmDisplayField` is one: its values are a wavelet low-pass on a derived
@@ -2187,8 +1987,10 @@ pub struct DisplayGrid {
     /// How many wavelet levels were discarded.
     reduction: u8,
     /// A band-limited spectral map's label (#637), which only a reduction-zero
-    /// field can carry; `renderDisplay` hands it back as `renderGrid` does.
+    /// field can carry; `renderDisplayGrid` hands it back as `renderGrid` does.
     truncation: Option<fieldglass::SpectralTruncation>,
+    /// Set by `close()`, after which the values are gone and drawing refuses.
+    closed: bool,
 }
 
 impl DisplayGrid {
@@ -2199,6 +2001,7 @@ impl DisplayGrid {
             georef: field.georef,
             reduction: field.reduction,
             truncation: field.truncation,
+            closed: false,
         }
     }
 }
@@ -2211,16 +2014,27 @@ impl DisplayGrid {
         u32::from(self.reduction)
     }
 
-    /// Raster columns: `ceil(ni / 2^reduction)` of the message's.
+    /// Grid columns: `ceil(ni / 2^reduction)` of the message's. The browser
+    /// module's `WasmDisplayField.ni()`.
     #[napi]
-    pub fn width(&self) -> u32 {
+    pub fn ni(&self) -> u32 {
         self.placed.ni
     }
 
-    /// Raster rows: `ceil(nj / 2^reduction)` of the message's.
+    /// Grid rows: `ceil(nj / 2^reduction)` of the message's.
     #[napi]
-    pub fn height(&self) -> u32 {
+    pub fn nj(&self) -> u32 {
         self.placed.nj
+    }
+
+    /// Drop the values now rather than when the garbage collector runs. Also
+    /// what `[Symbol.dispose]` does, so `using grid = handle.decodeDisplay(…)`
+    /// releases it at the end of the block. Calling it twice is harmless; a
+    /// closed grid refuses to be drawn.
+    #[napi]
+    pub fn close(&mut self) {
+        self.values = Vec::new();
+        self.closed = true;
     }
 
     /// Where the grid sits, as the API states it: above reduction zero the
@@ -2313,7 +2127,7 @@ pub struct NetcdfVariableMeta {
     pub units: Option<String>,
 }
 
-/// Persistent NetCDF reader handle, sibling to [`Grib1Handle`]/[`Grib2Handle`].
+/// Persistent NetCDF reader handle, sibling to `Grib1File`/`Grib2File`.
 ///
 /// A NetCDF variable is N-D, so rendering needs a slice picker (which 2-D plane)
 /// and a placement the reader resolves from the file's coordinates or projection
@@ -2327,9 +2141,8 @@ pub struct NetcdfVariableMeta {
 /// 0004) and 2-D coordinate curvilinear grids (#445). For an HDF5 layout whose
 /// metadata can't be resolved, `variables()` is empty and the panel falls back
 /// to the metadata view.
-#[napi]
 #[derive(Debug)]
-pub struct NetcdfHandle {
+pub struct NetcdfFile {
     reader: NetcdfReader,
     view: DatasetView,
     /// The last few slices read, in physical units (#939).
@@ -2340,7 +2153,7 @@ pub struct NetcdfHandle {
     /// only the plane asked for, a scrub costs one plane a frame, and what is
     /// worth keeping is the slice on screen and the one it is compared with,
     /// which every repaint, probe, contour and export of that slice asks for
-    /// again. See [`PlaneMemo`] for the bound.
+    /// again. See `PlaneMemo` for the bound.
     planes: Mutex<PlaneMemo>,
     /// Cell-centre indices for curvilinear slices, keyed by the pair of 2-D
     /// coordinate variables that built them (#445).
@@ -2371,11 +2184,11 @@ struct PlaneKey {
     fixed: Vec<usize>,
 }
 
-/// The planes a [`NetcdfHandle`] keeps: the most recently used, newest last.
+/// The planes a `NetcdfFile` keeps: the most recently used, newest last.
 ///
 /// Bounded twice, because ADR-0011 rejects a memo that grows with use: at most
-/// [`Self::ENTRIES`] planes, enough for an A/B comparison and the frames either
-/// side of it, and at most [`Self::CELLS`] cells across them. The newest plane
+/// `Self::ENTRIES` planes, enough for an A/B comparison and the frames either
+/// side of it, and at most `Self::CELLS` cells across them. The newest plane
 /// is kept whatever its size: it is the one on screen, and every repaint of it
 /// would otherwise read it again.
 ///
@@ -2423,21 +2236,19 @@ impl PlaneMemo {
 /// cell centres built them, `None` recording a slice that resolved no usable
 /// pair.
 ///
-/// The cached value is the whole [`GridGeometry::Lookup`] rather than the bare
-/// [`SpatialIndex`] it wraps, because that is the shape every display operation
+/// The cached value is the whole `GridGeometry::Lookup` rather than the bare
+/// `SpatialIndex` it wraps, because that is the shape every display operation
 /// now takes (#572) and `SpatialIndex: Clone` is `O(n)` — 28 bytes a cell, ~28
 /// MB at a megapixel. Caching the geometry means a repaint borrows it; caching
 /// the index would mean wrapping (and so copying) it once per call.
 type CurvilinearCache =
     std::collections::HashMap<(usize, usize), Option<std::sync::Arc<GridGeometry>>>;
 
-#[napi]
-impl NetcdfHandle {
+impl NetcdfFile {
     /// Parse a NetCDF file's bytes — classic or NetCDF-4 / HDF5 — and keep the
     /// reader and its neutral dataset view alive behind the handle.
-    #[napi(factory)]
-    pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
-        let reader = NetcdfReader::from_bytes(bytes.to_vec()).into_napi()?;
+    pub fn from_vec(bytes: Vec<u8>) -> napi::Result<Self> {
+        let reader = NetcdfReader::from_bytes(bytes).into_napi()?;
         // Both backings build the neutral view that drives the slice picker. The
         // HDF5 metadata is resolved lazily and can fail for a *whole-file* layout
         // outside the decoded subset (decision 0003); on failure the view is
@@ -2458,19 +2269,17 @@ impl NetcdfHandle {
     /// The dataset metadata — dimensions, global attributes, variables — from
     /// the reader this handle already holds.
     ///
-    /// Identical to what [`open_netcdf`] returns for the same bytes. It exists
+    /// Identical to what `open_netcdf` returns for the same bytes. It exists
     /// so a caller that is going to keep a handle anyway does not have to build
     /// a second reader to get the metadata: doing both parsed the whole file
     /// twice and copied it twice, which on a 110 MB NetCDF-4 file was 86 ms of
     /// work where 42 ms would do (#411).
-    #[napi]
     pub fn metadata(&self) -> DatasetMeta {
         dataset_meta_from(&self.reader)
     }
 
     /// The variables the picker can draw (numeric, ≥ 2-D, not coordinate
     /// variables), each with its dimensions and detected horizontal axes.
-    #[napi]
     pub fn variables(&self) -> Vec<NetcdfVariableMeta> {
         self.view
             .renderable_variables()
@@ -2502,26 +2311,7 @@ impl NetcdfHandle {
             .collect()
     }
 
-    /// Render one 2-D slice of a variable. `yDim` / `xDim` are axis indices into
-    /// the variable's dimensions (the image's vertical / horizontal axes);
-    /// `sliceIndices` holds the fixed index for every dimension (its entries for
-    /// `yDim` / `xDim` are ignored). The picked plane is fed through the shared
-    /// warp on the geometry the file's coordinates place it on.
-    #[napi(js_name = "renderSlice")]
-    pub fn render_slice_for_js(
-        &self,
-        env: Env,
-        variable_index: u32,
-        y_dim: u32,
-        x_dim: u32,
-        slice_indices: Vec<u32>,
-        options: RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
-        self.render_slice(variable_index, y_dim, x_dim, slice_indices, options)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// [`render_slice_for_js`](Self::render_slice_for_js), keeping the engine's refusal
+    /// `render_slice_for_js`, keeping the engine's refusal
     /// rather than throwing it, for this crate's callers and tests (#1155).
     pub(crate) fn render_slice(
         &self,
@@ -2550,34 +2340,58 @@ impl NetcdfHandle {
     /// Read through `fieldglass::line_through` over this handle's own reader and
     /// view, so the line has one implementation for every host rather than one
     /// here as well — the conformance runner holds it to the library's.
-    #[napi]
-    pub fn line(
+    pub(crate) fn line(
         &self,
         variable_index: u32,
         along_dim: u32,
         slice_indices: Vec<u32>,
-    ) -> napi::Result<LineResult> {
+        options: &fieldglass::DecodeOptions,
+    ) -> Result<LineResult, RenderError> {
         let var = self.renderable(variable_index)?;
         let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
         // The array model names a variable without the leading `/` a NetCDF-4
         // group path carries in the view.
         let name = var.name.strip_prefix('/').unwrap_or(&var.name);
-        fieldglass::line_through(
-            &arrays,
-            name,
-            along_dim,
-            &slice_indices,
-            &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
-        )
-        .map(LineResult::from)
-        .into_napi()
+        Ok(fieldglass::line_through(&arrays, name, along_dim, &slice_indices, options)?.into())
+    }
+
+    /// One 2-D slice's values, packed at the width `options` asks for: the
+    /// handle's `decodeSlice` (#1073). The plane the renders draw, from the same
+    /// memo, so a decode and a repaint of one slice read the file once.
+    pub(crate) fn decode_slice(
+        &self,
+        request: &fieldglass::SliceRequest,
+        options: &fieldglass::DecodeOptions,
+    ) -> napi::Result<DecodedGrid> {
+        let var = self.renderable(request.variable)?;
+        let (y, x) = (request.y_dim as usize, request.x_dim as usize);
+        let plane = self.slice_plane(&var, y, x, &request.slice_indices)?;
+        let placed = self.slice_placed(&var, y, x)?;
+        decoded_grid(&plane, placed.ni, placed.nj, options)
+    }
+
+    /// The arrays the file holds and this build will not read, each with why,
+    /// through the rule `Session::left_out` follows (#709, #1073).
+    pub(crate) fn left_out(&self) -> Vec<fieldglass::LeftOutArray> {
+        fieldglass::left_out_of(&fieldglass::netcdf::NetcdfArrays::new(
+            &self.reader,
+            &self.view,
+        ))
+    }
+
+    /// The arrays the file reads that no map can be drawn from, each with why,
+    /// through the rule `Session::undrawable` follows (#1129, #1073).
+    pub(crate) fn undrawable(&self) -> Vec<fieldglass::LeftOutArray> {
+        fieldglass::undrawable_of(&fieldglass::netcdf::NetcdfArrays::new(
+            &self.reader,
+            &self.view,
+        ))
     }
 
     /// The coordinate values along one axis of a variable, for labelling a
     /// cross-section (#171). Reads the coordinate array only, never the field.
     ///
     /// The API's own `AxisValues`: every key present, `null` for none (#574).
-    #[napi(ts_return_type = "AxisValues")]
     pub fn axis_values(&self, variable_index: u32, dim: u32) -> napi::Result<serde_json::Value> {
         let var = self.renderable(variable_index)?;
         let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
@@ -2592,7 +2406,6 @@ impl NetcdfHandle {
     ///
     /// The same placement every display entry point on this handle renders
     /// from, so the picker cannot offer a target the render then refuses.
-    #[napi]
     pub fn slice_grid(
         &self,
         variable_index: u32,
@@ -2606,7 +2419,6 @@ impl NetcdfHandle {
 
     /// The slice's zonal mean, against latitude (#240) — see
     /// `fieldglass::render::zonal_mean`. The same arguments as `render_slice`.
-    #[napi]
     pub fn zonal_mean(
         &self,
         variable_index: u32,
@@ -2628,13 +2440,12 @@ impl NetcdfHandle {
 
     /// Serialize one decoded slice as CSV — `"matrix"` (a 2-D grid of values) or
     /// `"long"` (a `lat,lon,value` table), missing points as empty value cells.
-    /// The slice is picked exactly like [`render_slice`](Self::render_slice_for_js)
+    /// The slice is picked exactly like `render_slice`
     /// (`yDim` / `xDim` are the image axes, `sliceIndices` fixes the rest). The
     /// long format needs per-point geolocation, so it covers any slice whose
     /// synthesised geometry lands on a geolocated family — a regular lat/lon
     /// grid, or a WRF file's Lambert / polar stereographic / Mercator
     /// projection; the matrix format works for any decodable slice.
-    #[napi]
     pub fn export_csv(
         &self,
         variable_index: u32,
@@ -2642,7 +2453,7 @@ impl NetcdfHandle {
         x_dim: u32,
         slice_indices: Vec<u32>,
         format: String,
-    ) -> napi::Result<napi::bindgen_prelude::Buffer> {
+    ) -> napi::Result<Vec<u8>> {
         let var = self.renderable(variable_index)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
@@ -2650,42 +2461,7 @@ impl NetcdfHandle {
         field_csv(&plane, &placed, &format).map(csv_buffer)
     }
 
-    /// Render one slice combined element-wise with a second slice under `op`
-    /// (one of the `value` tags `combineOps()` reports) — the difference-map
-    /// workflow (#239). Field B is a
-    /// slice of `variableIndexB` at `sliceIndicesB`, sharing the same image axes
-    /// (`yDim` / `xDim`) as field A; the common case is two time steps of one
-    /// variable (`variableIndexB == variableIndexA`, different indices). Both
-    /// slices must resolve to the same grid; the combined field renders through
-    /// the normal pipeline against field A's geometry.
-    #[napi(js_name = "renderSliceCombined")]
-    #[allow(clippy::too_many_arguments)]
-    pub fn render_slice_combined_for_js(
-        &self,
-        env: Env,
-        variable_index_a: u32,
-        y_dim: u32,
-        x_dim: u32,
-        slice_indices_a: Vec<u32>,
-        variable_index_b: u32,
-        slice_indices_b: Vec<u32>,
-        op: String,
-        options: RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
-        self.render_slice_combined(
-            variable_index_a,
-            y_dim,
-            x_dim,
-            slice_indices_a,
-            variable_index_b,
-            slice_indices_b,
-            op,
-            options,
-        )
-        .map_err(|e| e.throw(&env))
-    }
-
-    /// [`render_slice_combined_for_js`](Self::render_slice_combined_for_js), keeping the engine's refusal
+    /// `render_slice_combined_for_js`, keeping the engine's refusal
     /// rather than throwing it, for this crate's callers and tests (#1155).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_slice_combined(
@@ -2720,8 +2496,7 @@ impl NetcdfHandle {
 
     /// Project geographic polylines onto the same raster `render_slice` produces
     /// for these `options`. Geometry-only — independent of the slice indices, so
-    /// it takes only the axis assignment. Sibling to [`Grib2Handle::project_overlay`].
-    #[napi]
+    /// it takes only the axis assignment. Sibling to `Grib2File::project_overlay`.
     pub fn project_overlay(
         &self,
         variable_index: u32,
@@ -2742,35 +2517,7 @@ impl NetcdfHandle {
         .map(ProjectedOverlay::from_polylines)
     }
 
-    /// Contour isolines for one slice, projected onto the render raster (#238).
-    /// Sibling to `Grib1Handle.projectContours`. The slice's geometry is
-    /// synthesised from the file's coordinates or projection attributes, so a
-    /// NetCDF grid is contourable wherever that synthesis lands on a geolocated
-    /// family — every one but a GOES scan-angle (space view) grid.
-    #[napi(js_name = "projectContours")]
-    #[allow(clippy::too_many_arguments)]
-    pub fn project_contours_for_js(
-        &self,
-        env: Env,
-        variable_index: u32,
-        y_dim: u32,
-        x_dim: u32,
-        slice_indices: Vec<u32>,
-        options: RenderOptions,
-        interval: Option<f64>,
-    ) -> napi::Result<ProjectedOverlay> {
-        self.project_contours(
-            variable_index,
-            y_dim,
-            x_dim,
-            slice_indices,
-            options,
-            interval,
-        )
-        .map_err(|e| e.throw(&env))
-    }
-
-    /// The call behind [`Self::project_contours_for_js`], keeping the
+    /// The call behind `Self::project_contours_for_js`, keeping the
     /// engine's refusal rather than throwing it, for this crate's callers
     /// and tests (#1156).
     pub(crate) fn project_contours(
@@ -2791,8 +2538,7 @@ impl NetcdfHandle {
     }
 
     /// Point-probe readout for one slice (#172). Sibling to
-    /// [`Grib1Handle::probe`].
-    #[napi]
+    /// `Grib1File::probe`.
     #[allow(clippy::too_many_arguments)]
     pub fn probe(
         &self,
@@ -2814,8 +2560,7 @@ impl NetcdfHandle {
     /// Probe a NetCDF difference/sum/… map under a pixel (#329): the two slices
     /// are combined under `op` and the *combined* field is read, so the readout
     /// matches the displayed map, not slice A. Sibling to
-    /// [`Self::render_slice_combined_for_js`].
-    #[napi]
+    /// `Self::render_slice_combined_for_js`.
     #[allow(clippy::too_many_arguments)]
     pub fn probe_slice_combined(
         &self,
@@ -2843,39 +2588,7 @@ impl NetcdfHandle {
         probe_from_source(&placed_a.source(), &combined, &options, px, py)
     }
 
-    /// Contour a NetCDF difference/sum/… map (#329): the two slices are combined
-    /// under `op` and the *combined* field's isolines are traced. Sibling to
-    /// `projectContours`.
-    #[napi(js_name = "projectContoursSliceCombined")]
-    #[allow(clippy::too_many_arguments)]
-    pub fn project_contours_slice_combined_for_js(
-        &self,
-        env: Env,
-        variable_index_a: u32,
-        y_dim: u32,
-        x_dim: u32,
-        slice_indices_a: Vec<u32>,
-        variable_index_b: u32,
-        slice_indices_b: Vec<u32>,
-        op: String,
-        options: RenderOptions,
-        interval: Option<f64>,
-    ) -> napi::Result<ProjectedOverlay> {
-        self.project_contours_slice_combined(
-            variable_index_a,
-            y_dim,
-            x_dim,
-            slice_indices_a,
-            variable_index_b,
-            slice_indices_b,
-            op,
-            options,
-            interval,
-        )
-        .map_err(|e| e.throw(&env))
-    }
-
-    /// The call behind [`Self::project_contours_slice_combined_for_js`], keeping the
+    /// The call behind `Self::project_contours_slice_combined_for_js`, keeping the
     /// engine's refusal rather than throwing it, for this crate's callers
     /// and tests (#1156).
     #[allow(clippy::too_many_arguments)]
@@ -2906,7 +2619,7 @@ impl NetcdfHandle {
     }
 }
 
-impl NetcdfHandle {
+impl NetcdfFile {
     /// Look up a renderable variable by its decode index.
     fn renderable(&self, variable_index: u32) -> napi::Result<RenderableVariable> {
         self.view
@@ -2921,7 +2634,7 @@ impl NetcdfHandle {
     }
 
     /// One 2-D plane of a variable in physical units, read on its own and
-    /// kept in the handle's [`PlaneMemo`].
+    /// kept in the handle's `PlaneMemo`.
     ///
     /// The read is `NetcdfReader::decode_plane`: only the plane's bytes, or the
     /// chunks it overlaps, then the CF `valid_range` mask and `scale_factor` /
@@ -2994,7 +2707,7 @@ impl NetcdfHandle {
     /// names no usable 2-D coordinate pair (#445).
     ///
     /// Decodes both coordinate planes once and builds the k-d tree over them,
-    /// then caches by the coordinate pair — see [`Self::curvilinear`] for why
+    /// then caches by the coordinate pair — see `Self::curvilinear` for why
     /// the key is the coordinates and not the field.
     ///
     /// A pair that resolves but will not build an index (every centre a fill
@@ -3054,7 +2767,7 @@ impl NetcdfHandle {
     }
 
     /// How one slice is placed, before it becomes what a caller asks of it — a
-    /// [`Placed`] to render from, or the [`SliceGrid`] the render panel reads.
+    /// `Placed` to render from, or the `SliceGrid` the render panel reads.
     ///
     /// The axis checks and the curvilinear precedence are stated here once, so
     /// the two cannot resolve one slice two ways.
@@ -3185,7 +2898,7 @@ impl NetcdfHandle {
     /// tests read. The same `Placed` every display entry point renders from,
     /// and `Georef::from_slice`, which is `Session::decode_slice`'s rule, so the
     /// family, placement and reprojection it states are the ones
-    /// [`Self::slice_grid`] hands the panel.
+    /// `Self::slice_grid` hands the panel.
     #[cfg(test)]
     fn slice_georef(
         &self,
@@ -3218,7 +2931,7 @@ impl NetcdfHandle {
     }
 }
 
-/// One slice's placement as [`NetcdfHandle::resolve_slice`] found it.
+/// One slice's placement as `NetcdfFile::resolve_slice` found it.
 struct SliceResolution {
     /// Raster columns: the length of the chosen X axis.
     ni: u32,
@@ -3248,38 +2961,11 @@ fn slice_family(geometry: &GridGeometry) -> &str {
     geometry.label()
 }
 
-/// Repack the decoder's `Vec<Option<f64>>` into the typed-array pair
-/// the JS side expects. NaN encodes missing in `values`; the explicit
-/// `mask` byte is the source of truth for "present vs absent".
-fn decoded_grid_from(raw: &[Option<f64>], width: u32, height: u32) -> DecodedGrid {
-    let n = raw.len();
-    let mut values = vec![0.0f64; n];
-    let mut mask = vec![0u8; n];
-    for (i, v) in raw.iter().enumerate() {
-        match v {
-            Some(x) => {
-                values[i] = *x;
-                mask[i] = 1;
-            }
-            None => {
-                values[i] = f64::NAN;
-                mask[i] = 0;
-            }
-        }
-    }
-    DecodedGrid {
-        values: napi::bindgen_prelude::Float64Array::new(values),
-        mask: mask.into(),
-        width: width as i32,
-        height: height as i32,
-    }
-}
-
-/// The cell-centre index inside a [`GridGeometry::Lookup`], or `None` for any
+/// The cell-centre index inside a `GridGeometry::Lookup`, or `None` for any
 /// other family.
 ///
 /// The one place this host still reaches past the geometry into its payload:
-/// [`rows_run_south_to_north`] compares two rows of centres, which is a question
+/// `rows_run_south_to_north` compares two rows of centres, which is a question
 /// about the index rather than about the grid, and only a lookup grid has to
 /// answer it from its own data.
 fn lookup_index(geometry: &GridGeometry) -> Option<&SpatialIndex> {
@@ -3318,23 +3004,21 @@ fn rows_run_south_to_north(index: &SpatialIndex) -> Option<bool> {
 /// A Zarr store, opened from a directory (#659).
 ///
 /// **The first handle in this binding built entirely over
-/// [`fieldglass::Session`]**, and the shape the rest is moving toward: it holds a
+/// `fieldglass::Session`**, and the shape the rest is moving toward: it holds a
 /// session and nothing else — no reader and no per-container metadata object. A variable list is `Session::variables`, a slice is
 /// `Session::decode_slice`, and the placement a raster needs rides on the decoded
 /// field's `georef`. Adding a container to this binding should cost this much.
 ///
-/// It reuses [`NetcdfVariableMeta`] for the picker because a store answers the
+/// It reuses `NetcdfVariableMeta` for the picker because a store answers the
 /// same question a NetCDF file does — the extension's slice picker is written
 /// against that shape, and two shapes for one question is how the hosts drifted
 /// apart in the first place (#662).
 #[derive(Debug)]
-#[napi]
-pub struct ZarrHandle {
+pub struct ZarrStore {
     session: fieldglass::Session,
 }
 
-#[napi]
-impl ZarrHandle {
+impl ZarrStore {
     /// Open the store rooted at `path`.
     ///
     /// # Errors
@@ -3343,7 +3027,6 @@ impl ZarrHandle {
     /// `.zarray`, which is reported as *not a store* rather than as an empty one —
     /// the difference between telling a user they picked the wrong folder and
     /// opening a blank editor.
-    #[napi(factory)]
     pub fn from_directory(path: String) -> napi::Result<Self> {
         let root = std::path::PathBuf::from(&path);
         if !directory_store::is_store_root(&root) {
@@ -3363,13 +3046,11 @@ impl ZarrHandle {
     ///
     /// The extension asks before it offers to open, so a folder picker can
     /// refuse in its own words.
-    #[napi]
     pub fn is_store(path: String) -> bool {
         directory_store::is_store_root(std::path::Path::new(&path))
     }
 
     /// The variables a slice can be drawn from, in the shape the picker reads.
-    #[napi]
     pub fn variables(&self) -> Vec<NetcdfVariableMeta> {
         self.session
             .variables()
@@ -3385,7 +3066,7 @@ impl ZarrHandle {
                         name: d.name.clone(),
                         // `f64` because a dimension length is a `u64` and napi
                         // has no 64-bit integer a JS number can hold exactly;
-                        // the same choice `NetcdfHandle` makes.
+                        // the same choice `NetcdfFile` makes.
                         length: d.length as f64,
                     })
                     .collect(),
@@ -3403,39 +3084,18 @@ impl ZarrHandle {
     /// than wondering whether the store has it (#709). The API's own
     /// `LeftOutArray`, so the code beside each reason (#1129) has the shape
     /// the schema states.
-    #[napi(ts_return_type = "LeftOutArray[]")]
     pub fn left_out(&self) -> napi::Result<serde_json::Value> {
         to_js(serde_json::to_value(self.session.left_out()))
     }
 
     /// The arrays the store reads that no map can be drawn from, each with why
     /// (#1129): text, a coordinate, fewer than two dimensions. With
-    /// [`Self::left_out`] and the variable list, every array in the store once.
-    #[napi(ts_return_type = "LeftOutArray[]")]
+    /// `Self::left_out` and the variable list, every array in the store once.
     pub fn undrawable(&self) -> napi::Result<serde_json::Value> {
         to_js(serde_json::to_value(self.session.undrawable()))
     }
 
-    /// Paint one slice, through the same pipeline every other handle paints
-    /// through.
-    ///
-    /// `y_dim` / `x_dim` are the image axes and `slice_indices` fixes the rest,
-    /// exactly as [`NetcdfHandle::render_slice_for_js`] takes them.
-    #[napi(js_name = "renderSlice")]
-    pub fn render_slice_for_js(
-        &self,
-        env: Env,
-        variable_index: u32,
-        y_dim: u32,
-        x_dim: u32,
-        slice_indices: Vec<u32>,
-        options: RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
-        self.render_slice(variable_index, y_dim, x_dim, slice_indices, options)
-            .map_err(|e| e.throw(&env))
-    }
-
-    /// [`render_slice_for_js`](Self::render_slice_for_js), keeping the engine's refusal
+    /// `render_slice_for_js`, keeping the engine's refusal
     /// rather than throwing it, for this crate's callers and tests (#1155).
     pub(crate) fn render_slice(
         &self,
@@ -3450,7 +3110,6 @@ impl ZarrHandle {
     }
 
     /// Geographic polylines projected onto this slice's raster.
-    #[napi]
     pub fn project_overlay(
         &self,
         variable_index: u32,
@@ -3473,31 +3132,7 @@ impl ZarrHandle {
         .map(ProjectedOverlay::from_polylines)
     }
 
-    /// Isolines of this slice, projected onto its raster.
-    #[napi(js_name = "projectContours")]
-    #[allow(clippy::too_many_arguments)]
-    pub fn project_contours_for_js(
-        &self,
-        env: Env,
-        variable_index: u32,
-        y_dim: u32,
-        x_dim: u32,
-        slice_indices: Vec<u32>,
-        options: RenderOptions,
-        interval: Option<f64>,
-    ) -> napi::Result<ProjectedOverlay> {
-        self.project_contours(
-            variable_index,
-            y_dim,
-            x_dim,
-            slice_indices,
-            options,
-            interval,
-        )
-        .map_err(|e| e.throw(&env))
-    }
-
-    /// The call behind [`Self::project_contours_for_js`], keeping the
+    /// The call behind `Self::project_contours_for_js`, keeping the
     /// engine's refusal rather than throwing it, for this crate's callers
     /// and tests (#1156).
     pub(crate) fn project_contours(
@@ -3518,9 +3153,8 @@ impl ZarrHandle {
     }
 
     /// Sample the field under one output pixel.
-    #[napi]
     // The argument list is the picker's, not a design choice: the same shape
-    // `NetcdfHandle::probe` takes, which carries the same allow.
+    // `NetcdfFile::probe` takes, which carries the same allow.
     #[allow(clippy::too_many_arguments)]
     pub fn probe(
         &self,
@@ -3536,39 +3170,7 @@ impl ZarrHandle {
         probe_from_source(&field.source(), &values, &options, px, py)
     }
 
-    /// Render one slice combined element-wise with a second under `op` (#239).
-    ///
-    /// `Session::combine` runs the alignment gate and the arithmetic, so the
-    /// combined field arrives as a `Field` like any other — same placement, same
-    /// render path. A store gets difference maps for free.
-    #[napi(js_name = "renderSliceCombined")]
-    #[allow(clippy::too_many_arguments)]
-    pub fn render_slice_combined_for_js(
-        &self,
-        env: Env,
-        variable_index_a: u32,
-        y_dim: u32,
-        x_dim: u32,
-        slice_indices_a: Vec<u32>,
-        variable_index_b: u32,
-        slice_indices_b: Vec<u32>,
-        op: String,
-        options: RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
-        self.render_slice_combined(
-            variable_index_a,
-            y_dim,
-            x_dim,
-            slice_indices_a,
-            variable_index_b,
-            slice_indices_b,
-            op,
-            options,
-        )
-        .map_err(|e| e.throw(&env))
-    }
-
-    /// [`render_slice_combined_for_js`](Self::render_slice_combined_for_js), keeping the engine's refusal
+    /// `render_slice_combined_for_js`, keeping the engine's refusal
     /// rather than throwing it, for this crate's callers and tests (#1155).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_slice_combined(
@@ -3596,7 +3198,6 @@ impl ZarrHandle {
 
     /// Probe the combined field, so the readout matches the displayed map
     /// rather than slice A (#329).
-    #[napi]
     #[allow(clippy::too_many_arguments)]
     pub fn probe_slice_combined(
         &self,
@@ -3623,37 +3224,7 @@ impl ZarrHandle {
         probe_from_source(&combined.source(), &values, &options, px, py)
     }
 
-    /// Contour the combined field, for the same reason (#329).
-    #[napi(js_name = "projectContoursSliceCombined")]
-    #[allow(clippy::too_many_arguments)]
-    pub fn project_contours_slice_combined_for_js(
-        &self,
-        env: Env,
-        variable_index_a: u32,
-        y_dim: u32,
-        x_dim: u32,
-        slice_indices_a: Vec<u32>,
-        variable_index_b: u32,
-        slice_indices_b: Vec<u32>,
-        op: String,
-        options: RenderOptions,
-        interval: Option<f64>,
-    ) -> napi::Result<ProjectedOverlay> {
-        self.project_contours_slice_combined(
-            variable_index_a,
-            y_dim,
-            x_dim,
-            slice_indices_a,
-            variable_index_b,
-            slice_indices_b,
-            op,
-            options,
-            interval,
-        )
-        .map_err(|e| e.throw(&env))
-    }
-
-    /// The call behind [`Self::project_contours_slice_combined_for_js`], keeping the
+    /// The call behind `Self::project_contours_slice_combined_for_js`, keeping the
     /// engine's refusal rather than throwing it, for this crate's callers
     /// and tests (#1156).
     #[allow(clippy::too_many_arguments)]
@@ -3685,37 +3256,47 @@ impl ZarrHandle {
             .map(ProjectedOverlay::from_polylines)
     }
 
-    /// One line through a variable — see `NetcdfHandle::line`; the same
+    /// One line through a variable — see `NetcdfFile::line`; the same
     /// arguments, read through this handle's session (#172).
-    #[napi]
-    pub fn line(
+    pub(crate) fn line(
         &self,
         variable_index: u32,
         along_dim: u32,
         slice_indices: Vec<u32>,
-    ) -> napi::Result<LineResult> {
-        self.session
-            .decode_line(
-                variable_index,
-                along_dim,
-                &slice_indices,
-                &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
-            )
-            .map(LineResult::from)
-            .into_napi()
+        options: &fieldglass::DecodeOptions,
+    ) -> Result<LineResult, RenderError> {
+        Ok(self
+            .session
+            .decode_line(variable_index, along_dim, &slice_indices, options)?
+            .into())
     }
 
-    /// The coordinate values along one axis — see `NetcdfHandle::axis_values`,
+    /// One 2-D slice's values, packed at the width `options` asks for: the
+    /// handle's `decodeSlice`, which is `Session::decode_slice` (#1073).
+    pub(crate) fn decode_slice(
+        &self,
+        request: &fieldglass::SliceRequest,
+        options: &fieldglass::DecodeOptions,
+    ) -> Result<DecodedGrid, RenderError> {
+        let field = self.session.decode_slice(
+            request.variable,
+            request.y_dim,
+            request.x_dim,
+            &request.slice_indices,
+            options,
+        )?;
+        Ok(decoded_from_field(field)?)
+    }
+
+    /// The coordinate values along one axis — see `NetcdfFile::axis_values`,
     /// read through this handle's session (#171).
-    #[napi(ts_return_type = "AxisValues")]
     pub fn axis_values(&self, variable_index: u32, dim: u32) -> napi::Result<serde_json::Value> {
         let axis = self.session.axis_values(variable_index, dim).into_napi()?;
         to_js(serde_json::to_value(&axis))
     }
 
-    /// Where one slice sits — see [`NetcdfHandle::slice_grid`], answered from
+    /// Where one slice sits — see `NetcdfFile::slice_grid`, answered from
     /// this handle's session.
-    #[napi]
     pub fn slice_grid(
         &self,
         variable_index: u32,
@@ -3737,9 +3318,8 @@ impl ZarrHandle {
         })
     }
 
-    /// The slice's zonal mean — see `NetcdfHandle::zonal_mean`; the same
+    /// The slice's zonal mean — see `NetcdfFile::zonal_mean`; the same
     /// arguments, read through this handle's session (#240).
-    #[napi]
     pub fn zonal_mean(
         &self,
         variable_index: u32,
@@ -3769,7 +3349,6 @@ impl ZarrHandle {
     }
 
     /// One decoded slice as CSV — `"matrix"` or `"long"` (`lat,lon,value`).
-    #[napi]
     pub fn export_csv(
         &self,
         variable_index: u32,
@@ -3777,17 +3356,17 @@ impl ZarrHandle {
         x_dim: u32,
         slice_indices: Vec<u32>,
         format: String,
-    ) -> napi::Result<napi::bindgen_prelude::Buffer> {
+    ) -> napi::Result<Vec<u8>> {
         let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         let text = self
             .session
             .field_csv(&field.source(), &values, &format)
             .map_err(|e| napi::Error::from_reason(e.message()))?;
-        Ok(text.into_bytes().into())
+        Ok(text.into_bytes())
     }
 }
 
-impl ZarrHandle {
+impl ZarrStore {
     /// One slice, decoded, with its values rejoined.
     fn slice(
         &self,
@@ -3851,7 +3430,7 @@ impl ZarrHandle {
 }
 
 /// Where one slice sits, as a picker asks it — what
-/// [`NetcdfHandle::slice_grid`] and [`ZarrHandle::slice_grid`] return (#574).
+/// `NetcdfFile::slice_grid` and `ZarrStore::slice_grid` return (#574).
 ///
 /// A few answers and not the API's `Georef`, which carries the geometry itself:
 /// for a curvilinear slice that is every cell centre, and a global ocean mesh
@@ -3879,7 +3458,7 @@ pub struct SliceGrid {
     pub supports: serde_json::Value,
 }
 
-/// [`fieldglass::GridSupport::of`] a slice's geometry, in the wire form the
+/// `fieldglass::GridSupport::of` a slice's geometry, in the wire form the
 /// API's `GridSupport` declares.
 fn grid_support(geometry: &GridGeometry) -> serde_json::Value {
     serde_json::to_value(fieldglass::GridSupport::of(geometry)).expect("four booleans serialise")
@@ -3908,7 +3487,7 @@ fn field_values(field: &fieldglass::Field) -> Vec<Option<f64>> {
     cell_values(&field.values, &field.mask)
 }
 
-/// [`field_values`] over the two parts, for a display field as well (#1082).
+/// `field_values` over the two parts, for a display field as well (#1082).
 fn cell_values(values: &fieldglass::Values, mask: &[u8]) -> Vec<Option<f64>> {
     let dense: Vec<f64> = match values {
         fieldglass::Values::F64(v) => v.clone(),
@@ -3931,7 +3510,7 @@ fn cell_values(values: &fieldglass::Values, mask: &[u8]) -> Vec<Option<f64>> {
 ///
 /// Everything this used to decide now lives there: the tag vocabulary, the
 /// alignment gate, and the arithmetic. The gate is `PartialEq` on the two
-/// geometries, plus the raster shape and the scan order each [`Placed`] carries
+/// geometries, plus the raster shape and the scan order each `Placed` carries
 /// beside its geometry — the comparison the browser host makes too (#579). Both
 /// geometries are the ones the readers built, not ones rebuilt out of a flat
 /// DTO (#574), so a curvilinear pair compares the two cell-centre
@@ -3954,7 +3533,7 @@ fn combined_field(
     fieldglass::combine_values(&a.source(), raw_a, &b.source(), raw_b, op).into_napi()
 }
 
-/// [`combined_field`] followed by the ordinary render, against the **primary**
+/// `combined_field` followed by the ordinary render, against the **primary**
 /// field's placement. Because the combined field is just another
 /// `Vec<Option<f64>>`, projection, overlays, palette, scaling and manual bounds
 /// all apply unchanged.
@@ -3975,8 +3554,8 @@ fn render_combined(
 /// A refused colour range has to reach the panel as fields — which end, the
 /// value given, the field's own range — so it can point at the control that is
 /// wrong, and a `napi::Error` carries only a status and a reason. So the render
-/// path keeps the API's own [`fieldglass::Error`] until the `#[napi]` method,
-/// where [`throw`](Self::throw) builds the JS `Error` with `code` and
+/// path keeps the API's own `fieldglass::Error` until the `#[napi]` method,
+/// where `throw` builds the JS `Error` with `code` and
 /// `rangeRefusal` on it. Everything else is the `napi::Error` it always was.
 #[derive(Debug)]
 enum RenderError {
@@ -4004,7 +3583,7 @@ impl RenderError {
     ///
     /// An engine refusal is thrown here, as a JS `Error` whose `message` is
     /// the API's, with `code` (the API's stable code) and `rangeRefusal` (the
-    /// [`fieldglass::RangeRefusal`], or `null`) set on it. The error returned
+    /// `fieldglass::RangeRefusal`, or `null`) set on it. The error returned
     /// then says an exception is already pending, so napi-rs throws nothing
     /// over it.
     fn throw(self, env: &Env) -> napi::Error {
@@ -4072,14 +3651,14 @@ impl std::fmt::Display for RenderError {
 
 /// Paint a placed field.
 ///
-/// Given the projection pipeline's own [`Source`](fieldglass::Source), everything
+/// Given the projection pipeline's own `Source`, everything
 /// from here down is the engine's and this host's paint step. Every handle
-/// renders through this — the GRIB and NetCDF handles from a [`Placed`], the
+/// renders through this — the GRIB and NetCDF handles from a `Placed`, the
 /// Zarr handle from a decoded field's own placement (#659).
 ///
 /// The row-flip decision comes from the `Source`'s own scan.
 ///
-/// The colour range is [`fieldglass::colour_range`] over `raw`, the whole
+/// The colour range is `fieldglass::colour_range` over `raw`, the whole
 /// decoded field, before the warp: the rule `Session::render` follows, so a
 /// window, the output size or the resampling does not move the colours (#880
 /// item 6, #1155). It is resolved before the projection, so a refused range
@@ -4097,7 +3676,7 @@ fn render_from_source(
     )
 }
 
-/// [`render_from_source`] with the present-cell range the colour range is
+/// `render_from_source` with the present-cell range the colour range is
 /// taken from given, rather than read off `raw`: a display grid's is the full
 /// field's (#1082), which `raw` is not.
 fn render_over(
@@ -4182,7 +3761,7 @@ fn render_over(
     })
 }
 
-/// This host's [`RenderOptions`] as the engine's own plain-data form.
+/// This host's `RenderOptions` as the engine's own plain-data form.
 ///
 /// A field-by-field copy and nothing more: the vocabulary is the same on both
 /// sides, and `fieldglass::render::ResolvedOptions` is what turns the loose
@@ -4237,7 +3816,7 @@ struct Placed {
     /// Raster rows.
     nj: u32,
     /// The storage order the display consults — only
-    /// [`Scan::flips_source_rows`] and the combine gate read it.
+    /// `Scan::flips_source_rows` and the combine gate read it.
     scan: Scan,
     /// What the picker caption calls the family: the name the file declares,
     /// which the geometry deliberately collapses (a reduced grid arrives as its
@@ -4306,13 +3885,13 @@ fn overlay_from_source(
     fieldglass::render::overlay_polylines(source, &engine, latlon, ring_lengths).into_napi()
 }
 
-/// Hand the CSV text to Node as a `Buffer` (its UTF-8 bytes, moved not copied).
-/// Returning a `Buffer` rather than a `String` keeps the export on the UTF-8
+/// The CSV text as its UTF-8 bytes, moved not copied, which the handle hands to
+/// Node as a `Uint8Array`. Bytes rather than a `String` keep the export on the UTF-8
 /// side of the napi boundary: a `String` return would be widened to a UTF-16 JS
 /// string and then re-encoded to bytes for the file write, roughly tripling the
 /// transient memory of a large export (#341).
-fn csv_buffer(csv: String) -> napi::bindgen_prelude::Buffer {
-    csv.into_bytes().into()
+fn csv_buffer(csv: String) -> Vec<u8> {
+    csv.into_bytes()
 }
 
 /// A field's zonal mean — `fieldglass::render::zonal_mean` over this host's
@@ -4386,7 +3965,7 @@ fn project_vectors_impl(
 /// One line through a variable — a profile or a time series at a cell (#172).
 ///
 /// The napi spelling of `fieldglass::Line`: `values` beside a `mask` the way
-/// [`DecodedGrid`] carries them, with `NaN` at a masked point, so read `mask`
+/// `DecodedGrid` carries them, with `NaN` at a masked point, so read `mask`
 /// first. A line is one axis long, so plain arrays rather than typed ones.
 ///
 /// Every key is present, and a field with nothing to report is `null`, never
@@ -4611,12 +4190,12 @@ mod color_table_tests {
 /// The host seam of the reprojection rule. The rule itself is
 /// `GridGeometry::reprojectable` and is tested per family in `fieldglass-core`;
 /// these are the tests that a message's `reprojectable`, and a slice's
-/// [`SliceGrid`], reach it — including the case that used to need a second pass
+/// `SliceGrid`, reach it — including the case that used to need a second pass
 /// of its own, a grid whose spacings are fine and whose projection still places
 /// no point (#603, #610).
 #[cfg(test)]
 mod planar_offer_needs_a_placeable_projection_tests {
-    use super::{Grib1Handle, Grib2Handle, GridGeometry, Placed, Scan, SliceGrid};
+    use super::{Grib1File, Grib2File, GridGeometry, Placed, Scan, SliceGrid};
     use fieldglass::netcdf::{GeostationaryGrid, WrfLambertGrid, WrfPolarStereoGrid};
 
     /// What the panel is told about a slice resolved to this geometry — the
@@ -4903,7 +4482,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
     /// Through the handle, so the verdict is the one the extension actually
     /// receives rather than the one a mapping would give in isolation.
     fn grib1_reprojectable(grid_type: u8, body: &[u8]) -> bool {
-        Grib1Handle::from_vec(grib1_message_with_gds(grid_type, body))
+        Grib1File::from_vec(grib1_message_with_gds(grid_type, body))
             .expect("synthetic GRIB1 message opens")
             .info(0)
             .expect("message 0")
@@ -4970,7 +4549,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
         // a −i grid stays in its source projection: their inverse maps assume
         // columns run west to east. The lat/lon geometry is a real message's,
         // as `Session` places it.
-        let latlon = Grib2Handle::from_vec(
+        let latlon = Grib2File::from_vec(
             include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2")
                 .to_vec(),
         )
@@ -4991,14 +4570,14 @@ mod planar_offer_needs_a_placeable_projection_tests {
 
 #[cfg(test)]
 mod friendly_packing_tests {
-    use super::{Grib2Handle, friendly_packing, packing_label};
+    use super::{Grib2File, friendly_packing, packing_label};
 
     /// The message table labels a real message's `MessageInfo.packing` through
     /// the exported function, so the identifier the API reports is one the
     /// label table knows (#574).
     #[test]
     fn a_real_messages_packing_identifier_has_a_label() {
-        let info = Grib2Handle::from_vec(
+        let info = Grib2File::from_vec(
             include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2")
                 .to_vec(),
         )
@@ -5251,7 +4830,7 @@ mod overlay_projection_tests {
         }
     }
 
-    /// The row-flip decision, asked of the `Source` a [`Placed`] hands the
+    /// The row-flip decision, asked of the `Source` a `Placed` hands the
     /// renderer: the scan it carries is the one the source view flips by.
     #[test]
     fn the_source_scan_orients_south_to_north_grids() {
@@ -5308,7 +4887,7 @@ mod zarr_handle_tests {
     /// handle that holds a `Session` and nothing else.
     #[test]
     fn a_store_directory_opens_lists_and_renders() {
-        let handle = ZarrHandle::from_directory(STORE.to_string()).expect("the fixture is a store");
+        let handle = ZarrStore::from_directory(STORE.to_string()).expect("the fixture is a store");
 
         let vars = handle.variables();
         assert!(!vars.is_empty(), "the store lists variables");
@@ -5353,7 +4932,7 @@ mod zarr_handle_tests {
     /// the code tagged the way the schema states it (#1129).
     #[test]
     fn what_a_store_does_not_offer_crosses_with_its_code() {
-        let handle = ZarrHandle::from_directory(
+        let handle = ZarrStore::from_directory(
             "../fieldglass-zarr/tests/fixtures/stores/v2_problems".to_string(),
         )
         .expect("the store opens even so");
@@ -5394,7 +4973,7 @@ mod zarr_handle_tests {
     /// rather than opening an empty editor.
     #[test]
     fn a_directory_that_is_not_a_store_is_refused_by_name() {
-        let err = ZarrHandle::from_directory("../fieldglass-zarr/tests/fixtures".to_string())
+        let err = ZarrStore::from_directory("../fieldglass-zarr/tests/fixtures".to_string())
             .expect_err("not a store");
         let message = err.to_string();
         for marker in directory_store::ROOT_MARKERS {
@@ -5409,28 +4988,27 @@ mod zarr_handle_tests {
         );
 
         // The cheap question the folder picker asks first agrees with it.
-        assert!(!ZarrHandle::is_store(
+        assert!(!ZarrStore::is_store(
             "../fieldglass-zarr/tests/fixtures".to_string()
         ));
-        assert!(ZarrHandle::is_store(STORE.to_string()));
-        assert!(!ZarrHandle::is_store("../nowhere-at-all".to_string()));
+        assert!(ZarrStore::is_store(STORE.to_string()));
+        assert!(!ZarrStore::is_store("../nowhere-at-all".to_string()));
     }
 
     /// The store renders the same picture the NetCDF twin does.
     ///
     /// The strongest claim available for "a new decode path needs no render
     /// changes": one dataset written both ways, painted through two handles, and
-    /// the RGBA compared byte for byte. `ZarrHandle` goes through `Session` and
-    /// `NetcdfHandle` through its own reader and placement, so agreement here
+    /// the RGBA compared byte for byte. `ZarrStore` goes through `Session` and
+    /// `NetcdfFile` through its own reader and placement, so agreement here
     /// means the two routes really do meet.
     #[test]
     fn the_store_paints_what_its_netcdf_twin_paints() {
-        let zarr = ZarrHandle::from_directory(
-            "../fieldglass-zarr/tests/fixtures/stores/cf_v3".to_string(),
-        )
-        .expect("the store opens");
+        let zarr =
+            ZarrStore::from_directory("../fieldglass-zarr/tests/fixtures/stores/cf_v3".to_string())
+                .expect("the store opens");
         let twin = std::fs::read("../fieldglass-zarr/tests/fixtures/cf_twin.nc").expect("the twin");
-        let netcdf = NetcdfHandle::from_bytes(twin.into()).expect("the twin opens");
+        let netcdf = NetcdfFile::from_vec(twin).expect("the twin opens");
 
         let zv = zarr.variables();
         let nv = netcdf.variables();
@@ -5496,10 +5074,10 @@ mod netcdf_slice_tests {
 
     /// Build a handle from raw bytes without crossing the napi `Buffer` boundary
     /// (which would need a Node runtime) — mirrors `from_bytes`'s body.
-    fn handle(bytes: &[u8]) -> NetcdfHandle {
+    fn handle(bytes: &[u8]) -> NetcdfFile {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).unwrap();
         let view = reader.view().expect("dimension-scale resolution");
-        NetcdfHandle {
+        NetcdfFile {
             reader,
             view,
             planes: Mutex::new(crate::PlaneMemo::default()),
@@ -5592,8 +5170,8 @@ mod netcdf_slice_tests {
     const SPECTRAL_T63_GRIB1: &[u8] =
         include_bytes!("../../fieldglass-grib1/tests/fixtures/spectral_simple_t63.grib1");
 
-    fn grib2_handle(bytes: &[u8]) -> Grib2Handle {
-        Grib2Handle::from_vec(bytes.to_vec()).unwrap()
+    fn grib2_handle(bytes: &[u8]) -> Grib2File {
+        Grib2File::from_vec(bytes.to_vec()).unwrap()
     }
 
     /// The P1 edit is the only caller that needs the file's original octets,
@@ -5646,8 +5224,8 @@ mod netcdf_slice_tests {
         );
     }
 
-    fn grib1_handle(bytes: &[u8]) -> Grib1Handle {
-        Grib1Handle::from_vec(bytes.to_vec()).unwrap()
+    fn grib1_handle(bytes: &[u8]) -> Grib1File {
+        Grib1File::from_vec(bytes.to_vec()).unwrap()
     }
 
     #[test]
@@ -5850,7 +5428,7 @@ mod netcdf_slice_tests {
         let check = |edition: &str,
                      meta: &fieldglass::MessageInfo,
                      probed: Option<ProbeResult>,
-                     csv: napi::bindgen_prelude::Buffer| {
+                     csv: Vec<u8>| {
             let t = meta.truncation.as_ref().expect("a band-limited message");
             assert_eq!((t.truncated_to, t.declared), (359, 383), "{edition}");
             let p = probed.expect("on the grid");
@@ -6235,7 +5813,7 @@ mod netcdf_slice_tests {
     ///
     /// The per-property refusals are in
     /// `fieldglass::combine::tests::the_gate_names_the_property_that_differs`,
-    /// over the geometry itself; this is the seam between a [`Placed`] and it.
+    /// over the geometry itself; this is the seam between a `Placed` and it.
     #[test]
     fn the_handles_refuse_two_slices_that_do_not_align() {
         let grid = |ni: u32, nj: u32, lat_first: f64| {
@@ -6400,7 +5978,7 @@ mod netcdf_slice_tests {
         )
     }
 
-    /// [`latlon_spanning`] over lon 0→40.
+    /// `latlon_spanning` over lon 0→40.
     fn latlon_placed(ni: u32, nj: u32) -> Placed {
         latlon_spanning(ni, nj, 40.0)
     }
@@ -7217,12 +6795,12 @@ mod planar_geolocation_tests {
     const CMC_POLAR: &[u8] =
         include_bytes!("../../fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib");
 
-    fn grib2_handle(bytes: &[u8]) -> Grib2Handle {
-        Grib2Handle::from_vec(bytes.to_vec()).expect("grib2 parse")
+    fn grib2_handle(bytes: &[u8]) -> Grib2File {
+        Grib2File::from_vec(bytes.to_vec()).expect("grib2 parse")
     }
 
-    fn grib1_handle(bytes: &[u8]) -> Grib1Handle {
-        Grib1Handle::from_vec(bytes.to_vec()).expect("grib1 parse")
+    fn grib1_handle(bytes: &[u8]) -> Grib1File {
+        Grib1File::from_vec(bytes.to_vec()).expect("grib1 parse")
     }
 
     /// Message 0 of a GRIB2 fixture, resolved as every display entry point
@@ -7258,7 +6836,7 @@ mod planar_geolocation_tests {
     }
 
     /// The forward map the display path reads, restated here over the public
-    /// [`GridGeometry::forward_at`].
+    /// `GridGeometry::forward_at`.
     ///
     /// `fieldglass::render::forward_geolocation` is the real one and is private
     /// to that crate; the only thing it adds on top of `forward_at` is the
@@ -7945,12 +7523,12 @@ mod reduced_grid_render_tests {
     const GRIB2_O32: &[u8] =
         include_bytes!("../../fieldglass-grib2/tests/fixtures/octahedral_gaussian_o32.grib2");
 
-    fn grib2_handle(bytes: &[u8]) -> Grib2Handle {
-        Grib2Handle::from_vec(bytes.to_vec()).expect("grib2 parse")
+    fn grib2_handle(bytes: &[u8]) -> Grib2File {
+        Grib2File::from_vec(bytes.to_vec()).expect("grib2 parse")
     }
 
-    fn grib1_handle(bytes: &[u8]) -> Grib1Handle {
-        Grib1Handle::from_vec(bytes.to_vec()).expect("grib1 parse")
+    fn grib1_handle(bytes: &[u8]) -> Grib1File {
+        Grib1File::from_vec(bytes.to_vec()).expect("grib1 parse")
     }
 
     fn options(projection: &str) -> RenderOptions {
@@ -8205,7 +7783,7 @@ mod curvilinear_render_tests {
     /// antimeridian at 85 °S.
     const SWATH: &[u8] = include_bytes!("../../fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc");
 
-    fn nc(bytes: &[u8]) -> NetcdfHandle {
+    fn nc(bytes: &[u8]) -> NetcdfFile {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("fixture parses");
         // `view()` serves both backings, where the `from_hdf5` call this
         // replaced would have failed on a classic file. These fixtures are
@@ -8216,7 +7794,7 @@ mod curvilinear_render_tests {
             reader.backing.label()
         );
         let view = reader.view().expect("hdf5 metadata");
-        NetcdfHandle {
+        NetcdfFile {
             reader,
             view,
             planes: Mutex::new(crate::PlaneMemo::default()),
@@ -8226,10 +7804,7 @@ mod curvilinear_render_tests {
 
     /// `(handle, variable, y_dim, x_dim, slice_indices)` for the field each
     /// fixture is rendered by.
-    fn slice(
-        bytes: &[u8],
-        name: &str,
-    ) -> (NetcdfHandle, RenderableVariable, usize, usize, Vec<u32>) {
+    fn slice(bytes: &[u8], name: &str) -> (NetcdfFile, RenderableVariable, usize, usize, Vec<u32>) {
         let handle = nc(bytes);
         let var = handle
             .view
@@ -8680,14 +8255,14 @@ mod curvilinear_render_tests {
         assert_eq!(meta.label, "latlon");
     }
 
-    fn nc_classic(bytes: &[u8]) -> NetcdfHandle {
+    fn nc_classic(bytes: &[u8]) -> NetcdfFile {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("fixture parses");
         assert!(
             matches!(reader.backing, NetcdfBacking::Classic(_)),
             "expected a classic backing"
         );
         let view = reader.view().expect("classic view");
-        NetcdfHandle {
+        NetcdfFile {
             reader,
             view,
             planes: Mutex::new(crate::PlaneMemo::default()),
@@ -8706,8 +8281,8 @@ mod healpix_render_tests {
     const HEALPIX_N4: &[u8] =
         include_bytes!("../../fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2");
 
-    fn handle() -> Grib2Handle {
-        Grib2Handle::from_vec(HEALPIX_N4.to_vec()).expect("the HEALPix fixture opens")
+    fn handle() -> Grib2File {
+        Grib2File::from_vec(HEALPIX_N4.to_vec()).expect("the HEALPix fixture opens")
     }
 
     /// Where the fixture's values land, as every display entry point sees it.
@@ -8864,7 +8439,7 @@ mod message_wire_tests {
         include_bytes!("../../fieldglass-grib1/tests/fixtures/spectral_simple_t63.grib1");
 
     fn message() -> serde_json::Map<String, serde_json::Value> {
-        let handle = Grib1Handle::from_vec(SPECTRAL_GRIB1.to_vec()).expect("opens");
+        let handle = Grib1File::from_vec(SPECTRAL_GRIB1.to_vec()).expect("opens");
         match handle.message(0).expect("message 0") {
             serde_json::Value::Object(map) => map,
             other => panic!("MessageInfo crossed as {other:?}, not an object"),
@@ -8970,10 +8545,10 @@ mod message_wire_tests {
                 let name = path.display().to_string();
                 let handle = match fieldglass::detect_from_bytes(&bytes) {
                     fieldglass::Format::Grib1 => {
-                        Grib1Handle::from_vec(bytes.clone()).map(|h| h.stream)
+                        Grib1File::from_vec(bytes.clone()).map(|h| h.stream)
                     }
                     fieldglass::Format::Grib2 => {
-                        Grib2Handle::from_vec(bytes.clone()).map(|h| h.stream)
+                        Grib2File::from_vec(bytes.clone()).map(|h| h.stream)
                     }
                     _ => continue,
                 };
@@ -9033,7 +8608,7 @@ mod message_wire_tests {
         ] {
             for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
                 let bytes = with_template_float(path, offset, value);
-                let handle = Grib2Handle::from_vec(bytes.clone()).expect("opens");
+                let handle = Grib2File::from_vec(bytes.clone()).expect("opens");
                 let wire = handle.stream.message_info(0).expect("message 0");
                 let read_back: fieldglass::MessageInfo = serde_json::from_value(wire)
                     .unwrap_or_else(|e| panic!("{path} = {value}: does not read back ({e})"));
@@ -9078,9 +8653,11 @@ mod message_wire_tests {
                     (u64::from(ni), u64::from(nj)),
                     "{path} = {value}"
                 );
-                let d = handle.decode_grid(0).expect("decodes");
+                let d = handle
+                    .decode(0, &fieldglass::DecodeOptions::default())
+                    .expect("decodes");
                 assert_eq!(
-                    (d.width as u64, d.height as u64),
+                    (u64::from(d.ni), u64::from(d.nj)),
                     (u64::from(ni), u64::from(nj)),
                     "{path} = {value}"
                 );
@@ -9142,7 +8719,7 @@ mod message_wire_tests {
             }
             at += len;
         };
-        let handle = Grib2Handle::from_vec(bytes.clone()).expect("opens");
+        let handle = Grib2File::from_vec(bytes.clone()).expect("opens");
         let session = fieldglass::Session::open(bytes).expect("opens");
         let field = session
             .decode(0, &fieldglass::DecodeOptions::default())
@@ -9193,8 +8770,8 @@ mod sized_output_raster_tests {
     const GFS_C255: &[u8] =
         include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
 
-    fn handle() -> Grib2Handle {
-        Grib2Handle::from_vec(GFS_C255.to_vec()).expect("grib2 parse")
+    fn handle() -> Grib2File {
+        Grib2File::from_vec(GFS_C255.to_vec()).expect("grib2 parse")
     }
 
     /// A CONUS window, optionally at a named size.
@@ -9352,18 +8929,18 @@ mod sized_output_raster_tests {
 /// answer differently.
 #[cfg(test)]
 mod placement_tests {
-    use super::{Grib1Handle, Grib2Handle};
+    use super::{Grib1File, Grib2File};
     use fieldglass::{MessageInfo, Placement};
 
     fn grib2(bytes: &[u8]) -> MessageInfo {
-        Grib2Handle::from_vec(bytes.to_vec())
+        Grib2File::from_vec(bytes.to_vec())
             .expect("the fixture opens")
             .info(0)
             .expect("message 0")
     }
 
     fn grib1(bytes: &[u8]) -> MessageInfo {
-        Grib1Handle::from_vec(bytes.to_vec())
+        Grib1File::from_vec(bytes.to_vec())
             .expect("the fixture opens")
             .info(0)
             .expect("message 0")
@@ -9455,12 +9032,12 @@ mod placement_tests {
 }
 
 /// A NetCDF-4 / HDF5 slice with no coordinate arrays, through the real
-/// `NetcdfHandle`: a 10×10 raster that renders in grid coordinates and that
+/// `NetcdfFile`: a 10×10 raster that renders in grid coordinates and that
 /// nothing places, so `unplaceable`, not `no_raster` (#776), captioned `source`
 /// as every other host captions it (#574).
 #[cfg(test)]
 mod coordinate_less_slice_placement_tests {
-    use super::{NetcdfHandle, NetcdfReader};
+    use super::{NetcdfFile, NetcdfReader};
     use std::sync::Mutex;
 
     #[test]
@@ -9468,7 +9045,7 @@ mod coordinate_less_slice_placement_tests {
         let bytes = include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_v2_linkinfo.h5");
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("opens");
         let view = reader.view().expect("a view");
-        let handle = NetcdfHandle {
+        let handle = NetcdfFile {
             reader,
             view,
             planes: Mutex::new(crate::PlaneMemo::default()),
@@ -9559,13 +9136,13 @@ mod coordinate_less_slice_placement_tests {
     }
 }
 
-/// A §3 template this build does not model, through the real `Grib2Handle`:
+/// A §3 template this build does not model, through the real `Grib2File`:
 /// `unsupported`, which the extension does not offer to render (#776).
 /// Hand-built from the committed lat/lon fixture with its template renumbered
 /// to 3.4; no committed producer writes one.
 #[cfg(test)]
 mod unsupported_template_placement_tests {
-    use super::Grib2Handle;
+    use super::Grib2File;
 
     #[test]
     fn an_unmodelled_grib2_template_is_unsupported() {
@@ -9582,7 +9159,7 @@ mod unsupported_template_placement_tests {
             }
             at += len;
         }
-        let meta = Grib2Handle::from_vec(bytes)
+        let meta = Grib2File::from_vec(bytes)
             .expect("opens")
             .info(0)
             .expect("message 0");
@@ -9649,12 +9226,12 @@ mod paired_field_tests {
         file
     }
 
-    fn grib1() -> Grib1Handle {
-        Grib1Handle::from_vec(variants(GRIB1, grib1_scan_octet(GRIB1))).expect("opens")
+    fn grib1() -> Grib1File {
+        Grib1File::from_vec(variants(GRIB1, grib1_scan_octet(GRIB1))).expect("opens")
     }
 
-    fn grib2() -> Grib2Handle {
-        Grib2Handle::from_vec(variants(GRIB2, grib2_scan_octet(GRIB2))).expect("opens")
+    fn grib2() -> Grib2File {
+        Grib2File::from_vec(variants(GRIB2, grib2_scan_octet(GRIB2))).expect("opens")
     }
 
     fn assert_scan_refusal(result: Result<impl Sized, impl Into<napi::Error>>, flag: &str) {
@@ -9823,7 +9400,7 @@ mod component_frame_tests {
     /// the grid, every arrow's bearing was wrong, and nothing said so.
     #[test]
     fn a_pair_whose_component_frames_differ_is_refused() {
-        let h = Grib2Handle::from_vec(frames(HRRR, lambert_flags_octet(HRRR))).expect("opens");
+        let h = Grib2File::from_vec(frames(HRRR, lambert_flags_octet(HRRR))).expect("opens");
         for explicit in [None, Some(true), Some(false)] {
             assert_frame_refusal(h.project_vectors(0, 1, opts("source"), Some(8), explicit));
             assert_frame_refusal(h.project_vectors(1, 0, opts("source"), Some(8), explicit));
@@ -9836,7 +9413,7 @@ mod component_frame_tests {
 
         // The GRIB1 fixture is 8 × 5, so every cell is sampled; an agreeing
         // pair is drawn, not just accepted.
-        let g1 = Grib1Handle::from_vec(frames(GRIB1, grib1_flags_octet(GRIB1))).expect("opens");
+        let g1 = Grib1File::from_vec(frames(GRIB1, grib1_flags_octet(GRIB1))).expect("opens");
         assert_frame_refusal(g1.project_vectors(0, 1, opts("source"), Some(1), None));
         let drawn = g1
             .project_vectors(0, 2, opts("source"), Some(1), None)
@@ -9854,7 +9431,7 @@ mod component_frame_tests {
         let mut lambert = HRRR.to_vec();
         lambert[lambert_flags_octet(HRRR)] |= GRID_RELATIVE;
         // The lat/lon fixture states earth-relative components (§3 octet 55).
-        let h = Grib2Handle::from_vec([lambert, LATLON.to_vec()].concat()).expect("opens");
+        let h = Grib2File::from_vec([lambert, LATLON.to_vec()].concat()).expect("opens");
         let frame = |i| h.stream.session.message(i).unwrap().uv_relative_to_grid;
         assert_eq!((frame(0), frame(1)), (Some(true), Some(false)));
         let Err(e) = h.project_vectors(0, 1, opts("source"), Some(8), None) else {
@@ -9874,7 +9451,7 @@ mod component_frame_tests {
         small[grib1_flags_octet(GRIB1)] |= GRID_RELATIVE;
         let mut large = LFPW.to_vec();
         large[grib1_flags_octet(LFPW)] &= !GRID_RELATIVE;
-        let g1 = Grib1Handle::from_vec([small, large].concat()).expect("opens");
+        let g1 = Grib1File::from_vec([small, large].concat()).expect("opens");
         let frame = |i| g1.stream.session.message(i).unwrap().uv_relative_to_grid;
         assert_eq!((frame(0), frame(1)), (Some(true), Some(false)));
         let Err(e) = g1.project_vectors(0, 1, opts("source"), Some(8), None) else {
@@ -9892,7 +9469,7 @@ mod component_frame_tests {
     /// argument comes out as it does when the caller says so.
     #[test]
     fn an_omitted_frame_is_the_pairs_own() {
-        let h = Grib2Handle::from_vec(frames(HRRR, lambert_flags_octet(HRRR))).expect("opens");
+        let h = Grib2File::from_vec(frames(HRRR, lambert_flags_octet(HRRR))).expect("opens");
         let derived = h
             .project_vectors(0, 2, opts("source"), Some(8), None)
             .unwrap();
@@ -9940,7 +9517,7 @@ mod vector_pairing_tests {
 
     #[test]
     fn arrows_report_whether_their_messages_pair() {
-        let h = Grib2Handle::from_vec([gfs_as(2, 2), gfs_as(2, 3)].concat()).expect("opens");
+        let h = Grib2File::from_vec([gfs_as(2, 2), gfs_as(2, 3)].concat()).expect("opens");
         for (u, v, pairing) in [
             (0, 1, "recognised"),
             (1, 0, "swapped"),
@@ -9955,14 +9532,14 @@ mod vector_pairing_tests {
 
         // NCEP local codes no table names: can't tell (#1142).
         let unnamed =
-            Grib2Handle::from_vec([gfs_as(2, 250), gfs_as(2, 251)].concat()).expect("opens");
+            Grib2File::from_vec([gfs_as(2, 250), gfs_as(2, 251)].concat()).expect("opens");
         let arrows = unnamed
             .project_vectors(0, 1, opts("source"), Some(8), None)
             .expect("draws");
         assert_eq!(arrows.pairing, "unknown");
 
         // CMC's wind speed against itself, as `samples/0.6.0/cmc_pair.grib`.
-        let g1 = Grib1Handle::from_vec([CMC, CMC].concat()).expect("opens");
+        let g1 = Grib1File::from_vec([CMC, CMC].concat()).expect("opens");
         let arrows = g1
             .project_vectors(0, 1, opts("source"), Some(8), None)
             .expect("draws");
@@ -10048,8 +9625,8 @@ mod nothing_computed_tests {
         }
     }
 
-    fn hrrr() -> Grib2Handle {
-        Grib2Handle::from_bytes(HRRR.to_vec().into()).expect("HRRR opens")
+    fn hrrr() -> Grib2File {
+        Grib2File::from_vec(HRRR.to_vec()).expect("HRRR opens")
     }
 
     #[test]

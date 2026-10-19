@@ -134,40 +134,48 @@ classDiagram
 
 ## N-API boundary
 
-Each handle wraps a format reader and a memoized decode cache, and hands
-JavaScript plain metadata structs. Decoding a field caches it, so a second
-request for the same field is free. Both GRIB handles keep a second cache for
-the messages that carry no raster of their own and have to be put on one first:
-spectral coefficients, which are evaluated onto a fixed lat/lon grid, and (in
-`Grib2Handle`) HEALPix pixels, which are resampled onto one. Which families
-those are, and what grid each lands on, is the format reader's
-`synthesis_grid` / `synthesize_message_global` answer rather than the handle's,
-so `fieldglass::Session::decode` resolves through the same seam.
+The addon exports one `Handle`, as the browser module does (#1073). `open(bytes)`
+detects the format and `openStore(path)` opens a Zarr directory; either way the
+handle holds one per-container file, and every method dispatches to it. A GRIB
+file is a `fieldglass::Session` plus the value memo the extension's repaint loop
+needs (ADR-0011); a NetCDF file keeps its own reader and dataset view, a plane
+memo and the curvilinear index cache; a Zarr store is a `Session` alone. Which
+messages carry no raster of their own and have to be put on one first
+(spectral coefficients, HEALPix pixels) is the `Session`'s answer, not the
+handle's.
+
+The map pipeline (`renderGrid`, `probePixel`, `projectContours`, …) takes a
+target — a message index, a slice of a variable, or two of either combined — so
+one set of calls draws every container.
 
 ```mermaid
 classDiagram
-    class Grib1Handle {
-        -Vec~u8~ bytes
-        -Mutex~HashMap~ decoded
+    class Handle {
+        +open(bytes) Handle
+        +openStore(path) Handle
+        +close()
     }
-    class Grib2Handle {
-        -Mutex~HashMap~ decoded
-        -Mutex~HashMap~ synthesized
+    class Grib1File {
+        -Arc~u8~ bytes
     }
-    class NetcdfHandle {
+    class Grib2File
+    class NetcdfFile {
         -DatasetView view
-        -Mutex~HashMap~ decoded
+        -Mutex~PlaneMemo~ planes
     }
-    Grib1Handle *-- Grib1Reader
-    Grib2Handle *-- Grib2Reader
-    NetcdfHandle *-- NetcdfReader
-    Grib1Handle ..> DecodedGrid : produces
-    Grib2Handle ..> DecodedGrid : produces
-    Grib1Handle ..> RenderedGrid : produces
-    Grib2Handle ..> RenderedGrid : produces
-    Grib2Handle ..> DisplayGrid : decodeDisplay
-    NetcdfHandle ..> RenderedGrid : produces
-    NetcdfHandle ..> NetcdfVariableMeta : produces
+    class ZarrStore
+    Handle *-- Grib1File
+    Handle *-- Grib2File
+    Handle *-- NetcdfFile
+    Handle *-- ZarrStore
+    Grib1File *-- Session
+    Grib2File *-- Session
+    ZarrStore *-- Session
+    NetcdfFile *-- NetcdfReader
+    Handle ..> DecodedGrid : decode, decodeSlice
+    Handle ..> RenderedGrid : renderGrid
+    Handle ..> DisplayGrid : decodeDisplay
+    Handle ..> NetcdfVariableMeta : variables
     NetcdfReader ..> DatasetMeta : produces
 ```
 

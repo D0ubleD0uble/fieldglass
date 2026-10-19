@@ -230,7 +230,10 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
       check(`${name}: and names its key`, thrown?.message?.includes(`\`${gone.key}\``), thrown?.message);
       let slice;
       try {
-        forgot.decodeSlice(t2m.index, 1, 2, [window.time, 0, 0], null);
+        forgot.decodeSlice(
+          { variable: t2m.index, yDim: 1, xDim: 2, sliceIndices: [window.time, 0, 0] },
+          null,
+        );
       } catch (e) {
         slice = e;
       }

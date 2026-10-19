@@ -1467,6 +1467,39 @@
       ],
       "type": "object"
     },
+    "LineRequest": {
+      "additionalProperties": false,
+      "description": "Which line through a variable a host asks for: the variable, the axis to\nread along, and a position on every axis (#1073).\n\nWhat a JavaScript host's `decodeLine` takes as one object, where\n[`Session::decode_line`] takes the same three as arguments, for the reason\n[`SliceRequest`] gives. `slice_indices` holds one entry per axis, the one\nread along included and ignored. Every key is required and an unknown one\nis refused.",
+      "properties": {
+        "alongDim": {
+          "description": "The axis to read along, as a position in the variable's axes.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sliceIndices": {
+          "description": "A position on every axis of the variable, in its declared order, the\none read along ignored.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "variable": {
+          "description": "Which variable, as the host's `variables()` numbers it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "variable",
+        "alongDim",
+        "sliceIndices"
+      ],
+      "type": "object"
+    },
     "MessageIdentity": {
       "description": "The facts that make a GRIB message the same message in another copy of\nits file (#959): the parameter, the level, the reference time, the\nforecast step or time range, and the grid. This is how wgrib2 and\neccodes tell one field from another.\n\nTwo messages are the same message when their identities are equal. A\nhost holding message `i` of a file that changed on disk looks for its\nidentity among the new file's messages: exactly one match is that\nmessage, wherever it now sits; none means it is gone, and more than one\nthat the new file does not say which. Neither of the last two is\nresolved by position, since a position the new file reuses can hold a\ndifferent field.\n\nThe codes are as the message writes them, not the names a table gives\nthem, so two codes a table names alike stay apart. A file that states the\nsame level or step in other units or another scale factor does not\nmatch; refusing there is safe, and matching a different field is not.",
       "oneOf": [
@@ -2710,6 +2743,46 @@
       ],
       "type": "object"
     },
+    "SliceRequest": {
+      "additionalProperties": false,
+      "description": "Which slice of a variable a host asks for: the variable, its two image axes,\nand a position on every axis (#1073).\n\nWhat a JavaScript host's `decodeSlice` takes as one object, where\n[`Session::decode_slice`] takes the same four as arguments. The object is\nthe JS shape because four positional numbers are four chances to pass them\nin the wrong order, and the hosts take it identically so that code written\nagainst one reads against the other.\n\n`variable` is an index from the host's own `variables()` list: a position in\n[`Session::variables`] for the browser module, and the file's numbering that\nthe Node addon's list reports for a NetCDF file. `y_dim` and `x_dim` are\npositions in that variable's axes, and `slice_indices` holds **one entry per\naxis** in the same order, the two image axes ignored rather than absent.\n\n**On the wire** it is a camelCase object. Every key is required and an\nunknown one is refused: a misspelt `sliceIndex` dropped silently would\ndecode the first time step and label it the one asked for.",
+      "properties": {
+        "sliceIndices": {
+          "description": "A position on every axis of the variable, in its declared order, the two\nimage axes ignored.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "variable": {
+          "description": "Which variable, as the host's `variables()` numbers it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "xDim": {
+          "description": "Which of its axes runs across the columns.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "yDim": {
+          "description": "Which of its axes runs down the rows.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "variable",
+        "yDim",
+        "xDim",
+        "sliceIndices"
+      ],
+      "type": "object"
+    },
     "SourceFormat": {
       "description": "The container a session was opened from.\n\nNamed for the source rather than `Format` so it does not collide with\n`core`'s detection enum, which also answers NetCDF and \"unknown\" — this\none enumerates only what a session can actually be.\n\n**Not gated by the format features (#552).** It is the wire vocabulary a\nhost compares strings against, and dropping a variant with its decoder\nwould change the JSON schema for every consumer of the shipped\ndeclarations. A build without `grib1` simply never constructs\n[`SourceFormat::Grib1`], because it never opens a session over one.",
       "oneOf": [
@@ -3448,6 +3521,7 @@
       "LeftOutArray",
       "LeftOutCause",
       "Line",
+      "LineRequest",
       "MessageIdentity",
       "MessageInfo",
       "MessageProbe",
@@ -3462,6 +3536,7 @@
       "RangeSource",
       "Raster",
       "RenderOptions",
+      "SliceRequest",
       "SourceFormat",
       "SpectralTruncation",
       "StatisticalStep",

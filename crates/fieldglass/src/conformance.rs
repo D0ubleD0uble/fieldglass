@@ -150,6 +150,13 @@ pub enum Op {
     Variables,
     /// [`Session::dimensions`].
     Dimensions,
+    /// [`Session::left_out`]: the arrays a container holds and this build will
+    /// not read, each with its reason and `cause` (#709, #1129). Both hosts bind
+    /// it as `leftOut()`, for every format (#1073).
+    LeftOut,
+    /// [`Session::undrawable`]: the arrays a container reads that no map can be
+    /// drawn from (#1129), bound as `undrawable()` on both hosts (#1073).
+    Undrawable,
     /// [`Session::decode_slice`], with [`Args::variable`], [`Args::y_dim`],
     /// [`Args::x_dim`] and [`Args::slice_indices`].
     DecodeSlice,
@@ -672,6 +679,12 @@ pub fn cases() -> Vec<Case> {
         push("open", Op::Open, Args::default());
         push("variables", Op::Variables, Args::default());
         push("dimensions", Op::Dimensions, Args::default());
+        // What the listing leaves out, and why: both hosts' `leftOut()` and
+        // `undrawable()` (#1073). Neither subject leaves an array out, and both
+        // hold coordinate arrays no map is drawn from, so between them and the
+        // `unsupported_type` subject below every list is pinned empty and not.
+        push("left_out", Op::LeftOut, Args::default());
+        push("undrawable", Op::Undrawable, Args::default());
         for variable in 0..*variables {
             push(
                 &format!("decode_slice/{variable}"),
@@ -1106,6 +1119,27 @@ pub fn cases() -> Vec<Case> {
         op: Op::DecodeSlice,
         args: slice(0, vec![0, 0]),
     });
+
+    // A NetCDF-4 file with a compound and a variable-length variable this build
+    // does not decode: the one subject whose `leftOut()` is not empty, so the
+    // reason and the `cause` a host shows for each are held to one recording
+    // (#1073). And a message stream, which answers both lists empty rather
+    // than refusing the question.
+    let unsupported = format!("{NC}netcdf4_unsupported_type.nc");
+    let stream = format!("{G2}regular_latlon_surface.grib2");
+    for (id, fixture, op) in [
+        ("unsupported_type/left_out", &unsupported, Op::LeftOut),
+        ("unsupported_type/undrawable", &unsupported, Op::Undrawable),
+        ("latlon/left_out", &stream, Op::LeftOut),
+        ("latlon/undrawable", &stream, Op::Undrawable),
+    ] {
+        out.push(Case {
+            id: id.to_string(),
+            fixture: fixture.clone(),
+            op,
+            args: Args::default(),
+        });
+    }
 
     // A slice with no coordinates at all: a 10×10 HDF5 dataset nothing places,
     // which renders in grid coordinates. Its georef records `unplaceable`, the
@@ -1738,6 +1772,8 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         }
         Op::Variables => value_of(&session.variables()),
         Op::Dimensions => value_of(&session.dimensions()),
+        Op::LeftOut => value_of(&session.left_out()),
+        Op::Undrawable => value_of(&session.undrawable()),
         Op::DecodeSlice => {
             // Missing rather than defaulted, for the reason `combine_op` is: a
             // slice case that lost an axis would otherwise record a real field

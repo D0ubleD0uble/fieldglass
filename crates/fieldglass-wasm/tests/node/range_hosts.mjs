@@ -6,7 +6,7 @@
 //   node crates/fieldglass-wasm/tests/node/range_hosts.mjs [--addon <path>] [--pkg <dir>]
 //
 // The browser module's `render`, `palette`, `renderDisplay` and
-// `paletteDisplay`, against the Node addon's `renderGrid` and `renderDisplay`
+// `paletteDisplay`, against the Node addon's `renderGrid` and `renderDisplayGrid`
 // in the source projection, where a pixel is a cell and the two count the same
 // cells. Field and options in, and the whole `ColourRange` out must be
 // identical: the ends, which were given, the center, and the counts. A range
@@ -150,16 +150,16 @@ function compareHosts(label, nodeRender, browserRender, browserPalette, lo, hi) 
 }
 
 // --- whole fields ----------------------------------------------------------
-for (const [file, Handle] of [
-  [join(G2, 'gfs_c255_latlon.grib2'), native.Grib2Handle],
-  [join(G2, 'regular_latlon_surface.grib2'), native.Grib2Handle],
-  [join(G2, 'log_negative_regular_latlon.grib2'), native.Grib2Handle],
-  [join(G2, 'rap_jpeg2000_lambert.grib2'), native.Grib2Handle],
-  [join(G1, 'ecmwf_lfpw_msg0.grib1'), native.Grib1Handle],
+for (const file of [
+  join(G2, 'gfs_c255_latlon.grib2'),
+  join(G2, 'regular_latlon_surface.grib2'),
+  join(G2, 'log_negative_regular_latlon.grib2'),
+  join(G2, 'rap_jpeg2000_lambert.grib2'),
+  join(G1, 'ecmwf_lfpw_msg0.grib1'),
 ]) {
   const bytes = readFileSync(file);
   const label = file.split('/').pop();
-  const nodeHandle = Handle.fromBytes(bytes);
+  const nodeHandle = native.open(bytes);
   const handle = wasm.open(new Uint8Array(bytes));
   const field = handle.decode(0, { dtype: 'f64' });
   const { min: lo, max: hi } = field.stats();
@@ -175,7 +175,7 @@ for (const [file, Handle] of [
   // Contours refuse what the render refuses, in the same fields (#1156: the
   // addon's used to arrive as prose alone).
   const { node, browser } = spellings({ min: hi, max: lo });
-  const ne = thrown(() => nodeHandle.projectContours(0, node, null));
+  const ne = thrown(() => nodeHandle.projectContours(0, node));
   const be = thrown(() => handle.contours(field, new Float64Array([]), browser));
   same(`${label} contours: refused alike`, ne && { code: ne.code, rangeRefusal: ne.rangeRefusal }, be && {
     code: be.code,
@@ -189,7 +189,7 @@ for (const [file, Handle] of [
 // --- a field decoded to draw (#1082) -----------------------------------------
 {
   const bytes = readFileSync(join(G2, 'rap_jpeg2000_lambert.grib2'));
-  const nodeHandle = native.Grib2Handle.fromBytes(bytes);
+  const nodeHandle = native.open(bytes);
   const handle = wasm.open(new Uint8Array(bytes));
   const full = handle.decode(0, { dtype: 'f64' });
   const stats = full.stats();
@@ -197,7 +197,7 @@ for (const [file, Handle] of [
   const nodeCoarse = nodeHandle.decodeDisplay(0, { reduce: 1 });
   compareHosts(
     'rap reduce 1',
-    (o) => nodeHandle.renderDisplay(nodeCoarse, stats, o),
+    (o) => nodeHandle.renderDisplayGrid(nodeCoarse, stats, o),
     (o) => handle.renderDisplay(coarse, stats, o, false),
     (o) => handle.paletteDisplay(coarse, stats, o),
     stats.min,

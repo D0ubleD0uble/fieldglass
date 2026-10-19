@@ -52,8 +52,8 @@ for (const rel of SAMPLES) {
   const path = require_file(join(repoRoot, rel), `tools/fetch_samples.sh ${rel.split('/')[1].split('.')[0]}`);
   const bytes = readFileSync(path);
 
-  const nativeHandle = native.Grib2Handle.fromBytes(bytes);
-  const nativeGrid = nativeHandle.decodeGrid(0);
+  const nativeHandle = native.open(bytes);
+  const nativeGrid = nativeHandle.decode(0, { dtype: 'f64' });
 
   const handle = wasm.open(new Uint8Array(bytes));
   const field = handle.decode(0, { dtype: 'f64' });
@@ -61,9 +61,9 @@ for (const rel of SAMPLES) {
   const label = rel;
   const problems = [];
 
-  if (field.ni() !== nativeGrid.width || field.nj() !== nativeGrid.height) {
+  if (field.ni() !== nativeGrid.ni || field.nj() !== nativeGrid.nj) {
     problems.push(
-      `dimensions: wasm ${field.ni()}x${field.nj()}, native ${nativeGrid.width}x${nativeGrid.height}`,
+      `dimensions: wasm ${field.ni()}x${field.nj()}, native ${nativeGrid.ni}x${nativeGrid.nj}`,
     );
   }
 

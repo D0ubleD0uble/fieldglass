@@ -12,8 +12,8 @@ use fieldglass::{RangeEnd, RangeRefusalReason, RangeSource};
 
 const GFS: &[u8] = include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
 
-fn gfs() -> Grib2Handle {
-    Grib2Handle::from_bytes(GFS.to_vec().into()).expect("GFS opens")
+fn gfs() -> Grib2File {
+    Grib2File::from_vec(GFS.to_vec()).expect("GFS opens")
 }
 
 fn with_range(min: Option<f64>, max: Option<f64>) -> RenderOptions {
@@ -43,7 +43,7 @@ fn refused(r: Result<RenderedGrid, RenderError>) -> (String, fieldglass::RangeRe
 }
 
 /// The field's own present-cell range, as the decoded values hold it.
-fn field_range(h: &Grib2Handle) -> (f64, f64) {
+fn field_range(h: &Grib2File) -> (f64, f64) {
     let (raw, _) = h.resolved(0).expect("message 0");
     fieldglass::min_max_ignoring_mask(raw.iter().copied()).expect("present cells")
 }
@@ -298,7 +298,7 @@ const MANUAL_LEVELS: [f64; 5] = [65000.0, 70000.0, 75000.0, 80000.0, 85000.0];
 /// around it, with an interval that puts one level inside that range and none
 /// at its ends, then the runs of each in order. Equal runs mean the same
 /// levels, since a level's isolines depend on that level and the field alone.
-fn runs_at(h: &Grib2Handle, levels: &[f64]) -> (Vec<f64>, Vec<u32>) {
+fn runs_at(h: &Grib2File, levels: &[f64]) -> (Vec<f64>, Vec<u32>) {
     let (mut xy, mut lengths) = (Vec::new(), Vec::new());
     for &level in levels {
         let one = h
@@ -372,7 +372,7 @@ fn contours_refuse_a_range_in_the_renders_fields() {
         g2.project_contours_combined(0, 0, "a_plus_b".to_string(), inverted(), None),
     );
 
-    let g1 = Grib1Handle::from_vec(
+    let g1 = Grib1File::from_vec(
         include_bytes!("../../fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1").to_vec(),
     )
     .expect("GRIB1 opens");
@@ -383,10 +383,8 @@ fn contours_refuse_a_range_in_the_renders_fields() {
         g1.project_contours_combined(0, 0, "a_plus_b".to_string(), refuse_g1(), None),
     );
 
-    let nc = NetcdfHandle::from_bytes(
-        include_bytes!("../../fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc")
-            .to_vec()
-            .into(),
+    let nc = NetcdfFile::from_vec(
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc").to_vec(),
     )
     .expect("NetCDF opens");
     let var = nc
@@ -420,7 +418,7 @@ fn contours_refuse_a_range_in_the_renders_fields() {
     );
 
     let zarr =
-        ZarrHandle::from_directory("../fieldglass-zarr/tests/fixtures/stores/cf_v3".to_string())
+        ZarrStore::from_directory("../fieldglass-zarr/tests/fixtures/stores/cf_v3".to_string())
             .expect("the store opens");
     let t = zarr
         .variables()

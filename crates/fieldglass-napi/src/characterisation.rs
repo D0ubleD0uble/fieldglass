@@ -93,7 +93,7 @@
 //! fields is recorded too, with its resolved geometry, a source-projection
 //! render and an equirectangular render.
 //!
-//! [`DEEP_FIELDS`] then names 17 of them and gives each the full matrix: every
+//! `DEEP_FIELDS` then names 17 of them and gives each the full matrix: every
 //! target projection under both resamplings, three manual render windows, the
 //! flipped source view, probes, contours and both CSV formats. That is where
 //! the per-family warp setups actually differ. Running the matrix over all 144
@@ -179,7 +179,7 @@ const PROBE_PIXELS: [(u32, u32); 4] = [(0, 0), (7, 3), (359, 180), (719, 719)];
 /// points take.
 ///
 /// Written out rather than derived from `CombineOp::ALL` for the reason
-/// [`PROJECTIONS`] is: the recording has to move when the vocabulary does, and a
+/// `PROJECTIONS` is: the recording has to move when the vocabulary does, and a
 /// list derived from the enum would silently grow a case instead.
 const COMBINE_OPS: [&str; 5] = ["a_minus_b", "b_minus_a", "a_plus_b", "mean", "ratio"];
 
@@ -187,7 +187,7 @@ const COMBINE_OPS: [&str; 5] = ["a_minus_b", "b_minus_a", "a_plus_b", "mean", "r
 /// `(lat_min, lat_max, lon_min, lon_max)`, in degrees.
 type Window = (f64, f64, f64, f64);
 
-/// One of [`WINDOWS`]: its name in a case id, and the box itself.
+/// One of `WINDOWS`: its name in a case id, and the box itself.
 type NamedWindow = (&'static str, Window);
 
 /// One fixture directory: the prefix its fields carry in a field id, the path,
@@ -313,7 +313,7 @@ fn options(projection: &str, resampling: &str) -> RenderOptions {
     }
 }
 
-/// `options`, with one of [`WINDOWS`] filled in.
+/// `options`, with one of `WINDOWS` filled in.
 fn windowed(projection: &str, resampling: &str, window: Window) -> RenderOptions {
     let (lat_min, lat_max, lon_min, lon_max) = window;
     RenderOptions {
@@ -327,11 +327,11 @@ fn windowed(projection: &str, resampling: &str, window: Window) -> RenderOptions
 
 /// One field of the corpus, borrowed from the handle that owns its file.
 enum Subject<'a> {
-    Grib1(&'a Grib1Handle, u32),
-    Grib2(&'a Grib2Handle, u32),
+    Grib1(&'a Grib1File, u32),
+    Grib2(&'a Grib2File, u32),
     /// A NetCDF slice: variable, image axes, and the held index of every other
     /// dimension.
-    Netcdf(&'a NetcdfHandle, u32, u32, u32, Vec<u32>),
+    Netcdf(&'a NetcdfFile, u32, u32, u32, Vec<u32>),
 }
 
 impl Subject<'_> {
@@ -398,7 +398,7 @@ impl Subject<'_> {
         drawn.map_err(Into::into)
     }
 
-    fn csv(&self, format: &str) -> napi::Result<napi::bindgen_prelude::Buffer> {
+    fn csv(&self, format: &str) -> napi::Result<Vec<u8>> {
         let format = format.to_string();
         match self {
             Self::Grib1(h, i) => h.export_csv(*i, format),
@@ -541,7 +541,7 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
         for path in fixtures(CORPUS[0].1, extension) {
             let file = format!("grib1/{}", stem(&path));
             let bytes = std::fs::read(&path).expect("fixture bytes");
-            let Ok(handle) = Grib1Handle::from_vec(bytes) else {
+            let Ok(handle) = Grib1File::from_vec(bytes) else {
                 f(
                     file,
                     Visit::File {
@@ -570,7 +570,7 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
     for path in fixtures(CORPUS[1].1, CORPUS[1].2[0]) {
         let file = format!("grib2/{}", stem(&path));
         let bytes = std::fs::read(&path).expect("fixture bytes");
-        let Ok(handle) = Grib2Handle::from_vec(bytes) else {
+        let Ok(handle) = Grib2File::from_vec(bytes) else {
             f(
                 file,
                 Visit::File {
@@ -613,7 +613,7 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
             // that will not resolve leaves the picker empty rather than failing
             // the open. The file's line records that it resolved to nothing.
             let view = reader.view().unwrap_or_default();
-            let handle = NetcdfHandle {
+            let handle = NetcdfFile {
                 reader,
                 view,
                 planes: Mutex::new(crate::PlaneMemo::default()),
@@ -830,7 +830,7 @@ fn render_row(subject: &Subject<'_>, o: RenderOptions) -> Row {
     rendered_row(subject.render(o))
 }
 
-/// [`render_row`] over a raster the caller already asked for, so the ordinary
+/// `render_row` over a raster the caller already asked for, so the ordinary
 /// render and the combined one fold identically.
 fn rendered_row(result: napi::Result<RenderedGrid>) -> Row {
     let rendered = match result {
@@ -879,8 +879,8 @@ fn probe_row(subject: &Subject<'_>, o: RenderOptions, px: u32, py: u32) -> Row {
     probed_row(subject.probe(o, px, py))
 }
 
-/// [`probe_row`] over a readout the caller already asked for — see
-/// [`rendered_row`].
+/// `probe_row` over a readout the caller already asked for — see
+/// `rendered_row`.
 fn probed_row(result: napi::Result<Option<ProbeResult>>) -> Row {
     let probed = match result {
         Ok(p) => p,
@@ -938,8 +938,8 @@ fn contour_row(subject: &Subject<'_>, o: RenderOptions) -> Row {
     contoured_row(subject.contours(o))
 }
 
-/// [`contour_row`] over an overlay the caller already asked for — see
-/// [`rendered_row`].
+/// `contour_row` over an overlay the caller already asked for — see
+/// `rendered_row`.
 fn contoured_row(result: napi::Result<ProjectedOverlay>) -> Row {
     let overlay = match result {
         Ok(c) => c,

@@ -160,7 +160,7 @@ try {
       '): Promise<[MessageInfo, MessageProbe | null, FullDetail | null]> {',
       '  await init();',
       '  const handle = open(bytes);',
-      '  return [handle.message(0), handle.probeMessage(0, 45.5, 120), handle.fullDetail(0, 45.5, 120)];',
+      '  return [handle.message(0), handle.probeMessage(0, 45.5, 120), handle.probeFullDetail(0, 45.5, 120)];',
       '}',
       '',
       '// A field decoded to draw is not a field (#1082). Each misuse below must be',
@@ -301,10 +301,12 @@ try {
   check('netcdf addressing', dataset.addressing() === 'variables', dataset.addressing());
   const [variable] = dataset.variables();
   const slice = dataset.decodeSlice(
-    variable.index,
-    0,
-    1,
-    new Uint32Array(variable.dims.length),
+    {
+      variable: variable.index,
+      yDim: 0,
+      xDim: 1,
+      sliceIndices: new Array(variable.dims.length).fill(0),
+    },
     {},
   );
   check('netcdf raster', slice.ni() === 4 && slice.nj() === 3, `${slice.ni()}x${slice.nj()}`);
