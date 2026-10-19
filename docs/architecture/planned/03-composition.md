@@ -236,7 +236,9 @@ classDiagram
         no cache
         +count() u32
         +message(i) JSON
-        +decode(i, opts) Field | DisplayField
+        +decode(i, opts) Field
+        +decodeDisplay(i, opts) DisplayField — #1082
+        +renderDisplay / warpDisplay / paletteDisplay(display, full stats, opts)
         +warp(field, opts) Field
         +render(field, opts) RGBA
         +palette(opts) Palette
@@ -253,9 +255,11 @@ classDiagram
         +Stats stats
     }
     class DisplayField {
-        <<planned #463 — the host half; grib2 has DisplayRaster>>
+        <<built #1082 — over the grib2 DisplayRaster>>
         reduced-resolution decode: render and warp only
         +Georef grid (derived, not the GDS)
+        +u8 reduction
+        no Stats — the caller supplies the full field stats
     }
     class Error {
         <<planned #464, crate fieldglass>>
@@ -275,8 +279,10 @@ classDiagram
         <<planned #464, crate fieldglass>>
         +open(bytes)
         +count() / message(i)
-        +decode(i, opts) Field | DisplayField
+        +decode(i, opts) Field
+        +decode_display(i, opts) DisplayField
         +warp / render / palette / probe / contours / combine / overlay / csv
+        +warp_display / render_display / palette_display
     }
     class ConformanceSuite {
         <<planned #464, crate fieldglass>>

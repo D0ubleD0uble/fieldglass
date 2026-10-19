@@ -165,6 +165,7 @@ classDiagram
     Grib2Handle ..> DecodedGrid : produces
     Grib1Handle ..> RenderedGrid : produces
     Grib2Handle ..> RenderedGrid : produces
+    Grib2Handle ..> DisplayGrid : decodeDisplay
     NetcdfHandle ..> RenderedGrid : produces
     NetcdfHandle ..> NetcdfVariableMeta : produces
     NetcdfReader ..> DatasetMeta : produces
