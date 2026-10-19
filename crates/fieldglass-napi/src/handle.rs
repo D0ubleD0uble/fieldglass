@@ -1954,6 +1954,58 @@ mod tests {
         assert_eq!(from_store, from_twin);
     }
 
+    /// A GRIB1 file's combined zonal mean (#1208): a message and itself
+    /// summed is twice it, and their ratio is one wherever the message is not
+    /// zero.
+    #[test]
+    fn a_grib1_combined_zonal_mean_reads_the_combined_map() {
+        let one: &[u8] =
+            include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
+        let pair = Handle::from_vec([one, one].concat()).expect("opens");
+        let single = points(&pair.zonal_mean(json!(0)).expect("one message"));
+        assert!(single.iter().any(Option::is_some), "a zonal mean");
+        let sum = pair
+            .zonal_mean(json!({ "a": 0, "b": 1, "op": "a_plus_b" }))
+            .expect("the sum");
+        let doubled: Vec<Option<f64>> = single.iter().map(|v| v.map(|v| 2.0 * v)).collect();
+        assert_eq!(points(&sum), doubled);
+        let mean = pair
+            .zonal_mean(json!({ "a": 0, "b": 1, "op": "mean" }))
+            .expect("the mean");
+        assert_eq!(
+            points(&mean),
+            single,
+            "the mean of a message and itself is the message"
+        );
+    }
+
+    /// A combined zonal mean of two fields that do not line up is refused, as
+    /// the combined map is: two GRIB1 grids, or two slices on other axes.
+    #[test]
+    fn a_combined_zonal_mean_of_misaligned_fields_is_refused() {
+        let latlon: &[u8] =
+            include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
+        let gaussian: &[u8] =
+            include_bytes!("../../fieldglass-grib1/tests/fixtures/reduced_gg_n32.grib1");
+        let pair = Handle::from_vec([latlon, gaussian].concat()).expect("opens");
+        let e = pair
+            .zonal_mean(json!({ "a": 0, "b": 1, "op": "a_minus_b" }))
+            .expect_err("two grids");
+        // The words the alignment gate uses for the map, which is refused too.
+        assert!(e.to_string().contains("different grids"), "{e}");
+        let render = pair
+            .render_grid(json!({ "a": 0, "b": 1, "op": "a_minus_b" }), opts("source"))
+            .expect_err("the map is refused too");
+        assert!(render.to_string().contains("different grids"), "{render}");
+
+        let (handle, sst, _) = ersst();
+        let other = json!({ "variable": sst, "yDim": 3, "xDim": 2, "sliceIndices": [0, 0, 0, 0] });
+        let e = handle
+            .zonal_mean(json!({ "a": slice(sst), "b": other, "op": "a_minus_b" }))
+            .expect_err("two slices on other axes");
+        assert_eq!(code(&e), Some("invalid_option"), "{e}");
+    }
+
     #[test]
     fn a_combined_line_reads_strictly() {
         let (handle, sst, ssta) = ersst();
