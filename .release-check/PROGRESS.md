@@ -41,6 +41,33 @@ which is the refusal §39 expects.
   Opening a file from the CLI into a running dev host reloads it, so close the
   window first.
 
+## Claude pass (automated, before pass 2)
+
+Run 2026-10-19 on master `957ef367` by Claude, driving the dev host on a
+private X display (xdotool + screenshots), with numbers checked against the
+files (netCDF4, eccodes, the T383 oracle). It does not replace pass 2: the
+owner runs that by hand. Full per-check notes: `claude-pass-2026-10-19.md`.
+
+| Sections | Result |
+|---|---|
+| §0–§6, §8–§31, §33–§40, §42, §43, §45, §46 | pass, with findings below |
+| §7 | pass except §7.8 (C4: cannot be met by hand) |
+| §32 | pass; "60,000,000 records" not shown (P3) |
+| §41 | FAIL on a map projection (C12) |
+| §44 | pass on a local `pack.sh` build (no dry run since 31bbe97e) and SwiftShader, not a real GPU |
+
+Findings, all filed in 0.6.0 on 2026-10-19: C1 Resampling on cell-centre
+grids (#1225); C2 very thin slice draws a broken tall box (#1226); C3 held
+playback range vs tab switch (#1227); C5 first wheel tick shifts the map
+(#1228); C6 unrounded coordinate ticks (#1229); C7/C9 panel labels after a
+file change (#1230); C8 leading "/" on the grouped file page (#1231); C10
+doubled "Error:", empty colour bar, unrounded bound (#1053, pulled in); C11
+long attribute tooltip cut (#1232); C12 palette repaint re-warps (#1233); C13
+Zonal does not untick Line plot (#1234); C4 and P1–P4 plan wording (#1235).
+
+All of them were fixed and merged on master by 2026-10-20, along with the 0.6.0
+follow-ups their reviews found. Pass 2 runs on that master.
+
 ## Pass 1 result
 
 | Section | Result | Notes / issues |
