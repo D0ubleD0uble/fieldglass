@@ -7,9 +7,16 @@
 // was a strip 4 px tall whose rows were a pixel or two each. Now the image
 // is never drawn more than eight times as long one way as the other, so its
 // cells stretch to stay visible, and a click still reads the cell under it.
-// An ordinary aspect keeps the raster's own.
+// A tall one is drawn to the page's height, not eight panel widths. An
+// ordinary aspect keeps the raster's own.
 //
-// Driven through the real panel over a classic NetCDF file written for the
+// A lat/lon map (Equirectangular, Web Mercator) is not stretched: its
+// raster has the shape of its grid or its window, and the arrows are laid
+// out in square pixels of it, so a belt round the globe from 20° S to 20° N
+// keeps its own shape. A tall map keeps its shape too, and is held to the
+// page's height.
+//
+// Driven through the real panel over classic NetCDF files written for the
 // test: the box measured is the page's own canvas, and the cell read is the
 // one the provider answers for.
 
@@ -66,7 +73,24 @@ interface Drawn {
   /** The image's content box on the page, inside its 1 px border. */
   width: number;
   height: number;
+  /** The page's height. */
+  viewport: number;
   close: () => void;
+}
+
+/** The image as laid out, once it is: its content box and the page's height. */
+async function laidOut(panel: RealPanel): Promise<{ width: number; height: number; viewport: number }> {
+  let image: Box | undefined;
+  let viewport = 0;
+  for (let i = 0; i < 50; i++) {
+    const state = await panel.drive([]);
+    image = state.image;
+    viewport = state.viewportHeight;
+    if (image && image.right - image.left > 2 && image.bottom - image.top > 2) break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.ok(image, "the panel reports its image");
+  return { width: image.right - image.left - 2, height: image.bottom - image.top - 2, viewport };
 }
 
 /** Open the file and draw `name`; the image as laid out. */
@@ -88,22 +112,7 @@ async function draw(name: string): Promise<Drawn> {
   };
   try {
     const grid = await panel.waitSent(isType("gridReady"), 0, `${name} drawn`);
-    // The image laid out at the size the render gave it.
-    let image: Box | undefined;
-    for (let i = 0; i < 50; i++) {
-      const state = await panel.drive([]);
-      image = state.rails?.image;
-      if (image && image.right - image.left > 2 && image.bottom - image.top > 2) break;
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    assert.ok(image, "the slice panel reports its image");
-    return {
-      panel,
-      grid,
-      width: image.right - image.left - 2,
-      height: image.bottom - image.top - 2,
-      close,
-    };
+    return { panel, grid, ...(await laidOut(panel)), close };
   } catch (err) {
     close();
     throw err;
@@ -124,11 +133,21 @@ async function click(panel: RealPanel, fx: number, fy: number): Promise<{ asked:
 /** The image is no more than {@link MOST} times as long one way as the other
  *  (a pixel either way for rounding), so the page can paint it and each cell
  *  across its short side is a band a user can see. */
-function assertPaintable(d: Drawn, what: string): void {
+function assertPaintable(d: { width: number; height: number }, what: string): void {
   assert.ok(
     d.height <= MOST * d.width + 1 && d.width <= MOST * d.height + 1,
     `${what}: the image is drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, ` +
       `more than ${MOST} times as long one way as the other`,
+  );
+}
+
+/** A tall image fits the page's height, so it is one column on one screen
+ *  and its overlay's backing store stays far inside the browser's limit. */
+function assertWithinPage(d: { width: number; height: number; viewport: number }, what: string): void {
+  assert.ok(d.viewport > 0, `${what}: the page has a height`);
+  assert.ok(
+    d.height <= d.viewport,
+    `${what}: the image is ${d.height.toFixed(1)} px tall, past the page's ${d.viewport} px`,
   );
 }
 
@@ -170,6 +189,11 @@ suite("A very thin slice is drawn at a paintable size (#1226)", function () {
     try {
       assert.deepStrictEqual([d.grid.width, d.grid.height], [2, 366], "the raster is the 2 × 366 slice");
       assertPaintable(d, "2 × 366");
+      assertWithinPage(d, "2 × 366");
+      assert.ok(
+        Math.abs(d.height / d.width - MOST) < 0.1,
+        `2 × 366: drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, not at 1:${MOST}`,
+      );
       await assertClicksHit(d, "2 × 366");
     } finally {
       d.close();
@@ -209,6 +233,101 @@ suite("A very thin slice is drawn at a paintable size (#1226)", function () {
     } finally {
       d.close();
     }
+  });
+});
+
+suite("A lat/lon map keeps its own shape (#1226)", function () {
+  this.timeout(120_000);
+
+  const steps = (from: number, step: number, n: number) => Array.from({ length: n }, (_, k) => from + step * k);
+
+  /** A regular lat/lon field over `lats` × `lons`, with no two cells alike. */
+  function mapFile(lats: number[], lons: number[]): Buffer {
+    return classicNetcdf(
+      [["lat", lats.length], ["lon", lons.length]],
+      [
+        { name: "lat", dims: ["lat"], attrs: { units: "degrees_north" }, values: lats },
+        { name: "lon", dims: ["lon"], attrs: { units: "degrees_east" }, values: lons },
+        { name: "t", dims: ["lat", "lon"], attrs: { units: "K" }, values: values(lats.length, lons.length) },
+      ],
+    );
+  }
+
+  /** Draw `t` from {@link mapFile} on `projection`; the render and the image
+   *  as laid out. */
+  async function onMap(
+    lats: number[],
+    lons: number[],
+    projection: string,
+    body: (grid: Msg, drawn: { width: number; height: number; viewport: number }) => void,
+  ): Promise<void> {
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1226-"));
+    const file = path.join(dir, "map.nc");
+    fs.writeFileSync(file, mapFile(lats, lons));
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const t = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "t");
+    assert.ok(t, "t is renderable");
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: t.index }));
+    try {
+      let grid = await panel.waitSent(isType("gridReady"), 0, "the first render");
+      if (projection !== "source") {
+        const from = panel.sent.length;
+        await panel.drive([{ id: "picker-projection", value: projection }]);
+        grid = await panel.waitSent(
+          (m) => m.type === "gridReady" && m.options.projection === projection,
+          from,
+          `the map on ${projection}`,
+        );
+      }
+      body(grid, await laidOut(panel));
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // A belt from 20° S to 20° N round the globe at 2.5°: 144 × 17, about 8.5:1.
+  const BELT_LATS = steps(-20, 2.5, 17);
+  const BELT_LONS = steps(0, 2.5, 144);
+
+  test("a belt round the globe on Equirectangular keeps its 8.5:1, not held to 8:1", async () => {
+    await onMap(BELT_LATS, BELT_LONS, "equirectangular", (grid, d) => {
+      const raster = grid.width / grid.height;
+      assert.ok(raster > MOST, `the raster is ${grid.width} × ${grid.height}, wider than ${MOST}:1`);
+      assert.ok(
+        Math.abs(d.width / d.height - raster) / raster < 0.03,
+        `drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, not at the raster's ${raster.toFixed(2)}:1`,
+      );
+    });
+  });
+
+  test("the same belt in the source view, not a map target, is held to 8:1", async () => {
+    await onMap(BELT_LATS, BELT_LONS, "source", (grid, d) => {
+      assert.deepStrictEqual([grid.width, grid.height], [144, 17], "the source raster is the array");
+      assertPaintable(d, "the source view");
+      assert.ok(
+        Math.abs(d.width / d.height - MOST) < 0.1,
+        `drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, not at ${MOST}:1`,
+      );
+    });
+  });
+
+  test("a tall strip of longitude on Equirectangular keeps its shape and fits the page", async () => {
+    // 90° S to 90° N by 10° of longitude at 1.25°: 9 × 145, 1:16.
+    await onMap(steps(-90, 1.25, 145), steps(0, 1.25, 9), "equirectangular", (grid, d) => {
+      const raster = grid.height / grid.width;
+      assert.ok(raster > MOST, `the raster is ${grid.width} × ${grid.height}, taller than 1:${MOST}`);
+      assertWithinPage(d, "the tall strip");
+      // A whole pixel either way, on an image only a few dozen pixels wide.
+      assert.ok(
+        Math.abs(d.width - d.height / raster) <= 1,
+        `drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, not at the raster's 1:${raster.toFixed(2)}`,
+      );
+    });
   });
 });
 

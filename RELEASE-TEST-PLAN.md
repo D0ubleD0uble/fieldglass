@@ -372,15 +372,22 @@ palette, picking the store's folder.
       (`air_v2_time_bnds.png`). In 0.5.0 every heading read `Message 0 — air`
       and the tab kept `Render: air`.
 - [ ] In `ncep_air_daily_2024.nc`, pick `time_bnds` (2 × 366): the image is
-      a tall box about eight times as high as it is wide, two columns of
-      colour, with the colour bar beside it. Failure looks like a blank white
-      box with a broken-image glyph, about 140,000 px tall. Click near the
-      top of the left column and near the bottom of the right one: each
-      readout gives a different value, and the grid indices are the cell
-      clicked. Set Y axis to `nbnds` and X axis to `time`: a wide band about
-      an eighth as tall as it is wide, two rows, not a strip a few pixels
-      high. Export PNG still writes the raster at its own size, 2 × 366
-      (#1226; `thin-slice.test.ts` measures the image and clicks its cells).
+      a column about eight times as high as it is wide that fits the panel's
+      height, two columns of colour, with the colour bar beside it. Failure
+      looks like a blank white box with a broken-image glyph, about 140,000 px
+      tall, or a column several screens tall. Click near the top of the left
+      column and near the bottom of the right one: each readout gives a
+      different value, and the grid indices are the cell clicked. Set Y axis
+      to `nbnds` and X axis to `time`: a wide band about an eighth as tall as
+      it is wide, two rows, not a strip a few pixels high. Export PNG still
+      writes the raster at its own size, 2 × 366 (#1226;
+      `thin-slice.test.ts` measures the image and clicks its cells).
+- That a lat/lon map more than eight times as long one way as the other
+  keeps its shape on Equirectangular and Web Mercator cannot be checked with
+  these files: a regular grid's map takes the grid's own shape, 2:1 for
+  `air`, whatever the Bounds. `thin-slice.test.ts` draws a belt of 144 × 17
+  cells round the globe and a strip of 9 × 145 and checks both keep their
+  shape, the tall one within the panel's height (#1226).
 - [ ] Copy `air_v2.zarr` to a folder named `air_copy` (no `.zarr` suffix) and
       open that: it opens the same way. The suffix is not what the check uses.
 

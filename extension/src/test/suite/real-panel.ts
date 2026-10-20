@@ -148,6 +148,10 @@ export interface PageState {
   /** The colour bar's two labels, low end first. */
   colorbarLabels: [string, string];
   canvasVisibility: string;
+  /** The image's border box on the page, and the page's own height
+   *  (`innerHeight`), which a tall image is held inside (#1226). */
+  image: Box;
+  viewportHeight: number;
   /** The line plot (#172, #1037), `null` for a panel with none. A GRIB panel
    *  has one, for its zonal average, but no Line plot box (`boxShown` false). */
   linePlot: LinePlotState | null;
@@ -591,6 +595,8 @@ const DRIVER = `
           .filter((id) => byId(id) && byId(id).getAttribute('aria-invalid') === 'true'),
         playDisabled: !!(byId('anim-play') && byId('anim-play').disabled),
         canvasVisibility: byId('canvas').style.visibility,
+        image: boxOf(byId('canvas')),
+        viewportHeight: window.innerHeight,
         linePlot: linePlot(),
         rails: rails(),
         steppers: steppers(),
