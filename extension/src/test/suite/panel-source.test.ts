@@ -283,7 +283,7 @@ suite("A render panel names its file or store (#1038)", function () {
       uvRelativeToGrid: null,
       reprojectable: false,
       placement: "placed",
-      supports: { contours: false, vectors: false, longCsv: false, zonalMean: false },
+      supports: { contours: false, vectors: false, longCsv: false, zonalMean: false, bilinear: false },
       truncation: null,
       grid: null,
     };

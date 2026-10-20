@@ -671,7 +671,7 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<Placement>("Placement", r#""predefined_unresolved""#);
     round_trip::<GridSupport>(
         "GridSupport",
-        r#"{"contours":true,"vectors":true,"longCsv":true,"zonalMean":false}"#,
+        r#"{"contours":true,"vectors":true,"longCsv":true,"zonalMean":false,"bilinear":true}"#,
     );
     round_trip::<Identification>("Identification", r#"{"edition":"grib1","p1Octet":null}"#);
     round_trip::<Identification>(
@@ -888,7 +888,7 @@ const SOURCE_SPEC_JSON: &str = r#"{"keyPattern":"gfs.{yyyy}{mm}{dd}/{HH}/atmos/g
 /// A `Georef` as it crosses the wire. `geometry` is `core`'s tagged enum and is
 /// described loosely to a schema consumer on purpose, so the smallest real
 /// variant stands in for it here.
-const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever"},"kind":"latlon","label":"latlon","ni":2,"nj":2,"boundsLonlat":[-1.0,1.0,-2.0,2.0],"corners":[1.0,-1.0,-2.0,2.0],"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true},"pointsPerRow":null,"proj4":"+proj=longlat","affine":{"x0":0.0,"y0":1.0,"dx":1.0,"dy":-1.0,"units":"degrees"},"periodicX":false,"scan":{"iNegative":false,"jPositive":true,"jConsecutive":false}}"#;
+const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever"},"kind":"latlon","label":"latlon","ni":2,"nj":2,"boundsLonlat":[-1.0,1.0,-2.0,2.0],"corners":[1.0,-1.0,-2.0,2.0],"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"pointsPerRow":null,"proj4":"+proj=longlat","affine":{"x0":0.0,"y0":1.0,"dx":1.0,"dy":-1.0,"units":"degrees"},"periodicX":false,"scan":{"iNegative":false,"jPositive":true,"jConsecutive":false}}"#;
 
 /// A `Field`, with the smallest raster that still has a mask and statistics.
 const LINE_JSON: &str = r#"{"values":{"dtype":"f64","data":[6.0,18.0]},"mask":[1,1],"stats":{"min":6.0,"max":18.0,"validCount":2},"variable":"temperature","units":"K","dimension":"time","coordinates":[0.0,6.0],"coordinateUnits":"hours since 2020-01-01 00:00:00","coordinateVertical":null}"#;
@@ -905,7 +905,7 @@ const MESSAGE_IDENTITY_GRIB2_JSON: &str = r#"{"edition":"grib2","discipline":0,"
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
-const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"identity":IDENTITY,"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
+const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"identity":IDENTITY,"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
 
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a

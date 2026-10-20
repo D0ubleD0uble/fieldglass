@@ -50,8 +50,8 @@ const UNPLACED_SLICE: UnavailableGroup[] = [
 ];
 /** A slice's point-operation answers (#945): none for one nothing places, all
  *  four for a lat/lon slice. */
-const NONE = { contours: false, vectors: false, longCsv: false, zonalMean: false };
-const LATLON = { contours: true, vectors: true, longCsv: true, zonalMean: true };
+const NONE = { contours: false, vectors: false, longCsv: false, zonalMean: false, bilinear: false };
+const LATLON = { contours: true, vectors: true, longCsv: true, zonalMean: true, bilinear: true };
 
 function extensionPath(): string {
   const ext = vscode.extensions.getExtension(EXT_ID);

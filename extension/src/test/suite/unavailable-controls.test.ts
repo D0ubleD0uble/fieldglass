@@ -20,6 +20,7 @@ import * as path from "path";
 
 import { loadNative } from "../../native";
 import {
+  NO_BILINEAR_REASON,
   NO_ZONAL_REASON,
   projectionReason,
   SATELLITE_NOT_YET_REASON,
@@ -139,10 +140,18 @@ async function checkEveryBox(panel: RealPanel): Promise<PageState> {
   return panel.drive([]);
 }
 
+/** What the line says on a satellite swath (#1036, #1225): it has no rows of
+ *  latitude, and it is a list of cell centres, which the warp draws nearest. */
+const SWATH_LINE = ["Resampling", "Zonal average"];
+const SWATH_ITEMS = [
+  { kind: "structural", text: `Resampling: ${NO_BILINEAR_REASON}` },
+  { kind: "structural", text: `Zonal average: ${NO_ZONAL_REASON}` },
+];
+
 suite("Controls a grid can't use are hidden, and the panel says why (#1036)", function () {
   this.timeout(120_000);
 
-  test("a satellite swath hides only the zonal average, and says its rows aren't latitudes", async () => {
+  test("a satellite swath hides the zonal average and Resampling, and says why", async () => {
     const p = await provider();
     // The committed equivalent of samples/mirs_swath.nc: a MiRS swath placed
     // by its 2-D coordinates.
@@ -153,10 +162,11 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       const first = await panel.waitSent(isType("gridReady"), 0, "the first render");
       assert.strictEqual(first.sliceGrid.placed, true, "a swath is placed");
       assert.strictEqual(first.sliceGrid.supports.zonalMean, false, "and has no rows of latitude");
+      assert.strictEqual(first.sliceGrid.supports.bilinear, false, "and is drawn nearest whatever is asked (#1225)");
 
       let state = await panel.drive([]);
       assertHides(state, ["zonal", "resampling"], ["arrows"]);
-      assertLine(state, ["Zonal average"], [{ kind: "structural", text: `Zonal average: ${NO_ZONAL_REASON}` }]);
+      assertLine(state, SWATH_LINE, SWATH_ITEMS);
       assert.strictEqual(state.unavailable?.open, false, "collapsed");
       assert.strictEqual(state.unavailable?.summaryFocusable, true, "the summary is in the tab order");
 
@@ -170,7 +180,7 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       await panel.drive([{ id: "slice-variable", value: rr }]);
       await panel.waitSent((m: Msg) => m.type === "gridReady" && m.messageIndex === rr, from, "RR drawn");
       state = await panel.drive([]);
-      assertLine(state, ["Zonal average"], [{ kind: "structural", text: `Zonal average: ${NO_ZONAL_REASON}` }]);
+      assertLine(state, SWATH_LINE, SWATH_ITEMS);
       assert.strictEqual(state.unavailable?.open, true, "still open after a slice step");
 
       // A checked but hidden Zonal average asks for nothing, through a
@@ -364,9 +374,60 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
   });
 });
 
+suite("Resampling is hidden on a grid of cell centres, where Bilinear changes nothing (#1225)", function () {
+  this.timeout(120_000);
+
+  // A curvilinear grid is a list of cell centres, and the warp draws the
+  // nearest one whatever Resampling says. Both committed kinds: a MiRS
+  // satellite swath (like samples/mirs_swath.nc) and an RTOFS tripolar ocean
+  // grid (like samples/rtofs_ice.nc).
+  for (const [fixture, variable] of [
+    ["mirs_swath_n21.nc", "TPW"],
+    ["rtofs_tripolar_arctic.nc", "ice_thickness"],
+  ] as const) {
+    test(`${fixture}: on a map, no Resampling, and the line says why`, async () => {
+      const p = await provider();
+      const file = crateFixture("fieldglass-netcdf", fixture);
+      const editor = await openEditor(p, file);
+      const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: variableIndex(file, variable) }));
+      try {
+        const first = await panel.waitSent(isType("gridReady"), 0, "the first render");
+        assert.strictEqual(first.sliceGrid.reprojectable, true, "the grid is drawn on a map");
+        assert.strictEqual(first.sliceGrid.supports.bilinear, false, "Rust says Bilinear changes nothing");
+
+        for (const projection of ["equirectangular", "mollweide"]) {
+          const from = panel.sent.length;
+          await panel.drive([{ id: "picker-projection", value: projection }]);
+          const drawn = await panel.waitSent(
+            (m: Msg) => m.type === "gridReady" && m.options.projection === projection,
+            from,
+            projection,
+          );
+          assert.match(drawn.projectionSummary, /\(nearest\)$/, "the warp draws nearest");
+          const state = await panel.drive([]);
+          assert.strictEqual(state.projection, projection);
+          assert.strictEqual(state.controlDisplay.resampling, "none", `${projection}: Resampling is not displayed`);
+          assert.strictEqual(state.controlShown.resampling, false, `${projection}: and takes no room`);
+          assert.deepStrictEqual(state.shownWhileHidden, []);
+          const line = state.unavailable;
+          assert.ok(line && line.display !== "none", "the line is shown");
+          assert.match(line.summary, /^Not available for this grid: .*\bResampling\b/, "it names Resampling");
+          assert.ok(
+            line.items.some((i) => i.kind === "structural" && i.text === `Resampling: ${NO_BILINEAR_REASON}`),
+            `with the reason: ${JSON.stringify(line.items)}`,
+          );
+        }
+      } finally {
+        panel.dispose();
+        editor.close();
+      }
+    });
+  }
+});
+
 suite("Which controls a grid can't use, and why (#1036)", () => {
-  const none = { contours: false, vectors: false, longCsv: false, zonalMean: false };
-  const all = { contours: true, vectors: true, longCsv: true, zonalMean: true };
+  const none = { contours: false, vectors: false, longCsv: false, zonalMean: false, bilinear: false };
+  const all = { contours: true, vectors: true, longCsv: true, zonalMean: true, bilinear: true };
 
   test("a template this build does not model is 'not yet', apart from the grid's own reasons", () => {
     const groups = unavailableControls(
@@ -405,10 +466,33 @@ suite("Which controls a grid can't use, and why (#1036)", () => {
     assert.doesNotMatch(groups[0].reason, /latlon|not available/, "the reason does not restate the summary");
   });
 
+  test("a grid the warp draws nearest lists Resampling once, for its own reason (#1225)", () => {
+    const lookup = {
+      reprojectable: true,
+      placement: "placed" as const,
+      label: "curvilinear",
+      supports: { ...all, zonalMean: false, bilinear: false },
+    };
+    assert.deepStrictEqual(unavailableControls(lookup, { arrows: false, csv: true }), [
+      { kind: "structural", reason: NO_BILINEAR_REASON, controls: [{ key: "resampling", label: "Resampling" }] },
+      { kind: "structural", reason: NO_ZONAL_REASON, controls: [{ key: "zonal", label: "Zonal average" }] },
+    ]);
+    // A grid with no map lists Resampling with the projection, not twice.
+    const unplaced = unavailableControls(
+      { reprojectable: false, placement: "unplaceable", label: "source", supports: none },
+      { arrows: false, csv: false },
+    );
+    assert.deepStrictEqual(
+      unplaced.flatMap((g) => g.controls.map((c) => c.key)).filter((k) => k === "resampling"),
+      ["resampling"],
+    );
+    assert.ok(!unplaced.some((g) => g.reason === NO_BILINEAR_REASON), "the projection's reason covers it");
+  });
+
   test("a grid that takes everything lists nothing, and the panel's own rows decide what can be listed", () => {
     const placed = { reprojectable: true, placement: "placed" as const, label: "latlon", supports: all };
     assert.deepStrictEqual(unavailableControls(placed, { arrows: true, csv: true }), []);
-    const sat = { ...placed, label: "space_view", supports: none };
+    const sat = { ...placed, label: "space_view", supports: { ...none, bilinear: true } };
     const labels = (offers: { arrows: boolean; csv: boolean }) =>
       unavailableControls(sat, offers).flatMap((g) => g.controls.map((c) => c.label));
     assert.deepStrictEqual(labels({ arrows: false, csv: false }), ["Zonal average", "Contours"]);

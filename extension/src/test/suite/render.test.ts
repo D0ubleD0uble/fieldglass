@@ -996,7 +996,7 @@ suite("render-panel HTML", () => {
       uvRelativeToGrid: null,
       reprojectable: true,
       placement: "placed",
-      supports: { contours: true, vectors: true, longCsv: true, zonalMean: true },
+      supports: { contours: true, vectors: true, longCsv: true, zonalMean: true, bilinear: true },
       truncation: null,
       grid: null,
     };
@@ -1881,7 +1881,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       label: "latlon",
       placement: "placed",
       reprojectable: true,
-      supports: { contours: true, vectors: true, longCsv: true, zonalMean: true },
+      supports: { contours: true, vectors: true, longCsv: true, zonalMean: true, bilinear: true },
     });
     assert.ok(placed.offered.includes("equirectangular"), `got ${placed.offered.join(", ")}`);
     assert.ok(placed.html.includes("NetCDF slice — latlon"), "the caption names the slice's family");
@@ -1892,7 +1892,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       label: "source",
       placement: "unplaceable",
       reprojectable: false,
-      supports: { contours: false, vectors: false, longCsv: false, zonalMean: false },
+      supports: { contours: false, vectors: false, longCsv: false, zonalMean: false, bilinear: false },
     });
     assert.deepStrictEqual(unplaced.offered, ["source"], `got ${unplaced.offered.join(", ")}`);
     assert.match(unplaced.html, /<summary>Not available for this grid: Projection\b/, "the picker is hidden (#1036)");
@@ -2434,7 +2434,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       uvRelativeToGrid: null,
       reprojectable: true,
       placement: "placed",
-      supports: { contours: true, vectors: true, longCsv: true, zonalMean: true },
+      supports: { contours: true, vectors: true, longCsv: true, zonalMean: true, bilinear: true },
       truncation: null,
       grid: { label: "latlon" },
     };

@@ -37,7 +37,7 @@ import {
   waitUntil,
 } from "./real-panel";
 
-const NONE: GridSupport = { contours: false, vectors: false, longCsv: false, zonalMean: false };
+const NONE: GridSupport = { contours: false, vectors: false, longCsv: false, zonalMean: false, bilinear: false };
 
 function crateFixture(crate: string, name: string): string {
   return path.join(extensionPath(), "..", "crates", crate, "tests", "fixtures", name);
@@ -92,7 +92,7 @@ suite("Point operations follow the grid (#945)", function () {
       // Placed, so the map and the coastlines are offered; no point operation.
       assert.strictEqual(first.sliceGrid.placed, true, "a full disc is placed");
       assert.strictEqual(first.sliceGrid.reprojectable, true, "and reprojects");
-      assert.deepStrictEqual(first.sliceGrid.supports, NONE, "and takes no point operation");
+      assert.deepStrictEqual(first.sliceGrid.supports, { ...NONE, bilinear: true }, "and takes no point operation, though its warp blends");
 
       let state = await panel.drive([]);
       assert.strictEqual(state.controlShown.overlay, true, "the Overlay row stays offered");

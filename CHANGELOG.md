@@ -87,6 +87,8 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 
 - **The Resampling picker is hidden on Source projection.** Source projection draws the array as stored, so Nearest or Bilinear changed nothing and looked broken. The picker now shows only for a map projection, and keeps your choice while it is hidden. Closes #1091.
 
+- **No Resampling picker on a grid of cell centres.** A satellite swath or a tripolar ocean grid placed by 2-D coordinates is always drawn from the nearest cell, so Bilinear changed nothing. The panel now hides Resampling for such a grid and lists it under "Not available for this grid" with the reason. The answer comes from the library: `GridSupport` gains `bilinear`, true when choosing bilinear changes the map. Closes #1225.
+
 - **A NetCDF or Zarr panel keeps your projection through a cross-section or a slice with no coordinates.** The projection picker is hidden for both, and the projection you chose, with its centre, bounds and Resampling, returns with the next slice that can use it, also after the tab is hidden and shown again. Choosing a projection on a map replaces the kept one. Closes #1099.
 
 - **A render panel names the file or store it draws.** With several panels open, for example two Zarr stores and a NetCDF file holding the same data, the tabs and headings looked the same. The tab now reads `msg 0 TMP · gfs.grib2` or `air · air_v2.zarr`, the line under the heading starts with the file or store name, and an exported PNG is named after it. A NetCDF or Zarr panel's heading names its variable, `air (degK)`, instead of "Message 0", and its tab follows the variable you pick instead of keeping the first one. Closes #1038.

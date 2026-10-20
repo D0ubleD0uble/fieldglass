@@ -1046,15 +1046,17 @@ export interface Georef {
 
 /**
  * Which of the operations that need a position for each grid point this
- * grid takes (#945).
+ * grid takes (#945), and whether its warp can blend cells (#1225).
  *
  * The answers are the umbrella's own gates, asked ahead of time:
  * `contours` is whether `render::contour_polylines` would draw this grid,
  * `vectors` whether `render::vector_polylines` would, `long_csv` whether
  * `render::field_csv` would write its `"long"` layout, and `zonal_mean`
- * whether `render::zonal_mean` would average it. So a host can disable
- * an offer with a reason instead of making the call and showing the
- * refusal, and it needs no list of grid families to do so.
+ * whether `render::zonal_mean` would average it. `bilinear` is the
+ * warp's own rule (`Resampling::from_grid` over the geometry's
+ * `resampling()`) for a geometry that places something. So a host can
+ * disable an offer with a reason instead of making the call and showing
+ * the refusal, and it needs no list of grid families to do so.
  *
  * **Not derivable from `Placement` or
  * `Georef::reprojectable`.** A full-disc space view is placed and
@@ -1063,7 +1065,8 @@ export interface Georef {
  * full disc, because a space view has no forward map yet (the operations
  * are not available for it), not because any of its points lacks a
  * position. A lat/lon grid
- * scanned east to west does not reproject and takes all four. A rotated
+ * scanned east to west does not reproject and takes all four point
+ * operations. A rotated
  * or projected grid takes contours, arrows and the long CSV, and no
  * zonal mean, because its rows are not circles of latitude.
  *
@@ -1090,6 +1093,19 @@ export interface GridSupport {
    * A zonal mean can be taken: the grid's rows are circles of latitude.
    */
   zonalMean: boolean;
+  /**
+   * Bilinear resampling changes a map of this grid: the warp blends
+   * the cells around each pixel when asked to.
+   *
+   * `false` for a list of cell centres (a NetCDF or Zarr field placed
+   * by 2-D coordinates, such as a satellite swath or a tripolar ocean
+   * grid), which the warp draws nearest whatever is asked, and for a
+   * grid whose geometry places nothing (an unmodelled template,
+   * degenerate constants). Scan direction is not consulted, so a host
+   * checks `Georef::reprojectable` too before offering a Resampling
+   * choice.
+   */
+  bilinear: boolean;
 }
 
 /**

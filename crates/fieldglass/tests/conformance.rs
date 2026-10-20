@@ -419,6 +419,65 @@ fn assert_support_agrees(session: &fieldglass::Session, field: &fieldglass::Fiel
         supports.zonal_mean,
         zonal.as_ref().err(),
     );
+    assert_bilinear_agrees(&source, &values, field, what);
+}
+
+/// `supports.bilinear` says whether choosing bilinear changes the map (#1225):
+/// the warp's summary names the method it used, and the picture differs from
+/// nearest's exactly when it blends. A grid that does not reproject has no warp
+/// and takes no Resampling choice.
+///
+/// Drawn on Mollweide, not Equirectangular: a global lat/lon grid on an
+/// equirectangular raster of its own shape puts every pixel on a cell centre,
+/// where a blend is that cell, so the two pictures can agree there for a
+/// reason that is the target's, not the grid's.
+fn assert_bilinear_agrees(
+    source: &fieldglass::render::Source<'_>,
+    values: &[Option<f64>],
+    field: &fieldglass::Field,
+    what: &str,
+) {
+    use fieldglass::render::{RenderOptions, project};
+
+    let supports = field.georef.supports;
+    if !field.georef.reprojectable {
+        // Asked of the geometry alone, not the scan: a lat/lon grid scanned
+        // east to west keeps `bilinear` and a host reads `reprojectable` too.
+        // A geometry that places nothing never warps.
+        if matches!(
+            field.georef.geometry,
+            fieldglass::GridGeometry::Unsupported { .. }
+        ) {
+            assert!(
+                !supports.bilinear,
+                "{what}: no warp, so nothing to resample"
+            );
+        }
+        return;
+    }
+    let draw = |resampling: &str| {
+        let mut options = RenderOptions::default();
+        options.projection = "mollweide".to_string();
+        options.resampling = resampling.to_string();
+        project(source, values, &options)
+            .unwrap_or_else(|e| panic!("{what}: a reprojectable grid warps: {e}"))
+    };
+    let (nearest, bilinear) = (draw("nearest"), draw("bilinear"));
+    assert_eq!(
+        bilinear.summary.ends_with("(bilinear)"),
+        supports.bilinear,
+        "{what}: supports.bilinear = {} but the warp said {:?}",
+        supports.bilinear,
+        bilinear.summary,
+    );
+    let same = nearest.values == bilinear.values && nearest.mask == bilinear.mask;
+    assert_eq!(
+        !same,
+        supports.bilinear,
+        "{what}: supports.bilinear = {} but bilinear {} the picture",
+        supports.bilinear,
+        if same { "left unchanged" } else { "changed" },
+    );
 }
 
 /// Every field the conformance suite addresses: its `GridSupport` says what
@@ -429,13 +488,15 @@ fn assert_support_agrees(session: &fieldglass::Session, field: &fieldglass::Fiel
 /// with `projectContours` for every recorded case". It is not vacuous: the
 /// suite holds a grid that takes all four (lat/lon), one that takes no zonal
 /// mean (rotated lat/lon), and one that takes none (the degenerate polar
-/// stereographic grid), and the tallies below say so.
+/// stereographic grid), and the tallies below say so. Bilinear has both sides
+/// too: the MiRS swath is a list of cell centres, which the warp draws nearest
+/// (#1225).
 #[test]
 fn grid_support_agrees_with_the_operations_for_every_field_in_the_suite() {
     use conformance::Op;
 
     let mut seen = std::collections::BTreeSet::new();
-    let mut tally = [[0usize; 2]; 4];
+    let mut tally = [[0usize; 2]; 5];
     for case in cases() {
         // The corrupt-input cases address a field that does not open.
         if case.args.truncate.is_some() || case.args.short_read.is_some() {
@@ -486,7 +547,7 @@ fn grid_support_agrees_with_the_operations_for_every_field_in_the_suite() {
         }
         assert_support_agrees(&session, &field, &key);
         let s = field.georef.supports;
-        for (k, on) in [s.contours, s.vectors, s.long_csv, s.zonal_mean]
+        for (k, on) in [s.contours, s.vectors, s.long_csv, s.zonal_mean, s.bilinear]
             .into_iter()
             .enumerate()
         {
@@ -498,7 +559,7 @@ fn grid_support_agrees_with_the_operations_for_every_field_in_the_suite() {
         "only {} fields in the suite decoded",
         seen.len()
     );
-    for (k, name) in ["contours", "vectors", "long_csv", "zonal_mean"]
+    for (k, name) in ["contours", "vectors", "long_csv", "zonal_mean", "bilinear"]
         .iter()
         .enumerate()
     {
@@ -550,11 +611,11 @@ fn a_space_view_is_placed_and_takes_no_point_operation() {
             "{file}"
         );
         assert!(field.georef.reprojectable, "{file}");
-        assert_eq!(
-            field.georef.supports,
-            fieldglass::GridSupport::default(),
-            "{file}"
-        );
+        // None of the four point operations. Its warp still blends: a space
+        // view is a formula grid, not a list of cell centres (#1225).
+        let mut blends_only = fieldglass::GridSupport::default();
+        blends_only.bilinear = true;
+        assert_eq!(field.georef.supports, blends_only, "{file}");
         assert_support_agrees(&session, &field, file);
         assert_refusals_name_the_family(&session, &field, file);
     }
