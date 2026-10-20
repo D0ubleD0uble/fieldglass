@@ -29,6 +29,7 @@ import {
   openReal,
   provider,
   type RealPanel,
+  waitUntil,
 } from "./real-panel";
 
 /** The fixture's one message, as parameter `number` of its category: 0 is
@@ -357,7 +358,11 @@ suite("A GRIB render panel whose file changed", function () {
       asked = panel.received.length;
       state = await panel.drive([{ id: "export-csv", click: true }]);
       assert.ok(!panel.received.slice(asked).some(isType("exportCsv")), "no CSV of a message nobody picked");
-      assert.match(state.exportStatus, /^Pick a message/);
+      assert.match(state.exportStatus, /^Pick a message to draw before exporting CSV/);
+      asked = panel.received.length;
+      state = await panel.drive([{ id: "export-png", click: true }]);
+      assert.ok(!panel.received.slice(asked).some(isType("exportPng")), "nor a PNG");
+      assert.match(state.exportStatus, /^Pick a message to draw before exporting a PNG/);
 
       asked = panel.received.length;
       from = panel.sent.length;
@@ -373,6 +378,80 @@ suite("A GRIB render panel whose file changed", function () {
       assert.strictEqual(controls["compare-op"], "", "Compare is off");
       assert.strictEqual(state.compareFieldB, "", "with Field B to pick");
       assert.ok(!state.status.startsWith("A − B"), `the summary "${state.status}" names no operation`);
+    } finally {
+      done();
+    }
+  });
+
+  // Compare turned off for want of Field B is saved off (#1230): a later file
+  // that holds Field B again does not turn it back on behind the user's back.
+  test("Compare turned off for a missing Field B stays off when Field B comes back", async () => {
+    const first = Buffer.concat([field(0), field(2), field(3)]);
+    const gone = Buffer.concat([field(0), field(2)]);
+    const { panel, change, done } = await changingFile(first, 0);
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let from = panel.sent.length;
+      await panel.drive([
+        { id: "compare-op", value: "a_minus_b" },
+        { id: "compare-field-b", value: 2 },
+      ]);
+      await panel.waitSent((m) => isType("gridReady")(m) && m.compare?.messageIndexB === 2, from, "the difference map");
+
+      await change(gone);
+      from = panel.sent.length;
+      panel.rebuild();
+      await panel.waitSent(drawnOrRefused, from, "the render after Field B went");
+      assert.strictEqual((await panel.controls())["compare-op"], "", "Compare is off");
+
+      // Written again as it is (an imported colormap), then for the first file,
+      // which holds Field B once more.
+      from = panel.sent.length;
+      panel.rebuild();
+      await panel.waitSent(drawnOrRefused, from, "the render after a rebuild");
+      await change(first);
+      const asked = panel.received.length;
+      from = panel.sent.length;
+      panel.rebuild();
+      const reply = await panel.waitSent(drawnOrRefused, from, "the render after Field B came back");
+      assert.strictEqual(reply.type, "gridReady", `${reply.error ?? ""}`);
+      assert.strictEqual(reply.compare, null, "a single field");
+      const ready = panel.received.slice(asked).filter(isType("ready")).pop();
+      assert.strictEqual(ready?.compare, undefined, "no Field B asked for");
+      assert.strictEqual((await panel.controls())["compare-op"], "", "Compare stays off");
+    } finally {
+      done();
+    }
+  });
+
+  // The summary names the operation the render drew with, which the reply
+  // carries, not whatever the Operation picker reads when it lands (#1230).
+  test("the summary names the operation drawn, not the picker's", async () => {
+    const { panel, done } = await changingFile(Buffer.concat([field(0), field(2)]), 0);
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const gate = panel.hold(isType("gridReady"));
+      const asked = panel.received.length;
+      await panel.drive([
+        { id: "compare-op", value: "a_minus_b" },
+        { id: "compare-field-b", value: 1 },
+      ]);
+      await waitUntil(() => gate.held.find((m: Msg) => m.compare?.op === "a_minus_b"), "the difference, held back");
+      // The picker goes off before the difference lands.
+      await panel.drive([{ id: "compare-op", value: "" }]);
+      await waitUntil(
+        () => panel.received.slice(asked).find((m: Msg) => m.type === "rerenderRequest" && m.compare === undefined),
+        "the single render asked for",
+      );
+      await gate.deliver((m) => m.compare?.op === "a_minus_b");
+      let state = await panel.drive([]);
+      assert.strictEqual((await panel.controls())["compare-op"], "", "the picker reads off");
+      assert.match(state.status, /^A − B · /, "the difference on screen is labelled as one");
+
+      await gate.release();
+      await waitUntil(() => (panel.sent.filter(isType("gridReady")).pop()?.compare === null ? true : undefined), "the single field");
+      state = await panel.drive([]);
+      assert.ok(!state.status.startsWith("A − B"), `the single field's summary "${state.status}" names no operation`);
     } finally {
       done();
     }

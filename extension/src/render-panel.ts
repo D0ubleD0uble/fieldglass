@@ -2510,7 +2510,13 @@ export function renderImagePanelHtml(
         function setExportStatus(text) {
           setLine('export-status', text);
           const el = document.getElementById('export-status');
-          if (el) el.classList.toggle('failed', /^(Export failed|Render the field)/.test(text));
+          if (el) el.classList.toggle('failed', /^(Export failed|Render the field|Pick a )/.test(text));
+        }
+
+        // What either export says while a pick is awaited: nothing is drawn,
+        // and the pickers hold a field nobody chose (#1230).
+        function pickBeforeExport(format) {
+          return 'Pick a ' + (SLICE ? 'variable' : 'message') + ' to draw before exporting ' + format + '.';
         }
 
         // The warped lat/lon targets (equirectangular + Web Mercator) both
@@ -4373,6 +4379,10 @@ export function renderImagePanelHtml(
         let exportKeyLeftOff = false;
         function exportPng() {
           exportKeyLeftOff = false;
+          if (awaitingPick) {
+            setExportStatus(pickBeforeExport('a PNG'));
+            return;
+          }
           // The picture on screen was drawn on a range the fields no longer
           // hold, so a PNG of it would not match them: say so instead (#1174).
           if (rangeRefused) {
@@ -4652,7 +4662,10 @@ export function renderImagePanelHtml(
         // projection's preset/bounds groups.
         function restoreState() {
           const s = vscode.getState();
-          if (!s) return;
+          if (!s) return false;
+          // Whether a saved Field B or V component was not in this file, so
+          // Compare or the arrows were turned off.
+          let dropped = false;
           const setVal = (id, v) => {
             if (v === undefined || v === null) return;
             const el = document.getElementById(id);
@@ -4696,7 +4709,10 @@ export function renderImagePanelHtml(
           // A Field B the changed file no longer holds once leaves Compare off,
           // with Field B to pick: an operation left on over no Field B named a
           // single field A − B (#1230).
-          if (restoreFieldB(s.compareFieldB, s.compareKeyB)) setVal('compare-op', '');
+          if (restoreFieldB(s.compareFieldB, s.compareKeyB)) {
+            setVal('compare-op', '');
+            dropped = true;
+          }
           // Restore Field B's indices before setupSlice builds its steppers.
           if (Array.isArray(s.compareIndices)) compareIndices = s.compareIndices.slice();
           setChk('flip-y', s.flipY);
@@ -4737,7 +4753,10 @@ export function renderImagePanelHtml(
           // unchecked in effect: vectorsEnabled() also asks the field.
           setChk('overlay-vectors', s.vectors);
           // The arrows likewise go off with their V component (#1230).
-          if (restoreMessagePick('vector-field-v', s.vectorFieldV, s.vectorKeyV)) setChk('overlay-vectors', false);
+          if (restoreMessagePick('vector-field-v', s.vectorFieldV, s.vectorKeyV)) {
+            setChk('overlay-vectors', false);
+            dropped = true;
+          }
           setVal('vector-spacing', s.vectorSpacing);
           setVal('width-vectors', s.vectorWidth);
           const vc = document.getElementById('color-vectors');
@@ -4799,6 +4818,7 @@ export function renderImagePanelHtml(
           }
           // Field B's saved indices are for a variable this panel did not adopt.
           if (SLICE && !adopted && sliceState) compareIndices = sliceState.sliceIndices.slice();
+          return dropped;
         }
 
         function attachControls() {
@@ -5021,9 +5041,7 @@ export function renderImagePanelHtml(
               // Nothing is drawn while a pick is awaited, and the slice the
               // pickers hold is a variable nobody chose (#1230).
               if (awaitingPick) {
-                setExportStatus(SLICE
-                  ? 'Pick a variable to draw before exporting CSV.'
-                  : 'Pick a message to draw before exporting CSV.');
+                setExportStatus(pickBeforeExport('CSV'));
                 return;
               }
               const fieldA = !!drawnCompareRequest().compare;
@@ -5059,8 +5077,13 @@ export function renderImagePanelHtml(
         // (#959) opens on the picker, not on the message that is gone.
         const PICK = ${pickMessages ? JSON.stringify(pickMessages).replace(/</g, "\\u003c") : "null"};
         if (PICK) offerMessages(PICK);
-        restoreState();
+        // A Field B or V component turned off for want of it is saved off at
+        // once: otherwise a later file that holds it again would restore the
+        // old choice and turn Compare or the arrows back on, although the user
+        // last saw them off (#1230).
+        const droppedPicks = restoreState();
         attachControls();
+        if (droppedPicks) snapshotState();
         // Attach the (possibly restored) selections so the provider's first
         // paint honours them; a fresh panel just sends its defaults.
         //

@@ -377,7 +377,11 @@ suite("The render panel's own script", function () {
       let asked = panel.received.length;
       state = await panel.drive([{ id: "export-csv", click: true }]);
       assert.ok(!panel.received.slice(asked).some(isType("exportSliceCsv")), "no CSV of a variable nobody picked");
-      assert.match(state.exportStatus, /^Pick a variable/);
+      assert.match(state.exportStatus, /^Pick a variable to draw before exporting CSV/);
+      asked = panel.received.length;
+      state = await panel.drive([{ id: "export-png", click: true }]);
+      assert.ok(!panel.received.slice(asked).some(isType("exportPng")), "nor a PNG");
+      assert.match(state.exportStatus, /^Pick a variable to draw before exporting a PNG/);
       // Nothing is chosen, so any variable picked is a change, the first one
       // included; until then no other control asks for a render.
       assert.strictEqual(state.sliceVariable, "", "the picker has nothing chosen");
