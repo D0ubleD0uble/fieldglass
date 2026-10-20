@@ -139,7 +139,10 @@ detects the format and `openStore(path)` opens a Zarr directory; either way the
 handle holds one per-container file, and every method dispatches to it. A GRIB
 file is a `fieldglass::Session` plus the value memo the extension's repaint loop
 needs (ADR-0011); a NetCDF file keeps its own reader and dataset view, a plane
-memo and the curvilinear index cache; a Zarr store is a `Session` alone. Which
+memo and the curvilinear index cache; a Zarr store is a `Session` alone. Each
+also keeps a `fieldglass::WarpMemo`, the last warp's pixel-to-cell map, so a
+repaint that changes only the colours, or the field on the same grid, does not
+warp again (#1233). Which
 messages carry no raster of their own and have to be put on one first
 (spectral coefficients, HEALPix pixels) is the `Session`'s answer, not the
 handle's.

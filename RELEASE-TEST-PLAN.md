@@ -1470,15 +1470,22 @@ cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
       the same spot in each: the same value and the same `grid i,j`. In 0.5.0
       the metres file was drawn far off the Earth.
 
-## 41. Repainting a slice reuses its placement (#662)
+## 41. Repainting a slice reuses its placement and its warp (#662, #1233)
 
 **`S: samples/rtofs_ice.nc`** (3298 × 4500 tripolar)
 
-- [ ] The first draw takes a couple of seconds. After that, changing the
-      colour map, the range or the variable to another one on the same grid
+- [ ] On **Source**, the first draw takes a few seconds. After that, changing
+      the colour map, the range or the variable to another one on the same grid
       repaints at once. `crates/fieldglass/tests/placement_is_memoised.rs`
       checks that a second placement reads nothing and derives no second
-      geometry; nothing times it.
+      geometry.
+- [ ] Switch the projection to **Equirectangular** (#1233). That first draw
+      takes about six seconds. After it, changing the colour map, Reverse,
+      Log scale or the range repaints in under a second, and so does changing
+      to another variable on the same grid. The status line shows
+      "Rendering…" only briefly. `crates/fieldglass/tests/warp_is_memoised.rs`
+      and `crates/fieldglass-napi/src/warp_memo_tests.rs` check that none of
+      those changes warps again and that the picture is a full render's.
 
 ## 42. Error messages read the same in both hosts (#574)
 

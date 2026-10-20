@@ -184,6 +184,6 @@ pub use spatial_index::SpatialIndex;
 #[cfg(feature = "render")]
 pub use warp::{
     EqualEarth, ForwardMap, Mollweide, Orthographic, PolarStereographic, PreparedTarget,
-    Resampling, Robinson, SourceGrid, TargetProjection, TargetRaster, WarpedRaster, WebMercator,
-    warp, warp_to_equirectangular,
+    Resampling, Robinson, SourceGrid, TargetProjection, TargetRaster, WarpPlan, WarpedRaster,
+    WebMercator, warp, warp_to_equirectangular,
 };

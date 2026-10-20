@@ -60,6 +60,9 @@ mod display_tests;
 // The crate stays free of hand-written `unsafe` (ADR-0008, #1242).
 #[cfg(test)]
 mod no_unsafe_tests;
+// A repaint on the same grid does not warp again (#1233).
+#[cfg(test)]
+mod warp_memo_tests;
 
 /// Bridge a foreign crate's error into a `napi::Error` by its `Display` text.
 ///
@@ -1090,6 +1093,10 @@ impl std::fmt::Debug for DecodedGrid {
 struct MessageStream {
     session: fieldglass::Session,
     values: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
+    /// The last warp's pixel-to-cell map, so a repaint that changes only the
+    /// colours, or draws another message on the same grid, does not warp
+    /// again (#1233).
+    warps: fieldglass::WarpMemo,
 }
 
 impl MessageStream {
@@ -1097,6 +1104,7 @@ impl MessageStream {
         Self {
             session,
             values: Mutex::new(std::collections::HashMap::new()),
+            warps: fieldglass::WarpMemo::new(),
         }
     }
 
@@ -1179,7 +1187,7 @@ impl MessageStream {
         // onto a global lat/lon grid and hands it back like any decoded field
         // (#330), so this path never special-cases it.
         let (raw, placed) = self.resolved(index)?;
-        let mut rendered = render_from_source(&placed.source(), &raw, options)?;
+        let mut rendered = render_placed(&self.warps, &placed, &raw, options)?;
         rendered.truncation = self.truncation(index)?.map(Into::into);
         Ok(rendered)
     }
@@ -1199,6 +1207,7 @@ impl MessageStream {
         let (raw_a, placed_a) = self.resolved(index_a)?;
         let (raw_b, placed_b) = self.resolved(index_b)?;
         let mut rendered = render_combined(
+            &self.warps,
             &placed_a,
             raw_a.as_ref(),
             &placed_b,
@@ -1459,7 +1468,13 @@ fn render_display_grid(
         options.range_min,
         options.range_max,
     )?;
-    let mut rendered = render_over(&field.placed.source(), &field.values, options, extremes)?;
+    let mut rendered = render_over(
+        None,
+        &field.placed.source(),
+        &field.values,
+        options,
+        extremes,
+    )?;
     rendered.truncation = field.truncation.clone().map(Into::into);
     Ok(rendered)
 }
@@ -2258,6 +2273,11 @@ pub struct NetcdfFile {
     /// (`O(log n)`, about 0.65 us each), so a megapixel raster warps in well
     /// under a second once the tree exists.
     curvilinear: Mutex<CurvilinearCache>,
+    /// The last warp's pixel-to-cell map (#1233). Every field of a file such
+    /// as RTOFS sits on one mesh, so a colour change or a change of field
+    /// samples through it; only the first draw on a target pays the inverse
+    /// map, about five seconds on that mesh.
+    warps: fieldglass::WarpMemo,
 }
 
 /// What names one plane of a variable: its decode index, the two axes drawn,
@@ -2349,6 +2369,7 @@ impl NetcdfFile {
             view,
             planes: Mutex::new(PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
+            warps: fieldglass::WarpMemo::new(),
         })
     }
 
@@ -2411,7 +2432,7 @@ impl NetcdfFile {
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
         let placed = self.slice_placed(&var, y, x)?;
-        render_from_source(&placed.source(), &plane, &options)
+        render_placed(&self.warps, &placed, &plane, &options)
     }
 
     /// One line through a variable: its values along `along_dim`, every other
@@ -2625,6 +2646,7 @@ impl NetcdfFile {
         let placed_a = self.slice_placed(&var_a, y, x)?;
         let placed_b = self.slice_placed(&var_b, y, x)?;
         render_combined(
+            &self.warps,
             &placed_a,
             &plane_a,
             &placed_b,
@@ -3155,6 +3177,8 @@ fn rows_run_south_to_north(index: &SpatialIndex) -> Option<bool> {
 #[derive(Debug)]
 pub struct ZarrStore {
     session: fieldglass::Session,
+    /// The last warp's pixel-to-cell map (#1233), as the other handles keep.
+    warps: fieldglass::WarpMemo,
 }
 
 impl ZarrStore {
@@ -3178,7 +3202,10 @@ impl ZarrStore {
         }
         let session = fieldglass::Session::open_store(directory_store::DirectoryObjects::new(root))
             .map_err(|e| napi::Error::from_reason(e.message()))?;
-        Ok(Self { session })
+        Ok(Self {
+            session,
+            warps: fieldglass::WarpMemo::new(),
+        })
     }
 
     /// Whether a directory looks like a Zarr store, without opening it.
@@ -3245,7 +3272,7 @@ impl ZarrStore {
         options: RenderOptions,
     ) -> Result<RenderedGrid, RenderError> {
         let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
-        render_from_source(&field.source(), &values, &options)
+        render_field(&self.warps, field, &values, &options)
     }
 
     /// Geographic polylines projected onto this slice's raster.
@@ -3326,7 +3353,7 @@ impl ZarrStore {
             &slice_indices_b,
             &op,
         )?;
-        render_from_source(&combined.source(), &values, &options)
+        render_field(&self.warps, combined, &values, &options)
     }
 
     /// Probe the combined field, so the readout matches the displayed map
@@ -3716,6 +3743,7 @@ fn combined_field(
 /// `Vec<Option<f64>>`, projection, overlays, palette, scaling and manual bounds
 /// all apply unchanged.
 fn render_combined(
+    warps: &fieldglass::WarpMemo,
     a: &Placed,
     raw_a: &[Option<f64>],
     b: &Placed,
@@ -3724,7 +3752,7 @@ fn render_combined(
     options: &RenderOptions,
 ) -> Result<RenderedGrid, RenderError> {
     let combined = combined_field(a, raw_a, b, raw_b, op)?;
-    render_from_source(&a.source(), &combined, options)
+    render_placed(warps, a, &combined, options)
 }
 
 /// What a render fails with on its way to JavaScript (#1155).
@@ -3827,26 +3855,16 @@ impl std::fmt::Display for RenderError {
     }
 }
 
-/// Paint a placed field.
-///
-/// Given the projection pipeline's own `Source`, everything
-/// from here down is the engine's and this host's paint step. Every handle
-/// renders through this — the GRIB and NetCDF handles from a `Placed`, the
-/// Zarr handle from a decoded field's own placement (#659).
-///
-/// The row-flip decision comes from the `Source`'s own scan.
-///
-/// The colour range is `fieldglass::colour_range` over `raw`, the whole
-/// decoded field, before the warp: the rule `Session::render` follows, so a
-/// window, the output size or the resampling does not move the colours (#880
-/// item 6, #1155). It is resolved before the projection, so a refused range
-/// costs no warp.
+/// Paint a field, warping afresh: `render_placed` with no memo, for a test
+/// that renders a `Source` it built.
+#[cfg(test)]
 fn render_from_source(
     source: &fieldglass::Source<'_>,
     raw: &[Option<f64>],
     options: &RenderOptions,
 ) -> Result<RenderedGrid, RenderError> {
     render_over(
+        None,
         source,
         raw,
         options,
@@ -3854,10 +3872,57 @@ fn render_from_source(
     )
 }
 
-/// `render_from_source` with the present-cell range the colour range is
-/// taken from given, rather than read off `raw`: a display grid's is the full
-/// field's (#1082), which `raw` is not.
+/// Paint a placed field. Every handle renders through this: the GRIB and
+/// NetCDF handles from their `Placed`, the Zarr handle from a decoded field's
+/// own placement (#659, `render_field`).
+///
+/// The warp goes through the handle's memo (#1233): a repaint that changes
+/// only the colours, or draws another field on the same grid, samples through
+/// the last warp's pixel-to-cell map rather than running the inverse map
+/// again, and paints the same picture to the byte.
+fn render_placed(
+    warps: &fieldglass::WarpMemo,
+    placed: &Placed,
+    raw: &[Option<f64>],
+    options: &RenderOptions,
+) -> Result<RenderedGrid, RenderError> {
+    render_over(
+        Some((warps, &placed.geometry)),
+        &placed.source(),
+        raw,
+        options,
+        fieldglass::min_max_ignoring_mask(raw.iter().copied()),
+    )
+}
+
+/// `render_placed` for a field `Session` decoded, which owns its geometry
+/// rather than sharing a handle's: it is moved into the placement the memo
+/// keeps, not copied.
+fn render_field(
+    warps: &fieldglass::WarpMemo,
+    field: fieldglass::Field,
+    raw: &[Option<f64>],
+    options: &RenderOptions,
+) -> Result<RenderedGrid, RenderError> {
+    render_placed(warps, &Placed::from_field(field), raw, options)
+}
+
+/// The paint step under `render_placed`, with the present-cell range the
+/// colour range is taken from given rather than read off `raw`: a display
+/// grid's is the full field's (#1082), which `raw` is not.
+///
+/// Given the projection pipeline's own `Source`, everything from here down is
+/// the engine's and this host's paint step. `warps` is the handle's warp memo
+/// and the geometry `source` is placed on, or `None` to warp afresh. The
+/// row-flip decision comes from the `Source`'s own scan.
+///
+/// The colour range is `fieldglass::colour_range` over the extremes, the whole
+/// decoded field's, before the warp: the rule `Session::render` follows, so a
+/// window, the output size or the resampling does not move the colours (#880
+/// item 6, #1155). It is resolved before the projection, so a refused range
+/// costs no warp.
 fn render_over(
+    warps: Option<(&fieldglass::WarpMemo, &std::sync::Arc<GridGeometry>)>,
     source: &fieldglass::Source<'_>,
     raw: &[Option<f64>],
     options: &RenderOptions,
@@ -3880,7 +3945,10 @@ fn render_over(
         bounds: used_bounds,
         summary,
         ..
-    } = fieldglass::render::project(source, raw, &engine)?;
+    } = match warps {
+        Some((memo, geometry)) => memo.project(geometry, source, raw, &engine)?,
+        None => fieldglass::render::project(source, raw, &engine)?,
+    };
     let flip_y = if resolved.paints_the_source() {
         source.scan.flips_source_rows(resolved.flip_y)
     } else {
@@ -4015,6 +4083,22 @@ impl Placed {
         Self {
             ni: georef.ni.unwrap_or_default(),
             nj: georef.nj.unwrap_or_default(),
+            scan: georef.scan,
+            family: georef.label,
+            points_per_row: georef.points_per_row,
+            geometry: std::sync::Arc::new(georef.geometry),
+        }
+    }
+
+    /// A decoded field's own placement, its geometry moved rather than copied.
+    ///
+    /// The same source `Field::source` reads the field through: the shape is
+    /// the field's `ni × nj` rather than the georef's optional pair.
+    fn from_field(field: fieldglass::Field) -> Self {
+        let fieldglass::Field { ni, nj, georef, .. } = field;
+        Self {
+            ni,
+            nj,
             scan: georef.scan,
             family: georef.label,
             points_per_row: georef.points_per_row,
@@ -5262,6 +5346,7 @@ mod netcdf_slice_tests {
             view,
             planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
+            warps: fieldglass::WarpMemo::new(),
         }
     }
 
@@ -7979,6 +8064,7 @@ mod curvilinear_render_tests {
             view,
             planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
+            warps: fieldglass::WarpMemo::new(),
         }
     }
 
@@ -8455,6 +8541,7 @@ mod curvilinear_render_tests {
             view,
             planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
+            warps: fieldglass::WarpMemo::new(),
         }
     }
 }
@@ -9233,6 +9320,7 @@ mod coordinate_less_slice_placement_tests {
             view,
             planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
+            warps: fieldglass::WarpMemo::new(),
         };
         let index = handle
             .variables()

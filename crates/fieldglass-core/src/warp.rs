@@ -368,6 +368,201 @@ pub fn warp<T: TargetProjection>(
     }
 }
 
+/// Where each output pixel of a [`warp`] reads the source, worked out once so
+/// that any number of fields on the same grid can be sampled through it
+/// (#1233).
+///
+/// A warp does three things per output pixel: map it to a `(lat, lon)`, ask the
+/// source's inverse map which cell that is, and sample the values there. Only
+/// the last step reads a value. On a curvilinear grid the second is a
+/// spatial-index search per pixel and takes nearly all the time (about five
+/// seconds for the 4500 × 3298 RTOFS tripolar grid), so a repaint that changes
+/// only the colours, or draws another field on the same grid, should not pay
+/// it again. A plan keeps the outcome of the first two steps, and
+/// [`sample`](Self::sample) runs the third.
+///
+/// `WarpPlan::new(&source, &target, method).sample(source.sample)` is
+/// `warp(&source, &target, method)`, bit for bit: both resolve a pixel and
+/// sample a cell through the same functions.
+///
+/// A nearest-neighbour plan keeps one `u32` cell per pixel. A bilinear plan,
+/// and a nearest one over a grid with more cells than a `u32` counts, keeps
+/// the fractional index instead (24 bytes a pixel), since the blend needs it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WarpPlan {
+    width: u32,
+    height: u32,
+    lattice: Lattice,
+    method: Resampling,
+    taps: Taps,
+}
+
+/// What each pixel of a [`WarpPlan`] samples.
+#[derive(Debug, Clone, PartialEq)]
+enum Taps {
+    /// Row-major cell `j * ni + i` the pixel copies, or [`NO_CELL`].
+    Cells(Vec<u32>),
+    /// The fractional source index the pixel samples at, or `None` where the
+    /// pixel is off the target's domain or the source grid.
+    Points(Vec<Option<GridIndex>>),
+}
+
+/// A [`Taps::Cells`] entry for a pixel that reads nothing. Never a real cell:
+/// a plan keeps cells only for a grid with fewer than `u32::MAX` of them.
+const NO_CELL: u32 = u32::MAX;
+
+/// Whether a plan for `source` sampled by `method` (already downgraded for the
+/// grid) keeps one cell a pixel rather than a fractional index: a nearest
+/// sample on a grid whose cells a `u32` counts.
+fn keeps_cells(source: &SourceGrid<'_>, method: Resampling) -> bool {
+    method == Resampling::Nearest
+        && u64::from(source.ni) * u64::from(source.nj) < u64::from(NO_CELL)
+}
+
+/// The shape of the source a sample is taken from: what the resampler reads of
+/// a [`SourceGrid`] besides its values.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Lattice {
+    ni: u32,
+    nj: u32,
+    periodic_i: bool,
+}
+
+impl Lattice {
+    fn of(source: &SourceGrid<'_>) -> Self {
+        Self {
+            ni: source.ni,
+            nj: source.nj,
+            periodic_i: source.periodic_i,
+        }
+    }
+}
+
+impl WarpPlan {
+    /// Resolve every output pixel of `target` against `source`'s inverse map.
+    /// `source.sample` is not read: the values come to [`sample`](Self::sample).
+    pub fn new<T: TargetProjection>(
+        source: &SourceGrid<'_>,
+        target: &T,
+        method: Resampling,
+    ) -> Self {
+        // The downgrade `warp` makes, made here, so the plan samples as it would.
+        let method = Resampling::from_grid(source.resampling, method);
+        let (width, height) = target.dims();
+        let lattice = Lattice::of(source);
+        let pixels = width as usize * height as usize;
+        let prepared = target.prepare();
+        let index_at = |px: u32, py: u32| {
+            prepared
+                .pixel_to_lonlat(px, py)
+                .and_then(|(lat, lon)| (source.inverse_at)(lat, lon))
+        };
+        let taps = if keeps_cells(source, method) {
+            let mut cells = Vec::with_capacity(pixels);
+            for py in 0..height {
+                for px in 0..width {
+                    cells.push(index_at(px, py).map_or(NO_CELL, |idx| {
+                        let (i, j) = nearest_cell(lattice, idx);
+                        // Below `ni * nj`, which the check above put under `u32::MAX`.
+                        (j as u32) * source.ni + i as u32
+                    }));
+                }
+            }
+            Taps::Cells(cells)
+        } else {
+            let mut points = Vec::with_capacity(pixels);
+            for py in 0..height {
+                for px in 0..width {
+                    points.push(index_at(px, py));
+                }
+            }
+            Taps::Points(points)
+        };
+        Self {
+            width,
+            height,
+            lattice,
+            method,
+            taps,
+        }
+    }
+
+    /// Output raster dimensions, `(width, height)`.
+    pub fn dims(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    /// The resampling the plan samples with: the one asked for, or nearest
+    /// where the grid allows nothing else.
+    pub fn resampling(&self) -> Resampling {
+        self.method
+    }
+
+    /// The bytes the plan holds, for a caller that bounds what it keeps.
+    pub fn heap_bytes(&self) -> usize {
+        match &self.taps {
+            Taps::Cells(c) => c.len() * std::mem::size_of::<u32>(),
+            Taps::Points(p) => p.len() * std::mem::size_of::<Option<GridIndex>>(),
+        }
+    }
+
+    /// The bytes [`new`](Self::new) would hold for these arguments, worked out
+    /// without making the plan: what a caller asks before deciding a plan is
+    /// worth keeping. Equal to that plan's [`heap_bytes`](Self::heap_bytes).
+    pub fn heap_bytes_for<T: TargetProjection>(
+        source: &SourceGrid<'_>,
+        target: &T,
+        method: Resampling,
+    ) -> u64 {
+        let method = Resampling::from_grid(source.resampling, method);
+        let (width, height) = target.dims();
+        let per_pixel = if keeps_cells(source, method) {
+            std::mem::size_of::<u32>()
+        } else {
+            std::mem::size_of::<Option<GridIndex>>()
+        };
+        u64::from(width) * u64::from(height) * per_pixel as u64
+    }
+
+    /// The warp of the field `sample` reads, which must be on the grid the plan
+    /// was made for: the [`WarpedRaster`] [`warp`] returns for it.
+    pub fn sample(&self, sample: Sample<'_>) -> WarpedRaster {
+        let pixels = self.width as usize * self.height as usize;
+        let mut values = vec![0.0f64; pixels];
+        let mut mask = vec![0u8; pixels];
+        match &self.taps {
+            Taps::Cells(cells) => {
+                let ni = self.lattice.ni;
+                for (out, &cell) in cells.iter().enumerate() {
+                    if cell == NO_CELL {
+                        continue;
+                    }
+                    let (i, j) = ((cell % ni) as usize, (cell / ni) as usize);
+                    if let Some(v) = sample(i, j) {
+                        values[out] = v;
+                        mask[out] = 1;
+                    }
+                }
+            }
+            Taps::Points(points) => {
+                for (out, idx) in points.iter().enumerate() {
+                    let Some(idx) = *idx else { continue };
+                    if let Some(v) = sample_at(self.lattice, sample, idx, self.method) {
+                        values[out] = v;
+                        mask[out] = 1;
+                    }
+                }
+            }
+        }
+        WarpedRaster {
+            values,
+            mask,
+            width: self.width,
+            height: self.height,
+        }
+    }
+}
+
 /// Hoisted equirectangular map: row 0 at `lat_max`, stepping by `d_lat`
 /// (negative, north-up) and `d_lon` per pixel.
 #[derive(Debug, Clone, Copy)]
@@ -1444,20 +1639,40 @@ fn lon_to_px(lon: f64, lon_min: f64, lon_mid: f64, d_lon: f64) -> f64 {
 /// selected resampling method. Returns `None` when the requested sample
 /// (or any of its bilinear neighbours) is bitmap-masked.
 fn sample_source(source: &SourceGrid<'_>, idx: GridIndex, method: Resampling) -> Option<f64> {
-    let ni = source.ni as i64;
-    let nj = source.nj as i64;
+    sample_at(Lattice::of(source), source.sample, idx, method)
+}
+
+/// The cell a nearest-neighbour sample at `idx` reads: [`sample_source`]'s
+/// rounding, which a [`WarpPlan`] resolves once and keeps.
+fn nearest_cell(lattice: Lattice, idx: GridIndex) -> (usize, usize) {
+    let ni = lattice.ni as i64;
+    let nj = lattice.nj as i64;
+    // A periodic grid wraps the column index (a seam-gap sample past
+    // `ni - 1` rounds to `ni`, which is column 0 again); a bounded
+    // grid clamps to the edge column.
+    let i = if lattice.periodic_i {
+        idx.i.round().rem_euclid(ni as f64) as usize
+    } else {
+        idx.i.round().clamp(0.0, (ni - 1) as f64) as usize
+    };
+    let j = idx.j.round().clamp(0.0, (nj - 1) as f64) as usize;
+    (i, j)
+}
+
+/// [`sample_source`] over a grid's shape and its values, apart: what a
+/// [`WarpPlan`] samples with, holding no inverse map.
+fn sample_at(
+    lattice: Lattice,
+    sample: Sample<'_>,
+    idx: GridIndex,
+    method: Resampling,
+) -> Option<f64> {
+    let ni = lattice.ni as i64;
+    let nj = lattice.nj as i64;
     match method {
         Resampling::Nearest => {
-            // A periodic grid wraps the column index (a seam-gap sample past
-            // `ni - 1` rounds to `ni`, which is column 0 again); a bounded
-            // grid clamps to the edge column.
-            let i = if source.periodic_i {
-                idx.i.round().rem_euclid(ni as f64) as usize
-            } else {
-                idx.i.round().clamp(0.0, (ni - 1) as f64) as usize
-            };
-            let j = idx.j.round().clamp(0.0, (nj - 1) as f64) as usize;
-            (source.sample)(i, j)
+            let (i, j) = nearest_cell(lattice, idx);
+            sample(i, j)
         }
         Resampling::Bilinear => {
             // Floor + clamp the lower corner. The upper corner saturates
@@ -1478,7 +1693,7 @@ fn sample_source(source: &SourceGrid<'_>, idx: GridIndex, method: Resampling) ->
             // a hair past `ni - 1`.
             let i0_f = idx.i.floor();
             let j0_f = idx.j.floor();
-            let i0 = if source.periodic_i {
+            let i0 = if lattice.periodic_i {
                 i0_f.rem_euclid(ni as f64) as i64
             } else {
                 i0_f as i64
@@ -1492,16 +1707,16 @@ fn sample_source(source: &SourceGrid<'_>, idx: GridIndex, method: Resampling) ->
             // target as much as on a 64-bit one.
             let i0u = i0 as usize;
             let j0u = j0 as usize;
-            let i1 = if source.periodic_i {
+            let i1 = if lattice.periodic_i {
                 (i0u + 1) % ni as usize
             } else {
                 i0u.saturating_add(1).min((ni as usize).saturating_sub(1))
             };
             let j1 = j0u.saturating_add(1).min((nj as usize).saturating_sub(1));
-            let v00 = (source.sample)(i0u, j0u)?;
-            let v01 = (source.sample)(i1, j0u)?;
-            let v10 = (source.sample)(i0u, j1)?;
-            let v11 = (source.sample)(i1, j1)?;
+            let v00 = sample(i0u, j0u)?;
+            let v01 = sample(i1, j0u)?;
+            let v10 = sample(i0u, j1)?;
+            let v11 = sample(i1, j1)?;
             let fi = idx.i - i0_f;
             let fj = idx.j - j0_f;
             let w00 = (1.0 - fi) * (1.0 - fj);
@@ -2863,5 +3078,167 @@ mod tests {
         );
         assert_eq!(out.width, 0);
         assert!(out.values.is_empty());
+    }
+
+    /// `a` and `b` hold the same pixels to the bit, `NaN`s included.
+    fn assert_same_raster(a: &WarpedRaster, b: &WarpedRaster, what: &str) {
+        assert_eq!((a.width, a.height), (b.width, b.height), "{what}: dims");
+        assert_eq!(a.mask, b.mask, "{what}: mask");
+        let bits = |r: &WarpedRaster| r.values.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+        assert_eq!(bits(a), bits(b), "{what}: values");
+    }
+
+    /// A warp of a fixed source and target both ways: straight, and as a plan.
+    type WarpBoth<'a> = dyn Fn(Resampling) -> (WarpedRaster, WarpPlan) + 'a;
+
+    /// Plan, then sample: the same raster [`warp`] paints, for every target
+    /// and both resampling methods, over a periodic grid and a bounded one,
+    /// with some cells masked so a sample that reads none is exercised too
+    /// (#1233).
+    #[test]
+    fn a_plan_samples_what_the_warp_paints() {
+        // Every seventh cell masked, so bilinear blends that touch one drop out.
+        let masked = |i: usize, j: usize| ((j * 100 + i) % 7 != 3).then_some((j * 100 + i) as f64);
+        let grids = [
+            global_latlon_params(),
+            LatLonParams {
+                ni: 13,
+                nj: 9,
+                lat_first: 70.0,
+                lon_first: -30.0,
+                lat_last: -10.0,
+                lon_last: 90.0,
+            },
+        ];
+        for p in &grids {
+            let source = make_source(p, &masked);
+            let targets: [(&str, &WarpBoth<'_>); 7] = [
+                ("equirect", &|m| {
+                    let t = TargetRaster {
+                        width: 40,
+                        height: 23,
+                        lat_max: 80.0,
+                        lat_min: -20.0,
+                        lon_min: -40.0,
+                        lon_max: 300.0,
+                        lon_periodic: source.periodic_i,
+                    };
+                    (warp(&source, &t, m), WarpPlan::new(&source, &t, m))
+                }),
+                ("mercator", &|m| {
+                    let t = WebMercator::new(31, 29, -20.0, 80.0, -40.0, 300.0, source.periodic_i);
+                    (warp(&source, &t, m), WarpPlan::new(&source, &t, m))
+                }),
+                ("ortho", &|m| {
+                    let t = Orthographic::new(33, 33, 30.0, 20.0);
+                    (warp(&source, &t, m), WarpPlan::new(&source, &t, m))
+                }),
+                ("polar", &|m| {
+                    let t = PolarStereographic::new(33, 33, false, 10.0);
+                    (warp(&source, &t, m), WarpPlan::new(&source, &t, m))
+                }),
+                ("mollweide", &|m| {
+                    let t = Mollweide::new(48, 24, 15.0);
+                    (warp(&source, &t, m), WarpPlan::new(&source, &t, m))
+                }),
+                ("robinson", &|m| {
+                    let t = Robinson::new(48, 24, 0.0);
+                    (warp(&source, &t, m), WarpPlan::new(&source, &t, m))
+                }),
+                ("equal earth", &|m| {
+                    let t = EqualEarth::new(48, 24, -60.0);
+                    (warp(&source, &t, m), WarpPlan::new(&source, &t, m))
+                }),
+            ];
+            for (name, run) in targets {
+                for method in [Resampling::Nearest, Resampling::Bilinear] {
+                    let (warped, plan) = run(method);
+                    assert!(
+                        warped.mask.contains(&1),
+                        "{name}: the warp paints something"
+                    );
+                    assert_eq!(plan.dims(), (warped.width, warped.height));
+                    let per_pixel = match method {
+                        Resampling::Nearest => std::mem::size_of::<u32>(),
+                        Resampling::Bilinear => std::mem::size_of::<Option<GridIndex>>(),
+                    };
+                    assert_eq!(
+                        plan.heap_bytes(),
+                        warped.mask.len() * per_pixel,
+                        "{name} {method:?}: the plan's size"
+                    );
+                    assert_same_raster(
+                        &plan.sample(&masked),
+                        &warped,
+                        &format!("{name} {method:?} over {}×{}", p.ni, p.nj),
+                    );
+                }
+            }
+        }
+    }
+
+    /// A second field on the same grid, through the first field's plan: the
+    /// raster a fresh warp of it paints. What a variable change on one grid
+    /// rests on (#1233).
+    #[test]
+    fn a_plan_serves_another_field_on_its_grid() {
+        let p = global_latlon_params();
+        let first = |i: usize, j: usize| Some((j * 100 + i) as f64);
+        let second = |i: usize, j: usize| (i != 2).then_some(-((i * 7 + j) as f64) / 3.0);
+        let t = Mollweide::new(40, 20, 0.0);
+        for method in [Resampling::Nearest, Resampling::Bilinear] {
+            let plan = WarpPlan::new(&make_source(&p, &first), &t, method);
+            assert_same_raster(
+                &plan.sample(&second),
+                &warp(&make_source(&p, &second), &t, method),
+                &format!("{method:?}"),
+            );
+        }
+    }
+
+    /// Over a grid that is a list of cell centres, a bilinear request becomes
+    /// nearest in the plan as it does in the warp, and the plan keeps one cell
+    /// a pixel rather than a fractional index.
+    #[test]
+    fn a_plan_over_a_lookup_grid_downgrades_as_the_warp_does() {
+        let (ni, nj) = (6u32, 4u32);
+        let (mut lats, mut lons) = (Vec::new(), Vec::new());
+        for j in 0..nj {
+            for i in 0..ni {
+                // A sheared grid, so neither axis is a coordinate.
+                lats.push(10.0 + 5.0 * j as f64 + 0.7 * i as f64);
+                lons.push(20.0 + 6.0 * i as f64 - 1.3 * j as f64);
+            }
+        }
+        let index = crate::SpatialIndex::new(ni, nj, &lats, &lons).expect("an index");
+        let inverse = |lat: f64, lon: f64| index.nearest(lat, lon);
+        let values = |i: usize, j: usize| (j != 1 || i != 4).then_some((j * 10 + i) as f64);
+        let source = SourceGrid {
+            ni,
+            nj,
+            sample: &values,
+            inverse_at: &inverse,
+            periodic_i: false,
+            resampling: index.resampling(),
+        };
+        let t = TargetRaster {
+            width: 30,
+            height: 24,
+            lat_max: 35.0,
+            lat_min: 8.0,
+            lon_min: 12.0,
+            lon_max: 55.0,
+            lon_periodic: false,
+        };
+        let plan = WarpPlan::new(&source, &t, Resampling::Bilinear);
+        assert_eq!(plan.resampling(), Resampling::Nearest);
+        assert_eq!(plan.heap_bytes(), 30 * 24 * std::mem::size_of::<u32>());
+        assert_eq!(
+            WarpPlan::heap_bytes_for(&source, &t, Resampling::Bilinear),
+            plan.heap_bytes() as u64
+        );
+        let warped = warp(&source, &t, Resampling::Bilinear);
+        assert!(warped.mask.contains(&1));
+        assert_same_raster(&plan.sample(&values), &warped, "lookup grid");
     }
 }
