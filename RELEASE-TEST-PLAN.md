@@ -1194,10 +1194,11 @@ Process Explorer*) does not jump by hundreds of MB.
       covered by `fieldglass-zarr`'s `tests/codec_bombs.rs`.
 - [ ] `numrecs_huge_cdf1.nc` and `numrecs_huge_cdf5.nc` (248 and 364 bytes,
       stating 60,000,000 records and holding 2): the file page shows the record
-      dimension as `unlimited`, with no count, so the stated 60,000,000 shows
-      only in the refusal. **Render v** is refused at once with `variable "v":
-      60000000 slab(s) of … exceeds source size 248` (364 for CDF-5), with no
-      jump in memory (#1000).
+      dimension as `unlimited`, with no count, so the stated 60,000,000 is not
+      shown anywhere. **Render v** is refused at once with `Error: render
+      failed: Error: parse error: variable "v": the region ends at byte
+      720000221, which exceeds source size 248` (CDF-5: byte 720000337 and
+      size 364), with no jump in memory (#1000).
 
 The chunk-index files (`hdf5_duplicate_chunk_records.h5`,
 `hdf5_oversized_chunk.h5`, `hdf5_conflicting_chunk_records.h5`) each hold a 1-D
