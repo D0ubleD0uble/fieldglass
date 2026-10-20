@@ -732,17 +732,16 @@ A depth axis with fill values used to fail to draw; no file here has one.
 
 **`S: samples/mrms.grib2`** (7000 × 3500, the slowest render in the samples)
 
-- [ ] **priority** On Equirectangular, pick Mollweide and click the map
-      straight away, while the old image is still up. The readout describes
-      the equirectangular image you clicked: the latitude and longitude of
-      the point under the pointer on that image, not the same screen point
-      read on a Mollweide disc. Click a corner of the image, outside the
-      Mollweide disc: while the old image is up the readout gives the corner's
-      latitude and longitude, since the old image has a cell there. Once the
-      Mollweide render lands, a click at that corner leaves the readout empty.
-      The window is short, so repeat a few times. Failure looks like a
-      readout that matches neither image, or an empty readout over the old
-      image's corner while it is still up (#1114).
+- [ ] A click while a new projection is still rendering cannot be checked by
+      eye. The render runs on the extension host, so the click is answered
+      only after the Mollweide image has landed, and that reply is dropped as
+      stale (#1146). All you see is that a click made during the render gives
+      no readout; click again once the map is up and it reads normally. The
+      rule that a click reads the image on screen, not the one on its way, is
+      held by `extension/src/test/suite/axes.test.ts` (`a GRIB map, after
+      picking a projection, before its render arrives`), which holds the
+      render back, and the drop of the stale reply by
+      `extension/src/test/suite/probe-seq.test.ts` (#1114).
 - [ ] On Equirectangular with Bounds on Auto, pick Mollweide and scroll over
       the map straight away, while the old image is still up. Bounds stays on
       Auto. Pick Equirectangular again: the whole map is drawn, not a zoomed
@@ -906,11 +905,17 @@ Compare picker and the subtitle, has no file here;
 
 **`B: samples/0.6.0/spectral_pair.grib2`** (T383, above the T359 the map shows)
 
-- [ ] **priority** The subtitle reads `shown at T359 of T383`. The field is
-      smooth, with no speckle, stripes, rings or blank patches.
-- [ ] **priority** A probe shows the map's value and, beside it, the field's
-      full-detail value. The two are close: T359 drops only the finest detail
-      of a T383 field.
+- [ ] **priority** The subtitle reads `shown at T359 of T383`. The map is
+      fine speckle at every scale, because the fixture is seeded white noise
+      (flat spectrum, `NOTICE.md`), so smoothness cannot be judged. Failure
+      looks like stripes, rings, blank patches or an empty map.
+- [ ] **priority** Probe the cell at 0° N 0° E (the readout names the latitude
+      and longitude). It reads `320.26 K shown · 308.37 K at full detail
+      (T383)`. The two differ by about 12 K here, and by about 10 K
+      (standard deviation) across the oracle's 12 points, because the dropped
+      T360 to T383 band carries about an eighth of the variance. The numbers
+      are the oracle's, from `spectral_simple_t383.truncation.oracle.json`;
+      any other pair, or no full-detail value, is the failure.
 - [ ] Compare message 0 with message 1 (A − B): the difference is zero
       everywhere, and the Compare map keeps the `shown at T359 of T383` label.
 - [ ] Export PNG: the image carries the label. Export CSV: the file starts
@@ -943,8 +948,9 @@ checked in CI against pyshtools at T2500 and 80-bit arithmetic at T3000
 - [ ] Open `temperature`: the projection picker offers the map projections.
 - [ ] Switch the variable to `lat_bnds`, which has no coordinates: the
       projection picker and Resampling are hidden, the caption says
-      `source`, and the line under it starts `Not available for this grid:
-      Projection, Resampling`.
+      `source`, and the line under it reads `Not available for this grid:
+      Projection, Resampling, Overlay, Zonal average, Long layout (Export
+      CSV)`.
 - [ ] Switch back to `temperature`: the picker returns with the map
       projections, and the line goes.
 - [ ] On `temperature`, choose Equirectangular, then switch to `lat_bnds`
@@ -1126,8 +1132,9 @@ package's half is in §44.
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc`**
 
 - [ ] The file opens. `station_info` is listed under "Variables not decoded"
-      with the HDF5 class that stopped it (compound); `visits`, `time` and
-      `temperature` are listed as usual.
+      with the HDF5 class that stopped it (class 6, compound). `visits` is listed
+      there too, as class 9 (variable-length). `time` and `temperature` are
+      listed under Variables as usual.
 
 ## 31. More HDF5 and NetCDF-4 files open (#899, #900, #907, #914, #920, #922)
 
@@ -1186,9 +1193,11 @@ Process Explorer*) does not jump by hundreds of MB.
       itself is fine", with no jump in memory (#989). The Zarr half is
       covered by `fieldglass-zarr`'s `tests/codec_bombs.rs`.
 - [ ] `numrecs_huge_cdf1.nc` and `numrecs_huge_cdf5.nc` (248 and 364 bytes,
-      stating 60,000,000 records and holding 2): `v` lists 60,000,000
-      records, and **Render v** is refused at once with "…exceeds source size
-      248" (364 for CDF-5), with no jump in memory (#1000).
+      stating 60,000,000 records and holding 2): the file page shows the record
+      dimension as `unlimited`, with no count, so the stated 60,000,000 shows
+      only in the refusal. **Render v** is refused at once with `variable "v":
+      60000000 slab(s) of … exceeds source size 248` (364 for CDF-5), with no
+      jump in memory (#1000).
 
 The chunk-index files (`hdf5_duplicate_chunk_records.h5`,
 `hdf5_oversized_chunk.h5`, `hdf5_conflicting_chunk_records.h5`) each hold a 1-D
@@ -1282,9 +1291,11 @@ temperature. Compare within a pair, not across them.
 **`F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2`** (same file as §19)
 
 - [ ] The source view draws the values: the field is a constant 273.15 K, so
-      it is one flat colour. The panel caption reads `polar_stereo 16×31 (grid
-      coordinates)`, with no corner pair (no `→`), and the message table shows
-      no corner either. 0.5.0 showed the first point twice (#1011).
+      it is one flat colour. Once drawn, the caption reads `source: polar_stereo
+      16×31 → polar_stereo (no reprojection)`. Its `→` joins the source and
+      the target, not a corner pair, and no latitude or longitude appears in
+      it. The message table's Bounds column shows `—`, which is the check that
+      the grid has no corner. 0.5.0 showed the first point twice (#1011).
 - [ ] The Overlay row, contours included, is hidden and the long CSV is not
       offered; the line under the caption and the CSV prompt say the grid is
       not placed (§20). No message calls the grid type unsupported.
@@ -1310,9 +1321,10 @@ PY
 - [ ] Open `samples/0.6.0/tiny_earth_pair.grib2`. The projection picker,
       Resampling, the Overlay row, the Vectors row and Zonal average are
       hidden. The line under the caption reads `Not available for this grid:
-      Projection, Resampling, Overlay, Vectors, Zonal average`, and opened,
-      `Projection, Resampling, Overlay, Vectors, Zonal average: this grid has
-      no known position on the Earth.` Nothing
+      Projection, Resampling, Overlay, Vectors, Zonal average, Long layout
+      (Export CSV)`, and opened, `Projection, Resampling, Overlay, Vectors,
+      Zonal average, Long layout (Export CSV): this grid has no known position
+      on the Earth.` Nothing
       mentions satellite-view grids, and no error is shown. 0.5.0 placed this
       grid and then refused contours "for satellite-view grids".
 
@@ -1359,7 +1371,10 @@ No manual check: the in-table P1 editor is not enabled in released builds.
 ## 44. The browser package (#460, #466, #808, #939, #950)
 
 Install the tarball the release dry run built (RELEASING.md §2), not one built
-locally, and decode in a real browser page.
+locally, and decode in a real browser page. Run that dry run at the prep SHA
+first: the npm API changed in #1201, so a tarball from an earlier run is the
+wrong one, and none exists until the dry run has passed on the SHA being
+released.
 
 ```sh
 mkdir -p /tmp/fieldglass-browser && cd /tmp/fieldglass-browser
@@ -1593,8 +1608,8 @@ against A op B. The browser package has no Compare line.
   that` holds the rule.
 - **A click while a Flip Y axis redraw is pending (#1114), and a cross-section's
   axis labels turning over before the image (#1114).** A slice redraws too
-  fast to click inside by eye; the §7 projection check on `mrms.grib2` is the
-  one case slow enough. `extension/src/test/suite/axes.test.ts` holds the
+  fast to click inside by eye; the slowest render in the samples (`mrms.grib2`,
+  §7) still answers the click only after the new image has landed. `extension/src/test/suite/axes.test.ts` holds the
   render back and clicks (`after Flip Y axis, with an axis answer landing
   before the render`, `a restored section, before its turned-over render
   arrives`, `a GRIB map, after picking a projection, before its render
