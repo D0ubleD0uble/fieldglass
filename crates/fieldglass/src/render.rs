@@ -33,7 +33,10 @@
 // Split by feature rather than kept as one group: a braced `use` list takes no
 // `#[cfg]` on its members, so the items behind `core`'s optional surfaces have
 // to be imported by their own statement (#552).
-use fieldglass_core::{Scan, projection::GridGeometry};
+use fieldglass_core::{
+    Scan,
+    projection::{GridGeometry, GridResampling},
+};
 // `require_reprojectable` asks a projector whether a grid is placeable, and the
 // projectors are in `projection`, which has no gate — only the warp targets,
 // the painter and the overlay projector sit behind `render`.
@@ -1789,7 +1792,9 @@ impl crate::api::GridSupport {
     /// disagree. A space view has no forward map yet, whatever its extent, so
     /// even a sector wholly on the Earth is refused (#979); a planar grid on
     /// degenerate constants has one that places nothing. The zonal mean asks the check `zonal_mean`
-    /// makes, whether the rows are circles of latitude. (Named, not linked:
+    /// makes, whether the rows are circles of latitude. `bilinear` asks the
+    /// rule `warp` applies before it resamples, the geometry's `resampling()`,
+    /// for a grid that reprojects at all (#1225). (Named, not linked:
     /// the operations are behind `render` and `analysis`, and this is not.)
     ///
     /// Hosts read these from [`Georef::supports`](crate::Georef::supports) and
@@ -1799,13 +1804,17 @@ impl crate::api::GridSupport {
     pub fn of(geometry: &GridGeometry) -> Self {
         // Neither half allocates for a grid that passes: this runs on every
         // `Georef` a session builds.
-        let positions =
-            has_forward_map(geometry) && require_reprojectable(geometry, geometry.label()).is_ok();
+        let reprojects = require_reprojectable(geometry, geometry.label()).is_ok();
+        let positions = reprojects && has_forward_map(geometry);
         Self {
             contours: positions,
             vectors: positions,
             long_csv: positions,
             zonal_mean: rows_are_latitude_circles(geometry),
+            // The warp's own rule, not a list of families: `warp` downgrades
+            // bilinear by the geometry's `resampling()` (#445), so a lookup
+            // grid draws nearest whatever a host asks (#1225).
+            bilinear: reprojects && geometry.resampling() == GridResampling::Any,
         }
     }
 }
@@ -5147,6 +5156,41 @@ mod planar_geolocation_tests {
                 .expect("unmodelled")
                 .message(),
             "unsupported unsupported(3.4)"
+        );
+    }
+
+    /// Bilinear is offered exactly where the warp would blend (#1225): every
+    /// formula grid that reprojects, the space view included, and no lookup
+    /// grid, which `warp` draws nearest whatever it is asked. A grid that does
+    /// not reproject has no warp to resample, whatever its family.
+    #[test]
+    fn bilinear_is_offered_where_the_warp_blends() {
+        for (grid_type, _) in GEOLOCATABLE_GRIDS
+            .iter()
+            .chain(&[("space_view", "space view")])
+        {
+            let geometry = representative(grid_type);
+            let blends = Resampling::from_grid(geometry.resampling(), Resampling::Bilinear)
+                == Resampling::Bilinear;
+            assert_eq!(
+                crate::api::GridSupport::of(&geometry).bilinear,
+                blends,
+                "{grid_type}: the answer is the warp's"
+            );
+            assert_eq!(
+                blends,
+                *grid_type != "curvilinear",
+                "{grid_type}: only the list of cell centres draws nearest"
+            );
+        }
+        let unmodelled = GridGeometry::Unsupported {
+            label: "unsupported(3.4)".to_string(),
+            declared: None,
+        };
+        assert_eq!(unmodelled.resampling(), GridResampling::Any);
+        assert!(
+            !crate::api::GridSupport::of(&unmodelled).bilinear,
+            "a grid that does not reproject has nothing to resample"
         );
     }
 

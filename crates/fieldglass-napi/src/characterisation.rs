@@ -792,8 +792,9 @@ fn meta_row(subject: &Subject<'_>) -> Row {
             format!(" shown=T{} of T{}", t.truncated_to, t.declared)
         }
     };
-    // Which point operations the grid takes (#945), in the open so the golden
-    // shows each family's answer beside the contour and CSV rows it predicts;
+    // Which point operations the grid takes (#945), and whether its warp
+    // blends (#1225), in the open so the golden shows each family's answer
+    // beside the contour and CSV rows it predicts;
     // `the_meta_rows_predict_the_contour_and_csv_rows` holds them together.
     let s = georef.supports;
     let taken: Vec<&str> = [
@@ -801,6 +802,7 @@ fn meta_row(subject: &Subject<'_>) -> Row {
         (s.vectors, "vectors"),
         (s.long_csv, "long_csv"),
         (s.zonal_mean, "zonal_mean"),
+        (s.bilinear, "bilinear"),
     ]
     .into_iter()
     .filter_map(|(on, name)| on.then_some(name))

@@ -3624,8 +3624,9 @@ pub struct SliceGrid {
     /// `GridGeometry::reprojectable` of the slice's own geometry and scan.
     pub reprojectable: bool,
     /// Which of contours, arrows, the long CSV and the zonal mean the slice
-    /// takes: `fieldglass::GridSupport::of` its geometry, the API's own type
-    /// and wire form (#945).
+    /// takes, and whether its warp blends for bilinear (#1225):
+    /// `fieldglass::GridSupport::of` its geometry, the API's own type and wire
+    /// form (#945).
     #[napi(ts_type = "GridSupport")]
     pub supports: serde_json::Value,
 }
@@ -3633,7 +3634,7 @@ pub struct SliceGrid {
 /// `fieldglass::GridSupport::of` a slice's geometry, in the wire form the
 /// API's `GridSupport` declares.
 fn grid_support(geometry: &GridGeometry) -> serde_json::Value {
-    serde_json::to_value(fieldglass::GridSupport::of(geometry)).expect("four booleans serialise")
+    serde_json::to_value(fieldglass::GridSupport::of(geometry)).expect("five booleans serialise")
 }
 
 impl SliceGrid {
@@ -4543,7 +4544,8 @@ mod planar_offer_needs_a_placeable_projection_tests {
     #[test]
     fn a_slice_says_which_point_operations_its_grid_takes() {
         let none = serde_json::json!({
-            "contours": false, "vectors": false, "longCsv": false, "zonalMean": false
+            "contours": false, "vectors": false, "longCsv": false, "zonalMean": false,
+            "bilinear": true
         });
         let geos = geos_meta(&cf_geostationary());
         assert!(geos.reprojectable);
@@ -4551,7 +4553,8 @@ mod planar_offer_needs_a_placeable_projection_tests {
         assert_eq!(
             lambert_meta(&wrf_lambert()).supports,
             serde_json::json!({
-                "contours": true, "vectors": true, "longCsv": true, "zonalMean": false
+                "contours": true, "vectors": true, "longCsv": true, "zonalMean": false,
+                "bilinear": true
             }),
             "a Lambert grid's rows are not circles of latitude"
         );
@@ -8016,6 +8019,14 @@ mod curvilinear_render_tests {
                 meta.reprojectable,
                 geometry.reprojectable(Scan::north_down()),
                 "{name}: the slice must report the geometry's own answer"
+            );
+            // A list of cell centres warps nearest whatever is asked, so the
+            // slice picker offers no Resampling choice for it (#1225).
+            assert!(meta.reprojectable, "{name} is drawn on a map");
+            assert_eq!(
+                meta.supports["bilinear"],
+                serde_json::json!(false),
+                "{name}: bilinear changes nothing on a lookup grid"
             );
         }
     }

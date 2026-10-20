@@ -447,7 +447,7 @@ export function offersOverlays(placement: Placement | null | undefined): boolean
 
 /** What a field takes when nothing answered for it: none of the point
  *  operations. A slice the handle could not place, or a message with no grid. */
-export const NO_SUPPORT: GridSupport = { contours: false, vectors: false, longCsv: false, zonalMean: false };
+export const NO_SUPPORT: GridSupport = { contours: false, vectors: false, longCsv: false, zonalMean: false, bilinear: false };
 
 /** Said in the CSV layout prompt when a placed field's grid does not take the
  *  long layout (#945). Today that is every satellite view; see
@@ -464,7 +464,8 @@ export const UNPLACED_LONG_CSV_NOTE = "The long layout needs a grid placed on th
  *  export, which the layout prompt leaves out; the rest are on the page.
  *  Resampling goes with the projection: the source view paints one pixel per
  *  cell and never resamples (`TargetKind::Source` in the `fieldglass` crate's
- *  `render.rs`), so a field shown only in it has nothing to resample. */
+ *  `render.rs`), so a field shown only in it has nothing to resample. It also
+ *  goes on a grid whose warp draws nearest whatever is asked (#1225). */
 export type UnavailableKey = "projection" | "resampling" | "overlay" | "contours" | "arrows" | "zonal" | "longCsv";
 
 /** Each control's label as the panel shows it, which is how the line names it. */
@@ -496,6 +497,13 @@ export const UNPLACED_REASON = "this grid has no known position on the Earth.";
 
 /** Why a placed grid takes no zonal average: a rotated or projected grid (#945). */
 export const NO_ZONAL_REASON = "this grid's rows aren't circles of latitude.";
+
+/** Why a grid that reprojects takes no Resampling choice (#1225): it is a list
+ *  of cell centres, such as a satellite swath or a tripolar ocean grid, and the
+ *  warp draws the nearest cell whatever is asked, since two cells side by side
+ *  in the file can be far apart on the Earth. Which grids those are is Rust's
+ *  answer (`GridSupport.bilinear`), not a list kept here. */
+export const NO_BILINEAR_REASON = "this grid's neighbouring cells aren't always neighbours on the Earth, so the map always shows the nearest cell.";
 
 /** Why a placed grid takes no contours, arrows or long CSV (#945). Which grids
  *  those are is Rust's answer (`GridSupport`), not a list kept here. Today it
@@ -535,7 +543,8 @@ export function projectionReason(
 
 /** The controls a field's grid can't use, grouped by reason, structural
  *  reasons first (#1036). Rust decides what each grid takes (`placement`,
- *  `reprojectable`, `supports`); this only names the controls and the reason.
+ *  `reprojectable`, `supports`, Resampling included through
+ *  `supports.bilinear`); this only names the controls and the reason.
  *
  *  `offers` says which of these the panel has at all: the Vectors row is
  *  written only for a GRIB file of two or more messages, and only a slice
@@ -560,6 +569,10 @@ export function unavailableControls(
     found.push({ key: "projection", ...projection });
     // Only the source view is left, which never resamples.
     found.push({ key: "resampling", ...projection });
+  } else if (!field.supports.bilinear) {
+    // The warp draws nearest whatever is asked, so Bilinear would change
+    // nothing (#1225).
+    found.push({ key: "resampling", kind: "structural", reason: NO_BILINEAR_REASON });
   }
   if (!placed) found.push({ key: "overlay", ...notPlaced });
   else if (!field.supports.contours) found.push({ key: "contours", ...notYet });

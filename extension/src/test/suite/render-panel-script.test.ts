@@ -182,7 +182,7 @@ suite("The render panel's own script", function () {
         label: null,
         reprojectable: false,
         placed: false,
-        supports: { contours: false, vectors: false, longCsv: false, zonalMean: false },
+        supports: { contours: false, vectors: false, longCsv: false, zonalMean: false, bilinear: false },
         unavailable: [
           {
             kind: "structural",

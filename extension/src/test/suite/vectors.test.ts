@@ -184,7 +184,7 @@ suite("Vector arrows", () => {
         grid: { label: "polar_stereo" },
         reprojectable: true,
         placement: "placed",
-        supports: { contours: true, vectors: true, longCsv: true, zonalMean: false },
+        supports: { contours: true, vectors: true, longCsv: true, zonalMean: false, bilinear: true },
         uvRelativeToGrid,
       }) as unknown as PanelField;
     const fields: CompareFieldOption[] = [
@@ -240,7 +240,7 @@ suite("Vector arrows", () => {
     const noArrows = html(
       {
         ...meta(true),
-        supports: { contours: false, vectors: false, longCsv: false, zonalMean: false },
+        supports: { contours: false, vectors: false, longCsv: false, zonalMean: false, bilinear: true },
       } as PanelField,
       fields,
     );

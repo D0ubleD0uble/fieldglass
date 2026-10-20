@@ -415,13 +415,15 @@ api_type! {
     }
 
     /// Which of the operations that need a position for each grid point this
-    /// grid takes (#945).
+    /// grid takes (#945), and whether its warp can blend cells (#1225).
     ///
     /// The answers are the umbrella's own gates, asked ahead of time:
     /// `contours` is whether `render::contour_polylines` would draw this grid,
     /// `vectors` whether `render::vector_polylines` would, `long_csv` whether
     /// `render::field_csv` would write its `"long"` layout, and `zonal_mean`
-    /// whether `render::zonal_mean` would average it. So a host can disable
+    /// whether `render::zonal_mean` would average it. `bilinear` is the
+    /// warp's own rule (`Resampling::from_grid` over the geometry's
+    /// `resampling()`) for a grid that reprojects. So a host can disable
     /// an offer with a reason instead of making the call and showing the
     /// refusal, and it needs no list of grid families to do so.
     ///
@@ -453,6 +455,16 @@ api_type! {
         pub long_csv: bool,
         /// A zonal mean can be taken: the grid's rows are circles of latitude.
         pub zonal_mean: bool,
+        /// Bilinear resampling changes a map of this grid: the warp blends
+        /// the cells around each pixel when asked to.
+        ///
+        /// `false` for a grid that is a list of cell centres (a NetCDF or Zarr
+        /// field placed by 2-D coordinates, such as a satellite swath or a
+        /// tripolar ocean grid), which the warp draws nearest whatever is
+        /// asked, and for a grid that is not reprojected at all, where only the
+        /// source view draws and nothing is resampled. A host then has no use
+        /// for a Resampling choice.
+        pub bilinear: bool,
     }
 
     /// Where a grid's raster sits in the plane [`Georef::proj4`] names: the

@@ -279,7 +279,7 @@ suite("API wire contract (#574)", () => {
       label: "source",
       placement: "unplaceable",
       reprojectable: false,
-      supports: { contours: false, vectors: false, longCsv: false, zonalMean: false },
+      supports: { contours: false, vectors: false, longCsv: false, zonalMean: false, bilinear: false },
     });
   });
 
