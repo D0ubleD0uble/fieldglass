@@ -371,6 +371,16 @@ palette, picking the store's folder.
       `time_bnds · <name>`, and Export PNG offers `<stem>_time_bnds.png`
       (`air_v2_time_bnds.png`). In 0.5.0 every heading read `Message 0 — air`
       and the tab kept `Render: air`.
+- [ ] In `ncep_air_daily_2024.nc`, pick `time_bnds` (2 × 366): the image is
+      a tall box about eight times as high as it is wide, two columns of
+      colour, with the colour bar beside it. Failure looks like a blank white
+      box with a broken-image glyph, about 140,000 px tall. Click near the
+      top of the left column and near the bottom of the right one: each
+      readout gives a different value, and the grid indices are the cell
+      clicked. Set Y axis to `nbnds` and X axis to `time`: a wide band about
+      an eighth as tall as it is wide, two rows, not a strip a few pixels
+      high. Export PNG still writes the raster at its own size, 2 × 366
+      (#1226; `thin-slice.test.ts` measures the image and clicks its cells).
 - [ ] Copy `air_v2.zarr` to a folder named `air_copy` (no `.zarr` suffix) and
       open that: it opens the same way. The suffix is not what the check uses.
 

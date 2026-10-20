@@ -351,6 +351,28 @@ export function exportCanvasWidth(
   return Math.max(mapBlockW, margin + headerW + margin);
 }
 
+/** The CSS `aspect-ratio` the image is drawn at for a raster `width × height`
+ *  (#1226): empty, which keeps the raster's own aspect, unless one side is
+ *  more than eight times the other; then eight to one, the long way.
+ *
+ *  The image fills the panel's width, so a raster 2 wide and 366 tall was
+ *  drawn about 775 × 141,000 px, past what the page will paint, and one 366
+ *  wide and 2 tall was a strip of rows a pixel or two high. Held to eight to
+ *  one, each cell across the short side is a band, and the cells stretch
+ *  along it instead of being square. The click maps by fractions of the
+ *  image's box, and the overlay scales each axis on its own, so both still
+ *  land on the cell drawn. Export PNG writes the raster at its own size.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself. */
+export function displayAspect(width: number, height: number): string {
+  const most = 8;
+  if (!(width > 0) || !(height > 0)) return "";
+  if (height > most * width) return "1 / " + most;
+  if (width > most * height) return most + " / 1";
+  return "";
+}
+
 /** Whether the slice on axes `(yDim, xDim)` is a map — the file's own
  *  horizontal pair — as opposed to a cross-section through any two other axes
  *  (#171).
@@ -1598,6 +1620,7 @@ export function renderImagePanelHtml(
         ${unavailableSummary.toString()}
         ${unavailableItemsHtml.toString()}
         ${axisTickIndices.toString()}
+        ${displayAspect.toString()}
         ${formatAxisValue.toString()}
         ${displayUnits.toString()}
         ${formatCoordinate.toString()}
@@ -2700,6 +2723,10 @@ export function renderImagePanelHtml(
           if (!ctx) return;
           canvas.width = payload.width;
           canvas.height = payload.height;
+          // A raster far longer one way than the other is drawn at eight to
+          // one, not at its own aspect, which the page could not paint
+          // (#1226).
+          canvas.style.aspectRatio = displayAspect(payload.width, payload.height);
           // payload.rgba arrives as a Uint8Array; view it as a Uint8ClampedArray
           // so ImageData accepts it.
           const rgba = new Uint8ClampedArray(
