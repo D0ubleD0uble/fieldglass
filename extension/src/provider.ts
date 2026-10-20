@@ -10,7 +10,7 @@ import {
   type PickerColormap,
 } from "./color-tables";
 import { escapeHtml, nonce } from "./html";
-import { couldNotOpen, nothingToDraw, notAStore, reportProblem } from "./problems";
+import { couldNotOpen, errorText, nothingToDraw, notAStore, reportProblem } from "./problems";
 import {
   loadNative,
   nativeBinaryName,
@@ -489,8 +489,8 @@ export class FieldglassEditorProvider
         dataset = ncHandle?.metadata();
       } catch (err) {
         console.error("[Fieldglass] Handle.metadata failed:", err);
-        // Leave `dataset` undefined; the renderer will fall back to the
-        // "no messages found" status string with the format badge intact.
+        // Leave `dataset` undefined; the renderer falls back to its
+        // nothing-listed status line with the format badge intact.
       }
       // The renderable-variable list drives the "Render" affordances in the
       // metadata view. A backing without a render path yet (HDF5, #169) returns
@@ -695,7 +695,7 @@ export class FieldglassEditorProvider
       csv = handle.exportCsv(messageIndex, format);
     } catch (err) {
       void vscode.window.showErrorMessage(
-        `Fieldglass: CSV export failed: ${err instanceof Error ? err.message : err}`
+        `Fieldglass: CSV export failed: ${errorText(err)}`
       );
       return;
     }
@@ -768,7 +768,7 @@ export class FieldglassEditorProvider
       await vscode.workspace.fs.writeFile(dest, csv);
     } catch (err) {
       void vscode.window.showErrorMessage(
-        `Fieldglass: could not write CSV: ${err instanceof Error ? err.message : err}`
+        `Fieldglass: could not write CSV: ${errorText(err)}`
       );
       return;
     }
@@ -812,7 +812,7 @@ export class FieldglassEditorProvider
       csv = handle.exportCsv(sliceOf(spec), format);
     } catch (err) {
       void vscode.window.showErrorMessage(
-        `Fieldglass: CSV export failed: ${err instanceof Error ? err.message : err}`
+        `Fieldglass: CSV export failed: ${errorText(err)}`
       );
       return;
     }
@@ -873,7 +873,7 @@ export class FieldglassEditorProvider
     try {
       await vscode.workspace.fs.writeFile(dest, buffer);
     } catch (err) {
-      const reason = `could not write PNG: ${err instanceof Error ? err.message : err}`;
+      const reason = `could not write PNG: ${errorText(err)}`;
       void vscode.window.showErrorMessage(`Fieldglass: ${reason}`);
       return { status: "failed", reason };
     }
@@ -1052,7 +1052,7 @@ export class FieldglassEditorProvider
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: shown.index,
-          error: `render failed: ${err}`,
+          error: `render failed: ${errorText(err)}`,
           ...ask,
           ...rangeRefusalOf(err),
         } satisfies GridErrorMessage);
@@ -1097,7 +1097,7 @@ export class FieldglassEditorProvider
           type: "overlayError",
           messageIndex: shown.index,
           seq: req.seq,
-          error: `overlay projection failed: ${err}`,
+          error: errorText(err),
         });
       }
     };
@@ -1130,7 +1130,7 @@ export class FieldglassEditorProvider
           type: "contourError",
           messageIndex: shown.index,
           seq: req.seq,
-          error: `${err}`.replace(/^Error:\s*/, ""),
+          error: errorText(err),
         });
       }
     };
@@ -1172,7 +1172,7 @@ export class FieldglassEditorProvider
         panel.webview.postMessage({
           type: "vectorResult",
           seq: req.seq,
-          error: `${err}`.replace(/^Error:\s*/, ""),
+          error: errorText(err),
         });
       }
     };
@@ -1194,7 +1194,7 @@ export class FieldglassEditorProvider
           seq,
           messageIndex: shown.index,
           result: null,
-          error: `${err}`.replace(/^Error:\s*/, ""),
+          error: errorText(err),
         });
       }
     };
@@ -1323,7 +1323,7 @@ export class FieldglassEditorProvider
         handle = native.open(document.bytes);
       } catch (err) {
         console.error("[Fieldglass] setP1 lazy handle init failed:", err);
-        vscode.window.showErrorMessage(`Fieldglass: failed to parse GRIB1: ${err}`);
+        vscode.window.showErrorMessage(`Fieldglass: failed to parse GRIB1: ${errorText(err)}`);
         return;
       }
     }
@@ -1338,7 +1338,7 @@ export class FieldglassEditorProvider
       newBytes = handle.setP1(messageIndex, value);
     } catch (err) {
       console.error("[Fieldglass] setP1 failed:", err);
-      vscode.window.showErrorMessage(`Fieldglass: failed to set p1: ${err}`);
+      vscode.window.showErrorMessage(`Fieldglass: failed to set p1: ${errorText(err)}`);
       // Re-broadcast the old state so the input snaps back.
       this.broadcastUpdate(document);
       return;
@@ -1452,7 +1452,7 @@ export class FieldglassEditorProvider
       this._handlesByDoc.set(document.uri.toString(), handle);
       return listMessages(handle);
     } catch (err) {
-      vscode.window.showErrorMessage(`Fieldglass: failed to re-parse after edit: ${err}`);
+      vscode.window.showErrorMessage(`Fieldglass: failed to re-parse after edit: ${errorText(err)}`);
       return undefined;
     }
   }
@@ -1799,7 +1799,7 @@ export class FieldglassEditorProvider
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: spec.variableIndex,
-          error: `render failed: ${err}`,
+          error: `render failed: ${errorText(err)}`,
           ...ask,
           sliceGrid: sliceAnswer(grid),
           ...rangeRefusalOf(err),
@@ -1838,7 +1838,7 @@ export class FieldglassEditorProvider
           type: "overlayError",
           messageIndex: spec.variableIndex,
           seq: req.seq,
-          error: `overlay projection failed: ${err}`,
+          error: errorText(err),
         });
       }
     };
@@ -1866,7 +1866,7 @@ export class FieldglassEditorProvider
           type: "contourError",
           messageIndex: spec.variableIndex,
           seq: req.seq,
-          error: `${err}`.replace(/^Error:\s*/, ""),
+          error: errorText(err),
         });
       }
     };
@@ -1886,7 +1886,7 @@ export class FieldglassEditorProvider
           seq: req.seq,
           messageIndex: spec.variableIndex,
           result: null,
-          error: `${err}`.replace(/^Error:\s*/, ""),
+          error: errorText(err),
         });
       }
     };
@@ -3078,6 +3078,12 @@ function messageIsRenderable(m: Pick<MessageInfo, "placement">): boolean {
   return m.placement === "placed" || m.placement === "unplaceable";
 }
 
+/** The viewer's line when a file lists nothing: in GRIB's words for a GRIB
+ *  file, and in no format's for any other (#1053). */
+export function nothingListed(format: string): string {
+  return format === "grib1" || format === "grib2" ? "No messages found." : "Nothing to list in this file.";
+}
+
 /** Exported for tests: the P1 edit path is dormant (`editable` is false at the
  *  call site), so nothing else exercises the markup it would produce. */
 export function renderHtml(
@@ -3148,9 +3154,10 @@ export function renderHtml(
            <button type="button" class="export-csv-btn" data-message-index="${idx}">Export CSV…</button>
            <div class="render-status" id="status-${idx}"></div>
            <div class="render-legend">
-             Opens the rendered grid in a new editor tab. Painted in grid
-             coordinates (no map reprojection); bitmap-masked points render
-             as transparent. Export CSV writes the decoded field to a file.
+             Opens the rendered grid in a new editor tab, in its own grid
+             coordinates or on a map projection where the grid allows one;
+             bitmap-masked points render as transparent. Export CSV writes the
+             decoded field to a file.
            </div>`
         : `<div class="render-na">Render not available — grid dimensions unknown for this message.</div>`;
       return `
@@ -3205,7 +3212,9 @@ export function renderHtml(
       <code class="ascii">${escapeHtml(ascii)}</code>
     </div>`;
   } else {
-    bodyContent = `<div class="status">No messages found.</div>`;
+    // "Messages" is GRIB's word. A NetCDF file whose metadata could not be
+    // read, or an empty file, has none of them to be missing (#1053).
+    bodyContent = `<div class="status">${escapeHtml(nothingListed(format))}</div>`;
   }
 
   // Webview Content-Security-Policy. The CSP IS the security boundary that
