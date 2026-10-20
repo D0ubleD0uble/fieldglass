@@ -550,6 +550,137 @@ suite("Zoom and pan through the panel (#1147)", function () {
     });
   });
 
+  const AUTO = 'input[name="bounds-mode"][value="auto"]';
+  const MANUAL = 'input[name="bounds-mode"][value="manual"]';
+
+  for (const [how, back] of [
+    ["Reset view", [{ id: "zoom-reset", click: true }]],
+    ["Bounds Auto", [{ selector: AUTO, checked: true }]],
+  ] as const) {
+    test(`a wheel between ${how} and its render leaves Bounds on Auto (#1259)`, async () => {
+      await onMap(false, async (panel) => {
+        const before = lastDrawn(panel);
+        await rendered(panel, () => panel.wheel([0.5, 0.5], -250), "the zoom");
+        assert.strictEqual((await panel.controls())["radio:bounds-mode"], "manual", "the zoom set Bounds to Manual");
+        const gate = panel.hold(isType("gridReady"));
+        try {
+          const received = panel.received.length;
+          await panel.drive([...back]);
+          const ask = await waitUntil(
+            () => panel.received.slice(received).find(isType("rerenderRequest")),
+            `the render ${how} asks for`,
+          );
+          assert.strictEqual(ask.boundsLatMin, undefined, `${how} asks for the grid's own window`);
+          await waitUntil(() => gate.held.find(isType("gridReady")), "that render, held back");
+
+          // The zoomed image is still on screen, and the window asked for is
+          // not known until its render lands.
+          const wheeled = panel.received.length;
+          await panel.wheel([0.5, 0.5], -250);
+          // Past the 250 ms the page waits for a wheel to settle.
+          await new Promise((r) => setTimeout(r, 750));
+          assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", "Bounds stay on Auto");
+          assert.deepStrictEqual(
+            panel.received.slice(wheeled).filter(isType("rerenderRequest")),
+            [],
+            "and the wheel asks for no render",
+          );
+          const sent = panel.sent.length;
+          await gate.release();
+          const drawn = await panel.waitSent((m) => m.type === "gridReady" && m.seq === ask.seq, sent, "its render");
+          close(drawn.usedLonMax - drawn.usedLonMin, before.usedLonMax - before.usedLonMin, `${how} is drawn`, 1e-6);
+        } finally {
+          await gate.release();
+        }
+        // Once it has, the wheel zooms the window drawn.
+        const after = await rendered(panel, () => panel.wheel([0.5, 0.5], -250), "a wheel after it");
+        close(
+          after.usedLonMax - after.usedLonMin,
+          (before.usedLonMax - before.usedLonMin) * Math.pow(1.002, -250),
+          "the wheel zooms the window drawn",
+          1e-3,
+        );
+      });
+    });
+  }
+
+  /** A window inside the one `drawn`, the middle half of it each way. */
+  function middleHalf(drawn: Msg): MapWindow {
+    return {
+      latMin: drawn.usedLatMin + (drawn.usedLatMax - drawn.usedLatMin) * 0.25,
+      latMax: drawn.usedLatMin + (drawn.usedLatMax - drawn.usedLatMin) * 0.75,
+      lonMin: drawn.usedLonMin + (drawn.usedLonMax - drawn.usedLonMin) * 0.25,
+      lonMax: drawn.usedLonMin + (drawn.usedLonMax - drawn.usedLonMin) * 0.75,
+    };
+  }
+
+  for (const [projection, how, typedFor] of [
+    ["equirectangular", "", middleHalf],
+    // Pole to pole: Web Mercator draws it inside its band, as Rust clamps it.
+    [
+      "web_mercator",
+      " from pole to pole",
+      (drawn: Msg): MapWindow => Object.assign(middleHalf(drawn), { latMin: -90, latMax: 90 }),
+    ],
+  ] as const) {
+    test(`a wheel after typing a Bounds field${how}, before its render, zooms the typed window on ${projection} (#1259)`, async () => {
+      await onMap(false, async (panel) => {
+        let sent = panel.sent.length;
+        await panel.drive([{ selector: MANUAL, checked: true }]);
+        const before = await panel.waitSent(isType("gridReady"), sent, "the render on Manual");
+        const typed = typedFor(before);
+        const mercator = projection === "web_mercator";
+        const y = mercator ? mercatorY : (lat: number) => lat;
+        const drawnTyped = mercator
+          ? Object.assign({}, typed, {
+              latMin: Math.max(-MERCATOR_MAX_LAT, typed.latMin),
+              latMax: Math.min(MERCATOR_MAX_LAT, typed.latMax),
+            })
+          : typed;
+        const gate = panel.hold(isType("gridReady"));
+        let drawn: Msg;
+        try {
+          let received = panel.received.length;
+          await panel.drive([
+            { id: "bounds-lat-min", value: typed.latMin },
+            { id: "bounds-lat-max", value: typed.latMax },
+            { id: "bounds-lon-min", value: typed.lonMin },
+            { id: "bounds-lon-max", value: typed.lonMax },
+          ]);
+          await waitUntil(
+            () => panel.received.slice(received).find((m) => m.type === "rerenderRequest" && m.boundsLonMax === typed.lonMax),
+            "the render the typed window asks for",
+          );
+          // The old image is still on screen; the wheel turns over its middle.
+          received = panel.received.length;
+          await panel.wheel([0.5, 0.5], -250);
+          const ask = await waitUntil(
+            () => panel.received.slice(received).find(isType("rerenderRequest")),
+            "the render the wheel asks for",
+          );
+          const factor = Math.pow(1.002, -250);
+          close(ask.boundsLonMax - ask.boundsLonMin, (typed.lonMax - typed.lonMin) * factor, "the wheel zooms the typed span", 1e-3);
+          close(
+            y(ask.boundsLatMax) - y(ask.boundsLatMin),
+            (y(drawnTyped.latMax) - y(drawnTyped.latMin)) * factor,
+            "in latitude too",
+            1e-3,
+          );
+          // A pointer lands on whole pixels, so the middle is good to a pixel.
+          const px = (typed.lonMax - typed.lonMin) / before.width;
+          close((ask.boundsLonMin + ask.boundsLonMax) / 2, (typed.lonMin + typed.lonMax) / 2, "about its middle", 2 * px);
+          sent = panel.sent.length;
+          await gate.release();
+          drawn = await panel.waitSent((m) => m.type === "gridReady" && m.seq === ask.seq, sent, "the wheel's render");
+        } finally {
+          await gate.release();
+        }
+        assert.strictEqual((await panel.controls())["radio:bounds-mode"], "manual", "Bounds stay on Manual");
+        close(drawn.usedLonMax - drawn.usedLonMin, (typed.lonMax - typed.lonMin) * Math.pow(1.002, -250), "drawn zoomed", 1e-3);
+      }, projection);
+    });
+  }
+
   test("a drag with Flip Y axis on moves the map the way the cursor moves", async () => {
     await onMap(true, async (panel) => {
       const before = lastDrawn(panel);

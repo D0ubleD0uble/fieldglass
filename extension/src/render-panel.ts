@@ -2815,21 +2815,12 @@ export function renderImagePanelHtml(
           // (equirectangular + Web Mercator), which both render a lat/lon
           // window. Send all four edges or none; the Rust side validates and
           // falls back to the computed bounds for a partial/inverted box.
-          const bmode = document.querySelector('input[name="bounds-mode"]:checked');
-          if (warpsLatLon(projection) && bmode && bmode.value === 'manual') {
-            const laMin = Number((document.getElementById('bounds-lat-min') || {}).value);
-            const laMax = Number((document.getElementById('bounds-lat-max') || {}).value);
-            const loMin = Number((document.getElementById('bounds-lon-min') || {}).value);
-            const loMax = Number((document.getElementById('bounds-lon-max') || {}).value);
-            if (
-              Number.isFinite(laMin) && Number.isFinite(laMax) && laMax > laMin &&
-              Number.isFinite(loMin) && Number.isFinite(loMax) && loMax > loMin
-            ) {
-              options.boundsLatMin = laMin;
-              options.boundsLatMax = laMax;
-              options.boundsLonMin = loMin;
-              options.boundsLonMax = loMax;
-            }
+          const typed = warpsLatLon(projection) ? typedMapWindow() : null;
+          if (typed) {
+            options.boundsLatMin = typed.latMin;
+            options.boundsLatMax = typed.latMax;
+            options.boundsLonMin = typed.lonMin;
+            options.boundsLonMax = typed.lonMax;
           }
           // The options that place the image's pixels on the field, which a
           // request about the image on screen takes from its render.
@@ -2844,6 +2835,25 @@ export function renderImagePanelHtml(
             }
           }
           return options;
+        }
+
+        // The window the Bounds fields ask for, as a render request carries
+        // it: on Manual, all four edges forming a box. Null on Auto, or for a
+        // box Rust would not take, when the grid's own window is drawn.
+        function typedMapWindow() {
+          const bmode = document.querySelector('input[name="bounds-mode"]:checked');
+          if (!bmode || bmode.value !== 'manual') return null;
+          const laMin = Number((document.getElementById('bounds-lat-min') || {}).value);
+          const laMax = Number((document.getElementById('bounds-lat-max') || {}).value);
+          const loMin = Number((document.getElementById('bounds-lon-min') || {}).value);
+          const loMax = Number((document.getElementById('bounds-lon-max') || {}).value);
+          if (
+            Number.isFinite(laMin) && Number.isFinite(laMax) && laMax > laMin &&
+            Number.isFinite(loMin) && Number.isFinite(loMax) && loMax > loMin
+          ) {
+            return { latMin: laMin, latMax: laMax, lonMin: loMin, lonMax: loMax };
+          }
+          return null;
         }
 
         function requestRender() {
@@ -3803,6 +3813,11 @@ export function renderImagePanelHtml(
         // the frame it was dragged in (see previewWindow).
         let gestureWindow = null;
         let gestureView = null;
+        // Set while the Bounds ask for a window not known until its render
+        // lands: Reset view, or Auto. A gesture then waits for that render,
+        // as over a target with no window (#1147), rather than moving the
+        // window on screen and undoing the reset (#1259).
+        let windowAwaited = false;
 
         // The window the image on screen was rendered for, when a gesture can
         // move it: Rust echoes it for the lat/lon targets. Read in the
@@ -3822,11 +3837,12 @@ export function renderImagePanelHtml(
           };
         }
 
-        // The window a new gesture moves: the one the last gesture asked for
-        // while its render is on its way, else the one on screen.
+        // The window a new gesture moves: the one the last gesture or the
+        // Bounds fields asked for while its render is on its way, else the
+        // one on screen. None while that render's window is not known yet.
         function currentMapWindow() {
           const drawn = drawnMapWindow();
-          if (!drawn) return null;
+          if (!drawn || windowAwaited) return null;
           return gestureWindow || drawn;
         }
 
@@ -3867,7 +3883,6 @@ export function renderImagePanelHtml(
         }
 
         function resetMapWindow() {
-          clearGesturePreview();
           const auto = document.querySelector('input[name="bounds-mode"][value="auto"]');
           if (auto) auto.checked = true;
           const fields = document.getElementById('bounds-manual-fields');
@@ -3877,8 +3892,34 @@ export function renderImagePanelHtml(
             const el = document.getElementById(id);
             if (el) el.value = '';
           });
+          boundsAsked();
           snapshotState();
           requestRender();
+        }
+
+        // The Bounds controls now ask for another window. A window typed in
+        // the fields is known, so a gesture carries on from it, as from a
+        // gesture's own, and the image is moved to where it sits in it (#1259).
+        // Auto's is the grid's, known only once its render lands. Web
+        // Mercator draws a typed window inside its ±85.0511° band, as Rust
+        // clamps it; a pole would put the window's edge at infinity.
+        function boundsAsked() {
+          clearGesturePreview();
+          const target = requestedProjection();
+          let typed = warpsLatLon(target) ? typedMapWindow() : null;
+          if (typed && target === 'web_mercator') {
+            const band = 85.05112877980659;
+            const clamp = (lat) => Math.min(band, Math.max(-band, lat));
+            typed = Object.assign({}, typed, { latMin: clamp(typed.latMin), latMax: clamp(typed.latMax) });
+            if (!(typed.latMax > typed.latMin)) typed = null;
+          }
+          if (typed) {
+            gestureWindow = typed;
+            gestureView = { t: typed, ref: null };
+            previewWindow(typed);
+          } else {
+            windowAwaited = true;
+          }
         }
 
         function previewTransform(css, origin) {
@@ -3962,6 +4003,7 @@ export function renderImagePanelHtml(
           if (!payload || typeof payload.seq !== 'number' || payload.seq >= renderSeq) {
             gestureWindow = null;
             gestureView = null;
+            windowAwaited = false;
           }
           if (!drawnMapWindow()) { clearGesturePreview(); return; }
           if (!refreshPreview()) previewTransform('', '');
@@ -3973,6 +4015,7 @@ export function renderImagePanelHtml(
           gesture = null;
           gestureWindow = null;
           gestureView = null;
+          windowAwaited = false;
           previewTransform('', '');
           const wrap = document.querySelector('.canvas-wrap');
           if (wrap) wrap.classList.remove('dragging');
@@ -5355,13 +5398,13 @@ export function renderImagePanelHtml(
               const isManual = el.value === 'manual' && el.checked;
               if (manual) manual.classList.toggle('spacing-hidden', !isManual);
               // The window asked for now is the user's, not a gesture's.
-              clearGesturePreview();
+              boundsAsked();
               requestRender();
             });
           });
           ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach((id) => {
             const el = document.getElementById(id);
-            if (el) el.addEventListener('change', () => { clearGesturePreview(); requestRender(); });
+            if (el) el.addEventListener('change', () => { boundsAsked(); requestRender(); });
           });
           // Overlay toggles never re-render the image — they only reproject the
           // vector layer, so the image paint is untouched when toggling.
