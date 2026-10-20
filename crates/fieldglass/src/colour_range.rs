@@ -408,8 +408,10 @@ const COLOUR_BAR_FIGURES: usize = 4;
 /// typed, it takes more until it reads on its own side of it; one equal to
 /// `given` is written as `given` is.
 fn data_end(data: f64, given: f64) -> String {
+    // `given`, not `data`: the two compare equal across a signed zero, and a
+    // data end of -0 beside a typed 0 is written `0`, as the 0 was.
     if data == given {
-        return format!("{data}");
+        return format!("{given}");
     }
     let side = data.partial_cmp(&given);
     // Seventeen figures always read back as the same `f64`, so the loop
@@ -426,9 +428,17 @@ fn data_end(data: f64, given: f64) -> String {
 /// `v` to `digits` significant figures (1 to 21), as JavaScript's
 /// `Number.prototype.toPrecision` writes it (ECMA-262 §21.1.3.5): exponent
 /// form when the exponent is below −6 or not below `digits`, and a tie
-/// rounded away from zero. `v` is finite; the refusals above have checked.
+/// rounded away from zero.
+///
+/// A value that is not finite is written as Rust writes it (`inf`, `-inf`,
+/// `NaN`). `colour_range` documents its `extremes` as finite but cannot hold a
+/// caller to that, and an infinite data end reached a refusal's text before
+/// this rounding existed; it must not become a panic.
 fn to_precision(v: f64, digits: usize) -> String {
-    debug_assert!(v.is_finite() && (1..=21).contains(&digits));
+    debug_assert!((1..=21).contains(&digits));
+    if !v.is_finite() {
+        return format!("{v}");
+    }
     if v == 0.0 {
         // Negative zero too, as JavaScript writes it.
         return if digits == 1 {
@@ -763,6 +773,18 @@ mod tests {
             msg.starts_with("minimum 311.1 is above the field's maximum 311.099 "),
             "{msg}"
         );
+        // A data end of -0 equals a typed 0, and is written as the 0 was.
+        let (_, msg) = refusal(colour_range(
+            Some((-5.0, -0.0)),
+            Some(0.0),
+            None,
+            None,
+            false,
+        ));
+        assert!(
+            msg.starts_with("minimum 0 is not below the field's maximum 0 "),
+            "{msg}"
+        );
         // Equal to the value typed: written as that value is.
         let (_, msg) = refusal(colour_range(Some((270.0, hi)), Some(hi), None, None, false));
         assert!(
@@ -813,6 +835,37 @@ mod tests {
             (0.1, 17, "0.10000000000000001"),
         ] {
             assert_eq!(to_precision(v, digits), js, "{v} to {digits}");
+        }
+    }
+
+    /// `extremes` is documented finite, not checked. An infinite data end
+    /// is named as it was before the rounding, not a panic (#1053 review).
+    #[test]
+    fn a_non_finite_data_end_is_named_not_a_panic() {
+        let (_, msg) = refusal(colour_range(
+            Some((f64::NEG_INFINITY, 9.0)),
+            None,
+            None,
+            None,
+            true,
+        ));
+        assert!(
+            msg.contains("starts at -inf (taken from the data)"),
+            "{msg}"
+        );
+        let (_, msg) = refusal(colour_range(
+            Some((f64::NEG_INFINITY, f64::NEG_INFINITY)),
+            Some(0.0),
+            None,
+            None,
+            false,
+        ));
+        assert!(
+            msg.starts_with("minimum 0 is above the field's maximum -inf "),
+            "{msg}"
+        );
+        for v in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+            assert_eq!(to_precision(v, 4), format!("{v}"));
         }
     }
 }
