@@ -618,6 +618,7 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
                 view,
                 planes: Mutex::new(crate::PlaneMemo::default()),
                 curvilinear: Mutex::new(std::collections::HashMap::new()),
+                warps: fieldglass::WarpMemo::new(),
             };
             let variables = handle.variables();
             f(

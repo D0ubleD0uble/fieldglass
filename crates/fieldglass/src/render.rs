@@ -780,6 +780,36 @@ impl BuiltTarget {
         }
     }
 
+    /// [`WarpPlan::heap_bytes_for`](fieldglass_core::WarpPlan::heap_bytes_for)
+    /// into this target: what [`plan`](Self::plan) would hold.
+    fn plan_bytes(&self, source: &SourceGrid<'_>, resampling: Resampling) -> u64 {
+        use fieldglass_core::WarpPlan;
+        match self {
+            BuiltTarget::Equirect(t) => WarpPlan::heap_bytes_for(source, t, resampling),
+            BuiltTarget::Mercator(t) => WarpPlan::heap_bytes_for(source, t, resampling),
+            BuiltTarget::Ortho(t) => WarpPlan::heap_bytes_for(source, t, resampling),
+            BuiltTarget::Polar(t) => WarpPlan::heap_bytes_for(source, t, resampling),
+            BuiltTarget::Moll(t) => WarpPlan::heap_bytes_for(source, t, resampling),
+            BuiltTarget::Robin(t) => WarpPlan::heap_bytes_for(source, t, resampling),
+            BuiltTarget::EqEarth(t) => WarpPlan::heap_bytes_for(source, t, resampling),
+        }
+    }
+
+    /// [`WarpPlan::new`](fieldglass_core::WarpPlan::new) into this target:
+    /// [`warp`](Self::warp) with the sampling left for later.
+    fn plan(&self, source: &SourceGrid<'_>, resampling: Resampling) -> fieldglass_core::WarpPlan {
+        use fieldglass_core::WarpPlan;
+        match self {
+            BuiltTarget::Equirect(t) => WarpPlan::new(source, t, resampling),
+            BuiltTarget::Mercator(t) => WarpPlan::new(source, t, resampling),
+            BuiltTarget::Ortho(t) => WarpPlan::new(source, t, resampling),
+            BuiltTarget::Polar(t) => WarpPlan::new(source, t, resampling),
+            BuiltTarget::Moll(t) => WarpPlan::new(source, t, resampling),
+            BuiltTarget::Robin(t) => WarpPlan::new(source, t, resampling),
+            BuiltTarget::EqEarth(t) => WarpPlan::new(source, t, resampling),
+        }
+    }
+
     /// Run `f` with this target's prepared forward map: the one dispatch over
     /// the targets that every overlay projection goes through. Each target
     /// reports its own seam-split rule (`ForwardMap::seam_split`), so the only
@@ -1470,29 +1500,62 @@ fn warp_field(
     target_kind: WarpTarget,
     resolved: &ResolvedOptions,
 ) -> Result<Projected, Error> {
-    let geometry = source.placed()?;
-    require_reprojectable(geometry, source.refused_as())?;
-    let (ni, nj) = (source.ni, source.nj);
+    let sample = sample_of(source.ni, raw);
+    let (warped, used_bounds, method) =
+        with_warp_target(source, &sample, target_kind, resolved, |grid, built| {
+            built.warp(grid, resolved.resampling)
+        })?;
+    Ok(Projected {
+        values: warped.values,
+        mask: warped.mask,
+        width: warped.width,
+        height: warped.height,
+        bounds: used_bounds.map(LonLatBox::to_array),
+        summary: warp_summary(source, target_kind, method),
+    })
+}
 
-    // Indexed in `u64`, as `probe_pixel` is: `raw` comes from the caller of
-    // the public `project`, and on wasm32 `j * ni` in `usize` overflowed for a
-    // slice shorter than `ni * nj` (#845). An index `usize` cannot hold is past
-    // the end of any slice.
-    let sample = |i: usize, j: usize| -> Option<f64> {
+/// The reader a warp samples `raw` through: cell `(i, j)` of a grid `ni`
+/// columns wide, `None` past the end of `raw`.
+///
+/// Indexed in `u64`, as `probe_pixel` is: `raw` comes from the caller of
+/// the public `project`, and on wasm32 `j * ni` in `usize` overflowed for a
+/// slice shorter than `ni * nj` (#845). An index `usize` cannot hold is past
+/// the end of any slice.
+#[cfg(feature = "render")]
+fn sample_of(ni: u32, raw: &[Option<f64>]) -> impl Fn(usize, usize) -> Option<f64> + '_ {
+    move |i: usize, j: usize| -> Option<f64> {
         let k = (j as u64) * u64::from(ni) + i as u64;
         usize::try_from(k)
             .ok()
             .and_then(|k| raw.get(k))
             .copied()
             .flatten()
-    };
-    let sample_ref: &dyn Fn(usize, usize) -> Option<f64> = &sample;
+    }
+}
+
+/// Build the source grid and the concrete target a warp of `source` into
+/// `target_kind` runs over, and hand both to `f`: what [`warp_field`] warps
+/// through and [`WarpMemo`] plans through, so the two cannot set up different
+/// warps. Returns `f`'s answer, the extent the target used, and the resampling
+/// the warp really does (a lookup grid downgrades bilinear).
+#[cfg(feature = "render")]
+fn with_warp_target<R>(
+    source: &Source<'_>,
+    sample: &dyn Fn(usize, usize) -> Option<f64>,
+    target_kind: WarpTarget,
+    resolved: &ResolvedOptions,
+    f: impl FnOnce(&SourceGrid<'_>, &BuiltTarget) -> R,
+) -> Result<(R, Option<LonLatBox>, Resampling), Error> {
+    let geometry = source.placed()?;
+    require_reprojectable(geometry, source.refused_as())?;
+    let (ni, nj) = (source.ni, source.nj);
     let inverse = geometry.inverse_at();
 
     let grid = SourceGrid {
         ni,
         nj,
-        sample: sample_ref,
+        sample,
         inverse_at: inverse.as_ref(),
         periodic_i: geometry.is_periodic_x(),
         // A lookup grid answers with a cell, not a position inside one, and its
@@ -1504,27 +1567,237 @@ fn warp_field(
     // Construct the concrete target (shared with the overlay-projection path so
     // both paint into byte-identical geometry), then warp the source into it.
     let (built, used_bounds) = build_warp_target(target_kind, ni, nj, geometry, resolved)?;
-    let warped = built.warp(&grid, resolved.resampling);
-    // What the warp actually did, not what was asked for: a lookup grid
-    // downgrades bilinear, and a summary echoing the request would name a blend
-    // that never happened (#445).
-    let resample_label = match Resampling::from_grid(grid.resampling, resolved.resampling) {
+    let out = f(&grid, &built);
+    Ok((
+        out,
+        used_bounds,
+        Resampling::from_grid(grid.resampling, resolved.resampling),
+    ))
+}
+
+/// The picker caption for a warp: what the warp actually did, not what was
+/// asked for. A lookup grid downgrades bilinear, and a summary echoing the
+/// request would name a blend that never happened (#445).
+#[cfg(feature = "render")]
+fn warp_summary(source: &Source<'_>, target_kind: WarpTarget, method: Resampling) -> String {
+    let resample_label = match method {
         Resampling::Nearest => "nearest",
         Resampling::Bilinear => "bilinear",
     };
-    let summary = format!(
+    format!(
         "{} → {} ({resample_label})",
         source_projection_summary(source),
         target_kind.label(),
-    );
-    Ok(Projected {
-        values: warped.values,
-        mask: warped.mask,
-        width: warped.width,
-        height: warped.height,
-        bounds: used_bounds.map(LonLatBox::to_array),
-        summary,
-    })
+    )
+}
+
+/// The last warp a host drew, kept as the map from each output pixel to the
+/// source cell it reads, so the next draw on the same grid and target samples
+/// through it instead of warping again (#1233).
+///
+/// [`project`](fn@project) runs the warp's inverse map for every pixel on
+/// every call. On a curvilinear grid that is a spatial-index search per pixel,
+/// about five seconds for the 4500 × 3298 RTOFS tripolar grid on
+/// Equirectangular, and a change of colour map, reversal, scale or colour
+/// range needs none of it: the colours are painted after the warp. Nor does
+/// another field on the same grid, which reads the same cells.
+/// [`project`](Self::project) here answers what [`project`](fn@project)
+/// answers, bit for bit, and plans again only when something the plan depends
+/// on changes: the grid, the source shape, the target and its parameters, the
+/// manual window, the output size or the resampling the warp does.
+///
+/// For a host that keeps state between draws, as the Node addon does. The
+/// browser module keeps none; its page holds the warped field and repaints it
+/// through a new `Palette`. One plan is kept, the last: a `u32` a pixel for a
+/// nearest-neighbour warp (38 MB at RTOFS's 4500 × 2108 raster), 24 bytes a
+/// pixel for a bilinear one, and none larger than its budget
+/// ([`Self::MAX_PLAN_BYTES`] unless [`with_max_plan_bytes`](Self::with_max_plan_bytes)
+/// sets another).
+#[cfg(feature = "render")]
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct WarpMemo {
+    last: std::sync::Mutex<Option<std::sync::Arc<PlannedWarp>>>,
+    planned: std::sync::atomic::AtomicU64,
+    max_plan_bytes: u64,
+}
+
+#[cfg(feature = "render")]
+impl Default for WarpMemo {
+    fn default() -> Self {
+        Self::with_max_plan_bytes(Self::MAX_PLAN_BYTES)
+    }
+}
+
+/// One kept plan, and everything it was made for.
+#[cfg(feature = "render")]
+#[derive(Debug)]
+struct PlannedWarp {
+    geometry: std::sync::Arc<GridGeometry>,
+    ni: u32,
+    nj: u32,
+    target: WarpTarget,
+    bounds: Option<LonLatBox>,
+    size: Option<(u32, u32)>,
+    plan: fieldglass_core::WarpPlan,
+    used_bounds: Option<LonLatBox>,
+    method: Resampling,
+}
+
+#[cfg(feature = "render")]
+impl PlannedWarp {
+    /// Whether this plan is the one a warp of a `ni × nj` source on
+    /// `geometry` into `target` under `resolved` would make.
+    fn serves(
+        &self,
+        geometry: &GridGeometry,
+        (ni, nj): (u32, u32),
+        target: WarpTarget,
+        resolved: &ResolvedOptions,
+    ) -> bool {
+        (self.ni, self.nj) == (ni, nj)
+            && self.target == target
+            // The resampling the warp does rather than the one asked for: a lookup
+            // grid samples nearest either way, so toggling bilinear on one is
+            // served from the same plan.
+            && self.method == Resampling::from_grid(geometry.resampling(), resolved.resampling)
+            && self.bounds == resolved.bounds
+            && self.size == resolved.size
+            // The pointer first: a host that shares one geometry between draws
+            // (the addon's NetCDF cache) is answered without comparing a
+            // curvilinear grid's cell centres one by one.
+            && (std::ptr::eq(self.geometry.as_ref(), geometry) || *self.geometry == *geometry)
+    }
+}
+
+#[cfg(feature = "render")]
+impl WarpMemo {
+    /// A memo holding no plan, with the default budget.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A memo holding no plan, which keeps none larger than `bytes`. A warp
+    /// whose plan would be larger runs as [`project`](fn@project) runs it.
+    pub fn with_max_plan_bytes(bytes: u64) -> Self {
+        Self {
+            last: std::sync::Mutex::new(None),
+            planned: std::sync::atomic::AtomicU64::new(0),
+            max_plan_bytes: bytes,
+        }
+    }
+
+    /// [`project`](fn@project) of `values` on `source` under `options`,
+    /// warping through the kept plan when it serves and making and keeping a
+    /// new one when not.
+    ///
+    /// `geometry` is the grid `source` places its cells on, shared so the memo
+    /// can keep it to compare the next draw against. A `source` whose geometry
+    /// is not that one is projected without the memo, so a mismatch costs a
+    /// warp and never paints from the wrong grid. The source view and a
+    /// refused option go straight to [`project`](fn@project) too.
+    pub fn project(
+        &self,
+        geometry: &std::sync::Arc<GridGeometry>,
+        source: &Source<'_>,
+        values: &[Option<f64>],
+        options: &RenderOptions,
+    ) -> Result<Projected, Error> {
+        let resolved = ResolvedOptions::parse(options)?;
+        let TargetKind::Warp(target) = resolved.target else {
+            return project(source, values, options);
+        };
+        let shared = match source.geometry {
+            Ok(placed) => std::ptr::eq(placed, geometry.as_ref()) || placed == geometry.as_ref(),
+            Err(_) => false,
+        };
+        if !shared {
+            return project(source, values, options);
+        }
+        // The shape check `project` makes, for the same reason (#913).
+        let sized_by_caller = resolved.size.is_some()
+            && matches!(
+                target,
+                WarpTarget::Equirectangular | WarpTarget::WebMercator
+            );
+        if !sized_by_caller {
+            require_values_for_shape(source, values)?;
+        }
+        let Some(planned) = self.plan_for(geometry, source, target, &resolved)? else {
+            return project(source, values, options);
+        };
+        let warped = planned.plan.sample(&sample_of(source.ni, values));
+        Ok(Projected {
+            values: warped.values,
+            mask: warped.mask,
+            width: warped.width,
+            height: warped.height,
+            bounds: planned.used_bounds.map(LonLatBox::to_array),
+            summary: warp_summary(source, target, planned.method),
+        })
+    }
+
+    /// The most a kept plan may hold by default: 256 MiB, a nearest-neighbour plan for
+    /// the 67-megapixel raster a derived size is held to
+    /// ([`MAX_DERIVED_RASTER_PIXELS`]). A larger plan, which only a bilinear
+    /// warp past about 11 megapixels or a caller's own size can ask for, is
+    /// not made: that warp runs as [`project`](fn@project) runs it, rather
+    /// than holding a gigabyte between draws.
+    pub const MAX_PLAN_BYTES: u64 = 256 << 20;
+
+    /// The kept plan when it serves this warp, and otherwise a new one, kept;
+    /// `None` when the plan would be larger than the memo's budget.
+    fn plan_for(
+        &self,
+        geometry: &std::sync::Arc<GridGeometry>,
+        source: &Source<'_>,
+        target: WarpTarget,
+        resolved: &ResolvedOptions,
+    ) -> Result<Option<std::sync::Arc<PlannedWarp>>, Error> {
+        let mut last = self
+            .last
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(kept) = last.as_ref()
+            && kept.serves(geometry, (source.ni, source.nj), target, resolved)
+        {
+            return Ok(Some(std::sync::Arc::clone(kept)));
+        }
+        // Let the old plan go before making the new one, so a change of grid
+        // or target holds one plan at a time rather than two.
+        *last = None;
+        // The plan reads the grid's shape and inverse map, never a value.
+        let unread = |_: usize, _: usize| None;
+        let (plan, used_bounds, method) =
+            with_warp_target(source, &unread, target, resolved, |grid, built| {
+                (built.plan_bytes(grid, resolved.resampling) <= self.max_plan_bytes)
+                    .then(|| built.plan(grid, resolved.resampling))
+            })?;
+        let Some(plan) = plan else {
+            return Ok(None);
+        };
+        self.planned
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let planned = std::sync::Arc::new(PlannedWarp {
+            geometry: std::sync::Arc::clone(geometry),
+            ni: source.ni,
+            nj: source.nj,
+            target,
+            bounds: resolved.bounds,
+            size: resolved.size,
+            plan,
+            used_bounds,
+            method,
+        });
+        *last = Some(std::sync::Arc::clone(&planned));
+        Ok(Some(planned))
+    }
+
+    /// How many plans this memo has made: one for each warp the last plan did
+    /// not serve. What a test counts to hold the no-rewarp rule.
+    pub fn plans_made(&self) -> u64 {
+        self.planned.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -232,6 +232,12 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
         Class::Engine,
         "the pixel-probe result; napi converts it into its own DTO",
     ),
+    (
+        "WarpMemo",
+        Class::Engine,
+        "the last warp's plan, which a stateful host keeps between draws (#1233); \
+         not plain data, so not `Clone` like the others, and never serialised",
+    ),
     // --- fetchplan.rs: what the umbrella adds to the planner (#1081) --------
     // The clock and step a host sends to `candidates`.
     ("CandidateOptions", Class::Wire, ""),

@@ -198,7 +198,8 @@ pub use session::ContourOptions;
 pub use render::Source;
 #[cfg(feature = "render")]
 pub use render::{
-    PixelProbe, Projected, RenderOptions, ResolvedOptions, TargetKind, VectorOptions, WarpTarget,
+    PixelProbe, Projected, RenderOptions, ResolvedOptions, TargetKind, VectorOptions, WarpMemo,
+    WarpTarget,
 };
 pub use session::PlacedSlice;
 /// One line through a combined map, for a host that holds an `ArraySource`

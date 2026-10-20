@@ -407,6 +407,13 @@ sequenceDiagram
     end
 ```
 
+`WarpPlan` splits that loop at the sample (#1233). `WarpPlan::new` runs the
+first two steps for every pixel and keeps the source cell each one reads;
+`WarpPlan::sample` runs the last over any field on that grid, and paints what
+`warp` paints for it, bit for bit. `fieldglass::WarpMemo` keeps the last plan
+for a host that keeps state between draws, so the Node addon repaints a colour
+change, or another field on the same grid, without the inverse map.
+
 > Authoritative source for the realizations above:
 > `grep -rE 'impl( <[^>]+>)? [A-Za-z0-9_]+ for [A-Za-z0-9_]+' crates/*/src`.
 > If that set changes, this file is stale; see `README.md` in this directory

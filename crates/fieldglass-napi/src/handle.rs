@@ -359,6 +359,19 @@ impl Handle {
         }
     }
 
+    /// How many warps this handle has planned (#1233): what a test counts to
+    /// hold that a repaint which changes only the colours, or the field on the
+    /// same grid, does not warp again.
+    #[cfg(test)]
+    pub(crate) fn plans_made(&self) -> u64 {
+        match self.inner.as_ref().expect("an open handle") {
+            Inner::Grib1(h) => h.stream.warps.plans_made(),
+            Inner::Grib2(h) => h.stream.warps.plans_made(),
+            Inner::Netcdf(open) => open.file.warps.plans_made(),
+            Inner::Zarr(h) => h.warps.plans_made(),
+        }
+    }
+
     /// The container, or the refusal a closed handle gives.
     fn inner(&self) -> Result<&Inner, RenderError> {
         self.inner.as_ref().ok_or_else(|| {
