@@ -215,10 +215,10 @@ Each file is opened once; this is where its checks are.
 | `S: samples/goes.nc` | 21 |
 | `S: samples/rtofs_ice.nc` | 41 |
 | `S: samples/mirs_swath.nc` | 1 |
-| `B: samples/0.6.0/ncep_air_daily_2024.nc` | 2, 3, 4, 5, 7, 8 |
+| `B: samples/0.6.0/ncep_air_daily_2024.nc` | 2, 3, 4, 5, 7, 8, 46 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 3, 4, 5 |
 | `B: samples/0.6.0/air_v2.zarr`, `air_v3.zarr` | 2, 5 |
-| `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21, 45 |
+| `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21, 45, 46 (`gfs_wind` only) |
 | `B: samples/0.6.0/cmc_pair.grib` | 6, 24 |
 | `B: samples/0.6.0/gfs_unnamed_pair.grib2` | 6 |
 | `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6 |
@@ -1452,7 +1452,7 @@ python3 -m http.server 8001
       the shader and the CPU painter. The verdict reads `PASS — N pixels
       compared, M off by one lookup entry, 0 mismatched.`
 
-## 45. One colour-range rule in both hosts (#1155, #1149)
+## 45. One colour-range rule in both hosts (#1155, #1156, #1149)
 
 **`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
 (temperature, about 270 to 312 K)
@@ -1496,6 +1496,59 @@ python3 -m http.server 8001
 
 ---
 
+## 46. The line plot and the zonal average on a Compare map (#1208)
+
+With Compare on, the probe and the contours read the combined map. In 0.5.0
+the line plot and the zonal average still read Field A alone. Tick Line plot
+for the checks that plot through a cell, and Zonal average for the zonal
+ones; each replaces the other. The caption of each starts with the operation
+(`A − B ·`) when it is combined.
+
+**`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`, axes `lon` (X) and `lat` (Y)
+
+- [ ] Set `time` to 100 (2024-04-10), choose Compare `A − B` and set Field B's
+      `time` to 10 (2024-01-11). Click a cell in northern mid-latitudes, say
+      45° N 10° E, and plot along `lon`. The line is a row of the difference
+      map: mostly above zero, from about −5 to +27 K (spring warmer than
+      winter), and the caption starts with `A − B`. Failure looks like a line
+      of temperatures near 270 to 290 K, which is Field A alone. At the
+      clicked longitude the line meets the value the readout gives for that
+      cell, about +7.1 K at 45° N 10° E.
+- [ ] Plot along `lat` instead: the same, a column of the difference map.
+- [ ] **Priority.** Plot along `time`. This runs along a held axis. Field A
+      steps along the axis and Field B stays on the day it is drawn at, so the
+      line is Field A on each day minus Field B on 2024-01-11. It is zero on
+      2024-01-11, the day Field B is on (read the axis for that date), and meets
+      the dashed rule (day 100) at the value the readout gives for the cell.
+      Failure looks like absolute temperatures, a line that is zero all the
+      way, or one that is not zero on 2024-01-11.
+- [ ] Set Field B's `time` to 200 and click the cell again: the whole line has
+      moved by one constant, and is now zero on 2024-07-19. Day 100 reads about
+      −15.6 K. Step
+      Field A to another day and click again: the line is the same, only the
+      dashed rule has moved, because Field B stays where it is drawn.
+- [ ] Zonal average, with Field A and Field B both on day 100: the line is flat
+      at zero, one point per row. Set Field B's `time` to 10: it is no longer
+      flat, and is above zero in the northern mid-latitudes. Set Compare back to
+      off: the line returns to absolute temperatures, about 220 to 300 K.
+
+**`B: samples/0.6.0/gfs_wind.grib2`**, message 0 (UGRD)
+
+- [ ] Tick Zonal average with Compare off and note the numbers in the caption.
+      Choose Compare `A + B` with Field B `#0 · UGRD …`, the same message: the line has the
+      same shape and its numbers are twice what you noted (the last digit may
+      differ by one). Failure
+      looks like unchanged numbers, which is Field A alone.
+- [ ] Choose `A − B` with Field B `#0 · UGRD …`: a flat line at zero. Pick
+      Field B `#1 · VGRD …`: the numbers differ from both the Compare-off ones
+      and zero, the zonal mean of u minus v.
+
+`crates/fieldglass/tests/decode_line.rs` (`a_combined_line_is_the_combined_map_along_the_axis`,
+`a_combined_line_is_the_combine_of_the_slices_it_crosses`) and
+`extension/src/test/suite/compare-readouts.test.ts` (the NetCDF line along each
+axis and the zonal average, and the GRIB zonal average) compare every point
+against A op B. The browser package has no Compare line.
+
 ## No manual check
 
 `[0.6.0]` entries with no section above, and why:
@@ -1507,7 +1560,8 @@ python3 -m http.server 8001
   `crates/fieldglass` and `fieldglass-netcdf`).
 - **Painting or probing a field of the wrong length (#845, #902), bi-Fourier
   past 65,535 coefficients in the browser (#889), lengths that wrap on 32-bit
-  (#561), GRIB bitmaps of the wrong length (#804), NetCDF-4 shuffle on a
+  (#561), GRIB bitmaps of the wrong length (#804, with #201 and #202, which it
+  is part of), NetCDF-4 shuffle on a
   partial element (#203).** No file a user would open shows them. The tests:
   #845 `fieldglass-core`'s `colormap.rs::paint_tolerates_slices_of_the_wrong_length`
   and `crates/fieldglass/src/render.rs::probe_pixel_on_a_short_slice_reports_no_value`;
@@ -1570,6 +1624,35 @@ python3 -m http.server 8001
 - **The overlay error line (#1051).** It shows only when the provider fails to
   project a coastline or graticule layer, which no sample does. No automated
   test checks that line's text either. The arrow and export lines are in §6.
+- **The browser module refuses an array as an options object (#1210).** It
+  is an npm-package behaviour with no editor to see it in.
+  `crates/fieldglass-wasm/tests/node/reduced.mjs` passes `["f64"]`, a string and
+  a number to `decode`, `decodeDisplay`, `warp` and `palette` and expects
+  `invalid_option` (null and undefined stay the default), and
+  `crates/fieldglass-wasm/tests/node/netcdf.mjs` does the same for
+  `sliceIndices`, which takes an array, a typed array or an index-keyed object
+  and refuses any other object.
+- **A panel whose file changed draws the variable it was showing, even on a
+  four-dimensional variable (#1202).** The fault is a message from the old page
+  arriving just after the redraw, a window no click can hit.
+  `extension/src/test/suite/render-panel-script.test.ts` (`a slice panel finds
+  its variable by name when its page asks for axes first (#1202)` and `a ready
+  from a page the panel has written over is not served (#1202)`) holds it; §22 and §23 see
+  the same redraw by eye.
+- **A Zarr store's units are written the way NetCDF's are (#1073).** The units
+  are typeset in the panel's title line and probe readout. The sample stores
+  carry plain `degK`, which typesets to itself, so by eye there is nothing to
+  tell; the rule is held by
+  `extension/src/test/suite/one-handle.test.ts` (`the panel's listing typesets
+  each variable's units, for a NetCDF file and a Zarr store`).
+- **File: Revert File reads the file again into the editor and its panels
+  (#1217).** VS Code runs a custom editor's revert only when the document has
+  unsaved edits, and a Fieldglass document has none (the P1 edit is switched
+  off), so the command does nothing a user can see.
+  `extension/src/test/suite/revert.test.ts` (`a GRIB editor's table is written
+  from the reverted file, and the old table's rows open nothing`, `a NetCDF
+  editor and its slice panel are written from the reverted file`) calls the
+  provider's revert directly and holds both editors and the slice panel.
 - **Rust API** (breaking changes and additions) and **Internal**: no user
   interface, except the error kinds they add, which reach a user as the
   messages §32 checks. Those that change what a user sees have tests: a dense
