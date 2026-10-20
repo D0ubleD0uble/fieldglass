@@ -802,10 +802,11 @@ rather than at round depths that would crowd its deep end (#1258);
       ones, or ending on another place (#1228).
 - [ ] On Equirectangular, zoom in, then Reset view and scroll over the map
       straight away, while the zoomed image is still up. Bounds stays on
-      Auto and the whole map is drawn. Then type a smaller window into the
-      bounds fields, such as lat 30 to 40 and lon −100 to −85, press Enter,
-      and scroll once over the middle straight away: the map ends on a zoom of the
-      window typed, not of the one that was on screen. Failure looks like
+      Auto and the whole map is drawn. Then pick Manual, type a smaller
+      window into the bounds fields, such as lat 30 to 40 and lon −100 to
+      −85, press Enter, and scroll once over the middle straight away: the
+      map ends on a zoom of the window typed, not of the one that was on
+      screen. Failure looks like
       Bounds turning to Manual after Reset view, or the typed window being
       replaced by a zoom of the old one (#1259).
 

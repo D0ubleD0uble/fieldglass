@@ -681,6 +681,78 @@ suite("Zoom and pan through the panel (#1147)", function () {
     });
   }
 
+  for (const how of ["Reset view", "a typed window"] as const) {
+    test(`a stale Mollweide render landing after ${how} leaves the window asked for in place (#1259)`, async () => {
+      await onMap(false, async (panel) => {
+        await rendered(panel, () => panel.wheel([0.5, 0.5], -250), "the zoom");
+        const zoomed = lastDrawn(panel);
+        const typed = middleHalf(zoomed);
+        const gate = panel.hold(isType("gridReady"));
+        try {
+          // Three renders on their way, answered oldest first: Mollweide,
+          // the zoomed window on Equirectangular again, then the last ask.
+          const ask = async (actions: Parameters<RealPanel["drive"]>[0], what: string): Promise<Msg> => {
+            const received = panel.received.length;
+            await panel.drive(actions);
+            return waitUntil(() => {
+              const asks = panel.received.slice(received).filter(isType("rerenderRequest"));
+              return asks.length ? asks[asks.length - 1] : undefined;
+            }, `the render ${what} asks for`);
+          };
+          const mollweide = await ask([{ id: "picker-projection", value: "mollweide" }], "Mollweide");
+          const back = await ask([{ id: "picker-projection", value: "equirectangular" }], "Equirectangular");
+          assert.ok(back.boundsLatMin != null, "Equirectangular asks for the zoomed window again");
+          const last =
+            how === "Reset view"
+              ? await ask([{ id: "zoom-reset", click: true }], how)
+              : await ask(
+                  [
+                    { id: "bounds-lat-min", value: typed.latMin },
+                    { id: "bounds-lat-max", value: typed.latMax },
+                    { id: "bounds-lon-min", value: typed.lonMin },
+                    { id: "bounds-lon-max", value: typed.lonMax },
+                  ],
+                  how,
+                );
+          for (const m of [mollweide, back]) {
+            await waitUntil(() => gate.held.find((g) => g.seq === m.seq), `render ${m.seq}, held back`);
+            await gate.deliver((g) => g.seq === m.seq);
+          }
+          // The page has drawn both once it answers after them.
+          await panel.controls();
+          assert.strictEqual(lastDrawn(panel).seq, back.seq, "the stale zoomed window is on screen");
+
+          const wheeled = panel.received.length;
+          await panel.wheel([0.5, 0.5], -250);
+          if (how === "Reset view") {
+            // Past the 250 ms the page waits for a wheel to settle.
+            await new Promise((r) => setTimeout(r, 750));
+            assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", "Bounds stay on Auto");
+            assert.deepStrictEqual(
+              panel.received.slice(wheeled).filter(isType("rerenderRequest")),
+              [],
+              "and the wheel asks for no render",
+            );
+          } else {
+            const zoom = await waitUntil(
+              () => panel.received.slice(wheeled).find(isType("rerenderRequest")),
+              "the render the wheel asks for",
+            );
+            close(
+              zoom.boundsLonMax - zoom.boundsLonMin,
+              (typed.lonMax - typed.lonMin) * Math.pow(1.002, -250),
+              "the wheel zooms the typed window",
+              1e-3,
+            );
+          }
+          assert.ok(last.seq > back.seq, "the last ask is the newest");
+        } finally {
+          await gate.release();
+        }
+      });
+    });
+  }
+
   test("a drag with Flip Y axis on moves the map the way the cursor moves", async () => {
     await onMap(true, async (panel) => {
       const before = lastDrawn(panel);

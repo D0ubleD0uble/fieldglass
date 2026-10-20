@@ -4000,12 +4000,21 @@ export function renderImagePanelHtml(
         // the gesture's window; an older one, with a gesture's render still on
         // its way, is moved to where it sits in that window.
         function settleGesturePreview(payload) {
-          if (!payload || typeof payload.seq !== 'number' || payload.seq >= renderSeq) {
+          const latest = !payload || typeof payload.seq !== 'number' || payload.seq >= renderSeq;
+          if (latest) {
             gestureWindow = null;
             gestureView = null;
             windowAwaited = false;
           }
-          if (!drawnMapWindow()) { clearGesturePreview(); return; }
+          // An image no gesture can move. Only the latest answer ends what
+          // the page waits for: a stale one, such as a Mollweide render
+          // landing ahead of a Reset view's, leaves the window asked for, or
+          // the wait for one, to the renders still on their way (#1259).
+          if (!drawnMapWindow()) {
+            if (latest) clearGesturePreview();
+            else previewTransform('', '');
+            return;
+          }
           if (!refreshPreview()) previewTransform('', '');
         }
 
