@@ -745,7 +745,7 @@ rather than at round depths that would crowd its deep end (#1258);
 - [ ] Message 0 with message 1 is refused as two different grids, not as a
       frame difference.
 
-## 7. Zoom and pan (#245, #1114, #1147, #1228)
+## 7. Zoom and pan (#245, #1114, #1147, #1228, #1259)
 
 **`S: samples/gfs.grib2`**, Equirectangular, then Web Mercator
 
@@ -800,6 +800,15 @@ rather than at round depths that would crowd its deep end (#1258);
       end on about the same window, with that place under the pointer.
       Failure looks like the quick notches zooming in less than the slow
       ones, or ending on another place (#1228).
+- [ ] On Equirectangular, zoom in, then Reset view and scroll over the map
+      straight away, while the zoomed image is still up. Bounds stays on
+      Auto and the whole map is drawn. Then pick Manual, type a smaller
+      window into the bounds fields, such as lat 30 to 40 and lon −100 to
+      −85, press Enter, and scroll once over the middle straight away: the
+      map ends on a zoom of the window typed, not of the one that was on
+      screen. Failure looks like
+      Bounds turning to Manual after Reset view, or the typed window being
+      replaced by a zoom of the old one (#1259).
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, Equirectangular, coastlines, contours and arrows on
 

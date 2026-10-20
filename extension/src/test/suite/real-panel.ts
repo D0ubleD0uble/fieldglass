@@ -821,6 +821,13 @@ const DRIVER = `
         api.postMessage({ type: 'test:controls', tag: m.tag, controls: controls() });
         return;
       }
+      // A timer of the page's own, answered when it fires. Timers fire in
+      // the order they fall due, throttled or not, so its answer means a
+      // shorter one the page set before it has fired too (#1259).
+      if (m && m.type === 'test:timer') {
+        setTimeout(() => api.postMessage({ type: 'test:timer', tag: m.tag }), m.ms);
+        return;
+      }
       // A message posted to the provider as it is, as some page of this
       // panel's would post it: one already replaced, say (#1202).
       if (m && m.type === 'test:send') {
@@ -988,6 +995,10 @@ export interface RealPanel {
   sendAsPage(m: Msg): Promise<void>;
   /** Every control on the page, by id (radio groups as `radio:<name>`). */
   controls(): Promise<Record<string, string | boolean>>;
+  /** Resolves once a timer of `ms` the page sets now has fired: after every
+   *  shorter wait the page started before it, such as a wheel settling,
+   *  however much a hidden page's timers are held back. */
+  pageTimer(ms: number): Promise<void>;
   /** Move every enabled control off its value, as a user would. `values`
    *  chooses a control's value; `skip` leaves controls alone. */
   perturb(
@@ -1162,6 +1173,15 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
         `the page's controls ${mine}`,
       );
       return reply.controls;
+    },
+    pageTimer: async (ms) => {
+      const mine = ++tag;
+      await panel.webview.postMessage({ type: "test:timer", tag: mine, ms });
+      await waitUntil(
+        () => received.find((m) => m.type === "test:timer" && m.tag === mine),
+        `the page's timer ${mine}`,
+        60_000,
+      );
     },
     perturb: async (skip, values) => {
       const mine = ++tag;
