@@ -474,6 +474,13 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       has such a frame and no test drives it; `extension/src/test/suite/animation.test.ts`
       (`a range locked for playback holds across frames with different
       extremes`) covers the hold itself.
+- [ ] Press play from step 0 and pause a few steps on: the paused frame keeps
+      the held range. Click another editor tab in the same group and come
+      back: the colour bar reads the same numbers as before the switch (#1227).
+      Step forward by hand, or change the colour map or the range: that frame
+      then takes its own range, and keeps it through another tab switch.
+      `animation.test.ts` (`a paused frame keeps the range playback held
+      through a hide/show and a rebuild`) drives the same steps.
 - [ ] Faster and slower speeds change the frame rate. With Loop on (the
       default), step 365 (2024-12-31) is followed by step 0; with Loop off,
       playback stops on step 365.
