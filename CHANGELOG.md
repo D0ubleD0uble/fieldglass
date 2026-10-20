@@ -4,12 +4,6 @@ All notable changes to Fieldglass are documented here. The format roughly follow
 
 Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and every release is a stable one. Pre-1.0, a minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` → `0.3.1`) does not. The extension and the library crates share one version number.
 
-## [Unreleased]
-
-### Fixed
-
-- **No Resampling picker on a grid of cell centres.** A satellite swath or a tripolar ocean grid placed by 2-D coordinates is always drawn from the nearest cell, so Bilinear changed nothing. The panel now hides Resampling for such a grid and lists it under "Not available for this grid" with the reason. The answer comes from the library: `GridSupport` gains `bilinear`, true when choosing bilinear changes the map. Closes #1225.
-
 ## [0.6.0] — 2026-10-12
 
 This release opens Zarr stores, adds animation, line plots, cross-sections, wind arrows, a zonal average, imported color tables, and zoom and pan to the viewer, reads szip-compressed HDF5, and names every ECMWF GRIB1 parameter. Fieldglass also runs in a browser as `@fieldglass/wasm`, and four more library crates join crates.io. The Rust API has breaking changes, listed under **Rust API**.
@@ -92,6 +86,8 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 - **The render panel no longer offers overlays it cannot draw.** On a field nothing places on the Earth, such as a NetCDF or Zarr slice with no coordinates or a GRIB grid with degenerate projection parameters, the projection and resampling pickers, overlays, contours and arrows are hidden. A "Not available for this grid" line under the grid caption names what is hidden and opens to say why (#1036). Turning on an overlay or contours used to show an error. A slice panel follows the slice on screen, so the overlays you had on come back when you move to a slice that takes them, and moving to a cross-section or a new variable drops the last field's coastlines. Closes #840.
 
 - **The Resampling picker is hidden on Source projection.** Source projection draws the array as stored, so Nearest or Bilinear changed nothing and looked broken. The picker now shows only for a map projection, and keeps your choice while it is hidden. Closes #1091.
+
+- **No Resampling picker on a grid of cell centres.** A satellite swath or a tripolar ocean grid placed by 2-D coordinates is always drawn from the nearest cell, so Bilinear changed nothing. The panel now hides Resampling for such a grid and lists it under "Not available for this grid" with the reason. The answer comes from the library: `GridSupport` gains `bilinear`, true when choosing bilinear changes the map. Closes #1225.
 
 - **A NetCDF or Zarr panel keeps your projection through a cross-section or a slice with no coordinates.** The projection picker is hidden for both, and the projection you chose, with its centre, bounds and Resampling, returns with the next slice that can use it, also after the tab is hidden and shown again. Choosing a projection on a map replaces the kept one. Closes #1099.
 
