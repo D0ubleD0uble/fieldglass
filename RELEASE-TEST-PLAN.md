@@ -1671,6 +1671,18 @@ against A op B. The browser package has no Compare line.
   `crates/fieldglass-wasm/tests/node/netcdf.mjs` does the same for
   `sliceIndices`, which takes an array, a typed array or an index-keyed object
   and refuses any other object.
+- **Neither host takes binary data as an options object (#1239).** The
+  extension never passes one, so there is nothing to see in the editor.
+  `extension/src/test/suite/one-handle.test.ts` (`binary data is not an options
+  object, as on the browser package (#1239)` and `binary data is not a target or
+  a field, and a message index or slice still is (#1239)`) passes a typed array,
+  a `Buffer`, a `DataView` and an `ArrayBuffer` to every object argument the
+  addon reads and expects `invalid_option`, with `null` still the default.
+  On the browser module, `crates/fieldglass-wasm/tests/node/reduced.mjs`,
+  `netcdf.mjs`, `fetchplan.mjs` and `zarr.mjs` check the shared guard with a
+  typed array, a `DataView` and an `ArrayBuffer` on `decode`, `decodeDisplay`,
+  `warp`, `palette`, the full-field stats, the slice and line requests, `select`
+  and `planWindow`.
 - **A panel whose file changed draws the variable it was showing, even on a
   four-dimensional variable (#1202).** The fault is a message from the old page
   arriving just after the redraw, a window no click can hit.

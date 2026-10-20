@@ -9,7 +9,7 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { loadNative, type FieldglassNative, type Handle } from "../../native";
+import { loadNative, type FieldglassNative, type Handle, type RenderOptions } from "../../native";
 import { listVariables } from "../../provider";
 
 const EXT_ID = "fieldglass.fieldglass";
@@ -205,5 +205,198 @@ suite("One handle for every container (#1073)", () => {
       "invalid_option",
       "a key the request does not take is refused, not ignored",
     );
+  });
+
+  test("binary data is not an options object, as on the browser package (#1239)", () => {
+    const native = addon();
+    const grib = native.open(fixture("regular_latlon_surface.grib2"));
+    const netcdf = native.open(fixture("ersst_v5_187001_cdf1.nc"));
+    const sst = netcdf.variables()[0];
+    const render: RenderOptions = {
+      projection: "source",
+      resampling: "nearest",
+      flipY: false,
+    };
+    const slice = {
+      variable: sst.index,
+      yDim: 2,
+      xDim: 3,
+      sliceIndices: [0, 0, 0, 0],
+    };
+    const line = {
+      variable: sst.index,
+      alongDim: 3,
+      sliceIndices: [0, 0, 0, 0],
+    };
+    const combined = {
+      a: line,
+      b: line,
+      op: native.combineOps()[0].value,
+      holdB: false,
+    };
+    const lines = {
+      latlon: new Float64Array(0),
+      ringLengths: new Uint32Array(0),
+    };
+    const stats = grib.decode(0).stats;
+    const display = grib.decodeDisplay(0);
+    // Every object argument the addon reads; `bad` takes the object's place.
+    const readers: [string, (bad: never) => unknown][] = [
+      ["decode options", (bad) => grib.decode(0, bad)],
+      ["decodeDisplay options", (bad) => grib.decodeDisplay(0, bad)],
+      ["decodeSlice options", (bad) => netcdf.decodeSlice(slice, bad)],
+      ["decodeLine options", (bad) => netcdf.decodeLine(line, bad)],
+      [
+        "decodeLineCombined options",
+        (bad) => netcdf.decodeLineCombined(combined, bad),
+      ],
+      [
+        "full-field stats",
+        (bad) => grib.renderDisplayGrid(display, bad, render),
+      ],
+      ["renderGrid options", (bad) => grib.renderGrid(0, bad)],
+      [
+        "renderDisplayGrid options",
+        (bad) => grib.renderDisplayGrid(display, stats, bad),
+      ],
+      ["projectOverlay options", (bad) => grib.projectOverlay(0, bad, lines)],
+      ["projectContours options", (bad) => grib.projectContours(0, bad)],
+      ["contour spacing", (bad) => grib.projectContours(0, render, bad)],
+      [
+        "projectVectors options",
+        (bad) => grib.projectVectors({ u: 0, v: 0 }, bad),
+      ],
+      ["probePixel options", (bad) => grib.probePixel(0, bad, 0, 0)],
+      ["slice request", (bad) => netcdf.decodeSlice(bad)],
+      ["line request", (bad) => netcdf.decodeLine(bad)],
+      ["combined line", (bad) => netcdf.decodeLineCombined(bad)],
+      ["vector pair", (bad) => grib.projectVectors(bad, render)],
+      ["slice axes", (bad) => netcdf.sliceGrid(bad)],
+      ["polylines", (bad) => grib.projectOverlay(0, render, bad)],
+    ];
+    const views: [string, () => unknown][] = [
+      ["Uint8Array", () => new Uint8Array(1)],
+      ["Float64Array", () => new Float64Array(2)],
+      ["DataView", () => new DataView(new ArrayBuffer(4))],
+      ["ArrayBuffer", () => new ArrayBuffer(4)],
+      ["Buffer", () => Buffer.alloc(1)],
+    ];
+    for (const [what, read] of readers) {
+      for (const [kind, view] of views) {
+        let thrown: { code?: string; message?: string } | undefined;
+        try {
+          read(view() as never);
+        } catch (e) {
+          thrown = e as { code?: string; message?: string };
+        }
+        assert.ok(thrown, `${what}: a ${kind} was read as an object`);
+        assert.strictEqual(
+          thrown.code,
+          "invalid_option",
+          `${what}, ${kind}: ${thrown.message}`,
+        );
+        assert.match(
+          String(thrown.message),
+          /it is not an object/,
+          `${what}, ${kind}`,
+        );
+      }
+    }
+    // The spacing was read whatever it was; an array or a string is not one
+    // either, as the browser package's contour options refuse them.
+    for (const bad of [[], [1], "5", 5]) {
+      assert.strictEqual(
+        codeOf(() => grib.projectContours(0, render, bad as never)),
+        "invalid_option",
+        String(bad),
+      );
+    }
+
+    // Left out or `null` is still the default.
+    assert.strictEqual(grib.decode(0, null).dtype, grib.decode(0).dtype);
+    assert.strictEqual(grib.decode(0, undefined).dtype, grib.decode(0).dtype);
+    assert.strictEqual(
+      grib.decodeDisplay(0, null).ni(),
+      grib.decodeDisplay(0).ni(),
+    );
+    assert.ok(netcdf.decodeSlice(slice, null).stats.validCount > 0);
+    assert.ok(netcdf.decodeLine(line, null).values.length > 0);
+    const contours = grib.projectContours(0, render).xy.length;
+    assert.strictEqual(
+      grib.projectContours(0, render, null).xy.length,
+      contours,
+    );
+    assert.strictEqual(
+      grib.projectContours(0, render, undefined).xy.length,
+      contours,
+    );
+    const ranged = { ...render, rangeMin: 0, rangeMax: 1 };
+    assert.ok(
+      grib.renderDisplayGrid(display, null, ranged).rgba.length > 0,
+      "no stats with both range ends set",
+    );
+  });
+
+  test("binary data is not a target or a field, and a message index or slice still is (#1239)", () => {
+    const native = addon();
+    const grib = native.open(fixture("regular_latlon_surface.grib2"));
+    const netcdf = native.open(fixture("ersst_v5_187001_cdf1.nc"));
+    const sst = netcdf.variables()[0];
+    const render: RenderOptions = {
+      projection: "source",
+      resampling: "nearest",
+      flipY: false,
+    };
+    const slice = {
+      variable: sst.index,
+      yDim: 2,
+      xDim: 3,
+      sliceIndices: [0, 0, 0, 0],
+    };
+    const lines = {
+      latlon: new Float64Array(0),
+      ringLengths: new Uint32Array(0),
+    };
+    // Each call that takes a `GridTarget` or `GridField`, on a handle of each
+    // kind, so a good target can be shown to pass on the same call.
+    const takers: [string, (h: Handle, target: never) => unknown][] = [
+      ["renderGrid", (h, t) => h.renderGrid(t, render)],
+      ["projectOverlay", (h, t) => h.projectOverlay(t, render, lines)],
+      ["projectContours", (h, t) => h.projectContours(t, render)],
+      ["probePixel", (h, t) => h.probePixel(t, render, 0, 0)],
+      ["zonalMean", (h, t) => h.zonalMean(t)],
+      ["exportCsv", (h, t) => h.exportCsv(t, "matrix")],
+    ];
+    const binary: [string, () => unknown][] = [
+      ["Buffer", () => Buffer.alloc(1)],
+      ["Uint8Array", () => new Uint8Array(1)],
+      ["Float64Array", () => new Float64Array(2)],
+      ["DataView", () => new DataView(new ArrayBuffer(4))],
+      ["ArrayBuffer", () => new ArrayBuffer(4)],
+    ];
+    for (const [call, take] of takers) {
+      for (const [kind, make] of binary) {
+        let thrown: { code?: string; message?: string } | undefined;
+        try {
+          take(grib, make() as never);
+        } catch (e) {
+          thrown = e as { code?: string; message?: string };
+        }
+        assert.ok(thrown, `${call}: a ${kind} target was read`);
+        assert.strictEqual(
+          thrown.code,
+          "invalid_option",
+          `${call}, ${kind}: ${thrown.message}`,
+        );
+        assert.match(
+          String(thrown.message),
+          /binary data is neither a message index nor a slice/,
+          `${call}, ${kind}`,
+        );
+      }
+      // A message index and a slice object still read on the same call.
+      take(grib, 0 as never);
+      take(netcdf, slice as never);
+    }
   });
 });
