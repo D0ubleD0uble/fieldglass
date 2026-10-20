@@ -16,7 +16,7 @@ pub use fieldglass_core::cf::placement::{
     CfMapping, SOURCE_ONLY, SlicePlacement, classify_grid_mapping,
 };
 
-use crate::arrays::{NetcdfArrays, presented};
+use crate::arrays::{NetcdfArrays, presented_name};
 use crate::geometry::{DatasetView, RenderableVariable};
 use crate::reader::NetcdfReader;
 
@@ -58,7 +58,7 @@ impl<S: ByteSource> NetcdfReader<S> {
         x_dim: usize,
     ) -> Result<SlicePlacement, FieldglassError> {
         let source = NetcdfArrays::new(self, view);
-        fieldglass_core::cf::slice_placement(&source, presented(&var.name), y_dim, x_dim)
+        fieldglass_core::cf::slice_placement(&source, presented_name(&var.name), y_dim, x_dim)
     }
 
     /// The spatial index over a variable's 2-D coordinate arrays, or `None`
@@ -78,7 +78,7 @@ impl<S: ByteSource> NetcdfReader<S> {
         x_dim: usize,
     ) -> Result<Option<GridGeometry>, FieldglassError> {
         let source = NetcdfArrays::new(self, view);
-        fieldglass_core::cf::curvilinear_lookup(&source, presented(&var.name), y_dim, x_dim)
+        fieldglass_core::cf::curvilinear_lookup(&source, presented_name(&var.name), y_dim, x_dim)
     }
 
     /// A 2-D auxiliary coordinate array, CF-scaled, with a masked cell carried
@@ -95,7 +95,7 @@ impl<S: ByteSource> NetcdfReader<S> {
         match view.var(index) {
             Some(var) => {
                 let source = NetcdfArrays::new(self, view);
-                fieldglass_core::cf::coordinate_plane(&source, presented(var.name()))
+                fieldglass_core::cf::coordinate_plane(&source, presented_name(var.name()))
             }
             // A decodable index the view has no variable for — a NetCDF-4
             // pure-dimension placeholder — has no attributes to scale by, and

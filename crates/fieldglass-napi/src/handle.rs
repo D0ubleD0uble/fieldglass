@@ -164,7 +164,7 @@ impl NetcdfOpen {
             .map(|v| {
                 renderable
                     .iter()
-                    .find(|r| r.name.strip_prefix('/').unwrap_or(&r.name) == v.name)
+                    .find(|r| fieldglass::netcdf::presented_name(&r.name) == v.name)
                     .and_then(|r| u32::try_from(r.decode_index).ok())
             })
             .collect();

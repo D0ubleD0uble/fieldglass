@@ -28,7 +28,20 @@ use crate::geometry::DatasetView;
 use crate::reader::NetcdfReader;
 
 /// A name as [`NetcdfArrays`] presents it: the view's, less a leading `/`.
-pub(crate) fn presented(name: &str) -> &str {
+///
+/// The one spelling of a variable or dimension a host shows, for everything a
+/// host reads around the array model as well as through it: the file page's
+/// tables come from [`NetcdfReader::hdf5_metadata`], which keeps the HDF5 path
+/// (`/PRODUCT/qa_value`), and must name it as the render panel does
+/// (`PRODUCT/qa_value`) or one file reads two ways (#1231).
+///
+/// ```
+/// use fieldglass_netcdf::presented_name;
+///
+/// assert_eq!(presented_name("/PRODUCT/SUPPORT_DATA/surface_altitude"), "PRODUCT/SUPPORT_DATA/surface_altitude");
+/// assert_eq!(presented_name("time"), "time");
+/// ```
+pub fn presented_name(name: &str) -> &str {
     name.strip_prefix('/').unwrap_or(name)
 }
 
@@ -79,13 +92,13 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> NetcdfAr
     pub fn new(reader: R, view: V) -> Self {
         let mut group = view.borrow().group();
         for array in &mut group.arrays {
-            array.name = presented(&array.name).to_string();
+            array.name = presented_name(&array.name).to_string();
             for dim in &mut array.dimensions {
-                *dim = presented(dim).to_string();
+                *dim = presented_name(dim).to_string();
             }
         }
         for dim in &mut group.dimensions {
-            dim.name = presented(&dim.name).to_string();
+            dim.name = presented_name(&dim.name).to_string();
         }
         Self {
             reader,
@@ -123,7 +136,7 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> ArraySou
             .unsupported
             .iter()
             .map(|v| LeftOut {
-                name: presented(&v.name).to_string(),
+                name: presented_name(&v.name).to_string(),
                 reason: v.reason.clone(),
                 cause: v.cause.clone(),
             })
@@ -143,7 +156,7 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> ArraySou
             .view()
             .vars
             .iter()
-            .find(|v| presented(v.name()) == array)
+            .find(|v| presented_name(v.name()) == array)
             .ok_or_else(|| {
                 FieldglassError::Parse(format!("this file holds no variable {array:?}"))
             })?;

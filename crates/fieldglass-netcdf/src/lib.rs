@@ -68,7 +68,7 @@ pub mod array {
         ArrayDescription, ArraySource, Attribute, AttributeValue, Dimension, ElementType, Group,
     };
 }
-pub use arrays::NetcdfArrays;
+pub use arrays::{NetcdfArrays, presented_name};
 pub use hdf5::attribute::{Hdf5Attribute, RawAttribute, list_attributes, raw_attribute};
 pub use hdf5::dataset::{DatasetShape, describe as describe_dataset};
 pub use hdf5::dataspace::Dataspace;
