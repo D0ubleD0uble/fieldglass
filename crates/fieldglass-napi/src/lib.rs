@@ -33,8 +33,8 @@ mod directory_store;
 // (#1073).
 mod handle;
 pub use handle::{
-    ContourSpacing, Handle, Polylines, SliceAxes, VectorPair, is_store, open, open_store,
-    wire_dispose,
+    ContourSpacing, Handle, ObjectArg, Polylines, SliceAxes, VectorPair, is_store, open,
+    open_store, wire_dispose,
 };
 
 // This host, run through the ADR-0006 conformance suite that ships in

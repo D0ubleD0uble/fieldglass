@@ -37,7 +37,9 @@ use fieldglass::{
     Addressing, DecodeOptions, Error, LineRequest, SliceRequest, SourceFormat, VariableInfo,
 };
 use napi::JsValue;
-use napi::bindgen_prelude::{Float64Array, Object, Uint8Array, Uint32Array, Unknown};
+use napi::bindgen_prelude::{
+    Float64Array, FromNapiValue, Object, Uint8Array, Uint32Array, Unknown,
+};
 
 /// Open a GRIB1, GRIB2 or NetCDF file from its bytes. The format is detected
 /// from the bytes; `detectBytes` answers the same question without opening.
@@ -422,7 +424,9 @@ fn unreadable(what: &str, e: &dyn std::fmt::Display) -> RenderError {
 /// and `null` or `undefined` is the default (#1210). The one input they take
 /// beyond that is a plain object keyed `"0"`, `"1"`, … as `sliceIndices`: napi
 /// hands a `Uint32Array` over as exactly that object, so it cannot be told from
-/// a typed array here, and the browser module reads it as the array too.
+/// a typed array here, and the browser module reads it as the array too. A
+/// typed array as the argument itself never gets this far: [`ObjectArg`]
+/// refuses it while it is still a JavaScript value (#1239).
 pub(crate) fn object_or_absent(
     value: Option<serde_json::Value>,
     what: &str,
@@ -431,6 +435,71 @@ pub(crate) fn object_or_absent(
         None | Some(serde_json::Value::Null) => Ok(None),
         Some(v) if v.is_object() => Ok(Some(v)),
         Some(_) => Err(unreadable(what, &"it is not an object")),
+    }
+}
+
+/// An object argument, told apart from what is not one before napi reads it
+/// (#1239).
+///
+/// napi reads a typed array or a `DataView` into `serde_json` as an object
+/// keyed `"0"`, `"1"`, … (or with no keys at all), and into a `#[napi(object)]`
+/// struct as one whose fields are all missing. The option types ignore keys
+/// they do not name, so `decode(0, new Uint8Array(1))` decoded at the defaults,
+/// where the browser module refuses it. Past that read a typed array and
+/// `{ 0: 0 }` look the same, so the check has to be made here, on the value
+/// itself.
+///
+/// So this refuses what the browser module's `refuse_non_object` refuses: a
+/// value that is not an object, an array, a typed array or a `DataView`. Each
+/// is `invalid_option` with the same words, `it is not an object`. As an
+/// `Option<ObjectArg<T>>`, `null` and `undefined` are `None` before this is
+/// asked, so they stay the default. Only the top level is checked: a
+/// `Uint32Array` of `sliceIndices` inside a request is read as before.
+///
+/// A `GridTarget` or `GridField` is not read through this, since a message
+/// index is a number. A typed array there reads as an object, so as a slice
+/// request, which refuses its keys `"0"`, `"1"`, …, or its missing fields when
+/// it has none, as `invalid_option`.
+#[derive(Debug)]
+pub enum ObjectArg<T> {
+    /// Not a plain object: refused when read.
+    NotAnObject,
+    /// A plain object, as napi read it into `T`.
+    Object(T),
+}
+
+impl<T> ObjectArg<T> {
+    /// The object, or the refusal as `invalid_option` naming `what`.
+    pub(crate) fn read(self, what: &str) -> Result<T, RenderError> {
+        match self {
+            Self::Object(value) => Ok(value),
+            Self::NotAnObject => Err(unreadable(what, &"it is not an object")),
+        }
+    }
+
+    /// `read` for an argument that may be left out: `None` stays `None`.
+    pub(crate) fn read_or_absent(arg: Option<Self>, what: &str) -> Result<Option<T>, RenderError> {
+        arg.map(|arg| arg.read(what)).transpose()
+    }
+}
+
+impl<T: FromNapiValue> FromNapiValue for ObjectArg<T> {
+    unsafe fn from_napi_value(
+        env: napi::sys::napi_env,
+        napi_val: napi::sys::napi_value,
+    ) -> napi::Result<Self> {
+        // SAFETY: `env` and `napi_val` are the pair napi handed this
+        // conversion, valid for the call; the value is only inspected here.
+        let value = unsafe { Unknown::from_raw_unchecked(env, napi_val) };
+        if value.get_type()? != napi::ValueType::Object
+            || value.is_array()?
+            || value.is_typedarray()?
+            || value.is_dataview()?
+        {
+            return Ok(Self::NotAnObject);
+        }
+        // SAFETY: as above; `T` reads the value napi would have given it.
+        unsafe { T::from_napi_value(env, napi_val) }.map(Self::Object)
     }
 }
 
@@ -729,9 +798,11 @@ impl Handle {
         &self,
         env: Env,
         index: u32,
-        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<serde_json::Value>,
+        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<ObjectArg<serde_json::Value>>,
     ) -> napi::Result<DecodedGrid> {
-        self.decode(index, options).map_err(|e| e.throw(&env))
+        let throw = |e: RenderError| e.throw(&env);
+        let options = ObjectArg::read_or_absent(options, "options object").map_err(throw)?;
+        self.decode(index, options).map_err(throw)
     }
 
     /// Decode one 2-D slice of a variable into the same object `decode`
@@ -744,10 +815,13 @@ impl Handle {
     pub fn decode_slice_for_js(
         &self,
         env: Env,
-        #[napi(ts_arg_type = "SliceRequest")] slice: serde_json::Value,
-        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<serde_json::Value>,
+        #[napi(ts_arg_type = "SliceRequest")] slice: ObjectArg<serde_json::Value>,
+        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<ObjectArg<serde_json::Value>>,
     ) -> napi::Result<DecodedGrid> {
-        self.decode_slice(slice, options).map_err(|e| e.throw(&env))
+        let throw = |e: RenderError| e.throw(&env);
+        let slice = slice.read("slice").map_err(throw)?;
+        let options = ObjectArg::read_or_absent(options, "options object").map_err(throw)?;
+        self.decode_slice(slice, options).map_err(throw)
     }
 
     /// One line through a variable: its values along `line.alongDim`, every
@@ -757,10 +831,13 @@ impl Handle {
     pub fn decode_line_for_js(
         &self,
         env: Env,
-        #[napi(ts_arg_type = "LineRequest")] line: serde_json::Value,
-        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<serde_json::Value>,
+        #[napi(ts_arg_type = "LineRequest")] line: ObjectArg<serde_json::Value>,
+        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<ObjectArg<serde_json::Value>>,
     ) -> napi::Result<LineResult> {
-        self.decode_line(line, options).map_err(|e| e.throw(&env))
+        let throw = |e: RenderError| e.throw(&env);
+        let line = line.read("line").map_err(throw)?;
+        let options = ObjectArg::read_or_absent(options, "options object").map_err(throw)?;
+        self.decode_line(line, options).map_err(throw)
     }
 
     /// One line through a combined map (#1208): `{ a, b, op, holdB }`, two
@@ -778,11 +855,13 @@ impl Handle {
     pub fn decode_line_combined_for_js(
         &self,
         env: Env,
-        #[napi(ts_arg_type = "CombinedLines")] line: serde_json::Value,
-        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<serde_json::Value>,
+        #[napi(ts_arg_type = "CombinedLines")] line: ObjectArg<serde_json::Value>,
+        #[napi(ts_arg_type = "DecodeOptions | null")] options: Option<ObjectArg<serde_json::Value>>,
     ) -> napi::Result<LineResult> {
-        self.decode_line_combined(line, options)
-            .map_err(|e| e.throw(&env))
+        let throw = |e: RenderError| e.throw(&env);
+        let line = line.read("combined line").map_err(throw)?;
+        let options = ObjectArg::read_or_absent(options, "options object").map_err(throw)?;
+        self.decode_line_combined(line, options).map_err(throw)
     }
 
     /// Decode one message to **draw**, at a reduced resolution (#1082):
@@ -800,10 +879,13 @@ impl Handle {
         &self,
         env: Env,
         index: u32,
-        #[napi(ts_arg_type = "DisplayDecodeOptions | null")] options: Option<serde_json::Value>,
+        #[napi(ts_arg_type = "DisplayDecodeOptions | null")] options: Option<
+            ObjectArg<serde_json::Value>,
+        >,
     ) -> napi::Result<DisplayGrid> {
-        self.decode_display(index, options)
-            .map_err(|e| e.throw(&env))
+        let throw = |e: RenderError| e.throw(&env);
+        let options = ObjectArg::read_or_absent(options, "options object").map_err(throw)?;
+        self.decode_display(index, options).map_err(throw)
     }
 
     /// Decode, project and paint a field into an RGBA raster under `options`.
@@ -817,9 +899,11 @@ impl Handle {
         &self,
         env: Env,
         #[napi(ts_arg_type = "GridTarget")] target: serde_json::Value,
-        options: RenderOptions,
+        #[napi(ts_arg_type = "RenderOptions")] options: ObjectArg<RenderOptions>,
     ) -> napi::Result<RenderedGrid> {
-        self.render_grid(target, options).map_err(|e| e.throw(&env))
+        let throw = |e: RenderError| e.throw(&env);
+        let options = options.read("options object").map_err(throw)?;
+        self.render_grid(target, options).map_err(throw)
     }
 
     /// Paint a `DisplayGrid` through the `renderGrid` pipeline (#1082). The
@@ -831,11 +915,15 @@ impl Handle {
         &self,
         env: Env,
         field: &DisplayGrid,
-        #[napi(ts_arg_type = "Stats | null")] full_stats: Option<serde_json::Value>,
-        options: RenderOptions,
+        #[napi(ts_arg_type = "Stats | null")] full_stats: Option<ObjectArg<serde_json::Value>>,
+        #[napi(ts_arg_type = "RenderOptions")] options: ObjectArg<RenderOptions>,
     ) -> napi::Result<RenderedGrid> {
+        let throw = |e: RenderError| e.throw(&env);
+        let full_stats =
+            ObjectArg::read_or_absent(full_stats, "full-field stats").map_err(throw)?;
+        let options = options.read("options object").map_err(throw)?;
         self.render_display_grid(field, full_stats, &options)
-            .map_err(|e| e.throw(&env))
+            .map_err(throw)
     }
 
     /// Project geographic polylines (coastline, graticule, a user's shapes)
@@ -848,11 +936,13 @@ impl Handle {
         &self,
         env: Env,
         #[napi(ts_arg_type = "GridTarget")] target: serde_json::Value,
-        options: RenderOptions,
-        lines: Polylines,
+        #[napi(ts_arg_type = "RenderOptions")] options: ObjectArg<RenderOptions>,
+        #[napi(ts_arg_type = "Polylines")] lines: ObjectArg<Polylines>,
     ) -> napi::Result<ProjectedOverlay> {
-        self.project_overlay(target, options, lines)
-            .map_err(|e| e.throw(&env))
+        let throw = |e: RenderError| e.throw(&env);
+        let options = options.read("options object").map_err(throw)?;
+        let lines = lines.read("polylines").map_err(throw)?;
+        self.project_overlay(target, options, lines).map_err(throw)
     }
 
     /// Contour isolines of the target, projected onto its render raster
@@ -864,11 +954,16 @@ impl Handle {
         &self,
         env: Env,
         #[napi(ts_arg_type = "GridTarget")] target: serde_json::Value,
-        options: RenderOptions,
-        spacing: Option<ContourSpacing>,
+        #[napi(ts_arg_type = "RenderOptions")] options: ObjectArg<RenderOptions>,
+        #[napi(ts_arg_type = "ContourSpacing | undefined | null")] spacing: Option<
+            ObjectArg<ContourSpacing>,
+        >,
     ) -> napi::Result<ProjectedOverlay> {
+        let throw = |e: RenderError| e.throw(&env);
+        let options = options.read("options object").map_err(throw)?;
+        let spacing = ObjectArg::read_or_absent(spacing, "contour spacing").map_err(throw)?;
         self.project_contours(target, options, spacing.and_then(|s| s.interval))
-            .map_err(|e| e.throw(&env))
+            .map_err(throw)
     }
 
     /// Arrows for a vector field built from two messages (#241), in the pixel
@@ -880,11 +975,13 @@ impl Handle {
     pub fn project_vectors_for_js(
         &self,
         env: Env,
-        pair: VectorPair,
-        options: RenderOptions,
+        #[napi(ts_arg_type = "VectorPair")] pair: ObjectArg<VectorPair>,
+        #[napi(ts_arg_type = "RenderOptions")] options: ObjectArg<RenderOptions>,
     ) -> napi::Result<ProjectedVectors> {
-        self.project_vectors(pair, options)
-            .map_err(|e| e.throw(&env))
+        let throw = |e: RenderError| e.throw(&env);
+        let pair = pair.read("vector pair").map_err(throw)?;
+        let options = options.read("options object").map_err(throw)?;
+        self.project_vectors(pair, options).map_err(throw)
     }
 
     /// The field under one pixel of the raster `renderGrid` paints (#172):
@@ -899,12 +996,13 @@ impl Handle {
         &self,
         env: Env,
         #[napi(ts_arg_type = "GridTarget")] target: serde_json::Value,
-        options: RenderOptions,
+        #[napi(ts_arg_type = "RenderOptions")] options: ObjectArg<RenderOptions>,
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
-        self.probe_pixel(target, options, px, py)
-            .map_err(|e| e.throw(&env))
+        let throw = |e: RenderError| e.throw(&env);
+        let options = options.read("options object").map_err(throw)?;
+        self.probe_pixel(target, options, px, py).map_err(throw)
     }
 
     /// Each row's mean over longitude, against latitude (#240). Refused for a
@@ -940,8 +1038,14 @@ impl Handle {
     /// it (#574, #776): the family to caption, whether it is placed, whether it
     /// can be reprojected, and what it supports. Decodes nothing.
     #[napi(js_name = "sliceGrid")]
-    pub fn slice_grid_for_js(&self, env: Env, axes: SliceAxes) -> napi::Result<SliceGrid> {
-        self.slice_grid(&axes).map_err(|e| e.throw(&env))
+    pub fn slice_grid_for_js(
+        &self,
+        env: Env,
+        #[napi(ts_arg_type = "SliceAxes")] axes: ObjectArg<SliceAxes>,
+    ) -> napi::Result<SliceGrid> {
+        let throw = |e: RenderError| e.throw(&env);
+        let axes = axes.read("slice axes").map_err(throw)?;
+        self.slice_grid(&axes).map_err(throw)
     }
 
     /// The coordinate values along one axis of a variable, for labelling a

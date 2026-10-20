@@ -178,6 +178,7 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 
 - **The browser module refuses an array as an options object.** `decode(0, ["f64"])` decoded at the automatic width instead of throwing `invalid_option`, as the Node addon already did. Both now take a plain object keyed `"0"`, `"1"`, … as `sliceIndices`, as they take a typed array. Closes #1210.
 - **The browser module refuses an array wherever it reads an object argument.** `select([])` returned every record, and `select(["TMP"])`, `candidates(source, [0])`, `planWindow([...])` and `decodeWindow([...])` were read by position. They now throw `invalid_option`. Closes #1221.
+- **The Node addon refuses a typed array or `DataView` as an options object, as the browser module does.** `decode(0, new Uint8Array(1))` decoded at the defaults, and `projectContours` read any spacing it was given, even an array or a string, as none. Every object argument the addon reads, the full-field stats included, now throws `invalid_option` for one. Closes #1239.
 
 ### Rust API
 
