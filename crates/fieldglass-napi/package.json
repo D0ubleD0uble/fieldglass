@@ -1,7 +1,7 @@
 {
   "name": "fieldglass",
   "version": "0.1.0",
-  "main": "fieldglass.js",
+  "main": "index.js",
   "napi": {
     "binaryName": "fieldglass",
     "targets": [
