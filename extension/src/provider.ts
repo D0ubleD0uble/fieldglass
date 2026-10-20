@@ -2889,14 +2889,29 @@ function renderDatasetBody(
   d: DatasetMeta,
   netcdfVariables?: VariableInfo[],
 ): string {
-  // Long attribute strings are common in CF-Convention NetCDF files; truncate
-  // for the row view but keep the full text in the title attribute so users
-  // can hover to read it. Numeric attributes never hit this limit.
+  // Long attribute strings are common in CF-Convention NetCDF files, and a
+  // `history` can run to thousands of characters. A row shows the first
+  // ATTR_PREVIEW_LIMIT of one, and the value opens to its whole text (#1232).
+  // It used to be in the cell's title only, and the native tooltip stops near
+  // 1,900 characters. A <details> needs no script, opens on a click or on
+  // Enter or Space at its focused summary, and leaves the text selectable to
+  // copy. A short value is plain text, as it always was.
   const ATTR_PREVIEW_LIMIT = 120;
+  const isLong = (s: string): boolean => s.length > ATTR_PREVIEW_LIMIT;
   const previewAttr = (s: string): string => {
-    if (s.length <= ATTR_PREVIEW_LIMIT) return escapeHtml(s);
-    return escapeHtml(s.slice(0, ATTR_PREVIEW_LIMIT)) + "…";
+    if (!isLong(s)) return escapeHtml(s);
+    return `<details class="long-value"><summary>`
+      + `<span class="long-value-preview">${escapeHtml(s.slice(0, ATTR_PREVIEW_LIMIT))}…</span>`
+      + `<span class="long-value-less">Show less</span></summary>`
+      + `<div class="long-value-full">${escapeHtml(s)}</div></details>`;
   };
+  // The title a value's cell carries: the value itself, as before, for a short
+  // one. A long one has none, which would only repeat a cut-off copy of what
+  // opening the cell shows.
+  const titleAttr = (s: string): string => (isLong(s) ? "" : ` title="${escapeHtml(s)}"`);
+  // How many of a variable's attributes its row lists before the rest go
+  // behind "+N more", which opens to them.
+  const ATTRS_PREVIEWED = 3;
 
   const sections: string[] = [];
 
@@ -2958,7 +2973,7 @@ function renderDatasetBody(
       <tr>
         <td>${escapeHtml(a.name)}</td>
         <td>${escapeHtml(a.ncType)}</td>
-        <td title="${escapeHtml(a.value)}">${previewAttr(a.value)}</td>
+        <td${titleAttr(a.value)}>${previewAttr(a.value)}</td>
       </tr>`).join("");
     sections.push(`
       <h2>Global attributes</h2>
@@ -2975,11 +2990,14 @@ function renderDatasetBody(
       const dims = v.dimensions.length > 0
         ? v.dimensions.map(escapeHtml).join(", ")
         : "—";
+      const attr = (a: { name: string; value: string }) => `${escapeHtml(a.name)}=${previewAttr(a.value)}`;
+      const rest = v.attributes.slice(ATTRS_PREVIEWED);
       const attrPreview = v.attributes.length === 0
         ? "—"
-        : v.attributes.slice(0, 3).map((a) =>
-            `${escapeHtml(a.name)}=${previewAttr(a.value)}`
-          ).join("; ") + (v.attributes.length > 3 ? `; +${v.attributes.length - 3} more` : "");
+        : v.attributes.slice(0, ATTRS_PREVIEWED).map(attr).join("; ") + (rest.length > 0
+          ? `; <details class="more-attrs"><summary>+${rest.length} more</summary>`
+            + rest.map((a) => `<div>${attr(a)}</div>`).join("") + `</details>`
+          : "");
       return `
       <tr>
         <td>${escapeHtml(v.name)}</td>
@@ -3007,7 +3025,7 @@ function renderDatasetBody(
     const rows = d.unsupportedVariables.map((v) => `
       <tr>
         <td>${escapeHtml(v.name)}</td>
-        <td title="${escapeHtml(v.reason)}">${previewAttr(v.reason)}</td>
+        <td${titleAttr(v.reason)}>${previewAttr(v.reason)}</td>
       </tr>`).join("");
     sections.push(`
       <h2>Variables not decoded</h2>
@@ -3428,6 +3446,22 @@ export function renderHtml(
       gap: 0.5rem;
     }
     button.render-btn { white-space: nowrap; }
+    /* A long attribute value, and a variable's attributes past the first
+       three, open in place (#1232). Closed, the cell is the one-line preview
+       it was; open, the whole value wraps at a readable width, inside the
+       table's own sideways scroll. */
+    details.long-value, details.more-attrs { display: inline-block; vertical-align: top; }
+    details.long-value > summary, details.more-attrs > summary { cursor: pointer; }
+    details.long-value > summary:focus-visible, details.more-attrs > summary:focus-visible {
+      outline: 1px solid var(--vscode-focusBorder);
+    }
+    details.long-value[open] .long-value-preview,
+    details.long-value:not([open]) .long-value-less { display: none; }
+    .long-value-less { color: var(--vscode-textLink-foreground); }
+    .long-value-full { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 80ch; margin-top: 0.25rem; }
+    details.more-attrs > div { margin-top: 0.15rem; }
+    /* An open value makes its row tall; keep the row's name beside its top. */
+    tr:has(details[open]) > td { vertical-align: top; }
     .header-dump { margin-top: 1rem; }
     .dump-label { font-size: 0.8rem; color: var(--vscode-descriptionForeground); margin-bottom: 0.25rem; }
     code { display: block; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85rem; }

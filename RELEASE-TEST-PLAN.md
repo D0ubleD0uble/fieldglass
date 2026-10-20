@@ -1246,11 +1246,20 @@ package's half is in §44.
 
 - [ ] Each opens without the "metadata could not be fully resolved" note and
       lists its variables. `hdf5_huge_link_name.h5` holds only groups, so it
-      lists none. In `netcdf4_huge_attributes.nc`, hovering the global
-      `history` value shows all 5,600 characters (the cell shows the first
-      120). `t`'s `comment`, about 5,000 bytes, is past the three attributes the table
-      previews; its value is checked in CI (`tests/hdf5_huge_objects.rs`).
-      Values are checked against h5py in CI.
+      lists none. Values are checked against h5py in CI.
+- [ ] In `netcdf4_huge_attributes.nc`, the global `history` cell shows its
+      first 120 characters, a `…` and a ▶ arrow. Click it: the cell opens to
+      all 5,600 characters, wrapped, ending `ncks -O`, and reads "Show less"
+      above them. Click "Show less" and it closes to the one line again. Do it
+      once more from the keyboard: Tab until the history cell has a focus
+      ring, press Enter to open and Enter to close (#1232). The other global
+      values (`value 0` …) are plain one-line text, as before.
+- [ ] In the same file, `t`'s Attributes cell reads
+      `attr_0=value 0; attr_1=value 1; attr_2=value 2; ▶ +8 more`. Open
+      "+8 more": `attr_3` to `attr_9` each on a line, then `comment=` with its
+      own 120-character preview, which opens to its whole value, about 5,000
+      characters (#1232). Its bytes are checked in CI
+      (`tests/hdf5_huge_objects.rs`).
 
 The two `btree_k` files open, but their larger-than-default chunk B-tree is read
 only when `v` is decoded, and `v` is 1-D, which the panel does not draw.
