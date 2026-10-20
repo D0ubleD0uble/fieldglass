@@ -193,9 +193,13 @@ pub fn colour_range(
                 RangeRefusalReason::Log10NotPositive,
                 RangeEnd::Min,
                 None,
+                // Rounding keeps the sign of a value that is not zero, so
+                // the figures the colour bar would use never read as
+                // positive.
                 format!(
                     "a log10 scale needs a finite, positive minimum; the range starts at \
-                     {lo} (taken from the data); set a minimum above 0"
+                     {} (taken from the data); set a minimum above 0",
+                    to_precision(lo, COLOUR_BAR_FIGURES)
                 ),
             ));
         }
@@ -258,8 +262,9 @@ pub fn colour_range(
                             RangeEnd::Min,
                             Some(lo),
                             format!(
-                                "minimum {lo} {relation} the field's maximum {data_hi} (taken \
-                                 from the data); set a maximum too"
+                                "minimum {lo} {relation} the field's maximum {} (taken from the \
+                                 data); set a maximum too",
+                                data_end(data_hi, lo)
                             ),
                         ));
                     }
@@ -297,8 +302,9 @@ pub fn colour_range(
                             RangeEnd::Max,
                             Some(hi),
                             format!(
-                                "maximum {hi} {relation} the field's minimum {data_lo} (taken \
-                                 from the data); set a minimum too"
+                                "maximum {hi} {relation} the field's minimum {} (taken from the \
+                                 data); set a minimum too",
+                                data_end(data_lo, hi)
                             ),
                         ));
                     }
@@ -390,6 +396,98 @@ pub(crate) fn scale_is_log10(name: Option<&str>) -> Result<bool, Error> {
     }
 }
 
+/// The significant figures the extension's colour bar writes each end with
+/// (`toPrecision(4)` in `extension/src/render-panel.ts`).
+const COLOUR_BAR_FIGURES: usize = 4;
+
+/// An end of the range taken from the data, as a refusal names it (#1053).
+///
+/// The field's own value is float noise past a few figures (`311.0986328125`
+/// for a bar that reads `311.1`), so it is written as the colour bar writes
+/// it. Where four figures would put it level with or past `given`, the value
+/// typed, it takes more until it reads on its own side of it; one equal to
+/// `given` is written as `given` is.
+fn data_end(data: f64, given: f64) -> String {
+    if data == given {
+        return format!("{data}");
+    }
+    let side = data.partial_cmp(&given);
+    // Seventeen figures always read back as the same `f64`, so the loop
+    // returns by its last pass.
+    for digits in COLOUR_BAR_FIGURES..=17 {
+        let text = to_precision(data, digits);
+        if text.parse::<f64>().ok().and_then(|v| v.partial_cmp(&given)) == side {
+            return text;
+        }
+    }
+    format!("{data}")
+}
+
+/// `v` to `digits` significant figures (1 to 21), as JavaScript's
+/// `Number.prototype.toPrecision` writes it (ECMA-262 §21.1.3.5): exponent
+/// form when the exponent is below −6 or not below `digits`, and a tie
+/// rounded away from zero. `v` is finite; the refusals above have checked.
+fn to_precision(v: f64, digits: usize) -> String {
+    debug_assert!(v.is_finite() && (1..=21).contains(&digits));
+    if v == 0.0 {
+        // Negative zero too, as JavaScript writes it.
+        return if digits == 1 {
+            "0".to_string()
+        } else {
+            format!("0.{}", "0".repeat(digits - 1))
+        };
+    }
+    let sign = if v < 0.0 { "-" } else { "" };
+    // Every digit of the value, exactly: an `f64` has at most 767 significant
+    // decimal digits, so 800 after the point leaves nothing rounded by the
+    // formatter. The rounding to `digits` is then this function's, half up.
+    let exact = format!("{:.800e}", v.abs());
+    let (mantissa, exponent) = exact.split_once('e').unwrap_or((&exact, "0"));
+    let mut e: i32 = exponent.parse().unwrap_or(0);
+    let all: Vec<u8> = mantissa
+        .bytes()
+        .filter(u8::is_ascii_digit)
+        .map(|b| b - b'0')
+        .collect();
+    let mut kept = all[..digits].to_vec();
+    if all[digits] >= 5 {
+        let mut i = digits;
+        loop {
+            if i == 0 {
+                // 9.99… rounded up to 10.0…: one more power of ten.
+                kept.insert(0, 1);
+                kept.pop();
+                e += 1;
+                break;
+            }
+            i -= 1;
+            if kept[i] == 9 {
+                kept[i] = 0;
+            } else {
+                kept[i] += 1;
+                break;
+            }
+        }
+    }
+    let figures: String = kept.iter().map(|d| char::from(b'0' + d)).collect();
+    // `digits` is at most 21, so it fits an `i32`.
+    let p = digits as i32;
+    if e < -6 || e >= p {
+        let (lead, rest) = figures.split_at(1);
+        let point = if rest.is_empty() { "" } else { "." };
+        let exp_sign = if e < 0 { '-' } else { '+' };
+        return format!("{sign}{lead}{point}{rest}e{exp_sign}{}", e.unsigned_abs());
+    }
+    if e >= 0 {
+        // `e` is in `0..p` here, so the split is inside `figures`.
+        let (int, frac) = figures.split_at(e as usize + 1);
+        let point = if frac.is_empty() { "" } else { "." };
+        return format!("{sign}{int}{point}{frac}");
+    }
+    // `e` is in `-6..0`: leading zeros after the point.
+    format!("{sign}0.{}{figures}", "0".repeat((-e - 1) as usize))
+}
+
 impl ColourRange {
     /// The range as a pair, or `None` when there is none to paint over.
     pub fn used(&self) -> Option<(f64, f64)> {
@@ -464,7 +562,7 @@ mod tests {
         let (r, msg) = refusal(colour_range(DATA, Some(100000.0), None, None, false));
         assert_eq!(
             msg,
-            "minimum 100000 is above the field's maximum 99919.6 (taken from the data); set a \
+            "minimum 100000 is above the field's maximum 9.992e+4 (taken from the data); set a \
              maximum too"
         );
         assert_eq!(
@@ -543,7 +641,7 @@ mod tests {
             (r.end, r.given, r.field_min),
             (RangeEnd::Min, None, Some(-3.0))
         );
-        assert!(msg.contains("-3 (taken from the data)"), "{msg}");
+        assert!(msg.contains("-3.000 (taken from the data)"), "{msg}");
         // A positive manual minimum over data that dips below zero paints.
         assert!(colour_range(Some((-3.0, 9.0)), Some(1.0), None, None, true).is_ok());
     }
@@ -615,5 +713,106 @@ mod tests {
         // An error from before the field existed still reads.
         let old: Error = serde_json::from_str(r#"{"code":"invalid_option","detail":"x"}"#).unwrap();
         assert_eq!(old, Error::invalid_option("x"));
+    }
+
+    /// The colour bar writes each end with JavaScript's `toPrecision(4)`, and a
+    /// refusal names an end taken from the data the same way (#1053): the
+    /// field's maximum read `311.0986328125` beside a bar that said `311.1`.
+    #[test]
+    fn an_end_taken_from_the_data_is_written_as_the_colour_bar_writes_it() {
+        let hi = 311.098_632_812_5;
+        let (_, msg) = refusal(colour_range(
+            Some((270.0, hi)),
+            Some(400.0),
+            None,
+            None,
+            false,
+        ));
+        assert_eq!(
+            msg,
+            "minimum 400 is above the field's maximum 311.1 (taken from the data); set a \
+             maximum too"
+        );
+        let (_, msg) = refusal(colour_range(
+            Some((270.123_456, hi)),
+            None,
+            Some(200.0),
+            None,
+            false,
+        ));
+        assert_eq!(
+            msg,
+            "maximum 200 is below the field's minimum 270.1 (taken from the data); set a \
+             minimum too"
+        );
+    }
+
+    /// Four figures that would put the data's end on the other side of the
+    /// value typed are widened until they do not: `311.1` is not below `311.1`.
+    #[test]
+    fn an_end_taken_from_the_data_keeps_its_side_of_the_value_given() {
+        let hi = 311.098_632_812_5;
+        let (_, msg) = refusal(colour_range(
+            Some((270.0, hi)),
+            Some(311.1),
+            None,
+            None,
+            false,
+        ));
+        assert!(
+            msg.starts_with("minimum 311.1 is above the field's maximum 311.099 "),
+            "{msg}"
+        );
+        // Equal to the value typed: written as that value is.
+        let (_, msg) = refusal(colour_range(Some((270.0, hi)), Some(hi), None, None, false));
+        assert!(
+            msg.starts_with(
+                "minimum 311.0986328125 is not below the field's maximum 311.0986328125 "
+            ),
+            "{msg}"
+        );
+        let (_, msg) = refusal(colour_range(
+            Some((0.123_449, 1.0)),
+            None,
+            Some(0.1234),
+            None,
+            false,
+        ));
+        assert!(
+            msg.starts_with("maximum 0.1234 is below the field's minimum 0.12345 "),
+            "{msg}"
+        );
+    }
+
+    /// `to_precision` against what `Number.prototype.toPrecision` returns for
+    /// the same `f64` (each value read from Node 22).
+    #[test]
+    fn to_precision_writes_what_javascript_writes() {
+        for (v, digits, js) in [
+            (311.098_632_812_5, 4, "311.1"),
+            (99919.6, 4, "9.992e+4"),
+            (1000.0, 4, "1000"),
+            (10000.0, 4, "1.000e+4"),
+            (9999.96, 4, "1.000e+4"),
+            (0.0, 4, "0.000"),
+            (-0.0, 4, "0.000"),
+            (-3.0, 4, "-3.000"),
+            (0.000_123_456, 4, "0.0001235"),
+            (0.000_000_123_456, 4, "1.235e-7"),
+            (0.000_001, 4, "0.000001000"),
+            (1.0, 1, "1"),
+            (25.0, 1, "3e+1"),
+            // A tie in binary is a tie in decimal: JavaScript rounds it up,
+            // where Rust's own formatting would round it to even.
+            (0.125, 2, "0.13"),
+            (-0.125, 2, "-0.13"),
+            (311.25, 4, "311.3"),
+            (f64::MAX, 4, "1.798e+308"),
+            (f64::MIN_POSITIVE, 4, "2.225e-308"),
+            (5e-324, 4, "4.941e-324"),
+            (0.1, 17, "0.10000000000000001"),
+        ] {
+            assert_eq!(to_precision(v, digits), js, "{v} to {digits}");
+        }
     }
 }

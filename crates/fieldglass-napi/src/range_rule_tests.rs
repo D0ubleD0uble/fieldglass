@@ -70,12 +70,12 @@ fn one_manual_end_takes_the_other_from_the_data() {
     assert_eq!(source_of(&r), RangeSource::ManualMax);
 
     let (message, refusal) = refused(h.render_grid(0, with_range(Some(100000.0), None)));
+    // The data's end as the colour bar writes it, four figures (#1053).
+    assert_eq!(hi, 99919.6);
     assert_eq!(
         message,
-        format!(
-            "minimum 100000 is above the field's maximum {hi} (taken from the data); set a \
-             maximum too"
-        )
+        "minimum 100000 is above the field's maximum 9.992e+4 (taken from the data); set a \
+         maximum too"
     );
     assert_eq!(
         (refusal.reason, refusal.end, refusal.given),
