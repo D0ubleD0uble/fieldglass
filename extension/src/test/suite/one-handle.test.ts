@@ -420,10 +420,20 @@ suite("One handle for every container (#1073)", () => {
       xDim: 3,
       sliceIndices: [0, 0, 0, 0],
     };
+    const zarr = native.openStore(storePath("cf_v3"));
+    const t = zarr.variables().find((v) => v.name === "t");
+    assert.ok(t && t.detectedYDim != null && t.detectedXDim != null, "the store's t has axes");
+    const zarrSlice = {
+      variable: t.index,
+      yDim: t.detectedYDim,
+      xDim: t.detectedXDim,
+      sliceIndices: t.dims.map(() => 0),
+    };
     const cases: [string, Handle, number | typeof slice][] = [
       ["grib1", native.open(fixture("cmc_wind_300_2010052400_p012.grib")), 0],
       ["grib2", native.open(fixture("regular_latlon_surface.grib2")), 0],
       ["netcdf", netcdf, slice],
+      ["zarr", zarr, zarrSlice],
     ];
     for (const [what, handle, target] of cases) {
       const empty = handle.projectOverlay(target, render, {
