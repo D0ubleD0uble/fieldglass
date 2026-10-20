@@ -1646,6 +1646,10 @@ export class FieldglassEditorProvider
     // selection by the variable's name (#839). Made before the first write,
     // which numbers the page from it.
     const gate = new PanelHandleGate<Handle>(handle);
+    // Said in place of the first render after that, when the variable the page
+    // was showing is no longer in the file. Declared before the first write,
+    // which reads it.
+    let refusal: string | null = null;
     const write = () => {
       panel.webview.html = renderImagePanelHtml(
         panel.webview,
@@ -1653,7 +1657,10 @@ export class FieldglassEditorProvider
         sliceCaption(subject.container, shown.grid),
         colormapRegistry(),
         combineOpRegistry(),
-        slice,
+        // Until the refusal is said, the page is written with no variable's
+        // heading: the variable it would otherwise name is one nobody picked
+        // (#1230).
+        refusal !== null ? { ...slice, picking: true } : slice,
         undefined,
         undefined,
         subject.source,
@@ -1662,9 +1669,6 @@ export class FieldglassEditorProvider
     };
     this.trackRenderPanel(panel, write, subject.document);
 
-    // Said in place of the first render after that, when the variable the page
-    // was showing is no longer in the file.
-    let refusal: string | null = null;
     const adopt = (current: Handle, asked: SliceSpec | undefined, ask: { seq?: number } = {}): void => {
       const name = (variables.find((v) => v.index === asked?.variableIndex) ?? initialVar).name;
       const next = listVariablesOf(current);
@@ -1688,7 +1692,10 @@ export class FieldglassEditorProvider
       refusal = same ? null : `${name} is no longer in the ${subject.noun}, so nothing was drawn. Pick a variable to draw.`;
       const grid = gridOf(current, initial);
       shown = { meta: sliceField(opened, grid), grid };
-      panel.title = titleOf(opened);
+      // The tab names no variable either while one is to be picked, as a GRIB
+      // panel's names no message (#1230). The render of the picked one
+      // renames it.
+      panel.title = same ? titleOf(opened) : composeTabTitle("pick a variable", subject.source);
       gate.rewrite(current);
       write();
     };
