@@ -148,6 +148,10 @@ export interface PageState {
   /** The colour bar's two labels, low end first. */
   colorbarLabels: [string, string];
   canvasVisibility: string;
+  /** The image's border box on the page, and the page's own height
+   *  (`innerHeight`), which a tall image is held inside (#1226). */
+  image: Box;
+  viewportHeight: number;
   /** The line plot (#172, #1037), `null` for a panel with none. A GRIB panel
    *  has one, for its zonal average, but no Line plot box (`boxShown` false). */
   linePlot: LinePlotState | null;
@@ -591,6 +595,8 @@ const DRIVER = `
           .filter((id) => byId(id) && byId(id).getAttribute('aria-invalid') === 'true'),
         playDisabled: !!(byId('anim-play') && byId('anim-play').disabled),
         canvasVisibility: byId('canvas').style.visibility,
+        image: boxOf(byId('canvas')),
+        viewportHeight: window.innerHeight,
         linePlot: linePlot(),
         rails: rails(),
         steppers: steppers(),
@@ -850,8 +856,9 @@ const DRIVER = `
         const point = {
           bubbles: true,
           button: 0,
-          clientX: r.left + r.width / 2,
-          // Halfway down unless the test names a fraction of the height.
+          // Halfway across and down unless the test names fractions of the
+          // width and height.
+          clientX: r.left + r.width * (typeof m.fx === 'number' ? m.fx : 0.5),
           clientY: r.top + r.height * (typeof m.fy === 'number' ? m.fy : 0.5),
         };
         // A press, a release and the click, as a user's click arrives.
@@ -925,9 +932,9 @@ export interface RealPanel {
     }>,
   ): Promise<PageState>;
   /** Click the middle of the image, as a user reads the value there, or the
-   *  point `fy` of the way down it. Resolves once the page has sent the click;
-   *  the reply comes after. */
-  probe(fy?: number): Promise<void>;
+   *  point `fy` of the way down it and `fx` of the way across. Resolves once
+   *  the page has sent the click; the reply comes after. */
+  probe(fy?: number, fx?: number): Promise<void>;
   /** Turn the mouse wheel by `deltaY` over the point `at` of the image, as
    *  fractions of its width and height from the top left. */
   wheel(at: [number, number], deltaY: number): Promise<void>;
@@ -1073,9 +1080,9 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       );
       return reply.state as PageState;
     },
-    probe: async (fy?: number) => {
+    probe: async (fy?: number, fx?: number) => {
       const mine = ++tag;
-      await panel.webview.postMessage({ type: "test:probe", tag: mine, fy });
+      await panel.webview.postMessage({ type: "test:probe", tag: mine, fy, fx });
       const reply = await waitUntil(
         () => received.find((m) => m.type === "test:probed" && m.tag === mine),
         `the page's click ${mine}`,
