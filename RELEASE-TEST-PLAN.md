@@ -739,7 +739,7 @@ A depth axis with fill values used to fail to draw; no file here has one.
 - [ ] Message 0 with message 1 is refused as two different grids, not as a
       frame difference.
 
-## 7. Zoom and pan (#245, #1114, #1147)
+## 7. Zoom and pan (#245, #1114, #1147, #1228)
 
 **`S: samples/gfs.grib2`**, Equirectangular, then Web Mercator
 
@@ -761,6 +761,13 @@ A depth axis with fill values used to fail to draw; no file here has one.
       down: the map moves down with the pointer. Failure looks like a zoom
       that slides toward the other edge, or a map moving against the drag
       (#1147).
+- [ ] Untick Flip Y axis and Reset view. Scroll five notches quickly over
+      eastern Asia, then Reset view and do the same over the Americas. While
+      each zoom redraws, the stretched old image stays under the pointer.
+      Then drag the whole map most of the way across: the stretched or
+      moved image follows the pointer until the new one lands. Failure looks
+      like a blank map, or the wrong side of the world, until the redraw
+      (#1228).
 
 **`S: samples/mrms.grib2`** (7000 × 3500, the slowest render in the samples)
 
@@ -781,11 +788,23 @@ A depth axis with fill values used to fail to draw; no file here has one.
       the map straight away, while the old image is still up. Bounds stays on
       Auto. Pick Equirectangular again: the whole map is drawn, not a zoomed
       window. Failure looks like Bounds turning to Manual (#1147).
+- [ ] On Equirectangular, hold the pointer still over one place and scroll
+      five notches as fast as you can, quicker than the map redraws, then
+      Reset view and scroll five notches slowly, letting each redraw. Both
+      end on about the same window, with that place under the pointer.
+      Failure looks like the quick notches zooming in less than the slow
+      ones, or ending on another place (#1228).
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, Equirectangular, coastlines, contours and arrows on
 
 - [ ] **priority** Zoom into Europe and pan. When the gesture ends, the
       coastlines, contours and arrows all line up with the field.
+- [ ] Reset view, so Bounds is on Auto. Hold the pointer still over one
+      place, such as 10° E 50° N in central Europe, and scroll in five
+      notches one at a time, letting each redraw. That place stays under the
+      pointer the whole way, and the map does not drop down when Bounds
+      switches to Manual and its fields appear. Failure looks like Europe
+      sliding toward an edge of the map (#1228).
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 

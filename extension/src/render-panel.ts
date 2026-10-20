@@ -2750,7 +2750,7 @@ export function renderImagePanelHtml(
 
         function blit(payload) {
           takeAskedKey(payload);
-          clearGesturePreview();
+          settleGesturePreview(payload);
           const canvas = document.getElementById('canvas');
           if (!canvas) return;
           const ctx = canvas.getContext('2d');
@@ -3007,9 +3007,11 @@ export function renderImagePanelHtml(
         }
 
         function handleGridError(msg) {
-          clearGesturePreview();
           // A frame that fails ends playback rather than retrying it forever.
           stopAnimation();
+          // As a drawn render: only the answer to the last request ends what
+          // a gesture is waiting for.
+          if (!msg || typeof msg.seq !== 'number' || msg.seq >= renderSeq) clearGesturePreview();
           const err = msg.error || 'render failed';
           const askedKey = takeAskedKey(msg);
           mountAnswered = true;
@@ -3661,11 +3663,24 @@ export function renderImagePanelHtml(
         // computes the new window with zoomMapWindow / panMapWindow, writes it
         // into the manual bounds fields, and re-renders through the same path
         // typing those fields takes, so the two cannot disagree. While a gesture
-        // is under way the current image is moved with a CSS transform, which
-        // costs nothing; the real warp happens once it ends.
+        // is under way, and until its render lands, the current image is moved
+        // with a CSS transform, which costs nothing; the real warp happens once
+        // it ends.
+        //
+        // A gesture starts from the window the last gesture asked for, not the
+        // one on screen, while that render is on its way: a tick that landed
+        // in that time used to zoom from the old window and undo the tick
+        // before it (#1228). The preview puts the drawn image where it sits in
+        // the window asked for, so the place under the pointer is the place
+        // the next gesture anchors on.
         let gesture = null;
         let suppressNextClick = false;
         let pendingZoom = null;
+        // The window the last gesture asked for, until the render for it (or a
+        // later one) is drawn, and how its preview is placed: a drag's keeps
+        // the frame it was dragged in (see previewWindow).
+        let gestureWindow = null;
+        let gestureView = null;
 
         // The window the image on screen was rendered for, when a gesture can
         // move it: Rust echoes it for the lat/lon targets. Read in the
@@ -3674,7 +3689,7 @@ export function renderImagePanelHtml(
         // gesture asks for is the picker's, so that must take a window too:
         // a wheel over the old map while a Mollweide render is on its way
         // would tick Bounds Manual for a target that ignores them (#1147).
-        function currentMapWindow() {
+        function drawnMapWindow() {
           if (!warpsLatLon(drawnProjection()) || !warpsLatLon(requestedProjection())) return null;
           if (!lastPayload || lastPayload.usedLatMin == null) return null;
           return {
@@ -3683,6 +3698,14 @@ export function renderImagePanelHtml(
             lonMin: lastPayload.usedLonMin,
             lonMax: lastPayload.usedLonMax,
           };
+        }
+
+        // The window a new gesture moves: the one the last gesture asked for
+        // while its render is on its way, else the one on screen.
+        function currentMapWindow() {
+          const drawn = drawnMapWindow();
+          if (!drawn) return null;
+          return gestureWindow || drawn;
         }
 
         function isMercator() {
@@ -3699,11 +3722,13 @@ export function renderImagePanelHtml(
           return flipped ? 1 - fy : fy;
         }
 
-        function applyMapWindow(w) {
+        // view: the preview to show until the render lands, as previewWindow
+        // takes it ({ t, ref }); w itself unless given.
+        function applyMapWindow(w, view) {
           const manual = document.querySelector('input[name="bounds-mode"][value="manual"]');
           if (manual) manual.checked = true;
           const fields = document.getElementById('bounds-manual-fields');
-          if (fields) fields.toggleAttribute('hidden', false);
+          if (fields) fields.classList.toggle('spacing-hidden', false);
           const put = (id, v) => {
             const el = document.getElementById(id);
             if (el) el.value = Number(v).toFixed(4);
@@ -3712,6 +3737,9 @@ export function renderImagePanelHtml(
           put('bounds-lat-max', w.latMax);
           put('bounds-lon-min', w.lonMin);
           put('bounds-lon-max', w.lonMax);
+          gestureWindow = w;
+          gestureView = view || { t: w, ref: null };
+          previewWindow(gestureView.t, gestureView.ref);
           snapshotState();
           requestRender();
         }
@@ -3721,7 +3749,7 @@ export function renderImagePanelHtml(
           const auto = document.querySelector('input[name="bounds-mode"][value="auto"]');
           if (auto) auto.checked = true;
           const fields = document.getElementById('bounds-manual-fields');
-          if (fields) fields.toggleAttribute('hidden', true);
+          if (fields) fields.classList.toggle('spacing-hidden', true);
           // Cleared so the next render pre-fills them with the grid's own extent.
           ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach((id) => {
             const el = document.getElementById(id);
@@ -3740,43 +3768,138 @@ export function renderImagePanelHtml(
           });
         }
 
+        // Move the image on screen to where it sits in window t, as t will be
+        // drawn into the same box: scaled by the ratio of the spans, and
+        // shifted by where its edges fall in t. Longitude and the image rows'
+        // own vertical axis (latitude, or Mercator Y) are linear across the
+        // image, so this is exact, slides back from a pole included. The
+        // drawn image is taken by whole turns to the copy whose middle is
+        // nearest the middle of ref (t unless given): t's west edge is
+        // written in [-180, 180), so on a world-wide window edges can be a
+        // turn apart when the places are not (#1228). A drag passes the
+        // window it started from, with t unwrapped from it, so a drag of
+        // more than half a turn does not jump to the other copy.
+        function previewWindow(t, ref) {
+          const d = drawnMapWindow();
+          if (!d || !t) { previewTransform('', ''); return; }
+          const merc = isMercator();
+          const toY = (lat) => (merc ? Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) : lat);
+          const tLon = t.lonMax - t.lonMin;
+          const tN = toY(t.latMax);
+          const tS = toY(t.latMin);
+          const dN = toY(d.latMax);
+          const dS = toY(d.latMin);
+          if (!(tLon > 0) || !(tN > tS)) { previewTransform('', ''); return; }
+          const r = ref || t;
+          const turns = Math.round(((r.lonMin + r.lonMax) / 2 - (d.lonMin + d.lonMax) / 2) / 360);
+          const dWest = d.lonMin + 360 * turns;
+          let sx = (d.lonMax - d.lonMin) / tLon;
+          let sy = (dN - dS) / (tN - tS);
+          let tx = (dWest - t.lonMin) / tLon;
+          // The top of the image is its north, or its south on bottom-up rows.
+          let ty = drawnFlipY() ? (dS - tS) / (tN - tS) : (tN - dN) / (tN - tS);
+          // Gestures chained over renders still on their way can ask for a
+          // scale far past the wheel's own limit; past 64 either way the
+          // image is held at that, about the middle of the box.
+          const held = (sc, tr) => {
+            const capped = Math.min(64, Math.max(1 / 64, sc));
+            return [capped, 0.5 - (capped * (0.5 - tr)) / sc];
+          };
+          [sx, tx] = held(sx, tx);
+          [sy, ty] = held(sy, ty);
+          previewTransform(
+            'translate(' + tx * 100 + '%, ' + ty * 100 + '%) scale(' + sx + ', ' + sy + ')',
+            '0 0',
+          );
+        }
+
+        // Preview what is under way: a wheel burst or a drag, else the last
+        // gesture's window. False when there is nothing to preview.
+        function refreshPreview() {
+          if (pendingZoom) { previewWindow(pendingZoom.target()); return true; }
+          if (gesture && gesture.moved && gesture.preview) { previewWindow(gesture.preview, gesture.from); return true; }
+          if (gestureWindow && gestureView) { previewWindow(gestureView.t, gestureView.ref); return true; }
+          return false;
+        }
+
+        // A wheel burst still settling is asked for now, so a gesture or a
+        // button that starts meanwhile carries on from it rather than from
+        // the window before it (#1228).
+        function flushPendingZoom() {
+          const z = pendingZoom;
+          if (!z) return;
+          clearTimeout(z.timer);
+          pendingZoom = null;
+          if (currentMapWindow()) applyMapWindow(z.target());
+        }
+
+        // A render was drawn. The answer to the last request ends the wait for
+        // the gesture's window; an older one, with a gesture's render still on
+        // its way, is moved to where it sits in that window.
+        function settleGesturePreview(payload) {
+          if (!payload || typeof payload.seq !== 'number' || payload.seq >= renderSeq) {
+            gestureWindow = null;
+            gestureView = null;
+          }
+          if (!drawnMapWindow()) { clearGesturePreview(); return; }
+          if (!refreshPreview()) previewTransform('', '');
+        }
+
         function clearGesturePreview() {
           if (pendingZoom && pendingZoom.timer) clearTimeout(pendingZoom.timer);
           pendingZoom = null;
           gesture = null;
+          gestureWindow = null;
+          gestureView = null;
           previewTransform('', '');
           const wrap = document.querySelector('.canvas-wrap');
           if (wrap) wrap.classList.remove('dragging');
         }
 
-        // Where a client point sits on the image, as fractions from the west and
-        // north edges, or null when it is off the image.
-        function imageFraction(clientX, clientY) {
+        // The image's box as laid out, without the preview's transform: the
+        // box the window a gesture moves fills (#1228).
+        function imageBox() {
           const canvas = document.getElementById('canvas');
-          const rect = canvas && canvas.getBoundingClientRect();
+          if (!canvas) return null;
+          const moved = canvas.style.transform;
+          canvas.style.transform = 'none';
+          const rect = canvas.getBoundingClientRect();
+          canvas.style.transform = moved;
+          return rect;
+        }
+
+        // Where a client point sits on the image's box, as fractions from its
+        // left and top edges, or null when there is no box.
+        function imageFraction(clientX, clientY) {
+          const rect = imageBox();
           if (!rect || rect.width <= 0 || rect.height <= 0) return null;
           return {
             fx: (clientX - rect.left) / rect.width,
             fy: (clientY - rect.top) / rect.height,
             width: rect.width,
             height: rect.height,
-            px: clientX - rect.left,
-            py: clientY - rect.top,
           };
         }
 
         function onWheel(ev) {
+          // A wheel turned mid-drag is not taken: the drag's window is not
+          // asked for yet, so a zoom could only start from the one before
+          // it, and the drag would then undo the zoom (#1228).
+          if (gesture && gesture.moved) { ev.preventDefault(); return; }
           const w = currentMapWindow();
           if (!w) return;
-          const flipped = drawnFlipY();
           const at = imageFraction(ev.clientX, ev.clientY);
           if (!at || at.fx < 0 || at.fx > 1 || at.fy < 0 || at.fy > 1) return;
           ev.preventDefault();
-          if (!pendingZoom) pendingZoom = { factor: 1, fx: at.fx, fy: at.fy, origin: at.px + 'px ' + at.py + 'px', timer: 0 };
+          if (!pendingZoom) {
+            const z = { from: w, flipped: drawnFlipY(), mercator: isMercator(), factor: 1, fx: at.fx, fy: at.fy, timer: 0 };
+            z.target = () => zoomMapWindow(z.from, z.mercator, z.fx, northFraction(z.fy, z.flipped), z.factor);
+            pendingZoom = z;
+          }
           // A notch of a mouse wheel is about 100 units: roughly 20% per notch,
           // and trackpads' smaller deltas scale smoothly.
           pendingZoom.factor = Math.min(64, Math.max(1 / 64, pendingZoom.factor * Math.pow(1.002, ev.deltaY)));
-          previewTransform('scale(' + (1 / pendingZoom.factor) + ')', pendingZoom.origin);
+          previewWindow(pendingZoom.target());
           clearTimeout(pendingZoom.timer);
           pendingZoom.timer = setTimeout(() => {
             const z = pendingZoom;
@@ -3784,8 +3907,8 @@ export function renderImagePanelHtml(
             if (!z) return;
             // The picker can have left the lat/lon targets while the wheel
             // settled; then there is no window to write.
-            if (!currentMapWindow()) { previewTransform('', ''); return; }
-            applyMapWindow(zoomMapWindow(w, isMercator(), z.fx, northFraction(z.fy, flipped), z.factor));
+            if (!currentMapWindow()) { clearGesturePreview(); return; }
+            applyMapWindow(z.target());
           }, 250);
         }
 
@@ -3797,7 +3920,30 @@ export function renderImagePanelHtml(
           if (ev.button !== 0 || !currentMapWindow()) return;
           const at = imageFraction(ev.clientX, ev.clientY);
           if (!at) return;
-          gesture = { x: ev.clientX, y: ev.clientY, width: at.width, height: at.height, moved: false };
+          flushPendingZoom();
+          const w = currentMapWindow();
+          if (!w) return;
+          gesture = {
+            x: ev.clientX, y: ev.clientY, width: at.width, height: at.height, moved: false,
+            from: w, flipped: drawnFlipY(), mercator: isMercator(), target: null, preview: null,
+          };
+        }
+
+        // The window a drag to the client point (x, y) asks for. A drag down
+        // moves the map south on a north-up image and north on a flipped one:
+        // the place grabbed follows the pointer (#1147).
+        function dragTarget(g, x, y) {
+          const dfy = (y - g.y) / g.height;
+          return panMapWindow(g.from, g.mercator, (x - g.x) / g.width, g.flipped ? -dfy : dfy);
+        }
+
+        // The same window with its longitudes kept in the frame of the one
+        // the drag started from, for the preview: panMapWindow writes the
+        // west edge in [-180, 180).
+        function dragPreview(g, target, x) {
+          const span = g.from.lonMax - g.from.lonMin;
+          const lonMin = g.from.lonMin - ((x - g.x) / g.width) * span;
+          return { latMin: target.latMin, latMax: target.latMax, lonMin: lonMin, lonMax: lonMin + span };
         }
 
         function onMouseMove(ev) {
@@ -3806,10 +3952,20 @@ export function renderImagePanelHtml(
           const dy = ev.clientY - gesture.y;
           // A few pixels of wobble is still a click, which probes.
           if (!gesture.moved && Math.hypot(dx, dy) < 4) return;
+          if (!gesture.moved && pendingZoom) {
+            // A wheel turned between the press and the drag: the drag
+            // carries on from that zoom.
+            flushPendingZoom();
+            const w = currentMapWindow();
+            if (!w) { gesture = null; return; }
+            gesture.from = w;
+          }
           gesture.moved = true;
           const wrap = document.querySelector('.canvas-wrap');
           if (wrap) wrap.classList.add('dragging');
-          previewTransform('translate(' + dx + 'px, ' + dy + 'px)', '');
+          gesture.target = dragTarget(gesture, ev.clientX, ev.clientY);
+          gesture.preview = dragPreview(gesture, gesture.target, ev.clientX);
+          previewWindow(gesture.preview, gesture.from);
         }
 
         function onMouseUp(ev) {
@@ -3820,15 +3976,13 @@ export function renderImagePanelHtml(
           if (wrap) wrap.classList.remove('dragging');
           if (!g.moved) return;
           suppressNextClick = true;
-          const w = currentMapWindow();
-          if (!w) { previewTransform('', ''); return; }
-          // A drag down moves the map south on a north-up image and north
-          // on a flipped one: the place grabbed follows the pointer (#1147).
-          const dfy = (ev.clientY - g.y) / g.height;
-          applyMapWindow(panMapWindow(w, isMercator(), (ev.clientX - g.x) / g.width, drawnFlipY() ? -dfy : dfy));
+          if (!currentMapWindow()) { clearGesturePreview(); return; }
+          const target = dragTarget(g, ev.clientX, ev.clientY);
+          applyMapWindow(target, { t: dragPreview(g, target, ev.clientX), ref: g.from });
         }
 
         function zoomButton(factor) {
+          flushPendingZoom();
           const w = currentMapWindow();
           if (w) applyMapWindow(zoomMapWindow(w, isMercator(), 0.5, 0.5, factor));
         }
@@ -4941,7 +5095,7 @@ export function renderImagePanelHtml(
           const rm = document.getElementById('range-manual-fields');
           if (rm) rm.toggleAttribute('hidden', s.rangeMode !== 'manual');
           const bm = document.getElementById('bounds-manual-fields');
-          if (bm) bm.toggleAttribute('hidden', s.boundsMode !== 'manual');
+          if (bm) bm.classList.toggle('spacing-hidden', s.boundsMode !== 'manual');
           const gl = document.getElementById('graticule-spacing-label');
           if (gl) gl.classList.toggle('spacing-hidden', !s.graticule);
           const cil = document.getElementById('contour-interval-label');
@@ -5049,13 +5203,15 @@ export function renderImagePanelHtml(
             el.addEventListener('change', () => {
               const manual = document.getElementById('bounds-manual-fields');
               const isManual = el.value === 'manual' && el.checked;
-              if (manual) manual.toggleAttribute('hidden', !isManual);
+              if (manual) manual.classList.toggle('spacing-hidden', !isManual);
+              // The window asked for now is the user's, not a gesture's.
+              clearGesturePreview();
               requestRender();
             });
           });
           ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach((id) => {
             const el = document.getElementById(id);
-            if (el) el.addEventListener('change', requestRender);
+            if (el) el.addEventListener('change', () => { clearGesturePreview(); requestRender(); });
           });
           // Overlay toggles never re-render the image — they only reproject the
           // vector layer, so the image paint is untouched when toggling.
@@ -5328,7 +5484,10 @@ export function renderImagePanelHtml(
     /* A colour range Rust refused (#1155): the field it names, and why. */
     input[aria-invalid="true"] { outline: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); outline-offset: -1px; }
     #range-note { color: var(--vscode-errorForeground); }
-    #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.1em; }
+    /* The status line and the probe readout hold one line's height (1lh)
+       empty or full, so neither moves the map when a render clears or
+       writes it (#1228): 1.1em was shorter than the line. */
+    #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1lh; }
     .contour-status {
       font-size: 0.85rem;
       color: var(--vscode-editorWarning-foreground, #cca700);
@@ -5342,7 +5501,7 @@ export function renderImagePanelHtml(
     .probe-readout {
       font-size: 0.85rem;
       font-variant-numeric: tabular-nums;
-      min-height: 1.1em;
+      min-height: 1lh;
       margin-top: -0.5rem;
       margin-bottom: 0.5rem;
       color: var(--vscode-descriptionForeground, inherit);
@@ -5387,6 +5546,12 @@ export function renderImagePanelHtml(
     .canvas-wrap.tall { flex: 0 0 auto; }
     .canvas-wrap.tall canvas#canvas { flex: 0 0 auto; width: auto; height: 80vh; }
     .zoom-buttons { margin-left: 0.5rem; white-space: nowrap; }
+    /* Bounds' Manual fields hide the way the graticule spacing does, keeping
+       their room (#1228). A wheel or a drag ticks Manual and shows them in
+       the middle of the gesture, and the map must not drop under the pointer
+       when they do. They follow the zoom buttons, so on Auto the room they
+       keep is at the end of the row. */
+    #bounds-manual-fields.spacing-hidden { visibility: hidden; }
     canvas#canvas {
       max-width: 100%;
       height: auto;
@@ -5670,16 +5835,16 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
       <legend>Bounds:</legend>
       <label><input type="radio" name="bounds-mode" value="auto" checked> Auto</label>
       <label><input type="radio" name="bounds-mode" value="manual"> Manual</label>
-      <span id="bounds-manual-fields" hidden>
-        <label>lat min <input type="number" id="bounds-lat-min" step="any"></label>
-        <label>lat max <input type="number" id="bounds-lat-max" step="any"></label>
-        <label>lon min <input type="number" id="bounds-lon-min" step="any"></label>
-        <label>lon max <input type="number" id="bounds-lon-max" step="any"></label>
-      </span>
       <span class="zoom-buttons" title="Scroll over the map to zoom, drag it to pan">
         <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
         <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
         <button type="button" id="zoom-reset">Reset view</button>
+      </span>
+      <span id="bounds-manual-fields" class="spacing-hidden">
+        <label>lat min <input type="number" id="bounds-lat-min" step="any"></label>
+        <label>lat max <input type="number" id="bounds-lat-max" step="any"></label>
+        <label>lon min <input type="number" id="bounds-lon-min" step="any"></label>
+        <label>lon max <input type="number" id="bounds-lon-max" step="any"></label>
       </span>
     </fieldset>
     <fieldset id="overlay-fieldset"${hides("overlay") ? " hidden" : ""}>

@@ -197,8 +197,10 @@ suite("Zoom and pan", () => {
     for (const wiring of [
       /addEventListener\('wheel', onWheel, \{ passive: false \}\)/,
       /addEventListener\('mousedown', onMouseDown\)/,
-      /applyMapWindow\(zoomMapWindow\(w, isMercator\(\), z\.fx, northFraction\(z\.fy, flipped\), z\.factor\)\)/,
-      /applyMapWindow\(panMapWindow\(w, isMercator\(\),/,
+      /zoomMapWindow\(z\.from, z\.mercator, z\.fx, northFraction\(z\.fy, z\.flipped\), z\.factor\)/,
+      /applyMapWindow\(z\.target\(\)\)/,
+      /panMapWindow\(g\.from, g\.mercator,/,
+      /const target = dragTarget\(g, ev\.clientX, ev\.clientY\);\s*applyMapWindow\(target, /,
       /if \(suppressNextClick\)/,
     ]) {
       assert.ok(wiring.test(html), `the panel script wires ${wiring}`);
@@ -222,9 +224,10 @@ suite("Zoom and pan through the panel (#1147)", function () {
     flip: boolean,
     body: (panel: RealPanel) => Promise<void>,
     projection = "equirectangular",
+    fixture = "regular_latlon_surface.grib2",
   ): Promise<void> {
     const p = await provider();
-    const file = path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2");
+    const file = path.join(extensionPath(), "src", "test", "fixtures", fixture);
     const editor = await openEditor(p, file);
     const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
     try {
@@ -255,7 +258,7 @@ suite("Zoom and pan through the panel (#1147)", function () {
   }
 
   /** Run `gesture` and wait for the render it asks for to land. */
-  async function rendered(panel: RealPanel, gesture: () => Promise<void>, what: string): Promise<Msg> {
+  async function rendered(panel: RealPanel, gesture: () => Promise<unknown>, what: string): Promise<Msg> {
     const received = panel.received.length;
     const sent = panel.sent.length;
     await gesture();
@@ -304,6 +307,248 @@ suite("Zoom and pan through the panel (#1147)", function () {
       );
     });
   }
+
+  /** The place a click at the client point `client` reads, and the image's
+   *  box then. */
+  async function placeAt(panel: RealPanel, client: [number, number], what: string) {
+    const sent = panel.sent.length;
+    const at = await panel.probeAt(client);
+    const read = (await panel.waitSent(isType("probeResult"), sent, `the probe (${what})`)).result;
+    assert.ok(read && typeof read.lat === "number" && typeof read.lon === "number", `the click reads a place (${what})`);
+    return { lat: read.lat as number, lon: read.lon as number, rect: at.rect };
+  }
+
+  /** Assert `b` is the place `a` is, to a pixel of either render: a probe
+   *  reads its pixel's place, so each read is off by up to half a pixel. */
+  function samePlace(a: { lat: number; lon: number }, b: { lat: number; lon: number }, drawn: Msg[], what: string) {
+    const lonPx = drawn.reduce((t, d) => t + (d.usedLonMax - d.usedLonMin) / d.width, 0);
+    const latPx = drawn.reduce((t, d) => t + (d.usedLatMax - d.usedLatMin) / d.height, 0);
+    const dLon = Math.abs(((((b.lon - a.lon) % 360) + 540) % 360) - 180);
+    assert.ok(dLon <= lonPx, `${what}: longitude ${a.lon} before, ${b.lon} after (allowed ${lonPx})`);
+    assert.ok(Math.abs(b.lat - a.lat) <= latPx, `${what}: latitude ${a.lat} before, ${b.lat} after (allowed ${latPx})`);
+  }
+
+  /** Narrow enough that the Bounds row wraps once its Manual fields show,
+   *  which is where the map used to drop (#1228). */
+  const NARROW = [{ id: "body", width: "640px" }];
+
+  test("repeated wheel ticks from Auto keep the place under a pointer held still (#1228)", async () => {
+    await onMap(false, async (panel) => {
+      await panel.drive(NARROW);
+      assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", "Bounds start on Auto");
+      const before = lastDrawn(panel);
+      const first = await panel.probe(0.3, 0.3);
+      const start = await placeAt(panel, first.point, "before the ticks");
+      const TICKS = 5;
+      for (let i = 1; i <= TICKS; i++) {
+        await rendered(panel, () => panel.wheel({ client: first.point }, -120), `tick ${i}`);
+      }
+      const after = lastDrawn(panel);
+      const factor = Math.pow(1.002, -120 * TICKS);
+      close(after.usedLonMax - after.usedLonMin, (before.usedLonMax - before.usedLonMin) * factor, "every tick zoomed", 1e-3);
+      const end = await placeAt(panel, first.point, "after the ticks");
+      samePlace(start, end, [before, after], "the place under the pointer");
+    });
+  });
+
+  for (const [projection, flip] of [
+    ["equirectangular", false],
+    ["web_mercator", true],
+    ["equirectangular", true],
+  ] as const) {
+    const how = `${flip ? "with" : "without"} Flip Y axis on ${projection}`;
+    test(`wheel ticks while the last one's render is on its way zoom on from that one, ${how} (#1228)`, async () => {
+      await onMap(
+        flip,
+        async (panel) => {
+          const before = lastDrawn(panel);
+          const first = await panel.probe(0.3, 0.3);
+          const start = await placeAt(panel, first.point, "before the ticks");
+          const TICKS = 3;
+          const gate = panel.hold(isType("gridReady"));
+          let last: Msg;
+          try {
+            const asks: Msg[] = [];
+            for (let i = 1; i <= TICKS; i++) {
+              const received = panel.received.length;
+              await panel.wheel({ client: first.point }, -120);
+              asks.push(
+                await waitUntil(
+                  () => panel.received.slice(received).find(isType("rerenderRequest")),
+                  `the render tick ${i} asks for`,
+                ),
+              );
+            }
+            // Every render the ticks asked for is still on its way, and the
+            // old image is moved to where it sits in the window asked for: a
+            // click reads the place the ticks zoomed about.
+            await waitUntil(() => (gate.held.length === TICKS ? true : undefined), "the ticks' renders, held back");
+            const previewed = await placeAt(panel, first.point, "on the preview");
+            samePlace(start, previewed, [before, before], "the place under the pointer on the preview");
+            const sent = panel.sent.length;
+            await gate.release();
+            last = await panel.waitSent(
+              (m) => m.type === "gridReady" && m.seq === asks[TICKS - 1].seq,
+              sent,
+              "the last tick's render",
+            );
+          } finally {
+            await gate.release();
+          }
+          const factor = Math.pow(1.002, -120 * TICKS);
+          close(
+            last.usedLonMax - last.usedLonMin,
+            (before.usedLonMax - before.usedLonMin) * factor,
+            "every tick zoomed",
+            1e-3,
+          );
+          const end = await placeAt(panel, first.point, "after the ticks");
+          samePlace(start, end, [before, last], "the place under the pointer");
+        },
+        projection,
+      );
+    });
+  }
+
+  test("a drag while a tick's render is on its way pans on from that tick (#1228)", async () => {
+    await onMap(true, async (panel) => {
+      const before = lastDrawn(panel);
+      const gate = panel.hold(isType("gridReady"));
+      let last: Msg;
+      try {
+        const received = panel.received.length;
+        const tick = await panel.wheel([0.5, 0.5], -120);
+        await waitUntil(() => panel.received.slice(received).find(isType("rerenderRequest")), "the tick's render");
+        // The box the tick was turned over, which the window asked for fills.
+        const from: [number, number] = [tick.point[0], tick.rect[1] + tick.rect[3] * 0.3];
+        const to: [number, number] = [tick.point[0], tick.rect[1] + tick.rect[3] * 0.5];
+        const grabbed = await placeAt(panel, from, "where the drag starts");
+        const dragged = panel.received.length;
+        await panel.drag({ client: from }, { client: to });
+        const ask = await waitUntil(
+          () => panel.received.slice(dragged).find(isType("rerenderRequest")),
+          "the drag's render",
+        );
+        const sent = panel.sent.length;
+        await gate.release();
+        last = await panel.waitSent((m) => m.type === "gridReady" && m.seq === ask.seq, sent, "the drag's render");
+        close(
+          last.usedLonMax - last.usedLonMin,
+          (before.usedLonMax - before.usedLonMin) * Math.pow(1.002, -120),
+          "the drag kept the tick's zoom",
+          1e-3,
+        );
+        const dropped = await placeAt(panel, to, "where it let go");
+        samePlace(grabbed, dropped, [before, last], "the place grabbed is under the pointer where it let go");
+      } finally {
+        await gate.release();
+      }
+    });
+  });
+
+  /** A global field: its Auto window is the whole world, 0 to 360. */
+  const WORLD = "spectral_simple_t63.grib2";
+
+  test("a quick scroll over the east of a world map previews the place under the pointer (#1228)", async () => {
+    await onMap(
+      false,
+      async (panel) => {
+        const before = lastDrawn(panel);
+        assert.strictEqual(before.usedLonMax - before.usedLonMin, 360, "the map is the whole world");
+        const first = await panel.probe(0.5, 0.8);
+        const start = await placeAt(panel, first.point, "before the scroll");
+        const gate = panel.hold(isType("gridReady"));
+        try {
+          const received = panel.received.length;
+          // Five notches in one: the window asked for runs past 180 east, so
+          // its west edge is written a turn away from the drawn one's.
+          await panel.wheel({ client: first.point }, -600);
+          await waitUntil(() => panel.received.slice(received).find(isType("rerenderRequest")), "the scroll's render");
+          const previewed = await placeAt(panel, first.point, "on the preview");
+          samePlace(start, previewed, [before, before], "the place under the pointer on the preview");
+        } finally {
+          await gate.release();
+        }
+      },
+      "equirectangular",
+      WORLD,
+    );
+  });
+
+  test("a drag across most of a world map previews the place grabbed under the pointer (#1228)", async () => {
+    await onMap(
+      false,
+      async (panel) => {
+        const before = lastDrawn(panel);
+        const at = await panel.probe(0.5, 0.1);
+        const [left, top, width, height] = at.rect;
+        const from: [number, number] = [left + width * 0.1, top + height * 0.5];
+        const to: [number, number] = [left + width * 0.8, top + height * 0.5];
+        const grabbed = await placeAt(panel, from, "where the drag starts");
+        const gate = panel.hold(isType("gridReady"));
+        try {
+          const received = panel.received.length;
+          // Seven tenths of the width: more than half a turn east.
+          await panel.drag({ client: from }, { client: to });
+          await waitUntil(() => panel.received.slice(received).find(isType("rerenderRequest")), "the drag's render");
+          const previewed = await placeAt(panel, to, "on the preview");
+          samePlace(grabbed, previewed, [before, before], "the place grabbed is under the pointer on the preview");
+        } finally {
+          await gate.release();
+        }
+      },
+      "equirectangular",
+      WORLD,
+    );
+  });
+
+  test("a drag started while a wheel is settling carries on from its zoom (#1228)", async () => {
+    await onMap(false, async (panel) => {
+      const before = lastDrawn(panel);
+      const factor = Math.pow(1.002, -120);
+      const tick = await panel.wheel([0.5, 0.5], -120);
+      // Well inside the 250 ms the wheel waits to settle.
+      const [left, top, width, height] = tick.rect;
+      await panel.drag(
+        { client: [left + width * 0.5, top + height * 0.3] },
+        { client: [left + width * 0.5, top + height * 0.5] },
+      );
+      // Past that wait, so a zoom still pending would have been asked for.
+      await new Promise((r) => setTimeout(r, 750));
+      const asks = panel.received.filter(isType("rerenderRequest"));
+      const last = asks[asks.length - 1];
+      const drawn = await panel.waitSent((m) => m.type === "gridReady" && m.seq === last.seq, 0, "the last render");
+      const window0: MapWindow = {
+        latMin: before.usedLatMin,
+        latMax: before.usedLatMax,
+        lonMin: before.usedLonMin,
+        lonMax: before.usedLonMax,
+      };
+      const want = panMapWindow(zoomMapWindow(window0, false, 0.5, 0.5, factor), false, 0, 0.2);
+      close(drawn.usedLonMax - drawn.usedLonMin, want.lonMax - want.lonMin, "the drag kept the zoom", 1e-3);
+      // A pointer lands on whole pixels, so the drag is good to a pixel.
+      const row = (drawn.usedLatMax - drawn.usedLatMin) / drawn.height;
+      close(drawn.usedLatMax, want.latMax, "and moved it the way it was dragged", 2 * row);
+      close(drawn.usedLatMin, want.latMin, "the whole window", 2 * row);
+    });
+  });
+
+  test("the map stays put on screen when a gesture ticks Bounds Manual, and when Reset view unticks it (#1228)", async () => {
+    await onMap(false, async (panel) => {
+      await panel.drive(NARROW);
+      const at = await panel.probe(0.5, 0.5);
+      await rendered(panel, () => panel.wheel({ client: at.point }, -120), "the first tick");
+      assert.strictEqual((await panel.controls())["radio:bounds-mode"], "manual", "the tick set Bounds to Manual");
+      const zoomed = await panel.probe(0.5, 0.5);
+      assert.deepStrictEqual(zoomed.rect.map(Math.round), at.rect.map(Math.round), "the image's box did not move");
+      const sent = panel.sent.length;
+      await panel.drive([{ id: "zoom-reset", click: true }]);
+      await panel.waitSent(isType("gridReady"), sent, "the render after Reset view");
+      assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", "Reset view set Bounds back to Auto");
+      const reset = await panel.probe(0.5, 0.5);
+      assert.deepStrictEqual(reset.rect.map(Math.round), at.rect.map(Math.round), "nor after Reset view");
+    });
+  });
 
   test("a drag with Flip Y axis on moves the map the way the cursor moves", async () => {
     await onMap(true, async (panel) => {
