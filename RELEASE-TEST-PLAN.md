@@ -1609,8 +1609,8 @@ against A op B. The browser package has no Compare line.
 - **A click while a Flip Y axis redraw is pending (#1114), and a cross-section's
   axis labels turning over before the image (#1114).** A slice redraws too
   fast to click inside by eye; the slowest render in the samples (`mrms.grib2`,
-  §7) still answers the click only after the new image has landed. `extension/src/test/suite/axes.test.ts` holds the
-  render back and clicks (`after Flip Y axis, with an axis answer landing
+  §7) still answers the click only after the new image has landed.
+  `extension/src/test/suite/axes.test.ts` holds the render back and clicks (`after Flip Y axis, with an axis answer landing
   before the render`, `a restored section, before its turned-over render
   arrives`, `a GRIB map, after picking a projection, before its render
   arrives`).
