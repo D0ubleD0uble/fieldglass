@@ -4,7 +4,8 @@
 // a pressure profile stands upright with the surface at the bottom, on a
 // logarithmic scale, a depth profile has the surface at the top, and a
 // latitude-height section has the ground at the bottom by default. Every axis
-// is ticked at real values (dates stay dates), and its end labels stay inside
+// is ticked at round values where they fall (#1229), but a time at its dates
+// and a pressure at its levels, and its end labels stay inside
 // its own label area rather than running into the other axis, the colour bar
 // or anything above the image.
 //
@@ -275,6 +276,23 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       const surface = pointAt(state, 0);
       const deep = pointAt(state, DEPTHS.length - 1);
       assert.ok(surface.y < deep.y - 50, `0 m (y ${surface.y}) is above 1000 m (y ${deep.y})`);
+
+      // Ticked at round depths, not at the depths stored (#1229), each where
+      // that depth is: 200 m on the point stored there.
+      const plot = state.linePlot?.plot;
+      assert.ok(plot);
+      const depths = plot.y.map((l) => l.text);
+      assert.ok(depths.length >= 3, `several depths labelled: ${depths}`);
+      assert.ok(depths.every((t) => Number(t) % 100 === 0), `every depth tick is round: ${depths}`);
+      // The ticks are not the stored depths.
+      assert.ok(depths.some((t) => !DEPTHS.includes(Number(t))), `a depth between the stored ones is labelled: ${depths}`);
+      const two = plot.y.find((l) => l.text === "200");
+      assert.ok(two, `200 m is labelled: ${depths}`);
+      const centre = (two.box.top + two.box.bottom) / 2;
+      const stored = pointAt(state, DEPTHS.indexOf(200));
+      assert.ok(Math.abs(centre - stored.y) < 1.5, `"200" (y ${centre}) is beside the 200 m point (y ${stored.y})`);
+      assertApart(plot.y.concat(plot.x), "the depth profile's labels");
+      assertWithin(plot.y.concat(plot.x), plot.box, "the depth profile's labels");
     } finally {
       close();
     }
@@ -372,6 +390,16 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       assert.strictEqual(rails.y[0].text, "90", "90 at the top");
       assert.strictEqual(rails.y[rails.y.length - 1].text, "−90", "−90 at the bottom");
       assert.strictEqual(rails.x[rails.x.length - 1].text, "2024-12-31", "the last day");
+      // Round latitudes, not every twelfth row's (#1229: `90, 55, 17.5 …`),
+      // each beside its row: the equator is row 36 of 73.
+      const lats = rails.y.map((l) => l.text);
+      assert.ok(lats.length >= 5, `several latitudes labelled: ${lats}`);
+      assert.ok(lats.every((t) => Number(t.replace("−", "-")) % 30 === 0), `every latitude tick is round: ${lats}`);
+      const equator = rails.y.find((l) => l.text === "0");
+      assert.ok(equator, `the equator is labelled: ${lats}`);
+      const row36 = rails.image.top + ((36 + 0.5) / 73) * (rails.image.bottom - rails.image.top);
+      const centre = (equator.box.top + equator.box.bottom) / 2;
+      assert.ok(Math.abs(centre - row36) < 1.5, `"0" (y ${centre}) is beside row 36 (y ${row36})`);
 
       // Narrow: the image is about 37 px tall, room for both end labels but
       // not much else (CI once drew the bottom one past it).
@@ -411,6 +439,51 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       assert.strictEqual((plot.path.match(/M/g) ?? []).length, 2, `two runs: ${plot.path}`);
       assert.ok(!/L/.test(plot.path), "and no line between them");
       assertApart(plot.x.concat(plot.y), "the sparse plot's labels");
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  test("a zonal average over Gaussian latitudes is ticked at round latitudes where they fall (#1229)", async () => {
+    // reduced_gg_n32_smooth.grib1's 64 rows are Gaussian latitudes, north
+    // first, none of them round: its zonal average was ticked
+    // `−87.8638, −71.1578, −57.2066 …`.
+    const p = await provider();
+    const file = path.join(extensionPath(), "..", "crates", "fieldglass-grib1", "tests", "fixtures", "reduced_gg_n32_smooth.grib1");
+    assert.ok(fs.existsSync(file), `fixture missing: ${file}`);
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const check = async (what: string, actions: Parameters<RealPanel["drive"]>[0]) => {
+        const plot = (await panel.drive(actions)).linePlot?.plot;
+        assert.ok(plot, `${what}: the zonal average is drawn`);
+        const lats = plot.x.map((l) => l.text);
+        const values = lats.map((t) => Number(t.replace("−", "-")));
+        assert.ok(lats.length >= 3, `${what}: several latitudes labelled: ${lats}`);
+        assert.ok(values.every((v) => v % 15 === 0), `${what}: every latitude tick is round: ${lats}`);
+        assert.ok(lats.includes("0"), `${what}: the equator is labelled: ${lats}`);
+        assert.ok(values.every((v, i) => i === 0 || v > values[i - 1]), `${what}: south to north, left to right: ${lats}`);
+        // Each where its latitude is: the axis runs from −87.86 to 87.86, so
+        // round latitudes are evenly spaced about the equator. None is near
+        // enough an end of the axis to be slid inward.
+        const centres = plot.x.map((l) => (l.box.left + l.box.right) / 2);
+        const zero = centres[lats.indexOf("0")];
+        const perDegree = (centres[centres.length - 1] - centres[0]) / (values[values.length - 1] - values[0]);
+        assert.ok(Math.abs(zero - (centres[0] + centres[centres.length - 1]) / 2) < 2, `${what}: the equator is halfway`);
+        for (let i = 0; i < values.length; i++) {
+          const expected = zero + values[i] * perDegree;
+          assert.ok(Math.abs(centres[i] - expected) < 2, `${what}: "${lats[i]}" (x ${centres[i]}) is at x ${expected}`);
+        }
+        assertApart(plot.x.concat(plot.y), `${what}: the zonal average's labels`);
+        assertWithin(plot.x.concat(plot.y), plot.box, `${what}: the zonal average's labels`);
+      };
+      const from = panel.sent.length;
+      await panel.drive([{ id: "zonal-toggle", checked: true }]);
+      await panel.waitSent(isType("zonalResult"), from, "the zonal average");
+      await check("as drawn", []);
+      await check("narrow", [{ id: "body", width: "320px" }]);
     } finally {
       panel.dispose();
       editor.close();
