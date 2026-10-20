@@ -133,9 +133,15 @@ suite("Zarr store", () => {
       await new Promise((r) => setTimeout(r, 25));
       after = await tabs();
     }
-    assert.strictEqual(after.length, before + 1, "a panel opened");
-    const opened = after[after.length - 1];
-    // Named for its first variable and the store (#1038).
-    assert.strictEqual(opened.label, "a · cf_v3", `unexpected panel title: ${opened.label}`);
+    const opened = after.length > before ? after[after.length - 1] : undefined;
+    try {
+      assert.strictEqual(after.length, before + 1, "a panel opened");
+      // Named for its first variable and the store (#1038).
+      assert.strictEqual(opened?.label, "a · cf_v3", `unexpected panel title: ${opened?.label}`);
+    } finally {
+      // Left open, the panel sat in the first column for every suite after
+      // this one, where focusing the active group could land on it (#1257).
+      if (opened) await vscode.window.tabGroups.close(opened);
+    }
   });
 });

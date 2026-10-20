@@ -45,21 +45,32 @@ const TRANSPARENT = "rgba(0, 0, 0, 0)";
 /** The browser's own button background, which an unstyled button draws. */
 const BROWSER_GREY = "rgb(239, 239, 239)";
 
-/** A focus ring shows only on a page the window has given focus to. A test
- *  window under Xvfb has no window manager to do that, and an earlier suite can
- *  leave focus elsewhere, so ask for it and wait until the page has it. */
-async function pageHasFocus(has: () => Promise<boolean>, what: string): Promise<void> {
+/** A focus ring shows only on a page that has focus. A panel's page does not
+ *  have it when it first loads, so ask for it and wait until the page has it.
+ *  `take` focuses the page's own tab: focusing the active editor group instead
+ *  lands on whatever that group shows, which an earlier suite can leave as
+ *  another editor (#1257). */
+async function pageHasFocus(has: () => Promise<boolean>, take: () => void, what: string): Promise<void> {
   for (let i = 0; i < 50; i++) {
     if (await has()) return;
-    await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
+    take();
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error(`${what} never took focus, so no focus ring can show`);
+  const active = vscode.window.tabGroups.activeTabGroup;
+  throw new Error(
+    `${what} never took focus, so no focus ring can show ` +
+      `(window focused: ${vscode.window.state.focused}; active tab: ${active.activeTab?.label ?? "none"} ` +
+      `in column ${active.viewColumn} of ${vscode.window.tabGroups.all.length})`,
+  );
 }
 
 /** Focus each button in turn, as the Tab key would, and read its ring. */
 async function assertFocusRing(panel: RealPanel, theme: string): Promise<void> {
-  await pageHasFocus(async () => (await panel.drive([])).docHasFocus, `the render panel in ${theme}`);
+  await pageHasFocus(
+    async () => (await panel.drive([])).docHasFocus,
+    () => panel.takeFocus(),
+    `the render panel in ${theme}`,
+  );
   // A button that is put away (the zoom buttons on a panel that cannot zoom)
   // cannot take focus; its colours are still checked.
   const shown = (await panel.drive([])).panelButtons.filter((b) => b.shown).map((b) => b.id);
@@ -217,13 +228,11 @@ suite("Render panel buttons follow the theme (#1118)", function () {
       await inThemesRead(read, () => panel.dispose(), THEMES, async (first, theme) => {
         // The ring is read while the page is focused: read again until it is.
         let read1 = first;
-        for (let i = 0; i < 50 && !read1.docHasFocus; i++) {
-          panel.reveal(vscode.ViewColumn.One, false);
-          await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
-          await new Promise((r) => setTimeout(r, 100));
-          read1 = await read();
-        }
-        assert.ok(read1.docHasFocus, `the ${what} dump page never took focus in ${theme}`);
+        await pageHasFocus(
+          async () => !!(read1.docHasFocus || (read1 = await read()).docHasFocus),
+          () => panel.reveal(panel.viewColumn, false),
+          `the ${what} dump page in ${theme}`,
+        );
         const { buttons, themeKind } = read1;
         for (const cls of classes) {
           assert.ok(buttons.some((b) => b.id === cls), `the ${what} dump page has a .${cls} button in ${theme}`);

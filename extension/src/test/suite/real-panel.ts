@@ -859,6 +859,9 @@ const DRIVER = `
         // Whether the page cancelled the wheel, so the browser would not
         // scroll the page with it (#1269).
         let prevented = null;
+        // The preview the image is drawn under, either side of the gesture:
+        // a wheel the page takes moves it at once (#1257).
+        const transform = [byId('canvas').style.transform];
         if (m.type === 'test:wheel') {
           point = m.client ? { clientX: m.client[0], clientY: m.client[1] } : at(m.at);
           prevented = !wrap.dispatchEvent(new WheelEvent('wheel', Object.assign(
@@ -876,8 +879,9 @@ const DRIVER = `
           up.dispatchEvent(new MouseEvent('mouseup', Object.assign({ bubbles: true, button: 0 }, to)));
           if (!m.outside) wrap.dispatchEvent(new MouseEvent('click', Object.assign({ bubbles: true, button: 0 }, to)));
         }
+        transform.push(byId('canvas').style.transform);
         api.postMessage({
-          type: 'test:gestured', tag: m.tag, width: r.width, height: r.height, prevented: prevented,
+          type: 'test:gestured', tag: m.tag, width: r.width, height: r.height, prevented: prevented, transform,
           point: point && [point.clientX, point.clientY], rect: [r.left, r.top, r.width, r.height],
         });
         return;
@@ -983,12 +987,14 @@ export interface RealPanel {
   /** Turn the mouse wheel by `deltaY` over the point `at` of the image, as
    *  fractions of its width and height from the top left, or over the client
    *  point `{ client }` of the page, wherever the image is now (#1228).
-   *  Resolves to where it turned, where the image was, and whether the page
-   *  cancelled the wheel: one it lets through scrolls the page (#1269). */
+   *  Resolves to where it turned, where the image was, whether the page
+   *  cancelled the wheel (one it lets through scrolls the page, #1269), and
+   *  the image's preview transform before and after the turn: a wheel the
+   *  page takes as a zoom changes it (#1257). */
   wheel(
     at: [number, number] | { client: [number, number] },
     deltaY: number,
-  ): Promise<Pointed & { prevented: boolean }>;
+  ): Promise<Pointed & { prevented: boolean; transform: [string, string] }>;
   /** Drag the image with the left button from `from` to `to`, fractions as
    *  for `wheel`, ending with the click a browser fires on release. With
    *  `outside`, the button comes up off the image, and no click follows.
@@ -1026,6 +1032,11 @@ export interface RealPanel {
    *  is loaded again from the HTML the provider last wrote, and restores its
    *  saved state. Resolves once the panel is visible again. */
   hideShow(): Promise<void>;
+  /** Give this panel focus in its own column, as a click on its tab does.
+   *  `workbench.action.focusActiveEditorGroup` focuses whichever group is
+   *  active, which can hold another editor an earlier test left open
+   *  (#1257). */
+  takeFocus(): void;
   /** The page as the provider last wrote it, driver included. */
   html(): string;
   /** The panel's tab title, as the provider last set it. */
@@ -1157,7 +1168,7 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       const reply = await gesture(
         Array.isArray(at) ? { type: "test:wheel", at, deltaY } : { type: "test:wheel", client: at.client, deltaY },
       );
-      return { point: reply.point, rect: reply.rect, prevented: reply.prevented };
+      return { point: reply.point, rect: reply.rect, prevented: reply.prevented, transform: reply.transform };
     },
     drag: async (from, to, outside) => {
       await gesture({ type: "test:drag", from, to, outside: outside === true });
@@ -1226,6 +1237,7 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
         }
       }
     },
+    takeFocus: () => panel.reveal(panel.viewColumn, false),
     html: () => panel.webview.html,
     title: () => panel.title,
     onNextWrite: (cb) => {
