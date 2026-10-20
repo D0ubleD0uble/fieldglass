@@ -215,7 +215,7 @@ Each file is opened once; this is where its checks are.
 | `S: samples/goes.nc` | 21 |
 | `S: samples/rtofs_ice.nc` | 41 |
 | `S: samples/mirs_swath.nc` | 1 |
-| `B: samples/0.6.0/ncep_air_daily_2024.nc` | 2, 3, 4, 5, 7, 8, 46 |
+| `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 2, 3, 4, 5, 7, 8, 46 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 3, 4, 5 |
 | `B: samples/0.6.0/air_v2.zarr`, `air_v3.zarr` | 2, 5 |
 | `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21, 45, 46 (`gfs_wind` only) |
@@ -256,19 +256,26 @@ small, and it is *not* a substitute for the per-feature sections below it.
       (#1036). On `gfs.grib2` every control shows except Resampling, which is hidden
       while Projection is on Source projection (next step), and there is no "Not
       available for this grid" line under the caption. On
-      `S: samples/mirs_swath.nc`, Zonal average is hidden; the line under the
-      caption reads `Not available for this grid: Zonal average`, starts
-      closed, and opens (click, or Tab to it and press Enter) to `Zonal
-      average: this grid's rows aren't circles of latitude.` Nothing is greyed
-      out.
+      `S: samples/mirs_swath.nc`, Zonal average and Resampling are hidden;
+      the line under the caption reads `Not available for this grid:
+      Resampling, Zonal average`, starts closed, and opens (click, or Tab to
+      it and press Enter) to `Resampling: this grid places each cell by
+      its own coordinates, so the map always shows the nearest cell.` and `Zonal average: this grid's rows aren't circles of
+      latitude.` Nothing is greyed out.
 - [ ] **Resampling shows only when the projection warps** (#1091). On
       `gfs.grib2` with Projection on Source projection there is no
       Resampling picker. Choose Equirectangular: it appears. Set it to
       Bilinear, switch to Source projection and back: it is still Bilinear and
       the map is the same as before. Do the same on a NetCDF slice
-      (`S: samples/mirs_swath.nc`, a variable with a projection picker).
+      (`B: samples/0.6.0/ncep_air_daily_2024.nc`, `air`).
       Nothing else in the toolbar leaves a blank gap or stays visible when it
       should be gone.
+- [ ] **No Resampling on a grid of cell centres** (#1225). On
+      `S: samples/mirs_swath.nc` (`TPW`), choose Equirectangular, then
+      Mollweide: there is still no Resampling picker, the line still lists
+      Resampling, and the caption ends `(nearest)`. Fail: a Resampling picker
+      on either map. The warp draws such a grid nearest whatever is asked, so
+      Bilinear would change nothing.
 - [ ] **Contours on `gfs.grib2` in Mollweide.** No isoline streaks straight
       across the map. Use Mollweide rather than Equirectangular: an
       equirectangular raster is as wide as the grid, which lands the last pixel

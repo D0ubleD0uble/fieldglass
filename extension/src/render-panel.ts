@@ -503,7 +503,7 @@ export const NO_ZONAL_REASON = "this grid's rows aren't circles of latitude.";
  *  warp draws the nearest cell whatever is asked, since two cells side by side
  *  in the file can be far apart on the Earth. Which grids those are is Rust's
  *  answer (`GridSupport.bilinear`), not a list kept here. */
-export const NO_BILINEAR_REASON = "this grid's neighbouring cells aren't always neighbours on the Earth, so the map always shows the nearest cell.";
+export const NO_BILINEAR_REASON = "this grid places each cell by its own coordinates, so the map always shows the nearest cell.";
 
 /** Why a placed grid takes no contours, arrows or long CSV (#945). Which grids
  *  those are is Rust's answer (`GridSupport`), not a list kept here. Today it
