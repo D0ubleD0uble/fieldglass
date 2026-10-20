@@ -449,18 +449,6 @@ fn is_binary(value: &Unknown<'_>) -> napi::Result<bool> {
     Ok(value.is_typedarray()? || value.is_dataview()? || value.is_arraybuffer()?)
 }
 
-/// The value napi is converting, so that it can be asked what it is first.
-///
-/// # Safety
-///
-/// `env` and `napi_val` must be the pair napi passed to the `from_napi_value`
-/// this is called from, and the `Unknown` must not outlive that call.
-unsafe fn arg_value<'a>(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> Unknown<'a> {
-    // SAFETY: the caller's contract: a live env, and a value handle in the
-    // handle scope of the current call, which is all this asks.
-    unsafe { Unknown::from_raw_unchecked(env, napi_val) }
-}
-
 /// An object argument, told apart from what is not one before napi reads it
 /// (#1239).
 ///
@@ -508,9 +496,10 @@ impl<T: FromNapiValue> FromNapiValue for ObjectArg<T> {
         env: napi::sys::napi_env,
         napi_val: napi::sys::napi_value,
     ) -> napi::Result<Self> {
-        // SAFETY: the pair napi handed this call; the value is only inspected,
-        // and dropped before this returns.
-        let value = unsafe { arg_value(env, napi_val) };
+        // SAFETY: the pair napi handed this call, read through napi's own
+        // `Unknown` conversion. The value is only inspected, and not kept past
+        // this call.
+        let value = unsafe { Unknown::from_napi_value(env, napi_val) }?;
         if value.get_type()? != napi::ValueType::Object || value.is_array()? || is_binary(&value)? {
             return Ok(Self::NotAnObject);
         }
@@ -557,7 +546,7 @@ impl FromNapiValue for TargetArg {
         napi_val: napi::sys::napi_value,
     ) -> napi::Result<Self> {
         // SAFETY: as in `ObjectArg::from_napi_value`.
-        let value = unsafe { arg_value(env, napi_val) };
+        let value = unsafe { Unknown::from_napi_value(env, napi_val) }?;
         if is_binary(&value)? {
             return Ok(Self::Binary);
         }

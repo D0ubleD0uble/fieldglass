@@ -249,6 +249,12 @@ hand-written `unsafe`. #659 also added a hand-written path-traversal guard in
 `directory_store.rs`; had CodeQL flagged *that*, the answer would have been to fix
 the code, not to dismiss the finding.
 
+Since #1239 the crate is no longer free of hand-written `unsafe`: `handle.rs`
+has two hand-reviewed `unsafe` `FromNapiValue` impls, for `ObjectArg` and
+`TargetArg`. An alert on those lines is read and answered on its merits, not
+dismissed with the stock comment above, whose "zero hand-written unsafe" no
+longer holds for them.
+
 **5. The CodeQL bundle is not pinned.** A new bundle bringing a batch of
 findings is triage, and triage is the cost of a scanner that improves.
 

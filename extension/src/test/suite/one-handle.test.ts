@@ -9,12 +9,7 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import {
-  loadNative,
-  type FieldglassNative,
-  type Handle,
-  type RenderOptions,
-} from "../../native";
+import { loadNative, type FieldglassNative, type Handle, type RenderOptions } from "../../native";
 import { listVariables } from "../../provider";
 
 const EXT_ID = "fieldglass.fieldglass";
@@ -22,24 +17,13 @@ const EXT_ID = "fieldglass.fieldglass";
 function fixture(name: string): Uint8Array {
   const ext = vscode.extensions.getExtension(EXT_ID);
   assert.ok(ext, "extension is installed in the test host");
-  return fs.readFileSync(
-    path.join(ext.extensionPath, "src", "test", "fixtures", name),
-  );
+  return fs.readFileSync(path.join(ext.extensionPath, "src", "test", "fixtures", name));
 }
 
 function storePath(name: string): string {
   const ext = vscode.extensions.getExtension(EXT_ID);
   assert.ok(ext, "extension is installed in the test host");
-  return path.join(
-    ext.extensionPath,
-    "..",
-    "crates",
-    "fieldglass-zarr",
-    "tests",
-    "fixtures",
-    "stores",
-    name,
-  );
+  return path.join(ext.extensionPath, "..", "crates", "fieldglass-zarr", "tests", "fixtures", "stores", name);
 }
 
 function addon(): FieldglassNative {
@@ -80,45 +64,24 @@ suite("One handle for every container (#1073)", () => {
   });
 
   test("bytes that are no container are refused with a code", () => {
-    assert.strictEqual(
-      codeOf(() => addon().open(new Uint8Array([1, 2, 3]))),
-      "unsupported_format",
-    );
+    assert.strictEqual(codeOf(() => addon().open(new Uint8Array([1, 2, 3]))), "unsupported_format");
   });
 
   test("close and Symbol.dispose release a handle, and a closed one refuses every call", () => {
     const native = addon();
     const handle: Handle = native.open(fixture("regular_latlon_surface.grib2"));
-    assert.strictEqual(
-      typeof Symbol.dispose,
-      "symbol",
-      "the host has Symbol.dispose",
-    );
-    assert.strictEqual(
-      handle[Symbol.dispose],
-      handle.close,
-      "dispose is close",
-    );
+    assert.strictEqual(typeof Symbol.dispose, "symbol", "the host has Symbol.dispose");
+    assert.strictEqual(handle[Symbol.dispose], handle.close, "dispose is close");
     handle[Symbol.dispose]();
     handle.close();
     assert.throws(() => handle.count(), /closed/);
     assert.throws(() => handle.message(0), /closed/);
 
-    const field = native
-      .open(fixture("regular_latlon_surface.grib2"))
-      .decodeDisplay(0);
-    assert.strictEqual(
-      field[Symbol.dispose],
-      field.close,
-      "a display grid's dispose is close",
-    );
+    const field = native.open(fixture("regular_latlon_surface.grib2")).decodeDisplay(0);
+    assert.strictEqual(field[Symbol.dispose], field.close, "a display grid's dispose is close");
     field.close();
     field[Symbol.dispose]();
-    assert.throws(
-      () => field.ni(),
-      /closed/,
-      "a closed display grid refuses a read",
-    );
+    assert.throws(() => field.ni(), /closed/, "a closed display grid refuses a read");
     assert.throws(() => field.grid(), /closed/);
   });
 
@@ -127,32 +90,12 @@ suite("One handle for every container (#1073)", () => {
     const grib = native.open(fixture("regular_latlon_surface.grib2"));
     const netcdf = native.open(fixture("ersst_v5_187001_cdf1.nc"));
     const sst = netcdf.variables()[0];
-    const slice = {
-      variable: sst.index,
-      yDim: 2,
-      xDim: 3,
-      sliceIndices: [0, 0, 0, 0],
-    };
+    const slice = { variable: sst.index, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] };
+    assert.strictEqual(codeOf(() => netcdf.decode(0)), "wrong_addressing");
+    assert.strictEqual(codeOf(() => netcdf.message(0)), "wrong_addressing");
+    assert.strictEqual(codeOf(() => grib.decodeSlice(slice)), "wrong_addressing");
     assert.strictEqual(
-      codeOf(() => netcdf.decode(0)),
-      "wrong_addressing",
-    );
-    assert.strictEqual(
-      codeOf(() => netcdf.message(0)),
-      "wrong_addressing",
-    );
-    assert.strictEqual(
-      codeOf(() => grib.decodeSlice(slice)),
-      "wrong_addressing",
-    );
-    assert.strictEqual(
-      codeOf(() =>
-        grib.renderGrid(slice, {
-          projection: "source",
-          resampling: "nearest",
-          flipY: false,
-        }),
-      ),
+      codeOf(() => grib.renderGrid(slice, { projection: "source", resampling: "nearest", flipY: false })),
       "wrong_addressing",
     );
     // The listings answer empty for a message stream rather than refusing.
@@ -186,9 +129,7 @@ suite("One handle for every container (#1073)", () => {
     const netcdf = native.open(fixture("netcdf_classic_dummy.nc"));
     const raw = netcdf.variables().find((v) => v.name === "u_1205");
     assert.strictEqual(raw?.units, "m/s", "the file's own spelling crosses");
-    const shown = listVariables(native, netcdf).find(
-      (v) => v.name === "u_1205",
-    );
+    const shown = listVariables(native, netcdf).find((v) => v.name === "u_1205");
     assert.strictEqual(shown?.units, "m s⁻¹");
 
     // A store of two 2-D arrays: one in CF's `m s-1`, one with blank units.
@@ -209,30 +150,15 @@ suite("One handle for every container (#1073)", () => {
             order: "C",
           }),
         );
-        fs.writeFileSync(
-          path.join(dir, name, ".zattrs"),
-          JSON.stringify({ _ARRAY_DIMENSIONS: ["y", "x"], units }),
-        );
-        fs.writeFileSync(
-          path.join(dir, name, "0.0"),
-          Buffer.from(new Float32Array([1, 2, 3, 4]).buffer),
-        );
+        fs.writeFileSync(path.join(dir, name, ".zattrs"), JSON.stringify({ _ARRAY_DIMENSIONS: ["y", "x"], units }));
+        fs.writeFileSync(path.join(dir, name, "0.0"), Buffer.from(new Float32Array([1, 2, 3, 4]).buffer));
       };
-      fs.writeFileSync(
-        path.join(dir, ".zgroup"),
-        JSON.stringify({ zarr_format: 2 }),
-      );
+      fs.writeFileSync(path.join(dir, ".zgroup"), JSON.stringify({ zarr_format: 2 }));
       array("speed", "m s-1");
       array("blank", "   ");
       const store = native.openStore(dir);
-      const listed = new Map(
-        listVariables(native, store).map((v) => [v.name, v.units]),
-      );
-      assert.strictEqual(
-        listed.get("speed"),
-        "m s⁻¹",
-        "a store's units are typeset too",
-      );
+      const listed = new Map(listVariables(native, store).map((v) => [v.name, v.units]));
+      assert.strictEqual(listed.get("speed"), "m s⁻¹", "a store's units are typeset too");
       assert.strictEqual(listed.get("blank"), null, "blank units are none");
       store.close();
     } finally {
@@ -249,25 +175,12 @@ suite("One handle for every container (#1073)", () => {
     const wide = grib.decode(0, { dtype: "f64" });
     assert.ok(wide.values instanceof Float64Array);
     assert.strictEqual(wide.stats.validCount, narrow.stats.validCount);
-    assert.ok(
-      narrow.mask instanceof Uint8Array && !Buffer.isBuffer(narrow.mask),
-      "mask is a Uint8Array",
-    );
+    assert.ok(narrow.mask instanceof Uint8Array && !Buffer.isBuffer(narrow.mask), "mask is a Uint8Array");
 
     const csv = grib.exportCsv(0, "matrix");
-    assert.ok(
-      csv instanceof Uint8Array && !Buffer.isBuffer(csv),
-      "CSV is a Uint8Array",
-    );
-    const raster = grib.renderGrid(0, {
-      projection: "source",
-      resampling: "nearest",
-      flipY: false,
-    });
-    assert.ok(
-      raster.rgba instanceof Uint8Array && !Buffer.isBuffer(raster.rgba),
-      "rgba is a Uint8Array",
-    );
+    assert.ok(csv instanceof Uint8Array && !Buffer.isBuffer(csv), "CSV is a Uint8Array");
+    const raster = grib.renderGrid(0, { projection: "source", resampling: "nearest", flipY: false });
+    assert.ok(raster.rgba instanceof Uint8Array && !Buffer.isBuffer(raster.rgba), "rgba is a Uint8Array");
 
     const netcdf = native.open(fixture("ersst_v5_187001_cdf1.nc"));
     const sst = netcdf.variables()[0];
@@ -285,22 +198,10 @@ suite("One handle for every container (#1073)", () => {
       xDim: 3,
       sliceIndices: new Uint32Array([0, 0, 0, 0]),
     });
-    const plain = netcdf.decodeSlice({
-      variable: sst.index,
-      yDim: 2,
-      xDim: 3,
-      sliceIndices: [0, 0, 0, 0],
-    });
+    const plain = netcdf.decodeSlice({ variable: sst.index, yDim: 2, xDim: 3, sliceIndices: [0, 0, 0, 0] });
     assert.deepStrictEqual(Array.from(typed.values), Array.from(plain.values));
     assert.strictEqual(
-      codeOf(() =>
-        netcdf.decodeSlice({
-          variable: sst.index,
-          yDim: 2,
-          xDim: 3,
-          sliceIndex: [0],
-        } as never),
-      ),
+      codeOf(() => netcdf.decodeSlice({ variable: sst.index, yDim: 2, xDim: 3, sliceIndex: [0] } as never)),
       "invalid_option",
       "a key the request does not take is refused, not ignored",
     );

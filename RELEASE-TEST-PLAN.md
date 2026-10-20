@@ -1665,8 +1665,11 @@ against A op B. The browser package has no Compare line.
   a field, and a message index or slice still is (#1239)`) passes a typed array,
   a `Buffer`, a `DataView` and an `ArrayBuffer` to every object argument the
   addon reads and expects `invalid_option`, with `null` still the default.
-  `crates/fieldglass-wasm/tests/node/reduced.mjs`, `netcdf.mjs`, `fetchplan.mjs`
-  and `zarr.mjs` do the same for the browser module.
+  On the browser module, `crates/fieldglass-wasm/tests/node/reduced.mjs`,
+  `netcdf.mjs`, `fetchplan.mjs` and `zarr.mjs` check the shared guard with a
+  typed array, a `DataView` and an `ArrayBuffer` on `decode`, `decodeDisplay`,
+  `warp`, `palette`, the full-field stats, the slice and line requests, `select`
+  and `planWindow`.
 - **A panel whose file changed draws the variable it was showing, even on a
   four-dimensional variable (#1202).** The fault is a message from the old page
   arriving just after the redraw, a window no click can hit.
