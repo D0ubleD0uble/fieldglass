@@ -732,11 +732,14 @@ A depth axis with fill values used to fail to draw; no file here has one.
 
 **`S: samples/mrms.grib2`** (7000 × 3500, the slowest render in the samples)
 
-- [ ] A click while a new projection is still rendering cannot be checked by
-      eye. The render runs on the extension host, so the click is answered
-      only after the Mollweide image has landed, and that reply is dropped as
-      stale (#1146). All you see is that a click made during the render gives
-      no readout; click again once the map is up and it reads normally. The
+- [ ] What a click reads while a new projection is still rendering cannot be
+      checked by eye. The render runs on the extension host, so the click is
+      answered only after the Mollweide image has landed, and that reply is
+      dropped as stale (#1146). All you see is that a click made during the
+      render changes nothing: the readout stays empty, or keeps an earlier
+      click's reading. Click again once the map is up and it reads normally.
+      Failure looks like the readout changing in answer to the click made
+      during the render. The
       rule that a click reads the image on screen, not the one on its way, is
       held by `extension/src/test/suite/axes.test.ts` (`a GRIB map, after
       picking a projection, before its render arrives`), which holds the
@@ -911,9 +914,9 @@ Compare picker and the subtitle, has no file here;
       looks like stripes, rings, blank patches or an empty map.
 - [ ] **priority** Probe the cell at 0° N 0° E (the readout names the latitude
       and longitude). It reads `320.26 K shown · 308.37 K at full detail
-      (T383)`. The two differ by about 12 K here, and by about 10 K
-      (standard deviation) across the oracle's 12 points, because the dropped
-      T360 to T383 band carries about an eighth of the variance. The numbers
+      (T383)`. The two differ by about 12 K here, and by 5 to 18 K across
+      the oracle's 12 points: the dropped T360 to T383 band is a flat-spectrum
+      slice of seeded noise, not fine detail. The numbers
       are the oracle's, from `spectral_simple_t383.truncation.oracle.json`;
       any other pair, or no full-detail value, is the failure.
 - [ ] Compare message 0 with message 1 (A − B): the difference is zero
@@ -1132,9 +1135,9 @@ package's half is in §44.
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc`**
 
 - [ ] The file opens. `station_info` is listed under "Variables not decoded"
-      with the HDF5 class that stopped it (class 6, compound). `visits` is listed
-      there too, as class 9 (variable-length). `time` and `temperature` are
-      listed under Variables as usual.
+      with the HDF5 class that stopped it (`class 6 (compound)`). `visits` is
+      listed there too, as `class 9 (variable-length)`. `time` and
+      `temperature` are listed under Variables as usual.
 
 ## 31. More HDF5 and NetCDF-4 files open (#899, #900, #907, #914, #920, #922)
 
@@ -1325,9 +1328,9 @@ PY
       Projection, Resampling, Overlay, Vectors, Zonal average, Long layout
       (Export CSV)`, and opened, `Projection, Resampling, Overlay, Vectors,
       Zonal average, Long layout (Export CSV): this grid has no known position
-      on the Earth.` Nothing
-      mentions satellite-view grids, and no error is shown. 0.5.0 placed this
-      grid and then refused contours "for satellite-view grids".
+      on the Earth.` Nothing mentions satellite-view grids, and no error is
+      shown. 0.5.0 placed this grid and then refused contours "for
+      satellite-view grids".
 
 The other degenerate grids (a radius of zero, a scale factor of zero, a
 latitude of true scale of 270°, non-finite parameters, a geostationary camera
@@ -1374,8 +1377,7 @@ No manual check: the in-table P1 editor is not enabled in released builds.
 Install the tarball the release dry run built (RELEASING.md §2), not one built
 locally, and decode in a real browser page. Run that dry run at the prep SHA
 first: the npm API changed in #1201, so a tarball from an earlier run is the
-wrong one, and none exists until the dry run has passed on the SHA being
-released.
+wrong one.
 
 ```sh
 mkdir -p /tmp/fieldglass-browser && cd /tmp/fieldglass-browser
@@ -1611,10 +1613,10 @@ against A op B. The browser package has no Compare line.
   axis labels turning over before the image (#1114).** A slice redraws too
   fast to click inside by eye; the slowest render in the samples (`mrms.grib2`,
   §7) still answers the click only after the new image has landed.
-  `extension/src/test/suite/axes.test.ts` holds the render back and clicks (`after Flip Y axis, with an axis answer landing
-  before the render`, `a restored section, before its turned-over render
-  arrives`, `a GRIB map, after picking a projection, before its render
-  arrives`).
+  `extension/src/test/suite/axes.test.ts` holds the render back and clicks
+  (`after Flip Y axis, with an axis answer landing before the render`, `a
+  restored section, before its turned-over render arrives`, `a GRIB map, after
+  picking a projection, before its render arrives`).
 - **A click or Export CSV while a variable, image axis or Compare redraw is
   pending (#1145).** Same window as #1114, too short to hit by hand.
   `extension/src/test/suite/drawn-slice.test.ts` holds the render back, then
