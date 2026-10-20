@@ -4078,11 +4078,18 @@ export function renderImagePanelHtml(
           // asked for yet, so a zoom could only start from the one before
           // it, and the drag would then undo the zoom (#1228).
           if (gesture && gesture.moved) { ev.preventDefault(); return; }
-          const w = currentMapWindow();
-          if (!w) return;
+          // Over a map no wheel zooms, the page scrolls: a target with no
+          // window drawn, or asked for while a lat/lon image is still up
+          // (#1147), as it will once that render lands.
+          if (!drawnMapWindow()) return;
           const at = imageFraction(ev.clientX, ev.clientY);
           if (!at || at.fx < 0 || at.fx > 1 || at.fy < 0 || at.fy > 1) return;
           ev.preventDefault();
+          // The window asked for is not known until its render lands (Reset
+          // view, or Auto): the wheel is held back, not let through to
+          // scroll the page out from under the pointer (#1269).
+          const w = currentMapWindow();
+          if (!w) return;
           if (!pendingZoom) {
             const z = { from: w, flipped: drawnFlipY(), mercator: isMercator(), factor: 1, fx: at.fx, fy: at.fy, timer: 0 };
             z.target = () => zoomMapWindow(z.from, z.mercator, z.fx, northFraction(z.fy, z.flipped), z.factor);

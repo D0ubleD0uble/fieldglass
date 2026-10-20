@@ -576,7 +576,10 @@ suite("Zoom and pan through the panel (#1147)", function () {
           // The zoomed image is still on screen, and the window asked for is
           // not known until its render lands.
           const wheeled = panel.received.length;
-          await panel.wheel([0.5, 0.5], -250);
+          const turned = await panel.wheel([0.5, 0.5], -250);
+          // The map on screen zooms once that render lands, so the wheel is
+          // held back, not let through to scroll the page under it (#1269).
+          assert.strictEqual(turned.prevented, true, "the wheel over the map does not scroll the page");
           // Past the 250 ms the page waits for a wheel to settle.
           await panel.pageTimer(300);
           assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", "Bounds stay on Auto");
@@ -834,9 +837,12 @@ suite("Zoom and pan through the panel (#1147)", function () {
         assert.strictEqual(lastDrawn(panel).options.projection, "equirectangular", "the old map is on screen");
 
         const wheeled = panel.received.length;
-        await panel.wheel([0.5, 0.5], -250);
+        const turned = await panel.wheel([0.5, 0.5], -250);
+        // The map asked for takes no wheel, so the page scrolls now as it
+        // will once that map is drawn (#1269).
+        assert.strictEqual(turned.prevented, false, "the wheel scrolls the page");
         // Past the 250 ms the page waits for a wheel to settle.
-        await new Promise((r) => setTimeout(r, 750));
+        await panel.pageTimer(300);
         assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", "Bounds stay on Auto");
         assert.deepStrictEqual(
           panel.received.slice(wheeled).filter(isType("rerenderRequest")),
@@ -847,5 +853,25 @@ suite("Zoom and pan through the panel (#1147)", function () {
         await gate.release();
       }
     });
+  });
+
+  test("a wheel over a Mollweide map scrolls the page and leaves Bounds alone (#1269)", async () => {
+    await onMap(
+      false,
+      async (panel) => {
+        assert.strictEqual(lastDrawn(panel).options.projection, "mollweide", "a Mollweide map is on screen");
+        const wheeled = panel.received.length;
+        const turned = await panel.wheel([0.5, 0.5], -250);
+        assert.strictEqual(turned.prevented, false, "the wheel scrolls the page");
+        await panel.pageTimer(300);
+        assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", "Bounds stay on Auto");
+        assert.deepStrictEqual(
+          panel.received.slice(wheeled).filter(isType("rerenderRequest")),
+          [],
+          "and the wheel asks for no render",
+        );
+      },
+      "mollweide",
+    );
   });
 });

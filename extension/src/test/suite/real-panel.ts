@@ -856,9 +856,12 @@ const DRIVER = `
         const at = (f) => ({ clientX: r.left + r.width * f[0], clientY: r.top + r.height * f[1] });
         const wrap = document.querySelector('.canvas-wrap');
         let point = null;
+        // Whether the page cancelled the wheel, so the browser would not
+        // scroll the page with it (#1269).
+        let prevented = null;
         if (m.type === 'test:wheel') {
           point = m.client ? { clientX: m.client[0], clientY: m.client[1] } : at(m.at);
-          wrap.dispatchEvent(new WheelEvent('wheel', Object.assign(
+          prevented = !wrap.dispatchEvent(new WheelEvent('wheel', Object.assign(
             { bubbles: true, cancelable: true, deltaY: m.deltaY }, point)));
         } else {
           // Either end can be a client point ({ client }) instead.
@@ -874,7 +877,7 @@ const DRIVER = `
           if (!m.outside) wrap.dispatchEvent(new MouseEvent('click', Object.assign({ bubbles: true, button: 0 }, to)));
         }
         api.postMessage({
-          type: 'test:gestured', tag: m.tag, width: r.width, height: r.height,
+          type: 'test:gestured', tag: m.tag, width: r.width, height: r.height, prevented: prevented,
           point: point && [point.clientX, point.clientY], rect: [r.left, r.top, r.width, r.height],
         });
         return;
@@ -980,8 +983,12 @@ export interface RealPanel {
   /** Turn the mouse wheel by `deltaY` over the point `at` of the image, as
    *  fractions of its width and height from the top left, or over the client
    *  point `{ client }` of the page, wherever the image is now (#1228).
-   *  Resolves to where it turned, and where the image was. */
-  wheel(at: [number, number] | { client: [number, number] }, deltaY: number): Promise<Pointed>;
+   *  Resolves to where it turned, where the image was, and whether the page
+   *  cancelled the wheel: one it lets through scrolls the page (#1269). */
+  wheel(
+    at: [number, number] | { client: [number, number] },
+    deltaY: number,
+  ): Promise<Pointed & { prevented: boolean }>;
   /** Drag the image with the left button from `from` to `to`, fractions as
    *  for `wheel`, ending with the click a browser fires on release. With
    *  `outside`, the button comes up off the image, and no click follows.
@@ -1150,7 +1157,7 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       const reply = await gesture(
         Array.isArray(at) ? { type: "test:wheel", at, deltaY } : { type: "test:wheel", client: at.client, deltaY },
       );
-      return { point: reply.point, rect: reply.rect };
+      return { point: reply.point, rect: reply.rect, prevented: reply.prevented };
     },
     drag: async (from, to, outside) => {
       await gesture({ type: "test:drag", from, to, outside: outside === true });
