@@ -2302,6 +2302,13 @@ export function renderImagePanelHtml(
         // filled rather than when the snapshot is read (#1027).
         let preferredAnimateDim = null;
         let preferredLineAxis = null;
+        // The range playback held, kept once it stops (#1227): the frame it
+        // stopped on was drawn on it, and a hide and show or a page written
+        // again draws that frame on it again rather than on the frame's own.
+        // Saved with the other selections. The next render asked for (a step,
+        // or any control that draws again) is on the frame's own range, as
+        // #1155 has it. Automatic contours over the frame are spaced on it too.
+        let pausedRange = null;
 
         function animationDim() {
           const sel = document.getElementById('animate-dim');
@@ -2371,6 +2378,11 @@ export function renderImagePanelHtml(
         function setAwaitingPick(on) {
           awaitingPick = on;
           if (on) stopAnimation();
+          // Whatever is picked next is drawn on its own range.
+          if (on && pausedRange) {
+            pausedRange = null;
+            snapshotState();
+          }
           const play = document.getElementById('anim-play');
           if (play) play.disabled = on;
           // Compare and the arrows go while nothing is drawn (PICK_HIDES).
@@ -2420,7 +2432,12 @@ export function renderImagePanelHtml(
         function stopAnimation() {
           if (!animation) return;
           clearTimeout(animation.timer);
+          const held = animation.lock;
           animation = null;
+          if (held) {
+            pausedRange = held;
+            snapshotState();
+          }
           const play = document.getElementById('anim-play');
           if (play) { play.classList.remove('playing'); play.setAttribute('aria-label', 'Play'); play.title = 'Play'; }
         }
@@ -2667,6 +2684,10 @@ export function renderImagePanelHtml(
             // rather than each frame stretching to its own extremes (#170).
             options.rangeMin = animation.lock[0];
             options.rangeMax = animation.lock[1];
+          } else if (pausedRange) {
+            // Stopped there: the frame on screen is the one drawn on it (#1227).
+            options.rangeMin = pausedRange[0];
+            options.rangeMax = pausedRange[1];
           }
           // Manual extent applies to the warped lat/lon targets
           // (equirectangular + Web Mercator), which both render a lat/lon
@@ -2704,6 +2725,13 @@ export function renderImagePanelHtml(
         }
 
         function requestRender() {
+          // A render asked for is a change made to the picture, which ends a
+          // range held from playback (#1227). Playback's own frames go on
+          // holding theirs (animation.lock).
+          if (pausedRange) {
+            pausedRange = null;
+            snapshotState();
+          }
           if (!mountAnswered) {
             // Initial mount: provider posts ready-options-default automatically.
             return;
@@ -4742,6 +4770,9 @@ export function renderImagePanelHtml(
             // The line plot's axis as shown, or the saved choice while its
             // picker is empty.
             lineAxis: val('line-axis') || preferredLineAxis || undefined,
+            // The range the frame on screen was drawn on when playback
+            // stopped there (#1227).
+            pausedRange: pausedRange ? pausedRange.slice() : undefined,
             slice: held ? held.slice : sliceState,
             // The variable by name as well as by index: a panel rewritten for
             // a file that changed under it restores by name (#839).
@@ -4946,6 +4977,15 @@ export function renderImagePanelHtml(
           }
           // Field B's saved indices are for a variable this panel did not adopt.
           if (SLICE && !adopted && sliceState) compareIndices = sliceState.sliceIndices.slice();
+          // The range playback stopped on, for the frame it stopped on: only
+          // where that frame is the one restored, on an automatic range
+          // (#1227). Anything else is drawn on its own range.
+          const r = s.pausedRange;
+          if (adopted && s.rangeMode !== 'manual' && Array.isArray(r) && r.length === 2 &&
+              Number.isFinite(r[0]) && Number.isFinite(r[1]) && r[1] > r[0] &&
+              s.slice.sliceIndices.every((x, i) => x === sliceState.sliceIndices[i])) {
+            pausedRange = [r[0], r[1]];
+          }
           return dropped;
         }
 
