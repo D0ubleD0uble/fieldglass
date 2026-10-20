@@ -388,6 +388,12 @@ palette, picking the store's folder.
   `air`, whatever the Bounds. `thin-slice.test.ts` draws a belt of 144 × 17
   cells round the globe and a strip of 9 × 145 and checks both keep their
   shape, the tall one within the panel's height (#1226).
+- An image tall but short of eight to one, such as a 50 × 366 slice or a
+  tall map of 25 × 145, also fits the panel's height rather than being drawn
+  several screens tall, and is drawn as tall as a thinner one. The sample
+  files have no such variable; `thin-slice.test.ts` draws both, and checks
+  that an ordinary 40 × 20 slice and a global map keep their size
+  (#1252).
 - [ ] Copy `air_v2.zarr` to a folder named `air_copy` (no `.zarr` suffix) and
       open that: it opens the same way. The suffix is not what the check uses.
 

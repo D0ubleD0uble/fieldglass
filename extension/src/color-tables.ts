@@ -10,6 +10,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative, nativeBinaryName, type ColormapInfo } from "./native";
+import { errorText } from "./problems";
 
 /** The command id, in one place so `package.json` and the registration cannot
  *  disagree. */
@@ -133,7 +134,7 @@ export async function importColorTableFile(uri: vscode.Uri): Promise<ImportedCol
     entry = compileColorTable(new TextDecoder("utf-8").decode(bytes), fileName);
   } catch (err) {
     void vscode.window.showErrorMessage(
-      `Fieldglass: could not import ${fileName}: ${err instanceof Error ? err.message : String(err)}`,
+      `Fieldglass: could not import ${fileName}: ${errorText(err)}`,
     );
     return undefined;
   }

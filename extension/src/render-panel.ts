@@ -365,9 +365,9 @@ export function exportCanvasWidth(
  *
  *  The panel does not apply it to a lat/lon map (Equirectangular, Web
  *  Mercator), whose raster has its grid's or its Bounds window's shape and
- *  whose arrows are laid out in square raster pixels. A tall result
- *  (`1 / 8`) also says the image is drawn to the page's height, not across
- *  the panel's width.
+ *  whose arrows are laid out in square raster pixels. Whether the image is
+ *  then drawn to the page's height rather than across the panel's width
+ *  follows from the aspect drawn and the page, not from this (#1252).
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself. */
@@ -2893,12 +2893,21 @@ export function renderImagePanelHtml(
           // one, not at its own aspect, which the page could not paint
           // (#1226). Not a lat/lon map: its raster has the shape of its grid
           // or its Bounds window, and the arrows are laid out in square
-          // pixels of it, so stretching it would bend them. A tall image
-          // either way is as tall as the page, not eight panel widths.
-          const held = displayAspect(payload.width, payload.height);
-          canvas.style.aspectRatio = warpsLatLon(drawnProjection()) ? '' : held;
+          // pixels of it, so stretching it would bend them.
+          const held = warpsLatLon(drawnProjection()) ? '' : displayAspect(payload.width, payload.height);
+          canvas.style.aspectRatio = held;
+          // Any image that would be taller than most of the page at the
+          // panel's width is drawn to that height instead, held or not
+          // (#1252): the stylesheet caps the wrapper's width at the height
+          // times this aspect, so a slightly less thin image is never drawn
+          // taller than a thinner one.
           const wrap = canvas.closest('.canvas-wrap');
-          if (wrap) wrap.classList.toggle('tall', held.startsWith('1 /'));
+          if (wrap) {
+            const parts = held ? held.split('/').map(Number) : [payload.width, payload.height];
+            const aspect = parts[0] / parts[1];
+            if (aspect > 0 && Number.isFinite(aspect)) wrap.style.setProperty('--drawn-aspect', String(aspect));
+            else wrap.style.removeProperty('--drawn-aspect');
+          }
           // payload.rgba arrives as a Uint8Array; view it as a Uint8ClampedArray
           // so ImageData accepts it.
           const rgba = new Uint8ClampedArray(
@@ -5756,12 +5765,16 @@ export function renderImagePanelHtml(
        a crisp vector layer drawn at display resolution (see drawOverlay). */
     .canvas-wrap { position: relative; flex: 1 1 auto; display: flex; overflow: hidden; }
     .canvas-wrap.dragging { cursor: grabbing; }
-    /* A raster more than eight times as tall as it is wide (#1226) is drawn
-       as tall as most of the page, its width following its aspect, rather
-       than across the panel's width, which would make it many screens tall.
-       The wrapper shrinks to it so the overlay still covers only the image. */
-    .canvas-wrap.tall { flex: 0 0 auto; }
-    .canvas-wrap.tall canvas#canvas { flex: 0 0 auto; width: auto; height: 80vh; }
+    /* An image that would be taller than most of the page at the panel's
+       width (#1226, #1252) is drawn as tall as that, its width following its
+       aspect, rather than across the panel's width, which would make it
+       several screens tall. blit() sets --drawn-aspect, the image's width
+       over its height as drawn. The wrapper is capped, not the canvas, so it
+       shrinks with the image and the overlay still covers only the image.
+       The 2px is the canvas's border, so every capped image is the same
+       height whatever its aspect. Unset, before the first image, the cap is
+       dropped. */
+    .canvas-wrap { max-width: calc(80vh * var(--drawn-aspect) + 2px); }
     .zoom-buttons { margin-left: 0.5rem; white-space: nowrap; }
     /* Bounds' Manual fields hide the way the graticule spacing does, keeping
        their room (#1228). A wheel or a drag ticks Manual and shows them in
