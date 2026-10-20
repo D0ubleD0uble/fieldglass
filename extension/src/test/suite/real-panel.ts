@@ -139,6 +139,12 @@ export interface PageState {
   shownWhileHidden: string[];
   /** The Compare row's Field B, `null` when the panel has no such row. */
   compareFieldB: string | null;
+  /** Whether the Compare row is on screen, `null` when the panel has none. */
+  compareShown: boolean | null;
+  /** Whether any pixel of the image is painted, and whether its colour bar
+   *  is on screen: false for both once a picture is cleared (#1237). */
+  canvasPainted: boolean;
+  colorbarShown: boolean;
   canvasVisibility: string;
   /** The line plot (#172, #1037), `null` for a panel with none. A GRIB panel
    *  has one, for its zonal average, but no Line plot box (`boxShown` false). */
@@ -537,6 +543,16 @@ const DRIVER = `
           : null,
         messagePicked: picked ? picked.textContent : '',
         compareFieldB: fieldB ? fieldB.value : null,
+        compareShown: byId('compare-fieldset') ? byId('compare-fieldset').getClientRects().length > 0 : null,
+        canvasPainted: (() => {
+          const canvas = byId('canvas');
+          const ctx = canvas && canvas.width > 0 && canvas.height > 0 ? canvas.getContext('2d') : null;
+          if (!ctx) return false;
+          const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) return true;
+          return false;
+        })(),
+        colorbarShown: !!byId('colorbar') && byId('colorbar').getClientRects().length > 0,
         overlayHidden: !!(overlays && overlays.hasAttribute('hidden')),
         vectorNote: vectors ? byId('vector-note').textContent : null,
         vectorPairNote: vectors ? byId('vector-pair-note').textContent : null,
@@ -935,6 +951,11 @@ export interface RealPanel {
   /** Write the panel again the way an imported colormap does, which reloads
    *  the page from its HTML and restores its saved state. */
   rebuild(): void;
+  /** Hide the panel's tab behind another editor and show it again, as a user
+   *  switching tabs does. The panel keeps no context while hidden, so the page
+   *  is loaded again from the HTML the provider last wrote, and restores its
+   *  saved state. Resolves once the panel is visible again. */
+  hideShow(): Promise<void>;
   /** The page as the provider last wrote it, driver included. */
   html(): string;
   /** The panel's tab title, as the provider last set it. */
@@ -1099,6 +1120,22 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
         throw new Error(`${err.message}; the provider sent [${got.join(", ")}]`);
       }),
     rebuild: build,
+    hideShow: async () => {
+      const column = panel.viewColumn;
+      const doc = await vscode.workspace.openTextDocument({ content: "" });
+      await vscode.window.showTextDocument(doc, { viewColumn: column, preview: false });
+      await waitUntil(() => (panel.visible ? undefined : true), "the panel hidden");
+      panel.reveal(column, false);
+      await waitUntil(() => (panel.visible ? true : undefined), "the panel shown");
+      // The editor that hid it goes, unsaved.
+      for (const group of vscode.window.tabGroups.all) {
+        for (const tab of group.tabs) {
+          if (tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === doc.uri.toString()) {
+            await vscode.window.tabGroups.close(tab, true);
+          }
+        }
+      }
+    },
     html: () => panel.webview.html,
     title: () => panel.title,
     onNextWrite: (cb) => {

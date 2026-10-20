@@ -26,6 +26,7 @@ import { loadNative } from "../../native";
 import { PanelHandleGate } from "../../provider";
 import { NO_VARIABLE_HEADING, UNPLACED_REASON } from "../../render-panel";
 import {
+  classicNetcdf,
   type Editor,
   extensionPath,
   isType,
@@ -407,6 +408,140 @@ suite("The render panel's own script", function () {
       assert.match(state.title, /^CMI\b/, "under its own heading");
       assert.ok(state.subtitle.startsWith("changing.nc"), state.subtitle);
       assert.strictEqual(panel.title(), "CMI · changing.nc");
+    } finally {
+      done();
+    }
+  });
+
+  // The panel waits for a pick until one is made (#1237), as a GRIB panel does
+  // (#959). A page written again (an imported colour table writes every panel)
+  // or shown again after its tab was hidden used to restore the new file's
+  // first variable and draw it, although nobody picked it. Compare is put away
+  // meanwhile: nothing it would combine is on screen.
+  test("a slice panel waiting for a pick stays on it through a rebuild and a hide/show (#1237)", async () => {
+    const first = fs.readFileSync(netcdfFixture("missing_value_classic.nc"));
+    const second = fs.readFileSync(netcdfFixture("goes16_abi_cmip.nc"));
+    const cmi = indexOf(second, "CMI");
+    const { panel, change, done } = await changingFile(first, "temp");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let from = panel.sent.length;
+      await panel.drive([{ id: "compare-op", value: "a_minus_b" }]);
+      await panel.waitSent(drawnOrRefused, from, "the render with Compare on");
+      assert.strictEqual((await panel.drive([])).compareShown, true, "Compare is on screen while temp is drawn");
+
+      await change(second);
+      from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      const reply = await panel.waitSent(drawnOrRefused, from, "the render after the change");
+      assert.strictEqual(reply.type, "gridError", `drew "${reply.titleLine}" instead of refusing`);
+      let state = await panel.drive([]);
+      assert.strictEqual(state.compareShown, false, "Compare goes while nothing is drawn");
+
+      const again: Array<[string, () => Promise<void>]> = [
+        ["a rebuild", async () => panel.rebuild()],
+        ["a hide and show", () => panel.hideShow()],
+        ["a second rebuild", async () => panel.rebuild()],
+      ];
+      for (const [what, redo] of again) {
+        from = panel.sent.length;
+        await redo();
+        const answer = await panel.waitSent(drawnOrRefused, from, `the answer after ${what}`);
+        assert.strictEqual(
+          answer.type,
+          "gridError",
+          `after ${what}, drew "${answer.titleLine}", which nobody picked`,
+        );
+        assert.match(answer.error, /temp is no longer in the file/, what);
+        state = await panel.drive([]);
+        assert.strictEqual(state.title, NO_VARIABLE_HEADING, what);
+        assert.strictEqual(state.subtitle, "changing.nc", what);
+        assert.strictEqual(state.sliceVariable, "", `after ${what}, the picker has nothing chosen`);
+        assert.deepStrictEqual(state.sliceVariables, ["CMI", "DQF"], what);
+        assert.strictEqual(state.playDisabled, true, what);
+        assert.strictEqual(state.compareShown, false, `after ${what}, Compare is still put away`);
+        assert.strictEqual(state.canvasPainted, false, `after ${what}, nothing is drawn`);
+        assert.strictEqual(panel.title(), "pick a variable · changing.nc", what);
+        assert.ok(!panel.sent.slice(from).some(isType("gridReady")), `nothing is drawn after ${what}`);
+      }
+
+      // Picking a variable draws it, and Compare comes back with it.
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: cmi }]);
+      const drawn = await panel.waitSent(drawnOrRefused, from, "CMI");
+      assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
+      assert.match(drawn.titleLine, /^CMI\b/);
+      state = await panel.drive([]);
+      assert.strictEqual(state.compareShown, true, "Compare is back with a picture to compare");
+      assert.strictEqual(state.canvasPainted, true, "CMI is drawn");
+      assert.strictEqual(state.colorbarShown, true, "with its colour bar");
+      assert.strictEqual(panel.title(), "CMI · changing.nc");
+
+      // The pick holds: a rebuild now draws CMI again.
+      from = panel.sent.length;
+      panel.rebuild();
+      const redrawn = await panel.waitSent(drawnOrRefused, from, "the render after a rebuild");
+      assert.strictEqual(redrawn.type, "gridReady", `${redrawn.error ?? ""}`);
+      assert.match(redrawn.titleLine, /^CMI\b/);
+    } finally {
+      done();
+    }
+  });
+
+  // The changed file has no variable at all (#1237). The panel said so but
+  // left the old file's picture and heading on screen.
+  test("a slice panel whose file has no variable left clears the old picture (#1237)", async () => {
+    const first = fs.readFileSync(netcdfFixture("missing_value_classic.nc"));
+    const empty = classicNetcdf([["time", 3]], []);
+    const second = fs.readFileSync(netcdfFixture("goes16_abi_cmip.nc"));
+    const { panel, change, done } = await changingFile(first, "temp");
+    try {
+      const opened = await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let state = await panel.drive([]);
+      assert.strictEqual(state.canvasPainted, true, "temp is drawn");
+      assert.strictEqual(state.colorbarShown, true);
+
+      await change(empty);
+      let from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      const reply = await panel.waitSent(drawnOrRefused, from, "the render after the change");
+      assert.strictEqual(reply.type, "gridError");
+      assert.match(reply.error, /no longer has a variable to draw/);
+      state = await panel.drive([]);
+      assert.match(state.status, /no longer has a variable to draw/);
+      assert.strictEqual(state.title, NO_VARIABLE_HEADING, `not "${opened.titleLine}"`);
+      assert.strictEqual(state.subtitle, "changing.nc");
+      assert.strictEqual(state.canvasPainted, false, "the old picture is gone");
+      assert.strictEqual(state.colorbarShown, false, "and its colour bar");
+      assert.strictEqual(state.probe, "");
+      assert.strictEqual(state.sliceVariable, "", "the picker has nothing chosen");
+      assert.strictEqual(state.compareShown, false);
+      assert.strictEqual(panel.title(), "pick a variable · changing.nc");
+
+      // Written again meanwhile, the page still names no variable.
+      from = panel.sent.length;
+      panel.rebuild();
+      assert.ok(
+        panel.html().includes(`<h1 id="title-line">${NO_VARIABLE_HEADING}</h1>`),
+        "the page is written with no variable's heading",
+      );
+      await panel.waitSent(drawnOrRefused, from, "the answer after a rebuild");
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_VARIABLE_HEADING);
+      assert.ok(!panel.sent.slice(from).some(isType("gridReady")), "nothing is drawn");
+
+      // The file gets variables again. temp is not one of them, so the panel
+      // waits for a pick in the new file's list, which picking any variable
+      // the page still lists brings up.
+      await change(second);
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: indexOf(first, "temp") }]);
+      const refused = await panel.waitSent(drawnOrRefused, from, "the answer once the file has variables");
+      assert.strictEqual(refused.type, "gridError", `drew "${refused.titleLine}"`);
+      assert.match(refused.error, /temp is no longer in the file/);
+      state = await panel.drive([]);
+      assert.deepStrictEqual(state.sliceVariables, ["CMI", "DQF"]);
+      assert.strictEqual(state.title, NO_VARIABLE_HEADING);
     } finally {
       done();
     }

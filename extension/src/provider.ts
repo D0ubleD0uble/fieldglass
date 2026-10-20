@@ -1646,9 +1646,13 @@ export class FieldglassEditorProvider
     // selection by the variable's name (#839). Made before the first write,
     // which numbers the page from it.
     const gate = new PanelHandleGate<Handle>(handle);
-    // Said in place of the first render after that, when the variable the page
-    // was showing is no longer in the file. Declared before the first write,
-    // which reads it.
+    // Said in place of drawing while the variable the page was showing is no
+    // longer in the file, or the file has none left, and none has been picked
+    // since. Kept until a pick, as a GRIB panel keeps `picking`: a page
+    // written again (an imported colour table) or shown again after it was
+    // hidden asks with its `ready`, and is answered with this rather than
+    // with the new file's first variable (#1237). Declared before the first
+    // write, which reads it.
     let refusal: string | null = null;
     const write = () => {
       panel.webview.html = renderImagePanelHtml(
@@ -1657,9 +1661,9 @@ export class FieldglassEditorProvider
         sliceCaption(subject.container, shown.grid),
         colormapRegistry(),
         combineOpRegistry(),
-        // Until the refusal is said, the page is written with no variable's
+        // Until a variable is picked, the page is written with no variable's
         // heading: the variable it would otherwise name is one nobody picked
-        // (#1230).
+        // (#1230, #1237).
         refusal !== null ? { ...slice, picking: true } : slice,
         undefined,
         undefined,
@@ -1675,10 +1679,16 @@ export class FieldglassEditorProvider
       const same = next.find((v) => v.name === name);
       const opened = same ?? next[0];
       if (!opened) {
+        // Nothing is left under the old heading or tab either: the page clears
+        // its picture on this error, and a page written again names no
+        // variable (#1237). The gate keeps the old handle, so the next request
+        // looks at the file again.
+        refusal = `The ${subject.container} ${subject.noun} no longer has a variable to draw.`;
+        panel.title = composeTabTitle("pick a variable", subject.source);
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: asked?.variableIndex ?? initial.variableIndex,
-          error: `The ${subject.container} ${subject.noun} no longer has a variable to draw.`,
+          error: refusal,
           ...ask,
           sliceGrid: sliceAnswer(null),
           noVariables: true,
@@ -1980,9 +1990,11 @@ export class FieldglassEditorProvider
             sliceGrid: sliceAnswer(current ? gridOf(current, spec) : null),
             pickVariable: true,
           } satisfies GridErrorMessage);
-          refusal = null;
           return;
         }
+        // The page asks for no render while it waits for a pick, so the next
+        // one it asks for draws the variable picked (#1237).
+        if (m.type === "rerenderRequest") refusal = null;
         // `ready` carries the webview's (state-restored) selections and slice,
         // exactly like a rerenderRequest, so a remount repaints what the user
         // had; a fresh panel sends its defaults.

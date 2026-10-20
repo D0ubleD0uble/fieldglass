@@ -157,6 +157,12 @@ suite("A GRIB render panel whose file changed", function () {
       assert.deepStrictEqual(state.messageOffers, labels(after));
       assert.strictEqual(state.messagePicked, "", "nothing is chosen");
       assert.notStrictEqual(state.title, opened.titleLine, "the old heading is gone");
+      // Compare and the arrows go while nothing is drawn: their pickers list
+      // the old file's messages, and nothing they would combine is on screen
+      // (#1237).
+      assert.strictEqual(state.compareShown, false, "Compare is put away");
+      assert.strictEqual(state.controlShown.arrows, false, "and so are the arrows");
+      assert.strictEqual(state.canvasPainted, false, "the old picture is gone");
 
       // Until a message is picked, no control asks for anything, and nothing
       // asked for is served.
@@ -192,7 +198,18 @@ suite("A GRIB render panel whose file changed", function () {
       state = await panel.drive([]);
       assert.deepStrictEqual(state.messageOffers, labels(after));
       assert.strictEqual(state.title, NO_MESSAGE_HEADING);
+      assert.strictEqual(state.compareShown, false, "Compare stays put away");
+      assert.strictEqual(state.controlShown.arrows, false);
       assert.ok(!panel.sent.slice(from).some(isType("gridReady")), "nothing drawn");
+      // Shown again after its tab was hidden, likewise (#1237).
+      from = panel.sent.length;
+      await panel.hideShow();
+      await panel.waitSent(isType("gridError"), from, "the refusal after a hide and show");
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_MESSAGE_HEADING);
+      assert.deepStrictEqual(state.messageOffers, labels(after));
+      assert.strictEqual(state.compareShown, false);
+      assert.ok(!panel.sent.slice(from).some(isType("gridReady")), "nothing drawn after a hide and show");
 
       // Picking one of the new file's messages draws it under its heading.
       from = panel.sent.length;
@@ -204,6 +221,8 @@ suite("A GRIB render panel whose file changed", function () {
       state = await panel.drive([]);
       assert.strictEqual(state.messageOffers, null, "the picker goes");
       assert.strictEqual(state.title, heading(after, 1));
+      assert.strictEqual(state.compareShown, true, "Compare is back");
+      assert.strictEqual(state.controlShown.arrows, true, "and so are the arrows");
     } finally {
       done();
     }
