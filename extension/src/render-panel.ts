@@ -67,15 +67,22 @@ export interface SliceSpec {
 export interface SlicePanelData {
   variables: VariableInfo[];
   initial: SliceSpec;
+  /** Set while the variable the panel showed is gone from its changed file
+   *  and none is picked yet (#839): the page is written with no variable's
+   *  heading, as a GRIB panel is with no message's (#1230). */
+  picking?: boolean;
 }
 
-/** One selectable "field B" for the compare / difference-map picker (#239): a
- *  GRIB message in the same file, with a human label. Field A is the message
- *  the panel opened on. */
 /** The heading of a GRIB panel whose message is gone from its changed file,
  *  while it waits for one to be picked (#959). */
 export const NO_MESSAGE_HEADING = "No message drawn";
 
+/** The same for a slice panel whose variable is gone (#1230). */
+export const NO_VARIABLE_HEADING = "No variable drawn";
+
+/** One selectable "field B" for the compare / difference-map picker (#239): a
+ *  GRIB message in the same file, with a human label. Field A is the message
+ *  the panel opened on. */
 export interface CompareFieldOption {
   index: number;
   label: string;
@@ -1416,9 +1423,15 @@ export function renderImagePanelHtml(
     `style-src ${webview.cspSource} 'unsafe-inline'`,
     `img-src ${webview.cspSource} blob: data:`,
   ].join("; ");
-  // A GRIB panel written while it waits for a message to be picked names
-  // none (#959), in the heading and in what the PNG export would draw.
-  const titleLine = pickMessages ? NO_MESSAGE_HEADING : composeTitleLine(meta, source.kind);
+  // A panel written while it waits for a message (#959) or a variable (#1230)
+  // to be picked names none, in the heading and in what the PNG export would
+  // draw.
+  const picking = !!pickMessages || slice?.picking === true;
+  const titleLine = pickMessages
+    ? NO_MESSAGE_HEADING
+    : slice?.picking === true
+      ? NO_VARIABLE_HEADING
+      : composeTitleLine(meta, source.kind);
   // `level` is the bare value ("300", "100 – 85"); `levelType` carries the
   // unit and surface name ("(hPa) Isobaric level", "Cloud base level").
   // Together they read naturally as "300 (hPa) Isobaric level". For surface
@@ -1436,7 +1449,7 @@ export function renderImagePanelHtml(
   // them apart (#1038).
   const subBase = [source.name, levelDescription, meta.referenceTime, meta.forecast]
     .filter((s) => !!s).join(" · ");
-  const subLine = pickMessages ? source.name : composeSubtitle(subBase, composeTruncationNote(meta));
+  const subLine = picking ? source.name : composeSubtitle(subBase, composeTruncationNote(meta));
   const defaultPngName = composeDefaultPngName(meta, source);
   // Whether the overlays are offered for the field the panel is written for.
   // A slice panel then follows each slice it draws (#840).
@@ -1853,7 +1866,10 @@ export function renderImagePanelHtml(
           drawAxisRails();
           fillSliceCoordinates();
           updateFrameLabel();
-          updateSubtitle();
+          // While a pick is awaited nothing is drawn, and the line names only
+          // the file (headNothingDrawn): an axis answering then must not bring
+          // back the slice of a variable nobody picked (#1230).
+          if (!awaitingPick) updateSubtitle();
         }
 
         // A render held until the Y axis's values arrive (#1043): which way up
@@ -2656,12 +2672,12 @@ export function renderImagePanelHtml(
           if (cbMax) cbMax.textContent = hasRange ? payload.usedMax.toPrecision(4) : '—';
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = payload.projectionSummary || '';
-          // When a compare operation is active, name it up front so the status
-          // reflects that the image is a computed (e.g. difference) field.
-          const opEl = document.getElementById('compare-op');
-          const opText = opEl && opEl.value && opEl.selectedIndex >= 0
-            ? opEl.options[opEl.selectedIndex].text + ' · '
-            : '';
+          // When the image is a computed (e.g. difference) field, name the
+          // operation up front. The one the render combined with, which the
+          // provider echoes (#1145), not the Operation picker: that can read
+          // A − B over a single field when Field B is unchosen (#1230).
+          const opLabel = compareOpLabel(payload);
+          const opText = opLabel ? opLabel + ' · ' : '';
           setStatus(
             opText + payload.width + '×' + payload.height + ' · ' +
             composeRangeText(payload.usedMin, payload.usedMax),
@@ -2878,6 +2894,9 @@ export function renderImagePanelHtml(
             const varSel = document.getElementById('slice-variable');
             if (varSel) varSel.selectedIndex = -1;
             setAwaitingPick(true);
+            // Nor does the heading name a variable, as a GRIB panel's names no
+            // message (#1230).
+            headNothingDrawn(${JSON.stringify(NO_VARIABLE_HEADING)});
           }
           // The message a GRIB panel was drawing is not exactly once in the
           // file that changed under it (#959).
@@ -3017,6 +3036,19 @@ export function renderImagePanelHtml(
           note.hidden = !refusal;
         }
 
+        // The heading and the line under it while nothing is drawn: no field's
+        // name, only the file or store (#959, #1230).
+        function headNothingDrawn(heading) {
+          TITLE_LINE = heading;
+          SUB_LINE = SOURCE_NAME;
+          const h1 = document.getElementById('title-line');
+          if (h1) h1.textContent = TITLE_LINE;
+          const subtitle = document.querySelector('.subtitle');
+          if (subtitle) subtitle.textContent = SUB_LINE;
+          const proj = document.getElementById('projection-summary');
+          if (proj) proj.textContent = '';
+        }
+
         // Nothing is drawn under the old heading: the image, its overlays and
         // the heading go, and the new file's messages are offered with none
         // chosen, so whichever is picked is a change and draws (#959). Until
@@ -3059,14 +3091,7 @@ export function renderImagePanelHtml(
           if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
           const colorbar = document.getElementById('colorbar');
           if (colorbar) colorbar.hidden = true;
-          TITLE_LINE = ${JSON.stringify(NO_MESSAGE_HEADING)};
-          SUB_LINE = SOURCE_NAME;
-          const h1 = document.getElementById('title-line');
-          if (h1) h1.textContent = TITLE_LINE;
-          const subtitle = document.querySelector('.subtitle');
-          if (subtitle) subtitle.textContent = SUB_LINE;
-          const proj = document.getElementById('projection-summary');
-          if (proj) proj.textContent = '';
+          headNothingDrawn(${JSON.stringify(NO_MESSAGE_HEADING)});
           // Nor does the "Not available" line speak for a grid any more.
           const unavailableLine = document.getElementById('unavailable');
           if (unavailableLine) unavailableLine.hidden = true;
@@ -4596,20 +4621,21 @@ export function renderImagePanelHtml(
         // index is still that message, found by its identity where it moved,
         // and otherwise left unchosen, which compares nothing. A snapshot with
         // no identity (a NetCDF panel's, or one saved before #959) restores by
-        // index, as before.
+        // index, as before. True when the saved Field B is not in this file.
         function restoreFieldB(index, key) {
-          restoreMessagePick('compare-field-b', index, key);
+          return restoreMessagePick('compare-field-b', index, key);
         }
 
         // A message picker's saved choice, kept where its index still names
         // that message and found by identity where it moved. Field B (#959) and
-        // the V component (#1027) both use it.
+        // the V component (#1027) both use it. True when the saved message is
+        // not in this file, so the picker is left with nothing chosen.
         function restoreMessagePick(id, index, key) {
           const b = document.getElementById(id);
-          if (!b || index === undefined || index === null) return;
+          if (!b || index === undefined || index === null) return false;
           if (typeof key !== 'string') {
             if (Array.from(b.options).some((o) => o.value === String(index))) b.value = String(index);
-            return;
+            return false;
           }
           const options = Array.from(b.options);
           const same = options.filter((o) => o.dataset.key === key);
@@ -4617,6 +4643,7 @@ export function renderImagePanelHtml(
           const chosen = kept || (same.length === 1 ? same[0] : null);
           if (chosen) b.value = chosen.value;
           else b.selectedIndex = -1;
+          return !chosen;
         }
 
         // Write a saved snapshot back into the DOM (and sliceState). Runs
@@ -4666,7 +4693,10 @@ export function renderImagePanelHtml(
           setChk('reverse-colormap', s.reverseColormap);
           setChk('scale-log', s.scaleLog);
           setVal('compare-op', s.compareOp);
-          restoreFieldB(s.compareFieldB, s.compareKeyB);
+          // A Field B the changed file no longer holds once leaves Compare off,
+          // with Field B to pick: an operation left on over no Field B named a
+          // single field A − B (#1230).
+          if (restoreFieldB(s.compareFieldB, s.compareKeyB)) setVal('compare-op', '');
           // Restore Field B's indices before setupSlice builds its steppers.
           if (Array.isArray(s.compareIndices)) compareIndices = s.compareIndices.slice();
           setChk('flip-y', s.flipY);
@@ -4706,7 +4736,8 @@ export function renderImagePanelHtml(
           // (#1027). Arrows restored on a panel that does not offer them stay
           // unchecked in effect: vectorsEnabled() also asks the field.
           setChk('overlay-vectors', s.vectors);
-          restoreMessagePick('vector-field-v', s.vectorFieldV, s.vectorKeyV);
+          // The arrows likewise go off with their V component (#1230).
+          if (restoreMessagePick('vector-field-v', s.vectorFieldV, s.vectorKeyV)) setChk('overlay-vectors', false);
           setVal('vector-spacing', s.vectorSpacing);
           setVal('width-vectors', s.vectorWidth);
           const vc = document.getElementById('color-vectors');
@@ -4987,6 +5018,14 @@ export function renderImagePanelHtml(
           const exportCsvBtn = document.getElementById('export-csv');
           if (exportCsvBtn) {
             exportCsvBtn.addEventListener('click', () => {
+              // Nothing is drawn while a pick is awaited, and the slice the
+              // pickers hold is a variable nobody chose (#1230).
+              if (awaitingPick) {
+                setExportStatus(SLICE
+                  ? 'Pick a variable to draw before exporting CSV.'
+                  : 'Pick a message to draw before exporting CSV.');
+                return;
+              }
               const fieldA = !!drawnCompareRequest().compare;
               vscode.postMessage(SLICE
                 ? Object.assign({ type: 'exportSliceCsv', fieldA: fieldA }, drawnSliceFields())

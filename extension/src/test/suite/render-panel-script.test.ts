@@ -24,7 +24,7 @@ import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import { PanelHandleGate } from "../../provider";
-import { UNPLACED_REASON } from "../../render-panel";
+import { NO_VARIABLE_HEADING, UNPLACED_REASON } from "../../render-panel";
 import {
   type Editor,
   extensionPath,
@@ -362,12 +362,28 @@ suite("The render panel's own script", function () {
       assert.match(state.status, /temp is no longer in the file/);
       assert.deepStrictEqual(state.sliceVariables, ["CMI", "DQF"]);
       assert.ok(!/^temp\b/.test(state.title), `the heading "${state.title}" does not name temp`);
+      // Nor does it name a variable nobody picked: like a GRIB panel's `No
+      // message drawn`, it says nothing is drawn, and so do the line under it
+      // and the tab (#1230). The page was written so, not only relabelled.
+      assert.strictEqual(state.title, NO_VARIABLE_HEADING);
+      assert.strictEqual(state.subtitle, "changing.nc", "the line under it names only the file");
+      assert.strictEqual(panel.title(), "pick a variable · changing.nc");
+      assert.ok(
+        panel.html().includes(`<h1 id="title-line">${NO_VARIABLE_HEADING}</h1>`),
+        "the page is written with no variable's heading",
+      );
+      // Nothing drawn is exported either: the slice the pickers hold is one
+      // nobody chose.
+      let asked = panel.received.length;
+      state = await panel.drive([{ id: "export-csv", click: true }]);
+      assert.ok(!panel.received.slice(asked).some(isType("exportSliceCsv")), "no CSV of a variable nobody picked");
+      assert.match(state.exportStatus, /^Pick a variable/);
       // Nothing is chosen, so any variable picked is a change, the first one
       // included; until then no other control asks for a render.
       assert.strictEqual(state.sliceVariable, "", "the picker has nothing chosen");
       // Play waits on each frame, and none would be asked for.
       assert.strictEqual(state.playDisabled, true, "Play is off until a variable is picked");
-      const asked = panel.received.length;
+      asked = panel.received.length;
       await panel.drive([{ id: "flip-y", checked: false }]);
       assert.deepStrictEqual(
         panel.received.slice(asked).filter((m) => m.type === "rerenderRequest"),
@@ -384,6 +400,9 @@ suite("The render panel's own script", function () {
       state = await panel.drive([]);
       assert.strictEqual(state.sliceVariable, "CMI");
       assert.strictEqual(state.playDisabled, false, "and Play is back");
+      assert.match(state.title, /^CMI\b/, "under its own heading");
+      assert.ok(state.subtitle.startsWith("changing.nc"), state.subtitle);
+      assert.strictEqual(panel.title(), "CMI · changing.nc");
     } finally {
       done();
     }
