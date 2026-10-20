@@ -571,7 +571,7 @@ first)
       points, at steps 7 and 119, and no line drawn between them. Gaps stay
       gaps.
 
-## 5. Any two dimensions as axes (#171, #1099, #1043)
+## 5. Any two dimensions as axes (#171, #1099, #1043, #1229)
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
@@ -583,9 +583,12 @@ first)
       Zonal average (the line under the caption names them; nothing is
       greyed out), and draws a
       time–latitude plot: the
-      seasonal swing is strongest at high latitudes. Latitude ticks read 90 …
-      −90, and the time ticks read as dates, though this file's time
-      reference has fractional seconds (#1028). Before this change the plane
+      seasonal swing is strongest at high latitudes. Latitude ticks read
+      round values from 90 to −90 (`90, 60, 30, 0, −30, −60, −90` at full
+      width), with `0` level with the middle of the image (#1229), and the
+      time ticks read as dates, though this file's time reference has
+      fractional seconds (#1028). Failure looks like `90, 55, 17.5, −17.5`,
+      the latitudes of evenly spaced rows. Before this change the plane
       was placed on the Earth, reading time as longitude.
 - [ ] The end labels stay beside and under the image (#1043): `−90` and
       `2024-01-01` do not overprint in the bottom-left corner, `2024-12-31`
@@ -813,13 +816,18 @@ A depth axis with fill values used to fail to draw; no file here has one.
       pan then work the same on a slice panel, and Reset view returns to the
       whole globe.
 
-## 8. A zonal average (#240)
+## 8. A zonal average (#240, #1229)
 
 **`S: samples/gfs.grib2`**
 
 - [ ] Tick Zonal average: a line appears under the readout, above the map,
       near 300 K in the tropics and coldest over Antarctica. The caption ends
       `721 of 721 points`, one per row.
+- [ ] Latitude runs along the bottom, south on the left, ticked at round
+      values evenly spaced, such as `−90, −60, −30, 0, 30, 60, 90`, or every
+      45° when the panel is narrow (#1229). Drag the panel narrower: fewer
+      round values, never two labels touching. Failure looks like
+      `−80.5, −71, −61.5, −52, −42.75`, the latitudes of evenly spaced rows.
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
@@ -831,6 +839,10 @@ A depth axis with fill values used to fail to draw; no file here has one.
       polar rows, from about 248 K at the poles to 288 K at the equator.
       Whether only stored values were averaged cannot be seen;
       `crates/fieldglass/tests/zonal_mean.rs` checks the means against eccodes.
+- [ ] Its latitudes are Gaussian, none of them round, but the ticks still
+      read round values such as `−60, −30, 0, 30, 60`, with `0` under the
+      middle of the line (#1229). Failure looks like `−87.8638, −71.1578,
+      −57.2066`, the rows' own latitudes.
 
 **`S: samples/hrrr.grib2`**
 

@@ -14,6 +14,8 @@ import * as vscode from "vscode";
 import { loadNative, type VariableInfo } from "../../native";
 import {
   axisTickIndices,
+  coordinateTicks,
+  type CoordinateTick,
   formatAxisValue,
   isMapSlice,
   layoutAxisLabels,
@@ -148,6 +150,81 @@ suite("Cross-sections", () => {
     assert.ok(niceTicks(0, 1e300, 4).length <= 100, "bounded");
   });
 
+  test("an axis in degrees steps the way a graticule does (#1229)", () => {
+    assert.deepStrictEqual(niceTicks(-87.86, 87.86, 6, true), [-60, -30, 0, 30, 60]);
+    assert.deepStrictEqual(niceTicks(-87.86, 87.86, 6), [-50, 0, 50], "a number that is not an angle steps in fives");
+    assert.deepStrictEqual(niceTicks(0, 357.5, 5, true), [0, 90, 180, 270]);
+    assert.deepStrictEqual(niceTicks(-32.5, -27.5, 5, true), [-32, -31, -30, -29, -28]);
+    assert.deepStrictEqual(niceTicks(10, 10.5, 5, true), [10, 10.1, 10.2, 10.3, 10.4, 10.5], "below a degree, tenths");
+  });
+
+  // The three axes #1229 was found on, each ticked at round latitudes at the
+  // index where that latitude falls: what the zonal average's x axis and a
+  // cross-section's rail show.
+  suite("a coordinate axis is ticked at round values where they fall (#1229)", () => {
+    const at = (ticks: CoordinateTick[] | null) => {
+      assert.ok(ticks, "the axis is ticked at round values");
+      return ticks.map((t) => [t.text, Number(t.index.toFixed(4))]);
+    };
+
+    test("reduced_gg_n32_smooth.grib1's zonal average: 64 Gaussian latitudes, north first", () => {
+      const p = path.join(extensionPath(), "..", "crates", "fieldglass-grib1", "tests", "fixtures", "reduced_gg_n32_smooth.grib1");
+      const native = loadNative();
+      assert.ok(native, "native module must load");
+      const zonal = native.open(fs.readFileSync(p)).zonalMean(0);
+      assert.strictEqual(zonal.coordinates?.length, 64);
+      assert.strictEqual(Number(zonal.coordinates?.[0].toFixed(4)), 87.8638, "the raw first latitude #1229 saw");
+      const axis = { coordinates: zonal.coordinates ?? null, units: zonal.coordinateUnits ?? null };
+      // Gaussian latitudes are uneven, and none is round: each tick falls
+      // between two, 0 halfway between the pair either side of the equator.
+      assert.deepStrictEqual(at(coordinateTicks(axis, 6)), [
+        ["−60", 53.0011], ["−30", 42.2504], ["0", 31.5], ["30", 20.7496], ["60", 9.9989],
+      ]);
+      assert.deepStrictEqual(at(coordinateTicks(axis, 5)), [["−45", 47.6256], ["0", 31.5], ["45", 15.3744]]);
+    });
+
+    test("samples/gfs.grib2's zonal average: 721 rows at 0.25°, north first", () => {
+      // The sample is not committed; its latitudes are, as the addon reads
+      // them: 90 to −90 in steps of 0.25.
+      const axis = { coordinates: Array.from({ length: 721 }, (_, j) => 90 - 0.25 * j), units: "degrees_north" };
+      assert.deepStrictEqual(at(coordinateTicks(axis, 6)), [
+        ["−90", 720], ["−60", 600], ["−30", 480], ["0", 360], ["30", 240], ["60", 120], ["90", 0],
+      ]);
+    });
+
+    test("samples/0.6.0/air_v2.zarr's time × latitude section: 73 rows at 2.5°", () => {
+      const axis = { coordinates: Array.from({ length: 73 }, (_, j) => 90 - 2.5 * j), units: "degrees_north" };
+      // The Y rail asks for 6 ticks, the X rail for 5.
+      assert.deepStrictEqual(at(coordinateTicks(axis, 6)), [
+        ["−90", 72], ["−60", 60], ["−30", 48], ["0", 36], ["30", 24], ["60", 12], ["90", 0],
+      ]);
+      assert.deepStrictEqual(at(coordinateTicks(axis, 5)), [["−90", 72], ["−45", 54], ["0", 36], ["45", 18], ["90", 0]]);
+    });
+
+    test("an uneven axis that rises is placed between its points", () => {
+      const depth = { coordinates: [0, 10, 50, 200, 1000], units: "m", vertical: { logPressure: false } };
+      assert.deepStrictEqual(at(coordinateTicks(depth, 5)), [
+        ["0", 0], ["200", 3], ["400", 3.25], ["600", 3.5], ["800", 3.75], ["1000", 4],
+      ]);
+    });
+
+    test("an axis keeps its own values where round ones would not do", () => {
+      const days = { coordinates: [1963536, 1963560, 1963584], units: "hours since 1800-01-01 00:00:0.0" };
+      assert.strictEqual(coordinateTicks(days, 5), null, "a time ticks as dates");
+      const levels = { coordinates: [1000, 850, 500, 10], units: "millibar", vertical: { logPressure: true } };
+      assert.strictEqual(coordinateTicks(levels, 5), null, "a pressure ticks at its levels");
+      assert.strictEqual(coordinateTicks({ coordinates: [0, 10, 5], units: "m" }, 5), null, "values that turn back");
+      assert.strictEqual(coordinateTicks({ coordinates: [0, 10, 10], units: "m" }, 5), null, "or repeat");
+      assert.strictEqual(coordinateTicks({ coordinates: [0, Number.NaN], units: "m" }, 5), null, "a hole");
+      assert.strictEqual(coordinateTicks({ coordinates: [4], units: "m" }, 5), null, "one point");
+      assert.strictEqual(coordinateTicks({ coordinates: null, units: null }, 5), null, "no coordinates");
+      assert.strictEqual(coordinateTicks(null, 5), null);
+      // Gaussian latitudes in steps of 90 leave only the equator.
+      const gaussian = { coordinates: [87.86, 30, -30, -87.86], units: "degrees_north" };
+      assert.strictEqual(coordinateTicks(gaussian, 3), null, "a span too short for two round values");
+    });
+  });
+
   test("end labels are slid inside the axis, and a label that would overlap is dropped (#1043)", () => {
     // Centred on 0 and 100, on an axis from 0 to 100: both slide inward.
     assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 20 }, { centre: 100, size: 20 }], 0, 100, 4), [0, 80]);
@@ -250,6 +327,7 @@ suite("Cross-sections", () => {
       "function layoutAxisLabels(",
       "function verticalAxisFlips(",
       "function niceTicks(",
+      "function coordinateTicks(",
     ]) {
       assert.ok(html.includes(fn), `${fn} is injected`);
     }

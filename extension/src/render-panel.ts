@@ -874,13 +874,19 @@ export function typesetMinus(text: string): string {
  *  ticks: steps of 1, 2, 2.5 or 5 times a power of ten, every tick inside the
  *  range (#1043). Empty for a range with no span.
  *
+ *  An axis in `degrees` (a latitude or longitude) steps the way a map's
+ *  graticule does once a step is a degree or more: 1, 2, 5, 10, 15, 30, 45, 90
+ *  or 180, so a globe is ticked `−60, −30, 0, 30, 60` rather than every 50
+ *  (#1229).
+ *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself. */
-export function niceTicks(min: number, max: number, count: number): number[] {
+export function niceTicks(min: number, max: number, count: number, degrees = false): number[] {
   if (!(Number.isFinite(min) && Number.isFinite(max)) || !(max > min) || !(count >= 1)) return [];
   const raw = (max - min) / count;
   const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
-  const step = [1, 2, 2.5, 5, 10].map((f) => f * magnitude).find((s) => s >= raw) || 10 * magnitude;
+  const angular = degrees && raw >= 1 ? [1, 2, 5, 10, 15, 30, 45, 90, 180].find((s) => s >= raw) : undefined;
+  const step = angular || [1, 2, 2.5, 5, 10].map((f) => f * magnitude).find((s) => s >= raw) || 10 * magnitude;
   const first = Math.ceil(min / step - 1e-9);
   const ticks: number[] = [];
   for (let k = first; k * step <= max + step * 1e-9 && ticks.length < 100; k++) {
@@ -888,6 +894,69 @@ export function niceTicks(min: number, max: number, count: number): number[] {
     ticks.push(Number((k * step).toPrecision(12)));
   }
   return ticks;
+}
+
+/** One tick on a coordinate axis (#1229): the round `value` it labels, the
+ *  `index` along the axis where that value falls, fractional between two
+ *  points, and its label. */
+export interface CoordinateTick {
+  value: number;
+  index: number;
+  text: string;
+}
+
+/** Round-number ticks for a numeric coordinate axis, about `count` of them
+ *  (#1229): {@link niceTicks} over the span of the axis's values, each placed
+ *  at the index where its value falls, read off the coordinates between the
+ *  two points either side of it. So an uneven axis, such as Gaussian
+ *  latitudes, or one stored north first, is ticked at `60, 30, 0, −30, −60`
+ *  in the right places, not at the values its points happen to have. An axis
+ *  in degrees takes {@link niceTicks}'s graticule steps.
+ *
+ *  `null` where the axis keeps its own values as ticks: one with no
+ *  coordinates or fewer than two, any of them not finite, values that do not
+ *  run one way (nothing to interpolate along), a CF time (its ticks are
+ *  dates, #1028), an atmospheric pressure (its ticks are the levels
+ *  themselves, drawn on log pressure, #1043), or a span too short for two
+ *  round values.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself but the helpers injected beside it (it calls
+ *  {@link niceTicks} and {@link formatAxisValue}). */
+export function coordinateTicks(
+  axis: { coordinates: number[] | null; units: string | null; vertical?: { logPressure: boolean } | null } | null | undefined,
+  count: number,
+): CoordinateTick[] | null {
+  const values = axis && axis.coordinates;
+  if (!axis || !values || values.length < 2 || !values.every((v) => Number.isFinite(v))) return null;
+  if (axis.vertical && axis.vertical.logPressure) return null;
+  // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
+  // number reads that way.
+  if (/^\d{4}-\d\d-\d\d/.test(formatAxisValue(values[0], axis.units))) return null;
+  const rising = values[1] > values[0];
+  // Every step the same way, so each value falls between one pair of points.
+  let previous: number | null = null;
+  for (const v of values) {
+    if (previous !== null && (rising ? !(v > previous) : !(v < previous))) return null;
+    previous = v;
+  }
+  const first = values[0];
+  const last = values[values.length - 1];
+  // CF's latitude and longitude units (§4.1, §4.2), and plain degrees.
+  const units = (axis.units || "").trim().toLowerCase().replace(/_/g, "");
+  const degrees = /^(degrees?|deg)(north|east|south|west|n|e|s|w)?$/.test(units);
+  const ticks: CoordinateTick[] = [];
+  for (const v of niceTicks(Math.min(first, last), Math.max(first, last), count, degrees)) {
+    // The pair either side of the value: the first point at or past it, and
+    // the one before. A round value a rounding error past the last point
+    // takes the last pair.
+    const past = values.findIndex((c) => (rising ? c >= v : c <= v));
+    const i = past < 0 ? values.length - 2 : Math.max(0, past - 1);
+    const [a, b] = values.slice(i, i + 2);
+    const index = Math.min(values.length - 1, Math.max(0, i + (v - a) / (b - a)));
+    ticks.push({ value: v, index: index, text: formatAxisValue(v, axis.units) });
+  }
+  return ticks.length >= 2 ? ticks : null;
 }
 
 /** Where an axis's tick labels go so that none overlaps another or leaves the
@@ -1634,6 +1703,7 @@ export function renderImagePanelHtml(
         ${heldSliceParts.toString()}
         ${typesetMinus.toString()}
         ${niceTicks.toString()}
+        ${coordinateTicks.toString()}
         ${layoutAxisLabels.toString()}
         ${verticalAxisFlips.toString()}
         ${composeLineRange.toString()}
@@ -1988,7 +2058,8 @@ export function renderImagePanelHtml(
 
         // Place the tick labels down the left of the image and under it. A label
         // sits at the fraction of the image its index does — the centre of its
-        // row or column — and reads the coordinate value there, or the index
+        // row or column, or between two centres for a round value that falls
+        // between two points (#1229) — and reads that value, or the index
         // when the file gives the axis no coordinates. Then each rail's labels
         // are fitted inside it (#1043): an end label is slid inward rather
         // than run into the other rail, the colour bar or the note above the
@@ -2055,19 +2126,34 @@ export function renderImagePanelHtml(
             if (!values || index >= values.length) return String(index);
             return formatAxisValue(values[index], axis ? axis.units : '');
           };
-          railY.innerHTML = axisTickIndices(rows, 6)
-            .map((row) => {
-              // Which index that row shows: the renderer draws row 0 first, and
-              // a render drawn flipped turns the plane over.
-              const index = flip ? rows - 1 - row : row;
-              const at = ((row + 0.5) / rows) * 100;
-              return '<span data-at="' + at + '" style="top:' + at + '%">' + escapeAttr(label(axisY, index)) + '</span>';
+          // A rail's ticks, each at the row or column its value falls in,
+          // fractional between two (counted from the top or the left), in
+          // that order. Round values where the axis is a run of numbers
+          // (#1229), placed where they fall between its points; otherwise
+          // evenly spaced points, labelled with their own values: the
+          // dates of a time, the levels of a pressure, or the index of an
+          // axis with no coordinates.
+          // flipped: the renderer draws row 0 first, and a render drawn
+          // flipped turns the plane over.
+          const ticksOf = (axis, length, count, flipped) => {
+            const at = (index) => (flipped ? length - 1 - index : index);
+            const values = axis && axis.coordinates;
+            const nice = values && values.length === length ? coordinateTicks(axis, count) : null;
+            const ticks = nice
+              ? nice.map((t) => ({ pos: at(t.index), text: t.text }))
+              : axisTickIndices(length, count).map((i) => ({ pos: at(i), text: label(axis, i) }));
+            return ticks.sort((a, b) => a.pos - b.pos);
+          };
+          railY.innerHTML = ticksOf(axisY, rows, 6, flip)
+            .map((t) => {
+              const at = ((t.pos + 0.5) / rows) * 100;
+              return '<span data-at="' + at + '" style="top:' + at + '%">' + escapeAttr(t.text) + '</span>';
             })
             .join('');
-          railX.innerHTML = axisTickIndices(cols, 5)
-            .map((col) => {
-              const at = ((col + 0.5) / cols) * 100;
-              return '<span data-at="' + at + '" style="left:' + at + '%">' + escapeAttr(label(axisX, col)) + '</span>';
+          railX.innerHTML = ticksOf(axisX, cols, 5, false)
+            .map((t) => {
+              const at = ((t.pos + 0.5) / cols) * 100;
+              return '<span data-at="' + at + '" style="left:' + at + '%">' + escapeAttr(t.text) + '</span>';
             })
             .join('');
           fitRail(railY, true);
@@ -4323,29 +4409,57 @@ export function renderImagePanelHtml(
           if (cmax === cmin) { cmin -= 0.5; cmax += 0.5; }
           if (vmax === vmin) { vmin -= 0.5; vmax += 0.5; }
 
-          // The ticks: round numbers on the value axis, and real coordinate
-          // values on the other, read the way the cross-section's ticks are
-          // (dates stay dates). Measured before the plot area is fixed, so the
-          // left margin fits the widest label down the side.
+          // The ticks: round numbers on the value axis, and on the other,
+          // round coordinates where it is a run of numbers (#1229), read the
+          // way the cross-section's ticks are; a time's dates, a pressure's
+          // levels and an axis's indices tick at points of the line instead.
+          // Measured before the plot area is fixed, so the left margin fits
+          // the widest label down the side.
           const coordinateLabel = (x) => (hasCoordinates ? formatAxisValue(x, line.coordinateUnits) : String(x));
+          const measured = new Map();
           const measure = (text) => {
+            if (measured.has(text)) return measured.get(text);
             const t = svgEl('text', { class: 'axis-label', x: 0, y: 0 });
             t.textContent = text;
             svg.appendChild(t);
             const box = t.getBBox();
             svg.removeChild(t);
-            return { w: box.width, h: box.height || 10 };
+            const size = { w: box.width, h: box.height || 10 };
+            measured.set(text, size);
+            return size;
           };
           const valueTicks = niceTicks(Number(vmin), Number(vmax), 5)
             .map((v) => ({ at: v, text: formatAxisValue(v, null) }));
-          // As many coordinate ticks as fit with room between them, judged by
-          // the end labels; the layout below drops any that still overlap.
-          const ends = [measure(coordinateLabel(xs[0])), measure(coordinateLabel(xs[n - 1]))];
-          const room = vertical
-            ? Math.max(ends[0].h, ends[1].h) + 6
-            : Math.max(ends[0].w, ends[1].w) + 24;
-          const candidates = axisTickIndices(n, Math.max(2, Math.floor((vertical ? height : width - 40) / room)))
-            .map((i) => ({ at: scaled(xs[i]), text: coordinateLabel(xs[i]) }));
+          // As many coordinate ticks as fit with room between them; the
+          // layout below drops any that still overlap.
+          const extent = vertical ? height : width - 40;
+          const roomFor = (sizes) => (vertical
+            ? Math.max(...sizes.map((s) => s.h)) + 6
+            : Math.max(...sizes.map((s) => s.w)) + 24);
+          const coordinateAxis = hasCoordinates
+            ? { coordinates: xs, units: line.coordinateUnits, vertical: vertical }
+            : null;
+          // Round coordinates: the most whose labels fit between their
+          // neighbours, which are spaced evenly since a pressure is not
+          // among them. Failing that, the fewest there are.
+          let candidates = null;
+          let fewest = null;
+          for (let want = 12; want >= 2 && candidates === null; want--) {
+            const nice = coordinateTicks(coordinateAxis, want);
+            if (!nice) break;
+            const step = Math.abs(nice[1].value - nice[0].value);
+            if ((extent * step) / (cmax - cmin) >= roomFor(nice.map((t) => measure(t.text)))) candidates = nice;
+            fewest = nice;
+          }
+          candidates = candidates || fewest;
+          if (candidates) {
+            candidates = candidates.map((t) => ({ at: t.value, text: t.text }));
+          } else {
+            // Points of the line, judged by the end labels.
+            const room = roomFor([measure(coordinateLabel(xs[0])), measure(coordinateLabel(xs[n - 1]))]);
+            candidates = axisTickIndices(n, Math.max(2, Math.floor(extent / room)))
+              .map((i) => ({ at: scaled(xs[i]), text: coordinateLabel(xs[i]) }));
+          }
           const yTicks = (vertical ? candidates : valueTicks).map((t) => Object.assign(t, measure(t.text)));
           const xTicks = (vertical ? valueTicks : candidates).map((t) => Object.assign(t, measure(t.text)));
           const labelH = Math.max(10, ...yTicks.concat(xTicks).map((t) => t.h));
