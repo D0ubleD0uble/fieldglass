@@ -5170,6 +5170,11 @@ mod planar_geolocation_tests {
     /// places nothing has no warp to resample, whatever its family.
     #[test]
     fn bilinear_is_offered_where_the_warp_blends() {
+        // The Lambert and polar representatives read the format crates'
+        // fixtures, which a packaged crate does not carry.
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
         for (grid_type, _) in GEOLOCATABLE_GRIDS
             .iter()
             .chain(&[("space_view", "space view")])
