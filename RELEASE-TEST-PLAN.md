@@ -739,7 +739,7 @@ A depth axis with fill values used to fail to draw; no file here has one.
 - [ ] Message 0 with message 1 is refused as two different grids, not as a
       frame difference.
 
-## 7. Zoom and pan (#245, #1114, #1147)
+## 7. Zoom and pan (#245, #1114, #1147, #1228)
 
 **`S: samples/gfs.grib2`**, Equirectangular, then Web Mercator
 
@@ -786,6 +786,15 @@ A depth axis with fill values used to fail to draw; no file here has one.
 
 - [ ] **priority** Zoom into Europe and pan. When the gesture ends, the
       coastlines, contours and arrows all line up with the field.
+- [ ] Reset view, so Bounds is on Auto, and turn coastlines on. Hold the
+      pointer still over one place, such as 10° E 50° N in central Europe,
+      and scroll in five notches one at a time, letting each redraw. That
+      place stays under the pointer the whole way, and the map does not drop
+      down when Bounds switches to Manual and its fields appear. Reset view,
+      then do the same with the five notches as fast as you can, quicker than
+      the map redraws: it ends on about the same window. Failure looks like
+      Europe sliding toward an edge of the map, or the quick notches zooming
+      in less than the slow ones (#1228).
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
