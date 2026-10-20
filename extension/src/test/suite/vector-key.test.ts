@@ -39,6 +39,7 @@ import {
   type VectorKeyState,
   waitUntil,
 } from "./real-panel";
+import { expectedImageWidth } from "./row-width";
 
 /** One arrow is one run of five vertices: tail, tip, barb, tip, barb. */
 const ARROW_VERTICES = 5;
@@ -503,13 +504,16 @@ suite("Vector key (#1046)", () => {
       await panel.drive([{ id: "vector-spacing", value: 12 }]);
       const large = await arrowsAfter(panel, from, "a large panel");
       // The image is drawn no taller than 80vh (#1252), so however wide the
-      // panel, this 2:1 map is at most 80vh times its aspect wide: about
-      // 1,120 px on a 702 px page. The bar follows that cap rather than the
-      // window, with a tenth of it spare. It only says the canvas is drawn
-      // well over the raster; the guard that matters is the label's size
-      // in the PNG below (`fontPx` 11).
-      const cap = 0.8 * large.state.viewportHeight * (large.rasterWidth / large.rasterHeight);
-      const bar = Math.max(large.rasterWidth, Math.min(1.5 * large.rasterWidth, 0.9 * cap));
+      // panel, this 2:1 map is no wider than the row or 80% of the page's
+      // height times its aspect, whichever is less: about 1,120 px on a 702 px
+      // page. The bar follows that width rather than the window's, with a
+      // tenth of it spare, so it holds in a short window too. It only says the
+      // canvas is drawn well over the raster; the guard that matters is the
+      // label's size in the PNG below (`fontPx` 11).
+      const { image, plotRow, viewportHeight } = large.state;
+      const room = image && plotRow ? plotRow.right - image.left : Infinity;
+      const held = expectedImageWidth(viewportHeight, large.rasterWidth / large.rasterHeight, room);
+      const bar = Math.max(large.rasterWidth, Math.min(1.5 * large.rasterWidth, 0.9 * held));
       assert.ok(
         large.key.canvas.width > bar,
         `the canvas (${large.key.canvas.width} px) is well over the raster (${large.rasterWidth} px)`,
