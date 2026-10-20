@@ -27,13 +27,34 @@ const HUGE = path.join(
 /** The text a reader sees for an HTML fragment: tags dropped, entities
  *  decoded. Only the entities `escapeHtml` writes. */
 function textOf(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, "")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&");
+  return tagsAndText(html).filter((part) => !part.tag).map((part) => part.text).join("");
+}
+
+const ENTITIES: Record<string, string> = { "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&amp;": "&" };
+
+/** `html` split, in one pass, into its tags (`<…>`, as written) and the text
+ *  between them, entities decoded. The page escapes every `<` in file data, so
+ *  each raw `<` opens a tag. */
+function tagsAndText(html: string): Array<{ tag: boolean; text: string }> {
+  const parts: Array<{ tag: boolean; text: string }> = [];
+  let i = 0;
+  while (i < html.length) {
+    if (html[i] === "<") {
+      const end = html.indexOf(">", i);
+      assert.ok(end >= 0, "every tag is closed");
+      parts.push({ tag: true, text: html.slice(i, end + 1) });
+      i = end + 1;
+      continue;
+    }
+    let text = "";
+    while (i < html.length && html[i] !== "<") {
+      const entity = html[i] === "&" ? Object.keys(ENTITIES).find((e) => html.startsWith(e, i)) : undefined;
+      text += entity ? ENTITIES[entity] : html[i];
+      i += entity ? entity.length : 1;
+    }
+    parts.push({ tag: false, text });
+  }
+  return parts;
 }
 
 /** The rows of the table under the `<h2>` titled `title`, each as its cells'
@@ -180,9 +201,13 @@ suite("A long attribute value can be read in full on the file page (#1232)", fun
       assert.ok(longValues(row[4]).some((d) => d.body === hostile), "and reads back whole");
       // The only script on the page is the nonce'd one; the disclosure is
       // native, so no inline handler was added to make it work.
-      assert.strictEqual(html.match(/<script\b/g)?.length, 1, "one script on the page");
-      assert.ok(!/<[^>]*\son[a-z]+=/i.test(html.replace(/<script[\s\S]*?<\/script>/, "")),
-        "no inline event handlers");
+      const scriptAt = html.indexOf("<script");
+      const scriptEnd = html.indexOf("</script>", scriptAt);
+      assert.ok(scriptAt >= 0 && scriptEnd > scriptAt, "the page has its script");
+      assert.strictEqual(html.indexOf("<script", scriptEnd), -1, "and only the one");
+      const outside = html.slice(0, scriptAt) + html.slice(scriptEnd + "</script>".length);
+      const handlers = tagsAndText(outside).filter((part) => part.tag && /\son[a-z]+=/i.test(part.text));
+      assert.deepStrictEqual(handlers, [], "no inline event handlers");
     } finally {
       editor.close();
       fs.rmSync(dir, { recursive: true, force: true });
