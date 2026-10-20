@@ -116,7 +116,7 @@ export interface PageState {
   contourStatus: string;
   /** The computed `visibility` of each field the panel shows or hides as its
    *  toggle changes (`spacing-hidden`, #1260), by element id. */
-  fieldVisibility: Record<"graticule-spacing-label" | "contour-interval-label" | "bounds-manual-fields", string | null>;
+  fieldVisibility: Record<"graticule-spacing-label" | "contour-interval-label" | "contours-only-label" | "bounds-manual-fields", string | null>;
   vectorStatus: string;
   overlayStatus: string;
   exportStatus: string;
@@ -590,7 +590,7 @@ const DRIVER = `
         status: byId('status').textContent,
         contourStatus: byId('contour-status').textContent,
         fieldVisibility: Object.fromEntries(
-          ['graticule-spacing-label', 'contour-interval-label', 'bounds-manual-fields']
+          ['graticule-spacing-label', 'contour-interval-label', 'contours-only-label', 'bounds-manual-fields']
             .map((id) => [id, byId(id) ? getComputedStyle(byId(id)).visibility : null])),
         vectorStatus: byId('vector-status').textContent,
         overlayStatus: byId('overlay-status').textContent,

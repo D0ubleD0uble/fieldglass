@@ -21,14 +21,37 @@ suite("Toggle-dependent fields hide with their toggle (#1260)", () => {
       assert.deepStrictEqual(state.fieldVisibility, {
         "graticule-spacing-label": "hidden",
         "contour-interval-label": "hidden",
+        "contours-only-label": "hidden",
         "bounds-manual-fields": "hidden",
       });
 
       state = await panel.drive([{ id: "overlay-contours", checked: true }]);
       assert.strictEqual(state.fieldVisibility["contour-interval-label"], "visible", "Contours on");
+      assert.strictEqual(state.fieldVisibility["contours-only-label"], "visible", "only, Contours on");
       assert.strictEqual(state.fieldVisibility["graticule-spacing-label"], "hidden");
       state = await panel.drive([{ id: "overlay-contours", checked: false }]);
       assert.strictEqual(state.fieldVisibility["contour-interval-label"], "hidden", "Contours off again");
+      assert.strictEqual(state.fieldVisibility["contours-only-label"], "hidden", "only, Contours off again");
+
+      // "only" hides the raster, so with Contours off it must not (#1265): the
+      // map would be blank. Unticking Contours brings the raster back, and
+      // ticking "only" with Contours off does nothing to it.
+      state = await panel.drive([
+        { id: "overlay-contours", checked: true },
+        { id: "contours-only", checked: true },
+      ]);
+      assert.strictEqual(state.canvasVisibility, "hidden", "Contours and only: the raster is hidden");
+      state = await panel.drive([{ id: "overlay-contours", checked: false }]);
+      assert.strictEqual(state.canvasVisibility, "visible", "Contours unticked: the raster is back");
+      state = await panel.drive([{ id: "contours-only", checked: false }]);
+      state = await panel.drive([{ id: "contours-only", checked: true }]);
+      assert.strictEqual(state.canvasVisibility, "visible", "only ticked with Contours off");
+      state = await panel.drive([{ id: "overlay-contours", checked: true }]);
+      assert.strictEqual(state.canvasVisibility, "hidden", "Contours ticked again with only still ticked");
+      state = await panel.drive([
+        { id: "contours-only", checked: false },
+        { id: "overlay-contours", checked: false },
+      ]);
 
       state = await panel.drive([{ id: "overlay-graticule", checked: true }]);
       assert.strictEqual(state.fieldVisibility["graticule-spacing-label"], "visible", "Graticule on");
