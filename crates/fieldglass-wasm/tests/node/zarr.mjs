@@ -294,6 +294,7 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
     ['an empty array is not a window request', () => handle.planWindow([])],
     ['an array is not a window to decode', () => handle.decodeWindow(positional)],
     ['a typed array is not a window request', () => handle.planWindow(new Uint8Array(1))],
+    ['an ArrayBuffer is not a window request', () => handle.planWindow(new ArrayBuffer(4))],
   ]) {
     same(`${store}: ${what}`, codeOf(f), 'invalid_option');
     same(`${store}: ${what}, by the guard`, messageOf(f).includes('it is not an object'), true);

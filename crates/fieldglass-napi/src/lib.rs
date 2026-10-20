@@ -33,7 +33,7 @@ mod directory_store;
 // (#1073).
 mod handle;
 pub use handle::{
-    ContourSpacing, Handle, ObjectArg, Polylines, SliceAxes, VectorPair, is_store, open,
+    ContourSpacing, Handle, ObjectArg, Polylines, SliceAxes, TargetArg, VectorPair, is_store, open,
     open_store, wire_dispose,
 };
 

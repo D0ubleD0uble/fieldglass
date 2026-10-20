@@ -220,6 +220,17 @@ check(
 check('an empty array is not an empty query', codeOf(() => idx.select([])) === 'invalid_option');
 check('an array is not a query read by position', codeOf(() => idx.select(['TMP'])) === 'invalid_option');
 check('a typed array is not a query', codeOf(() => idx.select(new Uint8Array(1))) === 'invalid_option');
+// Refused by the object guard itself, as the Node addon refuses one (#1239),
+// rather than by the JSON read after it.
+{
+  let refusal = 'did not throw';
+  try {
+    idx.select(new ArrayBuffer(1));
+  } catch (e) {
+    refusal = `${e.code}: ${e.message}`;
+  }
+  check('an ArrayBuffer is not a query', refusal.startsWith('invalid_option') && refusal.includes('it is not an object'), refusal);
+}
 check('a string is not a query', codeOf(() => idx.select('TMP')) === 'invalid_option');
 check('a number is not a query', codeOf(() => idx.select(3)) === 'invalid_option');
 check(

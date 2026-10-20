@@ -425,8 +425,8 @@ fn unreadable(what: &str, e: &dyn std::fmt::Display) -> RenderError {
 /// beyond that is a plain object keyed `"0"`, `"1"`, … as `sliceIndices`: napi
 /// hands a `Uint32Array` over as exactly that object, so it cannot be told from
 /// a typed array here, and the browser module reads it as the array too. A
-/// typed array as the argument itself never gets this far: [`ObjectArg`]
-/// refuses it while it is still a JavaScript value (#1239).
+/// typed array as the argument itself never gets this far: [`ObjectArg`] and
+/// [`TargetArg`] refuse it while it is still a JavaScript value (#1239).
 pub(crate) fn object_or_absent(
     value: Option<serde_json::Value>,
     what: &str,
@@ -438,28 +438,48 @@ pub(crate) fn object_or_absent(
     }
 }
 
+/// Whether a JavaScript value is binary data: a typed array (a Node `Buffer`
+/// is one), a `DataView` or an `ArrayBuffer`.
+///
+/// napi reads each into `serde_json` as an object keyed `"0"`, `"1"`, … or as
+/// one with no keys at all, and into a `#[napi(object)]` struct as one whose
+/// fields are all missing. Past that read, `new Uint8Array(1)` and `{ 0: 0 }`
+/// are the same value, so the question is asked before it (#1239).
+fn is_binary(value: &Unknown<'_>) -> napi::Result<bool> {
+    Ok(value.is_typedarray()? || value.is_dataview()? || value.is_arraybuffer()?)
+}
+
+/// The value napi is converting, so that it can be asked what it is first.
+///
+/// # Safety
+///
+/// `env` and `napi_val` must be the pair napi passed to the `from_napi_value`
+/// this is called from, and the `Unknown` must not outlive that call.
+unsafe fn arg_value<'a>(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> Unknown<'a> {
+    // SAFETY: the caller's contract: a live env, and a value handle in the
+    // handle scope of the current call, which is all this asks.
+    unsafe { Unknown::from_raw_unchecked(env, napi_val) }
+}
+
 /// An object argument, told apart from what is not one before napi reads it
 /// (#1239).
 ///
-/// napi reads a typed array or a `DataView` into `serde_json` as an object
-/// keyed `"0"`, `"1"`, … (or with no keys at all), and into a `#[napi(object)]`
-/// struct as one whose fields are all missing. The option types ignore keys
-/// they do not name, so `decode(0, new Uint8Array(1))` decoded at the defaults,
-/// where the browser module refuses it. Past that read a typed array and
-/// `{ 0: 0 }` look the same, so the check has to be made here, on the value
+/// The option types ignore keys they do not name, so a typed array read as an
+/// object was the defaults: `decode(0, new Uint8Array(1))` decoded at `auto`,
+/// where the browser module refuses it. Once napi has read it, a typed array
+/// and `{ 0: 0 }` are the same value, so the check is made here, on the value
 /// itself.
 ///
 /// So this refuses what the browser module's `refuse_non_object` refuses: a
-/// value that is not an object, an array, a typed array or a `DataView`. Each
-/// is `invalid_option` with the same words, `it is not an object`. As an
-/// `Option<ObjectArg<T>>`, `null` and `undefined` are `None` before this is
-/// asked, so they stay the default. Only the top level is checked: a
-/// `Uint32Array` of `sliceIndices` inside a request is read as before.
+/// value that is not an object, an array, a typed array, a `DataView` or an
+/// `ArrayBuffer`. Each is `invalid_option` with the same words, `it is not an
+/// object`. As an `Option<ObjectArg<T>>`, `null` and `undefined` are `None`
+/// before this is asked, so they stay the default. Only the top level is
+/// checked: a `Uint32Array` of `sliceIndices` inside a request is read as
+/// before.
 ///
-/// A `GridTarget` or `GridField` is not read through this, since a message
-/// index is a number. A typed array there reads as an object, so as a slice
-/// request, which refuses its keys `"0"`, `"1"`, …, or its missing fields when
-/// it has none, as `invalid_option`.
+/// A `GridTarget` or `GridField` may be a message index, a number, so it is
+/// read through [`TargetArg`] instead.
 #[derive(Debug)]
 pub enum ObjectArg<T> {
     /// Not a plain object: refused when read.
@@ -488,18 +508,61 @@ impl<T: FromNapiValue> FromNapiValue for ObjectArg<T> {
         env: napi::sys::napi_env,
         napi_val: napi::sys::napi_value,
     ) -> napi::Result<Self> {
-        // SAFETY: `env` and `napi_val` are the pair napi handed this
-        // conversion, valid for the call; the value is only inspected here.
-        let value = unsafe { Unknown::from_raw_unchecked(env, napi_val) };
-        if value.get_type()? != napi::ValueType::Object
-            || value.is_array()?
-            || value.is_typedarray()?
-            || value.is_dataview()?
-        {
+        // SAFETY: the pair napi handed this call; the value is only inspected,
+        // and dropped before this returns.
+        let value = unsafe { arg_value(env, napi_val) };
+        if value.get_type()? != napi::ValueType::Object || value.is_array()? || is_binary(&value)? {
             return Ok(Self::NotAnObject);
         }
-        // SAFETY: as above; `T` reads the value napi would have given it.
+        // SAFETY: the same pair, given to the conversion napi would have run
+        // had the argument been declared as `T`.
         unsafe { T::from_napi_value(env, napi_val) }.map(Self::Object)
+    }
+}
+
+/// A `GridTarget` or `GridField` argument, with binary data told apart before
+/// it becomes JSON (#1239).
+///
+/// A target is a message index or an object, so unlike [`ObjectArg`] this
+/// lets a number, and anything else that is not binary, through to the
+/// target's own reading and its own refusals. Binary data (a typed array, a
+/// Node `Buffer`, a `DataView` or an `ArrayBuffer`) is refused as
+/// `invalid_option`. A `Buffer` used to fail inside napi's own conversion,
+/// with napi's code.
+#[derive(Debug)]
+pub enum TargetArg {
+    /// A typed array, `DataView` or `ArrayBuffer`: refused when read.
+    Binary,
+    /// Anything else, as napi read it into JSON.
+    Json(serde_json::Value),
+}
+
+impl TargetArg {
+    /// The JSON value, or the refusal as `invalid_option` naming `what`.
+    pub(crate) fn read(self, what: &str) -> Result<serde_json::Value, RenderError> {
+        match self {
+            Self::Json(value) => Ok(value),
+            Self::Binary => Err(unreadable(
+                what,
+                &"binary data is neither a message index nor a slice { variable, yDim, xDim, \
+                  sliceIndices }",
+            )),
+        }
+    }
+}
+
+impl FromNapiValue for TargetArg {
+    unsafe fn from_napi_value(
+        env: napi::sys::napi_env,
+        napi_val: napi::sys::napi_value,
+    ) -> napi::Result<Self> {
+        // SAFETY: as in `ObjectArg::from_napi_value`.
+        let value = unsafe { arg_value(env, napi_val) };
+        if is_binary(&value)? {
+            return Ok(Self::Binary);
+        }
+        // SAFETY: as in `ObjectArg::from_napi_value`.
+        unsafe { serde_json::Value::from_napi_value(env, napi_val) }.map(Self::Json)
     }
 }
 
@@ -898,10 +961,11 @@ impl Handle {
     pub fn render_grid_for_js(
         &self,
         env: Env,
-        #[napi(ts_arg_type = "GridTarget")] target: serde_json::Value,
+        #[napi(ts_arg_type = "GridTarget")] target: TargetArg,
         #[napi(ts_arg_type = "RenderOptions")] options: ObjectArg<RenderOptions>,
     ) -> napi::Result<RenderedGrid> {
         let throw = |e: RenderError| e.throw(&env);
+        let target = target.read("target").map_err(throw)?;
         let options = options.read("options object").map_err(throw)?;
         self.render_grid(target, options).map_err(throw)
     }
@@ -935,11 +999,12 @@ impl Handle {
     pub fn project_overlay_for_js(
         &self,
         env: Env,
-        #[napi(ts_arg_type = "GridTarget")] target: serde_json::Value,
+        #[napi(ts_arg_type = "GridTarget")] target: TargetArg,
         #[napi(ts_arg_type = "RenderOptions")] options: ObjectArg<RenderOptions>,
         #[napi(ts_arg_type = "Polylines")] lines: ObjectArg<Polylines>,
     ) -> napi::Result<ProjectedOverlay> {
         let throw = |e: RenderError| e.throw(&env);
+        let target = target.read("target").map_err(throw)?;
         let options = options.read("options object").map_err(throw)?;
         let lines = lines.read("polylines").map_err(throw)?;
         self.project_overlay(target, options, lines).map_err(throw)
@@ -953,13 +1018,14 @@ impl Handle {
     pub fn project_contours_for_js(
         &self,
         env: Env,
-        #[napi(ts_arg_type = "GridTarget")] target: serde_json::Value,
+        #[napi(ts_arg_type = "GridTarget")] target: TargetArg,
         #[napi(ts_arg_type = "RenderOptions")] options: ObjectArg<RenderOptions>,
         #[napi(ts_arg_type = "ContourSpacing | undefined | null")] spacing: Option<
             ObjectArg<ContourSpacing>,
         >,
     ) -> napi::Result<ProjectedOverlay> {
         let throw = |e: RenderError| e.throw(&env);
+        let target = target.read("target").map_err(throw)?;
         let options = options.read("options object").map_err(throw)?;
         let spacing = ObjectArg::read_or_absent(spacing, "contour spacing").map_err(throw)?;
         self.project_contours(target, options, spacing.and_then(|s| s.interval))
@@ -995,12 +1061,13 @@ impl Handle {
     pub fn probe_pixel_for_js(
         &self,
         env: Env,
-        #[napi(ts_arg_type = "GridTarget")] target: serde_json::Value,
+        #[napi(ts_arg_type = "GridTarget")] target: TargetArg,
         #[napi(ts_arg_type = "RenderOptions")] options: ObjectArg<RenderOptions>,
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
         let throw = |e: RenderError| e.throw(&env);
+        let target = target.read("target").map_err(throw)?;
         let options = options.read("options object").map_err(throw)?;
         self.probe_pixel(target, options, px, py).map_err(throw)
     }
@@ -1013,9 +1080,11 @@ impl Handle {
     pub fn zonal_mean_for_js(
         &self,
         env: Env,
-        #[napi(ts_arg_type = "GridTarget")] target: serde_json::Value,
+        #[napi(ts_arg_type = "GridTarget")] target: TargetArg,
     ) -> napi::Result<LineResult> {
-        self.zonal_mean(target).map_err(|e| e.throw(&env))
+        let throw = |e: RenderError| e.throw(&env);
+        let target = target.read("target").map_err(throw)?;
+        self.zonal_mean(target).map_err(throw)
     }
 
     /// One field as CSV, as its UTF-8 bytes to write straight to disk (#341):
@@ -1026,12 +1095,14 @@ impl Handle {
     pub fn export_csv_for_js(
         &self,
         env: Env,
-        #[napi(ts_arg_type = "GridField")] field: serde_json::Value,
+        #[napi(ts_arg_type = "GridField")] field: TargetArg,
         #[napi(ts_arg_type = "\"matrix\" | \"long\"")] format: String,
     ) -> napi::Result<Uint8Array> {
+        let throw = |e: RenderError| e.throw(&env);
+        let field = field.read("field").map_err(throw)?;
         self.export_csv(field, format)
             .map(Uint8Array::from)
-            .map_err(|e| e.throw(&env))
+            .map_err(throw)
     }
 
     /// Where a slice on these image axes sits, as the render panel's picker asks

@@ -306,7 +306,7 @@ suite("One handle for every container (#1073)", () => {
     );
   });
 
-  test("a typed array or DataView is not an options object, as on the browser package (#1239)", () => {
+  test("binary data is not an options object, as on the browser package (#1239)", () => {
     const native = addon();
     const grib = native.open(fixture("regular_latlon_surface.grib2"));
     const netcdf = native.open(fixture("ersst_v5_187001_cdf1.nc"));
@@ -377,6 +377,8 @@ suite("One handle for every container (#1073)", () => {
       ["Uint8Array", () => new Uint8Array(1)],
       ["Float64Array", () => new Float64Array(2)],
       ["DataView", () => new DataView(new ArrayBuffer(4))],
+      ["ArrayBuffer", () => new ArrayBuffer(4)],
+      ["Buffer", () => Buffer.alloc(1)],
     ];
     for (const [what, read] of readers) {
       for (const [kind, view] of views) {
@@ -432,5 +434,68 @@ suite("One handle for every container (#1073)", () => {
       grib.renderDisplayGrid(display, null, ranged).rgba.length > 0,
       "no stats with both range ends set",
     );
+  });
+
+  test("binary data is not a target or a field, and a message index or slice still is (#1239)", () => {
+    const native = addon();
+    const grib = native.open(fixture("regular_latlon_surface.grib2"));
+    const netcdf = native.open(fixture("ersst_v5_187001_cdf1.nc"));
+    const sst = netcdf.variables()[0];
+    const render: RenderOptions = {
+      projection: "source",
+      resampling: "nearest",
+      flipY: false,
+    };
+    const slice = {
+      variable: sst.index,
+      yDim: 2,
+      xDim: 3,
+      sliceIndices: [0, 0, 0, 0],
+    };
+    const lines = {
+      latlon: new Float64Array(0),
+      ringLengths: new Uint32Array(0),
+    };
+    // Each call that takes a `GridTarget` or `GridField`, on a handle of each
+    // kind, so a good target can be shown to pass on the same call.
+    const takers: [string, (h: Handle, target: never) => unknown][] = [
+      ["renderGrid", (h, t) => h.renderGrid(t, render)],
+      ["projectOverlay", (h, t) => h.projectOverlay(t, render, lines)],
+      ["projectContours", (h, t) => h.projectContours(t, render)],
+      ["probePixel", (h, t) => h.probePixel(t, render, 0, 0)],
+      ["zonalMean", (h, t) => h.zonalMean(t)],
+      ["exportCsv", (h, t) => h.exportCsv(t, "matrix")],
+    ];
+    const binary: [string, () => unknown][] = [
+      ["Buffer", () => Buffer.alloc(1)],
+      ["Uint8Array", () => new Uint8Array(1)],
+      ["Float64Array", () => new Float64Array(2)],
+      ["DataView", () => new DataView(new ArrayBuffer(4))],
+      ["ArrayBuffer", () => new ArrayBuffer(4)],
+    ];
+    for (const [call, take] of takers) {
+      for (const [kind, make] of binary) {
+        let thrown: { code?: string; message?: string } | undefined;
+        try {
+          take(grib, make() as never);
+        } catch (e) {
+          thrown = e as { code?: string; message?: string };
+        }
+        assert.ok(thrown, `${call}: a ${kind} target was read`);
+        assert.strictEqual(
+          thrown.code,
+          "invalid_option",
+          `${call}, ${kind}: ${thrown.message}`,
+        );
+        assert.match(
+          String(thrown.message),
+          /binary data is neither a message index nor a slice/,
+          `${call}, ${kind}`,
+        );
+      }
+      // A message index and a slice object still read on the same call.
+      take(grib, 0 as never);
+      take(netcdf, slice as never);
+    }
   });
 });

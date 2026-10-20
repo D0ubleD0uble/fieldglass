@@ -198,6 +198,25 @@ for (const bad of [['f64'], 'f64', 3]) {
   equal(`palette refuses ${what} as options`, thrown(() => handle.palette(full, bad))?.code, 'invalid_option');
 }
 equal('null and undefined stay the default', [thrown(() => handle.palette(full, null)), thrown(() => handle.palette(full, undefined))], [null, null]);
+// Binary data is not an options object or stats either. serde reads each as an
+// object with no fields, so an `ArrayBuffer` was the defaults; the Node addon
+// refuses all three (#1239).
+for (const [what, make] of [
+  ['a Uint8Array', () => new Uint8Array(1)],
+  ['a DataView', () => new DataView(new ArrayBuffer(4))],
+  ['an ArrayBuffer', () => new ArrayBuffer(4)],
+]) {
+  for (const [call, read] of [
+    ['decode', (bad) => handle.decode(0, bad)],
+    ['decodeDisplay', (bad) => handle.decodeDisplay(0, bad)],
+    ['warp', (bad) => handle.warp(full, bad)],
+    ['palette', (bad) => handle.palette(full, bad)],
+    ['renderDisplay stats', (bad) => handle.renderDisplay(coarse, bad, {}, false)],
+  ]) {
+    const e = thrown(() => read(make()));
+    equal(`${call} refuses ${what}`, [e?.code, String(e?.message).includes('it is not an object')], ['invalid_option', true]);
+  }
+}
 
 // The binding refuses the wrong class at runtime as well as in TypeScript.
 equal(

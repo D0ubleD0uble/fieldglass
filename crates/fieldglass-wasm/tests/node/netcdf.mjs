@@ -239,6 +239,32 @@ try {
 } catch (e) {
   check('a line with an extra key is refused as invalid_option', e.code === 'invalid_option', `code was ${e.code}`);
 }
+// Binary data is not a request, nor its options: an `ArrayBuffer` read as an
+// object with no fields, and as options it was the defaults. The guard refuses
+// it, as the Node addon does (#1239). A typed array inside, as `sliceIndices`,
+// still reads (above).
+for (const [what, make] of [
+  ['a Uint32Array', () => new Uint32Array([0, 0])],
+  ['an ArrayBuffer', () => new ArrayBuffer(8)],
+]) {
+  const good = { variable: variables[0].index, yDim: 0, xDim: 1, sliceIndices: [0, 0] };
+  for (const [call, read] of [
+    ['decodeSlice', () => handle.decodeSlice(make())],
+    ['decodeLine', () => handle.decodeLine(make())],
+    ['decodeSlice options', () => handle.decodeSlice(good, make())],
+  ]) {
+    try {
+      read();
+      check(`${call} refuses ${what}`, false, 'it returned');
+    } catch (e) {
+      check(
+        `${call} refuses ${what} as not an object`,
+        e.code === 'invalid_option' && String(e.message).includes('it is not an object'),
+        `${e.code}: ${e.message}`,
+      );
+    }
+  }
+}
 
 try {
   handle.decodeSlice({ variable: variables[0].index, yDim: 0, xDim: 1, sliceIndices: [0] }, {});
