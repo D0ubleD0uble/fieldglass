@@ -43,6 +43,7 @@ import {
   type RealPanel,
   waitUntil,
 } from "./real-panel";
+import { expectedImageWidth } from "./row-width";
 
 /** The longest the image is drawn against its shortest side. */
 const MOST = 8;
@@ -82,8 +83,8 @@ interface Drawn {
   height: number;
   /** The page's height. */
   viewport: number;
-  /** How far the image's right edge falls short of its row's. */
-  shortOfRow: number;
+  /** The room the image has: from its left edge to its row's right edge. */
+  room: number;
   close: () => void;
 }
 
@@ -105,28 +106,49 @@ async function laidOut(panel: RealPanel): Promise<Layout> {
     width: image.right - image.left - 2,
     height: image.bottom - image.top - 2,
     viewport,
-    shortOfRow: row.right - image.right,
+    room: row.right - image.left,
   };
 }
 
-/** The image as laid out: its content box, the page's height, and how far it
- *  falls short of the width of its row. */
+/** The image as laid out: its content box, the page's height, and the room
+ *  its row gives it, from its left edge to the row's right edge. */
 interface Layout {
   width: number;
   height: number;
   viewport: number;
-  shortOfRow: number;
+  room: number;
 }
 
-/** An image short enough to fit the page at the panel's width is drawn at
- *  that width, as it was before #1252: across its whole row. Within its
- *  1 px border either way: a raster wider than the panel is narrowed to the
- *  row's width inside its border, so its right border is clipped. */
-function assertAcrossRow(d: Layout, what: string): void {
+/** The image is as wide as its row, or, if the row is wider than the cap
+ *  (80% of the page's height times the image's aspect, #1252), as wide as the
+ *  cap. {@link expectedImageWidth} is that width, so the check holds in a panel
+ *  of any shape. Within 2 px either way: the border is 1 px, and a
+ *  raster wider than the panel is narrowed to the row's width inside its
+ *  border, so its right border is clipped. `aspect` is the raster's width over
+ *  its height, which is the aspect the image is drawn at: a caller with an image
+ *  held to 8:1 must pass the held aspect, not the raster's. */
+function assertAcrossRow(d: Layout, aspect: number, what: string): void {
+  const expected = expectedImageWidth(d.viewport, aspect, d.room);
   assert.ok(
-    Math.abs(d.shortOfRow) <= 2,
-    `${what}: the image ends ${d.shortOfRow.toFixed(1)} px short of its row; it should fill it`,
+    Math.abs(d.width + 2 - expected) <= 2,
+    `${what}: the image is ${(d.width + 2).toFixed(1)} px wide; with ${d.room.toFixed(1)} px of row and a ` +
+      `${d.viewport} px page it should be ${expected.toFixed(1)}`,
   );
+}
+
+/** Widen the page to `px`, as a wide editor with a short page is, and lay the
+ *  image out again once it has settled at its new width. */
+async function widened(panel: RealPanel, px: number): Promise<Layout> {
+  await panel.drive([{ id: "body", width: `${px}px` }]);
+  let last = await laidOut(panel);
+  for (let i = 0; i < 50; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+    const next = await laidOut(panel);
+    const settled = Math.abs(next.width - last.width) < 0.5 && Math.abs(next.room - last.room) < 0.5;
+    last = next;
+    if (settled) break;
+  }
+  return last;
 }
 
 /** Open the file and draw `name`; the image as laid out. */
@@ -266,7 +288,26 @@ suite("A very thin slice is drawn at a paintable size (#1226)", function () {
         Math.abs(d.width / d.height - 2) < 0.02,
         `drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, not at 2:1`,
       );
-      assertAcrossRow(d, "40 × 20");
+      assertAcrossRow(d, 2, "40 × 20");
+    } finally {
+      d.close();
+    }
+  });
+
+  test("An ordinary 40 × 20 slice in a wide, short panel is held to 80% of the panel's height", async () => {
+    const d = await draw("ordinary");
+    try {
+      // A body wider than the cap is a wide, short panel: the page's height
+      // is unchanged, the row is much wider than 80% of it times 2.
+      const w = await widened(d.panel, Math.ceil(0.8 * d.viewport * 2) * 2 + 400);
+      const cap = 0.8 * w.viewport * 2 + 2;
+      assert.ok(w.room > cap + 100, `the row (${w.room.toFixed(1)} px) is wider than the cap (${cap.toFixed(1)} px)`);
+      assert.ok(
+        Math.abs(w.width + 2 - cap) <= 2,
+        `the image is ${(w.width + 2).toFixed(1)} px wide, not held to the cap of ${cap.toFixed(1)} px`,
+      );
+      assertAcrossRow(w, 2, "40 × 20 in a wide panel");
+      assert.ok(Math.abs(w.width / w.height - 2) < 0.02, "and it keeps its 2:1 aspect");
     } finally {
       d.close();
     }
@@ -403,7 +444,7 @@ suite("A lat/lon map keeps its own shape (#1226)", function () {
     });
   });
 
-  test("an ordinary global map keeps the panel's width (#1252)", async () => {
+  test("an ordinary global map fills its row, up to the 80vh cap (#1252)", async () => {
     // 90° S to 90° N round the globe at 5°: 72 × 37, about 2:1.
     await onMap(steps(-90, 5, 37), steps(0, 5, 72), "equirectangular", (grid, d) => {
       const raster = grid.width / grid.height;
@@ -411,7 +452,7 @@ suite("A lat/lon map keeps its own shape (#1226)", function () {
         Math.abs(d.width / d.height - raster) / raster < 0.03,
         `drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, not at the raster's ${raster.toFixed(2)}:1`,
       );
-      assertAcrossRow(d, "the global map");
+      assertAcrossRow(d, raster, "the global map");
     });
   });
 
