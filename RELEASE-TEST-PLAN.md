@@ -1168,6 +1168,10 @@ members are not told apart yet, by design.
 
 - [ ] The variables read `PRODUCT/qa_value` and
       `PRODUCT/SUPPORT_DATA/surface_altitude`, with no leading `/`.
+- [ ] The file page spells them the same way as the Render buttons: in the
+      Variables table, in each variable's Dimensions column
+      (`PRODUCT/scanline, PRODUCT/ground_pixel`) and in the Dimensions table.
+      No name on the page starts with `/` (#1231).
 
 ## 26. Unnamed axes are named as NetCDF names them (#704)
 
