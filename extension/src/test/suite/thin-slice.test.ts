@@ -10,6 +10,11 @@
 // A tall one is drawn to the page's height, not eight panel widths. An
 // ordinary aspect keeps the raster's own.
 //
+// Any image that would be taller than that at the panel's width is fitted to
+// the page's height too, not only one held to eight to one (#1252). A 50 ×
+// 366 slice (about 1:7.3) was drawn across the panel's width, about 5,000 px
+// tall, while a 40 × 366 one (past 1:8) fitted the page.
+//
 // A lat/lon map (Equirectangular, Web Mercator) is not stretched: its
 // raster has the shape of its grid or its window, and the arrows are laid
 // out in square pixels of it, so a belt round the globe from 20° S to 20° N
@@ -52,16 +57,18 @@ function values(rows: number, cols: number): number[] {
 }
 
 /** `time_bnds` as the sample has it, the same turned over, a one-row strip,
- *  and an ordinary 2:1 field. No coordinate variables, so the rows are drawn
- *  in index order. */
+ *  an ordinary 2:1 field, and two tall sections either side of 1:8. No
+ *  coordinate variables, so the rows are drawn in index order. */
 function thinFile(): Buffer {
   return classicNetcdf(
-    [["time", 366], ["nbnds", 2], ["one", 1], ["n", 400], ["y", 20], ["x", 40]],
+    [["time", 366], ["nbnds", 2], ["one", 1], ["n", 400], ["y", 20], ["x", 40], ["c50", 50], ["c40", 40]],
     [
       { name: "time_bnds", dims: ["time", "nbnds"], attrs: {}, values: values(366, 2) },
       { name: "bnds_time", dims: ["nbnds", "time"], attrs: {}, values: values(2, 366) },
       { name: "strip", dims: ["one", "n"], attrs: {}, values: values(1, 400) },
       { name: "ordinary", dims: ["y", "x"], attrs: {}, values: values(20, 40) },
+      { name: "wide_section", dims: ["time", "c50"], attrs: {}, values: values(366, 50) },
+      { name: "narrow_section", dims: ["time", "c40"], attrs: {}, values: values(366, 40) },
     ],
   );
 }
@@ -75,22 +82,51 @@ interface Drawn {
   height: number;
   /** The page's height. */
   viewport: number;
+  /** How far the image's right edge falls short of its row's. */
+  shortOfRow: number;
   close: () => void;
 }
 
 /** The image as laid out, once it is: its content box and the page's height. */
-async function laidOut(panel: RealPanel): Promise<{ width: number; height: number; viewport: number }> {
+async function laidOut(panel: RealPanel): Promise<Layout> {
   let image: Box | undefined;
+  let row: Box | undefined;
   let viewport = 0;
   for (let i = 0; i < 50; i++) {
     const state = await panel.drive([]);
     image = state.image;
+    row = state.plotRow;
     viewport = state.viewportHeight;
     if (image && image.right - image.left > 2 && image.bottom - image.top > 2) break;
     await new Promise((r) => setTimeout(r, 20));
   }
-  assert.ok(image, "the panel reports its image");
-  return { width: image.right - image.left - 2, height: image.bottom - image.top - 2, viewport };
+  assert.ok(image && row, "the panel reports its image and its row");
+  return {
+    width: image.right - image.left - 2,
+    height: image.bottom - image.top - 2,
+    viewport,
+    shortOfRow: row.right - image.right,
+  };
+}
+
+/** The image as laid out: its content box, the page's height, and how far it
+ *  falls short of the width of its row. */
+interface Layout {
+  width: number;
+  height: number;
+  viewport: number;
+  shortOfRow: number;
+}
+
+/** An image short enough to fit the page at the panel's width is drawn at
+ *  that width, as it was before #1252: across its whole row. Within its
+ *  1 px border either way: a raster wider than the panel is narrowed to the
+ *  row's width inside its border, so its right border is clipped. */
+function assertAcrossRow(d: Layout, what: string): void {
+  assert.ok(
+    Math.abs(d.shortOfRow) <= 2,
+    `${what}: the image ends ${d.shortOfRow.toFixed(1)} px short of its row; it should fill it`,
+  );
 }
 
 /** Open the file and draw `name`; the image as laid out. */
@@ -143,7 +179,7 @@ function assertPaintable(d: { width: number; height: number }, what: string): vo
 
 /** A tall image fits the page's height, so it is one column on one screen
  *  and its overlay's backing store stays far inside the browser's limit. */
-function assertWithinPage(d: { width: number; height: number; viewport: number }, what: string): void {
+function assertWithinPage(d: Layout, what: string): void {
   assert.ok(d.viewport > 0, `${what}: the page has a height`);
   assert.ok(
     d.height <= d.viewport,
@@ -230,8 +266,45 @@ suite("A very thin slice is drawn at a paintable size (#1226)", function () {
         Math.abs(d.width / d.height - 2) < 0.02,
         `drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, not at 2:1`,
       );
+      assertAcrossRow(d, "40 × 20");
     } finally {
       d.close();
+    }
+  });
+});
+
+suite("A tall image short of 1:8 fits the page too (#1252)", function () {
+  this.timeout(120_000);
+
+  test("50 × 366 and 40 × 366 both fit the page, the narrower no shorter, and a click reads its cell", async () => {
+    let wideHeight = 0;
+    const wide = await draw("wide_section");
+    try {
+      assert.deepStrictEqual([wide.grid.width, wide.grid.height], [50, 366], "the raster is the 50 × 366 slice");
+      assertWithinPage(wide, "50 × 366");
+      // Not held: 1:7.3 is drawn at its own aspect, only smaller.
+      const raster = 366 / 50;
+      assert.ok(
+        Math.abs(wide.height / wide.width - raster) / raster < 0.03,
+        `50 × 366: drawn ${wide.width.toFixed(1)} × ${wide.height.toFixed(1)} px, ` +
+          `not at the raster's 1:${raster.toFixed(2)}`,
+      );
+      await assertClicksHit(wide, "50 × 366");
+      wideHeight = wide.height;
+    } finally {
+      wide.close();
+    }
+    const narrow = await draw("narrow_section");
+    try {
+      assert.deepStrictEqual([narrow.grid.width, narrow.grid.height], [40, 366], "the raster is the 40 × 366 slice");
+      assertWithinPage(narrow, "40 × 366");
+      assert.ok(
+        narrow.height >= wideHeight - 1,
+        `40 × 366 is drawn ${narrow.height.toFixed(1)} px tall, shorter than 50 × 366 at ${wideHeight.toFixed(1)} px`,
+      );
+      await assertClicksHit(narrow, "40 × 366");
+    } finally {
+      narrow.close();
     }
   });
 });
@@ -259,7 +332,7 @@ suite("A lat/lon map keeps its own shape (#1226)", function () {
     lats: number[],
     lons: number[],
     projection: string,
-    body: (grid: Msg, drawn: { width: number; height: number; viewport: number }) => void,
+    body: (grid: Msg, drawn: Layout) => void,
   ): Promise<void> {
     const p = await provider();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1226-"));
@@ -325,6 +398,31 @@ suite("A lat/lon map keeps its own shape (#1226)", function () {
       // A whole pixel either way, on an image only a few dozen pixels wide.
       assert.ok(
         Math.abs(d.width - d.height / raster) <= 1,
+        `drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, not at the raster's 1:${raster.toFixed(2)}`,
+      );
+    });
+  });
+
+  test("an ordinary global map keeps the panel's width (#1252)", async () => {
+    // 90° S to 90° N round the globe at 5°: 72 × 37, about 2:1.
+    await onMap(steps(-90, 5, 37), steps(0, 5, 72), "equirectangular", (grid, d) => {
+      const raster = grid.width / grid.height;
+      assert.ok(
+        Math.abs(d.width / d.height - raster) / raster < 0.03,
+        `drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, not at the raster's ${raster.toFixed(2)}:1`,
+      );
+      assertAcrossRow(d, "the global map");
+    });
+  });
+
+  test("a tall map short of 1:8 keeps its shape and fits the page (#1252)", async () => {
+    // 90° S to 90° N by 30° of longitude at 1.25°: 25 × 145, about 1:5.8.
+    await onMap(steps(-90, 1.25, 145), steps(0, 1.25, 25), "equirectangular", (grid, d) => {
+      const raster = grid.height / grid.width;
+      assert.ok(raster < MOST, `the raster is ${grid.width} × ${grid.height}, not taller than 1:${MOST}`);
+      assertWithinPage(d, "the 1:5.8 strip");
+      assert.ok(
+        Math.abs(d.height / d.width - raster) / raster < 0.03,
         `drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, not at the raster's 1:${raster.toFixed(2)}`,
       );
     });

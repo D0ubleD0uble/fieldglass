@@ -493,7 +493,7 @@ suite("Vector key (#1046)", () => {
       assert.strictEqual(exported.key.label, wide.key.drawn.label);
       assert.ok(labelHeight(exported.image, exported.key) >= 7, "its label is legible in the PNG");
 
-      // A small raster shown large: the panel's canvas is far wider than the
+      // A small raster shown large: the panel's canvas is much wider than the
       // raster the PNG is made at. The label is still drawn at a size the PNG
       // can show, not shrunk with the overlay. (The overlay is redrawn on a
       // window resize, which a widened body does not fire, so the arrows are
@@ -502,8 +502,16 @@ suite("Vector key (#1046)", () => {
       from = mark(panel);
       await panel.drive([{ id: "vector-spacing", value: 12 }]);
       const large = await arrowsAfter(panel, from, "a large panel");
+      // The image is drawn no taller than 80vh (#1252), so however wide the
+      // panel, this 2:1 map is at most 80vh times its aspect wide: about
+      // 1,120 px on a 702 px page. The bar follows that cap rather than the
+      // window, with a tenth of it spare. It only says the canvas is drawn
+      // well over the raster; the guard that matters is the label's size
+      // in the PNG below (`fontPx` 11).
+      const cap = 0.8 * large.state.viewportHeight * (large.rasterWidth / large.rasterHeight);
+      const bar = Math.max(large.rasterWidth, Math.min(1.5 * large.rasterWidth, 0.9 * cap));
       assert.ok(
-        large.key.canvas.width > 2 * large.rasterWidth,
+        large.key.canvas.width > bar,
         `the canvas (${large.key.canvas.width} px) is well over the raster (${large.rasterWidth} px)`,
       );
       const shrunk = await exportPng(panel);

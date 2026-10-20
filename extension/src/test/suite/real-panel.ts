@@ -155,6 +155,9 @@ export interface PageState {
    *  (`innerHeight`), which a tall image is held inside (#1226). */
   image: Box;
   viewportHeight: number;
+  /** The row the image sits in, beside its Y rail: the width an image that
+   *  is not fitted to the page's height fills (#1252). */
+  plotRow: Box;
   /** The line plot (#172, #1037), `null` for a panel with none. A GRIB panel
    *  has one, for its zonal average, but no Line plot box (`boxShown` false). */
   linePlot: LinePlotState | null;
@@ -603,6 +606,7 @@ const DRIVER = `
         canvasVisibility: byId('canvas').style.visibility,
         image: boxOf(byId('canvas')),
         viewportHeight: window.innerHeight,
+        plotRow: boxOf(document.querySelector('.plot-row')),
         linePlot: linePlot(),
         rails: rails(),
         steppers: steppers(),
