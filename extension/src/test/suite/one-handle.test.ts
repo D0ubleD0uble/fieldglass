@@ -401,6 +401,48 @@ suite("One handle for every container (#1073)", () => {
     }
   });
 
+  // Electron hands an empty `Float64Array` over with a data pointer that is
+  // not 8-byte aligned. The addon used to make a slice of it, which a debug
+  // build stops on and a release build carried on with as undefined
+  // behaviour (#1247). Plain Node aligns it, so only this host shows it.
+  test("empty polylines project to no overlay, on every handle (#1247)", () => {
+    const native = addon();
+    const render: RenderOptions = {
+      projection: "source",
+      resampling: "nearest",
+      flipY: false,
+    };
+    const netcdf = native.open(fixture("ersst_v5_187001_cdf1.nc"));
+    const sst = netcdf.variables()[0];
+    const slice = {
+      variable: sst.index,
+      yDim: 2,
+      xDim: 3,
+      sliceIndices: [0, 0, 0, 0],
+    };
+    const cases: [string, Handle, number | typeof slice][] = [
+      ["grib1", native.open(fixture("cmc_wind_300_2010052400_p012.grib")), 0],
+      ["grib2", native.open(fixture("regular_latlon_surface.grib2")), 0],
+      ["netcdf", netcdf, slice],
+    ];
+    for (const [what, handle, target] of cases) {
+      const empty = handle.projectOverlay(target, render, {
+        latlon: new Float64Array(0),
+        ringLengths: new Uint32Array(0),
+      });
+      assert.strictEqual(empty.xy.length, 0, `${what}: no points`);
+      assert.strictEqual(empty.segLengths.length, 0, `${what}: no runs`);
+      // An empty view into a bigger buffer, at an offset, reads as empty too.
+      const buffer = new ArrayBuffer(64);
+      const offset = handle.projectOverlay(target, render, {
+        latlon: new Float64Array(buffer, 8, 0),
+        ringLengths: new Uint32Array(buffer, 4, 0),
+      });
+      assert.strictEqual(offset.xy.length, 0, `${what}: no points from an offset view`);
+      handle.close();
+    }
+  });
+
   test("a SharedArrayBuffer and another realm's buffers are binary data too, as on the browser package (#1242)", () => {
     const native = addon();
     const grib = native.open(fixture("regular_latlon_surface.grib2"));

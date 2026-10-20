@@ -7,6 +7,9 @@ export async function run(): Promise<void> {
     ui: "tdd",
     color: true,
     timeout: 20_000,
+    // `MOCHA_GREP="#1247" xvfb-run -a npm test` runs only the tests whose
+    // title matches; unset, every test runs.
+    grep: process.env.MOCHA_GREP,
   });
 
   const testsRoot = path.resolve(__dirname);

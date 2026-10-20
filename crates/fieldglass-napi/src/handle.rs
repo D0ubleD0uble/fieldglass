@@ -38,7 +38,7 @@ use fieldglass::{
 };
 use napi::JsValue;
 use napi::bindgen_prelude::{
-    Float64Array, FromNapiValue, Function, Object, Uint8Array, Uint32Array, Unknown,
+    Float64ArraySlice, FromNapiValue, Function, Object, Uint8Array, Uint32ArraySlice, Unknown,
 };
 
 /// Open a GRIB1, GRIB2 or NetCDF file from its bytes. The format is detected
@@ -230,17 +230,26 @@ pub(crate) enum GridTarget {
 
 /// The arrays an overlay projects: flat `[lat, lon, …]` and how many points
 /// each ring has.
-#[napi(object)]
-pub struct Polylines {
+//
+// Borrowed views rather than napi's owned `Float64Array` and `Uint32Array`.
+// The owned types make a slice from whatever data pointer the engine hands
+// over, and Electron hands an empty array over with one that is not aligned
+// for its element type: a slice of it is undefined behaviour, which a debug
+// build aborts on (#1247). The views make an empty one from an aligned
+// dangling pointer instead.
+#[napi(object, object_to_js = false)]
+pub struct Polylines<'env> {
     /// Flat `[lat0, lon0, lat1, lon1, …]`, in degrees.
-    pub latlon: Float64Array,
+    #[napi(ts_type = "Float64Array")]
+    pub latlon: Float64ArraySlice<'env>,
     /// How many points each ring holds, so `sum(ringLengths) * 2 ===
     /// latlon.length`.
-    pub ring_lengths: Uint32Array,
+    #[napi(ts_type = "Uint32Array")]
+    pub ring_lengths: Uint32ArraySlice<'env>,
 }
 
 /// Lengths rather than the coordinates, as the other typed-array DTOs print.
-impl std::fmt::Debug for Polylines {
+impl std::fmt::Debug for Polylines<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Polylines")
             .field("latlon.len", &self.latlon.len())
@@ -1301,7 +1310,7 @@ impl Handle {
         &self,
         target: serde_json::Value,
         options: RenderOptions,
-        lines: Polylines,
+        lines: Polylines<'_>,
     ) -> Result<ProjectedOverlay, RenderError> {
         let field = match self.resolve(grid_target(target)?)? {
             GridTarget::One(f) | GridTarget::Combined { a: f, .. } => f,
@@ -1312,17 +1321,27 @@ impl Handle {
         } = lines;
         match (self.inner()?, field) {
             (Inner::Grib1(h), GridField::Message(i)) => {
-                Ok(h.project_overlay(i, options, latlon, ring_lengths)?)
+                Ok(h.project_overlay(i, options, &latlon, &ring_lengths)?)
             }
             (Inner::Grib2(h), GridField::Message(i)) => {
-                Ok(h.project_overlay(i, options, latlon, ring_lengths)?)
+                Ok(h.project_overlay(i, options, &latlon, &ring_lengths)?)
             }
-            (Inner::Netcdf(h), GridField::Slice(s)) => {
-                Ok(h.project_overlay(s.variable, s.y_dim, s.x_dim, options, latlon, ring_lengths)?)
-            }
-            (Inner::Zarr(h), GridField::Slice(s)) => {
-                Ok(h.project_overlay(s.variable, s.y_dim, s.x_dim, options, latlon, ring_lengths)?)
-            }
+            (Inner::Netcdf(h), GridField::Slice(s)) => Ok(h.project_overlay(
+                s.variable,
+                s.y_dim,
+                s.x_dim,
+                options,
+                &latlon,
+                &ring_lengths,
+            )?),
+            (Inner::Zarr(h), GridField::Slice(s)) => Ok(h.project_overlay(
+                s.variable,
+                s.y_dim,
+                s.x_dim,
+                options,
+                &latlon,
+                &ring_lengths,
+            )?),
             (inner, _) => Err(wrong_target(inner)),
         }
     }

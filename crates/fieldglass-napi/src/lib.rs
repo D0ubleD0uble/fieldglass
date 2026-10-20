@@ -1611,17 +1611,12 @@ impl Grib1File {
         &self,
         message_index: u32,
         options: RenderOptions,
-        latlon: napi::bindgen_prelude::Float64Array,
-        ring_lengths: napi::bindgen_prelude::Uint32Array,
+        latlon: &[f64],
+        ring_lengths: &[u32],
     ) -> napi::Result<ProjectedOverlay> {
         let placed = self.stream.placed(message_index)?;
-        overlay_from_source(
-            &placed.source(),
-            &options,
-            latlon.as_ref(),
-            ring_lengths.as_ref(),
-        )
-        .map(ProjectedOverlay::from_polylines)
+        overlay_from_source(&placed.source(), &options, latlon, ring_lengths)
+            .map(ProjectedOverlay::from_polylines)
     }
 
     /// The handle's `projectContours` for one field. The refusal is the engine's, so
@@ -1905,17 +1900,12 @@ impl Grib2File {
         &self,
         message_index: u32,
         options: RenderOptions,
-        latlon: napi::bindgen_prelude::Float64Array,
-        ring_lengths: napi::bindgen_prelude::Uint32Array,
+        latlon: &[f64],
+        ring_lengths: &[u32],
     ) -> napi::Result<ProjectedOverlay> {
         let placed = self.stream.placed(message_index)?;
-        overlay_from_source(
-            &placed.source(),
-            &options,
-            latlon.as_ref(),
-            ring_lengths.as_ref(),
-        )
-        .map(ProjectedOverlay::from_polylines)
+        overlay_from_source(&placed.source(), &options, latlon, ring_lengths)
+            .map(ProjectedOverlay::from_polylines)
     }
 
     /// Arrows for a vector field built from two messages (#241). Sibling to
@@ -2645,18 +2635,13 @@ impl NetcdfFile {
         y_dim: u32,
         x_dim: u32,
         options: RenderOptions,
-        latlon: napi::bindgen_prelude::Float64Array,
-        ring_lengths: napi::bindgen_prelude::Uint32Array,
+        latlon: &[f64],
+        ring_lengths: &[u32],
     ) -> napi::Result<ProjectedOverlay> {
         let var = self.renderable(variable_index)?;
         let placed = self.slice_placed(&var, y_dim as usize, x_dim as usize)?;
-        overlay_from_source(
-            &placed.source(),
-            &options,
-            latlon.as_ref(),
-            ring_lengths.as_ref(),
-        )
-        .map(ProjectedOverlay::from_polylines)
+        overlay_from_source(&placed.source(), &options, latlon, ring_lengths)
+            .map(ProjectedOverlay::from_polylines)
     }
 
     /// The handle's `projectContours` for one field. The refusal is the engine's, so
@@ -3256,20 +3241,15 @@ impl ZarrStore {
         y_dim: u32,
         x_dim: u32,
         options: RenderOptions,
-        latlon: napi::bindgen_prelude::Float64Array,
-        ring_lengths: napi::bindgen_prelude::Uint32Array,
+        latlon: &[f64],
+        ring_lengths: &[u32],
     ) -> napi::Result<ProjectedOverlay> {
         // The placement alone, with no values: an overlay projects geography
         // onto the raster and never reads a cell, so this is what
         // `Session::place_slice` is for (#659).
         let placed = self.place(variable_index, y_dim, x_dim)?;
-        overlay_from_source(
-            &placed.source(),
-            &options,
-            latlon.as_ref(),
-            ring_lengths.as_ref(),
-        )
-        .map(ProjectedOverlay::from_polylines)
+        overlay_from_source(&placed.source(), &options, latlon, ring_lengths)
+            .map(ProjectedOverlay::from_polylines)
     }
 
     /// The handle's `projectContours` for one field. The refusal is the engine's, so
@@ -9022,15 +9002,10 @@ mod sized_output_raster_tests {
         // the pixel coordinates, so a call that ignored the size would place a
         // coastline off the image.
         let ring = |o: RenderOptions| {
-            h.project_overlay(
-                0,
-                o,
-                napi::bindgen_prelude::Float64Array::new(vec![40.0, -100.0, 30.0, -90.0]),
-                napi::bindgen_prelude::Uint32Array::new(vec![2]),
-            )
-            .expect("projects")
-            .xy
-            .to_vec()
+            h.project_overlay(0, o, &[40.0, -100.0, 30.0, -90.0], &[2])
+                .expect("projects")
+                .xy
+                .to_vec()
         };
         let (big, small) = (ring(sized()), ring(conus(Some((256, 192)))));
         assert_eq!(big.len(), small.len(), "the same ring, projected twice");
