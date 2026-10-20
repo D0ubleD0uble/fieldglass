@@ -5653,7 +5653,10 @@ ${slice ? `  <label class="plot-toggle" id="line-control"><input type="checkbox"
       <div class="axis-rail axis-x" id="axis-x" hidden></div>
       <div class="axis-caption" id="axis-caption" hidden></div>
     </div>
-    <div class="colorbar-wrap" id="colorbar">
+    <!-- Hidden until an image with a range is drawn: a page whose first
+         render fails has no range to show (#1053), as a field with no values
+         has none (#871). -->
+    <div class="colorbar-wrap" id="colorbar" hidden>
       <div class="cb" aria-label="colormap"></div>
       <div class="colorbar-labels">
         <div id="cb-max">—</div>

@@ -145,6 +145,8 @@ export interface PageState {
    *  is on screen: false for both once a picture is cleared (#1237). */
   canvasPainted: boolean;
   colorbarShown: boolean;
+  /** The colour bar's two labels, low end first. */
+  colorbarLabels: [string, string];
   canvasVisibility: string;
   /** The line plot (#172, #1037), `null` for a panel with none. A GRIB panel
    *  has one, for its zonal average, but no Line plot box (`boxShown` false). */
@@ -553,6 +555,7 @@ const DRIVER = `
           return false;
         })(),
         colorbarShown: !!byId('colorbar') && byId('colorbar').getClientRects().length > 0,
+        colorbarLabels: [byId('cb-min').textContent, byId('cb-max').textContent],
         overlayHidden: !!(overlays && overlays.hasAttribute('hidden')),
         vectorNote: vectors ? byId('vector-note').textContent : null,
         vectorPairNote: vectors ? byId('vector-pair-note').textContent : null,

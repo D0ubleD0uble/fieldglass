@@ -114,7 +114,8 @@ const allClear = (rgba) => rgba.every((b, i) => i % 4 !== 3 || b === 0);
   equal(
     'rule 2: the message names the other end and where it came from',
     e && e.message,
-    `minimum 100000 is above the field's maximum ${hi} (taken from the data); set a maximum too`,
+    // The data's end as a colour bar writes it, `toPrecision(4)` (#1053).
+    `minimum 100000 is above the field's maximum ${hi.toPrecision(4)} (taken from the data); set a maximum too`,
   );
 }
 
