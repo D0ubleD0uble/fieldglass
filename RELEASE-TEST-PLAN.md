@@ -1134,8 +1134,9 @@ members are not told apart yet, by design.
 - [ ] The 8192 × 8192 file draws: every cell is the fill value, so the
       panel shows "no values" and no colour bar. At 64 Mi cells this can take
       a few seconds. The 10000 × 10000 file is refused before anything is
-      read, with `this read asks for 100000000 values at once, more than the
-      67108864 one field may hold. The file itself is fine`.
+      read, with `Error: render failed: this read asks for 100000000 values
+      at once, more than the 67108864 one field may hold. The file itself is
+      fine`, `Error:` once and no colour bar (#1053).
 
 How many bytes a slice reads, and the 2 ms and 5 ms step times, are measured in
 CI by `crates/fieldglass-perf` against `docs/performance.md`; the browser
@@ -1228,9 +1229,10 @@ Process Explorer*) does not jump by hundreds of MB.
       stating 60,000,000 records and holding 2): the file page shows the record
       dimension as `unlimited`, with no count, so the stated 60,000,000 is not
       shown anywhere. **Render v** is refused at once with `Error: render
-      failed: Error: parse error: variable "v": the region ends at byte
-      720000221, which exceeds source size 248` (CDF-5: byte 720000337 and
-      size 364), with no jump in memory (#1000).
+      failed: parse error: variable "v": the region ends at byte 720000221,
+      which exceeds source size 248` (CDF-5: byte 720000337 and size 364),
+      with no jump in memory (#1000). The line says `Error:` once, and no
+      colour bar is shown beside the empty map (#1053).
 
 The chunk-index files (`hdf5_duplicate_chunk_records.h5`,
 `hdf5_oversized_chunk.h5`, `hdf5_conflicting_chunk_records.h5`) each hold a 1-D
@@ -1516,8 +1518,9 @@ python3 -m http.server 8001
       minimum below the maximum`. Both fields are outlined. In 0.5.0 the
       panel quietly drew the automatic range.
 - [ ] Max cleared, min `400`. The note reads `minimum 400 is above the
-      field's maximum … (taken from the data); set a maximum too`, and only
-      the min field is outlined.
+      field's maximum 311.1 (taken from the data); set a maximum too`, the
+      maximum written as the colour bar wrote it, not `311.0986328125`
+      (#1053). Only the min field is outlined.
 - [ ] Min `300`, max `290` again, then click Export PNG: nothing is saved,
       and the line under the toolbar says the export failed and points at the
       range fields. Open Compare and pick a Field B on another grid (needs a
