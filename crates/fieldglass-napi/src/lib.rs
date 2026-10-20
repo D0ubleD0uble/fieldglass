@@ -21,6 +21,7 @@
 
 use fieldglass::netcdf::{
     DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
+    presented_name,
 };
 use fieldglass::render::{Projected, ResolvedOptions};
 use fieldglass::{
@@ -240,7 +241,9 @@ pub fn detect_bytes(bytes: napi::bindgen_prelude::Uint8Array) -> String {
 #[napi(object)]
 #[derive(Debug)]
 pub struct DimensionMeta {
-    /// The dimension's name as the file declares it.
+    /// The dimension's name as the file declares it. One a nested NetCDF-4
+    /// group declares is qualified by that group, spelled as the variable list
+    /// spells it: `PRODUCT/scanline`, with no leading `/` (#1231).
     pub name: String,
     /// Length of the dimension. For the unlimited / record dimension
     /// (`is_record == true`) this is the file's current record count, not the
@@ -272,12 +275,14 @@ pub struct AttributeMeta {
 #[napi(object, use_nullable = true)]
 #[derive(Debug)]
 pub struct VariableMeta {
-    /// The variable's name as the file declares it.
+    /// The variable's name as the file declares it, qualified by its group when
+    /// it lives in a nested one and spelled as the variable list spells it:
+    /// `PRODUCT/qa_value`, with no leading `/` (#1231).
     pub name: String,
     /// The variable's declared element type, e.g. `"short"`, `"double"`.
     pub nc_type: String,
     /// Names of the variable's dimensions, in declared (C) order — slowest
-    /// varying first.
+    /// varying first — each spelled as in `DatasetMeta::dimensions`.
     pub dimensions: Vec<String>,
     /// The variable's CF `units`, typeset for display the way a GRIB unit is
     /// (ADR-0007). `null` when the variable declares none (#775).
@@ -361,7 +366,8 @@ pub struct DatasetMeta {
 #[napi(object)]
 #[derive(Debug)]
 pub struct UnsupportedVariableMeta {
-    /// The variable's name, path-qualified when it lives in a nested group.
+    /// The variable's name, path-qualified when it lives in a nested group, as
+    /// `VariableMeta::name` is: `PRODUCT/sub`, with no leading `/` (#1231).
     pub name: String,
     /// Why it could not be described, as the decoder phrased it.
     pub reason: String,
@@ -463,7 +469,7 @@ fn hdf5_dataset_meta(label: String, superblock: Option<i32>, meta: Hdf5Metadata)
         .unsupported
         .into_iter()
         .map(|u| UnsupportedVariableMeta {
-            name: u.name,
+            name: presented_name(&u.name).to_string(),
             reason: u.reason,
         })
         .collect();
@@ -471,7 +477,7 @@ fn hdf5_dataset_meta(label: String, superblock: Option<i32>, meta: Hdf5Metadata)
         .dimensions
         .into_iter()
         .map(|d| DimensionMeta {
-            name: d.name,
+            name: presented_name(&d.name).to_string(),
             length: d.length as f64,
             is_record: d.is_unlimited,
         })
@@ -483,9 +489,13 @@ fn hdf5_dataset_meta(label: String, superblock: Option<i32>, meta: Hdf5Metadata)
             let attributes: Vec<AttributeMeta> =
                 v.attributes.iter().map(hdf5_attribute_meta).collect();
             VariableMeta {
-                name: v.name,
+                name: presented_name(&v.name).to_string(),
                 nc_type: v.nc_type.name().to_string(),
-                dimensions: v.dimensions,
+                dimensions: v
+                    .dimensions
+                    .iter()
+                    .map(|d| presented_name(d).to_string())
+                    .collect(),
                 units: units_from(&attributes),
                 attributes,
             }
@@ -2425,9 +2435,7 @@ impl NetcdfFile {
     ) -> Result<LineResult, RenderError> {
         let var = self.renderable(variable_index)?;
         let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
-        // The array model names a variable without the leading `/` a NetCDF-4
-        // group path carries in the view.
-        let name = var.name.strip_prefix('/').unwrap_or(&var.name);
+        let name = presented_name(&var.name);
         Ok(fieldglass::line_through(&arrays, name, along_dim, &slice_indices, options)?.into())
     }
 
@@ -2446,8 +2454,8 @@ impl NetcdfFile {
         let var_a = self.renderable(a.variable)?;
         let var_b = self.renderable(b.variable)?;
         let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
-        let name_a = var_a.name.strip_prefix('/').unwrap_or(&var_a.name);
-        let name_b = var_b.name.strip_prefix('/').unwrap_or(&var_b.name);
+        let name_a = presented_name(&var_a.name);
+        let name_b = presented_name(&var_b.name);
         Ok(fieldglass::line_through_combined(
             &arrays,
             (name_a, &a.slice_indices),
@@ -2500,7 +2508,7 @@ impl NetcdfFile {
     pub fn axis_values(&self, variable_index: u32, dim: u32) -> napi::Result<serde_json::Value> {
         let var = self.renderable(variable_index)?;
         let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
-        let name = var.name.strip_prefix('/').unwrap_or(&var.name);
+        let name = presented_name(&var.name);
         let axis = fieldglass::axis_values(&arrays, name, dim).into_napi()?;
         to_js(serde_json::to_value(&axis))
     }
@@ -2538,7 +2546,7 @@ impl NetcdfFile {
         zonal_mean_of(
             &plane,
             &placed,
-            Some(&var.name),
+            Some(presented_name(&var.name)),
             self.slice_units(&var).as_deref(),
         )
     }
@@ -2565,7 +2573,7 @@ impl NetcdfFile {
         zonal_mean_of(
             &combined,
             &placed_a,
-            Some(&var_a.name),
+            Some(presented_name(&var_a.name)),
             self.slice_units(&var_a).as_deref(),
         )
     }
@@ -2903,10 +2911,16 @@ impl NetcdfFile {
         x_dim: usize,
     ) -> napi::Result<SliceResolution> {
         let y_axis = var.dims.get(y_dim).ok_or_else(|| {
-            napi::Error::from_reason(format!("yDim {y_dim} out of range for {}", var.name))
+            napi::Error::from_reason(format!(
+                "yDim {y_dim} out of range for {}",
+                presented_name(&var.name)
+            ))
         })?;
         let x_axis = var.dims.get(x_dim).ok_or_else(|| {
-            napi::Error::from_reason(format!("xDim {x_dim} out of range for {}", var.name))
+            napi::Error::from_reason(format!(
+                "xDim {x_dim} out of range for {}",
+                presented_name(&var.name)
+            ))
         })?;
         if y_dim == x_dim {
             return Err(napi::Error::from_reason(
@@ -9918,5 +9932,90 @@ mod record_dimension_length_tests {
         b.extend(0u32.to_be_bytes()); // record dimension
         b.extend([0u8; 16]); // absent attribute list, absent variable list
         assert_eq!(dims(&b), vec![("time".to_string(), 3.0, true)]);
+    }
+}
+
+/// The file page's tables name a nested group's variables and dimensions as
+/// the variable list does, with no leading `/` (#1231). #704 dropped the `/`
+/// from the list the panel and the Render buttons read; `DatasetMeta` comes
+/// from the reader's own metadata, which keeps the HDF5 path, so the page went
+/// on spelling every grouped name the old way beside buttons spelling it the
+/// new.
+#[cfg(test)]
+mod grouped_metadata_name_tests {
+    use super::*;
+
+    const GROUPED: &[u8] =
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc");
+
+    /// The names the panel's variable list gives, and each one's axes.
+    fn listed() -> Vec<(String, Vec<String>)> {
+        let open = handle::Handle::from_vec(GROUPED.to_vec()).expect("opens");
+        open.variables()
+            .expect("lists")
+            .into_iter()
+            .map(|v| (v.name, v.dims.into_iter().map(|d| d.name).collect()))
+            .collect()
+    }
+
+    #[test]
+    fn variables_and_their_dimensions_are_named_as_the_variable_list_names_them() {
+        let reader = NetcdfReader::from_bytes(GROUPED.to_vec()).expect("opens");
+        let meta = dataset_meta_from(&reader);
+        let listed = listed();
+        assert_eq!(listed.len(), 4, "{listed:?}");
+        for (name, dims) in &listed {
+            let row = meta
+                .variables
+                .iter()
+                .find(|v| &v.name == name)
+                .unwrap_or_else(|| panic!("the metadata names {name} as the list does"));
+            assert_eq!(&row.dimensions, dims, "{name}'s dimensions");
+        }
+        assert!(
+            meta.variables
+                .iter()
+                .any(|v| v.name == "PRODUCT/SUPPORT_DATA/surface_altitude"),
+            "two levels deep"
+        );
+    }
+
+    #[test]
+    fn dimensions_are_named_as_the_axes_are() {
+        let reader = NetcdfReader::from_bytes(GROUPED.to_vec()).expect("opens");
+        let names: Vec<String> = dataset_meta_from(&reader)
+            .dimensions
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        assert_eq!(names, ["time", "PRODUCT/scanline", "PRODUCT/ground_pixel"]);
+    }
+
+    /// No committed file declines a variable inside a group, so this takes the
+    /// declined compound from `netcdf4_unsupported_type.nc`, moves it under
+    /// `/PRODUCT` as the reader would spell it there, and maps the grouped
+    /// file's metadata with it.
+    #[test]
+    fn a_declined_variable_in_a_group_is_named_as_the_others_are() {
+        let mixed = NetcdfReader::from_bytes(
+            include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc")
+                .to_vec(),
+        )
+        .expect("opens");
+        let mut declined = mixed.hdf5_metadata().expect("resolves").unsupported;
+        declined.truncate(1);
+        let bare = declined[0].name.clone();
+        declined[0].name = format!("/PRODUCT/{bare}");
+
+        let reader = NetcdfReader::from_bytes(GROUPED.to_vec()).expect("opens");
+        let mut meta = reader.hdf5_metadata().expect("resolves");
+        meta.unsupported = declined;
+        let page = hdf5_dataset_meta(String::new(), None, meta);
+        let names: Vec<&str> = page
+            .unsupported_variables
+            .iter()
+            .map(|u| u.name.as_str())
+            .collect();
+        assert_eq!(names, [format!("PRODUCT/{bare}")]);
     }
 }

@@ -53,7 +53,7 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 
 - **A GRIB2 message with no forecast or level type leaves it out** of the Compare picker and the panel subtitle, instead of showing a dash. Closes #775.
 
-- **A variable in a nested NetCDF-4 group is named `PRODUCT/latitude`** rather than `/PRODUCT/latitude`, matching how a Zarr store spells the same path. Closes #704.
+- **A variable in a nested NetCDF-4 group is named `PRODUCT/latitude`** rather than `/PRODUCT/latitude`, matching how a Zarr store spells the same path. The file page's Variables, Dimensions and "Variables not decoded" tables use the same spelling as the render panel. Closes #704 and #1231.
 
 - **A file that will not open says so plainly.** A damaged or cut-short GRIB, NetCDF or HDF5 file, or a Zarr store that will not open, shows a short message naming the file. The reader's own error is under Details and in the extension log, not in the message. Closes #1040.
 

@@ -37,6 +37,11 @@
 /// its own `NetcdfReader` reach an operation written against the array model,
 /// such as `crate::line_through` (#172), without a second implementation of it.
 pub use fieldglass_netcdf::NetcdfArrays;
+/// A variable or dimension name as [`NetcdfArrays`] and so `Session` spell it:
+/// a nested NetCDF-4 group's leading `/` dropped (#704). A host showing the
+/// file's own metadata names what it lists with this, so the metadata and the
+/// variable list agree (#1231).
+pub use fieldglass_netcdf::presented_name;
 /// The file's structure as the reader resolved it, and the variables in it.
 ///
 /// A host shows more of a NetCDF file than `Session` describes — the backing's
