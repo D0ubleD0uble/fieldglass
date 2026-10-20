@@ -571,7 +571,7 @@ first)
       points, at steps 7 and 119, and no line drawn between them. Gaps stay
       gaps.
 
-## 5. Any two dimensions as axes (#171, #1099, #1043, #1229)
+## 5. Any two dimensions as axes (#171, #1099, #1043, #1229, #1258)
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
@@ -618,7 +618,10 @@ first)
       1000 mb at the top by default.
 
 A depth axis with fill values used to fail to draw; no file here has one.
-`crates/fieldglass/tests/cross_section_placement.rs` covers it.
+`crates/fieldglass/tests/cross_section_placement.rs` covers it. No file here
+has an unevenly spaced depth axis either, which a rail labels at its own points
+rather than at round depths that would crowd its deep end (#1258);
+`extension/src/test/suite/cross-section.test.ts` covers it.
 
 ## 6. Wind and current arrows (#241, #793, #805, #1049, #1051, #1142)
 
@@ -824,8 +827,8 @@ A depth axis with fill values used to fail to draw; no file here has one.
       near 300 K in the tropics and coldest over Antarctica. The caption ends
       `721 of 721 points`, one per row.
 - [ ] Latitude runs along the bottom, south on the left, ticked at round
-      values evenly spaced, such as `−90, −60, −30, 0, 30, 60, 90`, or every
-      45° when the panel is narrow (#1229). Drag the panel narrower: fewer
+      values evenly spaced: every 15°, 30° or 45° depending on the panel's
+      width, such as `−90, −60, −30, 0, 30, 60, 90` (#1229). Drag the panel narrower: fewer
       round values, never two labels touching. Failure looks like
       `−80.5, −71, −61.5, −52, −42.75`, the latitudes of evenly spaced rows.
 
