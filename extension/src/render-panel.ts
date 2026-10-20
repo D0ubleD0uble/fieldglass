@@ -5700,8 +5700,7 @@ export function renderImagePanelHtml(
        their room (#1228). A wheel or a drag ticks Manual and shows them in
        the middle of the gesture, and the map must not drop under the pointer
        when they do. They follow the zoom buttons, so on Auto the room they
-       keep is at the end of the row. */
-    #bounds-manual-fields.spacing-hidden { visibility: hidden; }
+       keep is at the end of the row. They hide through .spacing-hidden. */
     canvas#canvas {
       max-width: 100%;
       height: auto;
@@ -5785,7 +5784,10 @@ export function renderImagePanelHtml(
        keeps its box in the toolbar's flow, so toggling Graticule on/off can't
        grow the toolbar and shove the canvas down (it also drops the field out
        of the tab order while hidden). */
-    #graticule-spacing-label.spacing-hidden { visibility: hidden; }
+    /* Every field that shows only while its toggle is on: the graticule
+       spacing, the contour interval and the Bounds fields (#1260). One rule,
+       so a field added to the pattern can't be left showing. */
+    .spacing-hidden { visibility: hidden; }
     /* One overlay layer per group: its toggle, then its colour and line weight.
        Keeping the three together stops the row from reading as a loose pile of
        inputs when five layers sit side by side. */
