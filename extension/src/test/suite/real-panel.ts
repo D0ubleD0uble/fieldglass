@@ -831,23 +831,35 @@ const DRIVER = `
       // ends with the click a browser fires after the button comes up, or,
       // released outside the image (m.outside), with none: the browser fires
       // a click on what the press and the release share, not on the image.
+      // A wheel can instead name a point of the page (m.client), as a pointer
+      // held still while the map under it is redrawn (#1228); the reply says
+      // which point it turned at.
       if (m && (m.type === 'test:wheel' || m.type === 'test:drag')) {
         const r = byId('canvas').getBoundingClientRect();
         const at = (f) => ({ clientX: r.left + r.width * f[0], clientY: r.top + r.height * f[1] });
         const wrap = document.querySelector('.canvas-wrap');
+        let point = null;
         if (m.type === 'test:wheel') {
+          point = m.client ? { clientX: m.client[0], clientY: m.client[1] } : at(m.at);
           wrap.dispatchEvent(new WheelEvent('wheel', Object.assign(
-            { bubbles: true, cancelable: true, deltaY: m.deltaY }, at(m.at))));
+            { bubbles: true, cancelable: true, deltaY: m.deltaY }, point)));
         } else {
-          const mid = [(m.from[0] + m.to[0]) / 2, (m.from[1] + m.to[1]) / 2];
-          wrap.dispatchEvent(new MouseEvent('mousedown', Object.assign({ bubbles: true, button: 0 }, at(m.from))));
-          window.dispatchEvent(new MouseEvent('mousemove', Object.assign({ bubbles: true }, at(mid))));
-          window.dispatchEvent(new MouseEvent('mousemove', Object.assign({ bubbles: true }, at(m.to))));
+          // Either end can be a client point ({ client }) instead.
+          const end = (f) => (f.client ? { clientX: f.client[0], clientY: f.client[1] } : at(f));
+          const from = end(m.from);
+          const to = end(m.to);
+          const mid = { clientX: (from.clientX + to.clientX) / 2, clientY: (from.clientY + to.clientY) / 2 };
+          wrap.dispatchEvent(new MouseEvent('mousedown', Object.assign({ bubbles: true, button: 0 }, from)));
+          window.dispatchEvent(new MouseEvent('mousemove', Object.assign({ bubbles: true }, mid)));
+          window.dispatchEvent(new MouseEvent('mousemove', Object.assign({ bubbles: true }, to)));
           const up = m.outside ? document.body : wrap;
-          up.dispatchEvent(new MouseEvent('mouseup', Object.assign({ bubbles: true, button: 0 }, at(m.to))));
-          if (!m.outside) wrap.dispatchEvent(new MouseEvent('click', Object.assign({ bubbles: true, button: 0 }, at(m.to))));
+          up.dispatchEvent(new MouseEvent('mouseup', Object.assign({ bubbles: true, button: 0 }, to)));
+          if (!m.outside) wrap.dispatchEvent(new MouseEvent('click', Object.assign({ bubbles: true, button: 0 }, to)));
         }
-        api.postMessage({ type: 'test:gestured', tag: m.tag, width: r.width, height: r.height });
+        api.postMessage({
+          type: 'test:gestured', tag: m.tag, width: r.width, height: r.height,
+          point: point && [point.clientX, point.clientY], rect: [r.left, r.top, r.width, r.height],
+        });
         return;
       }
       if (!m || (m.type !== 'test:drive' && m.type !== 'test:probe')) return;
@@ -858,15 +870,18 @@ const DRIVER = `
           button: 0,
           // Halfway across and down unless the test names fractions of the
           // width and height.
-          clientX: r.left + r.width * (typeof m.fx === 'number' ? m.fx : 0.5),
-          clientY: r.top + r.height * (typeof m.fy === 'number' ? m.fy : 0.5),
+          clientX: m.client ? m.client[0] : r.left + r.width * (typeof m.fx === 'number' ? m.fx : 0.5),
+          clientY: m.client ? m.client[1] : r.top + r.height * (typeof m.fy === 'number' ? m.fy : 0.5),
         };
         // A press, a release and the click, as a user's click arrives.
         const wrap = document.querySelector('.canvas-wrap');
         wrap.dispatchEvent(new MouseEvent('mousedown', point));
         wrap.dispatchEvent(new MouseEvent('mouseup', point));
         wrap.dispatchEvent(new MouseEvent('click', point));
-        api.postMessage({ type: 'test:probed', tag: m.tag, width: r.width, height: r.height });
+        api.postMessage({
+          type: 'test:probed', tag: m.tag, width: r.width, height: r.height,
+          point: [point.clientX, point.clientY], rect: [r.left, r.top, r.width, r.height],
+        });
         return;
       }
       // A width change is fitted by the page's ResizeObserver, whenever the
@@ -909,6 +924,13 @@ function withDriver(html: string): string {
   return html.replace("</head>", `<script nonce="${nonce[1]}">${DRIVER}</script>\n</head>`);
 }
 
+/** Where a click or a wheel landed, as client coordinates of the page, and
+ *  the image's box (left, top, width, height) as the page had it then. */
+export interface Pointed {
+  point: [number, number];
+  rect: [number, number, number, number];
+}
+
 export interface RealPanel {
   /** What the page sent the provider, oldest first. */
   received: Msg[];
@@ -934,14 +956,24 @@ export interface RealPanel {
   /** Click the middle of the image, as a user reads the value there, or the
    *  point `fy` of the way down it and `fx` of the way across. Resolves once
    *  the page has sent the click; the reply comes after. */
-  probe(fy?: number, fx?: number): Promise<void>;
+  probe(fy?: number, fx?: number): Promise<Pointed>;
+  /** Click the page at the client point `client`, wherever the image is
+   *  now (#1228). */
+  probeAt(client: [number, number]): Promise<Pointed>;
   /** Turn the mouse wheel by `deltaY` over the point `at` of the image, as
-   *  fractions of its width and height from the top left. */
-  wheel(at: [number, number], deltaY: number): Promise<void>;
+   *  fractions of its width and height from the top left, or over the client
+   *  point `{ client }` of the page, wherever the image is now (#1228).
+   *  Resolves to where it turned, and where the image was. */
+  wheel(at: [number, number] | { client: [number, number] }, deltaY: number): Promise<Pointed>;
   /** Drag the image with the left button from `from` to `to`, fractions as
    *  for `wheel`, ending with the click a browser fires on release. With
-   *  `outside`, the button comes up off the image, and no click follows. */
-  drag(from: [number, number], to: [number, number], outside?: boolean): Promise<void>;
+   *  `outside`, the button comes up off the image, and no click follows.
+   *  Either end can be a client point of the page instead (#1228). */
+  drag(
+    from: [number, number] | { client: [number, number] },
+    to: [number, number] | { client: [number, number] },
+    outside?: boolean,
+  ): Promise<void>;
   /** Post `m` to the page as the provider would. */
   post(m: Msg): Promise<void>;
   /** Have the page post `m` to the provider exactly as given, unnumbered
@@ -1059,7 +1091,7 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
   const build = builders.get(panel);
   assert.ok(build, "the panel is tracked for rebuilds");
   let tag = 0;
-  const gesture = async (m: Msg) => {
+  const gesture = async (m: Msg): Promise<Msg> => {
     const mine = ++tag;
     await panel.webview.postMessage({ ...m, tag: mine });
     const reply = await waitUntil(
@@ -1067,6 +1099,17 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       `the page's gesture ${mine}`,
     );
     assert.ok(reply.width > 0 && reply.height > 0, "the image is laid out, so the gesture lands on it");
+    return reply;
+  };
+  const click = async (where: { fy?: number; fx?: number; client?: [number, number] }): Promise<Pointed> => {
+    const mine = ++tag;
+    await panel.webview.postMessage({ type: "test:probe", tag: mine, ...where });
+    const reply = await waitUntil(
+      () => received.find((m) => m.type === "test:probed" && m.tag === mine),
+      `the page's click ${mine}`,
+    );
+    assert.ok(reply.width > 0 && reply.height > 0, "the image is laid out, so a click lands on it");
+    return { point: reply.point, rect: reply.rect };
   };
   return {
     received,
@@ -1080,17 +1123,17 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       );
       return reply.state as PageState;
     },
-    probe: async (fy?: number, fx?: number) => {
-      const mine = ++tag;
-      await panel.webview.postMessage({ type: "test:probe", tag: mine, fy, fx });
-      const reply = await waitUntil(
-        () => received.find((m) => m.type === "test:probed" && m.tag === mine),
-        `the page's click ${mine}`,
+    probe: async (fy?: number, fx?: number) => click({ fy, fx }),
+    probeAt: async (client) => click({ client }),
+    wheel: async (at, deltaY) => {
+      const reply = await gesture(
+        Array.isArray(at) ? { type: "test:wheel", at, deltaY } : { type: "test:wheel", client: at.client, deltaY },
       );
-      assert.ok(reply.width > 0 && reply.height > 0, "the image is laid out, so a click lands on it");
+      return { point: reply.point, rect: reply.rect };
     },
-    wheel: async (at, deltaY) => gesture({ type: "test:wheel", at, deltaY }),
-    drag: async (from, to, outside) => gesture({ type: "test:drag", from, to, outside: outside === true }),
+    drag: async (from, to, outside) => {
+      await gesture({ type: "test:drag", from, to, outside: outside === true });
+    },
     post: async (m) => {
       // Recorded in `sent` by the wrapper above, like the provider's own.
       await panel.webview.postMessage(m);
