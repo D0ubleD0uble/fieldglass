@@ -514,7 +514,8 @@ suite("Zoom and pan through the panel (#1147)", function () {
         { client: [left + width * 0.5, top + height * 0.5] },
       );
       // Past that wait, so a zoom still pending would have been asked for.
-      await new Promise((r) => setTimeout(r, 750));
+      // The page's own clock says when: its timers can run late under load.
+      await panel.pageTimer(300);
       const asks = panel.received.filter(isType("rerenderRequest"));
       const last = asks[asks.length - 1];
       const drawn = await panel.waitSent((m) => m.type === "gridReady" && m.seq === last.seq, 0, "the last render");
@@ -740,10 +741,17 @@ suite("Zoom and pan through the panel (#1147)", function () {
             await panel.controls();
           };
           if (early) {
+            // The Mollweide render is in hand before the wheel turns, so it
+            // lands well inside the 250 ms the wheel waits to settle, however
+            // long the render took (#1257).
+            await waitUntil(() => gate.held.find((g) => g.seq === mollweide.seq), `render ${mollweide.seq}, held back`);
             const turned = panel.received.length;
-            await panel.wheel([0.5, 0.5], -250);
-            // Well inside the 250 ms the wheel waits to settle; then wait on
-            // the page's own clock until it has.
+            const tick = await panel.wheel([0.5, 0.5], -250);
+            // The wheel was taken as a zoom, so the no-render check below is
+            // about a zoom settling, not a wheel the page let go by.
+            assert.strictEqual(tick.prevented, true, "the early wheel is taken, not let through to scroll");
+            assert.notStrictEqual(tick.transform[1], tick.transform[0], "the early wheel zooms the preview");
+            // Then wait on the page's own clock until it has settled.
             await land(mollweide);
             await panel.pageTimer(300);
             assert.deepStrictEqual(
