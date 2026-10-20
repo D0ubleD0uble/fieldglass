@@ -26,6 +26,7 @@ import { createRequire } from 'node:module';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -217,6 +218,28 @@ for (const [what, make] of [
     equal(`${call} refuses ${what}`, [e?.code, String(e?.message).includes('it is not an object')], ['invalid_option', true]);
   }
 }
+// A `SharedArrayBuffer` is binary data too, and so is a buffer made in another
+// realm, for which `instanceof ArrayBuffer` is false. Each was read as an object
+// with no fields, the defaults; the Node addon refuses them all (#1242).
+for (const [what, make] of [
+  ['a SharedArrayBuffer', () => new SharedArrayBuffer(4)],
+  ["another realm's ArrayBuffer", () => runInNewContext('new ArrayBuffer(4)')],
+  ["another realm's SharedArrayBuffer", () => runInNewContext('new SharedArrayBuffer(4)')],
+  ["another realm's Uint8Array", () => runInNewContext('new Uint8Array(1)')],
+]) {
+  for (const [call, read] of [
+    ['decode', (bad) => handle.decode(0, bad)],
+    ['decodeDisplay', (bad) => handle.decodeDisplay(0, bad)],
+    ['warp', (bad) => handle.warp(full, bad)],
+    ['palette', (bad) => handle.palette(full, bad)],
+    ['renderDisplay stats', (bad) => handle.renderDisplay(coarse, bad, {}, false)],
+  ]) {
+    const e = thrown(() => read(make()));
+    equal(`${call} refuses ${what}`, [e?.code, String(e?.message).includes('it is not an object')], ['invalid_option', true]);
+  }
+}
+// Another realm's plain object is still an object.
+equal("another realm's options object reads", thrown(() => handle.decode(0, runInNewContext('({ dtype: "f64" })'))), null);
 
 // The binding refuses the wrong class at runtime as well as in TypeScript.
 equal(

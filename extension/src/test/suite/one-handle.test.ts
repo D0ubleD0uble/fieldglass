@@ -7,6 +7,7 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as vm from "vm";
 import * as vscode from "vscode";
 
 import { loadNative, type FieldglassNative, type Handle, type RenderOptions } from "../../native";
@@ -398,5 +399,120 @@ suite("One handle for every container (#1073)", () => {
       take(grib, 0 as never);
       take(netcdf, slice as never);
     }
+  });
+
+  test("a SharedArrayBuffer and another realm's buffers are binary data too, as on the browser package (#1242)", () => {
+    const native = addon();
+    const grib = native.open(fixture("regular_latlon_surface.grib2"));
+    const netcdf = native.open(fixture("ersst_v5_187001_cdf1.nc"));
+    const sst = netcdf.variables()[0];
+    const render: RenderOptions = {
+      projection: "source",
+      resampling: "nearest",
+      flipY: false,
+    };
+    const slice = {
+      variable: sst.index,
+      yDim: 2,
+      xDim: 3,
+      sliceIndices: [0, 0, 0, 0],
+    };
+    const line = {
+      variable: sst.index,
+      alongDim: 3,
+      sliceIndices: [0, 0, 0, 0],
+    };
+    const combined = {
+      a: line,
+      b: line,
+      op: native.combineOps()[0].value,
+      holdB: false,
+    };
+    const lines = {
+      latlon: new Float64Array(0),
+      ringLengths: new Uint32Array(0),
+    };
+    const stats = grib.decode(0).stats;
+    const display = grib.decodeDisplay(0);
+    // Every object argument the addon reads, then every target and field.
+    const objects: [string, (bad: never) => unknown][] = [
+      ["decode options", (bad) => grib.decode(0, bad)],
+      ["decodeDisplay options", (bad) => grib.decodeDisplay(0, bad)],
+      ["decodeSlice options", (bad) => netcdf.decodeSlice(slice, bad)],
+      ["decodeLine options", (bad) => netcdf.decodeLine(line, bad)],
+      [
+        "decodeLineCombined options",
+        (bad) => netcdf.decodeLineCombined(combined, bad),
+      ],
+      [
+        "full-field stats",
+        (bad) => grib.renderDisplayGrid(display, bad, render),
+      ],
+      ["renderGrid options", (bad) => grib.renderGrid(0, bad)],
+      [
+        "renderDisplayGrid options",
+        (bad) => grib.renderDisplayGrid(display, stats, bad),
+      ],
+      ["projectOverlay options", (bad) => grib.projectOverlay(0, bad, lines)],
+      ["projectContours options", (bad) => grib.projectContours(0, bad)],
+      ["contour spacing", (bad) => grib.projectContours(0, render, bad)],
+      [
+        "projectVectors options",
+        (bad) => grib.projectVectors({ u: 0, v: 0 }, bad),
+      ],
+      ["probePixel options", (bad) => grib.probePixel(0, bad, 0, 0)],
+      ["slice request", (bad) => netcdf.decodeSlice(bad)],
+      ["line request", (bad) => netcdf.decodeLine(bad)],
+      ["combined line", (bad) => netcdf.decodeLineCombined(bad)],
+      ["vector pair", (bad) => grib.projectVectors(bad, render)],
+      ["slice axes", (bad) => netcdf.sliceGrid(bad)],
+      ["polylines", (bad) => grib.projectOverlay(0, render, bad)],
+    ];
+    const targets: [string, (bad: never) => unknown][] = [
+      ["renderGrid", (t) => grib.renderGrid(t, render)],
+      ["projectOverlay", (t) => grib.projectOverlay(t, render, lines)],
+      ["projectContours", (t) => grib.projectContours(t, render)],
+      ["probePixel", (t) => grib.probePixel(t, render, 0, 0)],
+      ["zonalMean", (t) => grib.zonalMean(t)],
+      ["exportCsv", (t) => grib.exportCsv(t, "matrix")],
+    ];
+    const buffers: [string, () => unknown][] = [
+      ["SharedArrayBuffer", () => new SharedArrayBuffer(4)],
+      ["another realm's ArrayBuffer", () => vm.runInNewContext("new ArrayBuffer(4)")],
+      [
+        "another realm's SharedArrayBuffer",
+        () => vm.runInNewContext("new SharedArrayBuffer(4)"),
+      ],
+      ["another realm's Uint8Array", () => vm.runInNewContext("new Uint8Array(1)")],
+    ];
+    for (const [readers, words] of [
+      [objects, /it is not an object/],
+      [targets, /binary data is neither a message index nor a slice/],
+    ] as const) {
+      for (const [what, read] of readers) {
+        for (const [kind, make] of buffers) {
+          let thrown: { code?: string; message?: string } | undefined;
+          try {
+            read(make() as never);
+          } catch (e) {
+            thrown = e as { code?: string; message?: string };
+          }
+          assert.ok(thrown, `${what}: a ${kind} was read`);
+          assert.strictEqual(
+            thrown.code,
+            "invalid_option",
+            `${what}, ${kind}: ${thrown.message}`,
+          );
+          assert.match(String(thrown.message), words, `${what}, ${kind}`);
+        }
+      }
+    }
+
+    // Another realm's plain object is still an object, and its number a
+    // message index.
+    const f64 = vm.runInNewContext('({ dtype: "f64" })') as never;
+    assert.strictEqual(grib.decode(0, f64).dtype, "f64");
+    assert.ok(grib.renderGrid(vm.runInNewContext("0") as never, render).rgba.length > 0);
+    assert.ok(netcdf.decodeSlice(vm.runInNewContext(`(${JSON.stringify(slice)})`) as never).stats.validCount > 0);
   });
 });

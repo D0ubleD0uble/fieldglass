@@ -1682,7 +1682,10 @@ against A op B. The browser package has no Compare line.
   `netcdf.mjs`, `fetchplan.mjs` and `zarr.mjs` check the shared guard with a
   typed array, a `DataView` and an `ArrayBuffer` on `decode`, `decodeDisplay`,
   `warp`, `palette`, the full-field stats, the slice and line requests, `select`
-  and `planWindow`.
+  and `planWindow`. A `SharedArrayBuffer`, and buffers made in another realm
+  with `vm.runInNewContext`, are refused the same way on both hosts (#1242):
+  `a SharedArrayBuffer and another realm's buffers are binary data too, as on
+  the browser package (#1242)` in `one-handle.test.ts`, and `reduced.mjs`.
 - **A panel whose file changed draws the variable it was showing, even on a
   four-dimensional variable (#1202).** The fault is a message from the old page
   arriving just after the redraw, a window no click can hit.
