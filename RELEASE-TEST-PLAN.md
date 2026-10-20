@@ -1578,9 +1578,10 @@ ones; each replaces the other. The caption of each starts with the operation
       at zero, one point per row. Set Field B's `time` to 10: it is no longer
       flat, and is above zero in the northern mid-latitudes. Set Compare back to
       off: the line returns to absolute temperatures, about 220 to 300 K.
-- [ ] **Each replaces the other (#1234).** Untick Zonal average, tick Line plot
-      and click a cell: the cell's line replaces the zonal average and Zonal
-      average unticks. Tick Zonal average: the zonal average replaces the line
+- [ ] **Each replaces the other (#1234).** With the zonal average on screen,
+      tick Line plot (Zonal average stays ticked until you click) and click a
+      cell: the cell's line replaces the zonal average and Zonal average
+      unticks. Tick Zonal average: the zonal average replaces the line
       and Line plot unticks. Click another editor tab in the same group and
       come back: Zonal average is still ticked and Line plot unticked, and a
       click only reads the value. Failure looks like both boxes ticked under

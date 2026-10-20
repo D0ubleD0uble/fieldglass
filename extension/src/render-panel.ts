@@ -4016,9 +4016,8 @@ export function renderImagePanelHtml(
         // The zonal average takes the plot from a cell's line, so the Line plot
         // box unticks, as a click's line unticks Zonal average (offerLine): each
         // replaces the other (#1234). The untick is outside the toolbar, so it
-        // saves itself (#1027). A Line plot box
-        // hidden for this variable keeps its tick, as a hidden Zonal average
-        // box does (#1036).
+        // saves itself (#1027). A Line plot box hidden for this variable keeps
+        // its tick, as a hidden Zonal average box does (#1036).
         function zonalReplacesLine() {
           const toggle = document.getElementById('line-toggle');
           if (lineCell && lineOn()) {
