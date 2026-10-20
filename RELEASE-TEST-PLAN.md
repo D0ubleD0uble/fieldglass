@@ -393,7 +393,9 @@ palette, picking the store's folder.
   several screens tall, and is drawn as tall as a thinner one. The sample
   files have no such variable; `thin-slice.test.ts` draws both, and checks
   that an ordinary 40 × 20 slice and a global map keep their size
-  (#1252).
+  (#1252). In a short, wide editor an ordinary map is also held to 80% of
+  the window's height, so it stops short of the panel's right edge and
+  leaves a gap beside it. That is expected, not a bug.
 - [ ] Copy `air_v2.zarr` to a folder named `air_copy` (no `.zarr` suffix) and
       open that: it opens the same way. The suffix is not what the check uses.
 
