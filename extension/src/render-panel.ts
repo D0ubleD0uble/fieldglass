@@ -203,16 +203,18 @@ function messageOptionsHtml(fields: CompareFieldOption[]): string {
 
 /** The GRIB Compare row: the operation selector plus a Field B message picker.
  *  Omitted (empty string) when there is nothing to compare — fewer than two
- *  messages — so a single-message file shows no Compare row. */
+ *  messages — so a single-message file shows no Compare row. `hidden` while
+ *  the page is written waiting for a pick (#1237). */
 function gribCompareFieldsetHtml(
   fields: CompareFieldOption[],
   combineOps: CombineOpInfo[],
+  hidden = false,
 ): string {
   if (fields.length < 2) {
     return "";
   }
   const options = messageOptionsHtml(fields);
-  return `    <fieldset>
+  return `    <fieldset id="compare-fieldset"${hidden ? " hidden" : ""}>
       <legend>Compare:</legend>
 ${compareOpSelectHtml(combineOps)}
       <label>Field B
@@ -274,9 +276,10 @@ ${options}
  *  steppers for Field B, which is the same variable at a different slice (the
  *  "difference of two time steps / levels" case). The steppers are built
  *  dynamically into `#compare-dims` by the panel script, mirroring Field A's,
- *  each named as Field B's and set apart from Field A's (#1041). */
-function netcdfCompareFieldsetHtml(combineOps: CombineOpInfo[]): string {
-  return `    <fieldset>
+ *  each named as Field B's and set apart from Field A's (#1041). `hidden`
+ *  while the page is written waiting for a pick (#1237). */
+function netcdfCompareFieldsetHtml(combineOps: CombineOpInfo[], hidden = false): string {
+  return `    <fieldset id="compare-fieldset"${hidden ? " hidden" : ""}>
       <legend>Compare:</legend>
 ${compareOpSelectHtml(combineOps)}
       <span class="compare-b slice-steppers" id="compare-dims" role="group" aria-label="Field B"></span>
@@ -1460,7 +1463,7 @@ export function renderImagePanelHtml(
   // The controls the field's grid can't use, which are hidden, and why
   // (#1036). A slice panel follows each slice it draws for these too. A GRIB
   // panel waiting for a message to be picked has no grid to speak for.
-  const unavailable: UnavailableGroup[] = pickMessages
+  const unavailable: UnavailableGroup[] = picking
     ? []
     : unavailableControls(
       {
@@ -2091,7 +2094,9 @@ export function renderImagePanelHtml(
         }
 
         // The element each control the grid can't use is hidden by (#1036).
-        // The long CSV layout has none: the CSV prompt leaves it out.
+        // The long CSV layout has none: the CSV prompt leaves it out. Compare
+        // is never one the grid rules out; it is here to be put away while a
+        // pick is awaited (PICK_HIDES).
         const UNAVAILABLE_ELEMENTS = {
           projection: 'projection-control',
           resampling: 'resampling-control',
@@ -2099,11 +2104,19 @@ export function renderImagePanelHtml(
           contours: 'contour-layer',
           arrows: 'vector-fieldset',
           zonal: 'zonal-control',
+          compare: 'compare-fieldset',
         };
         // What a cross-section puts away whatever its answer says (#171): its
         // axes are not a map, so there is nothing to project or overlay. Its
         // own note says so at once; the line follows with the slice's answer.
         const CROSS_SECTION_HIDES = ['projection', 'resampling', 'overlay'];
+        // What is put away while the panel waits for a message or variable to
+        // be picked (#1237). Nothing is drawn, so a Compare row reading A − B,
+        // or Arrows on with a V component, would describe a picture that is not
+        // on screen, from pickers that list the old file's fields. Hidden, they
+        // keep their values: a GRIB pick finds Field B and the V component
+        // again by identity (#1230).
+        const PICK_HIDES = ['compare', 'arrows'];
 
         // Whether the field on screen can't use a control, by its key.
         function isUnavailable(key) {
@@ -2111,12 +2124,13 @@ export function renderImagePanelHtml(
         }
 
         // Whether a control is put away: the field on screen can't use it, a
-        // cross-section has no map for it, or (Resampling alone, #1091) the
-        // projection is Source, where nothing is resampled. The last is a
-        // choice, not a limit of the grid, so it is not in the "Not
-        // available" line. Hidden, the control keeps its value.
+        // cross-section has no map for it, a pick is awaited (#1237), or
+        // (Resampling alone, #1091) the projection is Source, where nothing is
+        // resampled. The last two are not limits of the grid, so they are not
+        // in the "Not available" line. Hidden, the control keeps its value.
         function controlHidden(key) {
           if (isUnavailable(key) || (isCrossSection() && CROSS_SECTION_HIDES.includes(key))) return true;
+          if (awaitingPick && PICK_HIDES.includes(key)) return true;
           if (key !== 'resampling') return false;
           const picker = document.getElementById('picker-projection');
           return !picker || picker.value === 'source';
@@ -2157,7 +2171,10 @@ export function renderImagePanelHtml(
           if (summary.textContent !== text) summary.textContent = text;
           const items = unavailableItemsHtml(unavailable);
           if (list && list.innerHTML !== items) list.innerHTML = items;
-          const shown = unavailable.length > 0 && !fileClosed;
+          // Nor does it speak for a grid while a pick is awaited: nothing is
+          // drawn, and a slice panel's answer is then for a variable nobody
+          // picked (#1237).
+          const shown = unavailable.length > 0 && !fileClosed && !awaitingPick;
           line.toggleAttribute('hidden', !shown);
           if (focusLost && shown) summary.focus();
         }
@@ -2314,6 +2331,8 @@ export function renderImagePanelHtml(
           if (on) stopAnimation();
           const play = document.getElementById('anim-play');
           if (play) play.disabled = on;
+          // Compare and the arrows go while nothing is drawn (PICK_HIDES).
+          applyUnavailable(unavailable);
         }
 
         function playAnimation() {
@@ -2398,6 +2417,13 @@ export function renderImagePanelHtml(
               .map((v) => '<option value="' + v.index + '">' + escapeAttr(v.name) + '</option>')
               .join('');
             varSel.value = String(sliceState.variableIndex);
+            // A page written while a pick is awaited opens on a blank picker,
+            // with nothing asked for, until the refusal or a render comes
+            // (#1237).
+            if (SLICE.picking === true) {
+              varSel.selectedIndex = -1;
+              setAwaitingPick(true);
+            }
             varSel.addEventListener('change', () => {
               const v = sliceVariable(Number(varSel.value));
               if (!v) return;
@@ -2644,6 +2670,9 @@ export function renderImagePanelHtml(
           // A cross-section's rows are oriented by its Y axis (#1043), so its
           // values are read before the first render that needs them.
           whenYAxisKnown(() => {
+            // A render held for its Y axis is not sent once a pick is awaited
+            // meanwhile: it would draw a variable nobody chose (#1237).
+            if (awaitingPick) return;
             postRerender();
           });
           setStatus('Rendering…');
@@ -2810,9 +2839,23 @@ export function renderImagePanelHtml(
           if (subtitle) subtitle.textContent = SUB_LINE;
         }
 
+        // A slice page written while a pick was awaited opens waiting, and is
+        // shown again from the same HTML after the pick. An answer to its
+        // ready that is not the refusal (a render of the variable picked, or
+        // an error such as the file being closed) says the pick was made: the
+        // wait ends and the picker shows the slice held (#1237). The provider
+        // answers nothing else while a pick is awaited.
+        function endStaleWait() {
+          if (!SLICE || !awaitingPick) return;
+          setAwaitingPick(false);
+          const varSel = document.getElementById('slice-variable');
+          if (varSel && sliceState) varSel.value = String(sliceState.variableIndex);
+        }
+
         function handleGridReady(msg) {
           lastPayload = msg;
           mountAnswered = true;
+          endStaleWait();
           // Re-label for the field actually drawn. A NetCDF panel switches
           // variables inside one webview, and name/units travel with the
           // variable; a GRIB panel sends the same strings every time, so this
@@ -2893,13 +2936,18 @@ export function renderImagePanelHtml(
             ? 'Colour range not drawn: see the range fields'
             : 'Error: ' + err);
           applySliceAnswer(msg.sliceGrid, msg.handleGone === true);
+          if (msg.pickVariable !== true && msg.noVariables !== true) endStaleWait();
           // The variable the panel was showing is gone from its file, and the
           // picker is left with nothing chosen: whichever variable is picked
           // then is a change, and draws. Until then nothing is asked for.
-          if (msg.pickVariable === true) {
+          // A file left with no variable at all is the same: the old file's
+          // picture and heading go (#1237), and a variable the picker still
+          // lists has the panel look at the file again.
+          if (msg.pickVariable === true || msg.noVariables === true) {
             const varSel = document.getElementById('slice-variable');
             if (varSel) varSel.selectedIndex = -1;
             setAwaitingPick(true);
+            clearDrawn();
             // Nor does the heading name a variable, as a GRIB panel's names no
             // message (#1230).
             headNothingDrawn(${JSON.stringify(NO_VARIABLE_HEADING)});
@@ -3073,6 +3121,15 @@ export function renderImagePanelHtml(
           sel.selectedIndex = -1;
           row.hidden = false;
           setAwaitingPick(true);
+          clearDrawn();
+          headNothingDrawn(${JSON.stringify(NO_MESSAGE_HEADING)});
+        }
+
+        // The picture on screen and everything said of it go, for a panel that
+        // waits for a pick: a GRIB panel's message (#959) or a slice panel's
+        // variable (#1237) is no longer in the file. The "Not available" line
+        // goes with setAwaitingPick, which applyUnavailable reads.
+        function clearDrawn() {
           lastPayload = null;
           lastContour = null;
           lastVectors = null;
@@ -3097,10 +3154,6 @@ export function renderImagePanelHtml(
           if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
           const colorbar = document.getElementById('colorbar');
           if (colorbar) colorbar.hidden = true;
-          headNothingDrawn(${JSON.stringify(NO_MESSAGE_HEADING)});
-          // Nor does the "Not available" line speak for a grid any more.
-          const unavailableLine = document.getElementById('unavailable');
-          if (unavailableLine) unavailableLine.hidden = true;
           const probeEl = document.getElementById('probe');
           if (probeEl) probeEl.textContent = '';
           hideLine();
@@ -4549,6 +4602,10 @@ export function renderImagePanelHtml(
             const el = document.querySelector('input[name="' + name + '"]:checked');
             return el ? el.value : undefined;
           };
+          // While a pick is awaited the slice held is the new file's first
+          // variable, which nobody chose: the one saved before stays, so a page
+          // written for a file that has it again restores it (#1237).
+          const held = SLICE && awaitingPick ? (vscode.getState() || {}) : null;
           vscode.setState({
             projection: heldProjection !== null ? heldProjection : val('picker-projection'),
             centerLon: val('picker-center-lon'),
@@ -4616,12 +4673,14 @@ export function renderImagePanelHtml(
             // The line plot's axis as shown, or the saved choice while its
             // picker is empty.
             lineAxis: val('line-axis') || preferredLineAxis || undefined,
-            slice: sliceState,
+            slice: held ? held.slice : sliceState,
             // The variable by name as well as by index: a panel rewritten for
             // a file that changed under it restores by name (#839).
-            sliceName: sliceState && sliceVariable(sliceState.variableIndex)
-              ? sliceVariable(sliceState.variableIndex).name
-              : undefined,
+            sliceName: held
+              ? held.sliceName
+              : sliceState && sliceVariable(sliceState.variableIndex)
+                ? sliceVariable(sliceState.variableIndex).name
+                : undefined,
           });
         }
 
@@ -5473,8 +5532,8 @@ ${slice
       <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
     </div>
 ${colormapFieldsetHtml(colormaps)}
-${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compareFields ?? [], combineOps)}
-${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, hides("arrows"))}
+${slice ? netcdfCompareFieldsetHtml(combineOps, picking) : gribCompareFieldsetHtml(compareFields ?? [], combineOps, picking)}
+${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, hides("arrows") || picking)}
     <fieldset>
       <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>

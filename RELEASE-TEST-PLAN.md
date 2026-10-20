@@ -1043,8 +1043,20 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       picker is blank, the heading reads `No variable drawn` with only the
       file's name under it, and the tab reads `pick a variable ·
       netcdf4_dimscale.nc` (or whatever the copy is called). *Export CSV…*
-      says to pick a variable first. Pick `PRODUCT/qa_value`: it draws under
-      its own heading, and the tab is renamed after it.
+      says to pick a variable first. The Compare row is gone while nothing is
+      drawn.
+- [ ] Before picking, import a colour table (which rebuilds every open
+      panel), then switch to another tab and back to the panel. Each time the
+      panel stays on `No variable drawn` with the Variable picker blank, and
+      draws nothing. Pick `PRODUCT/qa_value`: it draws under its own heading,
+      the tab is renamed after it, and the Compare row is back.
+- [ ] Close the file's editor, overwrite the copy with
+      `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_hdf5_dummy.nc`,
+      which has no variable to draw, and open it again. Make the panel draw
+      again. It says `The NetCDF file no longer has a variable to draw.`, the
+      picture and its colour bar are gone, the heading reads `No variable
+      drawn` with only the file's name under it, and the tab reads `pick a
+      variable · …`.
 
 ## 23. A GRIB panel finds its message after its file changes (#959)
 
@@ -1063,7 +1075,8 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       (member 8 twice), reopen and make the panel draw again. It draws
       nothing, its heading reads `No message drawn`, its tab reads
       `pick a message · members.grib2`, and it lists the file's messages to
-      pick from. Pick message 1: it draws member 8 under its own heading, and
+      pick from. The Compare and Vectors rows are gone until a message is
+      picked. Pick message 1: it draws member 8 under its own heading, and
       the tab is renamed `msg 1 … · members.grib2`. Field B (member 7) is not
       in this file, so Compare is off: Operation reads `(off)`, Field B is
       blank to pick, and the summary under the map names no operation (it
