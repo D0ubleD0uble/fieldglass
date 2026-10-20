@@ -200,7 +200,7 @@ suite("Zoom and pan", () => {
       /zoomMapWindow\(z\.from, z\.mercator, z\.fx, northFraction\(z\.fy, z\.flipped\), z\.factor\)/,
       /applyMapWindow\(z\.target\(\)\)/,
       /panMapWindow\(g\.from, g\.mercator,/,
-      /applyMapWindow\(dragTarget\(g, ev\.clientX, ev\.clientY\)\)/,
+      /const target = dragTarget\(g, ev\.clientX, ev\.clientY\);\s*applyMapWindow\(target, /,
       /if \(suppressNextClick\)/,
     ]) {
       assert.ok(wiring.test(html), `the panel script wires ${wiring}`);
@@ -224,9 +224,10 @@ suite("Zoom and pan through the panel (#1147)", function () {
     flip: boolean,
     body: (panel: RealPanel) => Promise<void>,
     projection = "equirectangular",
+    fixture = "regular_latlon_surface.grib2",
   ): Promise<void> {
     const p = await provider();
-    const file = path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2");
+    const file = path.join(extensionPath(), "src", "test", "fixtures", fixture);
     const editor = await openEditor(p, file);
     const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
     try {
@@ -442,6 +443,93 @@ suite("Zoom and pan through the panel (#1147)", function () {
       } finally {
         await gate.release();
       }
+    });
+  });
+
+  /** A global field: its Auto window is the whole world, 0 to 360. */
+  const WORLD = "spectral_simple_t63.grib2";
+
+  test("a quick scroll over the east of a world map previews the place under the pointer (#1228)", async () => {
+    await onMap(
+      false,
+      async (panel) => {
+        const before = lastDrawn(panel);
+        assert.strictEqual(before.usedLonMax - before.usedLonMin, 360, "the map is the whole world");
+        const first = await panel.probe(0.5, 0.8);
+        const start = await placeAt(panel, first.point, "before the scroll");
+        const gate = panel.hold(isType("gridReady"));
+        try {
+          const received = panel.received.length;
+          // Five notches in one: the window asked for runs past 180 east, so
+          // its west edge is written a turn away from the drawn one's.
+          await panel.wheel({ client: first.point }, -600);
+          await waitUntil(() => panel.received.slice(received).find(isType("rerenderRequest")), "the scroll's render");
+          const previewed = await placeAt(panel, first.point, "on the preview");
+          samePlace(start, previewed, [before, before], "the place under the pointer on the preview");
+        } finally {
+          await gate.release();
+        }
+      },
+      "equirectangular",
+      WORLD,
+    );
+  });
+
+  test("a drag across most of a world map previews the place grabbed under the pointer (#1228)", async () => {
+    await onMap(
+      false,
+      async (panel) => {
+        const before = lastDrawn(panel);
+        const at = await panel.probe(0.5, 0.1);
+        const [left, top, width, height] = at.rect;
+        const from: [number, number] = [left + width * 0.1, top + height * 0.5];
+        const to: [number, number] = [left + width * 0.8, top + height * 0.5];
+        const grabbed = await placeAt(panel, from, "where the drag starts");
+        const gate = panel.hold(isType("gridReady"));
+        try {
+          const received = panel.received.length;
+          // Seven tenths of the width: more than half a turn east.
+          await panel.drag({ client: from }, { client: to });
+          await waitUntil(() => panel.received.slice(received).find(isType("rerenderRequest")), "the drag's render");
+          const previewed = await placeAt(panel, to, "on the preview");
+          samePlace(grabbed, previewed, [before, before], "the place grabbed is under the pointer on the preview");
+        } finally {
+          await gate.release();
+        }
+      },
+      "equirectangular",
+      WORLD,
+    );
+  });
+
+  test("a drag started while a wheel is settling carries on from its zoom (#1228)", async () => {
+    await onMap(false, async (panel) => {
+      const before = lastDrawn(panel);
+      const factor = Math.pow(1.002, -120);
+      const tick = await panel.wheel([0.5, 0.5], -120);
+      // Well inside the 250 ms the wheel waits to settle.
+      const [left, top, width, height] = tick.rect;
+      await panel.drag(
+        { client: [left + width * 0.5, top + height * 0.3] },
+        { client: [left + width * 0.5, top + height * 0.5] },
+      );
+      // Past that wait, so a zoom still pending would have been asked for.
+      await new Promise((r) => setTimeout(r, 750));
+      const asks = panel.received.filter(isType("rerenderRequest"));
+      const last = asks[asks.length - 1];
+      const drawn = await panel.waitSent((m) => m.type === "gridReady" && m.seq === last.seq, 0, "the last render");
+      const window0: MapWindow = {
+        latMin: before.usedLatMin,
+        latMax: before.usedLatMax,
+        lonMin: before.usedLonMin,
+        lonMax: before.usedLonMax,
+      };
+      const want = panMapWindow(zoomMapWindow(window0, false, 0.5, 0.5, factor), false, 0, 0.2);
+      close(drawn.usedLonMax - drawn.usedLonMin, want.lonMax - want.lonMin, "the drag kept the zoom", 1e-3);
+      // A pointer lands on whole pixels, so the drag is good to a pixel.
+      const row = (drawn.usedLatMax - drawn.usedLatMin) / drawn.height;
+      close(drawn.usedLatMax, want.latMax, "and moved it the way it was dragged", 2 * row);
+      close(drawn.usedLatMin, want.latMin, "the whole window", 2 * row);
     });
   });
 

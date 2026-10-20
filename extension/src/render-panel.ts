@@ -3007,9 +3007,11 @@ export function renderImagePanelHtml(
         }
 
         function handleGridError(msg) {
-          clearGesturePreview();
           // A frame that fails ends playback rather than retrying it forever.
           stopAnimation();
+          // As a drawn render: only the answer to the last request ends what
+          // a gesture is waiting for.
+          if (!msg || typeof msg.seq !== 'number' || msg.seq >= renderSeq) clearGesturePreview();
           const err = msg.error || 'render failed';
           const askedKey = takeAskedKey(msg);
           mountAnswered = true;
@@ -3675,8 +3677,10 @@ export function renderImagePanelHtml(
         let suppressNextClick = false;
         let pendingZoom = null;
         // The window the last gesture asked for, until the render for it (or a
-        // later one) is drawn.
+        // later one) is drawn, and how its preview is placed: a drag's keeps
+        // the frame it was dragged in (see previewWindow).
         let gestureWindow = null;
+        let gestureView = null;
 
         // The window the image on screen was rendered for, when a gesture can
         // move it: Rust echoes it for the lat/lon targets. Read in the
@@ -3718,7 +3722,9 @@ export function renderImagePanelHtml(
           return flipped ? 1 - fy : fy;
         }
 
-        function applyMapWindow(w) {
+        // view: the preview to show until the render lands, as previewWindow
+        // takes it ({ t, ref }); w itself unless given.
+        function applyMapWindow(w, view) {
           const manual = document.querySelector('input[name="bounds-mode"][value="manual"]');
           if (manual) manual.checked = true;
           const fields = document.getElementById('bounds-manual-fields');
@@ -3732,7 +3738,8 @@ export function renderImagePanelHtml(
           put('bounds-lon-min', w.lonMin);
           put('bounds-lon-max', w.lonMax);
           gestureWindow = w;
-          previewWindow(w);
+          gestureView = view || { t: w, ref: null };
+          previewWindow(gestureView.t, gestureView.ref);
           snapshotState();
           requestRender();
         }
@@ -3765,8 +3772,14 @@ export function renderImagePanelHtml(
         // drawn into the same box: scaled by the ratio of the spans, and
         // shifted by where its edges fall in t. Longitude and the image rows'
         // own vertical axis (latitude, or Mercator Y) are linear across the
-        // image, so this is exact, slides back from a pole included.
-        function previewWindow(t) {
+        // image, so this is exact, slides back from a pole included. The
+        // drawn image is taken by whole turns to the copy whose middle is
+        // nearest the middle of ref (t unless given): t's west edge is
+        // written in [-180, 180), so on a world-wide window edges can be a
+        // turn apart when the places are not (#1228). A drag passes the
+        // window it started from, with t unwrapped from it, so a drag of
+        // more than half a turn does not jump to the other copy.
+        function previewWindow(t, ref) {
           const d = drawnMapWindow();
           if (!d || !t) { previewTransform('', ''); return; }
           const merc = isMercator();
@@ -3777,35 +3790,59 @@ export function renderImagePanelHtml(
           const dN = toY(d.latMax);
           const dS = toY(d.latMin);
           if (!(tLon > 0) || !(tN > tS)) { previewTransform('', ''); return; }
-          // The drawn west edge, by whole turns, nearest the one asked for.
-          const dWest = d.lonMin + 360 * Math.round((t.lonMin - d.lonMin) / 360);
-          const sx = (d.lonMax - d.lonMin) / tLon;
-          const sy = (dN - dS) / (tN - tS);
-          const tx = (dWest - t.lonMin) / tLon;
+          const r = ref || t;
+          const turns = Math.round(((r.lonMin + r.lonMax) / 2 - (d.lonMin + d.lonMax) / 2) / 360);
+          const dWest = d.lonMin + 360 * turns;
+          let sx = (d.lonMax - d.lonMin) / tLon;
+          let sy = (dN - dS) / (tN - tS);
+          let tx = (dWest - t.lonMin) / tLon;
           // The top of the image is its north, or its south on bottom-up rows.
-          const ty = drawnFlipY() ? (dS - tS) / (tN - tS) : (tN - dN) / (tN - tS);
+          let ty = drawnFlipY() ? (dS - tS) / (tN - tS) : (tN - dN) / (tN - tS);
+          // Gestures chained over renders still on their way can ask for a
+          // scale far past the wheel's own limit; past 64 either way the
+          // image is held at that, about the middle of the box.
+          const held = (sc, tr) => {
+            const capped = Math.min(64, Math.max(1 / 64, sc));
+            return [capped, 0.5 - (capped * (0.5 - tr)) / sc];
+          };
+          [sx, tx] = held(sx, tx);
+          [sy, ty] = held(sy, ty);
           previewTransform(
             'translate(' + tx * 100 + '%, ' + ty * 100 + '%) scale(' + sx + ', ' + sy + ')',
             '0 0',
           );
         }
 
-        // The window the preview stands for: a wheel burst or a drag under
-        // way, else the last gesture's.
-        function previewedWindow() {
-          if (pendingZoom) return pendingZoom.target();
-          if (gesture && gesture.moved && gesture.target) return gesture.target;
-          return gestureWindow;
+        // Preview what is under way: a wheel burst or a drag, else the last
+        // gesture's window. False when there is nothing to preview.
+        function refreshPreview() {
+          if (pendingZoom) { previewWindow(pendingZoom.target()); return true; }
+          if (gesture && gesture.moved && gesture.preview) { previewWindow(gesture.preview, gesture.from); return true; }
+          if (gestureWindow && gestureView) { previewWindow(gestureView.t, gestureView.ref); return true; }
+          return false;
+        }
+
+        // A wheel burst still settling is asked for now, so a gesture or a
+        // button that starts meanwhile carries on from it rather than from
+        // the window before it (#1228).
+        function flushPendingZoom() {
+          const z = pendingZoom;
+          if (!z) return;
+          clearTimeout(z.timer);
+          pendingZoom = null;
+          if (currentMapWindow()) applyMapWindow(z.target());
         }
 
         // A render was drawn. The answer to the last request ends the wait for
         // the gesture's window; an older one, with a gesture's render still on
         // its way, is moved to where it sits in that window.
         function settleGesturePreview(payload) {
-          if (!payload || typeof payload.seq !== 'number' || payload.seq >= renderSeq) gestureWindow = null;
+          if (!payload || typeof payload.seq !== 'number' || payload.seq >= renderSeq) {
+            gestureWindow = null;
+            gestureView = null;
+          }
           if (!drawnMapWindow()) { clearGesturePreview(); return; }
-          const t = previewedWindow();
-          if (t) previewWindow(t); else previewTransform('', '');
+          if (!refreshPreview()) previewTransform('', '');
         }
 
         function clearGesturePreview() {
@@ -3813,6 +3850,7 @@ export function renderImagePanelHtml(
           pendingZoom = null;
           gesture = null;
           gestureWindow = null;
+          gestureView = null;
           previewTransform('', '');
           const wrap = document.querySelector('.canvas-wrap');
           if (wrap) wrap.classList.remove('dragging');
@@ -3844,6 +3882,10 @@ export function renderImagePanelHtml(
         }
 
         function onWheel(ev) {
+          // A wheel turned mid-drag is not taken: the drag's window is not
+          // asked for yet, so a zoom could only start from the one before
+          // it, and the drag would then undo the zoom (#1228).
+          if (gesture && gesture.moved) { ev.preventDefault(); return; }
           const w = currentMapWindow();
           if (!w) return;
           const at = imageFraction(ev.clientX, ev.clientY);
@@ -3875,13 +3917,15 @@ export function renderImagePanelHtml(
           // fires no click to use up the suppression its release set, which
           // would otherwise swallow this press's click and its probe.
           suppressNextClick = false;
-          const w = currentMapWindow();
-          if (ev.button !== 0 || !w) return;
+          if (ev.button !== 0 || !currentMapWindow()) return;
           const at = imageFraction(ev.clientX, ev.clientY);
           if (!at) return;
+          flushPendingZoom();
+          const w = currentMapWindow();
+          if (!w) return;
           gesture = {
             x: ev.clientX, y: ev.clientY, width: at.width, height: at.height, moved: false,
-            from: w, flipped: drawnFlipY(), mercator: isMercator(), target: null,
+            from: w, flipped: drawnFlipY(), mercator: isMercator(), target: null, preview: null,
           };
         }
 
@@ -3893,17 +3937,35 @@ export function renderImagePanelHtml(
           return panMapWindow(g.from, g.mercator, (x - g.x) / g.width, g.flipped ? -dfy : dfy);
         }
 
+        // The same window with its longitudes kept in the frame of the one
+        // the drag started from, for the preview: panMapWindow writes the
+        // west edge in [-180, 180).
+        function dragPreview(g, target, x) {
+          const span = g.from.lonMax - g.from.lonMin;
+          const lonMin = g.from.lonMin - ((x - g.x) / g.width) * span;
+          return { latMin: target.latMin, latMax: target.latMax, lonMin: lonMin, lonMax: lonMin + span };
+        }
+
         function onMouseMove(ev) {
           if (!gesture) return;
           const dx = ev.clientX - gesture.x;
           const dy = ev.clientY - gesture.y;
           // A few pixels of wobble is still a click, which probes.
           if (!gesture.moved && Math.hypot(dx, dy) < 4) return;
+          if (!gesture.moved && pendingZoom) {
+            // A wheel turned between the press and the drag: the drag
+            // carries on from that zoom.
+            flushPendingZoom();
+            const w = currentMapWindow();
+            if (!w) { gesture = null; return; }
+            gesture.from = w;
+          }
           gesture.moved = true;
           const wrap = document.querySelector('.canvas-wrap');
           if (wrap) wrap.classList.add('dragging');
           gesture.target = dragTarget(gesture, ev.clientX, ev.clientY);
-          previewWindow(gesture.target);
+          gesture.preview = dragPreview(gesture, gesture.target, ev.clientX);
+          previewWindow(gesture.preview, gesture.from);
         }
 
         function onMouseUp(ev) {
@@ -3915,10 +3977,12 @@ export function renderImagePanelHtml(
           if (!g.moved) return;
           suppressNextClick = true;
           if (!currentMapWindow()) { clearGesturePreview(); return; }
-          applyMapWindow(dragTarget(g, ev.clientX, ev.clientY));
+          const target = dragTarget(g, ev.clientX, ev.clientY);
+          applyMapWindow(target, { t: dragPreview(g, target, ev.clientX), ref: g.from });
         }
 
         function zoomButton(factor) {
+          flushPendingZoom();
           const w = currentMapWindow();
           if (w) applyMapWindow(zoomMapWindow(w, isMercator(), 0.5, 0.5, factor));
         }
