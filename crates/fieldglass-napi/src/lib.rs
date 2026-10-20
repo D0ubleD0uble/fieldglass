@@ -10,6 +10,14 @@
 //! module's names for what the two share; the per-container files below it
 //! (`Grib1File`, `Grib2File`, `NetcdfFile`, `ZarrStore`) hold the memos the
 //! extension's repaint loop needs (ADR-0011).
+//!
+//! The crate holds no hand-written `unsafe` (ADR-0008): the `unsafe` napi-rs
+//! needs is in its own crates and in the glue `#[napi]` generates. `deny`
+//! rather than the other crates' `forbid`, because that glue allows the lint on
+//! itself, which a `forbid` refuses to compile. A test, `no_unsafe_tests`,
+//! refuses the same allowance written by hand, and any Semgrep suppression,
+//! so the `deny` cannot be lifted quietly (#1242).
+#![deny(unsafe_code)]
 
 use fieldglass::netcdf::{
     DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
@@ -33,8 +41,8 @@ mod directory_store;
 // (#1073).
 mod handle;
 pub use handle::{
-    ContourSpacing, Handle, ObjectArg, Polylines, SliceAxes, TargetArg, VectorPair, is_store, open,
-    open_store, wire_dispose,
+    ContourSpacing, Handle, Polylines, SliceAxes, VectorPair, is_store, open, open_store,
+    wire_dispose,
 };
 
 // This host, run through the ADR-0006 conformance suite that ships in
@@ -48,6 +56,9 @@ mod range_rule_tests;
 // A reduced-resolution decode through the GRIB2 handle (#1082).
 #[cfg(test)]
 mod display_tests;
+// The crate stays free of hand-written `unsafe` (ADR-0008, #1242).
+#[cfg(test)]
+mod no_unsafe_tests;
 
 /// Bridge a foreign crate's error into a `napi::Error` by its `Display` text.
 ///

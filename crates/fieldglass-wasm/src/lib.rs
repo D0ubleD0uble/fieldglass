@@ -181,20 +181,40 @@ fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
         .map_err(|e| js_sys::Error::new(&e.to_string()).into())
 }
 
+#[wasm_bindgen]
+extern "C" {
+    /// `Object.prototype.toString.call(value)`: `[object ArrayBuffer]`,
+    /// `[object SharedArrayBuffer]`, `[object Object]` and so on. The name
+    /// holds for a value from another realm, where `instanceof` does not, and
+    /// the Node addon reads the same name (#1242).
+    #[wasm_bindgen(catch, js_namespace = ["Object", "prototype", "toString"], js_name = call)]
+    fn object_brand(value: &JsValue) -> Result<String, JsValue>;
+}
+
 /// Refuse an argument that is not a plain object, before serde reads it.
 ///
 /// serde reads a struct from a JS array, field by field, so `["f64"]` would
 /// decode at `auto` width and `select([])` would read as an empty query; the
 /// Node addon refuses both, and so does this (#1210, #1221). A string or number
-/// serde refuses itself, but in its own words. A typed array, a `DataView` and
-/// an `ArrayBuffer` are refused too: serde reads each as an empty object, so
-/// `new Uint8Array(1)` would be the defaults. The Node addon refuses all three
-/// (#1239). Only the top level is checked; `sliceIndices` may be a typed array.
+/// serde refuses itself, but in its own words. A typed array, a `DataView`, an
+/// `ArrayBuffer` and a `SharedArrayBuffer` are refused too: serde reads each as
+/// an empty object, so `new Uint8Array(1)` would be the defaults. The Node
+/// addon refuses all four (#1239). Only the top level is checked;
+/// `sliceIndices` may be a typed array.
+///
+/// The two buffers are told by [`object_brand`], not by `instanceof`, which is
+/// false for a buffer made in another realm (a `vm` context, an iframe) and
+/// which no `SharedArrayBuffer` passes at all where the page is not
+/// cross-origin isolated, since the global is absent there. `Array.isArray` and
+/// `ArrayBuffer.isView` hold across realms already (#1242).
 fn refuse_non_object(value: &JsValue, what: &str) -> Result<(), JsValue> {
     if !value.is_object()
         || js_sys::Array::is_array(value)
         || js_sys::ArrayBuffer::is_view(value)
-        || value.is_instance_of::<js_sys::ArrayBuffer>()
+        || matches!(
+            object_brand(value)?.as_str(),
+            "[object ArrayBuffer]" | "[object SharedArrayBuffer]"
+        )
     {
         return Err(unreadable(what, &"it is not an object"));
     }

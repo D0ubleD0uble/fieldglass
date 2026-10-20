@@ -201,12 +201,8 @@ choosing this shape over excluding the rule.
 
 **3. Nothing is filtered after analysis.** The SARIF step that drops
 in-source-suppressed Semgrep results (#524) stays, because it drops only what
-a `nosemgrep` has already silenced. After #528 there were none. Since #1239
-there are four, all `rust.lang.security.unsafe-usage.unsafe-usage` on the
-`unsafe` blocks of the two `FromNapiValue` impls in
-`crates/fieldglass-napi/src/handle.rs`, each reviewed in #1239 against the
-SAFETY comment above it, and the step drops those four. No such step is added
-for CodeQL. What CodeQL reports is what appears.
+a `nosemgrep` has already silenced; after #528 there are none, so it is dormant.
+No such step is added for CodeQL. What CodeQL reports is what appears.
 
 **4. The three `access-invalid-pointer` alerts are dismissed as false
 positives, with the reason recorded** — napi-rs's generated glue, which CodeQL
@@ -253,11 +249,12 @@ hand-written `unsafe`. #659 also added a hand-written path-traversal guard in
 `directory_store.rs`; had CodeQL flagged *that*, the answer would have been to fix
 the code, not to dismiss the finding.
 
-Since #1239 the crate is no longer free of hand-written `unsafe`: `handle.rs`
-has two hand-reviewed `unsafe` `FromNapiValue` impls, for `ObjectArg` and
-`TargetArg`. An alert on those lines is read and answered on its merits, not
-dismissed with the stock comment above, whose "zero hand-written unsafe" no
-longer holds for them.
+"Zero hand-written `unsafe`" is held, not assumed: the crate root is
+`#![deny(unsafe_code)]`, and a test in the crate (`no_unsafe_tests`, run by
+`cargo test --workspace`) refuses an `allow(unsafe_code)` or a `nosemgrep`
+written into its sources, and the `deny` going missing.
+(#1239 briefly broke it with two `unsafe` `FromNapiValue` impls; #1242 read
+the same arguments through napi's safe `FromNapiValue::from_unknown`.)
 
 **5. The CodeQL bundle is not pinned.** A new bundle bringing a batch of
 findings is triage, and triage is the cost of a scanner that improves.
