@@ -1804,17 +1804,22 @@ impl crate::api::GridSupport {
     pub fn of(geometry: &GridGeometry) -> Self {
         // Neither half allocates for a grid that passes: this runs on every
         // `Georef` a session builds.
-        let reprojects = require_reprojectable(geometry, geometry.label()).is_ok();
-        let positions = reprojects && has_forward_map(geometry);
+        let reprojects = || require_reprojectable(geometry, geometry.label()).is_ok();
+        let positions = has_forward_map(geometry) && reprojects();
+        // The warp's own rule, not a list of families: `warp` downgrades
+        // bilinear by the geometry's `resampling()` (#445), so a lookup grid
+        // draws nearest whatever a host asks (#1225). A template this build
+        // does not model never warps, and is answered without formatting the
+        // refusal `require_reprojectable` would build for it.
+        let bilinear = geometry.resampling() == GridResampling::Any
+            && !matches!(geometry, GridGeometry::Unsupported { .. })
+            && (positions || reprojects());
         Self {
             contours: positions,
             vectors: positions,
             long_csv: positions,
             zonal_mean: rows_are_latitude_circles(geometry),
-            // The warp's own rule, not a list of families: `warp` downgrades
-            // bilinear by the geometry's `resampling()` (#445), so a lookup
-            // grid draws nearest whatever a host asks (#1225).
-            bilinear: reprojects && geometry.resampling() == GridResampling::Any,
+            bilinear,
         }
     }
 }
