@@ -429,7 +429,7 @@ suite("The render panel's own script", function () {
     const first = fs.readFileSync(netcdfFixture("missing_value_classic.nc"));
     const second = fs.readFileSync(netcdfFixture("goes16_abi_cmip.nc"));
     const cmi = indexOf(second, "CMI");
-    const { panel, change, done } = await changingFile(first, "temp");
+    const { panel, change, close, reopen, done } = await changingFile(first, "temp");
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       let from = panel.sent.length;
@@ -473,7 +473,7 @@ suite("The render panel's own script", function () {
           `after ${what}, no "Not available" line speaks for a grid nobody picked`,
         );
         assert.ok(
-          !panel.html().includes('<fieldset id="compare-fieldset">'),
+          panel.html().includes('<fieldset id="compare-fieldset" hidden>'),
           "the page is written with Compare put away",
         );
         assert.strictEqual(panel.title(), "pick a variable · changing.nc", what);
@@ -491,6 +491,25 @@ suite("The render panel's own script", function () {
       assert.strictEqual(state.canvasPainted, true, "CMI is drawn");
       assert.strictEqual(state.colorbarShown, true, "with its colour bar");
       assert.strictEqual(panel.title(), "CMI · changing.nc");
+
+      // The page on screen was written while the pick was awaited. Shown
+      // again from that HTML with the file closed, the answer is that the
+      // file is closed, not the refusal: the pick was made, so the page does
+      // not go on waiting, and draws again once the file is open.
+      close();
+      from = panel.sent.length;
+      await panel.hideShow();
+      const closed = await panel.waitSent(drawnOrRefused, from, "the answer with the file closed");
+      assert.strictEqual(closed.error, "NetCDF handle was disposed");
+      state = await panel.drive([]);
+      assert.strictEqual(state.sliceVariable, "CMI", "the picker shows the variable picked");
+      assert.strictEqual(state.playDisabled, false, "and the page is not waiting");
+      await reopen();
+      from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: false }]);
+      const back = await panel.waitSent(drawnOrRefused, from, "the render once the file is open again");
+      assert.strictEqual(back.type, "gridReady", `${back.error ?? ""}`);
+      assert.match(back.titleLine, /^CMI\b/);
 
       // The pick holds: a rebuild now draws CMI again.
       from = panel.sent.length;

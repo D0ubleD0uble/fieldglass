@@ -2839,17 +2839,23 @@ export function renderImagePanelHtml(
           if (subtitle) subtitle.textContent = SUB_LINE;
         }
 
+        // A slice page written while a pick was awaited opens waiting, and is
+        // shown again from the same HTML after the pick. An answer to its
+        // ready that is not the refusal (a render of the variable picked, or
+        // an error such as the file being closed) says the pick was made: the
+        // wait ends and the picker shows the slice held (#1237). The provider
+        // answers nothing else while a pick is awaited.
+        function endStaleWait() {
+          if (!SLICE || !awaitingPick) return;
+          setAwaitingPick(false);
+          const varSel = document.getElementById('slice-variable');
+          if (varSel && sliceState) varSel.value = String(sliceState.variableIndex);
+        }
+
         function handleGridReady(msg) {
           lastPayload = msg;
           mountAnswered = true;
-          // A slice page written while a pick was awaited opens waiting, and
-          // is shown again from the same HTML after the pick. A render then
-          // is of the variable picked, and the picker shows it (#1237).
-          if (SLICE && awaitingPick) {
-            setAwaitingPick(false);
-            const varSel = document.getElementById('slice-variable');
-            if (varSel && sliceState) varSel.value = String(sliceState.variableIndex);
-          }
+          endStaleWait();
           // Re-label for the field actually drawn. A NetCDF panel switches
           // variables inside one webview, and name/units travel with the
           // variable; a GRIB panel sends the same strings every time, so this
@@ -2930,6 +2936,7 @@ export function renderImagePanelHtml(
             ? 'Colour range not drawn: see the range fields'
             : 'Error: ' + err);
           applySliceAnswer(msg.sliceGrid, msg.handleGone === true);
+          if (msg.pickVariable !== true && msg.noVariables !== true) endStaleWait();
           // The variable the panel was showing is gone from its file, and the
           // picker is left with nothing chosen: whichever variable is picked
           // then is a change, and draws. Until then nothing is asked for.
