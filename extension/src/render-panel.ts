@@ -4773,6 +4773,10 @@ export function renderImagePanelHtml(
             // The range the frame on screen was drawn on when playback
             // stopped there (#1227).
             pausedRange: pausedRange ? pausedRange.slice() : undefined,
+            // The page number it was drawn under: the provider numbers a page
+            // afresh only when it writes it for a changed file (#839, #1217),
+            // whose data the range is not of.
+            pausedPage: pausedRange ? PAGE : undefined,
             slice: held ? held.slice : sliceState,
             // The variable by name as well as by index: a panel rewritten for
             // a file that changed under it restores by name (#839).
@@ -4978,11 +4982,14 @@ export function renderImagePanelHtml(
           // Field B's saved indices are for a variable this panel did not adopt.
           if (SLICE && !adopted && sliceState) compareIndices = sliceState.sliceIndices.slice();
           // The range playback stopped on, for the frame it stopped on: only
-          // where that frame is the one restored, on an automatic range
-          // (#1227). Anything else is drawn on its own range.
+          // where that frame is the one restored, from the same file (the
+          // same page number), on an automatic range (#1227). Anything else
+          // is drawn on its own range.
           const r = s.pausedRange;
-          if (adopted && s.rangeMode !== 'manual' && Array.isArray(r) && r.length === 2 &&
+          if (adopted && s.pausedPage === PAGE && s.rangeMode !== 'manual' &&
+              Array.isArray(r) && r.length === 2 &&
               Number.isFinite(r[0]) && Number.isFinite(r[1]) && r[1] > r[0] &&
+              s.slice.sliceIndices.length === sliceState.sliceIndices.length &&
               s.slice.sliceIndices.every((x, i) => x === sliceState.sliceIndices[i])) {
             pausedRange = [r[0], r[1]];
           }

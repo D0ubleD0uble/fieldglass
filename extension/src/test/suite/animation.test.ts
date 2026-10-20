@@ -7,7 +7,8 @@
 // differ; and the transport controls are in a slice panel's markup, wired, and
 // absent from a GRIB panel. Through the real panel: a frame paused on a held
 // range keeps it through a hide/show and a rebuild, and a step or a control
-// change then takes the frame's own range (#1227).
+// change then takes the frame's own range, as does a file changed on disk or
+// reverted (#1227).
 
 import * as assert from "assert";
 import * as fs from "fs";
@@ -50,38 +51,58 @@ const labels = ([lo, hi]: [number, number]): [string, string] => [lo.toPrecision
 
 const drawnOrFailed = (m: Msg) => m && (m.type === "gridReady" || m.type === "gridError");
 
-/** A classic NetCDF file of `air(time, lat, lon)` whose steps range over
- *  `STEPS`, in a real slice panel once its first render has landed. */
-async function openSteps(): Promise<{ panel: RealPanel; close: () => void }> {
+/** The same file with other extremes at every step, for a file that changes. */
+const CHANGED: Array<[number, number]> = [[100, 111], [90, 125], [80, 140], [70, 150]];
+
+/** A classic NetCDF file of `air(time, lat, lon)` whose steps range over `steps`. */
+function stepsFile(steps: Array<[number, number]>): Buffer {
+  return classicNetcdf(
+    [["time", steps.length], ["lat", 3], ["lon", 4]],
+    [
+      { name: "time", dims: ["time"], attrs: { units: "hours since 2024-01-01 00:00:00" }, values: steps.map((_, t) => 6 * t) },
+      { name: "lat", dims: ["lat"], attrs: { units: "degrees_north" }, values: [-10, 0, 10] },
+      { name: "lon", dims: ["lon"], attrs: { units: "degrees_east" }, values: [0, 90, 180, 270] },
+      {
+        name: "air",
+        dims: ["time", "lat", "lon"],
+        attrs: { units: "K" },
+        values: steps.flatMap(([lo, hi]) => Array.from({ length: 12 }, (_, k) => lo + ((hi - lo) * k) / 11)),
+      },
+    ],
+  );
+}
+
+/** `stepsFile(STEPS)` in a real slice panel once its first render has landed.
+ *  `change` rewrites the file as the editor closes and opens it again (#839);
+ *  `revert` rewrites it and runs File: Revert File on it (#1217). */
+async function openSteps(): Promise<{
+  panel: RealPanel;
+  change: (bytes: Buffer) => Promise<void>;
+  revert: (bytes: Buffer) => Promise<void>;
+  close: () => void;
+}> {
   const p = await provider();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-held-"));
   const file = path.join(dir, "steps.nc");
-  fs.writeFileSync(
-    file,
-    classicNetcdf(
-      [["time", STEPS.length], ["lat", 3], ["lon", 4]],
-      [
-        { name: "time", dims: ["time"], attrs: { units: "hours since 2024-01-01 00:00:00" }, values: STEPS.map((_, t) => 6 * t) },
-        { name: "lat", dims: ["lat"], attrs: { units: "degrees_north" }, values: [-10, 0, 10] },
-        { name: "lon", dims: ["lon"], attrs: { units: "degrees_east" }, values: [0, 90, 180, 270] },
-        {
-          name: "air",
-          dims: ["time", "lat", "lon"],
-          attrs: { units: "K" },
-          values: STEPS.flatMap(([lo, hi]) => Array.from({ length: 12 }, (_, k) => lo + ((hi - lo) * k) / 11)),
-        },
-      ],
-    ),
-  );
+  fs.writeFileSync(file, stepsFile(STEPS));
   const native = loadNative();
   assert.ok(native, "native binding required");
   const air = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "air");
   assert.ok(air, "air is renderable");
-  const editor = await openEditor(p, file);
+  let editor = await openEditor(p, file);
   const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: air.index }));
   await panel.waitSent(isType("gridReady"), 0, "the first render");
   return {
     panel,
+    change: async (bytes) => {
+      editor.close();
+      fs.writeFileSync(file, bytes);
+      editor = await openEditor(p, file);
+    },
+    revert: async (bytes) => {
+      fs.writeFileSync(file, bytes);
+      await p.revertCustomDocument(editor.document, new vscode.CancellationTokenSource().token);
+    },
     close: () => {
       panel.dispose();
       editor.close();
@@ -93,15 +114,15 @@ async function openSteps(): Promise<{ panel: RealPanel; close: () => void }> {
 /** Press play, let one frame land, and press pause: the frame shown is then
  *  the one after `step`, drawn on `step`'s range. The speed is slow enough
  *  that the pause lands before the next frame is asked for. */
-async function playOneFrame(panel: RealPanel, step: number): Promise<void> {
+async function playOneFrame(panel: RealPanel, step: number, steps = STEPS): Promise<void> {
   const from = panel.sent.length;
   await panel.drive([{ id: "anim-play", click: true }]);
   const frame = await panel.waitSent(drawnOrFailed, from, "a frame under playback");
   assert.strictEqual(frame.type, "gridReady", frame.error ?? "");
   const paused = await panel.drive([{ id: "anim-play", click: true }]);
-  const next = (step + 1) % STEPS.length;
+  const next = (step + 1) % steps.length;
   assert.ok((paused.animateLabel ?? "").includes(`step ${next} of`), `paused on step ${next}, got ${paused.animateLabel}`);
-  assert.deepStrictEqual(paused.colorbarLabels, labels(STEPS[step]), `step ${next} is drawn on step ${step}'s range`);
+  assert.deepStrictEqual(paused.colorbarLabels, labels(steps[step]), `step ${next} is drawn on step ${step}'s range`);
 }
 
 /** Read the page until its colour bar reads `want`. */
@@ -259,6 +280,47 @@ suite("Time animation", () => {
       await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");
       state = await panel.drive([]);
       assert.deepStrictEqual(state.colorbarLabels, labels(STEPS[0]), "and keeps it when shown again");
+    } finally {
+      close();
+    }
+  });
+
+  // The held range is of the data the frame was drawn from. A file changed on
+  // disk, or read again by File: Revert File, is drawn on its own range.
+  test("a paused frame's held range is not carried onto a changed or reverted file (#1227)", async function () {
+    this.timeout(60_000);
+    const { panel, change, revert, close } = await openSteps();
+    try {
+      await panel.drive([{ id: "anim-speed", value: "0.5" }]);
+      await playOneFrame(panel, 0);
+
+      // The panel finds the change when it next asks: here, as it is shown again.
+      await change(stepsFile(CHANGED));
+      let from = panel.sent.length;
+      await panel.hideShow();
+      let m = await panel.waitSent(drawnOrFailed, from, "the render after the change");
+      assert.strictEqual(m.type, "gridReady", m.error ?? "");
+      await colourBar(panel, labels(CHANGED[1]), "step 1 of the changed file on its own range");
+      let state = await panel.drive([]);
+      assert.ok((state.animateLabel ?? "").includes("step 1 of"), `still on step 1, got ${state.animateLabel}`);
+      from = panel.sent.length;
+      await panel.hideShow();
+      await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");
+      state = await panel.drive([]);
+      assert.deepStrictEqual(state.colorbarLabels, labels(CHANGED[1]), "and no held range comes back with a hide and show");
+
+      // Held again on the changed file, then reverted to the first one.
+      await playOneFrame(panel, 1, CHANGED);
+      from = panel.sent.length;
+      await revert(stepsFile(STEPS));
+      m = await panel.waitSent(drawnOrFailed, from, "the render after the revert");
+      assert.strictEqual(m.type, "gridReady", m.error ?? "");
+      await colourBar(panel, labels(STEPS[2]), "step 2 of the reverted file on its own range");
+      from = panel.sent.length;
+      await panel.hideShow();
+      await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");
+      state = await panel.drive([]);
+      assert.deepStrictEqual(state.colorbarLabels, labels(STEPS[2]), "and keeps it when shown again");
     } finally {
       close();
     }
