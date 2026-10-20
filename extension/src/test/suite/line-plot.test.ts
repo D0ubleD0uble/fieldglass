@@ -264,6 +264,68 @@ suite("The line plot is a choice, off by default (#1037)", function () {
     }
   });
 
+  test("ticking Zonal average over a cell's line unticks Line plot, and a rebuild keeps it so (#1234)", async () => {
+    const { panel, close } = await storePanel([1, 2, 3]);
+    try {
+      let state = await plotted(panel);
+      assert.strictEqual(state.linePlot?.label, "bt at this point, across time", "the cell's line is on screen");
+
+      const from = panel.sent.length;
+      await panel.drive([{ id: "zonal-toggle", checked: true }]);
+      await panel.waitSent(isType("zonalResult"), from, "the zonal average");
+      state = await panel.drive([]);
+      assert.strictEqual(state.linePlot?.shown, true, "the zonal average is drawn");
+      assert.strictEqual(state.linePlot?.label, null, "in place of the cell's line");
+      let controls = await panel.controls();
+      assert.strictEqual(controls["zonal-toggle"], true, "Zonal average is ticked");
+      assert.strictEqual(controls["line-toggle"], false, "and Line plot, whose line it replaced, is not");
+
+      // The untick is outside the toolbar, so it saves itself (#1027).
+      await rebuilt(panel);
+      controls = await panel.controls();
+      assert.strictEqual(controls["line-toggle"], false, "the panel shown again keeps Line plot unticked");
+      assert.strictEqual(controls["zonal-toggle"], true, "and Zonal average ticked");
+      const requests = lineRequests(panel).length;
+      await click(panel);
+      assert.strictEqual(lineRequests(panel).length, requests, "so a click only reads the value");
+      assert.strictEqual((await panel.controls())["zonal-toggle"], true, "and the zonal average stays");
+    } finally {
+      close();
+    }
+  });
+
+  test("a zonal average that comes back with its field replaces the line and unticks Line plot (#1234)", async () => {
+    const { panel, close } = await storePanel([1, 2, 3]);
+    try {
+      await panel.drive([{ id: "zonal-toggle", checked: true }]);
+      const mapX = String((await panel.controls())["slice-x"]);
+      // time against lat is a cross-section, which takes no zonal average: the
+      // box is hidden and keeps its tick (#1036), and a click plots a line.
+      let from = panel.sent.length;
+      await panel.drive([{ id: "slice-x", value: 0 }]);
+      await panel.waitSent(drawnOrRefused, from, "the cross-section");
+      let state = await plotted(panel);
+      assert.strictEqual(state.linePlot?.label, "bt at this point, across time", "the cell's line is on screen");
+
+      // Back on the lat/lon map the zonal average is drawn again.
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-x", value: mapX }]);
+      await panel.waitSent(isType("zonalResult"), from, "the zonal average");
+      state = await panel.drive([]);
+      assert.notStrictEqual(state.controlDisplay.zonal, "none", "the Zonal average box is shown");
+      assert.strictEqual(state.linePlot?.label, null, "the zonal average replaced the line");
+      assert.strictEqual((await panel.controls())["line-toggle"], false, "and Line plot is unticked");
+
+      // The replaced line is gone for good: ticking and unticking Line plot
+      // with no cell to plot leaves the zonal average where it is.
+      await panel.drive([{ id: "line-toggle", checked: true }]);
+      state = await panel.drive([{ id: "line-toggle", checked: false }]);
+      assert.strictEqual(state.linePlot?.shown, true, "the zonal average is still on screen");
+    } finally {
+      close();
+    }
+  });
+
   test("a click leaves a hidden Zonal average box as it was (#1036)", async () => {
     const { panel, close } = await storePanel([1, 2, 3]);
     try {

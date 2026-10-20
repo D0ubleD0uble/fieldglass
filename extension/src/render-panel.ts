@@ -2908,7 +2908,10 @@ export function renderImagePanelHtml(
           // asked for again (#240).
           // The readout's cell goes with the readout either way.
           probedCell = null;
-          if (zonalOn()) requestZonal(); else hideLine();
+          // A zonal average back on a field that takes it again, after a
+          // cell's line drawn where its box was hidden (#1036), replaces that
+          // line as a ticked box would (#1234).
+          if (zonalOn()) { zonalReplacesLine(); requestZonal(); } else hideLine();
           // Reproject the overlay only when the raster *geometry* changed
           // (projection / preset / flip-y / bounds). A range- or resampling-
           // only render leaves the geometry — and the existing overlay — valid,
@@ -4002,13 +4005,28 @@ export function renderImagePanelHtml(
             // Outside the toolbar, so it snapshots for itself (#1027).
             snapshotState();
             if (zonalOn()) {
-              lineCell = null;
-              setAxisPickerHidden(true);
+              zonalReplacesLine();
               requestZonal();
             } else {
               putLineAway();
             }
           });
+        }
+
+        // The zonal average takes the plot from a cell's line, so the Line plot
+        // box unticks, as a click's line unticks Zonal average (offerLine): each
+        // replaces the other (#1234). The untick is outside the toolbar, so it
+        // saves itself (#1027). A Line plot box
+        // hidden for this variable keeps its tick, as a hidden Zonal average
+        // box does (#1036).
+        function zonalReplacesLine() {
+          const toggle = document.getElementById('line-toggle');
+          if (lineCell && lineOn()) {
+            toggle.checked = false;
+            snapshotState();
+          }
+          lineCell = null;
+          setAxisPickerHidden(true);
         }
 
         function handleZonalResult(msg) {
