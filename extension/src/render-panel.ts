@@ -3772,11 +3772,12 @@ export function renderImagePanelHtml(
 
         // Contours-only mode hides the colour raster so the isolines read on a
         // blank background; the overlay canvas (contours + coastlines) stays.
-        // Only while contours apply (#840, #945): on a field that takes none, the
-        // panel would otherwise show nothing at all.
+        // Only while contours are drawn (#840, #945, #1265): on a field that takes
+        // none, or with Contours unticked, the panel would otherwise show nothing
+        // at all.
         function applyContoursOnly() {
           const canvas = document.getElementById('canvas');
-          const only = contoursOffered() && !!(document.getElementById('contours-only') || {}).checked;
+          const only = contoursEnabled() && !!(document.getElementById('contours-only') || {}).checked;
           if (canvas) canvas.style.visibility = only ? 'hidden' : 'visible';
         }
 
@@ -5311,6 +5312,8 @@ export function renderImagePanelHtml(
           if (gl) gl.classList.toggle('spacing-hidden', !s.graticule);
           const cil = document.getElementById('contour-interval-label');
           if (cil) cil.classList.toggle('spacing-hidden', !s.contours);
+          const col = document.getElementById('contours-only-label');
+          if (col) col.classList.toggle('spacing-hidden', !s.contours);
           applyContoursOnly();
           // NetCDF slice: adopt the saved spec only if it still describes a
           // variable in this panel with sane axes; indices clamp per dimension.
@@ -5462,6 +5465,9 @@ export function renderImagePanelHtml(
             contourToggle.addEventListener('change', () => {
               const label = document.getElementById('contour-interval-label');
               if (label) label.classList.toggle('spacing-hidden', !contourToggle.checked);
+              const onlyLabel = document.getElementById('contours-only-label');
+              if (onlyLabel) onlyLabel.classList.toggle('spacing-hidden', !contourToggle.checked);
+              applyContoursOnly();
               requestContours();
             });
           }
@@ -6095,7 +6101,7 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
         <input type="number" id="width-contours" class="layer-width" value="0.8" min="0.2" max="5" step="0.1" aria-label="Contour line weight">
         <label id="contour-interval-label" class="spacing-hidden">interval
           <input type="number" id="contour-interval" min="0" step="any" placeholder="auto" title="Level spacing; blank picks ~8 nice levels"></label>
-        <label><input type="checkbox" id="contours-only"> only</label>
+        <label id="contours-only-label" class="spacing-hidden"><input type="checkbox" id="contours-only"> only</label>
       </span>
     </fieldset>
   </div>
