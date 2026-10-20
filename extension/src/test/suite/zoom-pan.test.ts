@@ -578,7 +578,7 @@ suite("Zoom and pan through the panel (#1147)", function () {
           const wheeled = panel.received.length;
           await panel.wheel([0.5, 0.5], -250);
           // Past the 250 ms the page waits for a wheel to settle.
-          await new Promise((r) => setTimeout(r, 750));
+          await panel.pageTimer(300);
           assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", "Bounds stay on Auto");
           assert.deepStrictEqual(
             panel.received.slice(wheeled).filter(isType("rerenderRequest")),
@@ -681,8 +681,15 @@ suite("Zoom and pan through the panel (#1147)", function () {
     });
   }
 
-  for (const how of ["Reset view", "a typed window"] as const) {
-    test(`a stale Mollweide render landing after ${how} leaves the window asked for in place (#1259)`, async () => {
+  for (const [how, early] of [
+    ["Reset view", false],
+    ["a typed window", false],
+    // A wheel turned at once settles while the stale Mollweide image is up,
+    // with no window to write: it is dropped, and the typed window kept.
+    ["a typed window", true],
+  ] as const) {
+    const when = early ? ", with a wheel settling over it," : "";
+    test(`a stale Mollweide render landing after ${how}${when} leaves the window asked for in place (#1259)`, async () => {
       await onMap(false, async (panel) => {
         await rendered(panel, () => panel.wheel([0.5, 0.5], -250), "the zoom");
         const zoomed = lastDrawn(panel);
@@ -714,19 +721,44 @@ suite("Zoom and pan through the panel (#1147)", function () {
                   ],
                   how,
                 );
-          for (const m of [mollweide, back]) {
+          if (how === "Reset view") {
+            assert.strictEqual(last.boundsLatMin, undefined, "Reset view asks for the grid's own window");
+          } else {
+            assert.deepStrictEqual(
+              [last.boundsLatMin, last.boundsLatMax, last.boundsLonMin, last.boundsLonMax],
+              [typed.latMin, typed.latMax, typed.lonMin, typed.lonMax],
+              "the last ask is the typed window",
+            );
+          }
+          const land = async (m: Msg) => {
             await waitUntil(() => gate.held.find((g) => g.seq === m.seq), `render ${m.seq}, held back`);
             await gate.deliver((g) => g.seq === m.seq);
+            // The page has drawn it once it answers after it.
+            await panel.controls();
+          };
+          if (early) {
+            const turned = panel.received.length;
+            await panel.wheel([0.5, 0.5], -250);
+            // Well inside the 250 ms the wheel waits to settle; then wait on
+            // the page's own clock until it has.
+            await land(mollweide);
+            await panel.pageTimer(300);
+            assert.deepStrictEqual(
+              panel.received.slice(turned).filter(isType("rerenderRequest")),
+              [],
+              "the wheel settling over Mollweide asks for no render",
+            );
+          } else {
+            await land(mollweide);
           }
-          // The page has drawn both once it answers after them.
-          await panel.controls();
+          await land(back);
           assert.strictEqual(lastDrawn(panel).seq, back.seq, "the stale zoomed window is on screen");
 
           const wheeled = panel.received.length;
           await panel.wheel([0.5, 0.5], -250);
           if (how === "Reset view") {
             // Past the 250 ms the page waits for a wheel to settle.
-            await new Promise((r) => setTimeout(r, 750));
+            await panel.pageTimer(300);
             assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", "Bounds stay on Auto");
             assert.deepStrictEqual(
               panel.received.slice(wheeled).filter(isType("rerenderRequest")),
@@ -745,7 +777,6 @@ suite("Zoom and pan through the panel (#1147)", function () {
               1e-3,
             );
           }
-          assert.ok(last.seq > back.seq, "the last ask is the newest");
         } finally {
           await gate.release();
         }

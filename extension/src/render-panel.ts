@@ -4018,6 +4018,14 @@ export function renderImagePanelHtml(
           if (!refreshPreview()) previewTransform('', '');
         }
 
+        // A wheel burst or a drag ended with no window to write. Only it is
+        // dropped: the window asked for before it, or the wait for one,
+        // stays for the latest render to end, as a stale image with no
+        // window can be on screen meanwhile (#1259).
+        function dropGesture() {
+          if (!refreshPreview()) previewTransform('', '');
+        }
+
         function clearGesturePreview() {
           if (pendingZoom && pendingZoom.timer) clearTimeout(pendingZoom.timer);
           pendingZoom = null;
@@ -4080,8 +4088,9 @@ export function renderImagePanelHtml(
             pendingZoom = null;
             if (!z) return;
             // The picker can have left the lat/lon targets while the wheel
-            // settled; then there is no window to write.
-            if (!currentMapWindow()) { clearGesturePreview(); return; }
+            // settled, or a stale image with no window be on screen; then
+            // there is no window to write.
+            if (!currentMapWindow()) { dropGesture(); return; }
             applyMapWindow(z.target());
           }, 250);
         }
@@ -4150,7 +4159,7 @@ export function renderImagePanelHtml(
           if (wrap) wrap.classList.remove('dragging');
           if (!g.moved) return;
           suppressNextClick = true;
-          if (!currentMapWindow()) { clearGesturePreview(); return; }
+          if (!currentMapWindow()) { dropGesture(); return; }
           const target = dragTarget(g, ev.clientX, ev.clientY);
           applyMapWindow(target, { t: dragPreview(g, target, ev.clientX), ref: g.from });
         }
