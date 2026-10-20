@@ -114,6 +114,9 @@ export interface PageState {
   status: string;
   /** The contour, arrow, overlay and export lines (#1051), each its own. */
   contourStatus: string;
+  /** The computed `visibility` of each field the panel shows or hides as its
+   *  toggle changes (`spacing-hidden`, #1260), by element id. */
+  fieldVisibility: Record<"graticule-spacing-label" | "contour-interval-label" | "bounds-manual-fields", string | null>;
   vectorStatus: string;
   overlayStatus: string;
   exportStatus: string;
@@ -586,6 +589,9 @@ const DRIVER = `
         ).join('\\n'),
         status: byId('status').textContent,
         contourStatus: byId('contour-status').textContent,
+        fieldVisibility: Object.fromEntries(
+          ['graticule-spacing-label', 'contour-interval-label', 'bounds-manual-fields']
+            .map((id) => [id, byId(id) ? getComputedStyle(byId(id)).visibility : null])),
         vectorStatus: byId('vector-status').textContent,
         overlayStatus: byId('overlay-status').textContent,
         exportStatus: byId('export-status').textContent,
