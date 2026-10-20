@@ -499,12 +499,14 @@ impl<T: FromNapiValue> FromNapiValue for ObjectArg<T> {
         // SAFETY: the pair napi handed this call, read through napi's own
         // `Unknown` conversion. The value is only inspected, and not kept past
         // this call.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage -- reviewed in #1239, see SAFETY above
         let value = unsafe { Unknown::from_napi_value(env, napi_val) }?;
         if value.get_type()? != napi::ValueType::Object || value.is_array()? || is_binary(&value)? {
             return Ok(Self::NotAnObject);
         }
         // SAFETY: the same pair, given to the conversion napi would have run
         // had the argument been declared as `T`.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage -- reviewed in #1239, see SAFETY above
         unsafe { T::from_napi_value(env, napi_val) }.map(Self::Object)
     }
 }
@@ -546,11 +548,13 @@ impl FromNapiValue for TargetArg {
         napi_val: napi::sys::napi_value,
     ) -> napi::Result<Self> {
         // SAFETY: as in `ObjectArg::from_napi_value`.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage -- reviewed in #1239, see SAFETY above
         let value = unsafe { Unknown::from_napi_value(env, napi_val) }?;
         if is_binary(&value)? {
             return Ok(Self::Binary);
         }
         // SAFETY: as in `ObjectArg::from_napi_value`.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage -- reviewed in #1239, see SAFETY above
         unsafe { serde_json::Value::from_napi_value(env, napi_val) }.map(Self::Json)
     }
 }
