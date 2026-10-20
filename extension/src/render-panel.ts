@@ -203,16 +203,18 @@ function messageOptionsHtml(fields: CompareFieldOption[]): string {
 
 /** The GRIB Compare row: the operation selector plus a Field B message picker.
  *  Omitted (empty string) when there is nothing to compare — fewer than two
- *  messages — so a single-message file shows no Compare row. */
+ *  messages — so a single-message file shows no Compare row. `hidden` while
+ *  the page is written waiting for a pick (#1237). */
 function gribCompareFieldsetHtml(
   fields: CompareFieldOption[],
   combineOps: CombineOpInfo[],
+  hidden = false,
 ): string {
   if (fields.length < 2) {
     return "";
   }
   const options = messageOptionsHtml(fields);
-  return `    <fieldset id="compare-fieldset">
+  return `    <fieldset id="compare-fieldset"${hidden ? " hidden" : ""}>
       <legend>Compare:</legend>
 ${compareOpSelectHtml(combineOps)}
       <label>Field B
@@ -274,9 +276,10 @@ ${options}
  *  steppers for Field B, which is the same variable at a different slice (the
  *  "difference of two time steps / levels" case). The steppers are built
  *  dynamically into `#compare-dims` by the panel script, mirroring Field A's,
- *  each named as Field B's and set apart from Field A's (#1041). */
-function netcdfCompareFieldsetHtml(combineOps: CombineOpInfo[]): string {
-  return `    <fieldset id="compare-fieldset">
+ *  each named as Field B's and set apart from Field A's (#1041). `hidden`
+ *  while the page is written waiting for a pick (#1237). */
+function netcdfCompareFieldsetHtml(combineOps: CombineOpInfo[], hidden = false): string {
+  return `    <fieldset id="compare-fieldset"${hidden ? " hidden" : ""}>
       <legend>Compare:</legend>
 ${compareOpSelectHtml(combineOps)}
       <span class="compare-b slice-steppers" id="compare-dims" role="group" aria-label="Field B"></span>
@@ -1460,7 +1463,7 @@ export function renderImagePanelHtml(
   // The controls the field's grid can't use, which are hidden, and why
   // (#1036). A slice panel follows each slice it draws for these too. A GRIB
   // panel waiting for a message to be picked has no grid to speak for.
-  const unavailable: UnavailableGroup[] = pickMessages
+  const unavailable: UnavailableGroup[] = picking
     ? []
     : unavailableControls(
       {
@@ -2414,6 +2417,13 @@ export function renderImagePanelHtml(
               .map((v) => '<option value="' + v.index + '">' + escapeAttr(v.name) + '</option>')
               .join('');
             varSel.value = String(sliceState.variableIndex);
+            // A page written while a pick is awaited opens on a blank picker,
+            // with nothing asked for, until the refusal or a render comes
+            // (#1237).
+            if (SLICE.picking === true) {
+              varSel.selectedIndex = -1;
+              setAwaitingPick(true);
+            }
             varSel.addEventListener('change', () => {
               const v = sliceVariable(Number(varSel.value));
               if (!v) return;
@@ -2660,6 +2670,9 @@ export function renderImagePanelHtml(
           // A cross-section's rows are oriented by its Y axis (#1043), so its
           // values are read before the first render that needs them.
           whenYAxisKnown(() => {
+            // A render held for its Y axis is not sent once a pick is awaited
+            // meanwhile: it would draw a variable nobody chose (#1237).
+            if (awaitingPick) return;
             postRerender();
           });
           setStatus('Rendering…');
@@ -2829,6 +2842,14 @@ export function renderImagePanelHtml(
         function handleGridReady(msg) {
           lastPayload = msg;
           mountAnswered = true;
+          // A slice page written while a pick was awaited opens waiting, and
+          // is shown again from the same HTML after the pick. A render then
+          // is of the variable picked, and the picker shows it (#1237).
+          if (SLICE && awaitingPick) {
+            setAwaitingPick(false);
+            const varSel = document.getElementById('slice-variable');
+            if (varSel && sliceState) varSel.value = String(sliceState.variableIndex);
+          }
           // Re-label for the field actually drawn. A NetCDF panel switches
           // variables inside one webview, and name/units travel with the
           // variable; a GRIB panel sends the same strings every time, so this
@@ -4574,6 +4595,10 @@ export function renderImagePanelHtml(
             const el = document.querySelector('input[name="' + name + '"]:checked');
             return el ? el.value : undefined;
           };
+          // While a pick is awaited the slice held is the new file's first
+          // variable, which nobody chose: the one saved before stays, so a page
+          // written for a file that has it again restores it (#1237).
+          const held = SLICE && awaitingPick ? (vscode.getState() || {}) : null;
           vscode.setState({
             projection: heldProjection !== null ? heldProjection : val('picker-projection'),
             centerLon: val('picker-center-lon'),
@@ -4641,12 +4666,14 @@ export function renderImagePanelHtml(
             // The line plot's axis as shown, or the saved choice while its
             // picker is empty.
             lineAxis: val('line-axis') || preferredLineAxis || undefined,
-            slice: sliceState,
+            slice: held ? held.slice : sliceState,
             // The variable by name as well as by index: a panel rewritten for
             // a file that changed under it restores by name (#839).
-            sliceName: sliceState && sliceVariable(sliceState.variableIndex)
-              ? sliceVariable(sliceState.variableIndex).name
-              : undefined,
+            sliceName: held
+              ? held.sliceName
+              : sliceState && sliceVariable(sliceState.variableIndex)
+                ? sliceVariable(sliceState.variableIndex).name
+                : undefined,
           });
         }
 
@@ -5498,8 +5525,8 @@ ${slice
       <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
     </div>
 ${colormapFieldsetHtml(colormaps)}
-${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compareFields ?? [], combineOps)}
-${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, hides("arrows"))}
+${slice ? netcdfCompareFieldsetHtml(combineOps, picking) : gribCompareFieldsetHtml(compareFields ?? [], combineOps, picking)}
+${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, hides("arrows") || picking)}
     <fieldset>
       <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>

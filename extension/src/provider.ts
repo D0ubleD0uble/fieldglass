@@ -1654,6 +1654,11 @@ export class FieldglassEditorProvider
     // with the new file's first variable (#1237). Declared before the first
     // write, which reads it.
     let refusal: string | null = null;
+    // While a pick is awaited, the variable the panel last drew, by name. The
+    // page's own slice is then the new file's first variable, which nobody
+    // picked, so a further change to the file looks for this one instead, as
+    // a GRIB panel goes on refusing until a pick (#1237).
+    let lost: string | null = null;
     const write = () => {
       panel.webview.html = renderImagePanelHtml(
         panel.webview,
@@ -1673,8 +1678,18 @@ export class FieldglassEditorProvider
     };
     this.trackRenderPanel(panel, write, subject.document);
 
-    const adopt = (current: Handle, asked: SliceSpec | undefined, ask: { seq?: number } = {}): void => {
-      const name = (variables.find((v) => v.index === asked?.variableIndex) ?? initialVar).name;
+    // `picked`: the request is a render, which a page waiting for a pick asks
+    // for only once a variable is picked, so its slice names a choice.
+    const adopt = (
+      current: Handle,
+      asked: SliceSpec | undefined,
+      ask: { seq?: number } = {},
+      picked = false,
+    ): void => {
+      const name = refusal !== null && lost !== null && !picked
+        ? lost
+        : (variables.find((v) => v.index === asked?.variableIndex) ?? initialVar).name;
+      lost = null;
       const next = listVariablesOf(current);
       const same = next.find((v) => v.name === name);
       const opened = same ?? next[0];
@@ -1684,6 +1699,7 @@ export class FieldglassEditorProvider
         // variable (#1237). The gate keeps the old handle, so the next request
         // looks at the file again.
         refusal = `The ${subject.container} ${subject.noun} no longer has a variable to draw.`;
+        lost = name;
         panel.title = composeTabTitle("pick a variable", subject.source);
         panel.webview.postMessage({
           type: "gridError",
@@ -1700,6 +1716,7 @@ export class FieldglassEditorProvider
       initial = defaultSliceSpec(opened);
       slice = { variables, initial };
       refusal = same ? null : `${name} is no longer in the ${subject.noun}, so nothing was drawn. Pick a variable to draw.`;
+      lost = same ? null : name;
       const grid = gridOf(current, initial);
       shown = { meta: sliceField(opened, grid), grid };
       // The tab names no variable either while one is to be picked, as a GRIB
@@ -1976,7 +1993,7 @@ export class FieldglassEditorProvider
         if (!m || typeof m.type !== "string") return;
         const current = subject.handle();
         const served = gate.admit(m as { type: string }, current, (h) => {
-          adopt(h, (m as { slice?: SliceSpec }).slice, answeredSeq(m));
+          adopt(h, (m as { slice?: SliceSpec }).slice, answeredSeq(m), m.type === "rerenderRequest");
           return false;
         });
         if (!served) return;
@@ -1985,16 +2002,22 @@ export class FieldglassEditorProvider
           panel.webview.postMessage({
             type: "gridError",
             messageIndex: spec.variableIndex,
-            error: refusal,
+            // With the file closed meanwhile, that is what is said; the page
+            // still waits for a pick, which the file opened again answers.
+            error: current ? refusal : subject.gone,
             ...seqOf(m),
             sliceGrid: sliceAnswer(current ? gridOf(current, spec) : null),
             pickVariable: true,
+            ...(current ? {} : { handleGone: true }),
           } satisfies GridErrorMessage);
           return;
         }
         // The page asks for no render while it waits for a pick, so the next
         // one it asks for draws the variable picked (#1237).
-        if (m.type === "rerenderRequest") refusal = null;
+        if (m.type === "rerenderRequest") {
+          refusal = null;
+          lost = null;
+        }
         // `ready` carries the webview's (state-restored) selections and slice,
         // exactly like a rerenderRequest, so a remount repaints what the user
         // had; a fresh panel sends its defaults.

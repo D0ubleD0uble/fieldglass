@@ -66,6 +66,8 @@ async function changingFile(
   panel: RealPanel;
   change(bytes: Buffer): Promise<void>;
   changeNow(bytes: Buffer): void;
+  close(): void;
+  reopen(): Promise<void>;
   done(): void;
 }> {
   const p = await provider();
@@ -95,6 +97,11 @@ async function changingFile(
       const handles = (p as any)._netcdfHandlesByDoc as Map<string, unknown>;
       assert.ok(handles.has(vscode.Uri.file(file).toString()), "the document has a handle to replace");
       handles.set(vscode.Uri.file(file).toString(), native.open(bytes));
+    },
+    // The editor closes, which drops its handle, and opens the file again.
+    close: () => editor.close(),
+    reopen: async () => {
+      editor = await openEditor(p, file);
     },
     done: () => {
       panel.dispose();
@@ -461,6 +468,14 @@ suite("The render panel's own script", function () {
         assert.strictEqual(state.playDisabled, true, what);
         assert.strictEqual(state.compareShown, false, `after ${what}, Compare is still put away`);
         assert.strictEqual(state.canvasPainted, false, `after ${what}, nothing is drawn`);
+        assert.ok(
+          state.unavailable === null || state.unavailable.display === "none",
+          `after ${what}, no "Not available" line speaks for a grid nobody picked`,
+        );
+        assert.ok(
+          !panel.html().includes('<fieldset id="compare-fieldset">'),
+          "the page is written with Compare put away",
+        );
         assert.strictEqual(panel.title(), "pick a variable · changing.nc", what);
         assert.ok(!panel.sent.slice(from).some(isType("gridReady")), `nothing is drawn after ${what}`);
       }
@@ -483,6 +498,73 @@ suite("The render panel's own script", function () {
       const redrawn = await panel.waitSent(drawnOrRefused, from, "the render after a rebuild");
       assert.strictEqual(redrawn.type, "gridReady", `${redrawn.error ?? ""}`);
       assert.match(redrawn.titleLine, /^CMI\b/);
+    } finally {
+      done();
+    }
+  });
+
+  // The file changes again while the panel waits for a pick (#1237). The
+  // page's slice is then the first variable of the file in between, which
+  // nobody picked: the panel goes on looking for the variable it drew last,
+  // and draws it once a file holds it again. With the file closed meanwhile,
+  // it says so, and still waits.
+  test("a slice panel waiting for a pick looks for its own variable through further changes (#1237)", async () => {
+    const first = fs.readFileSync(netcdfFixture("missing_value_classic.nc"));
+    const second = fs.readFileSync(netcdfFixture("goes16_abi_cmip.nc"));
+    const third = fs.readFileSync(netcdfFixture("ersst_v5_187001_cdf1.nc"));
+    const { panel, change, close, reopen, done } = await changingFile(first, "temp");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await change(second);
+      let from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      assert.strictEqual((await panel.waitSent(drawnOrRefused, from, "the refusal")).type, "gridError");
+
+      // Closed while waiting: a rebuild says the file is closed, not drawn.
+      close();
+      from = panel.sent.length;
+      panel.rebuild();
+      const closed = await panel.waitSent(drawnOrRefused, from, "the answer with the file closed");
+      assert.strictEqual(closed.type, "gridError", `drew "${closed.titleLine}"`);
+      assert.strictEqual(closed.error, "NetCDF handle was disposed");
+      let state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_VARIABLE_HEADING);
+      assert.strictEqual(state.sliceVariable, "", "still waiting for a pick");
+      await reopen();
+
+      // The same file written again: CMI, the variable the page holds, is
+      // in it, but nobody picked CMI.
+      await change(second);
+      from = panel.sent.length;
+      panel.rebuild();
+      const again = await panel.waitSent(drawnOrRefused, from, "the answer after the file is written again");
+      assert.strictEqual(again.type, "gridError", `drew "${again.titleLine}", which nobody picked`);
+      assert.match(again.error, /temp is no longer in the file/);
+
+      // A third file, without temp: still refused, by temp's name.
+      await change(third);
+      from = panel.sent.length;
+      panel.rebuild();
+      const refused = await panel.waitSent(drawnOrRefused, from, "the answer after another change");
+      assert.strictEqual(refused.type, "gridError", `drew "${refused.titleLine}", which nobody picked`);
+      assert.match(refused.error, /temp is no longer in the file/);
+      state = await panel.drive([]);
+      assert.ok(!(state.sliceVariables ?? []).includes("CMI"), "the list is the third file's");
+      assert.strictEqual(state.title, NO_VARIABLE_HEADING);
+      assert.strictEqual(state.sliceVariable, "");
+      assert.ok(!panel.sent.slice(from).some(isType("gridReady")), "nothing is drawn");
+
+      // The first file again: temp is drawn, by name, under its own heading.
+      await change(first);
+      from = panel.sent.length;
+      panel.rebuild();
+      const drawn = await panel.waitSent(drawnOrRefused, from, "temp, back in the file");
+      assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
+      assert.match(drawn.titleLine, /^temp\b/);
+      state = await panel.drive([]);
+      assert.strictEqual(state.sliceVariable, "temp");
+      assert.strictEqual(state.playDisabled, false);
+      assert.strictEqual(panel.title(), "temp · changing.nc");
     } finally {
       done();
     }
