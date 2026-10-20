@@ -181,16 +181,26 @@ fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
         .map_err(|e| js_sys::Error::new(&e.to_string()).into())
 }
 
+/// Refuse an argument that is not a plain object, before serde reads it.
+///
+/// serde reads a struct from a JS array, field by field, so `["f64"]` would
+/// decode at `auto` width and `select([])` would read as an empty query; the
+/// Node addon refuses both, and so does this (#1210, #1221). A string or number
+/// serde refuses itself, but in its own words. A typed array is refused too:
+/// serde reads it as an empty object, so `new Uint8Array(1)` would be the
+/// defaults. Only the top level is checked; `sliceIndices` may be one.
+fn refuse_non_object(value: &JsValue, what: &str) -> Result<(), JsValue> {
+    if !value.is_object() || js_sys::Array::is_array(value) || js_sys::ArrayBuffer::is_view(value) {
+        return Err(unreadable(what, &"it is not an object"));
+    }
+    Ok(())
+}
+
 fn from_js<T: serde::de::DeserializeOwned + Default>(value: JsValue) -> Result<T, JsValue> {
     if value.is_undefined() || value.is_null() {
         return Ok(T::default());
     }
-    // serde reads a struct from a JS array, field by field, so `["f64"]` would
-    // decode at `auto` width; the Node addon refuses it, and so does this (#1210).
-    // A string or number serde refuses itself, but in its own words.
-    if !value.is_object() || js_sys::Array::is_array(&value) {
-        return Err(unreadable("options object", &"it is not an object"));
-    }
+    refuse_non_object(&value, "options object")?;
     // `invalid_option`, with its `code`, as every other refused argument is and
     // as the Node addon refuses the same object (#1073).
     serde_wasm_bindgen::from_value(value).map_err(|e| unreadable("options object", &e))
@@ -207,6 +217,7 @@ fn from_js<T: serde::de::DeserializeOwned + Default>(value: JsValue) -> Result<T
 /// Shared by the planner's arguments and the Zarr window's (#1081, #1083).
 #[cfg(any(feature = "fetchplan", feature = "zarr"))]
 fn strict<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<T, JsValue> {
+    refuse_non_object(&value, what)?;
     let json: serde_json::Value =
         serde_wasm_bindgen::from_value(value).map_err(|e| unreadable(what, &e))?;
     serde_json::from_value(json).map_err(|e| unreadable(what, &e))
@@ -224,9 +235,7 @@ fn request<T: serde::de::DeserializeOwned + Fields>(
     value: JsValue,
     what: &str,
 ) -> Result<T, JsValue> {
-    if !value.is_object() {
-        return Err(unreadable(what, &"it is not an object"));
-    }
+    refuse_non_object(&value, what)?;
     let object: &js_sys::Object = value.unchecked_ref();
     let keys = js_sys::Object::keys(object);
     for key in keys.iter() {
@@ -934,10 +943,7 @@ fn full_stats_from_js(value: JsValue) -> Result<Option<Stats>, JsValue> {
     if value.is_undefined() || value.is_null() {
         return Ok(None);
     }
-    // An array would read as `Stats` field by field, as options did (#1210).
-    if !value.is_object() || js_sys::Array::is_array(&value) {
-        return Err(unreadable("full-field stats", &"it is not an object"));
-    }
+    refuse_non_object(&value, "full-field stats")?;
     serde_wasm_bindgen::from_value(value)
         .map(Some)
         .map_err(|e| {

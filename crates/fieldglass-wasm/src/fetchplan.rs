@@ -35,8 +35,10 @@ fn resolver() -> &'static TableResolver {
 }
 
 /// Read a required argument: unlike an options object, `null` is not "all
-/// defaults" but a mistake, and is refused as one.
+/// defaults" but a mistake, and is refused as one. An array is refused too, as
+/// serde would read it by position (#1221).
 fn required<T: serde::de::DeserializeOwned>(value: JsValue, what: &str) -> Result<T, JsValue> {
+    crate::refuse_non_object(&value, what)?;
     serde_wasm_bindgen::from_value(value).map_err(|e| unreadable(what, &e))
 }
 
