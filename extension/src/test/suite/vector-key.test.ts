@@ -506,8 +506,8 @@ suite("Vector key (#1046)", () => {
       // The image is drawn no taller than 80vh (#1252), so however wide the
       // panel, this 2:1 map is no wider than the row or 80% of the page's
       // height times its aspect, whichever is less: about 1,120 px on a 702 px
-      // page. The bar follows that width rather than the window's, with a
-      // tenth of it spare, so it holds in a short window too. It only says the
+      // page. The bar follows that width rather than the window's width, with a
+      // tenth of it spare, so it holds in a short panel too. It only says the
       // canvas is drawn well over the raster; the guard that matters is the
       // label's size in the PNG below (`fontPx` 11).
       const { image, plotRow, viewportHeight } = large.state;

@@ -3,7 +3,7 @@
 //
 // The panel caps every image at 80% of the page's height times its aspect, plus
 // the canvas's 2 px border (`.canvas-wrap` in render-panel.ts), so the width a
-// test expects depends on the window's height and on how much room the row
+// test expects depends on the panel's height and on how much room the row
 // gives: a tall, narrow editor leaves the row as the limit, a wide, short one
 // leaves the cap.
 

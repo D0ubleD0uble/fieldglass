@@ -121,11 +121,12 @@ interface Layout {
 
 /** The image is as wide as its row, or, if the row is wider than the cap
  *  (80% of the page's height times the image's aspect, #1252), as wide as the
- *  cap. {@link expectedImageWidth} is that width, so the check holds in a
- *  window of any shape. Within 2 px either way: the border is 1 px, and a
+ *  cap. {@link expectedImageWidth} is that width, so the check holds in a panel
+ *  of any shape. Within 2 px either way: the border is 1 px, and a
  *  raster wider than the panel is narrowed to the row's width inside its
  *  border, so its right border is clipped. `aspect` is the raster's width over
- *  its height, which is the aspect the image is drawn at. */
+ *  its height, which is the aspect the image is drawn at: a caller with an image
+ *  held to 8:1 must pass the held aspect, not the raster's. */
 function assertAcrossRow(d: Layout, aspect: number, what: string): void {
   const expected = expectedImageWidth(d.viewport, aspect, d.room);
   assert.ok(
@@ -293,10 +294,10 @@ suite("A very thin slice is drawn at a paintable size (#1226)", function () {
     }
   });
 
-  test("An ordinary 40 × 20 slice in a wide, short window is held to 80% of the page's height", async () => {
+  test("An ordinary 40 × 20 slice in a wide, short panel is held to 80% of the panel's height", async () => {
     const d = await draw("ordinary");
     try {
-      // A body wider than the cap is a wide, short window: the page's height
+      // A body wider than the cap is a wide, short panel: the page's height
       // is unchanged, the row is much wider than 80% of it times 2.
       const w = await widened(d.panel, Math.ceil(0.8 * d.viewport * 2) * 2 + 400);
       const cap = 0.8 * w.viewport * 2 + 2;
@@ -305,7 +306,7 @@ suite("A very thin slice is drawn at a paintable size (#1226)", function () {
         Math.abs(w.width + 2 - cap) <= 2,
         `the image is ${(w.width + 2).toFixed(1)} px wide, not held to the cap of ${cap.toFixed(1)} px`,
       );
-      assertAcrossRow(w, 2, "40 × 20 in a wide window");
+      assertAcrossRow(w, 2, "40 × 20 in a wide panel");
       assert.ok(Math.abs(w.width / w.height - 2) < 0.02, "and it keeps its 2:1 aspect");
     } finally {
       d.close();
@@ -443,7 +444,7 @@ suite("A lat/lon map keeps its own shape (#1226)", function () {
     });
   });
 
-  test("an ordinary global map keeps the panel's width (#1252)", async () => {
+  test("an ordinary global map fills its row, up to the 80vh cap (#1252)", async () => {
     // 90° S to 90° N round the globe at 5°: 72 × 37, about 2:1.
     await onMap(steps(-90, 5, 37), steps(0, 5, 72), "equirectangular", (grid, d) => {
       const raster = grid.width / grid.height;
