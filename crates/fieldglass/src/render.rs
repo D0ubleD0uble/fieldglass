@@ -1794,7 +1794,7 @@ impl crate::api::GridSupport {
     /// degenerate constants has one that places nothing. The zonal mean asks the check `zonal_mean`
     /// makes, whether the rows are circles of latitude. `bilinear` asks the
     /// rule `warp` applies before it resamples, the geometry's `resampling()`,
-    /// for a grid that reprojects at all (#1225). (Named, not linked:
+    /// for a geometry that places something (#1225); the scan is not asked. (Named, not linked:
     /// the operations are behind `render` and `analysis`, and this is not.)
     ///
     /// Hosts read these from [`Georef::supports`](crate::Georef::supports) and
@@ -5166,8 +5166,8 @@ mod planar_geolocation_tests {
 
     /// Bilinear is offered exactly where the warp would blend (#1225): every
     /// formula grid that reprojects, the space view included, and no lookup
-    /// grid, which `warp` draws nearest whatever it is asked. A grid that does
-    /// not reproject has no warp to resample, whatever its family.
+    /// grid, which `warp` draws nearest whatever it is asked. A geometry that
+    /// places nothing has no warp to resample, whatever its family.
     #[test]
     fn bilinear_is_offered_where_the_warp_blends() {
         for (grid_type, _) in GEOLOCATABLE_GRIDS
@@ -5195,7 +5195,7 @@ mod planar_geolocation_tests {
         assert_eq!(unmodelled.resampling(), GridResampling::Any);
         assert!(
             !crate::api::GridSupport::of(&unmodelled).bilinear,
-            "a grid that does not reproject has nothing to resample"
+            "a geometry that places nothing has nothing to resample"
         );
     }
 

@@ -260,8 +260,9 @@ small, and it is *not* a substitute for the per-feature sections below it.
       the line under the caption reads `Not available for this grid:
       Resampling, Zonal average`, starts closed, and opens (click, or Tab to
       it and press Enter) to `Resampling: this grid places each cell by
-      its own coordinates, so the map always shows the nearest cell.` and `Zonal average: this grid's rows aren't circles of
-      latitude.` Nothing is greyed out.
+      its own coordinates, so the map always shows the nearest cell.` and
+      `Zonal average: this grid's rows aren't circles of latitude.` Nothing
+      is greyed out.
 - [ ] **Resampling shows only when the projection warps** (#1091). On
       `gfs.grib2` with Projection on Source projection there is no
       Resampling picker. Choose Equirectangular: it appears. Set it to

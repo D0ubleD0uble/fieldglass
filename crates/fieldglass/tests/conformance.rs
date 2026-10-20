@@ -441,10 +441,18 @@ fn assert_bilinear_agrees(
 
     let supports = field.georef.supports;
     if !field.georef.reprojectable {
-        assert!(
-            !supports.bilinear,
-            "{what}: no warp, so nothing to resample"
-        );
+        // Asked of the geometry alone, not the scan: a lat/lon grid scanned
+        // east to west keeps `bilinear` and a host reads `reprojectable` too.
+        // A geometry that places nothing never warps.
+        if matches!(
+            field.georef.geometry,
+            fieldglass::GridGeometry::Unsupported { .. }
+        ) {
+            assert!(
+                !supports.bilinear,
+                "{what}: no warp, so nothing to resample"
+            );
+        }
         return;
     }
     let draw = |resampling: &str| {
