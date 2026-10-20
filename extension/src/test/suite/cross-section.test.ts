@@ -20,6 +20,7 @@ import {
   isMapSlice,
   layoutAxisLabels,
   niceTicks,
+  railTicks,
   renderImagePanelHtml,
   type PanelField,
   type SlicePanelData,
@@ -206,6 +207,75 @@ suite("Cross-sections", () => {
       assert.deepStrictEqual(at(coordinateTicks(depth, 5)), [
         ["0", 0], ["200", 3], ["400", 3.25], ["600", 3.5], ["800", 3.75], ["1000", 4],
       ]);
+      // A cross-section's rail draws one row per point, where those round
+      // depths would crowd the last row (#1258): it labels its points.
+      assert.deepStrictEqual(railTicks(depth, 5, 5), [
+        { index: 0, text: "0" }, { index: 1, text: "10" }, { index: 2, text: "50" }, { index: 3, text: "200" }, { index: 4, text: "1000" },
+      ]);
+    });
+
+    // A cross-section rail spaces its rows evenly by index, so round values
+    // evenly spaced in value suit it only where the axis's points are near
+    // evenly spaced themselves (#1258).
+    suite("a cross-section rail labels the whole of an uneven axis (#1258)", () => {
+      // An ocean model's depth levels, in metres: close together near the
+      // surface, far apart at depth.
+      const depths = [
+        0, 5, 10, 20, 30, 50, 75, 100, 125, 150, 200, 250, 300, 400, 500, 600, 700, 800, 900, 1000,
+        1100, 1200, 1300, 1400, 1500, 1750, 2000, 2500, 3000, 3500, 4000, 4500, 5000,
+      ];
+      const depth = { coordinates: depths, units: "m", vertical: { logPressure: false } };
+      // Round ticks as a rail places them, in order of index.
+      const placed = (ticks: CoordinateTick[] | null) => {
+        assert.ok(ticks, "the axis is ticked at round values");
+        return ticks.map((t) => ({ index: t.index, text: t.text })).sort((a, b) => a.index - b.index);
+      };
+
+      test("a realistic depth axis is labelled down its whole length", () => {
+        const ticks = railTicks(depth, depths.length, 6);
+        const last = depths.length - 1;
+        const at = ticks.map((t) => t.index);
+        assert.ok(at.every((v, i) => i === 0 || v > at[i - 1]), `in order down the rail: ${at}`);
+        const gaps = [at[0], ...at.slice(1).map((v, i) => v - at[i]), last - at[at.length - 1]];
+        assert.ok(Math.max(...gaps) <= last / 3, `no gap past a third of the rail: ${at} of ${last}`);
+        const top = ticks.filter((t) => t.index <= last / 2);
+        assert.ok(top.length >= 2, `the upper half has two labels: ${ticks.map((t) => t.text)}`);
+        // Each label is the depth at its row.
+        for (const t of ticks) assert.strictEqual(t.text, String(depths[t.index]));
+        // What #1229 drew there: round depths, all but 0 in the lower half.
+        const round = coordinateTicks(depth, 6);
+        assert.ok(round, "the axis has round depths");
+        assert.strictEqual(round.filter((t) => t.index <= last / 2).length, 1, "round depths would leave the upper half bare");
+      });
+
+      test("even and Gaussian axes keep their round values", () => {
+        const air = { coordinates: Array.from({ length: 73 }, (_, j) => 90 - 2.5 * j), units: "degrees_north" };
+        assert.deepStrictEqual(railTicks(air, 73, 6), placed(coordinateTicks(air, 6)));
+        assert.deepStrictEqual(railTicks(air, 73, 5), placed(coordinateTicks(air, 5)));
+        const p = path.join(extensionPath(), "..", "crates", "fieldglass-grib1", "tests", "fixtures", "reduced_gg_n32_smooth.grib1");
+        const native = loadNative();
+        assert.ok(native, "native module must load");
+        const zonal = native.open(fs.readFileSync(p)).zonalMean(0);
+        const gaussian = { coordinates: zonal.coordinates ?? null, units: zonal.coordinateUnits ?? null };
+        assert.deepStrictEqual(railTicks(gaussian, 64, 6), placed(coordinateTicks(gaussian, 6)));
+        assert.deepStrictEqual(railTicks(gaussian, 64, 5), placed(coordinateTicks(gaussian, 5)));
+        // Round values that leave a short stretch at one end: 0, 50, 100 on
+        // an axis from 0 to 130.
+        const even = { coordinates: Array.from({ length: 14 }, (_, j) => 10 * j), units: "m" };
+        assert.deepStrictEqual(railTicks(even, 14, 5).map((t) => [t.text, t.index]), [["0", 0], ["50", 5], ["100", 10]]);
+      });
+
+      test("an axis with no round values, or another length, keeps its points", () => {
+        const days = { coordinates: [1963536, 1963560, 1963584], units: "hours since 1800-01-01 00:00:0.0" };
+        assert.deepStrictEqual(
+          railTicks(days, 3, 5).map((t) => t.text),
+          days.coordinates.map((v) => formatAxisValue(v, days.units)),
+          "a time's own dates",
+        );
+        assert.deepStrictEqual(railTicks(null, 4, 5), [0, 1, 2, 3].map((i) => ({ index: i, text: String(i) })), "an index");
+        const short = { coordinates: [0, 10, 20], units: "m" };
+        assert.deepStrictEqual(railTicks(short, 5, 5).map((t) => t.text), ["0", "10", "20", "3", "4"], "past the coordinates, an index");
+      });
     });
 
     test("an axis keeps its own values where round ones would not do", () => {

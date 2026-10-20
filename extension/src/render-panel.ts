@@ -913,6 +913,11 @@ export interface CoordinateTick {
  *  in the right places, not at the values its points happen to have. An axis
  *  in degrees takes {@link niceTicks}'s graticule steps.
  *
+ *  Evenly spaced in value, these suit a line plot, which is drawn linear in
+ *  value. A cross-section rail draws one row per point, so it takes them
+ *  only where the points are about evenly spaced, and keeps its own points on
+ *  an uneven axis such as ocean depth ({@link railTicks}, #1258).
+ *
  *  `null` where the axis keeps its own values as ticks: one with no
  *  coordinates or fewer than two, any of them not finite, values that do not
  *  run one way (nothing to interpolate along), a CF time (its ticks are
@@ -957,6 +962,52 @@ export function coordinateTicks(
     ticks.push({ value: v, index: index, text: formatAxisValue(v, axis.units) });
   }
   return ticks.length >= 2 ? ticks : null;
+}
+
+/** About `count` ticks for a cross-section rail of `length` rows or columns,
+ *  each at the `index` its label falls at, fractional between two, in order
+ *  of index (#1258).
+ *
+ *  A rail draws one row per point, evenly spaced by index whatever the
+ *  values. So it takes {@link coordinateTicks}'s round values only where they
+ *  land about evenly along it: no stretch between two of them, or from an end
+ *  of the rail to the nearest, more than twice the shortest stretch between
+ *  two. That holds on an evenly spaced axis, where the stretches between
+ *  round values are equal and an end's is shorter, and on Gaussian
+ *  latitudes, which are nearly even. On an uneven axis, such as ocean depths
+ *  close together near the surface and far apart at depth, round values
+ *  evenly spaced in depth crowd the deep end and leave the rest bare, so the
+ *  rail labels evenly spaced points with their own values instead, as it does
+ *  for a time's dates, a pressure's levels, and the index of an axis whose
+ *  coordinates are missing or do not match the rail.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself but the helpers injected beside it (it calls
+ *  {@link coordinateTicks}, {@link axisTickIndices} and
+ *  {@link formatAxisValue}). */
+export function railTicks(
+  axis: { coordinates: number[] | null; units: string | null; vertical?: { logPressure: boolean } | null } | null | undefined,
+  length: number,
+  count: number,
+): { index: number; text: string }[] {
+  const values = axis && axis.coordinates;
+  const nice = axis && values && values.length === length ? coordinateTicks(axis, count) : null;
+  if (nice) {
+    const ticks = nice.map((t) => ({ index: t.index, text: t.text })).sort((a, b) => a.index - b.index);
+    const between: number[] = [];
+    ticks.reduce((previous, t) => {
+      between.push(t.index - previous.index);
+      return t;
+    });
+    const ends = [ticks[0].index, length - 1 - ticks[ticks.length - 1].index];
+    if (Math.max(...between, ...ends) <= 2 * Math.min(...between)) return ticks;
+  }
+  return axisTickIndices(length, count).map((i) => ({
+    index: i,
+    // `i` is an index axisTickIndices made, below `length`.
+    // eslint-disable-next-line security/detect-object-injection
+    text: axis && values && i < values.length ? formatAxisValue(values[i], axis.units) : String(i),
+  }));
 }
 
 /** Where an axis's tick labels go so that none overlaps another or leaves the
@@ -1704,6 +1755,7 @@ export function renderImagePanelHtml(
         ${typesetMinus.toString()}
         ${niceTicks.toString()}
         ${coordinateTicks.toString()}
+        ${railTicks.toString()}
         ${layoutAxisLabels.toString()}
         ${verticalAxisFlips.toString()}
         ${composeLineRange.toString()}
@@ -2121,29 +2173,13 @@ export function renderImagePanelHtml(
           const rows = lastPayload.height;
           const cols = lastPayload.width;
 
-          const label = (axis, index) => {
-            const values = axis && axis.coordinates;
-            if (!values || index >= values.length) return String(index);
-            return formatAxisValue(values[index], axis ? axis.units : '');
-          };
-          // A rail's ticks, each at the row or column its value falls in,
-          // fractional between two (counted from the top or the left), in
-          // that order. Round values where the axis is a run of numbers
-          // (#1229), placed where they fall between its points; otherwise
-          // evenly spaced points, labelled with their own values: the
-          // dates of a time, the levels of a pressure, or the index of an
-          // axis with no coordinates.
-          // flipped: the renderer draws row 0 first, and a render drawn
-          // flipped turns the plane over.
-          const ticksOf = (axis, length, count, flipped) => {
-            const at = (index) => (flipped ? length - 1 - index : index);
-            const values = axis && axis.coordinates;
-            const nice = values && values.length === length ? coordinateTicks(axis, count) : null;
-            const ticks = nice
-              ? nice.map((t) => ({ pos: at(t.index), text: t.text }))
-              : axisTickIndices(length, count).map((i) => ({ pos: at(i), text: label(axis, i) }));
-            return ticks.sort((a, b) => a.pos - b.pos);
-          };
+          // A rail's ticks (railTicks), each at the row or column its value
+          // falls in, fractional between two, counted from the top or the
+          // left and in that order. flipped: the renderer draws row 0 first,
+          // and a render drawn flipped turns the plane over.
+          const ticksOf = (axis, length, count, flipped) => railTicks(axis, length, count)
+            .map((t) => ({ pos: flipped ? length - 1 - t.index : t.index, text: t.text }))
+            .sort((a, b) => a.pos - b.pos);
           railY.innerHTML = ticksOf(axisY, rows, 6, flip)
             .map((t) => {
               const at = ((t.pos + 0.5) / rows) * 100;
