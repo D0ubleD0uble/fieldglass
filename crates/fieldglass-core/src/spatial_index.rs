@@ -155,7 +155,10 @@ impl SpatialIndex {
         let f = GridFingerprint::EMPTY
             .with_u64(self.ni as u64)
             .with_u64(self.nj as u64)
-            .with_u64(self.xyz.len() as u64);
+            .with_u64(self.xyz.len() as u64)
+            // The cutoff too: two grids with the same centres and a different
+            // `with_max_distance` answer queries differently.
+            .with_u64(self.max_chord.to_bits());
         self.xyz
             .iter()
             .flatten()
