@@ -29,12 +29,14 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import { displayAspect } from "../../render-panel";
 import {
   type Box,
   classicNetcdf,
+  decodePng,
   isType,
   type Msg,
   openEditor,
@@ -174,6 +176,22 @@ async function draw(name: string): Promise<Drawn> {
   } catch (err) {
     close();
     throw err;
+  }
+}
+
+/** Click Export PNG with the save dialog cancelled and decode the PNG the page
+ *  made. */
+async function exportedPng(panel: RealPanel): Promise<{ width: number; height: number }> {
+  const saved = vscode.window.showSaveDialog;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
+  try {
+    const from = panel.received.length;
+    await panel.drive([{ id: "export-png", click: true }]);
+    const exported = await waitUntil(() => panel.received.slice(from).find(isType("exportPng")), "the exported PNG");
+    return decodePng(Buffer.from(String(exported.dataUrl).replace(/^data:image\/png;base64,/, ""), "base64"));
+  } finally {
+    vscode.window.showSaveDialog = saved;
   }
 }
 
@@ -350,6 +368,34 @@ suite("A tall image short of 1:8 fits the page too (#1252)", function () {
   });
 });
 
+/** Clicks across a map drawn at an extreme shape read the cell under them: the
+ *  request names the raster cell the click fell in, and the answer is the
+ *  value of the grid cell it resolved to. The file's latitudes ascend, so
+ *  north up the raster's top row is its last row. */
+async function assertMapClicksHit(panel: RealPanel, grid: Msg, d: Layout, what: string): Promise<void> {
+  const cols = grid.width as number;
+  const rows = grid.height as number;
+  // A mouse event is a whole pixel: along an axis under 4 px per cell it may
+  // land on the neighbour.
+  const slackX = d.width / cols < 4 ? 1 : 0;
+  const slackY = d.height / rows < 4 ? 1 : 0;
+  const at = (n: number) => [0.5 / n, (Math.floor(n / 3) + 0.5) / n, (n - 0.5) / n];
+  for (const fy of at(rows)) {
+    for (const fx of at(cols)) {
+      const { asked, read } = await click(panel, fx, fy);
+      const where = `${what}: the click at (${fx.toFixed(4)}, ${fy.toFixed(4)})`;
+      assert.ok(Math.abs(asked.px - Math.floor(fx * cols)) <= slackX, `${where} asks for column ${asked.px}`);
+      assert.ok(Math.abs(asked.py - Math.floor(fy * rows)) <= slackY, `${where} asks for row ${asked.py}`);
+      assert.ok(read && read.value !== null, `${where} reads a value, not off the grid`);
+      assert.strictEqual(read.value, valueAt(read.gridJ, read.gridI), `${where} reads the grid cell it resolved to`);
+      assert.ok(
+        Math.abs(read.gridI - asked.px) <= 1 && Math.abs(read.gridJ - (rows - 1 - asked.py)) <= 1,
+        `${where} resolved to grid cell (${read.gridI}, ${read.gridJ}), not near (${asked.px}, ${rows - 1 - asked.py})`,
+      );
+    }
+  }
+}
+
 suite("A lat/lon map keeps its own shape (#1226)", function () {
   this.timeout(120_000);
 
@@ -373,7 +419,7 @@ suite("A lat/lon map keeps its own shape (#1226)", function () {
     lats: number[],
     lons: number[],
     projection: string,
-    body: (grid: Msg, drawn: Layout) => void,
+    body: (grid: Msg, drawn: Layout, panel: RealPanel) => void | Promise<void>,
   ): Promise<void> {
     const p = await provider();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1226-"));
@@ -396,7 +442,7 @@ suite("A lat/lon map keeps its own shape (#1226)", function () {
           `the map on ${projection}`,
         );
       }
-      body(grid, await laidOut(panel));
+      await body(grid, await laidOut(panel), panel);
     } finally {
       panel.dispose();
       editor.close();
@@ -453,6 +499,32 @@ suite("A lat/lon map keeps its own shape (#1226)", function () {
         `drawn ${d.width.toFixed(1)} × ${d.height.toFixed(1)} px, not at the raster's ${raster.toFixed(2)}:1`,
       );
       assertAcrossRow(d, raster, "the global map");
+    });
+  });
+
+  test("a map 2 columns wide and 720 rows tall is drawn a few pixels wide, and a click reads its cells (#1251)", async () => {
+    // Pole to pole at 0.25 degrees down two columns: 2 × 720. Drawn at
+    // its own aspect it was under a pixel wide, and nothing could be clicked.
+    await onMap(steps(-89.875, 0.25, 720), [0, 0.25], "equirectangular", async (grid, d, panel) => {
+      assert.deepStrictEqual([grid.width, grid.height], [2, 720], "the raster is the 2 × 720 map");
+      assertWithinPage(d, "the 2 × 720 map");
+      assert.ok(d.width >= 6, `the map is ${d.width.toFixed(1)} px wide, too narrow to see or click`);
+      await assertMapClicksHit(panel, grid, d, "the 2 × 720 map");
+      // Export PNG writes the raster at its own size, not the drawn box's: the
+      // map is 720 px tall in it, with the title and colour bar around it.
+      const png = await exportedPng(panel);
+      assert.ok(
+        png.height >= 720 && png.height < 720 + 400,
+        `the PNG is ${png.width} × ${png.height} px, not the 2 × 720 raster with its labels`,
+      );
+    });
+  });
+
+  test("a map 720 columns wide and 2 rows tall is drawn a few pixels tall (#1251)", async () => {
+    await onMap([0, 0.25], steps(0.25, 0.5, 720), "equirectangular", async (grid, d, panel) => {
+      assert.deepStrictEqual([grid.width, grid.height], [720, 2], "the raster is the 720 × 2 map");
+      assert.ok(d.height >= 6, `the map is ${d.height.toFixed(1)} px tall, too thin to see or click`);
+      await assertMapClicksHit(panel, grid, d, "the 720 × 2 map");
     });
   });
 
