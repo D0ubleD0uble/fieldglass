@@ -209,8 +209,11 @@ impl Sharded {
     pub(super) fn of(array: &StoredArray) -> Result<Option<Self>, FieldglassError> {
         // Read off the document before any chain is built, so an array that
         // is not sharded plans as it did, whatever its codecs: planning reads
-        // metadata, and a codec this crate cannot decode is a decode's
-        // failure, not a plan's.
+        // metadata, and an inner codec this crate cannot decode is a decode's
+        // failure, not a plan's. The codecs *before* the sharding codec are
+        // the exception (#1343): they decide where each inner chunk is, so
+        // one that is not a `transpose` is refused here, as the decode
+        // refuses it.
         let found = match array.meta.codecs() {
             // The last step, as `CodecChain::sharding` has it: a shard is an
             // object only when nothing is applied after the sharding codec.

@@ -752,6 +752,23 @@ mod tests {
         assert!(untranspose(&[0u8; 3], &[2, 3], &[1, 0], 1).is_err());
     }
 
+    /// Two transposes before the sharding codec compose in the order the
+    /// encoder applied them (#1343). `[2, 0, 1]` then `[1, 0, 2]` do not
+    /// commute: applied in that order, stored axis `k` holds array axis
+    /// `[0, 2, 1][k]`; the other way round it would be `[2, 1, 0]`.
+    ///
+    /// Checked by hand: after `[2, 0, 1]` the stored axes hold array axes
+    /// (2, 0, 1); `[1, 0, 2]` then takes that tuple's entries 1, 0 and 2,
+    /// which are (0, 2, 1).
+    #[test]
+    fn transposes_before_sharding_compose_in_encode_order() {
+        let transpose = |order: Vec<usize>| Codec::Transpose { order };
+        let composed = compose_transposes(&[transpose(vec![2, 0, 1]), transpose(vec![1, 0, 2])], 3);
+        assert_eq!(composed.unwrap(), Some(vec![0, 2, 1]));
+        let reversed = compose_transposes(&[transpose(vec![1, 0, 2]), transpose(vec![2, 0, 1])], 3);
+        assert_eq!(reversed.unwrap(), Some(vec![2, 1, 0]));
+    }
+
     /// The chain refuses to decode a shard as a chunk rather than returning
     /// the index bytes as if they were data.
     #[test]

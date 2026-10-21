@@ -1244,7 +1244,7 @@
           "type": "array"
         },
         "inner": {
-          "description": "The inner chunk's position on its shard's grid of inner chunks.",
+          "description": "The inner chunk's position on its shard's grid of inner chunks, as the\nshard's index lays that grid out. When the array's codecs put a\n`transpose` before `sharding_indexed`, that grid is in the transposed\naxis order, not the array's (#1343).",
           "items": {
             "format": "uint64",
             "minimum": 0,

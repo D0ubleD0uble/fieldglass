@@ -1202,7 +1202,10 @@ export interface InnerChunkRef {
    */
   index: number[];
   /**
-   * The inner chunk's position on its shard's grid of inner chunks.
+   * The inner chunk's position on its shard's grid of inner chunks, as the
+   * shard's index lays that grid out. When the array's codecs put a
+   * `transpose` before `sharding_indexed`, that grid is in the transposed
+   * axis order, not the array's (#1343).
    */
   inner: number[];
   /**

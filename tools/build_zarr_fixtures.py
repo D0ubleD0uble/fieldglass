@@ -1159,14 +1159,15 @@ def write_sharded_window_fixture() -> dict:
 # * `cube`: three axes, order [2, 0, 1], which is not its own inverse. Only
 #   `cube[0]` is written, so the inner chunks holding `cube[1]` are absent and
 #   read as the fill value.
-# * `twice`: two transposes of order [2, 0, 1], which compose to [1, 2, 0].
+# * `twice`: a transpose of order [2, 0, 1], then one of [1, 0, 2]. The two do
+#   not commute: they compose to [0, 2, 1], and the other way round to [2, 1, 0].
 TRANSPOSED_SHARDS = ZARR_FIXTURES / "transposed_shards"
 TRANSPOSED_CASES = [
     # name, shape, shard, orders, stored inner chunk, index location, inner codec
     ("square", (4, 4), (4, 4), [(1, 0)], (2, 2), "end", "bytes"),
     ("wide", (6, 8), (4, 8), [(1, 0)], (4, 2), "start", "zstd"),
     ("cube", (2, 3, 4), (2, 3, 4), [(2, 0, 1)], (2, 1, 1), "end", "bytes"),
-    ("twice", (2, 3, 4), (2, 3, 4), [(2, 0, 1), (2, 0, 1)], (1, 1, 2), "end", "bytes"),
+    ("twice", (2, 3, 4), (2, 3, 4), [(2, 0, 1), (1, 0, 2)], (2, 1, 1), "end", "bytes"),
 ]
 # Per array, the regions the oracle reads, as `[start, stop)` per axis.
 TRANSPOSED_REGIONS = {
@@ -1280,6 +1281,10 @@ def write_transposed_shard_fixtures() -> None:
             "values": [json_number(v) for v in values.ravel()],
             "regions": regions,
         }
+    # `twice` is there to pin the order transposes compose in, which only
+    # orders that do not commute can do.
+    (twice,) = [orders for name, _, _, orders, *_ in TRANSPOSED_CASES if name == "twice"]
+    assert composed_order(twice, 3) != composed_order(twice[::-1], 3), twice
     # And `cube`'s unwritten half is absent inner chunks, not written fill.
     cube = (root / "cube/c/0/0/0").read_bytes()
     assert sum(entry is None for entry in shard_index(cube, 12, "end")) == 6, "cube"

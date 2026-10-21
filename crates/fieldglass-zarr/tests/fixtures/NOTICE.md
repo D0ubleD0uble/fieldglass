@@ -212,8 +212,10 @@ for byte. Values are `1.0 + 0.25 * i` in C order, so no array is symmetric.
 - `cube`: 2x3x4, order `[2, 0, 1]`, which is not its own inverse, inner chunks
   of 2x1x1. Only `cube[0]` is written, so half the inner chunks are absent and
   read as the fill value, -1; the script fails if they are ever written.
-- `twice`: 2x3x4 behind two `transpose` codecs of order `[2, 0, 1]`, which
-  compose to `[1, 2, 0]`.
+- `twice`: 2x3x4 behind a `transpose` of order `[2, 0, 1]` and then one of
+  `[1, 0, 2]`, inner chunks of 2x1x1. The two do not commute: they compose to
+  `[0, 2, 1]`, and the other way round to `[2, 1, 0]`, so the array pins the
+  order transposes compose in. The script fails if the case ever commutes.
 
 `transposed_shards_oracle.json` gives, per array, the values zarr-python reads
 back, the composed order (read off numpy's own transposes, not computed the way
