@@ -389,7 +389,7 @@ class TheRepoItself(unittest.TestCase):
         planner = set(declared.findall(gen.WASM_FEATURE_OUT["fetchplan"].read_text(encoding="utf-8")))
         zarr = set(declared.findall(gen.WASM_FEATURE_OUT["zarr"].read_text(encoding="utf-8")))
         self.assertLessEqual({"PlanItem", "PlanRange", "Query", "SourceSpec", "Dialect", "Expect"}, planner)
-        self.assertEqual({"ChunkRef", "WindowPlan", "WindowRequest"}, zarr)
+        self.assertEqual({"ChunkRef", "IndexLocation", "InnerChunkRef", "ShardIndexRef", "WindowPlan", "WindowRequest"}, zarr)
         self.assertEqual(default & (planner | zarr), set())
         self.assertIn("MessageInfo", default)
         # The extension's addon has every type, so it declares all of them.
