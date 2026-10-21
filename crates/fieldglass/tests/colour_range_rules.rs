@@ -339,6 +339,29 @@ fn a_palette_reports_the_range_render_paints_over() {
     assert_eq!(from_range, from_palette);
 }
 
+/// `palette_with_range` is the palette and the range the two separate calls
+/// return (#1196), on every kind of option, and refuses what they refuse.
+#[test]
+fn the_combined_call_equals_the_separate_calls() {
+    let (session, field) = gfs();
+    let mut centred = range(None, None);
+    centred.center = Some(80000.0);
+    for o in [
+        range(None, None),
+        range(Some(60000.0), Some(90000.0)),
+        log10(Some(60000.0), None),
+        centred,
+    ] {
+        let (palette, r) = session.palette_with_range(&field, &o).expect("both");
+        assert_eq!(palette, session.palette(&field, &o).expect("a palette"));
+        assert_eq!(r, session.palette_range(&field, &o).expect("a range"));
+    }
+    let bad = range(Some(9.0), Some(3.0));
+    let (m1, r1) = refused(session.palette_with_range(&field, &bad));
+    let (m2, r2) = refused(session.palette(&field, &bad));
+    assert_eq!((m1, r1), (m2, r2));
+}
+
 /// The display variant: `palette_display_range` is the range
 /// `render_display` paints over, from the full field's stats (#1156).
 #[test]
@@ -374,3 +397,42 @@ fn a_display_palette_reports_the_range_render_display_paints_over() {
 
 const RAP: &[u8] =
     include_bytes!("../../fieldglass-grib2/tests/fixtures/rap_jpeg2000_lambert.grib2");
+
+/// The display twin of the above (#1196).
+#[test]
+fn the_combined_display_call_equals_the_separate_calls() {
+    let session = Session::open(RAP.to_vec()).expect("opens");
+    let full = session
+        .decode(0, &DecodeOptions::default())
+        .expect("decodes");
+    let coarse = session
+        .decode_display(0, &fieldglass::DisplayDecodeOptions::new(1))
+        .expect("a coarse field");
+    for o in [range(None, None), range(Some(270.0), Some(300.0))] {
+        let (palette, r) = session
+            .palette_display_with_range(&coarse, Some(&full.stats), &o)
+            .expect("both");
+        assert_eq!(
+            palette,
+            session
+                .palette_display(&coarse, Some(&full.stats), &o)
+                .expect("a palette")
+        );
+        assert_eq!(
+            r,
+            session
+                .palette_display_range(&coarse, Some(&full.stats), &o)
+                .expect("a range")
+        );
+    }
+    // Missing full stats refuse the same way.
+    let a = session
+        .palette_display_with_range(&coarse, None, &range(None, None))
+        .unwrap_err()
+        .message();
+    let b = session
+        .palette_display(&coarse, None, &range(None, None))
+        .unwrap_err()
+        .message();
+    assert_eq!(a, b);
+}

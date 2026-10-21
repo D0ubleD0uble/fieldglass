@@ -37,6 +37,8 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 
 ### Changed
 
+- **Changing colors in the browser module is faster.** `palette` and `paletteDisplay` built the color table twice for each call; they now build it once. `Session` gains `palette_with_range` and `palette_display_with_range`, which return the palette and its range together. Closes #1196.
+
 - **A Zarr store's units are written the way a NetCDF file's are.** The render panel's title line and probe readout now typeset a store variable's units, as they already did for NetCDF, instead of showing the store's own spelling (#1073).
 
 - **Spectral fields finer than the map are drawn at the map's resolution, and say so.** The half-degree map can show detail up to T359. A field declaring more used to be evaluated in full: a T7999 field took about 27 s and over a gigabyte to draw, and above about T1800 parts of the map were wrong (38% of a synthetic T7999 field's points were infinite, NaN or absurd). The map now uses only the detail the grid can show, as ECMWF's own interpolation does, in a fraction of a second at any truncation, and the subtitle reads "shown at T359 of T7999", also on a Compare map and in an exported PNG. A probe shows the value on the map and the field's full-detail value beside it, and a CSV export starts with a `#` line naming the limit. The transform is correct up to T8192, checked against pyshtools at T2500 and 80-bit arithmetic at T3000. Fields at or below T359, including every sample file, draw exactly as before. Closes #637 and #814.

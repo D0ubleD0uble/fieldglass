@@ -2786,11 +2786,8 @@ impl Session {
         field: &Field,
         options: &PaletteOptions,
     ) -> Result<ColourRange, Error> {
-        count_range(
-            &Cells::from(field),
-            field.stats.min.zip(field.stats.max),
-            options,
-        )
+        self.palette_with_range(field, options)
+            .map(|(_, range)| range)
     }
 
     /// [`palette_range`](Self::palette_range) for a field decoded to draw: the
@@ -2808,6 +2805,50 @@ impl Session {
         full: Option<&Stats>,
         options: &PaletteOptions,
     ) -> Result<ColourRange, Error> {
+        self.palette_display_with_range(field, full, options)
+            .map(|(_, range)| range)
+    }
+
+    /// [`palette`](Self::palette) and [`palette_range`](Self::palette_range) in
+    /// one call: the palette and the range it spans, with the cells of
+    /// `field` counted against it (#1196).
+    ///
+    /// The palette is built once. Calling the two separately builds it twice
+    /// (the colormap resolved, a `colormap_table` text parsed, the lookup
+    /// table filled), since the count needs one too. This is what a browser
+    /// host binds, so it is the call the perf harness measures. The pair equals
+    /// what the two separate calls return.
+    ///
+    /// # Errors
+    ///
+    /// As [`palette_range`](Self::palette_range).
+    #[cfg(feature = "render")]
+    pub fn palette_with_range(
+        &self,
+        field: &Field,
+        options: &PaletteOptions,
+    ) -> Result<(Palette, ColourRange), Error> {
+        count_range(
+            &Cells::from(field),
+            field.stats.min.zip(field.stats.max),
+            options,
+        )
+    }
+
+    /// [`palette_with_range`](Self::palette_with_range) for a field decoded to
+    /// draw: [`palette_display`](Self::palette_display) and
+    /// [`palette_display_range`](Self::palette_display_range) from one build.
+    ///
+    /// # Errors
+    ///
+    /// As [`palette_display`](Self::palette_display).
+    #[cfg(feature = "render")]
+    pub fn palette_display_with_range(
+        &self,
+        field: &DisplayField,
+        full: Option<&Stats>,
+        options: &PaletteOptions,
+    ) -> Result<(Palette, ColourRange), Error> {
         let extremes =
             crate::full_field_extremes(full, field.mask.contains(&1), options.min, options.max)?;
         count_range(&Cells::from(field), extremes, options)
@@ -3306,6 +3347,13 @@ fn warp_cells(field: &Cells<'_>, options: &WarpOptions) -> Result<Warped, Error>
     })
 }
 
+// How many times this thread has run `build_palette`, for the tests that hold
+// a combined call to one build (#1196).
+#[cfg(all(test, feature = "render"))]
+thread_local! {
+    static PALETTE_BUILDS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 /// The palette for a field whose present-cell range is `extremes`, under
 /// `options`, and the range it was built over.
 ///
@@ -3320,6 +3368,8 @@ fn build_palette(
     extremes: Option<(f64, f64)>,
     options: &PaletteOptions,
 ) -> Result<(Palette, ColourRange), Error> {
+    #[cfg(test)]
+    PALETTE_BUILDS.with(|n| n.set(n.get() + 1));
     let colormap = crate::render::resolve_colormap(
         options.colormap_table.as_deref(),
         options.colormap.as_deref(),
@@ -3378,9 +3428,10 @@ fn paint_cells(
     })
 }
 
-/// The range [`paint_cells`] reports for the same cells and options, counted
-/// without painting: [`Session::palette_range`] and
-/// [`Session::palette_display_range`] (#1156).
+/// The palette and the range [`paint_cells`] reports for the same cells and
+/// options, counted without painting: [`Session::palette_with_range`],
+/// [`Session::palette_range`] and their display twins (#1156, #1196). The
+/// palette is built here once, for the count and for the caller.
 ///
 /// Refuses a field whose values are not one per cell, as `paint_cells` does,
 /// so the two never disagree about what `total` counts.
@@ -3389,7 +3440,7 @@ fn count_range(
     field: &Cells<'_>,
     extremes: Option<(f64, f64)>,
     options: &PaletteOptions,
-) -> Result<ColourRange, Error> {
+) -> Result<(Palette, ColourRange), Error> {
     require_field_shape(field)?;
     let (palette, range) = build_palette(extremes, options)?;
     // Widened as it goes: a palette is the cheap call, and a copy of the field
@@ -3399,7 +3450,8 @@ fn count_range(
         Values::F32(v) => palette.count(v.iter().map(|&x| f64::from(x)), mask),
         Values::F64(v) => palette.count(v.iter().copied(), mask),
     };
-    Ok(range.counted(&counts, u64::from(field.ni) * u64::from(field.nj)))
+    let range = range.counted(&counts, u64::from(field.ni) * u64::from(field.nj));
+    Ok((palette, range))
 }
 
 // ---------------------------------------------------------------------------
@@ -3918,6 +3970,51 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
 mod tests {
     use super::*;
     use fieldglass_core::{LatLonParams, RotatedLatLonParams, projection::GridGeometry};
+
+    /// The palette builds `palette_with_range` and its display twin run: one
+    /// each, where the two separate calls run two (#1196).
+    #[cfg(all(feature = "render", feature = "grib2"))]
+    #[test]
+    fn a_palette_with_its_range_builds_the_palette_once() {
+        const GFS: &[u8] =
+            include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
+        const RAP: &[u8] =
+            include_bytes!("../../fieldglass-grib2/tests/fixtures/rap_jpeg2000_lambert.grib2");
+        fn builds(f: impl FnOnce()) -> u32 {
+            let before = PALETTE_BUILDS.with(std::cell::Cell::get);
+            f();
+            PALETTE_BUILDS.with(std::cell::Cell::get) - before
+        }
+        let options = PaletteOptions::default();
+
+        let session = Session::open(GFS.to_vec()).expect("opens");
+        let field = session
+            .decode(0, &DecodeOptions::default())
+            .expect("decodes");
+        let both = builds(|| {
+            session.palette_with_range(&field, &options).expect("both");
+        });
+        assert_eq!(both, 1, "the combined call builds the palette once");
+        let separate = builds(|| {
+            session.palette(&field, &options).expect("a palette");
+            session.palette_range(&field, &options).expect("a range");
+        });
+        assert_eq!(separate, 2, "the separate calls are the cost it removes");
+
+        let session = Session::open(RAP.to_vec()).expect("opens");
+        let full = session
+            .decode(0, &DecodeOptions::default())
+            .expect("decodes");
+        let coarse = session
+            .decode_display(0, &crate::DisplayDecodeOptions::new(1))
+            .expect("a coarse field");
+        let both = builds(|| {
+            session
+                .palette_display_with_range(&coarse, Some(&full.stats), &options)
+                .expect("both");
+        });
+        assert_eq!(both, 1, "the display twin builds the palette once");
+    }
 
     /// A message can declare a zero-width grid, and `decode` accepts it: zero
     /// values match a zero-cell raster. `probe` must answer `None` for such a

@@ -664,13 +664,9 @@ impl Handle {
         #[wasm_bindgen(unchecked_optional_param_type = "PaletteOptions | null")] options: JsValue,
     ) -> Result<JsValue, JsValue> {
         let options: PaletteOptions = from_js(options)?;
-        let palette = self
+        let (palette, range) = self
             .session()?
-            .palette(field.field()?, &options)
-            .map_err(throw)?;
-        let range = self
-            .session()?
-            .palette_range(field.field()?, &options)
+            .palette_with_range(field.field()?, &options)
             .map_err(throw)?;
         palette_object(&palette, &range)
     }
@@ -699,13 +695,9 @@ impl Handle {
     ) -> Result<JsValue, JsValue> {
         let full = full_stats_from_js(full_stats)?;
         let options: PaletteOptions = from_js(options)?;
-        let palette = self
+        let (palette, range) = self
             .session()?
-            .palette_display(field.field()?, full.as_ref(), &options)
-            .map_err(throw)?;
-        let range = self
-            .session()?
-            .palette_display_range(field.field()?, full.as_ref(), &options)
+            .palette_display_with_range(field.field()?, full.as_ref(), &options)
             .map_err(throw)?;
         palette_object(&palette, &range)
     }
