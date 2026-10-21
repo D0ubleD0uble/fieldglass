@@ -199,7 +199,12 @@ fn walk<M: MessageManifest>(manifest: &M, bytes: &[u8]) {
 /// The arithmetic between a manifest's claim and a fetch.
 fn ranges(item: &PlanItem, bytes: &[u8]) {
     let _ = item.sub_index();
-    let _ = item.range.http_range_header();
+    // Oracle: only `Whole` may say "no header"; an exact range that cannot be
+    // written as one is an error, never a silent whole-object fetch (#1344).
+    let header = item.range.http_range_header();
+    if matches!(item.range, fieldglass_fetchplan::PlanRange::Exact { .. }) {
+        assert!(!matches!(header, Ok(None)));
+    }
     let _ = item.range.offset();
     let _ = item.range.end_exclusive();
     let _ = item.range.length();

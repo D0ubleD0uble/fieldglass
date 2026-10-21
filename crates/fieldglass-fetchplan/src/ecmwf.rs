@@ -362,21 +362,28 @@ mod tests {
     fn a_zero_length_record_is_refused() {
         let text = concat!(
             r#"{"param":"2t","_offset":0,"_length":20}"#,
-            "\n",
+            "\n\n",
             r#"{"param":"2t","levtype":"sfc","_offset":1000,"_length":0}"#,
         );
         assert_eq!(
             EcmwfIndex::parse("o", text).unwrap_err(),
             FetchPlanError::BadRange {
                 dialect: Dialect::EcmwfIndex,
-                line: 2,
+                line: 3,
                 offset: 1000,
                 length: 0,
                 detail: "the length is zero",
             }
         );
         let as_string = r#"{"param":"2t","_offset":"5","_length":"0"}"#;
-        assert!(EcmwfIndex::parse("o", as_string).is_err());
+        assert!(matches!(
+            EcmwfIndex::parse("o", as_string).unwrap_err(),
+            FetchPlanError::BadRange {
+                offset: 5,
+                length: 0,
+                ..
+            }
+        ));
     }
 
     /// A producer that wrote the offsets as strings is still readable; a

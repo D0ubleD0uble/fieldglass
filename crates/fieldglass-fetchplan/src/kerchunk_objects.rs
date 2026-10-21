@@ -101,11 +101,11 @@ impl<S: ByteSource> KerchunkObjects<S> {
             return Err(FieldglassError::Parse(format!(
                 "the reference document puts {key:?} at {} of {:?}, and no source was given for \
                  that object — call `KerchunkObjects::insert` for every URL `urls()` lists",
-                item.range
-                    .http_range_header()
-                    .ok()
-                    .flatten()
-                    .unwrap_or_else(|| "the whole object".to_string()),
+                match item.range.http_range_header() {
+                    Ok(Some(header)) => header,
+                    Ok(None) => "the whole object".to_string(),
+                    Err(_) => format!("{:?}", item.range),
+                },
                 item.key
             )));
         };

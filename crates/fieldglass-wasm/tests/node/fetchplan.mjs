@@ -205,7 +205,7 @@ for (const [what, range] of [
   try {
     outcome = `returned ${wasm.httpRangeHeader(range)}`;
   } catch (e) {
-    outcome = /no HTTP Range header/.test(String(e.message)) ? 'threw' : `threw ${e.message}`;
+    outcome = e.code === 'invalid_option' && /no HTTP Range header/.test(String(e.message)) ? 'threw' : `threw ${e.code}: ${e.message}`;
   }
   check(`${what} throws instead of sending no header`, outcome === 'threw');
 }

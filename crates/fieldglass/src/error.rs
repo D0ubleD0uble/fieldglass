@@ -219,7 +219,8 @@ impl From<fieldglass_fetchplan::FetchPlanError> for Error {
             | E::CycleHourOutOfRange { .. }
             | E::UnsortedCycleHours { .. }
             | E::TimeOutOfRange { .. }
-            | E::OffsetPastEnd { .. } => Self::invalid_option(e.to_string()),
+            | E::OffsetPastEnd { .. }
+            | E::UnfetchableRange { .. } => Self::invalid_option(e.to_string()),
             other => Self::Decode {
                 detail: other.to_string(),
             },

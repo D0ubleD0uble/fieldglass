@@ -693,15 +693,22 @@ mod tests {
     /// overflows in `http_range_header` (#1344).
     #[test]
     fn a_reference_with_no_fetchable_range_is_refused() {
-        for body in [
-            r#""a/0.0": ["s3://b/o", 10, 0]"#,
-            r#""a/0.0": ["s3://b/o", "10", "0"]"#,
-            r#""a/0.0": ["s3://b/o", 18446744073709551615, 2]"#,
-            r#""a/0.0": ["s3://b/o", 1, 18446744073709551615]"#,
+        for (body, why) in [
+            (r#""a/0.0": ["s3://b/o", 10, 0]"#, "zero"),
+            (r#""a/0.0": ["s3://b/o", "10", "0"]"#, "zero"),
+            (
+                r#""a/0.0": ["s3://b/o", 18446744073709551615, 2]"#,
+                "64 bits",
+            ),
+            (
+                r#""a/0.0": ["s3://b/o", 1, 18446744073709551615]"#,
+                "64 bits",
+            ),
         ] {
             let err = KerchunkRefs::parse(&document(body)).unwrap_err();
             assert!(
-                matches!(&err, FetchPlanError::BadReference { key, .. } if key == "a/0.0"),
+                matches!(&err, FetchPlanError::BadReference { key, detail }
+                    if key == "a/0.0" && detail.contains(why)),
                 "{body} gave {err:?}"
             );
         }
