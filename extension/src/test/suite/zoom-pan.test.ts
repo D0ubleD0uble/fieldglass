@@ -882,4 +882,210 @@ suite("Zoom and pan through the panel (#1147)", function () {
       "mollweide",
     );
   });
+
+  /** Turn the wheel over the middle of the Mollweide image on screen while
+   *  a lat/lon render is held back, and check it is held: the page does not
+   *  scroll, Bounds stay on Auto, and no render is asked for (#1272). */
+  async function wheelHeld(panel: RealPanel, what: string): Promise<void> {
+    assert.strictEqual(lastDrawn(panel).options.projection, "mollweide", `a Mollweide map is on screen (${what})`);
+    const wheeled = panel.received.length;
+    const turned = await panel.wheel([0.5, 0.5], -250);
+    // The map asked for zooms once it lands, so the wheel is held back
+    // now rather than scrolling the page under the pointer.
+    assert.strictEqual(turned.prevented, true, `the wheel does not scroll the page (${what})`);
+    // Past the 250 ms the page waits for a wheel to settle.
+    await panel.pageTimer(300);
+    assert.strictEqual((await panel.controls())["radio:bounds-mode"], "auto", `Bounds stay on Auto (${what})`);
+    assert.deepStrictEqual(
+      panel.received.slice(wheeled).filter(isType("rerenderRequest")),
+      [],
+      `and the wheel asks for no render (${what})`,
+    );
+  }
+
+  for (const target of ["equirectangular", "web_mercator"] as const) {
+    test(`a wheel over a Mollweide map, while the ${target} render is on its way, is held, then zooms (#1272)`, async () => {
+      await onMap(
+        false,
+        async (panel) => {
+          const gate = panel.hold(isType("gridReady"));
+          let asked: Msg;
+          try {
+            const received = panel.received.length;
+            await panel.drive([{ id: "picker-projection", value: target }]);
+            asked = await waitUntil(
+              () => panel.received.slice(received).find((m) => m.type === "rerenderRequest" && m.projection === target),
+              `the ${target} render`,
+            );
+            await waitUntil(() => gate.held.find((m) => m.seq === asked.seq), "that render, held back");
+            await wheelHeld(panel, `${target} on its way`);
+            const sent = panel.sent.length;
+            await gate.release();
+            await panel.waitSent((m) => m.type === "gridReady" && m.seq === asked.seq, sent, `the ${target} render`);
+          } finally {
+            await gate.release();
+          }
+          const before = lastDrawn(panel);
+          assert.strictEqual(before.options.projection, target, `the ${target} map is drawn`);
+          // Once it has, the wheel zooms the window drawn.
+          const after = await rendered(panel, () => panel.wheel([0.5, 0.5], -250), "a wheel after it");
+          close(
+            after.usedLonMax - after.usedLonMin,
+            (before.usedLonMax - before.usedLonMin) * Math.pow(1.002, -250),
+            "the wheel zooms the window drawn",
+            1e-3,
+          );
+        },
+        "mollweide",
+      );
+    });
+  }
+
+  test("a wheel over a stale Mollweide render landing after Reset view is held, then zooms (#1272)", async () => {
+    await onMap(false, async (panel) => {
+      const whole = lastDrawn(panel);
+      await rendered(panel, () => panel.wheel([0.5, 0.5], -250), "the zoom");
+      const gate = panel.hold(isType("gridReady"));
+      let reset: Msg;
+      try {
+        const ask = async (actions: Parameters<RealPanel["drive"]>[0], what: string): Promise<Msg> => {
+          const received = panel.received.length;
+          await panel.drive(actions);
+          const m = await waitUntil(() => {
+            const asks = panel.received.slice(received).filter(isType("rerenderRequest"));
+            return asks.length ? asks[asks.length - 1] : undefined;
+          }, `the render ${what} asks for`);
+          await waitUntil(() => gate.held.find((g) => g.seq === m.seq), `render ${m.seq}, held back`);
+          return m;
+        };
+        const mollweide = await ask([{ id: "picker-projection", value: "mollweide" }], "Mollweide");
+        await ask([{ id: "picker-projection", value: "equirectangular" }], "Equirectangular");
+        reset = await ask([{ id: "zoom-reset", click: true }], "Reset view");
+        assert.strictEqual(reset.boundsLatMin, undefined, "Reset view asks for the grid's own window");
+        await gate.deliver((g) => g.seq === mollweide.seq);
+        // The page has drawn it once it answers after it.
+        await panel.controls();
+        await wheelHeld(panel, "the stale Mollweide image up");
+        const sent = panel.sent.length;
+        await gate.release();
+        await panel.waitSent((m) => m.type === "gridReady" && m.seq === reset.seq, sent, "Reset view's render");
+      } finally {
+        await gate.release();
+      }
+      const before = lastDrawn(panel);
+      close(before.usedLonMax - before.usedLonMin, whole.usedLonMax - whole.usedLonMin, "Reset view is drawn", 1e-6);
+      const after = await rendered(panel, () => panel.wheel([0.5, 0.5], -250), "a wheel after it");
+      close(
+        after.usedLonMax - after.usedLonMin,
+        (before.usedLonMax - before.usedLonMin) * Math.pow(1.002, -250),
+        "the wheel zooms the window drawn",
+        1e-3,
+      );
+    });
+  });
+
+  for (const inFlight of [false, true]) {
+    const when = inFlight ? ", while its re-render is on its way," : "";
+    test(`a wheel over a slice drawn in its source view${when} with a lat/lon target held scrolls the page (#1272)`, async () => {
+      // lat_bnds is placed on nothing, so it is drawn in the source view while
+      // the Equirectangular target chosen before is held for the next map
+      // slice (#1099). Every render of it still asks for Equirectangular, but
+      // no lat/lon map is coming from that: the wheel is never held, neither
+      // once the render has answered nor while a re-render (here Flip Y axis)
+      // is on its way, as during playback.
+      const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
+      const native = loadNative();
+      assert.ok(native, "native binding required");
+      const index = (name: string): number => {
+        const v = native.open(fs.readFileSync(file)).variables().find((x) => x.name === name);
+        assert.ok(v, `the fixture has ${name}`);
+        return v.index;
+      };
+      const p = await provider();
+      const editor = await openEditor(p, file);
+      const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: index("temperature") }));
+      try {
+        await panel.waitSent(isType("gridReady"), 0, "the first render");
+        let from = panel.sent.length;
+        await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+        await panel.waitSent((m) => m.type === "gridReady" && m.options.projection === "equirectangular", from, "the map");
+        from = panel.sent.length;
+        let received = panel.received.length;
+        const latBnds = index("lat_bnds");
+        await panel.drive([{ id: "slice-variable", value: latBnds }]);
+        const flat = await panel.waitSent((m) => m.type === "gridReady" && m.messageIndex === latBnds, from, "lat_bnds");
+        assert.strictEqual(flat.options.projection, "source", "lat_bnds is drawn in the source view");
+        const asked = panel.received.slice(received).filter(isType("rerenderRequest"));
+        assert.strictEqual(asked[asked.length - 1].projection, "equirectangular", "the render asked for Equirectangular");
+        assert.strictEqual(lastDrawn(panel).seq, asked[asked.length - 1].seq, "and its answer is the one drawn");
+
+        let held: ReturnType<RealPanel["hold"]> | null = null;
+        if (inFlight) {
+          held = panel.hold(isType("gridReady"));
+          received = panel.received.length;
+          await panel.drive([{ id: "flip-y", checked: true }]);
+          const again = await waitUntil(
+            () => panel.received.slice(received).find(isType("rerenderRequest")),
+            "the re-render of lat_bnds",
+          );
+          assert.strictEqual(again.projection, "equirectangular", "the re-render asks for Equirectangular too");
+          await waitUntil(() => held?.held.find((m) => m.seq === again.seq), "that render, held back");
+        }
+        try {
+          const wheeled = panel.received.length;
+          const turned = await panel.wheel([0.5, 0.5], -250);
+          assert.strictEqual(turned.prevented, false, "the wheel scrolls the page");
+          await panel.pageTimer(300);
+          assert.deepStrictEqual(
+            panel.received.slice(wheeled).filter(isType("rerenderRequest")),
+            [],
+            "and the wheel asks for no render",
+          );
+        } finally {
+          await held?.release();
+        }
+      } finally {
+        panel.dispose();
+        editor.close();
+      }
+    });
+  }
+
+  test("a wheel over a Mollweide map whose lat/lon render failed scrolls the page (#1272)", async () => {
+    // The render last asked for has answered, with an error, so no lat/lon
+    // map is coming and the Mollweide image stays: the wheel is not held.
+    await onMap(
+      false,
+      async (panel) => {
+        const gate = panel.hold(isType("gridReady"));
+        try {
+          const received = panel.received.length;
+          await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+          const asked = await waitUntil(
+            () => panel.received.slice(received).find((m) => m.type === "rerenderRequest" && m.projection === "equirectangular"),
+            "the Equirectangular render",
+          );
+          await waitUntil(() => gate.held.find((m) => m.seq === asked.seq), "that render, held back");
+          // It fails instead, as the provider answers a render it could not draw.
+          await panel.post({ type: "gridError", seq: asked.seq, error: "render failed" });
+          await panel.controls();
+          assert.strictEqual(lastDrawn(panel).options.projection, "mollweide", "the Mollweide map stays on screen");
+          const wheeled = panel.received.length;
+          const turned = await panel.wheel([0.5, 0.5], -250);
+          assert.strictEqual(turned.prevented, false, "the wheel scrolls the page");
+          await panel.pageTimer(300);
+          assert.deepStrictEqual(
+            panel.received.slice(wheeled).filter(isType("rerenderRequest")),
+            [],
+            "and the wheel asks for no render",
+          );
+        } finally {
+          // Dropped, not delivered: its render has already answered.
+          gate.held.length = 0;
+          await gate.release();
+        }
+      },
+      "mollweide",
+    );
+  });
 });

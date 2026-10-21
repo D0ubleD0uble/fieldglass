@@ -802,6 +802,12 @@ rather than at round depths that would crowd its deep end (#1258);
       the map straight away, while the old image is still up. Bounds stays on
       Auto. Pick Equirectangular again: the whole map is drawn, not a zoomed
       window. Failure looks like Bounds turning to Manual (#1147).
+- [ ] Make the panel narrow or short enough that it can scroll, and scroll
+      it partway down. On Mollweide, pick Equirectangular and scroll over
+      the map straight away, while the Mollweide image is still up. The
+      panel does not scroll, and Bounds stays on Auto. Once the Equirectangular map is
+      drawn, scrolling zooms it. Failure looks like the panel scrolling
+      first and the map zooming partway through the same scroll (#1272).
 - [ ] On Equirectangular, hold the pointer still over one place and scroll
       five notches as fast as you can, quicker than the map redraws, then
       Reset view and scroll five notches slowly, letting each redraw. Both
