@@ -25,8 +25,9 @@
 
 use fieldglass::Session;
 use fieldglass::fetchplan::{
-    CandidateOptions, EcmwfIndex, Expect, Manifest, MessageManifest, PlanItem, PlanRange, Query,
-    SourceSpec, TableResolver, Wgrib2Idx, candidates_at, verify_envelope, verify_message,
+    CandidateOptions, EcmwfIndex, Expect, MAX_CANDIDATES, Manifest, MessageManifest, PlanItem,
+    PlanRange, Query, SourceSpec, TableResolver, Wgrib2Idx, candidates_at, verify_envelope,
+    verify_message,
 };
 use serde_json::{Value, json};
 
@@ -368,6 +369,15 @@ fn planner_failures_take_the_codes_a_host_already_branches_on() {
         candidates_at(&source, &CandidateOptions::new(0)).map_err(|e| e.code()),
         Err("invalid_option")
     );
+
+    // A count above the cap is the same kind of catalog fault, and is refused
+    // rather than answered with an empty list.
+    let mut too_many = gfs_source();
+    too_many["maxCandidates"] = json!(MAX_CANDIDATES + 1);
+    let source: SourceSpec = serde_json::from_value(too_many).expect("reads");
+    let err = candidates_at(&source, &CandidateOptions::new(0)).expect_err("refused");
+    assert_eq!(err.code(), "invalid_option");
+    assert!(err.message().contains("1025"), "{}", err.message());
 
     let err: fieldglass::Error =
         Wgrib2Idx::parse("k", "1:notanumber:d=2026090400:TMP:surface:anl:")

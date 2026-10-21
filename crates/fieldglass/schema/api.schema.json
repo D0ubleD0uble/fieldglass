@@ -2972,7 +2972,7 @@
           "type": "integer"
         },
         "maxCandidates": {
-          "description": "How many cycles back to offer, newest first. A host walks them until a\nfetch succeeds, which is what covers a late or skipped run.",
+          "description": "How many cycles back to offer, newest first. A host walks them until a\nfetch succeeds, which is what covers a late or skipped run.\n\nAt most [`MAX_CANDIDATES`]; more is refused by\n[`validate`](Self::validate).",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"

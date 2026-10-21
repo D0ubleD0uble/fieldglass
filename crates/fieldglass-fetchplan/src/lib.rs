@@ -113,7 +113,7 @@ mod manifest;
 mod plan;
 mod wgrib2;
 
-pub use discovery::{Candidate, SourceSpec, candidates};
+pub use discovery::{Candidate, MAX_CANDIDATES, SourceSpec, candidates};
 pub use ecmwf::EcmwfIndex;
 pub use error::{Dialect, FetchPlanError, Mismatch};
 pub use kerchunk::KerchunkRefs;

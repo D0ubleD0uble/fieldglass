@@ -218,6 +218,18 @@ pub enum FetchPlanError {
         hours: Vec<u8>,
     },
 
+    /// `max_candidates` above the cap [`MAX_CANDIDATES`](crate::MAX_CANDIDATES).
+    ///
+    /// The count is host catalog data; unbounded, it sizes both the day walk
+    /// and the list of keys built.
+    #[error("max_candidates {max_candidates} is above the limit of {limit}")]
+    TooManyCandidates {
+        /// The value the source asked for.
+        max_candidates: u32,
+        /// The most that is allowed.
+        limit: u32,
+    },
+
     /// A timestamp that the proleptic Gregorian arithmetic here cannot express.
     ///
     /// The bound is generous — roughly ±2.9 million years — and exists so the
