@@ -63,8 +63,9 @@ pub struct SourceSpec {
 ///
 /// A catalog asks for 3 to 5. 1024 is a month and a half of an hourly model,
 /// far past any walk-back a host would make, and small enough that the list a
-/// hostile catalog entry can force is a few tens of kilobytes rather than the
-/// four billion keys a `u32` would allow.
+/// hostile catalog entry can force is bounded (about a hundred kilobytes of
+/// keys, more for a long `key_pattern`) rather than the four billion keys a
+/// `u32` would allow.
 pub const MAX_CANDIDATES: u32 = 1024;
 
 impl SourceSpec {

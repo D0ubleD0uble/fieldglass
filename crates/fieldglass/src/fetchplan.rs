@@ -88,9 +88,10 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 pub use fieldglass_fetchplan::{
-    Address, Candidate, Dialect, EcmwfIndex, Expect, FetchPlanError, LevelSpec, Manifest,
-    MessageManifest, Mismatch, NoResolver, ParameterId, ParameterResolver, PlanItem, PlanRange,
-    Query, SourceSpec, Surface, Wgrib2Idx, candidates, parse_ecmwf_level, parse_ncep_level,
+    Address, Candidate, Dialect, EcmwfIndex, Expect, FetchPlanError, LevelSpec, MAX_CANDIDATES,
+    Manifest, MessageManifest, Mismatch, NoResolver, ParameterId, ParameterResolver, PlanItem,
+    PlanRange, Query, SourceSpec, Surface, Wgrib2Idx, candidates, parse_ecmwf_level,
+    parse_ncep_level,
 };
 // The chunk half (#687): the reference-document dialect, the one reader of an
 // array's metadata, and the chunk-grid arithmetic it spells keys with. The last
