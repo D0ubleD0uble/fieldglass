@@ -361,7 +361,8 @@ export const MAP_MOST_ASPECT = 48;
 
 /** The CSS `aspect-ratio` the image is drawn at for a raster `width × height`
  *  (#1226): empty, which keeps the raster's own aspect, unless one side is
- *  more than eight times the other; then eight to one, the long way.
+ *  more than `most` (default eight) times the other; then `most` to one,
+ *  the long way.
  *
  *  The image fills the panel's width, so a raster 2 wide and 366 tall was
  *  drawn about 775 × 141,000 px, past what the page will paint, and one 366
@@ -371,13 +372,13 @@ export const MAP_MOST_ASPECT = 48;
  *  image's box, and the overlay scales each axis on its own, so both still
  *  land on the cell drawn. Export PNG writes the raster at its own size.
  *
- *  The panel does not apply the eight to a lat/lon map (Equirectangular,
- *  Web Mercator), whose raster has its grid's or its Bounds window's shape:
- *  it passes {@link MAP_MOST_ASPECT} as `most` instead, so only an extreme
- *  raster (about 1 × 720) is held, to a width a pixel can show (#1251).
- *  So does a view with arrows drawn: they are laid out in square raster
- *  pixels, which a stretch would bend, and up to that limit there is none
- *  (#1251). Whether the
+ *  The panel does not apply the default eight to a lat/lon map
+ *  (Equirectangular, Web Mercator), whose raster has its grid's or its Bounds
+ *  window's shape: it passes {@link MAP_MOST_ASPECT} (48) as `most` instead,
+ *  so only an extreme raster (about 1 × 720) is held, to a width a pixel can
+ *  show (#1251). So does a view with arrows drawn: they are laid out in
+ *  square raster pixels, which a stretch would bend, and up to that limit
+ *  there is none (#1251). Whether the
  *  image is then drawn to the page's height rather than across the panel's
  *  width follows from the aspect drawn and the page, not from this (#1252).
  *
