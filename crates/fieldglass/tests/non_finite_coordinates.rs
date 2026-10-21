@@ -82,11 +82,16 @@ const V3_GROUP: &[u8] = b"{\"zarr_format\":3,\"node_type\":\"group\",\"attribute
 
 /// A float64 v3 array whose fill value is NaN, as xarray writes coordinates.
 fn v3_array(shape: &str, dims: &str, attributes: &str) -> Vec<u8> {
+    v3_chunked(shape, shape, "\"NaN\"", dims, attributes)
+}
+
+/// A float64 v3 array with its own chunk shape and fill value (JSON).
+fn v3_chunked(shape: &str, chunks: &str, fill: &str, dims: &str, attributes: &str) -> Vec<u8> {
     format!(
         "{{\"zarr_format\":3,\"node_type\":\"array\",\"shape\":{shape},\"data_type\":\"float64\",\
-         \"chunk_grid\":{{\"name\":\"regular\",\"configuration\":{{\"chunk_shape\":{shape}}}}},\
+         \"chunk_grid\":{{\"name\":\"regular\",\"configuration\":{{\"chunk_shape\":{chunks}}}}},\
          \"chunk_key_encoding\":{{\"name\":\"default\",\"configuration\":{{\"separator\":\"/\"}}}},\
-         \"fill_value\":\"NaN\",\"codecs\":[{{\"name\":\"bytes\",\"configuration\":{{\"endian\":\"little\"}}}}],\
+         \"fill_value\":{fill},\"codecs\":[{{\"name\":\"bytes\",\"configuration\":{{\"endian\":\"little\"}}}}],\
          \"dimension_names\":{dims},\"attributes\":{attributes}}}"
     )
     .into_bytes()
@@ -146,6 +151,58 @@ fn a_nan_or_infinity_anywhere_in_a_zarr_coordinate_is_refused() {
         .decode_slice(0, 0, 1, &[0, 0], &DecodeOptions::default())
         .expect("places");
     assert_eq!(field.georef.kind, "latlon", "{:?}", field.georef);
+}
+
+#[test]
+fn an_unwritten_chunk_whose_fill_places_is_not_blamed_for_a_bad_value_elsewhere() {
+    // `lat` is chunked by one; the store never wrote `lat/c/0`, whose fill is
+    // 0.0, a real latitude. The bad value is somewhere else: a NaN in the
+    // written `lon` chunk, or a NaN in the written `lat/c/1`. Either way the
+    // refusal is the coordinate's own `decode`, and the unwritten chunk is
+    // not named as its cause.
+    for (lat_1, lon, bad) in [
+        (20.0, [0.0, f64::NAN, 180.0, 270.0], "`lon`"),
+        (f64::NAN, [0.0, 90.0, 180.0, 270.0], "`lat`"),
+    ] {
+        let session = Session::open_store(MemoryObjects::from_iter([
+            ("zarr.json", V3_GROUP.to_vec()),
+            (
+                "lat/zarr.json",
+                v3_chunked(
+                    "[3]",
+                    "[1]",
+                    "0.0",
+                    "[\"lat\"]",
+                    "{\"units\":\"degrees_north\"}",
+                ),
+            ),
+            ("lat/c/1", f8(&[lat_1])),
+            ("lat/c/2", f8(&[30.0])),
+            (
+                "lon/zarr.json",
+                v3_array("[4]", "[\"lon\"]", "{\"units\":\"degrees_east\"}"),
+            ),
+            ("lon/c/0", f8(&lon)),
+            ("t/zarr.json", v3_array("[3,4]", "[\"lat\",\"lon\"]", "{}")),
+            ("t/c/0/0", f8(&(0..12).map(f64::from).collect::<Vec<_>>())),
+        ]))
+        .expect("opens");
+        let err = session
+            .plan_window(&WindowRequest::new(
+                0,
+                0,
+                1,
+                [0.0, 40.0, 0.0, 180.0],
+                vec![0, 0],
+            ))
+            .expect_err("a coordinate holds NaN");
+        assert_eq!(err.code(), "decode", "{bad}: {err}");
+        let message = err.message();
+        assert!(
+            message.contains(bad) && message.contains("NaN") && !message.contains("lat/c/0"),
+            "{bad}: {message}"
+        );
+    }
 }
 
 #[test]
@@ -231,10 +288,17 @@ fn a_geostationary_scan_angle_that_is_not_finite_is_refused() {
         .expect("places");
     assert_eq!(field.georef.kind, "space_view", "{:?}", field.georef);
 
+    // In the middle, master placed it from the ends; at an end, master left
+    // the image unplaced as a space view. Both are refused now.
     assert_refused(
         &geostationary(&[-0.05, f64::NAN, 0.02, 0.05]),
         "t",
         &["`x`", "NaN", "index 1"],
+    );
+    assert_refused(
+        &geostationary(&[f64::NAN, -0.02, 0.02, 0.05]),
+        "t",
+        &["`x`", "NaN", "index 0"],
     );
 }
 
