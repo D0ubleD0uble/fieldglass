@@ -2668,6 +2668,9 @@ export interface SourceSpec {
   /**
    * How many cycles back to offer, newest first. A host walks them until a
    * fetch succeeds, which is what covers a late or skipped run.
+   *
+   * At most `MAX_CANDIDATES`; more is refused by
+   * `validate`.
    */
   maxCandidates: number;
 }
