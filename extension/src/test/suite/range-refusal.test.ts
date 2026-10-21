@@ -308,9 +308,10 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       assert.strictEqual(state.rangeNote, null);
       assert.deepStrictEqual(state.rangeInvalid, []);
       assert.ok(!state.exportStatus.includes("range fields"), "export is not blocked by a range refusal about another field");
-      // The export went to the host, which asked the (stubbed) dialog: wait for
-      // that before the stub is put back.
-      await panel.waitSent(isType("exportPngDone"), sentBefore, "the PNG export's outcome");
+      // The render failed, so the PNG would be of an older picture: it is
+      // refused, for that and not for the range (#1187).
+      assert.ok(state.exportStatus.includes("last render failed"), state.exportStatus);
+      assert.ok(!panel.sent.slice(sentBefore).some(isType("exportPngDone")), "nothing went to the host");
     } finally {
       vscode.window.showSaveDialog = savedDialog;
       panel.dispose();
@@ -409,7 +410,9 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       assert.strictEqual(state.rangeNote, null, "the edit ended the refusal");
       assert.deepStrictEqual(state.rangeInvalid, []);
       assert.ok(!state.exportStatus.includes("range fields"), "export is not blocked by the range");
-      await panel.waitSent(isType("exportPngDone"), sentBefore, "the PNG export's outcome");
+      // The render failed, so the PNG would be of an older picture (#1187).
+      assert.ok(state.exportStatus.includes("last render failed"), state.exportStatus);
+      assert.ok(!panel.sent.slice(sentBefore).some(isType("exportPngDone")), "nothing went to the host");
     } finally {
       vscode.window.showSaveDialog = savedDialog;
       panel.dispose();

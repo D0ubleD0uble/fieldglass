@@ -3095,6 +3095,7 @@ export function renderImagePanelHtml(
 
         function handleGridReady(msg) {
           lastPayload = msg;
+          lastRenderFailed = false;
           // Read before blit takes the request's record.
           const scene = askedScene(msg);
           const sameScene = scene !== null && scene === drawnScene;
@@ -3190,6 +3191,8 @@ export function renderImagePanelHtml(
           if (!msg || typeof msg.seq !== 'number' || msg.seq >= renderSeq) {
             answeredSeq = renderSeq;
             clearGesturePreview();
+            // A refused range has its own export message (rangeRefused).
+            lastRenderFailed = !msg.rangeRefusal;
           }
           const err = msg.error || 'render failed';
           const askedKey = takeAskedKey(msg);
@@ -3503,6 +3506,10 @@ export function renderImagePanelHtml(
         // Whether the range on the fields now is one Rust refused (#1155):
         // contours are not asked for over it.
         let rangeRefused = false;
+        // Whether the latest render failed for a reason other than the range:
+        // lastPayload then still holds an older picture (#1187). Cleared by a
+        // gridReady.
+        let lastRenderFailed = false;
         // Whether that refusal is independent of the data, and the field it was
         // said of (#1186).
         let rangeRefusalFixed = false;
@@ -3861,10 +3868,12 @@ export function renderImagePanelHtml(
         // Only while contours are drawn (#840, #945, #1265): on a field that takes
         // none, or with Contours unticked, the panel would otherwise show nothing
         // at all.
+        function contoursOnlyOn() {
+          return contoursEnabled() && !!(document.getElementById('contours-only') || {}).checked;
+        }
         function applyContoursOnly() {
           const canvas = document.getElementById('canvas');
-          const only = contoursEnabled() && !!(document.getElementById('contours-only') || {}).checked;
-          if (canvas) canvas.style.visibility = only ? 'hidden' : 'visible';
+          if (canvas) canvas.style.visibility = contoursOnlyOn() ? 'hidden' : 'visible';
         }
 
         // --- Point probe (#172) ---------------------------------------------
@@ -5007,6 +5016,12 @@ export function renderImagePanelHtml(
             setExportStatus('Export failed: the colour range in the fields was refused; see the range fields.');
             return;
           }
+          // The last render failed for another reason, so lastPayload is an
+          // older picture than the panel's selection (#1187).
+          if (lastRenderFailed) {
+            setExportStatus('Export failed: the last render failed; see the status line.');
+            return;
+          }
           if (!lastPayload || !lastPayload.width) {
             setExportStatus('Render the field before exporting a PNG.');
             return;
@@ -5052,7 +5067,9 @@ export function renderImagePanelHtml(
           }
           // Map: raster at native resolution, overlay scaled to align on top.
           const mapY = margin + titleH;
-          g.drawImage(raster, margin, mapY, W, H);
+          // Left out under Contours + only, by the rule the screen hides it by
+          // (#1270); the colour bar stays, as it does on screen.
+          if (!contoursOnlyOn()) g.drawImage(raster, margin, mapY, W, H);
           if (overlay && overlay.width && overlay.height) {
             // The overlay is at the panel's size and is scaled to the raster's
             // here, which would shrink a label drawn on it to nothing for a

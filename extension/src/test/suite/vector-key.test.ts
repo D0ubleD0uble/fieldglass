@@ -20,13 +20,13 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import * as zlib from "zlib";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import { resolveRerenderOptions } from "../../provider";
 import { composeVectorScale, composeVectorScaleNote, VECTOR_KEY_LEFT_OFF } from "../../render-panel";
 import {
+  decodePng,
   extensionPath,
   isType,
   type Msg,
@@ -227,64 +227,6 @@ function assertKeyMatches(d: Drawn, file: string, what: string): void {
 function longestDrawn(d: Drawn): number {
   const scale = d.key.canvas.width / d.rasterWidth;
   return Math.max(...wholeArrows(d.result).map((a) => a.length)) * scale;
-}
-
-/** An 8-bit RGB or RGBA PNG, non-interlaced, as canvas `toDataURL` writes. */
-function decodePng(png: Buffer): { width: number; height: number; rgba: Uint8Array } {
-  assert.strictEqual(png.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", "a PNG signature");
-  let at = 8;
-  let width = 0;
-  let height = 0;
-  let channels = 0;
-  const idat: Buffer[] = [];
-  while (at < png.length) {
-    const length = png.readUInt32BE(at);
-    const type = png.toString("ascii", at + 4, at + 8);
-    const data = png.subarray(at + 8, at + 8 + length);
-    if (type === "IHDR") {
-      width = data.readUInt32BE(0);
-      height = data.readUInt32BE(4);
-      assert.strictEqual(data[8], 8, "8-bit samples");
-      assert.ok(data[9] === 6 || data[9] === 2, `RGB or RGBA, got colour type ${data[9]}`);
-      channels = data[9] === 6 ? 4 : 3;
-      assert.strictEqual(data[12], 0, "not interlaced");
-    } else if (type === "IDAT") {
-      idat.push(data);
-    } else if (type === "IEND") {
-      break;
-    }
-    at += 12 + length;
-  }
-  const raw = zlib.inflateSync(Buffer.concat(idat));
-  const stride = width * channels;
-  const rows = new Uint8Array(stride * height);
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)];
-    const line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
-    for (let x = 0; x < stride; x++) {
-      const a = x >= channels ? rows[y * stride + x - channels] : 0;
-      const b = y > 0 ? rows[(y - 1) * stride + x] : 0;
-      const c = x >= channels && y > 0 ? rows[(y - 1) * stride + x - channels] : 0;
-      let v = line[x];
-      if (filter === 1) v += a;
-      else if (filter === 2) v += b;
-      else if (filter === 3) v += Math.floor((a + b) / 2);
-      else if (filter === 4) {
-        const p = a + b - c;
-        const pa = Math.abs(p - a);
-        const pb = Math.abs(p - b);
-        const pc = Math.abs(p - c);
-        v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
-      }
-      rows[y * stride + x] = v & 0xff;
-    }
-  }
-  const rgba = new Uint8Array(width * height * 4);
-  for (let i = 0; i < width * height; i++) {
-    for (let k = 0; k < 3; k++) rgba[i * 4 + k] = rows[i * channels + k];
-    rgba[i * 4 + 3] = channels === 4 ? rows[i * channels + 3] : 255;
-  }
-  return { width, height, rgba };
 }
 
 /** The longest horizontal run of pixels at least half magenta, in any row. */
