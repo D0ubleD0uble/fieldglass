@@ -28,6 +28,7 @@ use fieldglass_core::array::ChunkGrid;
 use fieldglass_core::bytes::{ByteRange, ObjectSource};
 
 use super::{StoredArray, ZarrStore, keys_of};
+use crate::codec::{Codec, compose_transposes};
 use crate::metadata::CodecSource;
 use crate::{ChunkDecoder, IndexLocation, ShardIndex, ShardLayout};
 use serde_json::Value;
@@ -54,7 +55,9 @@ pub struct InnerChunkRange {
     pub index: Vec<u64>,
     /// The shard's key from the store's root.
     pub key: String,
-    /// The inner chunk's position on the shard's grid of inner chunks.
+    /// The inner chunk's position on the shard's grid of inner chunks, as the
+    /// shard's index lays it out: in the transposed axis order when a
+    /// `transpose` comes before the sharding codec (#1343).
     pub inner: Vec<u64>,
     /// Its bytes within the shard, as the shard's index states them.
     pub range: ByteRange,
@@ -145,7 +148,7 @@ impl<O: ObjectSource> ZarrStore<O> {
                 Some(InnerChunkRange {
                     index: shard.clone(),
                     key: key.clone(),
-                    inner,
+                    inner: sharded.stored_position(inner),
                     range: index.entry(position)?,
                 })
             }));
@@ -172,9 +175,18 @@ impl<O: ObjectSource> ZarrStore<O> {
 
 /// A sharded array's index layout and shard shape: metadata only, so a plan
 /// never builds the inner chunks' codecs.
+///
+/// A `transpose` before the sharding codec hands it the shard in another axis
+/// order (#1343). The layout's inner grid, and so the index, are in that
+/// stored order; a region is in the array's own. `order` maps between them.
 pub(super) struct Sharded {
     layout: ShardLayout,
+    /// The shard's extent in the stored axis order: what the sharding codec
+    /// was handed, and what its inner grid divides.
     shard_shape: Vec<usize>,
+    /// The array axis that became each stored axis, or `None` when the two
+    /// orders are the same.
+    order: Option<Vec<usize>>,
 }
 
 /// What the source holds of one shard's index.
@@ -188,7 +200,8 @@ enum Held {
 }
 
 /// The inner chunks a region touches, by shard: each inner chunk's position
-/// on its shard's grid, and that position in the index's C order.
+/// on its shard's grid, in the array's axis order, and that position in the
+/// index's C order, which is over the stored axes (#1343).
 pub(super) type Touched = BTreeMap<Vec<u64>, Vec<(Vec<u64>, usize)>>;
 
 impl Sharded {
@@ -196,25 +209,29 @@ impl Sharded {
     pub(super) fn of(array: &StoredArray) -> Result<Option<Self>, FieldglassError> {
         // Read off the document before any chain is built, so an array that
         // is not sharded plans as it did, whatever its codecs: planning reads
-        // metadata, and a codec this crate cannot decode is a decode's
-        // failure, not a plan's.
-        let config = match array.meta.codecs() {
+        // metadata, and an inner codec this crate cannot decode is a decode's
+        // failure, not a plan's. The codecs *before* the sharding codec are
+        // the exception (#1343): they decide where each inner chunk is, so
+        // one that is not a `transpose` is refused here, as the decode
+        // refuses it.
+        let found = match array.meta.codecs() {
             // The last step, as `CodecChain::sharding` has it: a shard is an
             // object only when nothing is applied after the sharding codec.
             // Behind a `gzip`, say, the stored object is a compressed shard,
             // whose index cannot be fetched by range.
             CodecSource::V3 { codecs } => codecs
                 .as_array()
-                .and_then(|steps| steps.last())
-                .filter(|step| step.get("name").and_then(Value::as_str) == Some("sharding_indexed"))
-                .map(|step| step.get("configuration").unwrap_or(&Value::Null)),
+                .and_then(|steps| steps.split_last())
+                .filter(|(step, _)| {
+                    step.get("name").and_then(Value::as_str) == Some("sharding_indexed")
+                }),
             CodecSource::V2 { .. } => None,
         };
-        let Some(config) = config else {
+        let Some((sharding, before)) = found else {
             return Ok(None);
         };
-        let layout = ShardLayout::from_v3(config)?;
-        let shard_shape = array
+        let layout = ShardLayout::from_v3(sharding.get("configuration").unwrap_or(&Value::Null))?;
+        let mut shard_shape = array
             .meta
             .grid()
             .chunk_shape()
@@ -227,21 +244,59 @@ impl Sharded {
                 })
             })
             .collect::<Result<Vec<usize>, _>>()?;
+        // The codecs before the sharding codec decide the axis order it was
+        // handed the shard in (#1343): the same rule a decode follows, so a
+        // plan and a read agree on where an inner chunk is. Empty, as nearly
+        // always, this builds nothing.
+        let before = before
+            .iter()
+            .map(|step| Codec::from_v3(step, array.meta.dtype()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let order = compose_transposes(&before, shard_shape.len())?;
+        if let Some(order) = &order {
+            shard_shape = order.iter().map(|&axis| shard_shape[axis]).collect();
+        }
         // Checks the grid divides and the index is within its cap, before any
         // arithmetic below relies on it.
         layout.index_len(&shard_shape)?;
         Ok(Some(Self {
             layout,
             shard_shape,
+            order,
         }))
     }
 
+    /// The stored axis that array axis `axis` became.
+    fn stored_axis(&self, axis: usize) -> usize {
+        self.order
+            .as_deref()
+            .and_then(|order| order.iter().position(|&a| a == axis))
+            .unwrap_or(axis)
+    }
+
+    /// The array axis that stored axis `k` holds.
+    fn array_axis(&self, k: usize) -> usize {
+        self.order
+            .as_deref()
+            .and_then(|order| order.get(k).copied())
+            .unwrap_or(k)
+    }
+
+    /// The inner chunk shape in the array's own axis order.
     fn inner_shape(&self) -> Vec<u64> {
-        self.layout
-            .chunk_shape()
-            .iter()
-            .map(|&n| n as u64)
+        let inner = self.layout.chunk_shape();
+        (0..inner.len())
+            .map(|axis| inner[self.stored_axis(axis)] as u64)
             .collect()
+    }
+
+    /// An inner chunk's position on its shard's grid, from the array's axis
+    /// order to the stored one the index is laid out in.
+    fn stored_position(&self, position: Vec<u64>) -> Vec<u64> {
+        match &self.order {
+            None => position,
+            Some(order) => order.iter().map(|&axis| position[axis]).collect(),
+        }
     }
 
     /// Every inner chunk `region` touches, grouped by shard in row-major
@@ -256,22 +311,24 @@ impl Sharded {
         // The inner chunks as a grid over the whole array: the array model's
         // own covering walk, with its rank, bounds and count checks.
         let grid = ChunkGrid::new(array.meta.grid().shape().to_vec(), inner.clone())?;
-        let per: Vec<u64> = self
-            .shard_shape
-            .iter()
-            .zip(self.layout.chunk_shape())
-            .map(|(&shard, &inner)| (shard / inner) as u64)
+        // Inner chunks per shard along each of the array's axes.
+        let per: Vec<u64> = (0..self.shard_shape.len())
+            .map(|axis| {
+                let k = self.stored_axis(axis);
+                (self.shard_shape[k] / self.layout.chunk_shape()[k]) as u64
+            })
             .collect();
         let mut out: Touched = BTreeMap::new();
         for global in grid.chunks_covering(region)? {
             let shard: Vec<u64> = global.iter().zip(&per).map(|(g, p)| g / p).collect();
             let position: Vec<u64> = global.iter().zip(&per).map(|(g, p)| g % p).collect();
-            // C order, last axis fastest, as the index is written. Below the
-            // index's own entry count, which `Sharded::of` showed fits.
-            let linear = position
-                .iter()
-                .zip(&per)
-                .fold(0u64, |acc, (i, p)| acc * p + i);
+            // C order of the stored axes, last fastest, as the index is
+            // written. Below the index's own entry count, which `Sharded::of`
+            // showed fits.
+            let linear = (0..position.len()).fold(0u64, |acc, k| {
+                let axis = self.array_axis(k);
+                acc * per[axis] + position[axis]
+            });
             let linear = usize::try_from(linear).map_err(|_| {
                 FieldglassError::Parse("an inner chunk's position overflows".to_string())
             })?;
@@ -416,10 +473,6 @@ pub(super) fn read_ranged<O: ObjectSource>(
         Held::Read(index) => index,
     };
     let inner = sharded.inner_shape();
-    let sharding = decoder.chain().sharding().ok_or_else(|| {
-        FieldglassError::WrongLayout("this array's chunks are not shards".to_string())
-    })?;
-    let element_size = decoder.dtype().size;
     for (position, linear) in touched.get(shard).into_iter().flatten() {
         let Some(range) = index.entry(*linear) else {
             continue;
@@ -427,18 +480,19 @@ pub(super) fn read_ranged<O: ObjectSource>(
         let stored = objects.get_range(key, range)?.ok_or_else(|| {
             FieldglassError::Parse(format!("`{key}` vanished from the store's source"))
         })?;
-        let raw = sharding.decode_inner(&stored, element_size)?;
+        // In the array's axis order, as `inner` and `position` are.
+        let raw = decoder.decode_inner(&stored, sharded.order.as_deref())?;
         let values: Vec<Option<f64>> = decoder
             .dtype()
             .read_values(&raw)?
             .into_iter()
             .map(Some)
             .collect();
-        let origin: Vec<u64> = shard
-            .iter()
-            .zip(&sharded.shard_shape)
-            .zip(position.iter().zip(&inner))
-            .map(|((s, &extent), (p, i))| s * extent as u64 + p * i)
+        let origin: Vec<u64> = (0..shard.len())
+            .map(|axis| {
+                let extent = sharded.shard_shape[sharded.stored_axis(axis)] as u64;
+                shard[axis] * extent + position[axis] * inner[axis]
+            })
             .collect();
         fieldglass_core::array::copy_block(&values, &inner, &origin, region, out);
     }

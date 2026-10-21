@@ -266,7 +266,10 @@ pub struct InnerChunkRef {
     pub key: String,
     /// The shard's position on the array's chunk grid, one entry per axis.
     pub index: Vec<u64>,
-    /// The inner chunk's position on its shard's grid of inner chunks.
+    /// The inner chunk's position on its shard's grid of inner chunks, as the
+    /// shard's index lays that grid out. When the array's codecs put a
+    /// `transpose` before `sharding_indexed`, that grid is in the transposed
+    /// axis order, not the array's (#1343).
     pub inner: Vec<u64>,
     /// The chunk's first byte, from the start of the shard.
     pub offset: u64,

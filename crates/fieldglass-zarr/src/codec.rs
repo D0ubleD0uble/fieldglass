@@ -69,9 +69,21 @@ pub enum Codec {
         order: Vec<usize>,
     },
     /// v3's `sharding_indexed`: many inner chunks in one stored object, with an
-    /// index saying where each is. Terminal — nothing wraps it, and a shard is
-    /// decoded through [`crate::ChunkDecoder::decode_shard`] rather than as a
-    /// plain chunk.
+    /// index saying where each is. A shard is decoded through
+    /// [`crate::ChunkDecoder::decode_shard`] rather than as a plain chunk.
+    ///
+    /// It is an array→bytes codec, so the spec lets codecs stand on both
+    /// sides of it:
+    ///
+    /// - **Before it**, array→array codecs. `transpose` is the one this crate
+    ///   reads: the shard's inner grid, and each inner chunk, are laid out in
+    ///   the transposed axis order, and a read puts the values back in the
+    ///   array's own (#1343). Any other codec before it is refused when the
+    ///   metadata is read.
+    /// - **After it**, bytes→bytes codecs over the whole shard, such as a
+    ///   `gzip`. The array is then not read as sharded
+    ///   ([`CodecChain::sharding`] is `None`), and its chunks fail to decode
+    ///   as plain ones (#1303).
     Sharding(Box<Sharding>),
 }
 
@@ -196,11 +208,50 @@ impl CodecChain {
     }
 
     /// The `sharding_indexed` codec at the end of this chain, if there is one.
+    ///
+    /// Only a sharding codec with nothing after it makes the array's chunks
+    /// shards a read can index: see [`Codec::Sharding`].
     #[must_use]
     pub fn sharding(&self) -> Option<&Sharding> {
-        match self.steps.last() {
-            Some(Codec::Sharding(spec)) => Some(spec),
+        match self.split_at_sharding() {
+            Some((_, spec, [])) => Some(spec),
             _ => None,
+        }
+    }
+
+    /// The chain split around its last `sharding_indexed` codec: the steps
+    /// the encoder applied before it, the codec itself, and the steps after
+    /// it, all in encode order. `None` for a chain with no sharding codec.
+    #[must_use]
+    pub fn split_at_sharding(&self) -> Option<(&[Codec], &Sharding, &[Codec])> {
+        let at = self
+            .steps
+            .iter()
+            .rposition(|step| matches!(step, Codec::Sharding(_)))?;
+        let Codec::Sharding(spec) = &self.steps[at] else {
+            return None;
+        };
+        Some((&self.steps[..at], spec, &self.steps[at + 1..]))
+    }
+
+    /// The one axis permutation the steps before this chain's sharding codec
+    /// apply to a shard of `rank` dimensions (#1343): `order[k]` is the array
+    /// axis that became the shard's stored axis `k`, as for
+    /// [`Codec::Transpose`]. `None` when the shard is stored in the array's
+    /// own axis order, which includes a chain that is not sharded.
+    ///
+    /// Several transposes compose into one. Allocates only when there is a
+    /// transpose to compose, so a plain sharded read pays nothing for it.
+    ///
+    /// # Errors
+    ///
+    /// A codec before the sharding codec that is not a `transpose`, which is
+    /// the only array→array codec this crate reads, and an order that is not
+    /// a permutation of `rank` axes.
+    pub fn shard_order(&self, rank: usize) -> Result<Option<Vec<usize>>, FieldglassError> {
+        match self.split_at_sharding() {
+            Some((before, _, _)) => compose_transposes(before, rank),
+            None => Ok(None),
         }
     }
 
@@ -350,6 +401,22 @@ const INLINE_STEPS: usize = 8;
 const CHAIN_SLACK: usize = 4096;
 
 impl Codec {
+    /// The codec's name as the metadata spells it, for a refusal.
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Blosc => "`blosc`",
+            Self::Zlib => "`zlib`",
+            Self::Gzip => "`gzip`",
+            Self::Zstd => "`zstd`",
+            Self::Lz4 => "`lz4`",
+            Self::Crc32c => "`crc32c`",
+            Self::Shuffle { .. } => "`shuffle`",
+            Self::Bytes { .. } => "`bytes`",
+            Self::Transpose { .. } => "`transpose`",
+            Self::Sharding(_) => "`sharding_indexed`",
+        }
+    }
+
     /// The most this codec writes when handed `len` bytes on encode.
     ///
     /// - `crc32c` appends its 4-byte checksum.
@@ -378,31 +445,47 @@ impl Codec {
     }
 }
 
-/// Undo an axis permutation: the stored array has shape `shape[order]`, and
-/// this returns it in the array's own axis order.
-///
-/// C order throughout — last axis fastest — in both the stored and the returned
-/// layout, because that is what both editions serialise and what every consumer
-/// downstream indexes.
-fn untranspose(
-    data: &[u8],
-    shape: &[usize],
-    order: &[usize],
-    element_size: usize,
-) -> Result<Vec<u8>, FieldglassError> {
-    if order.len() != shape.len() {
+/// The steps before a `sharding_indexed` codec, `before`, composed into one
+/// axis permutation of `rank` axes: see [`CodecChain::shard_order`].
+pub(crate) fn compose_transposes(
+    before: &[Codec],
+    rank: usize,
+) -> Result<Option<Vec<usize>>, FieldglassError> {
+    let mut composed: Option<Vec<usize>> = None;
+    for step in before {
+        let Codec::Transpose { order } = step else {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "a Zarr v3 array states codec {} before `sharding_indexed`; only \
+                 `transpose` is read there",
+                step.name()
+            )));
+        };
+        check_permutation(order, rank)?;
+        // The earlier steps' stored axis `order[k]` became this step's stored
+        // axis `k`, so the array axis behind it is the earlier composition's
+        // entry there.
+        composed = Some(match composed {
+            None => order.clone(),
+            Some(earlier) => order.iter().map(|&axis| earlier[axis]).collect(),
+        });
+    }
+    // The identity, spelled out, is no permutation at all.
+    Ok(composed.filter(|order| order.iter().enumerate().any(|(k, &axis)| k != axis)))
+}
+
+/// Refuse a transpose `order` that is not a permutation of `rank` axes.
+fn check_permutation(order: &[usize], rank: usize) -> Result<(), FieldglassError> {
+    if order.len() != rank {
         return Err(FieldglassError::Parse(format!(
-            "a transpose order of {} axes cannot apply to a {}-dimensional chunk",
-            order.len(),
-            shape.len()
+            "a transpose order of {} axes cannot apply to a {rank}-dimensional chunk",
+            order.len()
         )));
     }
-    let mut seen = vec![false; shape.len()];
+    let mut seen = vec![false; rank];
     for &axis in order {
         let slot = seen.get_mut(axis).ok_or_else(|| {
             FieldglassError::Parse(format!(
-                "a transpose order names axis {axis} of a {}-dimensional chunk",
-                shape.len()
+                "a transpose order names axis {axis} of a {rank}-dimensional chunk"
             ))
         })?;
         if std::mem::replace(slot, true) {
@@ -411,6 +494,22 @@ fn untranspose(
             )));
         }
     }
+    Ok(())
+}
+
+/// Undo an axis permutation: the stored array has shape `shape[order]`, and
+/// this returns it in the array's own axis order.
+///
+/// C order throughout — last axis fastest — in both the stored and the returned
+/// layout, because that is what both editions serialise and what every consumer
+/// downstream indexes.
+pub(crate) fn untranspose(
+    data: &[u8],
+    shape: &[usize],
+    order: &[usize],
+    element_size: usize,
+) -> Result<Vec<u8>, FieldglassError> {
+    check_permutation(order, shape.len())?;
 
     let stored_shape: Vec<usize> = order.iter().map(|&axis| shape[axis]).collect();
     // Strides over the *stored* layout, in elements, last axis fastest.
@@ -651,6 +750,23 @@ mod tests {
         assert!(untranspose(&[0u8; 6], &[2, 3], &[0], 1).is_err());
         // A buffer too short for the shape must not index out of bounds.
         assert!(untranspose(&[0u8; 3], &[2, 3], &[1, 0], 1).is_err());
+    }
+
+    /// Two transposes before the sharding codec compose in the order the
+    /// encoder applied them (#1343). `[2, 0, 1]` then `[1, 0, 2]` do not
+    /// commute: applied in that order, stored axis `k` holds array axis
+    /// `[0, 2, 1][k]`; the other way round it would be `[2, 1, 0]`.
+    ///
+    /// Checked by hand: after `[2, 0, 1]` the stored axes hold array axes
+    /// (2, 0, 1); `[1, 0, 2]` then takes that tuple's entries 1, 0 and 2,
+    /// which are (0, 2, 1).
+    #[test]
+    fn transposes_before_sharding_compose_in_encode_order() {
+        let transpose = |order: Vec<usize>| Codec::Transpose { order };
+        let composed = compose_transposes(&[transpose(vec![2, 0, 1]), transpose(vec![1, 0, 2])], 3);
+        assert_eq!(composed.unwrap(), Some(vec![0, 2, 1]));
+        let reversed = compose_transposes(&[transpose(vec![1, 0, 2]), transpose(vec![2, 0, 1])], 3);
+        assert_eq!(reversed.unwrap(), Some(vec![2, 1, 0]));
     }
 
     /// The chain refuses to decode a shard as a chunk rather than returning

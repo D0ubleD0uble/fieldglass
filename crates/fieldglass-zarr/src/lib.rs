@@ -216,6 +216,11 @@ impl ChunkDecoder {
             CodecSource::V3 { codecs } => CodecChain::from_v3(codecs, dtype)?,
         };
 
+        // Refused here rather than at the first shard: an array whose shards
+        // cannot be put back in its own axis order must not read as one that
+        // can (#1343). A plain sharded chain allocates nothing for it.
+        chain.shard_order(chunk_shape.len())?;
+
         // A multi-byte element type has no order until the `bytes` codec gives
         // it one, and a chain without that codec cannot say which order its
         // bytes are in. Defaulting to little would be right nearly always,
@@ -342,13 +347,55 @@ impl ChunkDecoder {
     /// is a chunk and goes through [`Self::decode`]. Each returned chunk is
     /// raw element bytes in C order, or `None` where the shard holds nothing
     /// and [`Self::fill_value`] stands in.
+    ///
+    /// The inner grid and each inner chunk are in the array's own axis order,
+    /// also when a `transpose` before the sharding codec stored them in
+    /// another (#1343). An inner chunk's shape is then the sharding codec's
+    /// `chunk_shape` put back in the array's axis order.
     pub fn decode_shard(&self, stored: &[u8]) -> Result<Shard, FieldglassError> {
-        let sharding = self.chain.sharding().ok_or_else(|| {
+        let sharding = self.sharding()?;
+        let Some(order) = self.chain.shard_order(self.chunk_shape.len())? else {
+            return sharding.decode(stored, &self.chunk_shape, self.dtype.size);
+        };
+        // The sharding codec was handed the shard transposed, and its inner
+        // grid divides that shape.
+        let outer: Vec<usize> = order.iter().map(|&axis| self.chunk_shape[axis]).collect();
+        sharding
+            .decode(stored, &outer, self.dtype.size)?
+            .untransposed(&order, sharding.chunk_shape(), self.dtype.size)
+    }
+
+    /// Decode one inner chunk of a shard, read by range, to its raw element
+    /// bytes in C order of the array's own axes (#1123, #1343).
+    pub(crate) fn decode_inner(
+        &self,
+        stored: &[u8],
+        order: Option<&[usize]>,
+    ) -> Result<Vec<u8>, FieldglassError> {
+        let sharding = self.sharding()?;
+        let raw = sharding.decode_inner(stored, self.dtype.size)?;
+        let Some(order) = order else {
+            return Ok(raw);
+        };
+        // The inner chunk shape as the array's axes see it.
+        let mut shape = vec![0; order.len()];
+        for (&axis, &extent) in order.iter().zip(sharding.chunk_shape()) {
+            *shape.get_mut(axis).ok_or_else(|| {
+                FieldglassError::Parse(format!(
+                    "a transpose order names axis {axis} of a {}-dimensional inner chunk",
+                    order.len()
+                ))
+            })? = extent;
+        }
+        crate::codec::untranspose(&raw, &shape, order, self.dtype.size)
+    }
+
+    fn sharding(&self) -> Result<&Sharding, FieldglassError> {
+        self.chain.sharding().ok_or_else(|| {
             FieldglassError::WrongLayout(
                 "this array's chunks are not shards; decode them with `decode`".to_string(),
             )
-        })?;
-        sharding.decode(stored, &self.chunk_shape, self.dtype.size)
+        })
     }
 }
 

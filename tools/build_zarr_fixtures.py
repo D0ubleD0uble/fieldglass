@@ -27,6 +27,7 @@ Run from the repo root. Needs ``zarr`` and ``numcodecs``:
     python3 tools/build_zarr_fixtures.py                # the whole corpus
     python3 tools/build_zarr_fixtures.py --plan-only    # the planner's half
     python3 tools/build_zarr_fixtures.py --windows-only # the window stores (#1083)
+    python3 tools/build_zarr_fixtures.py --transposed-shards-only  # #1343
 
 ``--plan-only`` rebuilds the ``fieldglass-fetchplan`` fixtures from the
 committed stores without rewriting the corpus, which matters because gzip
@@ -264,6 +265,10 @@ def main() -> None:
     # The window stores (#1083), likewise on their own.
     if "--windows-only" in sys.argv:
         write_window_fixtures()
+        return
+    # The transposed shards (#1343), likewise.
+    if "--transposed-shards-only" in sys.argv:
+        write_transposed_shard_fixtures()
         return
 
     clean(ZARR_FIXTURES)
@@ -1138,6 +1143,155 @@ def write_sharded_window_fixture() -> dict:
         "index_length": index_len,
         "windows": variables,
     }
+
+
+# Shards behind a `transpose` (#1343). `sharding_indexed` is an array->bytes
+# codec, so array->array codecs may come before it, and then the sharding codec
+# is handed each shard in the transposed axis order: its `chunk_shape`, its
+# inner grid and the index all describe the transposed shard. Each array's
+# values are distinct and not symmetric, so a read that drops the transpose, or
+# applies it the wrong way round, gets wrong numbers.
+#
+# * `square`: the issue's case, 4x4 in one shard of 2x2 inner chunks.
+# * `wide`: 6x8 in shards of 4x8, so two shards along y, the second ragged;
+#   inner chunks of 4x2 in the transposed (8x4) shard, which are 2x4 in the
+#   array's own order; the index at the start, the inner chunks through zstd.
+# * `cube`: three axes, order [2, 0, 1], which is not its own inverse. Only
+#   `cube[0]` is written, so the inner chunks holding `cube[1]` are absent and
+#   read as the fill value.
+# * `twice`: a transpose of order [2, 0, 1], then one of [1, 0, 2]. The two do
+#   not commute: they compose to [0, 2, 1], and the other way round to [2, 1, 0].
+TRANSPOSED_SHARDS = ZARR_FIXTURES / "transposed_shards"
+TRANSPOSED_CASES = [
+    # name, shape, shard, orders, stored inner chunk, index location, inner codec
+    ("square", (4, 4), (4, 4), [(1, 0)], (2, 2), "end", "bytes"),
+    ("wide", (6, 8), (4, 8), [(1, 0)], (4, 2), "start", "zstd"),
+    ("cube", (2, 3, 4), (2, 3, 4), [(2, 0, 1)], (2, 1, 1), "end", "bytes"),
+    ("twice", (2, 3, 4), (2, 3, 4), [(2, 0, 1), (1, 0, 2)], (2, 1, 1), "end", "bytes"),
+]
+# Per array, the regions the oracle reads, as `[start, stop)` per axis.
+TRANSPOSED_REGIONS = {
+    "square": [[[0, 4], [0, 4]], [[1, 2], [0, 4]], [[0, 3], [3, 4]]],
+    "wide": [[[0, 6], [0, 8]], [[3, 5], [1, 3]], [[5, 6], [6, 8]]],
+    "cube": [[[0, 2], [0, 3], [0, 4]], [[0, 1], [1, 3], [2, 4]], [[1, 2], [0, 3], [0, 4]]],
+    "twice": [[[0, 2], [0, 3], [0, 4]], [[1, 2], [2, 3], [1, 4]]],
+}
+
+
+def composed_order(orders, rank: int) -> list[int]:
+    """The one permutation `orders` amount to, read off numpy's own transposes
+    of an array whose extents all differ: stored axis `k` is whichever array
+    axis has the extent it ends up with."""
+    extents = list(range(2, 2 + rank))
+    probe = np.zeros(tuple(extents))
+    for order in orders:
+        probe = probe.transpose(order)
+    return [extents.index(n) for n in probe.shape]
+
+
+def write_transposed_shard_fixtures() -> None:
+    root = TRANSPOSED_SHARDS
+    if root.exists():
+        shutil.rmtree(root)
+    group = zarr.open_group(str(root), mode="w", zarr_format=3)
+    oracle: dict[str, dict] = {}
+    for name, shape, shard, orders, inner, location, inner_codec in TRANSPOSED_CASES:
+        data = (np.arange(math.prod(shape), dtype="<f4") * 0.25 + 1.0).reshape(shape)
+        inner_codecs = [BytesCodec(endian="little")]
+        if inner_codec == "zstd":
+            inner_codecs.append(ZstdCodec(level=0))
+        array = group.create_array(
+            name,
+            shape=shape,
+            dtype="<f4",
+            chunks=shard,
+            filters=[TransposeCodec(order=order) for order in orders],
+            serializer=ShardingCodec(
+                chunk_shape=inner,
+                codecs=inner_codecs,
+                index_codecs=[BytesCodec(endian="little"), Crc32cCodec()],
+                index_location=location,
+            ),
+            compressors=None,
+            fill_value=-1.0,
+            config={"write_empty_chunks": False},
+        )
+        if name == "cube":
+            array[0] = data[0]
+        else:
+            array[...] = data
+        meta = json.loads((root / name / "zarr.json").read_text(encoding="utf-8"))
+        names = [codec["name"] for codec in meta["codecs"]]
+        assert names == ["transpose"] * len(orders) + ["sharding_indexed"], names
+    zarr.consolidate_metadata(str(root), zarr_format=3)
+
+    reread = zarr.open_group(str(root), mode="r", zarr_format=3)
+    for name, shape, shard, orders, inner, location, _ in TRANSPOSED_CASES:
+        order = composed_order(orders, len(shape))
+        stored_shard = [shard[axis] for axis in order]
+        per = [s // i for s, i in zip(stored_shard, inner)]
+        entries = math.prod(per)
+        regions = []
+        for region in TRANSPOSED_REGIONS[name]:
+            # Each cell's shard, and its inner chunk's place on the transposed
+            # shard's grid, worked out cell by cell.
+            touched: dict[tuple, set] = {}
+            for cell in np.ndindex(*[stop - start for start, stop in region]):
+                at = [start + c for (start, _), c in zip(region, cell)]
+                shard_at = tuple(a // s for a, s in zip(at, shard))
+                local = [a % s for a, s in zip(at, shard)]
+                position = tuple(local[axis] // i for axis, i in zip(order, inner))
+                touched.setdefault(shard_at, set()).add(position)
+            inner_chunks = []
+            for shard_at in sorted(touched):
+                key = f"{name}/c/" + "/".join(str(i) for i in shard_at)
+                index = shard_index((root / key).read_bytes(), entries, location)
+                for position in sorted(touched[shard_at]):
+                    linear = 0
+                    for p, n in zip(position, per):
+                        linear = linear * n + p
+                    if index[linear] is None:
+                        continue
+                    inner_chunks.append(
+                        {
+                            "key": key,
+                            "index": list(shard_at),
+                            "inner": list(position),
+                            "offset": index[linear][0],
+                            "length": index[linear][1],
+                        }
+                    )
+            values = reread[name][tuple(slice(a, b) for a, b in region)]
+            regions.append(
+                {
+                    "region": region,
+                    "inner_chunks": inner_chunks,
+                    "values": [json_number(v) for v in values.ravel()],
+                }
+            )
+        values = reread[name][...]
+        # What the store exists for: the shard's elements in stored order are
+        # not the array's, so a read that drops the transpose is wrong.
+        assert not np.array_equal(values.transpose(order).ravel(), values.ravel()), name
+        oracle[name] = {
+            "shape": list(shape),
+            "order": order,
+            "index_location": location,
+            "index_length": entries * 16 + 4,
+            "values": [json_number(v) for v in values.ravel()],
+            "regions": regions,
+        }
+    # `twice` is there to pin the order transposes compose in, which only
+    # orders that do not commute can do.
+    (twice,) = [orders for name, _, _, orders, *_ in TRANSPOSED_CASES if name == "twice"]
+    assert composed_order(twice, 3) != composed_order(twice[::-1], 3), twice
+    # And `cube`'s unwritten half is absent inner chunks, not written fill.
+    cube = (root / "cube/c/0/0/0").read_bytes()
+    assert sum(entry is None for entry in shard_index(cube, 12, "end")) == 6, "cube"
+    (ZARR_FIXTURES / "transposed_shards_oracle.json").write_text(
+        json.dumps(oracle, indent=1, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {len(oracle)} transposed sharded arrays to {root}")
 
 
 # The object the kerchunk fixtures address. Chunks are laid end to end with a
