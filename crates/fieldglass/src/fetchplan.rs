@@ -357,7 +357,8 @@ impl ParameterResolver for TableResolver {
 ///   states for an accumulation or an extreme (`mx2t3` at step 3 is hours 0 to
 ///   3). Only the minute, hour, day and second units are read, and a window
 ///   wgrib2 writes in another form (`0-1 hour acc@(fcst,dt=1 hour)`, a
-///   climatology) is not compared.
+///   climatology) is not compared, and neither is a wgrib2 window for
+///   template 4.44, whose two-octet forecast time wgrib2 reads as four.
 /// * **Qualifiers** of a wgrib2 line (#1117): `prob >0.254` and its kin
 ///   against the probability block of templates 4.5 and 4.9, `ENS=+1` and
 ///   `ENS=low-res ctl` against the ensemble block of 4.1 and 4.11, `ens mean`
@@ -453,6 +454,7 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
     }
 
     if let Some(promised) = expect.forecast.as_deref()
+        && (ecmwf || !wgrib2_misreads_forecast(&info.identity))
         && let Some(actual) = message_window(&info.identity)
         && !window_holds(promised, ecmwf, &actual)
     {
@@ -464,6 +466,21 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
     }
 
     qualifiers_hold(expect, ecmwf, &info.identity)
+}
+
+/// Whether wgrib2 prints a wrong forecast time for this message, so a wgrib2
+/// line's window is not compared with it: template 4.44, whose forecast time
+/// WMO writes in two octets. wgrib2 knows that (`forecast_time_in_units_location`
+/// sets the size to 2 for 4.44) but `forecast_time_in_units` reads four octets
+/// for either size, taking two octets of the first fixed surface with it.
+fn wgrib2_misreads_forecast(identity: &MessageIdentity) -> bool {
+    matches!(
+        identity,
+        MessageIdentity::Grib2 {
+            product_template: 44,
+            ..
+        }
+    )
 }
 
 /// Whether the message is the parameter `promised` names, in the line's
@@ -900,7 +917,10 @@ fn qualifiers_hold(
                 return refuse("ensemble", q, ensemble_prose(ensemble));
             }
         }
-        (None, Some(_)) if whole_line => {
+        // wgrib2 prints the member of 4.1, 4.11, 4.41 and 4.43 but not of the
+        // aerosol members 4.45 and 4.47 (`code_table_4_6_location`), so only
+        // the first four lack one on a real line because they have none.
+        (None, Some(_)) if whole_line && matches!(product_template, 1 | 11 | 41 | 43) => {
             return refuse("ensemble", "none", ensemble_prose(ensemble));
         }
         _ => {}
@@ -2694,6 +2714,33 @@ mod tests {
             Some("aerosolSize")
         );
         assert_eq!(refused(&anl(&["aerosol=Dust dry"]), &no_size), None);
+
+        // wgrib2 prints the member of 4.41 and 4.43, not of 4.45 or 4.47
+        // (`code_table_4_6_location`): a real line leaving it out is refused
+        // only for the first two.
+        let chemical_member = member(constituent_message(41, 0), 3, 4);
+        assert_eq!(refused(&anl(&[]), &chemical_member), Some("ensemble"));
+        assert_eq!(refused(&anl(&["ENS=+4"]), &chemical_member), None);
+        let aerosol_member = member(constituent_message(45, 62008), 3, 4);
+        assert_eq!(refused(&anl(&[]), &aerosol_member), None);
+        assert_eq!(
+            refused(&anl(&["ENS=+5"]), &aerosol_member),
+            Some("ensemble")
+        );
+
+        // wgrib2 reads 4.44's two-octet forecast time as four octets, so its
+        // window is not compared; 4.48's is.
+        let at_six = |template| {
+            let mut message = constituent_message(template, 62001);
+            if let crate::api::MessageIdentity::Grib2 { forecast_time, .. } = &mut message.identity
+            {
+                *forecast_time = Some(6);
+            }
+            message
+        };
+        assert_eq!(refused(&line("anl", &[]), &at_six(44)), None);
+        assert_eq!(refused(&line("anl", &[]), &at_six(48)), Some("forecast"));
+        assert_eq!(refused(&line("6 hour fcst", &[]), &at_six(48)), None);
 
         // A message on any other template has no constituent at all.
         let plain = on_template(0, None, 1, 0);
