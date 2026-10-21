@@ -3094,11 +3094,11 @@ export function renderImagePanelHtml(
         }
 
         function handleGridReady(msg) {
+          lastPayload = msg;
           // Read before blit takes the request's record.
           const scene = askedScene(msg);
           const sameScene = scene !== null && scene === drawnScene;
           drawnScene = scene;
-          lastPayload = msg;
           mountAnswered = true;
           endStaleWait();
           // Re-label for the field actually drawn. A NetCDF panel switches
