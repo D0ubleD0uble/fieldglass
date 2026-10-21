@@ -13,7 +13,7 @@ not. WMO's own definition puts the generating process first:
 | Octets | WMO 4.47 | 4.46, 4.85, and eccodes' 4.47 |
 |---|---|---|
 | 12 | type of generating process | aerosol type (12–13) |
-| 13–14 | aerosol type | size interval type at 14 |
+| 13–14 | aerosol type | rest of the aerosol type (13), then the size range's interval type (14) |
 | 15–25 | size range (type, then two limits) | size range at 14–24, generating process at 25 |
 | 26 on | background process, forecast process, cut-off, forecast time, surfaces at 36–47, ensemble block, interval | the same |
 
@@ -64,7 +64,9 @@ The evidence, all read on 2026-10-21:
    other length is read with a four-octet signed forecast time, the form
    eccodes once wrote and still reads (GRIB-29,
    `template.4.forecast_time_44.def`). WMO lists 4.44 as deprecated, and
-   NCEP's documentation recommends 4.48 in its place.
+   NCEP's page for it (note 2,
+   <https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp4-44.shtml>)
+   says it is not recommended and 4.48 should be used instead.
 
 ## Consequences
 
