@@ -289,6 +289,165 @@ fn the_slice_memo_is_bounded_in_slices_and_cells() {
     assert_eq!(held, [8, 9, 6, 10]);
 }
 
+/// A combined map whose two slices together exceed the cell budget decodes each
+/// of them once across repeated colour changes, probes, contours and zonal
+/// means (#1319). The budget is shrunk below one slice, so the pair is over it
+/// as an RTOFS pair is over the real one.
+#[test]
+fn a_combined_pair_over_the_cell_budget_decodes_each_slice_once() {
+    let handle = crate::Handle::from_store(STORE.to_string()).expect("a store");
+    handle.zarr_set_slice_cells(1);
+    let targets = slice_targets(&handle);
+    assert!(targets.len() >= 2, "two drawable variables: {targets:?}");
+    let combined = json!({ "a": targets[0], "b": targets[1], "op": "a_plus_b" });
+
+    handle
+        .render_grid(combined.clone(), opts("mollweide"))
+        .expect("renders");
+    assert_eq!(handle.zarr_decodes_made(), 2, "each slice decodes once");
+    each_colour_change("mollweide", |o| {
+        handle.render_grid(combined.clone(), o()).expect("renders");
+    });
+    for (px, py) in [(10, 10), (40, 30), (70, 50)] {
+        handle
+            .probe_pixel(combined.clone(), opts("mollweide"), px, py)
+            .expect("probes");
+    }
+    handle
+        .project_contours(combined.clone(), opts("mollweide"), None)
+        .expect("contours");
+    handle
+        .zonal_mean(combined.clone())
+        .expect("a zonal mean of the pair");
+    assert_eq!(
+        handle.zarr_decodes_made(),
+        2,
+        "no colour change, probe, contour or zonal mean reads either slice again"
+    );
+}
+
+/// A slice outside the pair frees it for eviction: the exemption lasts while the
+/// combined map is the one on screen (#1319).
+#[test]
+fn a_plain_slice_releases_the_combined_pair_to_the_budget() {
+    let dir = three_dimensional_store();
+    let handle = crate::Handle::from_store(dir.to_string_lossy().into_owned()).expect("a store");
+    handle.zarr_set_slice_cells(1);
+    let at =
+        |time: u32| json!({ "variable": 0, "yDim": 1, "xDim": 2, "sliceIndices": [time, 0, 0] });
+    let combined = json!({ "a": at(0), "b": at(1), "op": "a_minus_b" });
+    handle
+        .render_grid(combined.clone(), opts("source"))
+        .expect("renders");
+    handle
+        .probe_pixel(combined.clone(), opts("source"), 0, 0)
+        .expect("probes");
+    assert_eq!(handle.zarr_decodes_made(), 2);
+    probe_value(&handle, &at(2));
+    assert_eq!(handle.zarr_decodes_made(), 3);
+    probe_value(&handle, &at(0));
+    assert_eq!(
+        handle.zarr_decodes_made(),
+        4,
+        "a plain slice is held to the budget again"
+    );
+    drop(handle);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The two slices of a combined map are combined where they are kept: no field
+/// is rebuilt with its own copy of the geometry, so a pair on one grid shares
+/// one geometry and the alignment gate's pointer check answers (#1319). The
+/// result is what `Session::combine` over the two whole fields gives.
+#[test]
+fn a_combined_pair_shares_a_geometry_and_matches_the_session_combine() {
+    let store = crate::ZarrStore::from_directory(STORE.to_string()).expect("a store");
+    let drawable: Vec<_> = store
+        .variables()
+        .iter()
+        .filter_map(|v| {
+            Some((
+                u32::try_from(v.variable_index).ok()?,
+                u32::try_from(v.detected_y_dim?).ok()?,
+                u32::try_from(v.detected_x_dim?).ok()?,
+                vec![0; v.dims.len()],
+            ))
+        })
+        .collect();
+    let (a, b) = (&drawable[0], &drawable[1]);
+    let (first, values) = store
+        .combined(a.0, a.1, a.2, &a.3, b.0, &b.3, "a_minus_b")
+        .expect("combines");
+    let second = store.slice(b.0, a.1, a.2, &b.3).expect("kept");
+    assert!(
+        std::sync::Arc::ptr_eq(&first.placed.geometry, &second.placed.geometry),
+        "one geometry, so the gate compares by address"
+    );
+    let whole = store
+        .session
+        .combine(
+            &first.field(),
+            &second.field(),
+            fieldglass::op_from_wire("a_minus_b").expect("an op"),
+        )
+        .expect("aligned");
+    assert_eq!(values, field_values(&whole));
+    assert_eq!(first.rest.parameter, whole.parameter);
+    assert_eq!(first.rest.units, whole.units);
+    assert_eq!(store.decodes.load(std::sync::atomic::Ordering::Relaxed), 2);
+}
+
+/// `SliceMemo::CELLS` is what bounds the memo: slices over it are evicted, the
+/// newest kept (#1319). Fails if the budget stops evicting.
+#[test]
+fn the_slice_memo_evicts_past_its_cell_budget() {
+    let store = crate::ZarrStore::from_directory(STORE.to_string()).expect("a store");
+    let (variable, y, x, idx) = a_drawable_slice(&store);
+    let small = store.slice(variable, y, x, &idx).expect("decodes");
+    let sized = |cells: usize| {
+        std::sync::Arc::new(crate::ZarrSlice {
+            placed: small.placed.clone(),
+            values: vec![None; cells],
+            rest: small.rest.clone(),
+        })
+    };
+    let key = |variable| crate::PlaneKey {
+        variable,
+        y_dim: 0,
+        x_dim: 1,
+        fixed: vec![0, 0],
+    };
+    let held = |memo: &crate::SliceMemo| -> Vec<usize> {
+        memo.entries.iter().map(|(k, _)| k.variable).collect()
+    };
+    let half = crate::SliceMemo::CELLS / 2;
+
+    let mut memo = crate::SliceMemo::default();
+    assert_eq!(memo.cells, crate::SliceMemo::CELLS);
+    memo.insert(key(0), sized(half));
+    memo.insert(key(1), sized(half));
+    assert_eq!(held(&memo), [0, 1], "exactly the budget fits");
+    memo.insert(key(2), sized(1));
+    assert_eq!(held(&memo), [1, 2], "the oldest went");
+    memo.insert(key(3), sized(crate::SliceMemo::CELLS + 1));
+    assert_eq!(held(&memo), [3], "one slice over the budget is kept, alone");
+
+    // Without a pin two slices over half the budget push one another out.
+    let mut memo = crate::SliceMemo::default();
+    memo.insert(key(0), sized(half + 1));
+    memo.insert(key(1), sized(half + 1));
+    assert_eq!(held(&memo), [1]);
+    // A pinned pair survives the budget; a slice outside it releases the pin.
+    let mut memo = crate::SliceMemo::default();
+    memo.pin(&key(0), &key(1));
+    memo.insert(key(0), sized(half + 1));
+    memo.insert(key(1), sized(half + 1));
+    assert_eq!(held(&memo), [0, 1], "the pair is exempt");
+    memo.unpin_unless(&key(2));
+    memo.insert(key(2), sized(1));
+    assert_eq!(held(&memo), [1, 2]);
+}
+
 /// The value under the top-left pixel of the source view of a slice.
 fn probe_value(handle: &crate::Handle, target: &serde_json::Value) -> Option<f64> {
     handle

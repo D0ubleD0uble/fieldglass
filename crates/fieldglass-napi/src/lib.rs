@@ -3362,7 +3362,9 @@ impl ZarrSlice {
         }
     }
 
-    /// The whole field again, which copies the geometry.
+    /// The whole field again, which copies the geometry. A test reads it; no
+    /// display does (a combine reads the kept values and placements).
+    #[cfg(test)]
     fn field(&self) -> fieldglass::Field {
         let mut field = self.rest.clone();
         field.georef.geometry = (*self.placed.geometry).clone();
@@ -3374,13 +3376,9 @@ impl ZarrSlice {
     }
 }
 
-/// Two Zarr slices combined: `a`, which the result is placed as, the combined
-/// field, and its values rejoined.
-type CombinedSlices = (
-    std::sync::Arc<ZarrSlice>,
-    fieldglass::Field,
-    Vec<Option<f64>>,
-);
+/// Two Zarr slices combined: `a`, which the result is placed as and named
+/// by, and the combined values.
+type CombinedSlices = (std::sync::Arc<ZarrSlice>, Vec<Option<f64>>);
 
 /// The slices a `ZarrStore` keeps: the most recently used, newest last.
 ///
@@ -3390,9 +3388,30 @@ type CombinedSlices = (
 /// bytes a cell (the dense values, the mask and the `Option` copy every display
 /// reads) plus its geometry once, which is 28 bytes a cell for a curvilinear
 /// grid, so the budget bounds the memo near 200 MB plus that.
-#[derive(Debug, Default)]
+///
+/// The two slices of the combined map on screen are exempt from the cell
+/// budget (#1319): a pair each over half of it would otherwise push one another
+/// out, and every colour change and probe would decode both again. That is at
+/// most two slices past the budget, held only until a slice outside the pair is
+/// asked for or another pair is drawn.
+#[derive(Debug)]
 struct SliceMemo {
     entries: std::collections::VecDeque<(PlaneKey, std::sync::Arc<ZarrSlice>)>,
+    /// The keys of the combined map's two slices, empty when the map on screen
+    /// is not a combined one.
+    pair: Vec<PlaneKey>,
+    /// The cell budget: `Self::CELLS`, less in a test.
+    cells: usize,
+}
+
+impl Default for SliceMemo {
+    fn default() -> Self {
+        Self {
+            entries: std::collections::VecDeque::new(),
+            pair: Vec::new(),
+            cells: Self::CELLS,
+        }
+    }
 }
 
 impl SliceMemo {
@@ -3414,9 +3433,33 @@ impl SliceMemo {
         self.entries.push_back((key, slice));
         while self.entries.len() > 1
             && (self.entries.len() > Self::ENTRIES
-                || self.entries.iter().map(|(_, s)| s.cells()).sum::<usize>() > Self::CELLS)
+                || self.entries.iter().map(|(_, s)| s.cells()).sum::<usize>() > self.cells)
         {
-            self.entries.pop_front();
+            // The least recently used slice that is not the combined pair and
+            // not the newest; none left means the memo is as small as it can be.
+            let newest = self.entries.len() - 1;
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .take(newest)
+                .position(|(k, _)| !self.pair.contains(k))
+            else {
+                break;
+            };
+            self.entries.remove(oldest);
+        }
+    }
+
+    /// The combined map's two slices, which the cell budget leaves alone.
+    fn pin(&mut self, a: &PlaneKey, b: &PlaneKey) {
+        self.pair = vec![a.clone(), b.clone()];
+    }
+
+    /// A plain slice was asked for: unless it is one of the pair, the map on
+    /// screen is no longer the combined one.
+    fn unpin_unless(&mut self, key: &PlaneKey) {
+        if !self.pair.contains(key) {
+            self.pair.clear();
         }
     }
 }
@@ -3595,7 +3638,7 @@ impl ZarrStore {
         op: String,
         options: RenderOptions,
     ) -> Result<RenderedGrid, RenderError> {
-        let (a, _, values) = self.combined(
+        let (a, values) = self.combined(
             variable_index_a,
             y_dim,
             x_dim,
@@ -3623,7 +3666,7 @@ impl ZarrStore {
         px: u32,
         py: u32,
     ) -> Result<Option<ProbeResult>, RenderError> {
-        let (a, _, values) = self.combined(
+        let (a, values) = self.combined(
             variable_index_a,
             y_dim,
             x_dim,
@@ -3650,7 +3693,7 @@ impl ZarrStore {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> Result<ProjectedOverlay, RenderError> {
-        let (a, _, values) = self.combined(
+        let (a, values) = self.combined(
             variable_index_a,
             y_dim,
             x_dim,
@@ -3761,22 +3804,12 @@ impl ZarrStore {
         x_dim: u32,
         slice_indices: Vec<u32>,
     ) -> Result<LineResult, RenderError> {
-        let field = self
-            .session
-            .decode_slice(
-                variable_index,
-                y_dim,
-                x_dim,
-                &slice_indices,
-                &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
-            )
-            .into_refusal()?;
-        let values = field_values(&field);
+        let slice = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         fieldglass::render::zonal_mean(
-            &field.source(),
-            &values,
-            field.parameter.as_deref(),
-            field.units.as_deref(),
+            &slice.placed.source(),
+            &slice.values,
+            slice.rest.parameter.as_deref(),
+            slice.rest.units.as_deref(),
         )
         .map(LineResult::from)
         .into_refusal()
@@ -3791,7 +3824,7 @@ impl ZarrStore {
         b: &fieldglass::SliceRequest,
         op: &str,
     ) -> Result<LineResult, RenderError> {
-        let (a_slice, combined, values) = self.combined(
+        let (a_slice, values) = self.combined(
             a.variable,
             a.y_dim,
             a.x_dim,
@@ -3803,8 +3836,8 @@ impl ZarrStore {
         fieldglass::render::zonal_mean(
             &a_slice.placed.source(),
             &values,
-            combined.parameter.as_deref(),
-            combined.units.as_deref(),
+            a_slice.rest.parameter.as_deref(),
+            a_slice.rest.units.as_deref(),
         )
         .map(LineResult::from)
         .into_refusal()
@@ -3838,9 +3871,18 @@ impl ZarrStore {
         x_dim: u32,
         slice_indices: &[u32],
     ) -> Result<std::sync::Arc<ZarrSlice>, RenderError> {
-        // The two drawn axes are not part of what names the slice, as in
-        // `NetcdfFile::slice_plane`.
-        let key = PlaneKey {
+        let key = Self::slice_key(variable_index, y_dim, x_dim, slice_indices);
+        self.slices
+            .lock()
+            .expect("slice memo mutex poisoned")
+            .unpin_unless(&key);
+        self.slice_keyed(key, variable_index, y_dim, x_dim, slice_indices)
+    }
+
+    /// What names a slice in the memo. The two drawn axes are not part of it,
+    /// as in `NetcdfFile::slice_plane`.
+    fn slice_key(variable_index: u32, y_dim: u32, x_dim: u32, slice_indices: &[u32]) -> PlaneKey {
+        PlaneKey {
             variable: variable_index as usize,
             y_dim: y_dim as usize,
             x_dim: x_dim as usize,
@@ -3855,7 +3897,18 @@ impl ZarrStore {
                     }
                 })
                 .collect(),
-        };
+        }
+    }
+
+    /// `slice`, under the key it has already named.
+    fn slice_keyed(
+        &self,
+        key: PlaneKey,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: &[u32],
+    ) -> Result<std::sync::Arc<ZarrSlice>, RenderError> {
         if let Some(hit) = self
             .slices
             .lock()
@@ -3885,11 +3938,15 @@ impl ZarrStore {
 
     /// Two slices combined under a wire-tag op, as one field.
     ///
-    /// The alignment gate and the arithmetic are `Session::combine`'s, so a
-    /// mismatched pair is refused there in the words every host reports rather
-    /// than compared field by field here. The result is placed as `a` is, which
-    /// is the grid the gate just found `b` on too, so it shares `a`'s geometry
-    /// with the warp memo.
+    /// The alignment gate and the arithmetic are `combine_values`', through
+    /// `combined_field` as the NetCDF handle combines, so a mismatched pair is
+    /// refused in the words every host reports. It runs over the two kept
+    /// placements and values, with no `Field` built or cloned, so a pair on
+    /// one grid shares one geometry and the gate's pointer check answers
+    /// without hashing it. The result is placed as `a` is, which is the grid
+    /// the gate just found `b` on too, so it shares `a`'s geometry with the
+    /// warp memo. Both slices are pinned in the memo while the pair is on
+    /// screen (`SliceMemo`).
     #[allow(clippy::too_many_arguments)]
     fn combined(
         &self,
@@ -3902,14 +3959,16 @@ impl ZarrStore {
         op: &str,
     ) -> Result<CombinedSlices, RenderError> {
         let op = fieldglass::op_from_wire(op).into_refusal()?;
-        let a = self.slice(variable_index_a, y_dim, x_dim, slice_indices_a)?;
-        let b = self.slice(variable_index_b, y_dim, x_dim, slice_indices_b)?;
-        let combined = self
-            .session
-            .combine(&a.field(), &b.field(), op)
-            .into_refusal()?;
-        let values = field_values(&combined);
-        Ok((a, combined, values))
+        let key_a = Self::slice_key(variable_index_a, y_dim, x_dim, slice_indices_a);
+        let key_b = Self::slice_key(variable_index_b, y_dim, x_dim, slice_indices_b);
+        self.slices
+            .lock()
+            .expect("slice memo mutex poisoned")
+            .pin(&key_a, &key_b);
+        let a = self.slice_keyed(key_a, variable_index_a, y_dim, x_dim, slice_indices_a)?;
+        let b = self.slice_keyed(key_b, variable_index_b, y_dim, x_dim, slice_indices_b)?;
+        let values = combined_field(&a.placed, &a.values, &b.placed, &b.values, op.as_str())?;
+        Ok((a, values))
     }
 
     /// Where one slice sits, without decoding it.

@@ -401,6 +401,16 @@ impl Handle {
         }
     }
 
+    /// Shrink a Zarr handle's slice budget to `cells`, so a test can hold slices
+    /// larger than it without a store of millions of cells (#1319).
+    #[cfg(test)]
+    pub(crate) fn zarr_set_slice_cells(&self, cells: usize) {
+        match self.inner.as_ref().expect("an open handle") {
+            Inner::Zarr(h) => h.slices.lock().expect("slice memo mutex").cells = cells,
+            _ => panic!("not a Zarr handle"),
+        }
+    }
+
     /// The container, or the refusal a closed handle gives.
     fn inner(&self) -> Result<&Inner, RenderError> {
         self.inner
