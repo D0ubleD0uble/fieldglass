@@ -215,7 +215,9 @@ pub use session::line_through_combined;
 /// A lat/lon box over a variable, planned into the chunks it touches and
 /// decoded from them alone (#1083).
 #[cfg(feature = "zarr")]
-pub use session::{ChunkRef, WindowPlan, WindowRequest};
+pub use session::{
+    ChunkRef, IndexLocation, InnerChunkRef, ShardIndexRef, WindowPlan, WindowRequest,
+};
 pub use session::{
     DecodeOptions, DisplayDecodeOptions, LineRequest, Session, SliceRequest, pack_values,
 };
@@ -242,6 +244,7 @@ pub use session::{
 // `FieldglassError` is what every method of both traits returns. Ungated: a
 // host implements the seam whether or not it paints.
 pub use fieldglass_core::FieldglassError;
+pub use fieldglass_core::bytes::ByteRange;
 pub use fieldglass_core::bytes::{ByteSource, MemoryObjects, ObjectSource, PrefetchedObjects};
 /// `core`'s colour type, re-exported: a host consumes the painter's own table
 /// rather than implementing a second colour path (ADR-0006 decision 3).

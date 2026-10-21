@@ -23,9 +23,10 @@ use std::path::Path;
 use std::rc::Rc;
 
 use fieldglass::{
-    ChunkRef, DecodeOptions, Error, FieldglassError, MemoryObjects, ObjectSource,
-    PrefetchedObjects, Session, WindowRequest,
+    ChunkRef, DecodeOptions, Error, FieldglassError, InnerChunkRef, MemoryObjects, ObjectSource,
+    PrefetchedObjects, Session, ShardIndexRef, WindowRequest,
 };
+use fieldglass_core::bytes::ByteRange;
 use fieldglass_core::testing::Recording;
 use serde_json::Value;
 
@@ -117,6 +118,24 @@ impl ObjectSource for Shared {
 
     fn unfetched(&self, keys: &[&str]) -> Vec<String> {
         self.0.unfetched(keys)
+    }
+
+    fn object_size(&self, key: &str) -> Result<Option<u64>, FieldglassError> {
+        self.0.object_size(key)
+    }
+
+    fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
+        self.0
+            .get_range(key, range)
+            .map(|v| v.map(|v| Cow::Owned(v.into_owned())))
+    }
+
+    fn unfetched_ranges(&self, wanted: &[(&str, ByteRange)]) -> Vec<(String, ByteRange)> {
+        self.0.unfetched_ranges(wanted)
     }
 }
 
@@ -330,6 +349,376 @@ fn a_window_decodes_from_its_planned_chunks_and_nothing_else() {
             }
         }
     }
+}
+
+/// A sharded variable planned in two steps and decoded from byte ranges
+/// (#1123): the plan names each shard's index, then, with the indexes in
+/// hand, exactly the inner chunks the window intersects; the window decodes
+/// from those ranges and the indexes, and never reads a shard whole. The
+/// shards, index ranges and inner-chunk ranges are the oracle's, read from the
+/// shard files with Python's `struct`, and the values are xarray's.
+#[test]
+fn a_sharded_window_plans_and_decodes_exactly_the_inner_chunks_it_intersects() {
+    let oracle = oracle();
+    let case = &oracle["window_sharded_v3"];
+    let all = objects("window_sharded_v3");
+    let coordinates = keys(&refs(&case["coordinate_chunks"]));
+    let bytes_of = |key: &str| -> &[u8] {
+        &all.iter()
+            .find(|(k, _)| k == key)
+            .unwrap_or_else(|| panic!("no shard {key}"))
+            .1
+    };
+    let range_of = |key: &str, start: u64, len: u64| -> Vec<u8> {
+        let at = usize::try_from(start).expect("small");
+        bytes_of(key)[at..at + usize::try_from(len).expect("small")].to_vec()
+    };
+    for name in ["t2m", "t2m_start"] {
+        for window in case["windows"][name].as_array().expect("windows") {
+            let label = format!("{name}/{}", window["name"]);
+            let time = u32::try_from(window["time"].as_u64().expect("time")).expect("small");
+
+            // 1. The metadata and the coordinates: the shards and their
+            // indexes, and no inner chunk yet.
+            let mut held = holding(&all, &coordinates);
+            let session = Session::open_store(holding(&all, &coordinates)).expect("opens");
+            let asked = request(variable(&session, name), bounds(&window["bounds"]), time);
+            let plan = session.plan_window(&asked).expect("plans");
+            assert_eq!(plan.chunks, Some(refs(&window["chunks"])), "{label}");
+            let indexes: Vec<ShardIndexRef> =
+                serde_json::from_value(window["shard_indexes"].clone()).expect("index refs");
+            assert_eq!(plan.shard_indexes.as_ref(), Some(&indexes), "{label}");
+            assert_eq!(plan.inner_chunks, None, "{label}: no index is in hand");
+
+            // The host fetches each index by range, learning the size.
+            for index in &indexes {
+                let size = window["shard_sizes"][&index.key].as_u64().expect("size");
+                let start = match index.location {
+                    fieldglass::IndexLocation::End => size - index.length,
+                    _ => 0,
+                };
+                held.insert_range(
+                    index.key.clone(),
+                    size,
+                    start,
+                    range_of(&index.key, start, index.length),
+                )
+                .unwrap();
+            }
+
+            // 2. Exactly the inner chunks the window intersects.
+            let session = Session::open_store(held).expect("opens");
+            let plan = session.plan_window(&asked).expect("plans");
+            let inner: Vec<InnerChunkRef> =
+                serde_json::from_value(window["inner_chunks"].clone()).expect("inner refs");
+            assert_eq!(plan.inner_chunks.as_ref(), Some(&inner), "{label}");
+
+            // Decoding before they are fetched names each one's range.
+            let err = session
+                .decode_window(&asked, &DecodeOptions::default())
+                .expect_err("the inner chunks are owed");
+            assert_eq!(err.code(), "invalid_option", "{label}: {err}");
+            for c in &inner {
+                let range = format!("bytes {}..{} of `{}`", c.offset, c.offset + c.length, c.key);
+                assert!(err.message().contains(&range), "{label}: {err}");
+            }
+
+            // 3. Fetched: decoded from those ranges and the indexes alone.
+            let mut held = holding(&all, &coordinates);
+            for (start, len, key) in indexes
+                .iter()
+                .map(|i| {
+                    let size = window["shard_sizes"][&i.key].as_u64().expect("size");
+                    let start = match i.location {
+                        fieldglass::IndexLocation::End => size - i.length,
+                        _ => 0,
+                    };
+                    (start, i.length, i.key.clone())
+                })
+                .chain(inner.iter().map(|c| (c.offset, c.length, c.key.clone())))
+            {
+                let size = bytes_of(&key).len() as u64;
+                held.insert_range(key.clone(), size, start, range_of(&key, start, len))
+                    .unwrap();
+            }
+            let recorded = Rc::new(Recording::new(held));
+            let session = Session::open_store(Shared(Rc::clone(&recorded))).expect("opens");
+            recorded.clear();
+            let field = session
+                .decode_window(&asked, &DecodeOptions::default())
+                .unwrap_or_else(|e| panic!("{label}: {e}"));
+            let data = format!("{name}/c/");
+            assert!(
+                recorded.gets().iter().all(|k| !k.starts_with(&data)),
+                "{label}: a shard was read whole: {:?}",
+                recorded.gets()
+            );
+            for (key, range) in recorded.range_gets() {
+                let planned = indexes.iter().any(|i| {
+                    i.key == key
+                        && range.len == i.length
+                        && (range.start == 0 || range.end() == Some(bytes_of(&key).len() as u64))
+                }) || inner
+                    .iter()
+                    .any(|c| c.key == key && c.offset == range.start && c.length == range.len);
+                assert!(
+                    planned,
+                    "{label}: read {range:?} of {key}, which no plan named"
+                );
+            }
+
+            // The values, as xarray reads them back; the unwritten inner
+            // chunk's cells are masked.
+            let values = field.values.to_f64();
+            let want = window["values"].as_array().expect("values");
+            assert_eq!(values.len(), want.len(), "{label}");
+            for (at, (want, (&mask, &got))) in want
+                .iter()
+                .zip(field.mask.iter().zip(values.iter()))
+                .enumerate()
+            {
+                match want.as_f64() {
+                    Some(want) => assert_eq!((mask, got), (1, want), "{label}: cell {at}"),
+                    None => assert_eq!(mask, 0, "{label}: cell {at} is fill"),
+                }
+            }
+        }
+    }
+}
+
+/// A host that fetches a sharded variable's shards whole, as before #1123,
+/// still decodes the window, and its plan still names the inner chunks, read
+/// from the indexes inside the whole shards.
+#[test]
+fn whole_shards_still_decode_and_plan_their_inner_chunks() {
+    let oracle = oracle();
+    let case = &oracle["window_sharded_v3"];
+    let all = objects("window_sharded_v3");
+    let coordinates = keys(&refs(&case["coordinate_chunks"]));
+    let window = &case["windows"]["t2m"][0];
+    let time = u32::try_from(window["time"].as_u64().expect("time")).expect("small");
+    let shards = keys(&refs(&window["chunks"]));
+    let given: BTreeSet<String> = coordinates.union(&shards).cloned().collect();
+    let session = Session::open_store(holding(&all, &given)).expect("opens");
+    let asked = request(variable(&session, "t2m"), bounds(&window["bounds"]), time);
+    let plan = session.plan_window(&asked).expect("plans");
+    let inner: Vec<InnerChunkRef> =
+        serde_json::from_value(window["inner_chunks"].clone()).expect("inner refs");
+    assert_eq!(plan.inner_chunks, Some(inner));
+    let field = session
+        .decode_window(&asked, &DecodeOptions::default())
+        .expect("decodes");
+    let want = window["values"].as_array().expect("values");
+    for (at, (want, (&mask, &got))) in want
+        .iter()
+        .zip(field.mask.iter().zip(field.values.to_f64().iter()))
+        .enumerate()
+    {
+        match want.as_f64() {
+            Some(want) => assert_eq!((mask, got), (1, want), "cell {at}"),
+            None => assert_eq!(mask, 0, "cell {at} is fill"),
+        }
+    }
+}
+
+/// The sharded fixture with its index ranges given for `window`'s shards, and
+/// `edit` applied to each object first.
+fn sharded_with_indexes(
+    window: &Value,
+    coordinates: &BTreeSet<String>,
+    edit: impl Fn(&str, Vec<u8>) -> Vec<u8>,
+) -> PrefetchedObjects {
+    let all: Vec<(String, Vec<u8>)> = objects("window_sharded_v3")
+        .into_iter()
+        .map(|(k, v)| {
+            let v = edit(&k, v);
+            (k, v)
+        })
+        .collect();
+    let mut held = holding(&all, coordinates);
+    let indexes: Vec<ShardIndexRef> =
+        serde_json::from_value(window["shard_indexes"].clone()).expect("index refs");
+    for index in indexes {
+        let shard = &all.iter().find(|(k, _)| *k == index.key).expect("shard").1;
+        let size = shard.len() as u64;
+        let start = size - index.length;
+        held.insert_range(
+            index.key.clone(),
+            size,
+            start,
+            shard[usize::try_from(start).expect("small")..].to_vec(),
+        )
+        .unwrap();
+    }
+    held
+}
+
+/// A plan names a sharded variable's shards in `chunks` whatever else
+/// happens, so one that cannot be planned by range leaves the shard fields
+/// `null` and the host fetches the shards whole, rather than the plan failing
+/// (#1123 review). Each case failed `plan_window` outright before.
+#[test]
+fn a_sharded_plan_that_cannot_go_by_range_still_names_its_shards() {
+    let oracle = oracle();
+    let case = &oracle["window_sharded_v3"];
+    let coordinates = keys(&refs(&case["coordinate_chunks"]));
+    let window = &case["windows"]["t2m"][0];
+    let time = u32::try_from(window["time"].as_u64().expect("time")).expect("small");
+    let inner: Vec<InnerChunkRef> =
+        serde_json::from_value(window["inner_chunks"].clone()).expect("inner refs");
+
+    // An inner codec this build does not decode: locating the inner chunks
+    // reads only the index, so the plan is the full one.
+    let unknown = |key: &str, bytes: Vec<u8>| {
+        if key == "zarr.json" || key == "t2m/zarr.json" {
+            String::from_utf8(bytes)
+                .expect("JSON")
+                .replace("\"name\": \"blosc\"", "\"name\": \"made_up\"")
+                .into_bytes()
+        } else {
+            bytes
+        }
+    };
+    let session =
+        Session::open_store(sharded_with_indexes(window, &coordinates, unknown)).expect("opens");
+    let asked = request(variable(&session, "t2m"), bounds(&window["bounds"]), time);
+    let plan = session.plan_window(&asked).expect("plans");
+    assert_eq!(plan.chunks, Some(refs(&window["chunks"])));
+    assert_eq!(
+        plan.inner_chunks,
+        Some(inner.clone()),
+        "unknown inner codec"
+    );
+
+    // A whole shard whose index fails its checksum: the shards, and no inner
+    // chunks; the decode says what is wrong.
+    let all = objects("window_sharded_v3");
+    let shards = keys(&refs(&window["chunks"]));
+    let broken: Vec<(String, Vec<u8>)> = all
+        .into_iter()
+        .map(|(k, mut v)| {
+            if shards.contains(&k) {
+                let at = v.len() - 30;
+                v[at] ^= 0xff;
+            }
+            (k, v)
+        })
+        .collect();
+    let given: BTreeSet<String> = coordinates.union(&shards).cloned().collect();
+    let session = Session::open_store(holding(&broken, &given)).expect("opens");
+    let plan = session.plan_window(&asked).expect("plans");
+    assert_eq!(plan.chunks, Some(refs(&window["chunks"])), "corrupt index");
+    assert!(plan.shard_indexes.is_some(), "the indexes are metadata");
+    assert_eq!(plan.inner_chunks, None, "a corrupt index locates nothing");
+    let err = session
+        .decode_window(&asked, &DecodeOptions::default())
+        .expect_err("the shard is corrupt");
+    assert_eq!(err.code(), "decode", "{err}");
+}
+
+/// A sharding codec with another codec after it does not make the stored
+/// object a shard: it is a compressed one, whose index no range can reach. So
+/// the plan treats the variable as unsharded, the rule `CodecChain::sharding`
+/// follows (#1123 review).
+#[test]
+fn a_shard_behind_another_codec_plans_as_unsharded() {
+    let oracle = oracle();
+    let case = &oracle["window_sharded_v3"];
+    let coordinates = keys(&refs(&case["coordinate_chunks"]));
+    let window = &case["windows"]["t2m"][0];
+    let time = u32::try_from(window["time"].as_u64().expect("time")).expect("small");
+    let gzip_after = |key: &str, bytes: Vec<u8>| {
+        let codecs = |doc: &mut Value| {
+            doc["codecs"]
+                .as_array_mut()
+                .expect("codecs")
+                .push(serde_json::json!({"name": "gzip", "configuration": {"level": 5}}));
+        };
+        let mut doc: Value = match key {
+            "zarr.json" | "t2m/zarr.json" => serde_json::from_slice(&bytes).expect("JSON"),
+            _ => return bytes,
+        };
+        if key == "zarr.json" {
+            codecs(&mut doc["consolidated_metadata"]["metadata"]["t2m"]);
+        } else {
+            codecs(&mut doc);
+        }
+        serde_json::to_vec(&doc).expect("JSON")
+    };
+    let session =
+        Session::open_store(sharded_with_indexes(window, &coordinates, gzip_after)).expect("opens");
+    let asked = request(variable(&session, "t2m"), bounds(&window["bounds"]), time);
+    let plan = session.plan_window(&asked).expect("plans");
+    assert_eq!(plan.chunks, Some(refs(&window["chunks"])));
+    assert_eq!(
+        plan.shard_indexes, None,
+        "a gzipped shard has no index to range"
+    );
+    assert_eq!(plan.inner_chunks, None);
+}
+
+/// `t(lat, lon)` in shards of `shard_rows` x 1024 cells, as one-cell inner
+/// chunks, over a regular global grid of `rows` x 1024: metadata and
+/// coordinates only.
+fn one_cell_inner_chunks(rows: usize, shard_rows: usize) -> MemoryObjects {
+    let lat: Vec<f64> = (0..rows)
+        .map(|j| 90.0 - (j as f64 + 0.5) * 180.0 / rows as f64)
+        .collect();
+    let lon: Vec<f64> = (0..1024).map(|i| f64::from(i) * 360.0 / 1024.0).collect();
+    let t = format!(
+        "{{\"zarr_format\":3,\"node_type\":\"array\",\"shape\":[{rows},1024],\
+         \"data_type\":\"float32\",\"chunk_grid\":{{\"name\":\"regular\",\
+         \"configuration\":{{\"chunk_shape\":[{shard_rows},1024]}}}},\
+         \"chunk_key_encoding\":{{\"name\":\"default\",\"configuration\":{{\"separator\":\"/\"}}}},\
+         \"fill_value\":\"NaN\",\"codecs\":[{{\"name\":\"sharding_indexed\",\"configuration\":{{\
+         \"chunk_shape\":[1,1],\
+         \"codecs\":[{{\"name\":\"bytes\",\"configuration\":{{\"endian\":\"little\"}}}}],\
+         \"index_codecs\":[{{\"name\":\"bytes\",\"configuration\":{{\"endian\":\"little\"}}}},\
+         {{\"name\":\"crc32c\"}}]}}}}],\
+         \"dimension_names\":[\"lat\",\"lon\"],\"attributes\":{{}}}}"
+    );
+    MemoryObjects::from_iter([
+        ("zarr.json", V3_GROUP.to_vec()),
+        (
+            "lat/zarr.json",
+            v3_array(&format!("[{rows}]"), &format!("[{rows}]"), "[\"lat\"]"),
+        ),
+        ("lat/c/0", f8(&lat)),
+        ("lon/zarr.json", v3_array("[1024]", "[1024]", "[\"lon\"]")),
+        ("lon/c/0", f8(&lon)),
+        ("t/zarr.json", t.into_bytes()),
+    ])
+}
+
+/// Metadata cannot make a plan name a vast index or a vast list of inner
+/// chunks: a shard over the inner-chunk cap has no index plan, and a window
+/// touching more inner chunks than one plan holds has no inner-chunk plan.
+/// Both still name the shards (#1123 review).
+#[test]
+fn a_sharded_plan_past_its_caps_names_its_shards_and_nothing_finer() {
+    let whole_globe = [-90.0, 90.0, -180.0, 180.0];
+
+    // 1024 x 1024 one-cell inner chunks per shard is the cap exactly; two
+    // shards' worth is twice what one plan may name.
+    let session = Session::open_store(one_cell_inner_chunks(2048, 1024)).expect("opens");
+    let t = variable(&session, "t");
+    let plan = session
+        .plan_window(&WindowRequest::new(t, 0, 1, whole_globe, vec![0, 0]))
+        .expect("plans");
+    assert_eq!(plan.chunks.as_ref().map(Vec::len), Some(2));
+    let indexes = plan.shard_indexes.expect("within the cap");
+    assert_eq!(indexes[0].length, (1 << 20) * 16 + 4);
+    assert_eq!(plan.inner_chunks, None, "two million inner chunks");
+
+    // One row of inner chunks more per shard is past the cap: no index plan.
+    let session = Session::open_store(one_cell_inner_chunks(1025, 1025)).expect("opens");
+    let t = variable(&session, "t");
+    let plan = session
+        .plan_window(&WindowRequest::new(t, 0, 1, whole_globe, vec![0, 0]))
+        .expect("plans");
+    assert_eq!(plan.chunks.as_ref().map(Vec::len), Some(1));
+    assert_eq!(plan.shard_indexes, None, "an index past the cap");
+    assert_eq!(plan.inner_chunks, None);
 }
 
 #[test]

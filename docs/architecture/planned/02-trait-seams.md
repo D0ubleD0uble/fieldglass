@@ -201,6 +201,15 @@ already was, and #697 moved both GRIB readers. All of it is shipped; what those
 migrations settled about windowing and short reads is recorded in the current
 [`02-trait-seams.md`](../02-trait-seams.md).
 
+`PrefetchedObjects` also holds part of an object (#1123): ranges a host fetched
+with the object's whole size, which is how a browser reads a Zarr shard's index
+and a few of its inner chunks rather than the shard. A key held that way
+answers `get_range` within a range it was given, names the rest through
+`unfetched_ranges`, and is unfetched as a whole object. That is the keyed form
+of `PrefetchedRanges`, so when that source lands for one file it should share
+the range lookup and the refusals (a range past the size, two sizes for one
+source) rather than grow a second set.
+
 ```mermaid
 classDiagram
     class ByteSource {
@@ -211,10 +220,14 @@ classDiagram
         +identity() Option~SourceIdentity~
     }
     class ObjectSource {
-        <<trait, planned #680>>
+        <<trait, shipped #680>>
         +prefetch(keys)
         +get(key) Option~Cow~
         +list(prefix) Vec~String~
+        +unfetched(keys) (provided, #1124)
+        +object_size(key) (provided, #1123)
+        +get_range(key, range) (provided, #1123)
+        +unfetched_ranges(wanted) (provided, #1123)
     }
     class PrefetchedRanges {
         <<planned #247 #252 #114>>
@@ -222,7 +235,7 @@ classDiagram
     }
     class PrefetchedObjects {
         <<shipped #1124, crate fieldglass-core>>
-        map of key to bytes or absent the host filled; names keys never given
+        key to bytes, absent, or ranges of an object of known size (#1123)
     }
     ByteSource <|.. Vec
     ByteSource <|.. PrefetchedRanges

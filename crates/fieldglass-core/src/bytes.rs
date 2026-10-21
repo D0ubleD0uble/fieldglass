@@ -456,6 +456,63 @@ pub trait ObjectSource {
         let _ = keys;
         Vec::new()
     }
+
+    /// How many bytes the object under `key` holds, or `None` when the store
+    /// holds none (#1123).
+    ///
+    /// A reader that addresses part of an object from its end — a Zarr shard
+    /// whose index is its last bytes — needs this before it can name the
+    /// range. A source given only some ranges of an object knows its size all
+    /// the same, because the host learnt it beside the bytes (an HTTP
+    /// `HEAD`'s `Content-Length`, or a `Content-Range`).
+    ///
+    /// The default reads the object, which a whole map or a directory does
+    /// anyway.
+    fn object_size(&self, key: &str) -> Result<Option<u64>, FieldglassError> {
+        Ok(self.get(key)?.map(|bytes| bytes.len() as u64))
+    }
+
+    /// Bytes `range` of the object under `key`, or `None` when the store holds
+    /// no such object (#1123).
+    ///
+    /// What a reader asks for when it wants part of an object rather than the
+    /// whole of it: one inner chunk of a Zarr shard, or the shard's index. A
+    /// range past the object's end is an error, as [`ByteSource::read`] has it.
+    ///
+    /// The default slices [`get`](Self::get), so a whole map or a directory
+    /// answers without change and borrows when it can.
+    fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
+        let Some(object) = self.get(key)? else {
+            return Ok(None);
+        };
+        Ok(Some(match object {
+            Cow::Borrowed(bytes) => slice_of(bytes, range)?,
+            Cow::Owned(bytes) => Cow::Owned(slice_of(&bytes, range)?.into_owned()),
+        }))
+    }
+
+    /// Which of `wanted` this source cannot answer [`get_range`](Self::get_range)
+    /// for because the host never fetched those bytes (#1123).
+    ///
+    /// The ranged twin of [`unfetched`](Self::unfetched): a source over what a
+    /// host fetched may hold some ranges of an object and not others. A key
+    /// it was never given at all is unfetched whatever the range. Empty by
+    /// default beyond that, since a whole map or a directory holds every byte
+    /// of every object it holds.
+    ///
+    /// **A wrapper must forward this**, for the reason it forwards
+    /// [`unfetched`](Self::unfetched).
+    fn unfetched_ranges(&self, wanted: &[(&str, ByteRange)]) -> Vec<(String, ByteRange)> {
+        wanted
+            .iter()
+            .filter(|(key, _)| !self.unfetched(&[key]).is_empty())
+            .map(|(key, range)| ((*key).to_string(), *range))
+            .collect()
+    }
 }
 
 /// An [`ObjectSource`] over a map.
@@ -526,6 +583,22 @@ impl<O: ObjectSource + ?Sized> ObjectSource for &O {
     fn unfetched(&self, keys: &[&str]) -> Vec<String> {
         (**self).unfetched(keys)
     }
+
+    fn object_size(&self, key: &str) -> Result<Option<u64>, FieldglassError> {
+        (**self).object_size(key)
+    }
+
+    fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
+        (**self).get_range(key, range)
+    }
+
+    fn unfetched_ranges(&self, wanted: &[(&str, ByteRange)]) -> Vec<(String, ByteRange)> {
+        (**self).unfetched_ranges(wanted)
+    }
 }
 
 impl ObjectSource for MemoryObjects {
@@ -560,8 +633,18 @@ impl ObjectSource for MemoryObjects {
 /// absent one, so the store's walk, which asks for documents a store may not
 /// have, opens on the metadata alone.
 ///
+/// **Part of an object** is given with [`insert_range`](Self::insert_range):
+/// a range the host fetched and the object's whole size, which it learnt with
+/// the bytes (#1123). That is how a page reads a few inner chunks of a Zarr
+/// shard rather than the shard. Such a key answers
+/// [`get_range`](ObjectSource::get_range) for any range inside one range it
+/// was given, and [`object_size`](ObjectSource::object_size). Its whole object
+/// was never given, so [`unfetched`](ObjectSource::unfetched) names it and
+/// [`get`](ObjectSource::get) refuses it rather than answering `None`, which
+/// would read the object as absent.
+///
 /// ```
-/// use fieldglass_core::bytes::{ObjectSource, PrefetchedObjects};
+/// use fieldglass_core::bytes::{ByteRange, ObjectSource, PrefetchedObjects};
 ///
 /// let mut store = PrefetchedObjects::new();
 /// store.insert("temp/0.0", b"chunk".to_vec());
@@ -570,12 +653,35 @@ impl ObjectSource for MemoryObjects {
 /// assert!(store.get("temp/0.1")?.is_none());
 /// assert_eq!(store.list("temp/")?, ["temp/0.0"]);
 /// assert_eq!(store.unfetched(&["temp/0.0", "temp/0.1", "temp/0.2"]), ["temp/0.2"]);
+///
+/// // Bytes 4..8 of a 100-byte shard, and nothing else of it.
+/// store.insert_range("temp/c/0/0", 100, 4, b"abcd".to_vec())?;
+/// assert_eq!(store.object_size("temp/c/0/0")?, Some(100));
+/// let part = store.get_range("temp/c/0/0", ByteRange::new(5, 2))?;
+/// assert_eq!(part.as_deref(), Some(&b"bc"[..]));
+/// assert_eq!(
+///     store.unfetched_ranges(&[("temp/c/0/0", ByteRange::new(8, 4))]),
+///     [("temp/c/0/0".to_string(), ByteRange::new(8, 4))]
+/// );
 /// # Ok::<(), fieldglass_core::FieldglassError>(())
 /// ```
 #[derive(Debug, Default)]
 pub struct PrefetchedObjects {
-    /// `None` for a key the host fetched and the store does not hold.
-    objects: BTreeMap<String, Option<Vec<u8>>>,
+    objects: BTreeMap<String, Fetched>,
+}
+
+/// What a host gave [`PrefetchedObjects`] under one key.
+#[derive(Debug)]
+enum Fetched {
+    /// The whole object.
+    Whole(Vec<u8>),
+    /// A fetch that found no object: a 404.
+    Absent,
+    /// Some ranges of an object `size` bytes long, by their first byte.
+    Ranges {
+        size: u64,
+        ranges: BTreeMap<u64, Vec<u8>>,
+    },
 }
 
 impl PrefetchedObjects {
@@ -586,17 +692,87 @@ impl PrefetchedObjects {
 
     /// An object the host fetched, replacing anything given under that key.
     pub fn insert(&mut self, key: impl Into<String>, bytes: Vec<u8>) {
-        self.objects.insert(key.into(), Some(bytes));
+        self.objects.insert(key.into(), Fetched::Whole(bytes));
     }
 
     /// A key the host fetched and the store does not hold (a 404), replacing
     /// anything given under it. A chunk given this way reads as its array's
     /// fill value.
     pub fn insert_absent(&mut self, key: impl Into<String>) {
-        self.objects.insert(key.into(), None);
+        self.objects.insert(key.into(), Fetched::Absent);
     }
 
-    /// How many keys the source was given, absent ones included.
+    /// Bytes the host fetched from `offset` of the object under `key`, which
+    /// is `size` bytes long (#1123). Ranges add up: give each one the host
+    /// fetched. A key given whole keeps its whole object.
+    ///
+    /// # Errors
+    ///
+    /// A range that runs past `size`, a `size` other than one already given
+    /// for the key (or than its whole object's length), and a key already
+    /// given as absent: each says the host's fetches disagree about the
+    /// object.
+    pub fn insert_range(
+        &mut self,
+        key: impl Into<String>,
+        size: u64,
+        offset: u64,
+        bytes: Vec<u8>,
+    ) -> Result<(), FieldglassError> {
+        let key = key.into();
+        let end = offset.checked_add(bytes.len() as u64);
+        if end.is_none_or(|end| end > size) {
+            return Err(FieldglassError::Parse(format!(
+                "bytes {offset}..+{} of `{key}` run past its stated size of {size}",
+                bytes.len()
+            )));
+        }
+        let disagrees = |given: u64| {
+            FieldglassError::Parse(format!(
+                "`{key}` was given as {given} bytes long, and now as {size}"
+            ))
+        };
+        match self.objects.get_mut(&key) {
+            None => {
+                self.objects.insert(
+                    key,
+                    Fetched::Ranges {
+                        size,
+                        ranges: BTreeMap::from([(offset, bytes)]),
+                    },
+                );
+            }
+            Some(Fetched::Ranges {
+                size: given,
+                ranges,
+            }) => {
+                if *given != size {
+                    return Err(disagrees(*given));
+                }
+                // Two fetches from one offset: keep the longer.
+                let longer = ranges
+                    .get(&offset)
+                    .is_none_or(|held| held.len() < bytes.len());
+                if longer {
+                    ranges.insert(offset, bytes);
+                }
+            }
+            Some(Fetched::Whole(whole)) => {
+                if whole.len() as u64 != size {
+                    return Err(disagrees(whole.len() as u64));
+                }
+            }
+            Some(Fetched::Absent) => {
+                return Err(FieldglassError::Parse(format!(
+                    "`{key}` was given as absent (a 404), and now with bytes"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// How many keys the source was given, absent ones and ones given by range
+    /// included.
     pub fn len(&self) -> usize {
         self.objects.len()
     }
@@ -605,15 +781,53 @@ impl PrefetchedObjects {
     pub fn is_empty(&self) -> bool {
         self.objects.is_empty()
     }
+
+    /// The bytes of `range` from what was given under `key`: `Ok(None)` when
+    /// the key was given as absent, `Err` with `true` when those bytes were
+    /// never given, and `Err` with `false` for a range past the object's end.
+    fn ranged(&self, key: &str, range: ByteRange) -> Result<Option<&[u8]>, bool> {
+        let end = range.end().ok_or(false)?;
+        match self.objects.get(key) {
+            None => Err(true),
+            Some(Fetched::Absent) => Ok(None),
+            Some(Fetched::Whole(bytes)) => match slice_of(bytes, range) {
+                Ok(Cow::Borrowed(part)) => Ok(Some(part)),
+                _ => Err(false),
+            },
+            Some(Fetched::Ranges { size, ranges }) => {
+                if end > *size {
+                    return Err(false);
+                }
+                if range.len == 0 {
+                    return Ok(Some(&[]));
+                }
+                // Any given range that starts at or before `range` and runs
+                // to its end holds it.
+                ranges
+                    .range(..=range.start)
+                    .rev()
+                    .find_map(|(&at, bytes)| {
+                        let from = usize::try_from(range.start - at).ok()?;
+                        let to = from.checked_add(usize::try_from(range.len).ok()?)?;
+                        bytes.get(from..to)
+                    })
+                    .map(Some)
+                    .ok_or(true)
+            }
+        }
+    }
 }
 
 impl ObjectSource for PrefetchedObjects {
     fn get(&self, key: &str) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
-        Ok(self
-            .objects
-            .get(key)
-            .and_then(Option::as_deref)
-            .map(Cow::Borrowed))
+        match self.objects.get(key) {
+            None | Some(Fetched::Absent) => Ok(None),
+            Some(Fetched::Whole(bytes)) => Ok(Some(Cow::Borrowed(bytes))),
+            // `None` would read the object as one the store never wrote.
+            Some(Fetched::Ranges { .. }) => Err(FieldglassError::Parse(format!(
+                "only byte ranges of `{key}` were given, not the whole object"
+            ))),
+        }
     }
 
     fn list(&self, prefix: &str) -> Result<Vec<String>, FieldglassError> {
@@ -622,15 +836,55 @@ impl ObjectSource for PrefetchedObjects {
         Ok(self
             .objects
             .iter()
-            .filter(|(key, bytes)| bytes.is_some() && key.starts_with(prefix))
+            .filter(|(key, fetched)| !matches!(fetched, Fetched::Absent) && key.starts_with(prefix))
             .map(|(key, _)| key.clone())
             .collect())
     }
 
+    /// A key never given, and one given only by range, whose whole object
+    /// was never fetched.
     fn unfetched(&self, keys: &[&str]) -> Vec<String> {
         keys.iter()
-            .filter(|key| !self.objects.contains_key(**key))
+            .filter(|key| matches!(self.objects.get(**key), None | Some(Fetched::Ranges { .. })))
             .map(|key| (*key).to_string())
+            .collect()
+    }
+
+    fn object_size(&self, key: &str) -> Result<Option<u64>, FieldglassError> {
+        Ok(match self.objects.get(key) {
+            None | Some(Fetched::Absent) => None,
+            Some(Fetched::Whole(bytes)) => Some(bytes.len() as u64),
+            Some(Fetched::Ranges { size, .. }) => Some(*size),
+        })
+    }
+
+    fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
+        match self.ranged(key, range) {
+            Ok(part) => Ok(part.map(Cow::Borrowed)),
+            Err(true) => Err(FieldglassError::Parse(format!(
+                "bytes {}..+{} of `{key}` were never given",
+                range.start, range.len
+            ))),
+            Err(false) => Err(FieldglassError::Parse(format!(
+                "bytes {}..+{} of `{key}` run past the object's end",
+                range.start, range.len
+            ))),
+        }
+    }
+
+    /// Each range whose bytes were never given: the key was not given at all,
+    /// or only ranges of it were and none holds this one. A range past the
+    /// object's end is not named: no fetch can supply it, and reading it is
+    /// refused as past the end.
+    fn unfetched_ranges(&self, wanted: &[(&str, ByteRange)]) -> Vec<(String, ByteRange)> {
+        wanted
+            .iter()
+            .filter(|(key, range)| self.ranged(key, *range) == Err(true))
+            .map(|(key, range)| ((*key).to_string(), *range))
             .collect()
     }
 }
@@ -1546,5 +1800,109 @@ mod cursor_tests {
             reads.len()
         );
         assert!(reads.iter().all(|r| r.len <= MAX_WINDOW_BYTES as u64));
+    }
+
+    /// The parts of a shard a host fetched: a range inside one given range
+    /// reads, one that straddles two or lies outside every one is named as
+    /// unfetched, and one past the end is an error rather than a fetch to make
+    /// (#1123).
+    #[test]
+    fn a_partly_fetched_object_answers_only_the_ranges_it_was_given() {
+        let mut store = PrefetchedObjects::new();
+        store.insert_range("s", 20, 0, b"0123".to_vec()).unwrap();
+        store.insert_range("s", 20, 16, b"wxyz".to_vec()).unwrap();
+        // A second fetch from one offset keeps the longer.
+        store.insert_range("s", 20, 0, b"01".to_vec()).unwrap();
+
+        let read = |start, len| store.get_range("s", ByteRange::new(start, len));
+        assert_eq!(read(1, 2).unwrap().as_deref(), Some(&b"12"[..]));
+        assert_eq!(read(16, 4).unwrap().as_deref(), Some(&b"wxyz"[..]));
+        // Zero bytes inside the object need no fetch.
+        assert_eq!(read(9, 0).unwrap().as_deref(), Some(&b""[..]));
+        assert!(read(2, 4).is_err(), "straddles the end of a given range");
+        assert!(read(8, 2).is_err(), "never given");
+        assert!(read(18, 4).is_err(), "past the end");
+        assert!(read(u64::MAX, 2).is_err(), "overflows");
+
+        let wanted = [
+            ("s", ByteRange::new(1, 2)),
+            ("s", ByteRange::new(2, 4)),
+            ("s", ByteRange::new(18, 4)),
+            ("t", ByteRange::new(0, 1)),
+        ];
+        assert_eq!(
+            store.unfetched_ranges(&wanted),
+            [
+                ("s".to_string(), ByteRange::new(2, 4)),
+                ("t".to_string(), ByteRange::new(0, 1)),
+            ]
+        );
+        // The whole object was never given: named as unfetched, refused by
+        // `get` rather than read as absent, and listed as held.
+        assert_eq!(store.unfetched(&["s"]), ["s"]);
+        assert!(store.get("s").is_err());
+        assert_eq!(store.list("").unwrap(), ["s"]);
+        assert_eq!(store.object_size("s").unwrap(), Some(20));
+        assert_eq!(store.object_size("t").unwrap(), None);
+    }
+
+    /// A host whose fetches disagree about an object is told so, rather than
+    /// one answer being kept silently.
+    #[test]
+    fn ranges_that_disagree_about_their_object_are_refused() {
+        let mut store = PrefetchedObjects::new();
+        assert!(store.insert_range("s", 4, 2, b"abc".to_vec()).is_err());
+        assert!(store.insert_range("s", 4, u64::MAX, b"a".to_vec()).is_err());
+        store.insert_range("s", 4, 0, b"ab".to_vec()).unwrap();
+        assert!(store.insert_range("s", 5, 0, b"ab".to_vec()).is_err());
+
+        store.insert_absent("gone");
+        assert!(store.insert_range("gone", 4, 0, b"ab".to_vec()).is_err());
+
+        // A whole object keeps its bytes and answers any range of itself.
+        store.insert("whole", b"abcd".to_vec());
+        store.insert_range("whole", 4, 1, b"bc".to_vec()).unwrap();
+        assert!(store.insert_range("whole", 9, 1, b"bc".to_vec()).is_err());
+        assert_eq!(store.get("whole").unwrap().as_deref(), Some(&b"abcd"[..]));
+        assert!(store.unfetched(&["whole"]).is_empty());
+        assert!(
+            store
+                .unfetched_ranges(&[("whole", ByteRange::new(0, 4))])
+                .is_empty()
+        );
+        // An absent object has no bytes: `None`, as `get` says.
+        assert!(
+            store
+                .get_range("gone", ByteRange::new(0, 1))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// The provided default slices the whole object, so a map or a directory
+    /// answers ranges without implementing anything.
+    #[test]
+    fn a_whole_object_source_answers_ranges_by_slicing() {
+        let store = MemoryObjects::from_iter([("k", b"abcdef".to_vec())]);
+        assert_eq!(
+            store
+                .get_range("k", ByteRange::new(2, 3))
+                .unwrap()
+                .as_deref(),
+            Some(&b"cde"[..])
+        );
+        assert!(store.get_range("k", ByteRange::new(4, 3)).is_err());
+        assert!(
+            store
+                .get_range("absent", ByteRange::new(0, 1))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(store.object_size("k").unwrap(), Some(6));
+        assert!(
+            store
+                .unfetched_ranges(&[("k", ByteRange::new(0, 99))])
+                .is_empty()
+        );
     }
 }

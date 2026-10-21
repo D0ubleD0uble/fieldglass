@@ -951,10 +951,193 @@ def write_window_fixtures() -> None:
     # chunk after all would quietly stop testing it.
     unwritten = oracle["window_s2n_v3"]["unwritten_coordinate_chunks"]
     assert unwritten == ["latitude/c/2"], unwritten
+    oracle["window_sharded_v3"] = write_sharded_window_fixture()
     (ZARR_FIXTURES / "windows_oracle.json").write_text(
         json.dumps(oracle, indent=1, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
     )
     print(f"wrote {len(oracle)} window stores to {WINDOWS}")
+
+
+# The sharded window store (#1123): the window store's data, with `t2m` in
+# shards of 1 x 6 x 8 holding inner chunks of 1 x 2 x 4, so a shard is three
+# inner rows by two inner columns. The grid is ragged both ways (8 rows and 12
+# columns in shards of 6 and 8), so the second shard of each axis is partly
+# past the array and its index carries entries for inner chunks that cannot
+# exist. `t2m` keeps its index at the end of each shard (zarr-python's
+# default, and what dynamical.org's stores do) through blosc; `t2m_start` is
+# the same data with its index at the start, through zstd. One inner chunk of
+# step 1 (rows 2-3, columns 4-7) is all fill value, so zarr-python writes no
+# bytes for it and the index marks it absent.
+SHARD = (1, 6, 8)
+INNER = (1, 2, 4)
+SHARDED_WINDOW_CASES = WINDOW_CASES + [
+    # Rows 1-3 (latitudes 60, 50, 40) and columns 4-7 at step 1: two inner
+    # chunks, the second of them the one never written.
+    ("over_the_unwritten_inner_chunk", [35.0, 65.0, 115.0, 215.0], 1),
+]
+
+
+def shard_index(shard: bytes, entries: int, location: str) -> list:
+    """A shard's index read with nothing but `struct`: `entries` pairs of
+    little-endian uint64 (offset, length), then a crc32c, at the shard's end or
+    start. `None` for the all-ones absent sentinel."""
+    size = entries * 16 + 4
+    raw = shard[-size:] if location == "end" else shard[:size]
+    pairs = struct.unpack(f"<{entries * 2}Q", raw[:-4])
+    absent = 2**64 - 1
+    return [
+        None if (o, n) == (absent, absent) else (o, n)
+        for o, n in zip(pairs[0::2], pairs[1::2])
+    ]
+
+
+def write_sharded_window_fixture() -> dict:
+    import xarray as xr
+
+    root = WINDOWS / "window_sharded_v3"
+    dataset = window_dataset(np.arange(70.0, -1.0, -10.0))
+    dataset["t2m"][1, 2:4, 4:8] = np.nan
+    dataset.to_zarr(
+        str(root),
+        zarr_format=3,
+        consolidated=False,
+        encoding={
+            "t2m": {
+                "chunks": INNER,
+                "shards": SHARD,
+                "compressors": [BloscCodec(cname="lz4", clevel=5, shuffle="shuffle")],
+            }
+        },
+        mode="w",
+        write_empty_chunks=False,
+    )
+    group = zarr.open_group(str(root), mode="r+", zarr_format=3)
+    t2m = group["t2m"]
+    start = group.create_array(
+        "t2m_start",
+        shape=t2m.shape,
+        dtype=t2m.dtype,
+        chunks=SHARD,
+        serializer=ShardingCodec(
+            chunk_shape=INNER,
+            codecs=[BytesCodec(), ZstdCodec(level=0)],
+            index_codecs=[BytesCodec(), Crc32cCodec()],
+            index_location="start",
+        ),
+        compressors=None,
+        fill_value=np.nan,
+        dimension_names=["time", "latitude", "longitude"],
+        attributes=dict(t2m.attrs),
+        config={"write_empty_chunks": False},
+    )
+    start[...] = t2m[...]
+    zarr.consolidate_metadata(str(root), zarr_format=3)
+
+    reread = xr.open_zarr(str(root), zarr_format=3, consolidated=True)
+    lat = reread["latitude"].values
+    lon = reread["longitude"].values
+    locations = {"t2m": "end", "t2m_start": "start"}
+    per = [s // i for s, i in zip(SHARD, INNER)]
+    entries = math.prod(per)
+    index_len = entries * 16 + 4
+
+    def key(array, index):
+        return f"{array}/c/" + "/".join(str(i) for i in index)
+
+    variables = {}
+    for name, location in locations.items():
+        meta = json.loads((root / name / "zarr.json").read_text(encoding="utf-8"))
+        (codec,) = meta["codecs"]
+        assert codec["name"] == "sharding_indexed", codec
+        assert codec["configuration"].get("index_location", "end") == location, codec
+        assert meta["chunk_grid"]["configuration"]["chunk_shape"] == list(SHARD), meta
+        windows = []
+        for label, bounds, step in SHARDED_WINDOW_CASES:
+            rows, cols = window_selection(lat, lon, bounds)
+            touched = sorted(
+                {(step // INNER[0], j // INNER[1], i // INNER[2]) for j in rows for i in cols}
+            )
+            shards = sorted({tuple(g // p for g, p in zip(t, per)) for t in touched})
+            inner = []
+            for shard in shards:
+                stored = (root / key(name, list(shard))).read_bytes()
+                index = shard_index(stored, entries, location)
+                for t in touched:
+                    if tuple(g // p for g, p in zip(t, per)) != shard:
+                        continue
+                    position = [g % p for g, p in zip(t, per)]
+                    linear = (position[0] * per[1] + position[1]) * per[2] + position[2]
+                    entry = index[linear]
+                    if entry is None:
+                        continue
+                    inner.append(
+                        {
+                            "array": name,
+                            "key": key(name, list(shard)),
+                            "index": list(shard),
+                            "inner": position,
+                            "offset": entry[0],
+                            "length": entry[1],
+                        }
+                    )
+            sizes = {
+                key(name, list(s)): (root / key(name, list(s))).stat().st_size for s in shards
+            }
+            values = reread[name].isel(time=step, latitude=rows, longitude=cols).values
+            windows.append(
+                {
+                    "name": label,
+                    "bounds": bounds,
+                    "time": step,
+                    "rows": [rows[0], rows[-1] + 1],
+                    "columns": runs(cols),
+                    "chunks": [
+                        {"array": name, "key": key(name, list(s)), "index": list(s)}
+                        for s in shards
+                    ],
+                    "shard_indexes": [
+                        {
+                            "array": name,
+                            "key": key(name, list(s)),
+                            "index": list(s),
+                            "location": location,
+                            "length": index_len,
+                        }
+                        for s in shards
+                    ],
+                    "shard_sizes": sizes,
+                    "inner_chunks": inner,
+                    "values": [json_number(v) for v in values.ravel()],
+                }
+            )
+        variables[name] = windows
+    # What the store exists for: the inner chunk of step 1 at inner row 1,
+    # inner column 1 holds only fill, so its index entry is the sentinel. A
+    # zarr-python that wrote it after all would quietly stop testing that.
+    for name, location in locations.items():
+        stored = (root / key(name, [1, 0, 0])).read_bytes()
+        index = shard_index(stored, entries, location)
+        assert index[(0 * per[1] + 1) * per[2] + 1] is None, (name, index)
+        # And the second shard along latitude is partly past the array: rows
+        # 8-11 never exist, so their entries are absent too.
+        stored = (root / key(name, [0, 1, 0])).read_bytes()
+        index = shard_index(stored, entries, location)
+        assert all(e is None for e in index[2:]), (name, index)
+    group = zarr.open_group(str(root), mode="r", zarr_format=3)
+    coordinates = []
+    for axis in ("time", "latitude", "longitude"):
+        (length,), (chunk,) = group[axis].shape, group[axis].chunks
+        coordinates += [
+            {"array": axis, "key": key(axis, [c]), "index": [c]} for c in range(-(-length // chunk))
+        ]
+    return {
+        "edition": 3,
+        "variables": ["t2m", "t2m_start"],
+        "dimensions": ["time", "latitude", "longitude"],
+        "coordinate_chunks": coordinates,
+        "index_length": index_len,
+        "windows": variables,
+    }
 
 
 # The object the kerchunk fixtures address. Chunks are laid end to end with a

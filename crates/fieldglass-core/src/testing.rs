@@ -68,6 +68,8 @@ pub struct Recording<S> {
     /// How many `get`s had happened when each key batch arrived.
     keys_before_batch: RefCell<Vec<usize>>,
     listings: RefCell<Vec<(String, Vec<String>)>>,
+    /// Every [`ObjectSource::get_range`], as its key and range.
+    key_ranges: RefCell<Vec<(String, ByteRange)>>,
 }
 
 impl<S> Recording<S> {
@@ -82,6 +84,7 @@ impl<S> Recording<S> {
             key_batches: RefCell::new(Vec::new()),
             keys_before_batch: RefCell::new(Vec::new()),
             listings: RefCell::new(Vec::new()),
+            key_ranges: RefCell::new(Vec::new()),
         }
     }
 
@@ -130,6 +133,12 @@ impl<S> Recording<S> {
         self.keys.borrow().clone()
     }
 
+    /// Every key and range [`ObjectSource::get_range`] was called with, in
+    /// order (#1123): the part of an object a read took instead of the whole.
+    pub fn range_gets(&self) -> Vec<(String, ByteRange)> {
+        self.key_ranges.borrow().clone()
+    }
+
     /// Every [`ObjectSource::prefetch`] batch, in order.
     pub fn key_prefetches(&self) -> Vec<Vec<String>> {
         self.key_batches.borrow().clone()
@@ -176,6 +185,7 @@ impl<S> Recording<S> {
         self.key_batches.borrow_mut().clear();
         self.keys_before_batch.borrow_mut().clear();
         self.listings.borrow_mut().clear();
+        self.key_ranges.borrow_mut().clear();
     }
 }
 
@@ -241,6 +251,26 @@ impl<O: ObjectSource> ObjectSource for Recording<O> {
     /// given everything, and a read over it would fill what nobody fetched.
     fn unfetched(&self, keys: &[&str]) -> Vec<String> {
         self.inner.unfetched(keys)
+    }
+
+    fn object_size(&self, key: &str) -> Result<Option<u64>, FieldglassError> {
+        self.inner.object_size(key)
+    }
+
+    /// Recorded in [`range_gets`](Self::range_gets), not in
+    /// [`gets`](Self::gets): what a test asks is which objects were read
+    /// whole, and these were not.
+    fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
+        self.key_ranges.borrow_mut().push((key.to_string(), range));
+        self.inner.get_range(key, range)
+    }
+
+    fn unfetched_ranges(&self, wanted: &[(&str, ByteRange)]) -> Vec<(String, ByteRange)> {
+        self.inner.unfetched_ranges(wanted)
     }
 }
 

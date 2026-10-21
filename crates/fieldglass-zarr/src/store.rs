@@ -128,6 +128,11 @@ pub struct ZarrStore<O> {
     problems: Vec<LeftOut>,
 }
 
+#[cfg(feature = "codecs")]
+mod sharded;
+#[cfg(feature = "codecs")]
+pub use sharded::{InnerChunkRange, ShardIndexRange};
+
 /// What a region read needs of one array, beyond its description.
 // Without `codecs` there is no region read to need it, but the walk still
 // builds it, so a build with the feature and one without list the same arrays.
@@ -990,20 +995,46 @@ fn read<O: ObjectSource>(
     let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
     // A chunk the source was never given is not one the store left unwritten,
     // so it is not the fill value either (#1124). Named, all of them, so a host
-    // fetches them in one round.
-    let unfetched = objects.unfetched(&refs);
-    if !unfetched.is_empty() {
-        let named: Vec<String> = unfetched.iter().map(|k| format!("`{k}`")).collect();
-        return Err(FieldglassError::Parse(format!(
-            "this read needs {}, which the store's source was never given: fetch them, and \
-             give one the store does not hold (a 404) as absent",
-            named.join(", ")
-        )));
+    // fetches them in one round; for a shard given by range, the ranges
+    // (#1123).
+    // Asked once. A source that answers every key itself (a map, a directory)
+    // names none, and then nothing below is built: the ranged path costs an
+    // unsharded or whole-shard read nothing.
+    let ranged = objects.unfetched(&refs);
+    if !ranged.is_empty() {
+        let owed = sharded::owed_of(objects, array, region, &covering, &keys, &ranged)?;
+        if !owed.is_empty() {
+            return Err(FieldglassError::Parse(format!(
+                "this read needs {}, which the store's source was never given: fetch them, \
+                 and give one the store does not hold (a 404) as absent",
+                owed.join(", ")
+            )));
+        }
     }
     objects.prefetch(&refs)?;
+    // Owing nothing, a key the source does not hold whole is a shard it holds
+    // by range, read by range.
+    let by_range = if ranged.is_empty() {
+        None
+    } else {
+        let sharded = sharded::Sharded::of(array)?.ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "`{}` was given only by range, and is not a shard",
+                ranged[0]
+            ))
+        })?;
+        let touched = sharded.touched(array, region)?;
+        Some((sharded, touched))
+    };
 
     let mut out = vec![fill; count];
     for (index, key) in covering.iter().zip(&keys) {
+        if let Some(plan) = &by_range
+            && ranged.contains(key)
+        {
+            sharded::read_ranged(objects, &decoder, plan, index, key, region, &mut out)?;
+            continue;
+        }
         // Absent is the fill value, which `out` already holds.
         let Some(stored) = objects.get(key)? else {
             continue;
@@ -1042,7 +1073,7 @@ fn shard_block(
     let inner: Vec<u64> = decoder
         .chain()
         .sharding()
-        .map(|sharding| sharding.chunk_shape.iter().map(|&n| n as u64).collect())
+        .map(|sharding| sharding.chunk_shape().iter().map(|&n| n as u64).collect())
         .ok_or_else(|| {
             FieldglassError::WrongLayout("this array's chunks are not shards".to_string())
         })?;

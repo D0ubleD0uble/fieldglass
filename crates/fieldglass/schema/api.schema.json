@@ -1212,6 +1212,73 @@
         }
       ]
     },
+    "IndexLocation": {
+      "description": "Which end of a shard its index sits at (#1123): the Zarr sharding codec's\n`index_location`.",
+      "oneOf": [
+        {
+          "const": "start",
+          "description": "The index is the shard's first bytes.",
+          "type": "string"
+        },
+        {
+          "const": "end",
+          "description": "The index is the shard's last bytes: the specification's default, and\nwhat zarr-python writes.",
+          "type": "string"
+        }
+      ]
+    },
+    "InnerChunkRef": {
+      "description": "One inner chunk of a shard, as the bytes a host fetches for it (#1123).",
+      "properties": {
+        "array": {
+          "description": "The array, path-qualified as [`Session::variables`] names it.",
+          "type": "string"
+        },
+        "index": {
+          "description": "The shard's position on the array's chunk grid, one entry per axis.",
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "inner": {
+          "description": "The inner chunk's position on its shard's grid of inner chunks.",
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "key": {
+          "description": "The shard's key from the store's root: the object to read a range of.",
+          "type": "string"
+        },
+        "length": {
+          "description": "How many bytes it is. An index may state zero, which leaves nothing to\nfetch (an HTTP range cannot name it) and nothing to decode: the decode\nrefuses such a chunk, as it does inside a shard read whole.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "description": "The chunk's first byte, from the start of the shard.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "array",
+        "key",
+        "index",
+        "inner",
+        "offset",
+        "length"
+      ],
+      "type": "object"
+    },
     "Isoline": {
       "description": "One level's isoline segments, in grid coordinates.",
       "properties": {
@@ -2775,6 +2842,46 @@
       ],
       "type": "object"
     },
+    "ShardIndexRef": {
+      "description": "Where one shard's index is: the first range a host fetches of a shard it\nreads in part (#1123).\n\nThe index's length is fixed by the store's metadata (sixteen bytes per\ninner chunk a shard holds, and four more for its checksum), so a host\nfetches it without knowing the shard's size: the last `length` bytes (an\nHTTP suffix range, `bytes=-length`) or the first. The store needs the\nshard's whole size with them: a `HEAD`'s `Content-Length`, which a browser\ncan always read, or the range's `Content-Range` where the bucket exposes it\nto the page.",
+      "properties": {
+        "array": {
+          "description": "The array, path-qualified as [`Session::variables`] names it.",
+          "type": "string"
+        },
+        "index": {
+          "description": "The shard's position on the array's chunk grid, one entry per axis.",
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "key": {
+          "description": "The shard's key from the store's root.",
+          "type": "string"
+        },
+        "length": {
+          "description": "The index's length in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "location": {
+          "$ref": "#/$defs/IndexLocation",
+          "description": "Which end of the shard the index is at."
+        }
+      },
+      "required": [
+        "array",
+        "key",
+        "index",
+        "location",
+        "length"
+      ],
+      "type": "object"
+    },
     "SliceRequest": {
       "additionalProperties": false,
       "description": "Which slice of a variable a host asks for: the variable, its two image axes,\nand a position on every axis (#1073).\n\nWhat a JavaScript host's `decodeSlice` takes as one object, where\n[`Session::decode_slice`] takes the same four as arguments. The object is\nthe JS shape because four positional numbers are four chances to pass them\nin the wrong order, and the hosts take it identically so that code written\nagainst one reads against the other.\n\n`variable` is a position in `variables()` on every host: the list\n[`Session::variables`] returns. `y_dim` and `x_dim` are\npositions in that variable's axes, and `slice_indices` holds **one entry per\naxis** in the same order, the two image axes ignored rather than absent.\n\n**On the wire** it is a camelCase object. Every key is required and an\nunknown one is refused: a misspelt `sliceIndex` dropped silently would\ndecode the first time step and label it the one asked for.",
@@ -3424,7 +3531,7 @@
       "description": "Which cells a window holds and which chunks hold them.",
       "properties": {
         "chunks": {
-          "description": "Every chunk of the variable the window's cells sit in, in row-major\norder of their index, each once. Fetch these, and only these, before\n[`Session::decode_window`]. `null` for a container that is not stored\nas keyed objects — a NetCDF file, which a host reads by range.",
+          "description": "Every chunk of the variable the window's cells sit in, in row-major\norder of their index, each once. Fetch these, and only these, before\n[`Session::decode_window`]. `null` for a container that is not stored\nas keyed objects — a NetCDF file, which a host reads by range.\n\nFor a sharded variable these are its shards, which a host may fetch\nwhole or, through `shard_indexes` and `inner_chunks`, by range.",
           "items": {
             "$ref": "#/$defs/ChunkRef"
           },
@@ -3446,6 +3553,16 @@
             "type": "array"
           },
           "type": "array"
+        },
+        "innerChunks": {
+          "description": "For a sharded variable, the byte range of every inner chunk the\nwindow's cells sit in, in row-major order of the shards and then of the\ninner chunks in each (#1123). Inner chunks a shard's index marks as\nnever written are left out, as are those of a shard the store does not\nhold: they are the fill value. Fetch these and decode. `null` for a\nvariable that is not sharded, and until every index `shard_indexes`\nnames (or its whole shard, or a 404 for it) is in the store. Also\n`null` when an index in hand cannot be read (a failed checksum, an\nentry outside its shard or over the index) or the window touches more\ninner chunks than one plan holds. **The rule for a host:** if this is\nstill `null` once every `shard_indexes` entry is in the store, fetch\n`chunks` whole; the decode then reports anything wrong with a shard.",
+          "items": {
+            "$ref": "#/$defs/InnerChunkRef"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "ni": {
           "description": "Columns in the window, the sum of the runs.",
@@ -3469,6 +3586,16 @@
           "maxItems": 2,
           "minItems": 2,
           "type": "array"
+        },
+        "shardIndexes": {
+          "description": "For a sharded variable, where the index of each shard in `chunks` is,\nin the same order (#1123). Fetch each as a range of its shard and give\nthe store the shard's size with it; then plan again for\n`inner_chunks`. `null` for a variable that is not sharded, and for a\nsharded one whose index cannot be planned: a sharding configuration\nthis build does not read, or a shard of more than\n[`fieldglass_zarr::MAX_SHARD_ENTRIES`] inner chunks. Fetch `chunks`\nwhole then.",
+          "items": {
+            "$ref": "#/$defs/ShardIndexRef"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
@@ -3476,7 +3603,9 @@
         "columns",
         "ni",
         "nj",
-        "chunks"
+        "chunks",
+        "shardIndexes",
+        "innerChunks"
       ],
       "type": "object"
     },
@@ -3603,6 +3732,9 @@
     ],
     "zarr": [
       "ChunkRef",
+      "IndexLocation",
+      "InnerChunkRef",
+      "ShardIndexRef",
       "WindowPlan",
       "WindowRequest"
     ]

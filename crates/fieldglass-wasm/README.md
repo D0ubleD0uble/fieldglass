@@ -232,7 +232,7 @@ const request = {
   bounds: [20, 55, -130, -60],          // [latMin, latMax, lonMin, lonMax]
   sliceIndices: [0, 0, 0],               // the time step; the two map axes are ignored
 };
-const plan = ds.planWindow(request);     // { rows, columns, ni, nj, chunks }
+const plan = ds.planWindow(request);     // { rows, columns, ni, nj, chunks, shardIndexes, innerChunks }
 for (const { key } of plan.chunks) objects.set(key, await get(key));
 ds.free();
 ds = openStore(objects);
@@ -267,10 +267,78 @@ each array's and group's `.zattrs` too, or `null` for a 404: it holds the
 dimension names and the CF scale and fill, so `openStore` throws `decode`
 naming one it was not given.
 
-**A sharded array plans whole shards.** In a v3 store with `sharding_indexed`,
-each planned key is a shard, and a window fetches every shard it touches in
-full, inner chunks it does not need included. Fetching only the inner chunks
-by range, through the shard index, is not done yet.
+**A sharded array can be read in part.** In a v3 store with `sharding_indexed`,
+each planned key in `chunks` is a shard, which may hold many time steps or a
+large area. Fetching each whole still works. To fetch only what the window
+shows, read each shard's index first and then the inner chunks it needs, both
+by range, and give them to `openStore` as `{ size, ranges }` under the shard's
+key:
+
+```js
+// `shardIndexes`: each index is the shard's last `length` bytes, or its first.
+// The store also needs each shard's whole size. A page can read it from
+// `Content-Range` only where the bucket lists that header in
+// `Access-Control-Expose-Headers`, and dynamical.org's does not (checked
+// 2026-10-21). So this asks a `HEAD` for `Content-Length`, which a page can
+// always read, at the same time as the range.
+const range = async (key, header) => {
+  const response = await fetch(`${store}/${key}`, { headers: { Range: header } });
+  if (response.status === 404) return null;
+  if (response.status !== 206) throw new Error(`${key}: HTTP ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+};
+const sizeOf = async (key) => {
+  const response = await fetch(`${store}/${key}`, { method: 'HEAD' });
+  return response.ok ? Number(response.headers.get('Content-Length')) : null;
+};
+for (const index of plan.shardIndexes ?? []) {
+  const header = index.location === 'end' ? `bytes=-${index.length}` : `bytes=0-${index.length - 1}`;
+  const [bytes, size] = await Promise.all([range(index.key, header), sizeOf(index.key)]);
+  if (bytes === null) { objects.set(index.key, null); continue; } // a 404: all fill
+  // No size, no ranges: `openStore` refuses `{ size, ranges }` without a
+  // byte-count `size` (`invalid_option`), so take this shard whole instead.
+  if (size === null) { objects.set(index.key, await get(index.key)); continue; }
+  const offset = index.location === 'end' ? size - index.length : 0;
+  objects.set(index.key, { size, ranges: [{ offset, bytes }] });
+}
+ds.free();
+ds = openStore(objects);
+
+// `innerChunks`, now that the indexes are in: each inner chunk the window
+// intersects, as an `offset` and `length` within its shard. Inner chunks the
+// index marks as never written are left out; they are the fill value. Still
+// `null` with every index in the map means the plan could not go by range
+// (an index that fails its checksum, say): fetch the shards whole.
+const { innerChunks } = ds.planWindow(request);
+if (innerChunks === null) {
+  for (const { key } of plan.chunks) objects.set(key, await get(key));
+} else {
+  for (const inner of innerChunks) {
+    // Zero bytes cannot be named by a range, and the decode refuses such a chunk.
+    if (inner.length === 0) continue;
+    const bytes = await range(inner.key, `bytes=${inner.offset}-${inner.offset + inner.length - 1}`);
+    objects.get(inner.key).ranges.push({ offset: inner.offset, bytes });
+  }
+}
+ds.free();
+ds = openStore(objects);
+const field = ds.decodeWindow(request);
+```
+
+`shardIndexes` and `innerChunks` are `null` for a variable that is not sharded,
+and `innerChunks` is `null` until every index is in the map (a shard given
+whole, or as `null` for a 404, counts). **If `innerChunks` is still `null` once
+every `shardIndexes` entry is in the map, fetch `chunks` whole**: the plan could
+not go by range. The same holds when a shard's size is unknown (a `HEAD` that
+failed): `openStore` refuses `{ size, ranges }` without a byte-count `size` as
+`invalid_option`, so give that shard whole instead. A read takes each range from
+one range you gave that holds it, so give each range as fetched. `decodeWindow` throws
+`invalid_option` naming each index or inner-chunk range it lacks. A shard index
+that fails its checksum, or names bytes outside its shard or over the index
+itself, is never read: `planWindow` leaves `innerChunks` `null`, so fetch
+`chunks` whole, and `decodeWindow` throws `decode` naming what is wrong.
+`shardIndexes` is `null` too for a sharding configuration this build does not
+read, or a shard of more than 1,048,576 inner chunks.
 
 ### Which way up a raster comes out
 
@@ -557,13 +625,17 @@ of that drift is the MARS short-name table, which now keeps each eccodes
 block's surface, probability and template conditions and the rival blocks
 that can outrank them. The rest is what merged since the previous recording.
 
+All three rows were re-recorded from the `ci.yml` run on #1123's PR (run
+39652231318), whose `full` build had drifted 2.2% from the row above it. That
+is the sharded-window planner and the ranged `openStore`.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,686,389 | 661,820 |
-| `+simd128` | 1,672,656 | 658,795 |
-| full | 2,237,984 | 875,896 |
+| baseline | 1,686,964 | 662,056 |
+| `+simd128` | 1,673,231 | 659,047 |
+| full | 2,285,313 | 895,421 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
@@ -688,6 +760,11 @@ which the fixture script computes from the coordinates and reads back through
 xarray, and nothing unplanned may be fetched. It also checks that a planned
 chunk left out of the map throws, naming it, and that a coordinate whose fill
 value places nothing, or that the store leaves out, is named in the refusal.
+Over a sharded store (index at the end through blosc, and at the start through
+zstd), it fetches each shard's index by range, then the inner chunks the plan
+names, and decodes each window from those ranges alone; the ranges are checked
+against ones the fixture script read from the shard files with Python's
+`struct`, and the values against xarray's.
 
 **`tests/node/colour_range.mjs`** — the colour-range rule both hosts follow
 (#1155), over the committed GFS fixture. An empty field paints transparent; one
