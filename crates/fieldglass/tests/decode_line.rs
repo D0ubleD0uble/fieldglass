@@ -332,6 +332,42 @@ fn a_held_combined_line_needs_only_bs_cell() {
     ));
 }
 
+/// A held B cell that is not finite is a gap, as on the non-held path, not a
+/// divisor: `a / inf` would otherwise draw 0 where the map has no value (#1220).
+#[test]
+fn a_held_combined_line_reads_a_non_finite_b_cell_as_a_gap() {
+    use fieldglass::{CombineOp, LineRequest};
+    let f64s = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let array = r#"{"zarr_format":2,"shape":[2,1,1],"chunks":[2,1,1],"dtype":"<f8","compressor":null,"fill_value":null,"order":"C","filters":null}"#
+        .as_bytes()
+        .to_vec();
+    let attrs = br#"{"_ARRAY_DIMENSIONS":["time","y","x"]}"#.to_vec();
+    let session = Session::open_store(fieldglass::MemoryObjects::from_iter(vec![
+        (".zgroup".to_string(), br#"{"zarr_format":2}"#.to_vec()),
+        ("a/.zarray".to_string(), array.clone()),
+        ("a/.zattrs".to_string(), attrs.clone()),
+        ("a/0.0.0".to_string(), f64s(&[2.0, 4.0])),
+        ("b/.zarray".to_string(), array),
+        ("b/.zattrs".to_string(), attrs),
+        ("b/0.0.0".to_string(), f64s(&[1.0, f64::INFINITY])),
+    ]))
+    .expect("opens");
+    let (a, b) = (variable(&session, "a"), variable(&session, "b"));
+    let held = |at: u32| {
+        session
+            .decode_line_combined(
+                &LineRequest::new(a, 0, vec![0, 0, 0]),
+                &LineRequest::new(b, 0, vec![at, 0, 0]),
+                true,
+                CombineOp::Ratio,
+                &opts(),
+            )
+            .expect("the held line")
+    };
+    assert_eq!(points(&held(0)), vec![Some(2.0), Some(4.0)], "the control");
+    assert_eq!(points(&held(1)), vec![None, None]);
+}
+
 /// Every point of every line equals the cell `decode_slice` reports there.
 #[test]
 fn every_line_is_the_intersection_of_the_slices_it_crosses() {

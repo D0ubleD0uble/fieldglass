@@ -993,7 +993,7 @@ fn line_region(
     span: bool,
 ) -> Result<Vec<std::ops::Range<u64>>, Error> {
     let rank = var.dims.len();
-    if along >= rank {
+    if span && along >= rank {
         return Err(Error::invalid_option(format!(
             "`{}` has {rank} dimensions, so along_dim {along} is outside them",
             var.name
@@ -1051,7 +1051,8 @@ fn cell_through(
         .map(|d| d.attributes.as_slice())
         .unwrap_or_default();
     let mut physical = CfUnpacking::from_attributes(attributes).apply_owned(raw);
-    Ok(physical.pop().flatten())
+    // A non-finite value is not a value, as `pack_values` treats it on a line.
+    Ok(physical.pop().flatten().filter(|v| v.is_finite()))
 }
 
 /// One line through the array named `array` in `source` — the implementation
