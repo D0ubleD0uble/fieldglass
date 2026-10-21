@@ -2821,7 +2821,9 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// As [`palette_range`](Self::palette_range).
+    /// As [`palette_range`](Self::palette_range): the refusals of
+    /// [`palette`](Self::palette), and a field whose values are not one per
+    /// cell.
     #[cfg(feature = "render")]
     pub fn palette_with_range(
         &self,
@@ -2841,7 +2843,8 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// As [`palette_display`](Self::palette_display).
+    /// As [`palette_display`](Self::palette_display), and a field whose values
+    /// are not one per cell.
     #[cfg(feature = "render")]
     pub fn palette_display_with_range(
         &self,
@@ -3971,49 +3974,81 @@ mod tests {
     use super::*;
     use fieldglass_core::{LatLonParams, RotatedLatLonParams, projection::GridGeometry};
 
-    /// The palette builds `palette_with_range` and its display twin run: one
-    /// each, where the two separate calls run two (#1196).
+    /// `palette_with_range` and its display twin build the palette once each,
+    /// where calling the separate methods builds it twice (#1196).
     #[cfg(all(feature = "render", feature = "grib2"))]
     #[test]
     fn a_palette_with_its_range_builds_the_palette_once() {
-        const GFS: &[u8] =
-            include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
-        const RAP: &[u8] =
-            include_bytes!("../../fieldglass-grib2/tests/fixtures/rap_jpeg2000_lambert.grib2");
         fn builds(f: impl FnOnce()) -> u32 {
             let before = PALETTE_BUILDS.with(std::cell::Cell::get);
             f();
             PALETTE_BUILDS.with(std::cell::Cell::get) - before
         }
+        // The palette methods read only the field, not the reader behind the
+        // session, so a small field built in memory is enough.
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
+        let geometry = GridGeometry::LatLon(LatLonParams {
+            ni: 2,
+            nj: 2,
+            lat_first: 90.0,
+            lon_first: 0.0,
+            lat_last: -90.0,
+            lon_last: 180.0,
+        });
+        let georef = Georef::from_geometry(&geometry, Scan::north_down());
+        let field = Field {
+            values: Values::F64(vec![1.0, 2.0, 3.0, 4.0]),
+            mask: vec![1; 4],
+            ni: 2,
+            nj: 2,
+            georef: georef.clone(),
+            truncation: None,
+            stats: Stats {
+                min: Some(1.0),
+                max: Some(4.0),
+                valid_count: 4,
+            },
+            parameter: None,
+            units: None,
+        };
+        let display = DisplayField {
+            values: Values::F64(vec![1.0, 2.0, 3.0, 4.0]),
+            mask: vec![1; 4],
+            ni: 2,
+            nj: 2,
+            georef,
+            reduction: 1,
+            truncation: None,
+            parameter: None,
+            units: None,
+        };
+        let session = grib2_session();
         let options = PaletteOptions::default();
 
-        let session = Session::open(GFS.to_vec()).expect("opens");
-        let field = session
-            .decode(0, &DecodeOptions::default())
-            .expect("decodes");
-        let both = builds(|| {
-            session.palette_with_range(&field, &options).expect("both");
-        });
-        assert_eq!(both, 1, "the combined call builds the palette once");
-        let separate = builds(|| {
-            session.palette(&field, &options).expect("a palette");
-            session.palette_range(&field, &options).expect("a range");
-        });
-        assert_eq!(separate, 2, "the separate calls are the cost it removes");
-
-        let session = Session::open(RAP.to_vec()).expect("opens");
-        let full = session
-            .decode(0, &DecodeOptions::default())
-            .expect("decodes");
-        let coarse = session
-            .decode_display(0, &crate::DisplayDecodeOptions::new(1))
-            .expect("a coarse field");
-        let both = builds(|| {
-            session
-                .palette_display_with_range(&coarse, Some(&full.stats), &options)
-                .expect("both");
-        });
-        assert_eq!(both, 1, "the display twin builds the palette once");
+        assert_eq!(
+            builds(|| {
+                session.palette_with_range(&field, &options).expect("both");
+            }),
+            1
+        );
+        assert_eq!(
+            builds(|| {
+                session.palette(&field, &options).expect("a palette");
+                session.palette_range(&field, &options).expect("a range");
+            }),
+            2,
+            "the separate calls are the cost the combined one removes"
+        );
+        assert_eq!(
+            builds(|| {
+                session
+                    .palette_display_with_range(&display, Some(&field.stats), &options)
+                    .expect("both");
+            }),
+            1
+        );
     }
 
     /// A message can declare a zero-width grid, and `decode` accepts it: zero
