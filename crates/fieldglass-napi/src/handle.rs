@@ -401,13 +401,43 @@ impl Handle {
         }
     }
 
-    /// Shrink a Zarr handle's slice budget to `cells`, so a test can hold slices
-    /// larger than it without a store of millions of cells (#1319).
+    /// Shrink a Zarr or NetCDF handle's value-memo budget to `cells`, so a test
+    /// can hold slices larger than it without millions of cells (#1319).
     #[cfg(test)]
-    pub(crate) fn zarr_set_slice_cells(&self, cells: usize) {
+    pub(crate) fn set_memo_cells(&self, cells: usize) {
         match self.inner.as_ref().expect("an open handle") {
             Inner::Zarr(h) => h.slices.lock().expect("slice memo mutex").cells = cells,
-            _ => panic!("not a Zarr handle"),
+            Inner::Netcdf(open) => {
+                open.file.planes.lock().expect("plane memo mutex").cells = cells;
+            }
+            _ => panic!("not a Zarr or NetCDF handle"),
+        }
+    }
+
+    /// How many entries the value memo holds pinned, and how many reads it has
+    /// answered (#1319): what a test reads to hold when the pin is released and
+    /// that a display read the kept entry.
+    #[cfg(test)]
+    pub(crate) fn memo_state(&self) -> (usize, u64) {
+        match self.inner.as_ref().expect("an open handle") {
+            Inner::Zarr(h) => {
+                let m = h.slices.lock().expect("slice memo mutex");
+                (m.pair.len(), m.hits)
+            }
+            Inner::Netcdf(open) => {
+                let m = open.file.planes.lock().expect("plane memo mutex");
+                (m.pair.len(), m.hits)
+            }
+            _ => panic!("not a Zarr or NetCDF handle"),
+        }
+    }
+
+    /// How many NetCDF planes this handle has decoded (#1319).
+    #[cfg(test)]
+    pub(crate) fn netcdf_decodes_made(&self) -> u64 {
+        match self.inner.as_ref().expect("an open handle") {
+            Inner::Netcdf(open) => open.file.planes.lock().expect("plane memo mutex").inserted,
+            _ => panic!("not a NetCDF handle"),
         }
     }
 
