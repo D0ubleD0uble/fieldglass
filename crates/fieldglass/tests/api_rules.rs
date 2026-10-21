@@ -341,6 +341,13 @@ const FOREIGN_REEXPORTS: &[(&str, Class, &str)] = &[
          it was never given; built in Rust and handed to `Session::open_store`",
     ),
     (
+        "ByteRange",
+        Class::Engine,
+        "the range an `ObjectSource` reads part of an object by (#1123); a host \
+         implementing the seam names it in Rust, and a plan's ranges reach the \
+         wire as `InnerChunkRef`'s offset and length",
+    ),
+    (
         "FieldglassError",
         Class::Engine,
         "what every method of both seams returns, so a host implementing one has \

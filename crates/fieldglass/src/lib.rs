@@ -244,6 +244,7 @@ pub use session::{
 // `FieldglassError` is what every method of both traits returns. Ungated: a
 // host implements the seam whether or not it paints.
 pub use fieldglass_core::FieldglassError;
+pub use fieldglass_core::bytes::ByteRange;
 pub use fieldglass_core::bytes::{ByteSource, MemoryObjects, ObjectSource, PrefetchedObjects};
 /// `core`'s colour type, re-exported: a host consumes the painter's own table
 /// rather than implementing a second colour path (ADR-0006 decision 3).

@@ -30,7 +30,7 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use fieldglass::{FieldglassError, ObjectSource};
+use fieldglass::{ByteRange, FieldglassError, ObjectSource};
 
 /// The documents whose presence makes a directory a Zarr store.
 ///
@@ -134,6 +134,56 @@ impl ObjectSource for DirectoryObjects {
             Err(e) if e.kind() == std::io::ErrorKind::IsADirectory => Ok(None),
             Err(e) => Err(FieldglassError::Io(e)),
         }
+    }
+
+    /// The file's length from its metadata, without reading it: a shard's
+    /// index is found from its size, and a shard can be hundreds of MB
+    /// (#1123).
+    fn object_size(&self, key: &str) -> Result<Option<u64>, FieldglassError> {
+        let Some(path) = self.path_of(key) else {
+            return Ok(None);
+        };
+        match std::fs::metadata(&path) {
+            Ok(meta) if meta.is_file() => Ok(Some(meta.len())),
+            Ok(_) => Ok(None),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(FieldglassError::Io(e)),
+        }
+    }
+
+    /// One seek and one read of exactly `range`, so a shard's index or one
+    /// inner chunk is read without the rest of the shard (#1123).
+    fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let Some(size) = self.object_size(key)? else {
+            return Ok(None);
+        };
+        let past = || {
+            FieldglassError::Parse(format!(
+                "bytes {}..+{} of `{key}` run past its {size} bytes",
+                range.start, range.len
+            ))
+        };
+        if range.end().is_none_or(|end| end > size) {
+            return Err(past());
+        }
+        let len = usize::try_from(range.len).map_err(|_| past())?;
+        let Some(path) = self.path_of(key) else {
+            return Ok(None);
+        };
+        let mut file = std::fs::File::open(&path).map_err(FieldglassError::Io)?;
+        file.seek(SeekFrom::Start(range.start))
+            .map_err(FieldglassError::Io)?;
+        let mut out = vec![0u8; len];
+        // A file truncated between the size and the read is short, and
+        // `read_exact` says so rather than returning fewer bytes.
+        file.read_exact(&mut out).map_err(FieldglassError::Io)?;
+        Ok(Some(Cow::Owned(out)))
     }
 
     fn list(&self, prefix: &str) -> Result<Vec<String>, FieldglassError> {
@@ -335,6 +385,38 @@ mod tests {
         // And the honest key for the same document still reads, or the guard
         // would be refusing everything and proving nothing.
         assert!(dir.get(".zgroup").expect("reads").is_some());
+    }
+
+    /// A shard's size and a range of it come from the file's metadata and one
+    /// seek, and agree with reading it whole (#1123); an escaping or absent
+    /// key has no size and no bytes, and a range past the end is refused.
+    #[test]
+    fn a_range_of_a_file_is_read_without_the_rest_of_it() {
+        let dir =
+            DirectoryObjects::new("../fieldglass-zarr/tests/fixtures/windows/window_sharded_v3");
+        let key = "t2m/c/0/0/0";
+        let whole = dir.get(key).expect("reads").expect("present").into_owned();
+        assert_eq!(
+            dir.object_size(key).expect("stats"),
+            Some(whole.len() as u64)
+        );
+        let tail = dir
+            .get_range(key, ByteRange::new(whole.len() as u64 - 100, 100))
+            .expect("reads")
+            .expect("present");
+        assert_eq!(&*tail, &whole[whole.len() - 100..]);
+        assert!(
+            dir.get_range(key, ByteRange::new(whole.len() as u64 - 1, 2))
+                .is_err()
+        );
+        assert!(dir.get_range(key, ByteRange::new(u64::MAX, 2)).is_err());
+        assert_eq!(dir.object_size("t2m/c/9/9/9").expect("stats"), None);
+        assert_eq!(dir.object_size("../zarr.json").expect("refused"), None);
+        assert!(
+            dir.get_range("t2m/c/9/9/9", ByteRange::new(0, 1))
+                .expect("absent")
+                .is_none()
+        );
     }
 }
 
