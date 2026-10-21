@@ -1330,7 +1330,7 @@ impl MessageStream {
         py: u32,
     ) -> Result<Option<ProbeResult>, RenderError> {
         let (raw, placed) = self.resolved(index)?;
-        let mut probed = probe_from_source(&placed.source(), raw.as_ref(), options, px, py)?;
+        let mut probed = probe_placed(&self.warps, &placed, raw.as_ref(), options, px, py)?;
         if let Some(p) = probed.as_mut()
             && let Some(detail) = self.full_detail(index, p.grid_i, p.grid_j)?
         {
@@ -1364,7 +1364,7 @@ impl MessageStream {
             raw_b.as_ref(),
             op.as_str(),
         )?;
-        let mut probed = probe_from_source(&placed_a.source(), &combined, options, px, py)?;
+        let mut probed = probe_placed(&self.warps, &placed_a, &combined, options, px, py)?;
         if let Some(p) = probed.as_mut() {
             let detail_a = self.full_detail(index_a, p.grid_i, p.grid_j)?;
             let detail_b = self.full_detail(index_b, p.grid_i, p.grid_j)?;
@@ -2815,7 +2815,7 @@ impl NetcdfFile {
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
         let placed = self.slice_placed(&var, y, x)?;
-        probe_from_source(&placed.source(), &plane, &options, px, py)
+        probe_placed(&self.warps, &placed, &plane, &options, px, py)
     }
 
     /// Probe a NetCDF difference/sum/… map under a pixel (#329): the two slices
@@ -2846,7 +2846,7 @@ impl NetcdfFile {
         let placed_a = self.slice_placed(&var_a, y, x)?;
         let placed_b = self.slice_placed(&var_b, y, x)?;
         let combined = combined_field(&placed_a, &plane_a, &placed_b, &plane_b, op.as_str())?;
-        probe_from_source(&placed_a.source(), &combined, &options, px, py)
+        probe_placed(&self.warps, &placed_a, &combined, &options, px, py)
     }
 
     /// The handle's `projectContours` for two slices combined. The refusal is the engine's, so
@@ -3575,7 +3575,7 @@ impl ZarrStore {
         py: u32,
     ) -> Result<Option<ProbeResult>, RenderError> {
         let slice = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
-        probe_from_source(&slice.placed.source(), &slice.values, &options, px, py)
+        probe_placed(&self.warps, &slice.placed, &slice.values, &options, px, py)
     }
 
     /// The handle's `renderGrid` for two slices combined. The refusal is the engine's, so
@@ -3629,7 +3629,7 @@ impl ZarrStore {
             &slice_indices_b,
             &op,
         )?;
-        probe_from_source(&a.placed.source(), &values, &options, px, py)
+        probe_placed(&self.warps, &a.placed, &values, &options, px, py)
     }
 
     /// The handle's `projectContours` for two slices combined. The refusal is the engine's, so
@@ -4603,7 +4603,45 @@ pub struct ProbeResult {
 /// Sample the field under one output pixel `(px, py)` in the *displayed*
 /// raster (post-`flip_y`) — `fieldglass::render::probe_pixel`, over this host's
 /// options.
+#[cfg(test)]
 fn probe_from_source(
+    source: &fieldglass::Source<'_>,
+    raw: &[Option<f64>],
+    options: &RenderOptions,
+    px: u32,
+    py: u32,
+) -> Result<Option<ProbeResult>, RenderError> {
+    probe_over(None, source, raw, options, px, py)
+}
+
+/// `probe_from_source` for a placed field, through the handle's warp memo:
+/// a probe of the grid the last draw warped reads that draw's pixel-to-cell
+/// map rather than building the grid's inverse map again (#1313). Every
+/// handle's probe goes through this, as every render goes through
+/// `render_placed`.
+fn probe_placed(
+    warps: &fieldglass::WarpMemo,
+    placed: &Placed,
+    raw: &[Option<f64>],
+    options: &RenderOptions,
+    px: u32,
+    py: u32,
+) -> Result<Option<ProbeResult>, RenderError> {
+    probe_over(
+        Some((warps, &placed.geometry)),
+        &placed.source(),
+        raw,
+        options,
+        px,
+        py,
+    )
+}
+
+/// The probe under `probe_from_source` and `probe_placed`: `warps` is the
+/// handle's memo and the geometry `source` is placed on, or `None` to resolve
+/// the pixel afresh.
+fn probe_over(
+    warps: Option<(&fieldglass::WarpMemo, &std::sync::Arc<GridGeometry>)>,
     source: &fieldglass::Source<'_>,
     raw: &[Option<f64>],
     options: &RenderOptions,
@@ -4612,7 +4650,12 @@ fn probe_from_source(
 ) -> Result<Option<ProbeResult>, RenderError> {
     let engine = engine_options(options);
     ResolvedOptions::parse(&engine).into_refusal()?;
-    let probed = fieldglass::render::probe_pixel(source, raw, &engine, px, py).into_refusal()?;
+    let probed = match warps {
+        Some((memo, geometry)) => memo
+            .probe_pixel(geometry, source, raw, &engine, px, py)
+            .into_refusal()?,
+        None => fieldglass::render::probe_pixel(source, raw, &engine, px, py).into_refusal()?,
+    };
     Ok(probed.map(|p| ProbeResult {
         lat: p.lat,
         lon: p.lon,

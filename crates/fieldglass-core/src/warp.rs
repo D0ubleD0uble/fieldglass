@@ -524,6 +524,30 @@ impl WarpPlan {
         u64::from(width) * u64::from(height) * per_pixel as u64
     }
 
+    /// The source cell output pixel `(px, py)` reads, or `None` where it reads
+    /// none: off the raster, off the target's domain, or off the source grid.
+    ///
+    /// The cell [`sample`](Self::sample) copies for a nearest plan. For a
+    /// bilinear plan it is the nearest cell to the fractional index, which is
+    /// how a pixel probe names the cell under the cursor, so a probe can read
+    /// the plan instead of running the inverse map again.
+    pub fn cell_at(&self, px: u32, py: u32) -> Option<(u32, u32)> {
+        if px >= self.width || py >= self.height {
+            return None;
+        }
+        let at = py as usize * self.width as usize + px as usize;
+        match &self.taps {
+            Taps::Cells(cells) => {
+                let cell = *cells.get(at)?;
+                (cell != NO_CELL).then(|| (cell % self.lattice.ni, cell / self.lattice.ni))
+            }
+            Taps::Points(points) => {
+                let (i, j) = nearest_cell(self.lattice, (*points.get(at)?)?);
+                Some((i as u32, j as u32))
+            }
+        }
+    }
+
     /// The warp of the field `sample` reads, which must be on the grid the plan
     /// was made for: the [`WarpedRaster`] [`warp`] returns for it.
     pub fn sample(&self, sample: Sample<'_>) -> WarpedRaster {

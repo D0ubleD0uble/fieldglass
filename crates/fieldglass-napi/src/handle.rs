@@ -379,6 +379,18 @@ impl Handle {
         }
     }
 
+    /// How many pixel probes this handle answered from its kept warp plan
+    /// (#1313).
+    #[cfg(test)]
+    pub(crate) fn probes_served(&self) -> u64 {
+        match self.inner.as_ref().expect("an open handle") {
+            Inner::Grib1(h) => h.stream.warps.probes_served(),
+            Inner::Grib2(h) => h.stream.warps.probes_served(),
+            Inner::Netcdf(open) => open.file.warps.probes_served(),
+            Inner::Zarr(h) => h.warps.probes_served(),
+        }
+    }
+
     /// How many Zarr slices this handle has decoded (#1273): what a test counts
     /// to hold that a repaint of a slice already read decodes nothing.
     #[cfg(test)]
