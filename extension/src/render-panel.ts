@@ -1676,6 +1676,9 @@ export function renderImagePanelHtml(
         // (projection / resampling / flip-y / range). The cached payload
         // lets us redraw after a tab hide/show without a round-trip.
         let lastPayload = null;
+        // Whether setDisplayAspect held the image to a shape other than the
+        // raster's, so its pixels are not square on screen (#1321).
+        let displayHeld = false;
         // Whether the provider has answered the mount's own render, with an
         // image or an error. Until it has, a control change waits for that
         // answer rather than asking again. After an error there is still no
@@ -2942,6 +2945,7 @@ export function renderImagePanelHtml(
             vectorsEnabled() || warpsLatLon(drawnProjection()) ? MAP_MOST_ASPECT : undefined,
           );
           canvas.style.aspectRatio = held;
+          displayHeld = held !== '';
           const wrap = canvas.closest('.canvas-wrap');
           if (wrap) {
             const parts = held ? held.split('/').map(Number) : [payload.width, payload.height];
@@ -4913,11 +4917,15 @@ export function renderImagePanelHtml(
           // A map drawn stretched has no one scale for an arrow's length (#1251):
           // the arrows are laid out in square raster pixels, so the key, scaled
           // by sx, is wrong for every arrow not along x. Not drawn, and said so.
-          // A canvas not laid out yet has no ratio to speak of.
+          // An image setDisplayAspect held is stretched by definition, however
+          // small the measured skew (#1321). One that was not held is judged
+          // by the measured ratio, and a canvas not laid out yet has none.
           // Rounding the overlay's two sides to whole pixels can skew the ratio
           // by about one pixel over the shorter side, so that much is allowed.
           const rounding = 2 / Math.max(1, Math.min(o.width, o.height));
-          if (lastVectors && vectorsEnabled() && o.clientWidth > 0 && Math.abs(sx / sy - 1) > 0.05 + rounding) {
+          const stretched = displayHeld
+            || (o.clientWidth > 0 && Math.abs(sx / sy - 1) > 0.05 + rounding);
+          if (lastVectors && vectorsEnabled() && stretched) {
             if (note) note.textContent = VECTOR_KEY_STRETCHED;
             return;
           }

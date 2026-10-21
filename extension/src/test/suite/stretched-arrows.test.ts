@@ -19,7 +19,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
-import { VECTOR_KEY_STRETCHED } from "../../render-panel";
+import { VECTOR_KEY_LEFT_OFF, VECTOR_KEY_STRETCHED } from "../../render-panel";
 import { isType, type Msg, openEditor, openReal, provider, type PageState } from "./real-panel";
 
 /** One GRIB2 message: a constant field on an `ni` × `nj` regular lat/lon grid
@@ -187,6 +187,28 @@ suite("Arrows are not drawn on a stretched picture (#1251)", function () {
       assert.ok(Math.abs(pixelRatio(state, grid) - 1) > 0.5, "the pixels really are stretched");
       assert.strictEqual(state.vectorKey, null, "no key on a stretched picture");
       assert.ok(state.text.includes(VECTOR_KEY_STRETCHED), `the reason is on the page: "${state.text}"`);
+    });
+  });
+
+  test("a raster between 48:1 and 57:1 is held, so it has no key and says it is stretched (#1321)", async () => {
+    // 4 x 208 is 1:52: held to 1:48, a stretch of about 8%, inside the
+    // measured tolerance of a column this thin.
+    await arrowsOnSource(4, 208, (state, grid) => {
+      assert.deepStrictEqual([grid.width, grid.height], [4, 208]);
+      assert.strictEqual(state.vectorKey, null, "no key on a held picture");
+      assert.ok(state.text.includes(VECTOR_KEY_STRETCHED), `the reason is on the page: "${state.text}"`);
+    });
+  });
+
+  test("a raster at 1:40 is not held, so it is not called stretched (#1321)", async () => {
+    // A column this thin is a dozen pixels wide, too narrow for the key: the
+    // page says that, not that the map is stretched. The 12:1 test above
+    // holds the unheld image's key.
+    await arrowsOnSource(5, 200, (state, grid) => {
+      assert.deepStrictEqual([grid.width, grid.height], [5, 200]);
+      assert.ok(Math.abs(pixelRatio(state, grid) - 1) <= 0.1, "its pixels are square");
+      assert.ok(!state.text.includes(VECTOR_KEY_STRETCHED), "no stretch note");
+      assert.ok(state.text.includes(VECTOR_KEY_LEFT_OFF), `the size leaves the key off: "${state.text}"`);
     });
   });
 });
