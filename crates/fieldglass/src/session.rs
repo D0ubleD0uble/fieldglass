@@ -3707,11 +3707,15 @@ fn grib2_identity(msg: &fieldglass_grib2::Grib2Message) -> MessageIdentity {
     // The ensemble block (4.1) and the derived-forecast block (4.2, 4.12) are
     // read into named fields below, and their counts are not part of the
     // identity, so neither reaches `product_octets` (#959). A template the
-    // reader could not parse keeps every octet, whatever its number.
+    // reader could not parse keeps every octet, whatever its number. A
+    // chemistry or aerosol template keeps its constituent type and size and
+    // wavelength ranges there as written, which tell two of its fields apart;
+    // its ensemble block is the named fields, as 4.1's is (#1130).
     let unread = match &msg.pds.template {
         fieldglass_grib2::ProductTemplate::SharedLayout(t) if matches!(t.number, 1 | 2 | 12) => {
             &[][..]
         }
+        fieldglass_grib2::ProductTemplate::Constituent(t) => &t.qualifier[..],
         _ => msg.pds.unread_octets(),
     };
     let ensemble = msg.pds.ensemble_member();

@@ -941,6 +941,61 @@ length and the interval's end) in each `.eccodes.ref.json`, which
 `tests/eccodes_reference.rs` compares field by field. eccodes is released under
 the Apache 2.0 license.
 
+## `constituent_4_40.grib2` to `constituent_4_48.grib2` (#1130)
+
+One fixture for each chemistry and aerosol product template, 4.40 to 4.48,
+plus `constituent_4_44_four_octet_time.grib2`. These templates put a
+constituent type (Code Table 4.230 or 4.233, both WMO Common Code Table C-14),
+and for the aerosol ones a size range and for 4.48 a wavelength range, between
+the parameter and the generating process, so their fixed surfaces sit at §4
+octets 25-36 (4.40-4.43), 34-45 (4.44), 36-47 (4.45-4.47) or 47-58 (4.48)
+rather than 4.0's 23-34. Each sets values of its own (parameter, constituent,
+ranges, surfaces, forecast time, member, interval) so a field read from
+another template's octets fails.
+
+Built by `tools/build_grib2_constituent_fixtures.py` from
+`regular_latlon_surface.grib2` with only §4 changed (16 × 31, about 1.2 KB
+each). Encoded with the `eccodes` PyPI wheel (2.48); **verified with the pinned
+2.34.1**: the builder reads every key it set back through `grib_get` and fails
+on any mismatch, and `tools/regenerate-eccodes-snapshots.py` records the §4
+keys, now including the constituent, both ranges and the ensemble block, in
+each `.eccodes.ref.json`, which `tests/eccodes_reference.rs` compares field by
+field. eccodes is released under the Apache 2.0 license.
+
+Two of them are byte layouts eccodes does not write:
+
+- **`constituent_4_47.grib2` follows WMO, where eccodes does not.** WMO's
+  Code Table 4.0 entry for 4.47 (and the NCEP GRIB2 documentation) puts the
+  type of generating process at octet 12, the aerosol type at 13-14 and the
+  size range at 15-25, unlike every other aerosol template. wgrib2 reads it
+  that way (`code_table_4_233_location` in `CodeTable.c` returns `sec[4] + 12`
+  for 4.47 alone). eccodes 2.34.1, 2.45.0 and the 2.48 wheel lay 4.47 out as
+  4.46 (`template.4.47.def` includes `template.4.aerosol.def` straight after
+  the parameter). The builder encodes the wheel's 4.47 and rotates §4 octets
+  12-25 into WMO's order. On that file the pin reads the parameter, both
+  surfaces, the forecast time, the ensemble block and the interval correctly
+  (they sit at the same octets either way), and misreads the rest:
+
+  | Key | eccodes 2.34.1 | WMO octets hold |
+  |---|---|---|
+  | `typeOfGeneratingProcess` | 1 (octet 25) | 4 (octet 12) |
+  | `constituentType` | 1266 (octets 12-13) | 62009, black carbon dry (13-14) |
+  | `typeOfSizeInterval` | 57 | 2 |
+  | `scaleFactorOfFirstSize` / `scaledValueOfFirstSize` | 2 / 134217728 | 8 / 1 |
+  | `scaleFactorOfSecondSize` / `scaledValueOfSecondSize` | 1 / 100663296 | 6 / 1 |
+
+  `fieldglass-grib2` reads the WMO layout. A known divergence from eccodes:
+  `ECCODES_MISREADS` in `tests/eccodes_reference.rs` compares these keys with
+  the spec's values instead, and fails if eccodes ever reads them as the spec
+  does. The builder asserts the pin's misreadings too.
+- **`constituent_4_44_four_octet_time.grib2` has a four-octet forecast time.**
+  WMO's 4.44 states it in two unsigned octets (32-33; 45 octets in all), which
+  the other 4.44 fixture uses. eccodes once wrote four (GRIB-29) and reads a
+  4.44 of any other length that way (`template.4.forecast_time_44.def`), as
+  does `fieldglass-grib2`. Built from the wheel's 4.44 by widening the forecast
+  time to 70,000 minutes, which two octets cannot hold; the pin reads
+  `forecastTime = 70000` and every other key as set.
+
 ## CCSDS `ccsdsFlags` fixtures (#756)
 
 Four 5.42 fixtures re-flag a committed CCSDS fixture with the pinned eccodes

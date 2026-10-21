@@ -49,8 +49,9 @@
 //!   knowing NCEP's spelling.
 //! * [`verify_message`] is the semantic half of "a plan is a claim": the
 //!   parameter, level and forecast window the message actually decodes to,
-//!   and its probability, ensemble member, derived forecast and percentile,
-//!   must be the ones the sidecar promised. The syntactic half —
+//!   and its probability, ensemble member, derived forecast, percentile, and
+//!   chemical or aerosol constituent and ranges, must be the ones the sidecar
+//!   promised. The syntactic half —
 //!   [`Expect::verify_envelope`](fieldglass_fetchplan::Expect::verify_envelope),
 //!   the magic and the §0 length — needs no tables and stays in the planner, so
 //!   a host can run it before it has a decoder in hand at all.
@@ -369,6 +370,15 @@ impl ParameterResolver for TableResolver {
 ///   those two. A line built by hand (no [`Expect::dialect`]) is not refused
 ///   for leaving one out. An
 ///   ECMWF `number` is compared with the ensemble member.
+/// * **Constituent and ranges** of a chemistry or aerosol message (templates
+///   4.40–4.48, #1130): `aerosol=Dust dry` or `chemical=Ozone` against the
+///   constituent type, by its WMO Common Code Table C-14 name or a number, and
+///   `aerosol_size <1e-05` and `aerosol_wavelength >=5.45e-07,<=5.65e-07`
+///   against the size and wavelength ranges, to the precision wgrib2 prints.
+///   A line carrying one is refused for a message that has none. A line
+///   leaving one out is not refused, because which of them wgrib2 prints, and
+///   in which words, has changed between its releases; nor is a constituent
+///   name C-14 does not hold.
 ///
 /// **Some names are not compared.** A MARS name outside the open-data table
 /// is not, and neither is a wgrib2 line's name when the message's codes have
@@ -382,13 +392,14 @@ impl ParameterResolver for TableResolver {
 /// 0.16.4 and its local 0.16.195, and 167 WMO parameters have no short name
 /// here that a newer wgrib2 may give one.
 ///
-/// **A message on a product template the reader does not parse** (for
-/// example the chemistry and aerosol templates 4.40–4.48, such as
-/// GEFS-Aerosols' 4.48 `AOTK` and `PMTC` records) is checked on its reference
-/// time alone. Its parameter codes, short name, fixed surfaces and forecast
-/// time are all unread, so none of them is compared, as for a level the
-/// grammar did not understand. A GRIB1 message's forecast window and
-/// qualifiers are not compared either.
+/// **A message on a product template the reader does not parse** (a
+/// satellite product, 4.31, or a template newer than the reader; the
+/// chemistry and aerosol templates were among these until #1130) is checked
+/// on its reference time alone. Its parameter codes, short name, fixed
+/// surfaces and forecast time are all unread, so none of them is compared, as
+/// for a level the grammar did not understand. A chemistry or aerosol
+/// template too short for its own layout is read the same way. A GRIB1
+/// message's forecast window and qualifiers are not compared either.
 pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatch> {
     let ecmwf = expect.dialect == Some(Dialect::EcmwfIndex);
 
@@ -927,17 +938,76 @@ fn qualifiers_hold(
         _ => {}
     }
 
+    // Chemistry and aerosol: templates 4.40-4.48 (#1130). wgrib2 names the
+    // constituent `chemical=` (4.40-4.43) or `aerosol=` (4.44-4.48) and prints
+    // the ranges as `aerosol_size` and `aerosol_wavelength` (`ExtName.c`,
+    // `Aerosol.c`). Which of these a release prints, for which templates, and
+    // in which words has changed over wgrib2's history (its `Changes`: sizes
+    // for 4.44 alone until v0.2.0.6c, `chemical=` for a 4.48 for a while, Code
+    // Table 4.233's own names until it was folded into C-14), so a line is
+    // refused for one it carries that the message contradicts or lacks, never
+    // for leaving one out. A name C-14 does not hold is not compared.
+    let constituent = constituent_of(*product_template, octets.as_deref());
+    let quals: Vec<&str> = qualifiers().collect();
+    let stated = quals.iter().find_map(|q| {
+        q.strip_prefix("aerosol=")
+            .or_else(|| q.strip_prefix("chemical="))
+            .map(|name| (*q, name))
+    });
+    match (stated, &constituent) {
+        (Some((q, _)), None) => return refuse("constituent", q, "none".into()),
+        (Some((q, name)), Some(have)) => {
+            if let Some(want) = constituent_code(name)
+                && want != have.code
+            {
+                return refuse("constituent", q, constituent_prose(have.code));
+            }
+        }
+        _ => {}
+    }
+    for (name, have) in [
+        ("aerosol_size", constituent.as_ref().and_then(|c| c.size)),
+        (
+            "aerosol_wavelength",
+            constituent.as_ref().and_then(|c| c.wavelength),
+        ),
+    ] {
+        let Some(text) = range_qualifier(&quals, name) else {
+            continue;
+        };
+        let Some(have) = have else {
+            return refuse(range_field(name), text, "none".into());
+        };
+        if parse_interval(text).same_as(&have) == Some(false) {
+            return refuse(range_field(name), text, have.to_string());
+        }
+    }
+
     Ok(())
 }
 
+/// The mismatch field for a range qualifier.
+fn range_field(name: &str) -> &'static str {
+    if name == "aerosol_size" {
+        "aerosolSize"
+    } else {
+        "aerosolWavelength"
+    }
+}
+
 /// Whether a wgrib2 qualifier is one this reads: a probability, a member, a
-/// derived forecast, a percentile, or one of the fixed words `ExtName.c`
-/// prints for the generating process.
+/// derived forecast, a percentile, a constituent or a size or wavelength
+/// range, or one of the fixed words `ExtName.c` prints for the generating
+/// process.
 fn qualifier_is_read(q: &str) -> bool {
     q.starts_with("prob ")
         || q.contains("ENS=")
         || derived_code(q).is_some()
         || parse_percentile(q).is_some()
+        || q.starts_with("aerosol=")
+        || q.starts_with("chemical=")
+        || q.starts_with("aerosol_size ")
+        || q.starts_with("aerosol_wavelength ")
         || matches!(
             q,
             "probability forecast"
@@ -1050,23 +1120,7 @@ fn parse_probability(q: &str) -> Option<Probability> {
 /// read.
 fn probability_of(block: Option<&[u8]>) -> Option<Probability> {
     let block = block?;
-    let limit = |at: usize| -> Option<f64> {
-        let scale = *block.get(at)?;
-        let value = block.get(at + 1..at + 5)?;
-        let raw = u32::from_be_bytes(value.try_into().ok()?);
-        if scale == 0xff || raw == u32::MAX {
-            return None;
-        }
-        let magnitude = f64::from(raw & 0x7fff_ffff);
-        let value = if raw & 0x8000_0000 != 0 {
-            -magnitude
-        } else {
-            magnitude
-        };
-        let scale = i32::from(scale & 0x7f) * if scale & 0x80 != 0 { -1 } else { 1 };
-        Some(value / 10f64.powi(scale))
-    };
-    let (lower, upper) = (|| limit(3), || limit(8));
+    let (lower, upper) = (|| scaled_limit(block, 3), || scaled_limit(block, 8));
     Some(match *block.get(2)? {
         0 => Probability::Below(lower()?),
         1 => Probability::Above(upper()?),
@@ -1084,6 +1138,219 @@ fn probability_of(block: Option<&[u8]>) -> Option<Probability> {
         kind @ 6..=8 => Probability::Normal(kind),
         _ => return None,
     })
+}
+
+/// The limit at `block[at..at + 5]`: a sign-magnitude scale factor and scaled
+/// value, as a probability block and a size or wavelength range write one.
+/// `None` when either is coded missing or `block` is too short.
+fn scaled_limit(block: &[u8], at: usize) -> Option<f64> {
+    let scale = *block.get(at)?;
+    let value = block.get(at + 1..at + 5)?;
+    let raw = u32::from_be_bytes(value.try_into().ok()?);
+    if scale == 0xff || raw == u32::MAX {
+        return None;
+    }
+    let magnitude = f64::from(raw & 0x7fff_ffff);
+    let value = if raw & 0x8000_0000 != 0 {
+        -magnitude
+    } else {
+        magnitude
+    };
+    let scale = i32::from(scale & 0x7f) * if scale & 0x80 != 0 { -1 } else { 1 };
+    Some(value / 10f64.powi(scale))
+}
+
+/// What a chemistry or aerosol message (templates 4.40-4.48) is a quantity
+/// of, read from its [`MessageIdentity`] `product_octets`: the constituent
+/// type, then for 4.44-4.48 the size range, then for 4.48 the wavelength
+/// range, as `fieldglass-grib2` keeps them (#1130).
+struct Constituent {
+    /// WMO Common Code Table C-14 (GRIB2 Code Tables 4.230 and 4.233).
+    code: u16,
+    /// The size range as wgrib2 prints it, `None` for a template without one
+    /// or a range coded missing (Code Table 4.91 type 255), which wgrib2 does
+    /// not print.
+    size: Option<Interval>,
+    /// The wavelength range, likewise.
+    wavelength: Option<Interval>,
+}
+
+/// The [`Constituent`] of a message on `template`, `None` for any template but
+/// 4.40-4.48, or octets too short for it.
+fn constituent_of(template: u16, octets: Option<&[u8]>) -> Option<Constituent> {
+    if !(40..=48).contains(&template) {
+        return None;
+    }
+    let octets = octets?;
+    let code = u16::from_be_bytes([*octets.first()?, *octets.get(1)?]);
+    let range = |at: usize| octets.get(at..at + 11).and_then(interval_of);
+    Some(Constituent {
+        code,
+        size: (template >= 44).then(|| range(2)).flatten(),
+        wavelength: (template == 48).then(|| range(13)).flatten(),
+    })
+}
+
+/// A size or wavelength range as wgrib2 prints it (`prt_code_table_4_91` in
+/// `CodeTable.c`), which writes the limit a Code Table 4.91 type uses and not
+/// the type: `<x` is "below the first limit" (type 0) and "below the second"
+/// (4) alike.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Interval {
+    /// `<x`, types 0 and 4.
+    Below(f64),
+    /// `>x`, types 1 and 3.
+    Above(f64),
+    /// `<=x`, types 5 and 9.
+    AtMost(f64),
+    /// `>=x`, types 6 and 8.
+    AtLeast(f64),
+    /// `>=x,<y`, type 2.
+    HalfOpen(f64, f64),
+    /// `>=x,<=y`, type 7.
+    Closed(f64, f64),
+    /// `>x,<=y`, type 10.
+    OpenClosed(f64, f64),
+    /// `=x`, type 11.
+    Equal(f64),
+    /// A type or a limit this does not read: never compared.
+    Unread,
+}
+
+impl Interval {
+    /// The same range, its limits to the precision wgrib2 prints (`%lg`).
+    /// `None` when either side is [`Interval::Unread`].
+    fn same_as(&self, other: &Self) -> Option<bool> {
+        let close =
+            |a: f64, b: f64| a == b || (a - b).abs() <= PRINTED_PRECISION * a.abs().max(b.abs());
+        Some(match (self, other) {
+            (Self::Unread, _) | (_, Self::Unread) => return None,
+            (Self::Below(a), Self::Below(b))
+            | (Self::Above(a), Self::Above(b))
+            | (Self::AtMost(a), Self::AtMost(b))
+            | (Self::AtLeast(a), Self::AtLeast(b))
+            | (Self::Equal(a), Self::Equal(b)) => close(*a, *b),
+            (Self::HalfOpen(a, b), Self::HalfOpen(c, d))
+            | (Self::Closed(a, b), Self::Closed(c, d))
+            | (Self::OpenClosed(a, b), Self::OpenClosed(c, d)) => close(*a, *c) && close(*b, *d),
+            _ => false,
+        })
+    }
+}
+
+impl std::fmt::Display for Interval {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Below(x) => write!(f, "<{x}"),
+            Self::Above(x) => write!(f, ">{x}"),
+            Self::AtMost(x) => write!(f, "<={x}"),
+            Self::AtLeast(x) => write!(f, ">={x}"),
+            Self::HalfOpen(x, y) => write!(f, ">={x},<{y}"),
+            Self::Closed(x, y) => write!(f, ">={x},<={y}"),
+            Self::OpenClosed(x, y) => write!(f, ">{x},<={y}"),
+            Self::Equal(x) => write!(f, "={x}"),
+            Self::Unread => f.write_str("a range this does not read"),
+        }
+    }
+}
+
+/// The 11-octet range at the start of `block` (Code Table 4.91 type, then the
+/// first and second limits) as wgrib2 prints it. `None` for type 255, which
+/// wgrib2 does not print at all.
+fn interval_of(block: &[u8]) -> Option<Interval> {
+    let kind = *block.first()?;
+    if kind == 255 {
+        return None;
+    }
+    let (first, second) = (scaled_limit(block, 1), scaled_limit(block, 6));
+    let read = |interval: Option<Interval>| interval.unwrap_or(Interval::Unread);
+    Some(read(match kind {
+        0 => first.map(Interval::Below),
+        1 => second.map(Interval::Above),
+        2 => first.zip(second).map(|(a, b)| Interval::HalfOpen(a, b)),
+        3 => first.map(Interval::Above),
+        4 => second.map(Interval::Below),
+        5 => first.map(Interval::AtMost),
+        6 => second.map(Interval::AtLeast),
+        7 => first.zip(second).map(|(a, b)| Interval::Closed(a, b)),
+        8 => first.map(Interval::AtLeast),
+        9 => second.map(Interval::AtMost),
+        10 => first.zip(second).map(|(a, b)| Interval::OpenClosed(a, b)),
+        11 => first.map(Interval::Equal),
+        _ => None,
+    }))
+}
+
+/// A range in the words `prt_code_table_4_91` prints, the forms its inverse
+/// `scan_code_table_4_91` reads. [`Interval::Unread`] for another form
+/// (`??? code_table_4.91=N`).
+fn parse_interval(text: &str) -> Interval {
+    let number = |s: &str| s.trim().parse::<f64>().ok().filter(|v| v.is_finite());
+    let pair = |rest: &str, upper: &str, make: fn(f64, f64) -> Interval| {
+        let (a, b) = rest.split_once(upper)?;
+        Some(make(number(a)?, number(b)?))
+    };
+    let text = text.trim();
+    let parsed = if let Some(rest) = text.strip_prefix(">=") {
+        if rest.contains(",<=") {
+            pair(rest, ",<=", Interval::Closed)
+        } else if rest.contains(",<") {
+            pair(rest, ",<", Interval::HalfOpen)
+        } else {
+            number(rest).map(Interval::AtLeast)
+        }
+    } else if let Some(rest) = text.strip_prefix("<=") {
+        number(rest).map(Interval::AtMost)
+    } else if let Some(rest) = text.strip_prefix('>') {
+        if rest.contains(",<=") {
+            pair(rest, ",<=", Interval::OpenClosed)
+        } else {
+            number(rest).map(Interval::Above)
+        }
+    } else if let Some(rest) = text.strip_prefix('<') {
+        number(rest).map(Interval::Below)
+    } else if let Some(rest) = text.strip_prefix('=') {
+        number(rest).map(Interval::Equal)
+    } else {
+        None
+    };
+    parsed.unwrap_or(Interval::Unread)
+}
+
+/// The text after `name ` in the qualifier that carries it, up to where
+/// another range starts: wgrib2's `ExtName.c` writes a 4.48 message's size and
+/// wavelength with no `:` between them
+/// (`aerosol_size <2e-05aerosol_wavelength >=…`), where the inventory that
+/// wrote GEFS-Aerosols' sidecar separates them.
+fn range_qualifier<'a>(qualifiers: &[&'a str], name: &str) -> Option<&'a str> {
+    let prefix = format!("{name} ");
+    qualifiers.iter().find_map(|q| {
+        let start = q.find(&prefix)? + prefix.len();
+        let rest = &q[start..];
+        let end = ["aerosol_size ", "aerosol_wavelength "]
+            .iter()
+            .filter_map(|other| rest.find(other))
+            .min()
+            .unwrap_or(rest.len());
+        Some(&rest[..end])
+    })
+}
+
+/// The constituent a `chemical=` or `aerosol=` qualifier names: a code, or a
+/// C-14 name. `None` for a name C-14 does not hold, which is not compared.
+fn constituent_code(name: &str) -> Option<u16> {
+    let name = name.trim();
+    name.parse()
+        .ok()
+        .or_else(|| fieldglass_grib2::tables_constituent::constituent_type_code(name))
+}
+
+/// A constituent for a mismatch message.
+fn constituent_prose(code: u16) -> String {
+    match fieldglass_grib2::tables_constituent::lookup_constituent_type(code) {
+        Some(name) => format!("{name} ({code})"),
+        None => format!("Code Table 4.230 {code}"),
+    }
 }
 
 /// An `ENS=…` qualifier as `(Code Table 4.6 type, member)`, the member `None`
@@ -1782,10 +2049,11 @@ mod tests {
         ));
     }
 
-    /// A message whose product template the reader does not parse (the
-    /// chemistry and aerosol templates 4.40–4.48) has no known surfaces, so a
-    /// level, in either dialect, is not compared with it (#1126). A message
-    /// whose surfaces are known is still refused on a different one.
+    /// A message whose product template the reader does not parse (here 4.31,
+    /// a satellite product; before #1130 also the chemistry and aerosol
+    /// templates) has no known surfaces, so a level, in either dialect, is not
+    /// compared with it (#1126). A message whose surfaces are known is still
+    /// refused on a different one.
     #[test]
     fn a_level_is_not_compared_with_an_unparsed_template() {
         let mut unparsed = info("AOTK", (10, 0, 0));
@@ -1801,7 +2069,7 @@ mod tests {
             ..
         } = &mut unparsed.identity
         {
-            *product_template = 48;
+            *product_template = 31;
             *parameter_category = None;
             *parameter_number = None;
             *first_surface = None;
@@ -2256,6 +2524,189 @@ mod tests {
 
     /// A 13-octet probability block as hex: Code Table 4.9 `kind`, then the
     /// lower and upper limits as (scale factor octet, scaled value).
+    /// A size or wavelength range as hex: Code Table 4.91 `kind`, then two
+    /// `(scale factor, scaled value)` limits.
+    fn range_block(kind: u8, first: (u8, u32), second: (u8, u32)) -> String {
+        let mut octets = vec![kind, first.0];
+        octets.extend(first.1.to_be_bytes());
+        octets.push(second.0);
+        octets.extend(second.1.to_be_bytes());
+        octets.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// `aerosol_size` and `aerosol_wavelength` in the forms
+    /// `prt_code_table_4_91` prints, which name the limit a Code Table 4.91
+    /// type uses and not the type (#1130).
+    #[test]
+    fn the_wgrib2_range_grammar() {
+        use Interval::*;
+        for (text, want) in [
+            ("<1e-05", Below(1e-5)),
+            (">2e-07", Above(2e-7)),
+            ("<=3", AtMost(3.0)),
+            (">=3", AtLeast(3.0)),
+            (">=2e-07,<2e-06", HalfOpen(2e-7, 2e-6)),
+            (">=3.38e-07,<=3.42e-07", Closed(3.38e-7, 3.42e-7)),
+            (">2,<=3", OpenClosed(2.0, 3.0)),
+            ("=5", Equal(5.0)),
+        ] {
+            assert_eq!(parse_interval(text), want, "{text}");
+            // Printed back, it reads the same again.
+            assert_eq!(parse_interval(&want.to_string()), want, "{text}");
+        }
+        for unread in ["??? code_table_4.91=12", "", "<", ">=1,<", "<=x", "1e-05"] {
+            assert_eq!(parse_interval(unread), Unread, "{unread:?}");
+        }
+
+        // Each Code Table 4.91 type, from octets, prints as wgrib2 prints it.
+        let first = (6, 10); // 10 × 10⁻⁶
+        let second = (5, 2); // 2 × 10⁻⁵
+        let block = |kind| {
+            let hex = range_block(kind, first, second);
+            interval_of(&from_hex(&hex).unwrap())
+        };
+        assert_eq!(block(0), Some(Below(1e-5)));
+        assert_eq!(block(1), Some(Above(2e-5)));
+        assert_eq!(block(2), Some(HalfOpen(1e-5, 2e-5)));
+        assert_eq!(block(3), Some(Above(1e-5)));
+        assert_eq!(block(4), Some(Below(2e-5)));
+        assert_eq!(block(5), Some(AtMost(1e-5)));
+        assert_eq!(block(6), Some(AtLeast(2e-5)));
+        assert_eq!(block(7), Some(Closed(1e-5, 2e-5)));
+        assert_eq!(block(8), Some(AtLeast(1e-5)));
+        assert_eq!(block(9), Some(AtMost(2e-5)));
+        assert_eq!(block(10), Some(OpenClosed(1e-5, 2e-5)));
+        assert_eq!(block(11), Some(Equal(1e-5)));
+        assert_eq!(block(12), Some(Unread), "a type 4.91 does not define");
+        assert_eq!(block(255), None, "missing: wgrib2 prints no range");
+        // A limit the type uses coded missing is not read; one it does not
+        // use may be.
+        let missing = from_hex(&range_block(0, (0xff, u32::MAX), second)).unwrap();
+        assert_eq!(interval_of(&missing), Some(Unread));
+        let unused = from_hex(&range_block(0, first, (0xff, u32::MAX))).unwrap();
+        assert_eq!(interval_of(&unused), Some(Below(1e-5)));
+        // A negative scale factor (sign bit) multiplies.
+        let large = from_hex(&range_block(11, (0x82, 5), second)).unwrap();
+        assert_eq!(interval_of(&large), Some(Equal(500.0)));
+        assert_eq!(interval_of(&[0, 6, 0]), Some(Unread), "too short");
+
+        assert_eq!(Below(1e-5).same_as(&Below(1.000_000_1e-5)), Some(true));
+        assert_eq!(Below(1e-5).same_as(&Below(1.1e-5)), Some(false));
+        assert_eq!(Below(1e-5).same_as(&AtMost(1e-5)), Some(false));
+        assert_eq!(Unread.same_as(&Below(1e-5)), None);
+    }
+
+    /// A chemistry or aerosol message on `template`: constituent `code`, then
+    /// for 4.44-4.48 a size range of type 0 below 10 × 10⁻⁶ m, then for 4.48 a
+    /// wavelength range of type 7, 545 to 565 × 10⁻⁹ m.
+    fn constituent_message(template: u16, code: u16) -> MessageInfo {
+        let mut hex = format!("{code:04x}");
+        if template >= 44 {
+            hex += &range_block(0, (6, 10), (0, 0));
+        }
+        if template == 48 {
+            hex += &range_block(7, (9, 545), (9, 565));
+        }
+        on_template(template, Some(&hex), 1, 0)
+    }
+
+    /// `aerosol=`, `chemical=`, `aerosol_size` and `aerosol_wavelength`
+    /// against the octets a chemistry or aerosol template keeps (#1130). Each
+    /// is refused when it contradicts the message or the message has no such
+    /// block, and never for being left out, which wgrib2's history allows.
+    #[test]
+    fn a_constituent_and_its_ranges_are_compared() {
+        let anl = |qualifiers: &[&str]| line("anl", qualifiers);
+        let dust = constituent_message(48, 62001);
+        // The record as GEFS-Aerosols' sidecar writes it, and as wgrib2's
+        // `ExtName.c` runs the two ranges together.
+        for q in [
+            &["aerosol=Dust dry", "aerosol_size <1e-05"][..],
+            &[
+                "aerosol=DUST DRY",
+                "aerosol_size <1e-05:aerosol_wavelength >=5.45e-07,<=5.65e-07",
+            ],
+            &[
+                "aerosol=62001",
+                "aerosol_size <1e-05aerosol_wavelength >=5.45e-07,<=5.65e-07",
+            ],
+            &[],
+            &["aerosol=Unknown type"],
+            &["aerosol_size ??? code_table_4.91=12"],
+        ] {
+            assert_eq!(refused(&anl(q), &dust), None, "{q:?}");
+        }
+        assert_eq!(
+            refused(&anl(&["aerosol=Total aerosol"]), &dust),
+            Some("constituent")
+        );
+        assert_eq!(
+            refused(&anl(&["aerosol=62000"]), &dust),
+            Some("constituent")
+        );
+        assert_eq!(
+            refused(&anl(&["aerosol_size <2.5e-06"]), &dust),
+            Some("aerosolSize")
+        );
+        assert_eq!(
+            refused(
+                &anl(&["aerosol_size <1e-05aerosol_wavelength >=3.38e-07,<=3.42e-07"]),
+                &dust
+            ),
+            Some("aerosolWavelength")
+        );
+
+        // 4.44: a size range and no wavelength range.
+        let sized = constituent_message(44, 62008);
+        assert_eq!(
+            refused(
+                &anl(&["aerosol=Sea salt dry", "aerosol_size <1e-05"]),
+                &sized
+            ),
+            None
+        );
+        assert_eq!(
+            refused(&anl(&["aerosol_wavelength >=5.45e-07,<=5.65e-07"]), &sized),
+            Some("aerosolWavelength")
+        );
+
+        // 4.40: a chemical constituent and no ranges.
+        let ozone = constituent_message(40, 0);
+        assert_eq!(refused(&anl(&["chemical=Ozone"]), &ozone), None);
+        assert_eq!(
+            refused(&anl(&["chemical=Methane"]), &ozone),
+            Some("constituent")
+        );
+        assert_eq!(
+            refused(&anl(&["aerosol_size <1e-05"]), &ozone),
+            Some("aerosolSize")
+        );
+
+        // A size range coded missing is not one: wgrib2 prints none.
+        let no_size = on_template(
+            44,
+            Some(&format!("f231{}", range_block(255, (0, 0), (0, 0)))),
+            1,
+            0,
+        );
+        assert_eq!(
+            refused(&anl(&["aerosol_size <1e-05"]), &no_size),
+            Some("aerosolSize")
+        );
+        assert_eq!(refused(&anl(&["aerosol=Dust dry"]), &no_size), None);
+
+        // A message on any other template has no constituent at all.
+        let plain = on_template(0, None, 1, 0);
+        assert_eq!(
+            refused(&anl(&["aerosol=Dust dry"]), &plain),
+            Some("constituent")
+        );
+        assert_eq!(
+            refused(&anl(&["aerosol_size <1e-05"]), &plain),
+            Some("aerosolSize")
+        );
+    }
+
     fn probability_block(kind: u8, lower: (u8, u32), upper: (u8, u32)) -> String {
         let mut octets = vec![0, 255, kind, lower.0];
         octets.extend(lower.1.to_be_bytes());

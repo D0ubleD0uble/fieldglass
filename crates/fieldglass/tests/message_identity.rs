@@ -440,6 +440,163 @@ fn a_grib1_analysis_and_an_ensemble_mean_are_two_messages() {
     assert!(matches(&identities(mean), &identities(analysis)[0]).is_empty());
 }
 
+/// The real GEFS-Aerosols record (template 4.48, provenance in this crate's
+/// `tests/fixtures/NOTICE.md`) reads what eccodes 2.34.1 reads from it with
+/// `grib_dump -O` (#1130):
+///
+/// ```text
+/// 10        parameterCategory = 13 [Aerosols]
+/// 11        parameterNumber = 192
+/// 12-13     constituentType = 62001
+/// 14        typeOfSizeInterval = 0 [Below lower limit]
+/// 15        scaleFactorOfFirstSize = 6
+/// 16-19     scaledValueOfFirstSize = 10
+/// 25        typeOfWavelengthInterval = 255 [Missing]
+/// 36        typeOfGeneratingProcess = 2 [Forecast]
+/// 42        indicatorOfUnitOfTimeRange = 1 [Hour]
+/// 43-46     forecastTime = 0
+/// 47        typeOfFirstFixedSurface = 1 [Ground or water surface]
+/// 53        typeOfSecondFixedSurface = 255 [Missing]
+/// ```
+///
+/// Before, the reader left 4.48 unread, so none of this was in the identity
+/// beyond the octets as written, nor in the message's name and level.
+#[test]
+fn the_gefs_aerosol_record_reads_its_parameter_constituent_and_surface() {
+    let bytes = std::fs::read("tests/fixtures/gefs_chem_0p25_pmtc_sfc.grib2").expect("fixture");
+
+    let reader = fieldglass_grib2::Grib2Reader::from_bytes(bytes.clone()).expect("parses");
+    let fieldglass_grib2::ProductTemplate::Constituent(t) = &reader.messages[0].pds.template else {
+        panic!("4.48 is read: {:?}", reader.messages[0].pds.template);
+    };
+    assert_eq!(t.number, 48);
+    assert_eq!(
+        (t.common.parameter_category, t.common.parameter_number),
+        (13, 192)
+    );
+    assert_eq!(t.constituent_type, 62001);
+    let size = t.size.expect("a size range");
+    assert_eq!(size.interval_type, 0);
+    assert_eq!(
+        (size.first.scale_factor, size.first.scaled_value),
+        (Some(6), Some(10))
+    );
+    assert_eq!(t.wavelength.map(|w| w.interval_type), Some(255));
+    assert_eq!(t.common.generating_process_type, 2);
+    assert_eq!(
+        (t.common.forecast_time_unit, t.common.forecast_time),
+        (1, 0)
+    );
+    assert_eq!(t.common.first_surface.surface_type, 1);
+    assert_eq!(t.common.second_surface.surface_type, 255);
+    assert_eq!(
+        fieldglass_grib2::tables_constituent::lookup_constituent_type(t.constituent_type),
+        Some("Dust dry")
+    );
+
+    let session = Session::open(bytes).expect("opens");
+    let info = session.message(0).expect("a message");
+    assert_eq!(info.abbreviation.as_deref(), Some("PMTC"));
+    assert_eq!(info.level_type.as_deref(), Some("Ground or water surface"));
+    assert_eq!(info.forecast_hours, Some(0));
+    let MessageIdentity::Grib2 {
+        product_template,
+        parameter_category,
+        parameter_number,
+        local_centre,
+        first_surface,
+        product_octets,
+        ensemble_member,
+        ..
+    } = &info.identity
+    else {
+        panic!("GRIB2");
+    };
+    assert_eq!(*product_template, 48);
+    assert_eq!(
+        (*parameter_category, *parameter_number),
+        (Some(13), Some(192))
+    );
+    assert_eq!(*local_centre, Some(7), "192 is NCEP's own number");
+    assert_eq!(first_surface.map(|s| s.surface_type), Some(1));
+    assert_eq!(*ensemble_member, None);
+    assert!(
+        product_octets
+            .as_deref()
+            .is_some_and(|hex| hex.starts_with("f231") && hex.len() == 48),
+        "the constituent and both ranges, as written: {product_octets:?}"
+    );
+}
+
+/// Two aerosol fields that differ only in what they are a quantity of, or in
+/// its size range, are two messages: the GEFS record with its aerosol type
+/// (§4 octets 12-13) or its size (octets 16-19) rewritten does not match it.
+#[test]
+fn aerosol_fields_of_other_constituents_or_sizes_are_two_messages() {
+    let dust = std::fs::read("tests/fixtures/gefs_chem_0p25_pmtc_sfc.grib2").expect("fixture");
+    let total = patched(dust.clone(), 4, 12, &62000u16.to_be_bytes());
+    let finer = patched(dust.clone(), 4, 16, &25u32.to_be_bytes());
+    let wanted = &identities(dust.clone())[0];
+    assert!(matches(&identities(total.clone()), wanted).is_empty());
+    assert!(matches(&identities(finer.clone()), wanted).is_empty());
+    assert_eq!(
+        matches(&identities(concat(&[&total, &finer, &dust])), wanted),
+        vec![2]
+    );
+}
+
+/// Every chemistry and aerosol fixture (`fieldglass-grib2`'s
+/// `constituent_4_*.grib2`, eccodes-checked there) gives an identity with its
+/// parameter and surfaces, its members as named fields, and its constituent
+/// and ranges as octets.
+#[test]
+fn each_chemistry_and_aerosol_template_reads_its_identity() {
+    for (file, template, octets, member) in [
+        ("constituent_4_40.grib2", 40, 2, None),
+        ("constituent_4_41.grib2", 41, 2, Some(4)),
+        ("constituent_4_42.grib2", 42, 2, None),
+        ("constituent_4_43.grib2", 43, 2, Some(9)),
+        ("constituent_4_44.grib2", 44, 13, None),
+        ("constituent_4_44_four_octet_time.grib2", 44, 13, None),
+        ("constituent_4_45.grib2", 45, 13, Some(11)),
+        ("constituent_4_46.grib2", 46, 13, None),
+        ("constituent_4_47.grib2", 47, 13, Some(6)),
+        ("constituent_4_48.grib2", 48, 24, None),
+    ] {
+        let ids = identities(read(GRIB2, file));
+        let MessageIdentity::Grib2 {
+            product_template,
+            parameter_category,
+            first_surface,
+            second_surface,
+            product_octets,
+            ensemble_member,
+            statistics,
+            ..
+        } = &ids[0]
+        else {
+            panic!("GRIB2");
+        };
+        assert_eq!(*product_template, template, "{file}");
+        assert!(parameter_category.is_some(), "{file}");
+        assert!(
+            first_surface.is_some() && second_surface.is_some(),
+            "{file}"
+        );
+        assert_eq!(
+            product_octets.as_deref().map(str::len),
+            Some(2 * octets),
+            "{file}"
+        );
+        assert_eq!(*ensemble_member, member, "{file}");
+        assert_eq!(
+            statistics.len(),
+            usize::from(matches!(template, 42 | 43 | 46 | 47)),
+            "{file}"
+        );
+    }
+}
+
 /// A 28-octet PDS has no extension, which the identity says as `None`.
 #[test]
 fn a_grib1_pds_of_28_octets_has_no_extension() {

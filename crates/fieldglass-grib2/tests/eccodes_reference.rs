@@ -27,7 +27,8 @@
 //! for years while being compared nowhere (#475).
 
 use fieldglass_grib2::{
-    Grib2Reader, GridTemplate, SCAN_ALTERNATE_ROWS, SCAN_J_CONSECUTIVE, parse_bit_map,
+    ConstituentTemplate, Grib2Reader, GridTemplate, SCAN_ALTERNATE_ROWS, SCAN_J_CONSECUTIVE,
+    ScaledLimit, parse_bit_map,
 };
 use serde_json::Value;
 use std::cell::RefCell;
@@ -72,6 +73,16 @@ fn assert_message_matches(
         if expected.is_null() {
             continue;
         }
+        // A key eccodes reads from other octets than the spec's is compared
+        // with the spec's value instead, so it stays a real comparison.
+        let spec_value;
+        let expected = match misread(fixture, key) {
+            Some(value) => {
+                spec_value = Value::from(value);
+                &spec_value
+            }
+            None => expected,
+        };
         let pinned = match key.as_str() {
             // §0 Indicator
             "discipline" => check_u64(key, expected, msg.is.discipline as u64),
@@ -298,6 +309,60 @@ fn assert_message_matches(
                 None => missing_interval(fixture, key),
             },
 
+            // The ensemble block (4.1, 4.11, 4.41, 4.43, 4.45, 4.47), and the
+            // member count 4.2 and 4.12 carry beside their derived forecast.
+            "typeOfEnsembleForecast" => match ensemble(msg) {
+                Some([kind, _, _]) => check_u64(key, expected, kind as u64),
+                None => not_read(fixture, key),
+            },
+            "perturbationNumber" => match ensemble(msg) {
+                Some([_, member, _]) => check_u64(key, expected, member as u64),
+                None => not_read(fixture, key),
+            },
+            "numberOfForecastsInEnsemble" => match forecasts_in_ensemble(msg) {
+                Some(count) => check_u64(key, expected, count as u64),
+                None => not_read(fixture, key),
+            },
+
+            // What the chemistry and aerosol templates (4.40-4.48) put
+            // between the parameter and the generating process (#1130).
+            "constituentType" => match constituent(msg) {
+                Some(t) => check_u64(key, expected, t.constituent_type as u64),
+                None => not_read(fixture, key),
+            },
+            "typeOfSizeInterval" => match constituent(msg).and_then(|t| t.size) {
+                Some(s) => check_u64(key, expected, s.interval_type as u64),
+                None => not_read(fixture, key),
+            },
+            "scaleFactorOfFirstSize" => {
+                limit(fixture, key, expected, msg, |t| t.size.map(|s| s.first))
+            }
+            "scaledValueOfFirstSize" => {
+                limit(fixture, key, expected, msg, |t| t.size.map(|s| s.first))
+            }
+            "scaleFactorOfSecondSize" => {
+                limit(fixture, key, expected, msg, |t| t.size.map(|s| s.second))
+            }
+            "scaledValueOfSecondSize" => {
+                limit(fixture, key, expected, msg, |t| t.size.map(|s| s.second))
+            }
+            "typeOfWavelengthInterval" => match constituent(msg).and_then(|t| t.wavelength) {
+                Some(w) => check_u64(key, expected, w.interval_type as u64),
+                None => not_read(fixture, key),
+            },
+            "scaleFactorOfFirstWavelength" => limit(fixture, key, expected, msg, |t| {
+                t.wavelength.map(|w| w.first)
+            }),
+            "scaledValueOfFirstWavelength" => limit(fixture, key, expected, msg, |t| {
+                t.wavelength.map(|w| w.first)
+            }),
+            "scaleFactorOfSecondWavelength" => limit(fixture, key, expected, msg, |t| {
+                t.wavelength.map(|w| w.second)
+            }),
+            "scaledValueOfSecondWavelength" => limit(fixture, key, expected, msg, |t| {
+                t.wavelength.map(|w| w.second)
+            }),
+
             // §5 Data Representation. These four route through
             // [`packing_params`] rather than `drs.simple()`: R / E / D / bits
             // are the first fields of nearly every §5 template, so reading them
@@ -365,6 +430,128 @@ fn first_time_range(
     msg: &fieldglass_grib2::Grib2Message,
 ) -> Option<&fieldglass_grib2::TimeRangeSpec> {
     msg.pds.stats().and_then(|s| s.specs.first())
+}
+
+/// eccodes states a field the parser did not read.
+fn not_read(fixture: &str, key: &str) -> bool {
+    record(key);
+    eprintln!("{fixture}: eccodes states {key}, and the parser read none");
+    false
+}
+
+/// `[type, member, count]` of the ensemble block, for a template that has one.
+fn ensemble(msg: &fieldglass_grib2::Grib2Message) -> Option<[u8; 3]> {
+    use fieldglass_grib2::ProductTemplate as T;
+    match &msg.pds.template {
+        T::EnsembleTimeInterval(t) => Some([
+            t.ensemble_type,
+            t.perturbation_number,
+            t.num_forecasts_in_ensemble,
+        ]),
+        T::SharedLayout(t) if t.number == 1 => t.qualifier.first_chunk().copied(),
+        T::Constituent(t) => t.ensemble.map(|e| {
+            [
+                e.ensemble_type,
+                e.perturbation_number,
+                e.num_forecasts_in_ensemble,
+            ]
+        }),
+        _ => None,
+    }
+}
+
+/// How many members the ensemble has: the ensemble block's count, or the
+/// count 4.2 and 4.12 write after their derived forecast.
+fn forecasts_in_ensemble(msg: &fieldglass_grib2::Grib2Message) -> Option<u8> {
+    match &msg.pds.template {
+        fieldglass_grib2::ProductTemplate::SharedLayout(t) if matches!(t.number, 2 | 12) => {
+            t.qualifier.get(1).copied()
+        }
+        _ => ensemble(msg).map(|[_, _, count]| count),
+    }
+}
+
+/// The chemistry or aerosol template, when the message is in one.
+fn constituent(msg: &fieldglass_grib2::Grib2Message) -> Option<&ConstituentTemplate> {
+    match &msg.pds.template {
+        fieldglass_grib2::ProductTemplate::Constituent(t) => Some(t),
+        _ => None,
+    }
+}
+
+/// One limit of a size or wavelength range against `scaleFactorOf…` or
+/// `scaledValueOf…`, whichever `key` is.
+fn limit(
+    fixture: &str,
+    key: &str,
+    expected: &Value,
+    msg: &fieldglass_grib2::Grib2Message,
+    pick: impl Fn(&ConstituentTemplate) -> Option<ScaledLimit>,
+) -> bool {
+    let Some(limit) = constituent(msg).and_then(pick) else {
+        return not_read(fixture, key);
+    };
+    let actual = if key.starts_with("scaleFactor") {
+        limit.scale_factor.map(i64::from)
+    } else {
+        limit.scaled_value
+    };
+    match actual {
+        Some(actual) => check_i64(key, expected, actual),
+        None => not_read(fixture, key),
+    }
+}
+
+/// Keys eccodes 2.34.1 reads from other octets than WMO's template puts them
+/// at, per fixture, with the value the spec's octets hold. The cross-check
+/// compares the parser with that value instead of the snapshot's, and
+/// [`every_listed_misread_still_disagrees`] holds each entry to a snapshot that
+/// really differs, so an eccodes that stops misreading retires the entry.
+///
+/// **4.47** (#1130): WMO's Code Table 4.0 entry puts the type of generating
+/// process at octet 12 and the aerosol type at 13-14, then the size range at
+/// 15-25; every other aerosol template has the aerosol type at 12-13 and the
+/// process after the ranges. eccodes lays 4.47 out as 4.46 (its
+/// `template.4.47.def` includes `template.4.aerosol.def` straight after the
+/// parameter), so it reads the process as the type's high octet and every
+/// range octet one place early. wgrib2 reads it as the spec does
+/// (`code_table_4_233_location` returns `sec[4] + 12` for 4.47 alone). The
+/// parameter, the fixed surfaces, the forecast time, the ensemble block and the
+/// interval sit at the same octets in both layouts, and are compared with
+/// eccodes as usual. The fixture's provenance is in `tests/fixtures/NOTICE.md`.
+const ECCODES_MISREADS: &[(&str, &str, i64)] = &[
+    ("constituent_4_47.grib2", "typeOfGeneratingProcess", 4),
+    ("constituent_4_47.grib2", "constituentType", 62009),
+    ("constituent_4_47.grib2", "typeOfSizeInterval", 2),
+    ("constituent_4_47.grib2", "scaleFactorOfFirstSize", 8),
+    ("constituent_4_47.grib2", "scaledValueOfFirstSize", 1),
+    ("constituent_4_47.grib2", "scaleFactorOfSecondSize", 6),
+    ("constituent_4_47.grib2", "scaledValueOfSecondSize", 1),
+];
+
+/// The spec's value for a key eccodes misreads in `fixture`, if it does.
+fn misread(fixture: &str, key: &str) -> Option<i64> {
+    ECCODES_MISREADS
+        .iter()
+        .find(|(f, k, _)| *f == fixture && *k == key)
+        .map(|(_, _, value)| *value)
+}
+
+/// Each [`ECCODES_MISREADS`] entry names a key the fixture's snapshot carries,
+/// with a value other than the spec's: one eccodes has since got right, or a
+/// snapshot that dropped the key, is an exemption past its reason.
+#[test]
+fn every_listed_misread_still_disagrees() {
+    for (fixture, key, spec) in ECCODES_MISREADS {
+        let snapshot = snapshot_for(fixture);
+        let eccodes = snapshot["messages"][0][key]
+            .as_i64()
+            .unwrap_or_else(|| panic!("{fixture}: snapshot has no integer {key}"));
+        assert_ne!(
+            eccodes, *spec,
+            "{fixture}: eccodes now reads {key} as the spec does; drop the entry"
+        );
+    }
 }
 
 /// eccodes states an interval the parser did not read.

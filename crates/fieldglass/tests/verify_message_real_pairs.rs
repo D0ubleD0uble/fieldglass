@@ -181,39 +181,122 @@ fn an_ecmwf_record_for_another_level_is_refused() {
     );
 }
 
-/// GEFS-aerosol record 22, `PMTC:surface:anl:aerosol=Dust dry:…`, against the
-/// 216,548 bytes at its offset (#1126). Its §4 is template 4.48 (optical
-/// properties of aerosol), which the reader does not parse, so the message's
-/// surfaces are unknown and the line's level has nothing to be compared with.
+/// GEFS-aerosol record 22, `PMTC:surface:anl:aerosol=Dust dry:aerosol_size
+/// <1e-05:`, against the 216,548 bytes at its offset (#1126). Its §4 is
+/// template 4.48 (optical properties of aerosol), which the reader parses
+/// since #1130, so every part of the line is compared: the name, the level,
+/// the analysis, the aerosol type and the size range.
+///
+/// eccodes 2.34.1 (`grib_dump -O`) reads the message as category 13, number
+/// 192, `constituentType = 62001`, `typeOfSizeInterval = 0` with first size
+/// 10 × 10⁻⁶ m, no wavelength range (`typeOfWavelengthInterval = 255`),
+/// `typeOfFirstFixedSurface = 1` and the second surface missing.
 #[test]
 fn a_gefs_aerosol_record_is_what_its_idx_line_promised() {
     let idx = gefs_chem();
     let item = idx.items()[21].clone();
     assert_eq!(item.expect.abbreviation.as_deref(), Some("PMTC"));
     assert_eq!(item.expect.level.as_deref(), Some("surface"));
+    assert_eq!(
+        item.expect.qualifiers,
+        ["aerosol=Dust dry", "aerosol_size <1e-05"]
+    );
 
     let info = message(&item, read("gefs_chem_0p25_pmtc_sfc.grib2"));
     let MessageIdentity::Grib2 {
         product_template,
+        parameter_category,
         parameter_number,
         first_surface,
+        second_surface,
+        product_octets,
         ..
     } = &info.identity
     else {
         panic!("a GRIB2 message");
     };
-    // The reader does not parse 4.48, so the parameter and the surfaces are
-    // unread and only the reference time is left to check.
     assert_eq!(*product_template, 48);
-    assert_eq!(*parameter_number, None);
-    assert_eq!(info.abbreviation, None);
-    assert_eq!(*first_surface, None);
+    assert_eq!(
+        (*parameter_category, *parameter_number),
+        (Some(13), Some(192))
+    );
+    assert_eq!(info.abbreviation.as_deref(), Some("PMTC"));
+    assert_eq!(first_surface.map(|s| s.surface_type), Some(1));
+    assert_eq!(second_surface.map(|s| s.surface_type), Some(255));
+    // §4 octets 12-35 as written: 62001 (0xf231), the size range (type 0,
+    // scale 6, value 10, then a second limit of 0 × 10⁰) and the wavelength
+    // range of type 255, missing.
+    assert_eq!(
+        product_octets.as_deref(),
+        Some(concat!(
+            "f231",
+            "00060000000a0000000000",
+            "ff00000000000000000000"
+        ))
+    );
 
     verify_message(&item.expect, &info).expect("record 22 is the message at its offset");
 }
 
-/// What a message on an unparsed template is still checked on: the reference
-/// time. Record 22's line with another cycle's date is refused.
+/// Record 22's bytes against the other lines of its cycle that share its
+/// surface: each is another aerosol field the same `.idx` lists, and each is
+/// refused on what tells it apart (#1130). Before, a 4.48 message was checked
+/// on its reference time alone and every one of these passed.
+#[test]
+fn a_gefs_aerosol_record_is_refused_for_its_neighbours_lines() {
+    let idx = gefs_chem();
+    let info = message(&idx.items()[21], read("gefs_chem_0p25_pmtc_sfc.grib2"));
+    let refused = |line: usize| {
+        let item = &idx.items()[line - 1];
+        assert_eq!(item.expect.level.as_deref(), Some("surface"), "line {line}");
+        refused_field(verify_message(&item.expect, &info))
+    };
+    // 21 `PMTF:surface:anl:aerosol=Dust dry:aerosol_size <2.5e-06`: the fine
+    // particulate matter of the same aerosol.
+    assert_eq!(refused(21), ("abbreviation", "PMTF".to_string()));
+    // 24 `PMTC:surface:anl:aerosol=Total aerosol:aerosol_size <1e-05`: the same
+    // name, level, cycle and size; only the aerosol type differs.
+    assert_eq!(
+        refused(24),
+        ("constituent", "aerosol=Total aerosol".to_string())
+    );
+    // 23 and 25, `PMTF` of sea salt and of the total.
+    assert_eq!(refused(23).0, "abbreviation");
+    assert_eq!(refused(25).0, "abbreviation");
+
+    // The size range on its own: line 22 promising line 21's size.
+    let mut finer = idx.items()[21].expect.clone();
+    finer.qualifiers = vec!["aerosol=Dust dry".into(), "aerosol_size <2.5e-06".into()];
+    assert_eq!(
+        refused_field(verify_message(&finer, &info)),
+        ("aerosolSize", "<2.5e-06".to_string())
+    );
+    // A wavelength range the message does not have, as the optical-depth
+    // lines carry.
+    let mut optical = idx.items()[21].expect.clone();
+    optical
+        .qualifiers
+        .push("aerosol_wavelength >=5.45e-07,<=5.65e-07".into());
+    assert_eq!(
+        refused_field(verify_message(&optical, &info)).0,
+        "aerosolWavelength"
+    );
+    // And a column line's level: record 26 is `COLMD:entire atmosphere`.
+    let column = &idx.items()[25];
+    assert_eq!(
+        refused_field(verify_message(&column.expect, &info)).0,
+        "abbreviation"
+    );
+    // Line 22 with line 26's level in its place: the surface alone refuses.
+    let mut level = idx.items()[21].expect.clone();
+    level.level.clone_from(&column.expect.level);
+    level.level_spec.clone_from(&column.expect.level_spec);
+    assert_eq!(level.level.as_deref(), Some("entire atmosphere"));
+    assert_eq!(refused_field(verify_message(&level, &info)).0, "level");
+}
+
+/// The record's reference time is still compared: record 22's line with
+/// another cycle's date is refused.
 #[test]
 fn a_gefs_aerosol_record_from_another_cycle_is_refused() {
     let idx = gefs_chem();

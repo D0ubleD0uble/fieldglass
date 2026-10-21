@@ -1493,7 +1493,9 @@ export type MessageIdentity =
     /**
      * The product definition template (§4 octets 8-9, Code Table
      * 4.0). The fields below are read from octets 10-34, which every
-     * template the reader parses lays out as 4.0 does.
+     * template the reader parses lays out as 4.0 does, except the
+     * chemistry and aerosol templates 4.40-4.48, which put their
+     * constituent between the parameter and the rest (#1130).
      */
     productTemplate: number;
     /**
@@ -1501,7 +1503,10 @@ export type MessageIdentity =
      * hex, so that two fields they would tell apart never match:
      * every octet from 10 on for a template the reader does not
      * parse, and the probability (4.5, 4.9), percentile (4.6, 4.10)
-     * or spatial-processing (4.15) block of one it does. `None` when
+     * or spatial-processing (4.15) block of one it does. For the
+     * chemistry and aerosol templates, the constituent type (Code
+     * Table 4.230 or 4.233) followed by the size range (4.44-4.48)
+     * and the wavelength range (4.48), as written. `None` when
      * nothing is left unread.
      *
      * Not the ensemble block of 4.1 and 4.11 or the derived-forecast
@@ -1513,13 +1518,16 @@ export type MessageIdentity =
     productOctets: string | null;
     /**
      * The type of ensemble forecast (Code Table 4.6, §4 octet 35) of a
-     * member forecast, templates 4.1 and 4.11. `None` for any other.
+     * member forecast, templates 4.1 and 4.11, and of the chemistry
+     * and aerosol members 4.41, 4.43, 4.45 and 4.47. `None` for any
+     * other.
      */
     ensembleType: number | null;
     /**
      * Which member (the perturbation number, §4 octet 36) of 4.1 and
-     * 4.11, so two members of one field are two messages (decided on
-     * #959, 2026-10-11). `None` for any other template.
+     * 4.11, and of 4.41, 4.43, 4.45 and 4.47, so two members of one
+     * field are two messages (decided on #959, 2026-10-11). `None` for
+     * any other template.
      */
     ensembleMember: number | null;
     /**

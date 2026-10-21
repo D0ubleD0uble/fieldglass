@@ -12,7 +12,10 @@
 //! Section 4 layout + Templates 4.0 / 4.8 / 4.11. The templates that share
 //! 4.0's layout through octet 34 (4.1, 4.2, 4.5, 4.6, 4.7, 4.9, 4.10, 4.12,
 //! 4.15) parse as [`ProductTemplate::SharedLayout`], with that common block
-//! read and the rest kept as written. Any other template number parses as
+//! read and the rest kept as written. The chemistry and aerosol templates
+//! (4.40–4.48), which put a constituent type and size and wavelength ranges
+//! between the parameter and the rest of that block, parse as
+//! [`ProductTemplate::Constituent`]. Any other template number parses as
 //! [`ProductTemplate::Unsupported`], with its octets, so callers still see
 //! the section header without erroring out.
 
@@ -249,9 +252,161 @@ pub enum ProductTemplate {
     /// 4.10, 4.12 and 4.15. Boxed, as these are rare, so the common case pays
     /// nothing for the variant.
     SharedLayout(Box<SharedLayoutTemplate>),
+    /// A chemistry or aerosol template, 4.40 to 4.48 (#1130). Boxed for the
+    /// reason `SharedLayout` is.
+    Constituent(Box<ConstituentTemplate>),
     /// A template this build does not read, carrying its number and its
     /// octets from 10 to the end of the section as written.
     Unsupported(u16, Box<[u8]>),
+}
+
+/// One limit of a size or wavelength range: a scale factor and a scaled
+/// value, both sign-magnitude, as a fixed surface's are.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScaledLimit {
+    /// Decimal scale factor, or `None` when the octet is the missing sentinel.
+    pub scale_factor: Option<i8>,
+    /// The scaled value, or `None` when the octets are the missing sentinel.
+    pub scaled_value: Option<i64>,
+}
+
+impl ScaledLimit {
+    /// The limit as `scaled_value × 10^-scale_factor`, in metres for a size or
+    /// a wavelength. `None` if either component is missing.
+    pub fn value(&self) -> Option<f64> {
+        let scale = self.scale_factor?;
+        let val = self.scaled_value?;
+        Some((val as f64) * 10f64.powi(-(scale as i32)))
+    }
+}
+
+/// A range of aerosol particle sizes or of wavelengths: the type of interval
+/// (Code Table 4.91: below the first limit, between the two, …) and its two
+/// limits. Eleven octets on the wire.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TypedInterval {
+    /// Code Table 4.91; 255 is missing, and then neither limit means anything.
+    pub interval_type: u8,
+    /// The first limit.
+    pub first: ScaledLimit,
+    /// The second limit.
+    pub second: ScaledLimit,
+}
+
+/// The ensemble block of a member forecast: Code Table 4.6 type, which
+/// member, and how many there are.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EnsembleBlock {
+    /// WMO Code Table 4.6 — type of ensemble forecast.
+    pub ensemble_type: u8,
+    /// Which member of the ensemble this field is.
+    pub perturbation_number: u8,
+    /// How many members the ensemble has.
+    pub num_forecasts_in_ensemble: u8,
+}
+
+/// A chemistry or aerosol product template (WMO FM 92 Code Table 4.0,
+/// 4.40–4.48): the parameter, then what it is a quantity of, then 4.0's
+/// generating process, forecast time and fixed surfaces, then for some an
+/// ensemble block and 4.8's time interval. Per the template definitions:
+///
+/// | Template | After the parameter (octet 12 on) | Then |
+/// |---|---|---|
+/// | 4.40 | chemical constituent (Code Table 4.230) | — |
+/// | 4.41 | chemical constituent | ensemble |
+/// | 4.42 | chemical constituent | statistics |
+/// | 4.43 | chemical constituent | ensemble, statistics |
+/// | 4.44 | aerosol type (4.233), size range | — (a two-octet forecast time) |
+/// | 4.45 | aerosol type, size range | ensemble |
+/// | 4.46 | aerosol type, size range | statistics |
+/// | 4.47 | generating process, then aerosol type, size range | ensemble, statistics |
+/// | 4.48 | aerosol type, size range, wavelength range | — |
+///
+/// So the fixed surfaces are at octets 25–36 for 4.40–4.43, 34–45 for 4.44,
+/// 36–47 for 4.45–4.47 and 47–58 for 4.48, not 4.0's 23–34.
+///
+/// Two layouts are read as the spec has them where a reference reader does
+/// not, or not only:
+///
+/// * **4.47** puts the type of generating process at octet 12 and the aerosol
+///   type at 13–14, unlike every other aerosol template (WMO's own table, and
+///   wgrib2's `code_table_4_233_location`). eccodes (2.34.1 and 2.45.0) lays
+///   4.47 out as 4.46 is, with the aerosol type at 12–13 and the generating
+///   process at 25, so it reads a conforming 4.47's constituent, size range and
+///   generating process from the wrong octets. A known divergence; see
+///   `tests/fixtures/NOTICE.md`.
+/// * **4.44** states its forecast time in two unsigned octets (32–33), so the
+///   template is 45 octets long. eccodes once wrote it in four signed octets
+///   (its GRIB-29) and reads a 4.44 of any other length that way; so does this
+///   reader, since the section length tells the two apart.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstituentTemplate {
+    /// The template number, 40 to 48.
+    pub number: u16,
+    /// The parameter, generating process, forecast time and surfaces.
+    pub common: HorizontalProductCommon,
+    /// The atmospheric chemical constituent (Code Table 4.230, 4.40–4.43) or
+    /// aerosol type (Code Table 4.233, 4.44–4.48). Both tables are WMO Common
+    /// Code Table C-14.
+    pub constituent_type: u16,
+    /// The particle size range, 4.44–4.48. `None` for a chemical template.
+    pub size: Option<TypedInterval>,
+    /// The wavelength range, 4.48 only.
+    pub wavelength: Option<TypedInterval>,
+    /// The ensemble block of 4.41, 4.43, 4.45 and 4.47.
+    pub ensemble: Option<EnsembleBlock>,
+    /// The interval, and what was done over it, for 4.42, 4.43, 4.46 and 4.47.
+    pub stats: Option<StatisticalProcessing>,
+    /// The constituent type and the size and wavelength ranges, as written:
+    /// two, 13 or 24 octets. What a caller that must tell two such fields apart
+    /// compares, as [`ProductDefinitionSection::unread_octets`] is for a
+    /// template read less far.
+    pub qualifier: Box<[u8]>,
+}
+
+/// Where a chemistry or aerosol template keeps what it adds to 4.0's layout.
+struct ConstituentLayout {
+    /// Octets of constituent type, size range and wavelength range.
+    qualifier: usize,
+    /// Whether the generating process comes first (octet 12), as only 4.47's
+    /// does.
+    process_first: bool,
+    /// Whether an ensemble block follows the fixed surfaces.
+    ensemble: bool,
+    /// Whether 4.8's time interval follows that.
+    statistical: bool,
+}
+
+/// Octets of a constituent type.
+const CONSTITUENT_LEN: usize = 2;
+
+/// Octets of a size or wavelength range: Code Table 4.91 type, then two limits
+/// of a scale factor and a scaled value each.
+const INTERVAL_LEN: usize = 11;
+
+/// The layout of chemistry or aerosol template `number`, or `None` for a
+/// template that is not one.
+fn constituent_layout(number: u16) -> Option<ConstituentLayout> {
+    let chemical = CONSTITUENT_LEN;
+    let aerosol = CONSTITUENT_LEN + INTERVAL_LEN;
+    let (qualifier, process_first, ensemble, statistical) = match number {
+        40 => (chemical, false, false, false),
+        41 => (chemical, false, true, false),
+        42 => (chemical, false, false, true),
+        43 => (chemical, false, true, true),
+        44 => (aerosol, false, false, false),
+        45 => (aerosol, false, true, false),
+        46 => (aerosol, false, false, true),
+        47 => (aerosol, true, true, true),
+        48 => (aerosol + INTERVAL_LEN, false, false, false),
+        _ => return None,
+    };
+    Some(ConstituentLayout {
+        qualifier,
+        process_first,
+        ensemble,
+        statistical,
+    })
 }
 
 /// A product template laid out as 4.0 up to octet 34, then a block of its
@@ -316,13 +471,18 @@ pub struct ProductDefinitionSection {
 
 impl ProductDefinitionSection {
     /// Short human-readable name of the template (`"horizontal"`,
-    /// `"horizontal-interval"`, `"ensemble-interval"`, `"unsupported(4.N)"`).
+    /// `"horizontal-interval"`, `"ensemble-interval"`, `"horizontal(4.N)"`,
+    /// `"chemical(4.N)"`, `"aerosol(4.N)"`, `"unsupported(4.N)"`).
     pub fn template_name(&self) -> String {
         match &self.template {
             ProductTemplate::HorizontalAnalysisForecast(_) => "horizontal".to_string(),
             ProductTemplate::HorizontalTimeInterval(_) => "horizontal-interval".to_string(),
             ProductTemplate::EnsembleTimeInterval(_) => "ensemble-interval".to_string(),
             ProductTemplate::SharedLayout(t) => format!("horizontal(4.{})", t.number),
+            ProductTemplate::Constituent(t) if t.size.is_some() => {
+                format!("aerosol(4.{})", t.number)
+            }
+            ProductTemplate::Constituent(t) => format!("chemical(4.{})", t.number),
             ProductTemplate::Unsupported(n, _) => format!("unsupported(4.{n})"),
         }
     }
@@ -330,8 +490,8 @@ impl ProductDefinitionSection {
     /// The template's octets this crate does not read into fields, as written:
     /// for a template sharing 4.0's layout, its own block after octet 34 (see
     /// [`SharedLayoutTemplate`]); for one this crate does not read at all,
-    /// every octet from 10 on. Empty for 4.0, 4.8 and 4.11, which are read
-    /// whole.
+    /// every octet from 10 on. Empty for 4.0, 4.8, 4.11 and the chemistry and
+    /// aerosol templates, which are read whole.
     ///
     /// What a caller that must tell two fields apart compares when it cannot
     /// name what these octets mean (#959).
@@ -345,12 +505,16 @@ impl ProductDefinitionSection {
 
     /// The ensemble a member forecast belongs to and which member it is:
     /// `(type of ensemble forecast, perturbation number)`, Code Table 4.6 and
-    /// §4 octets 35-36 of templates 4.1 and 4.11. `None` for every other
-    /// template.
+    /// §4 octets 35-36 of templates 4.1 and 4.11, and the ensemble block of
+    /// the chemistry and aerosol templates 4.41, 4.43, 4.45 and 4.47. `None`
+    /// for every other template.
     pub fn ensemble_member(&self) -> Option<(u8, u8)> {
         match &self.template {
             ProductTemplate::EnsembleTimeInterval(t) => {
                 Some((t.ensemble_type, t.perturbation_number))
+            }
+            ProductTemplate::Constituent(t) => {
+                t.ensemble.map(|e| (e.ensemble_type, e.perturbation_number))
             }
             ProductTemplate::SharedLayout(t) if t.number == 1 => {
                 Some((*t.qualifier.first()?, *t.qualifier.get(1)?))
@@ -372,8 +536,7 @@ impl ProductDefinitionSection {
     }
 
     /// `(category, number)` parameter pair, when the template carries it.
-    /// Every template sharing 4.0's layout does; `None` for a template this
-    /// crate does not read.
+    /// Every template this crate reads does; `None` for one it does not.
     pub fn parameter(&self) -> Option<(u8, u8)> {
         self.common()
             .map(|c| (c.parameter_category, c.parameter_number))
@@ -386,6 +549,7 @@ impl ProductDefinitionSection {
             ProductTemplate::HorizontalTimeInterval(t) => Some(&t.common),
             ProductTemplate::EnsembleTimeInterval(t) => Some(&t.common),
             ProductTemplate::SharedLayout(t) => Some(&t.common),
+            ProductTemplate::Constituent(t) => Some(&t.common),
             ProductTemplate::Unsupported(..) => None,
         }
     }
@@ -396,6 +560,7 @@ impl ProductDefinitionSection {
             ProductTemplate::HorizontalTimeInterval(t) => Some(&t.stats),
             ProductTemplate::EnsembleTimeInterval(t) => Some(&t.stats),
             ProductTemplate::SharedLayout(t) => t.stats.as_ref(),
+            ProductTemplate::Constituent(t) => t.stats.as_ref(),
             _ => None,
         }
     }
@@ -443,11 +608,21 @@ pub fn parse_product_definition_with_header(
         // A template sharing 4.0's layout that is too short for it is kept as
         // unread octets rather than refused: before #959 every such template
         // opened, read or not.
-        other => match shared_layout(other).and_then(|layout| parse_shared(other, layout, payload))
-        {
-            Some(t) => ProductTemplate::SharedLayout(Box::new(t)),
-            None => ProductTemplate::Unsupported(other, payload.into()),
-        },
+        other => {
+            if let Some(t) =
+                shared_layout(other).and_then(|layout| parse_shared(other, layout, payload))
+            {
+                ProductTemplate::SharedLayout(Box::new(t))
+            } else if let Some(t) = constituent_layout(other).and_then(|layout| {
+                parse_constituent(other, &layout, payload, num_coordinate_values)
+            }) {
+                ProductTemplate::Constituent(Box::new(t))
+            } else {
+                // Too short for the layout it states, a chemistry or aerosol
+                // template is kept as unread octets, as a shared one is.
+                ProductTemplate::Unsupported(other, payload.into())
+            }
+        }
     };
 
     Ok(ProductDefinitionSection {
@@ -461,24 +636,157 @@ pub fn parse_product_definition_with_header(
 /// Octets 10..=34 of the section (= `payload[0..25]`) carry the horizontal
 /// product common block used by 4.0/4.8/4.11.
 fn parse_horizontal_common(payload: &[u8]) -> Result<HorizontalProductCommon, FieldglassError> {
-    if payload.len() < HORIZONTAL_CORE_LEN {
-        return Err(FieldglassError::Parse(format!(
+    let short = || {
+        FieldglassError::Parse(format!(
             "PDS horizontal common block needs {HORIZONTAL_CORE_LEN} bytes, got {}",
             payload.len()
-        )));
-    }
-    Ok(HorizontalProductCommon {
-        parameter_category: payload[0],
-        parameter_number: payload[1],
-        generating_process_type: payload[2],
-        background_process_id: payload[3],
-        forecast_process_id: payload[4],
-        obs_cutoff_hours: u16::from_be_bytes([payload[5], payload[6]]),
-        obs_cutoff_minutes: payload[7],
-        forecast_time_unit: payload[8],
-        forecast_time: read_signed_i32(&payload[9..13]),
-        first_surface: read_fixed_surface(&payload[13..13 + SURFACE_TRIPLE_LEN]),
-        second_surface: read_fixed_surface(&payload[19..19 + SURFACE_TRIPLE_LEN]),
+        ))
+    };
+    let (&[category, number, process], rest) = payload.split_first_chunk().ok_or_else(short)?;
+    read_common(category, number, process, rest, ForecastTime::Signed32)
+        .map(|(common, _)| common)
+        .ok_or_else(short)
+}
+
+/// How a template writes its forecast time.
+#[derive(Clone, Copy)]
+enum ForecastTime {
+    /// Four sign-magnitude octets, as every template but 4.44 does.
+    Signed32,
+    /// Two unsigned octets, as WMO's 4.44 does.
+    Unsigned16,
+}
+
+/// 4.0's block from the background process (its octet 13) to the second fixed
+/// surface, read from the start of `rest`, with the parameter and generating
+/// process a template may keep elsewhere. Returns the block and how many
+/// octets of `rest` it took; `None` if `rest` is shorter than that.
+fn read_common(
+    category: u8,
+    number: u8,
+    process: u8,
+    rest: &[u8],
+    forecast: ForecastTime,
+) -> Option<(HorizontalProductCommon, usize)> {
+    // Background and forecast process (2), cut-off hours and minutes (3) and
+    // the unit (1) come before the forecast time.
+    let at = 6;
+    let (forecast_time, width) = match forecast {
+        ForecastTime::Signed32 => (read_signed_i32(rest.get(at..at + 4)?), 4),
+        ForecastTime::Unsigned16 => {
+            let o = rest.get(at..at + 2)?;
+            (i64::from(u16::from_be_bytes([o[0], o[1]])), 2)
+        }
+    };
+    let first = at + width;
+    let second = first + SURFACE_TRIPLE_LEN;
+    let end = second + SURFACE_TRIPLE_LEN;
+    let head = rest.get(..end)?;
+    Some((
+        HorizontalProductCommon {
+            parameter_category: category,
+            parameter_number: number,
+            generating_process_type: process,
+            background_process_id: head[0],
+            forecast_process_id: head[1],
+            obs_cutoff_hours: u16::from_be_bytes([head[2], head[3]]),
+            obs_cutoff_minutes: head[4],
+            forecast_time_unit: head[5],
+            forecast_time,
+            first_surface: read_fixed_surface(&head[first..second]),
+            second_surface: read_fixed_surface(&head[second..end]),
+        },
+        end,
+    ))
+}
+
+/// A size or wavelength range from the 11 octets at the start of `bytes`.
+fn read_interval(bytes: &[u8]) -> Option<TypedInterval> {
+    let b = bytes.get(..INTERVAL_LEN)?;
+    Some(TypedInterval {
+        interval_type: b[0],
+        first: ScaledLimit {
+            scale_factor: read_scale_factor(b[1]),
+            scaled_value: read_scaled_value(&b[2..6]),
+        },
+        second: ScaledLimit {
+            scale_factor: read_scale_factor(b[6]),
+            scaled_value: read_scaled_value(&b[7..11]),
+        },
+    })
+}
+
+/// A chemistry or aerosol template, read as [`ConstituentTemplate`]; `None`
+/// when the section is too short for the layout it states. `payload` runs from
+/// octet 10 to the end of the section, coordinate values included, which
+/// 4.44's length rule leaves out.
+fn parse_constituent(
+    number: u16,
+    layout: &ConstituentLayout,
+    payload: &[u8],
+    num_coordinate_values: u16,
+) -> Option<ConstituentTemplate> {
+    let (&[category, parameter_number], rest) = payload.split_first_chunk()?;
+    // 4.47 alone writes its generating process before the constituent.
+    let (first_process, rest) = if layout.process_first {
+        let (&process, rest) = rest.split_first()?;
+        (Some(process), rest)
+    } else {
+        (None, rest)
+    };
+    let qualifier = rest.get(..layout.qualifier)?;
+    let rest = &rest[layout.qualifier..];
+    let (process, rest) = match first_process {
+        Some(process) => (process, rest),
+        None => {
+            let (&process, rest) = rest.split_first()?;
+            (process, rest)
+        }
+    };
+    // WMO's 4.44 is 45 octets with a two-octet forecast time. eccodes reads a
+    // 4.44 of any other length with a four-octet one, which it once wrote
+    // (`template.4.forecast_time_44.def`, GRIB-29); so does this.
+    let coordinates = 4 * usize::from(num_coordinate_values);
+    let forecast = if number == 44 && payload.len().checked_sub(coordinates) == Some(45 - 9) {
+        ForecastTime::Unsigned16
+    } else {
+        ForecastTime::Signed32
+    };
+    let (common, used) = read_common(category, parameter_number, process, rest, forecast)?;
+    let mut rest = &rest[used..];
+    let ensemble = if layout.ensemble {
+        let (
+            &[
+                ensemble_type,
+                perturbation_number,
+                num_forecasts_in_ensemble,
+            ],
+            after,
+        ) = rest.split_first_chunk()?;
+        rest = after;
+        Some(EnsembleBlock {
+            ensemble_type,
+            perturbation_number,
+            num_forecasts_in_ensemble,
+        })
+    } else {
+        None
+    };
+    let stats = if layout.statistical {
+        Some(parse_statistics(rest).ok()?)
+    } else {
+        None
+    };
+    let (constituent, ranges) = qualifier.split_first_chunk::<CONSTITUENT_LEN>()?;
+    Some(ConstituentTemplate {
+        number,
+        common,
+        constituent_type: u16::from_be_bytes(*constituent),
+        size: read_interval(ranges),
+        wavelength: ranges.get(INTERVAL_LEN..).and_then(read_interval),
+        ensemble,
+        stats,
+        qualifier: qualifier.into(),
     })
 }
 
@@ -1037,5 +1345,271 @@ mod tests {
         let pds = parse_product_definition(&build_shared(5, &[1, 2])).expect("opens");
         assert!(matches!(pds.template, ProductTemplate::Unsupported(5, _)));
         assert!(pds.common().is_none());
+    }
+
+    /// The constituent type every chemistry and aerosol test writes.
+    const CONSTITUENT: [u8; 2] = [0xF2, 0x31]; // 62001, dust dry
+
+    /// A size range: Code Table 4.91 type 2 (between), 2 × 10⁻⁷ to 2 × 10⁻⁶ m.
+    const SIZE: [u8; 11] = [2, 7, 0, 0, 0, 2, 6, 0, 0, 0, 2];
+
+    /// A wavelength range: type 7 (closed), 545 × 10⁻⁹ to 565 × 10⁻⁹ m, each
+    /// value needing two octets of its four.
+    const WAVELENGTH: [u8; 11] = [7, 9, 0, 0, 2, 0x21, 9, 0, 0, 2, 0x35];
+
+    /// The ensemble block: type 3 (positively perturbed), member 7 of 20.
+    const ENSEMBLE: [u8; 3] = [3, 7, 20];
+
+    /// 4.0's octets 12-34 with a forecast time of `forecast` (four or two
+    /// octets): process 2, background 3, model 96, cut-off 1 h 5 min, hours,
+    /// then a layer from 500 hPa to 850 hPa in pascals.
+    fn process_to_surfaces(forecast: &[u8]) -> Vec<u8> {
+        let mut out = vec![2, 3, 96, 0, 1, 5, 1];
+        out.extend_from_slice(forecast);
+        out.extend_from_slice(&[100, 0]);
+        push_be(&mut out, 50_000, 4);
+        out.extend_from_slice(&[100, 0]);
+        push_be(&mut out, 85_000, 4);
+        out
+    }
+
+    /// 4.8's interval: one 6-hour accumulation ending 2026-01-01T06:00:00Z.
+    fn interval() -> Vec<u8> {
+        let mut out = Vec::new();
+        push_be(&mut out, 2026, 2);
+        out.extend_from_slice(&[1, 1, 6, 0, 0, 1]);
+        push_be(&mut out, 0, 4);
+        out.extend_from_slice(&[1, 2, 1]);
+        push_be(&mut out, 6, 4);
+        out.push(1);
+        push_be(&mut out, 0, 4);
+        out
+    }
+
+    /// A §4 of template `number` over `payload` (octets 10 on).
+    fn section(number: u16, payload: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_be(&mut out, 9 + payload.len() as u64, 4);
+        out.push(PDS_SECTION_NUMBER);
+        push_be(&mut out, 0, 2);
+        push_be(&mut out, u64::from(number), 2);
+        out.extend_from_slice(payload);
+        out
+    }
+
+    /// Template `number` laid out as WMO's Code Table 4.0 entry has it, with
+    /// parameter 0.20.7 and the blocks above.
+    fn build_constituent(number: u16) -> Vec<u8> {
+        let forecast: &[u8] = if number == 44 { &[0, 9] } else { &[0, 0, 0, 9] };
+        let mut payload = vec![20, 7];
+        if number == 47 {
+            // 4.47 alone writes its generating process at octet 12, before
+            // the aerosol type, and 4.0's block resumes at the background
+            // process.
+            payload.push(2);
+            payload.extend_from_slice(&CONSTITUENT);
+            payload.extend_from_slice(&SIZE);
+            payload.extend_from_slice(&process_to_surfaces(forecast)[1..]);
+        } else {
+            payload.extend_from_slice(&CONSTITUENT);
+            if (44..=48).contains(&number) {
+                payload.extend_from_slice(&SIZE);
+            }
+            if number == 48 {
+                payload.extend_from_slice(&WAVELENGTH);
+            }
+            payload.extend_from_slice(&process_to_surfaces(forecast));
+        }
+        if matches!(number, 41 | 43 | 45 | 47) {
+            payload.extend_from_slice(&ENSEMBLE);
+        }
+        if matches!(number, 42 | 43 | 46 | 47) {
+            payload.extend_from_slice(&interval());
+        }
+        section(number, &payload)
+    }
+
+    /// The section length WMO's template states, for each of 4.40-4.48 with
+    /// one time range: what the builder must produce, so it lays the
+    /// templates out as the spec does rather than as it assumed.
+    #[test]
+    fn the_builder_lays_each_template_out_at_its_wmo_length() {
+        for (number, len) in [
+            (40, 36),
+            (41, 39),
+            (42, 60),
+            (43, 63),
+            (44, 45),
+            (45, 50),
+            (46, 71),
+            (47, 74),
+            (48, 58),
+        ] {
+            assert_eq!(build_constituent(number).len(), len, "4.{number}");
+        }
+    }
+
+    /// Every chemistry and aerosol template reads its parameter, constituent,
+    /// ranges, forecast time and both fixed surfaces from the spec's octets
+    /// (#1130), and its ensemble block and interval where it has them.
+    #[test]
+    fn each_chemistry_and_aerosol_template_reads_its_own_layout() {
+        for number in 40..=48u16 {
+            let pds = parse_product_definition(&build_constituent(number))
+                .unwrap_or_else(|e| panic!("4.{number}: {e}"));
+            let ProductTemplate::Constituent(t) = &pds.template else {
+                panic!("4.{number} parsed as {:?}", pds.template);
+            };
+            assert_eq!(t.number, number);
+            assert_eq!(pds.parameter(), Some((20, 7)), "4.{number}");
+            let c = pds.common().expect("a common block");
+            assert_eq!(
+                (c.generating_process_type, c.background_process_id),
+                (2, 3),
+                "4.{number}"
+            );
+            assert_eq!(c.forecast_process_id, 96, "4.{number}");
+            assert_eq!((c.obs_cutoff_hours, c.obs_cutoff_minutes), (1, 5));
+            assert_eq!(
+                (c.forecast_time_unit, c.forecast_time),
+                (1, 9),
+                "4.{number}"
+            );
+            assert_eq!(c.first_surface.surface_type, 100, "4.{number}");
+            assert_eq!(c.first_surface.value(), Some(50_000.0), "4.{number}");
+            assert_eq!(c.second_surface.value(), Some(85_000.0), "4.{number}");
+            assert_eq!(t.constituent_type, 62001, "4.{number}");
+
+            let aerosol = (44..=48).contains(&number);
+            assert_eq!(t.size.is_some(), aerosol, "4.{number}");
+            if let Some(size) = t.size {
+                assert_eq!(size.interval_type, 2);
+                assert_eq!(size.first.scale_factor, Some(7));
+                assert_eq!(size.first.scaled_value, Some(2));
+                assert!((size.second.value().unwrap() - 2e-6).abs() < 1e-18);
+            }
+            match t.wavelength {
+                Some(w) => {
+                    assert_eq!(number, 48);
+                    assert_eq!(w.interval_type, 7);
+                    assert_eq!(w.first.scaled_value, Some(545));
+                    assert_eq!(w.second.scaled_value, Some(565));
+                    assert!((w.first.value().unwrap() - 545e-9).abs() < 1e-18);
+                }
+                None => assert_ne!(number, 48),
+            }
+            let qualifier_len = match number {
+                40..=43 => 2,
+                48 => 24,
+                _ => 13,
+            };
+            assert_eq!(t.qualifier.len(), qualifier_len, "4.{number}");
+            assert_eq!(&t.qualifier[..2], &CONSTITUENT);
+            assert!(pds.unread_octets().is_empty(), "4.{number} is read whole");
+
+            let member = matches!(number, 41 | 43 | 45 | 47);
+            assert_eq!(
+                pds.ensemble_member(),
+                member.then_some((3, 7)),
+                "4.{number}"
+            );
+            if member {
+                assert_eq!(t.ensemble.map(|e| e.num_forecasts_in_ensemble), Some(20));
+            }
+            let statistical = matches!(number, 42 | 43 | 46 | 47);
+            match pds.stats() {
+                Some(s) => {
+                    assert!(statistical, "4.{number} has no interval");
+                    assert_eq!(s.end_time_iso8601(), "2026-01-01T06:00:00Z");
+                    assert_eq!((s.specs[0].stat_process, s.specs[0].stat_length), (1, 6));
+                }
+                None => assert!(!statistical, "4.{number} lost its interval"),
+            }
+            let kind = if aerosol { "aerosol" } else { "chemical" };
+            assert_eq!(pds.template_name(), format!("{kind}(4.{number})"));
+        }
+    }
+
+    /// 4.47 read as 4.46 is laid out, as eccodes does, would take the
+    /// generating process as the aerosol type's high octet. Read as the spec
+    /// lays it out, the type is the same as every other template's.
+    #[test]
+    fn template_4_47_keeps_its_generating_process_at_octet_12() {
+        let bytes = build_constituent(47);
+        // §4 octet 12 is byte 11.
+        assert_eq!(bytes[11], 2, "the generating process");
+        assert_eq!(&bytes[12..14], &CONSTITUENT);
+        let pds = parse_product_definition(&bytes).expect("4.47");
+        let ProductTemplate::Constituent(t) = &pds.template else {
+            panic!("4.47 parsed as {:?}", pds.template);
+        };
+        assert_eq!(t.constituent_type, 62001);
+        assert_eq!(t.common.generating_process_type, 2);
+        assert_eq!(t.size.map(|s| s.interval_type), Some(2));
+    }
+
+    /// WMO's 4.44 states its forecast time in two unsigned octets. One written
+    /// with four, as eccodes once wrote it, is two octets longer, and is read
+    /// as eccodes reads it.
+    #[test]
+    fn template_4_44_reads_two_or_four_octet_forecast_times() {
+        let spec = build_constituent(44);
+        // Octets 32-33 (bytes 31-32) are the forecast time, two unsigned
+        // octets: 0xFFFF is 65535, not a sign-magnitude −32767.
+        assert_eq!(&spec[31..33], &[0, 9]);
+        let mut wide = spec.clone();
+        wide[31..33].copy_from_slice(&[0xFF, 0xFF]);
+        let pds = parse_product_definition(&wide).expect("4.44");
+        assert_eq!(pds.common().map(|c| c.forecast_time), Some(65_535));
+
+        // Widened to four sign-magnitude octets, −9.
+        let mut legacy = spec[..31].to_vec();
+        legacy.extend_from_slice(&[0x80, 0, 0, 9]);
+        legacy.extend_from_slice(&spec[33..]);
+        let len = legacy.len() as u32;
+        legacy[0..4].copy_from_slice(&len.to_be_bytes());
+        let pds = parse_product_definition(&legacy).expect("legacy 4.44");
+        let c = pds.common().expect("a common block");
+        assert_eq!(c.forecast_time, -9);
+        assert_eq!(c.first_surface.value(), Some(50_000.0));
+        assert_eq!(c.second_surface.value(), Some(85_000.0));
+    }
+
+    /// Coordinate values after a 4.44 do not make it the four-octet form: the
+    /// length rule is the template's own, as eccodes' `section4Length - 4*NV`.
+    #[test]
+    fn coordinate_values_do_not_change_how_4_44_is_read() {
+        let mut bytes = build_constituent(44);
+        bytes[5..7].copy_from_slice(&2u16.to_be_bytes());
+        bytes.extend_from_slice(&[0x41, 0x20, 0, 0, 0x41, 0xA0, 0, 0]);
+        let len = bytes.len() as u32;
+        bytes[0..4].copy_from_slice(&len.to_be_bytes());
+        let pds = parse_product_definition(&bytes).expect("4.44 with NV = 2");
+        assert_eq!(pds.common().map(|c| c.forecast_time), Some(9));
+        assert_eq!(
+            pds.common().map(|c| c.first_surface.value()),
+            Some(Some(50_000.0))
+        );
+    }
+
+    /// A chemistry or aerosol template cut short anywhere still opens, as
+    /// unread octets, without reading past the section: the same as a
+    /// template sharing 4.0's layout.
+    #[test]
+    fn a_truncated_constituent_template_is_kept_unread() {
+        for number in 40..=48u16 {
+            let full = build_constituent(number);
+            for len in 9..full.len() {
+                let mut bytes = full[..len].to_vec();
+                bytes[0..4].copy_from_slice(&(len as u32).to_be_bytes());
+                let pds = parse_product_definition(&bytes)
+                    .unwrap_or_else(|e| panic!("4.{number} cut to {len}: {e}"));
+                if !matches!(pds.template, ProductTemplate::Unsupported(n, _) if n == number) {
+                    panic!("4.{number} cut to {len} parsed as {:?}", pds.template);
+                }
+                assert!(pds.common().is_none());
+                assert_eq!(pds.unread_octets(), &bytes[9..]);
+            }
+        }
     }
 }
