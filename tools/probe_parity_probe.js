@@ -195,11 +195,21 @@ function main() {
   if (!fs.existsSync(addon)) throw new Error(`native addon not found at ${addon}; build it (see RELEASE-TEST-PLAN.md section 0) or pass --addon`);
   const m = require(addon);
   const target = path.resolve(args.target);
-  const isDir = fs.statSync(target).isDirectory();
-  const h = isDir ? m.openStore(target) : m.open(fs.readFileSync(target));
+  // Open once and ask the descriptor, so there is no gap between the check
+  // and the read.
+  const fd = fs.openSync(target, 'r');
+  let isDir;
+  let bytes = null;
+  try {
+    isDir = fs.fstatSync(fd).isDirectory();
+    if (!isDir) bytes = fs.readFileSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  const h = isDir ? m.openStore(target) : m.open(bytes);
   let count = 0;
   try { count = h.count(); } catch (_) { /* addressed by variables */ }
-  const format = isDir ? 'zarr' : m.detectBytes(fs.readFileSync(target));
+  const format = isDir ? 'zarr' : m.detectBytes(bytes);
   if (args.listVariables) {
     // Names only, so the caller can hand each variable to its own process.
     const names = count > 0 ? [] : h.variables().map((v) => v.name);
