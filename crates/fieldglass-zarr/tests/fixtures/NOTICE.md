@@ -181,6 +181,19 @@ through xarray. `crates/fieldglass-zarr/tests/shard_ranges.rs`,
 `crates/fieldglass/tests/zarr_window.rs` and
 `crates/fieldglass-wasm/tests/node/zarr.mjs` read it.
 
+**Known divergence from zarr-python: an index entry over the index (#1123).**
+`Sharding::read_index` refuses an entry whose bytes overlap the index's own,
+on the whole-shard path and the ranged one alike. zarr-python 3.3.0 does not
+check: a one-array store written with `ShardingCodec(chunk_shape=(2,),
+index_location="end")` over `[1, 2, 3, 4]` (`uint8`, a 40-byte shard whose
+index starts at byte 4), with chunk 1's entry rewritten to `(4, 2)` and the
+crc32c recomputed with `google_crc32c`, reads back `[1, 2, 0, 0]`: the index's
+first two bytes as data. The specification lays out the index and the chunk
+content as separate parts of the shard and gives no case where they share
+bytes, so such an entry is a malformed or hostile index. The hand-built case is
+`entries_outside_the_shard_or_over_its_index_are_refused` in
+`crates/fieldglass-zarr/src/shard.rs`.
+
 ## zstd wide-window store (`zstd_wide_window/`)
 
 A v2 `uint8` array of `(64, 64)` in one 4 KiB chunk under the `zstd`

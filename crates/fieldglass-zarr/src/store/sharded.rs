@@ -29,7 +29,7 @@ use fieldglass_core::bytes::{ByteRange, ObjectSource};
 
 use super::{StoredArray, ZarrStore, keys_of};
 use crate::metadata::CodecSource;
-use crate::{ChunkDecoder, IndexLocation, ShardIndex, Sharding};
+use crate::{ChunkDecoder, IndexLocation, ShardIndex, ShardLayout};
 use serde_json::Value;
 
 /// Where one shard's index is: what a host fetches before any inner chunk.
@@ -72,8 +72,12 @@ impl<O: ObjectSource> ZarrStore<O> {
     ///
     /// # Errors
     ///
-    /// Those of [`chunk_keys`](Self::chunk_keys), and an array whose codecs
-    /// this crate does not decode.
+    /// Those of [`chunk_keys`](Self::chunk_keys), a `sharding_indexed`
+    /// configuration that does not parse or whose inner grid does not divide
+    /// the shard, and a shard of more than
+    /// [`MAX_SHARD_ENTRIES`](crate::MAX_SHARD_ENTRIES) inner chunks. Not an
+    /// inner codec this crate does not decode: locating the inner chunks reads
+    /// the index, not them.
     pub fn shard_indexes(
         &self,
         array: &str,
@@ -85,8 +89,8 @@ impl<O: ObjectSource> ZarrStore<O> {
         };
         let covering = stored.meta.grid().chunks_covering(region)?;
         let keys = keys_of(stored, &covering)?;
-        let len = sharded.sharding.index_len(&sharded.shard_shape)?;
-        let location = sharded.sharding.index_location();
+        let len = sharded.layout.index_len(&sharded.shard_shape)?;
+        let location = sharded.layout.index_location();
         Ok(Some(
             covering
                 .into_iter()
@@ -119,7 +123,7 @@ impl<O: ObjectSource> ZarrStore<O> {
     /// Those of [`shard_indexes`](Self::shard_indexes), and an index that is
     /// not a valid one for its shard: a failed checksum, or an entry that
     /// overflows, runs past the shard or overlaps the index
-    /// ([`Sharding::read_index`]).
+    /// ([`ShardLayout::read_index`]).
     pub fn inner_chunk_ranges(
         &self,
         array: &str,
@@ -166,10 +170,10 @@ impl<O: ObjectSource> ZarrStore<O> {
     }
 }
 
-/// A sharded array's sharding, with its shard shape as the decoder holds it.
+/// A sharded array's index layout and shard shape: metadata only, so a plan
+/// never builds the inner chunks' codecs.
 pub(super) struct Sharded {
-    decoder: ChunkDecoder,
-    sharding: Sharding,
+    layout: ShardLayout,
     shard_shape: Vec<usize>,
 }
 
@@ -194,34 +198,46 @@ impl Sharded {
         // is not sharded plans as it did, whatever its codecs: planning reads
         // metadata, and a codec this crate cannot decode is a decode's
         // failure, not a plan's.
-        let names_sharding = match array.meta.codecs() {
-            CodecSource::V3 { codecs } => codecs.as_array().is_some_and(|steps| {
-                steps.iter().any(|step| {
-                    step.get("name").and_then(Value::as_str) == Some("sharding_indexed")
-                })
+        let config = match array.meta.codecs() {
+            CodecSource::V3 { codecs } => codecs.as_array().and_then(|steps| {
+                steps
+                    .iter()
+                    .find(|step| {
+                        step.get("name").and_then(Value::as_str) == Some("sharding_indexed")
+                    })
+                    .map(|step| step.get("configuration").unwrap_or(&Value::Null))
             }),
-            CodecSource::V2 { .. } => false,
+            CodecSource::V2 { .. } => None,
         };
-        if !names_sharding {
-            return Ok(None);
-        }
-        let decoder = ChunkDecoder::from_metadata(&array.meta)?;
-        let Some(sharding) = decoder.chain().sharding().cloned() else {
+        let Some(config) = config else {
             return Ok(None);
         };
-        let shard_shape = decoder.chunk_shape().to_vec();
-        // Checks the grid divides, before any arithmetic below relies on it.
-        sharding.index_len(&shard_shape)?;
+        let layout = ShardLayout::from_v3(config)?;
+        let shard_shape = array
+            .meta
+            .grid()
+            .chunk_shape()
+            .iter()
+            .map(|&n| {
+                usize::try_from(n).map_err(|_| {
+                    FieldglassError::Parse(format!(
+                        "a shard extent of {n} does not fit this target's pointer width"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<usize>, _>>()?;
+        // Checks the grid divides and the index is within its cap, before any
+        // arithmetic below relies on it.
+        layout.index_len(&shard_shape)?;
         Ok(Some(Self {
-            decoder,
-            sharding,
+            layout,
             shard_shape,
         }))
     }
 
     fn inner_shape(&self) -> Vec<u64> {
-        self.sharding
-            .chunk_shape
+        self.layout
+            .chunk_shape()
             .iter()
             .map(|&n| n as u64)
             .collect()
@@ -242,7 +258,7 @@ impl Sharded {
         let per: Vec<u64> = self
             .shard_shape
             .iter()
-            .zip(&self.sharding.chunk_shape)
+            .zip(self.layout.chunk_shape())
             .map(|(&shard, &inner)| (shard / inner) as u64)
             .collect();
         let mut out: Touched = BTreeMap::new();
@@ -274,7 +290,7 @@ impl Sharded {
                 Held::Owed(None)
             });
         };
-        let at = self.sharding.index_range(&self.shard_shape, size)?;
+        let at = self.layout.index_range(&self.shard_shape, size)?;
         if !objects.unfetched_ranges(&[(key, at)]).is_empty() {
             return Ok(Held::Owed(Some(at)));
         }
@@ -283,7 +299,7 @@ impl Sharded {
                 "the source states a size for `{key}` and then holds no object there"
             ))
         })?;
-        Ok(Held::Read(self.sharding.read_index(
+        Ok(Held::Read(self.layout.read_index(
             &raw,
             &self.shard_shape,
             size,
@@ -361,12 +377,13 @@ pub(super) fn owed<O: ObjectSource>(
 }
 
 /// Copy into `out` every inner chunk of the shard at `shard` that `region`
-/// touches (`touched`, from [`Sharded::touched`]), reading each by range from `objects`, which holds the shard in
-/// part. Nothing else of the shard is read.
+/// touches (`touched`, from [`Sharded::touched`] over that region), reading
+/// each by range from `objects`, which holds the shard in part. Nothing else
+/// of the shard is read.
 pub(super) fn read_ranged<O: ObjectSource>(
     objects: &O,
-    sharded: &Sharded,
-    touched: &Touched,
+    decoder: &ChunkDecoder,
+    (sharded, touched): &(Sharded, Touched),
     shard: &[u64],
     key: &str,
     region: &[Range<u64>],
@@ -384,7 +401,10 @@ pub(super) fn read_ranged<O: ObjectSource>(
         Held::Read(index) => index,
     };
     let inner = sharded.inner_shape();
-    let element_size = sharded.decoder.dtype().size;
+    let sharding = decoder.chain().sharding().ok_or_else(|| {
+        FieldglassError::WrongLayout("this array's chunks are not shards".to_string())
+    })?;
+    let element_size = decoder.dtype().size;
     for (position, linear) in touched.get(shard).into_iter().flatten() {
         let Some(range) = index.entry(*linear) else {
             continue;
@@ -392,9 +412,8 @@ pub(super) fn read_ranged<O: ObjectSource>(
         let stored = objects.get_range(key, range)?.ok_or_else(|| {
             FieldglassError::Parse(format!("`{key}` vanished from the store's source"))
         })?;
-        let raw = sharded.sharding.decode_inner(&stored, element_size)?;
-        let values: Vec<Option<f64>> = sharded
-            .decoder
+        let raw = sharding.decode_inner(&stored, element_size)?;
+        let values: Vec<Option<f64>> = decoder
             .dtype()
             .read_values(&raw)?
             .into_iter()

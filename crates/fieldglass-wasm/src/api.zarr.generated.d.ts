@@ -73,7 +73,9 @@ export interface InnerChunkRef {
    */
   offset: number;
   /**
-   * How many bytes it is. Zero is a legal length, which needs no fetch.
+   * How many bytes it is. An index may state zero, which leaves nothing to
+   * fetch (an HTTP range cannot name it) and nothing to decode: the decode
+   * refuses such a chunk, as it does inside a shard read whole.
    */
   length: number;
 }
@@ -86,7 +88,9 @@ export interface InnerChunkRef {
  * inner chunk a shard holds, and four more for its checksum), so a host
  * fetches it without knowing the shard's size: the last `length` bytes (an
  * HTTP suffix range, `bytes=-length`) or the first. The store needs the
- * shard's whole size with them, which the response's `Content-Range` states.
+ * shard's whole size with them: a `HEAD`'s `Content-Length`, which a browser
+ * can always read, or the range's `Content-Range` where the bucket exposes it
+ * to the page.
  */
 export interface ShardIndexRef {
   /**
@@ -150,7 +154,11 @@ export interface WindowPlan {
    * For a sharded variable, where the index of each shard in `chunks` is,
    * in the same order (#1123). Fetch each as a range of its shard and give
    * the store the shard's size with it; then plan again for
-   * `inner_chunks`. `null` for a variable that is not sharded.
+   * `inner_chunks`. `null` for a variable that is not sharded, and for a
+   * sharded one whose index cannot be planned: a sharding configuration
+   * this build does not read, or a shard of more than
+   * `fieldglass_zarr::MAX_SHARD_ENTRIES` inner chunks. Fetch `chunks`
+   * whole then.
    */
   shardIndexes: ShardIndexRef[] | null;
   /**
@@ -160,7 +168,11 @@ export interface WindowPlan {
    * never written are left out, as are those of a shard the store does not
    * hold: they are the fill value. Fetch these and decode. `null` for a
    * variable that is not sharded, and until every index `shard_indexes`
-   * names (or its whole shard, or a 404 for it) is in the store.
+   * names (or its whole shard, or a 404 for it) is in the store. Also
+   * `null` when an index in hand cannot be read (a failed checksum, an
+   * entry outside its shard or over the index) or the window touches more
+   * inner chunks than one plan holds: fetch `chunks` whole then, and the
+   * decode reports what is wrong with a shard.
    */
   innerChunks: InnerChunkRef[] | null;
 }

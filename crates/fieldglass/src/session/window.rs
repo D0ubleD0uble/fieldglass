@@ -190,7 +190,11 @@ pub struct WindowPlan {
     /// For a sharded variable, where the index of each shard in `chunks` is,
     /// in the same order (#1123). Fetch each as a range of its shard and give
     /// the store the shard's size with it; then plan again for
-    /// `inner_chunks`. `null` for a variable that is not sharded.
+    /// `inner_chunks`. `null` for a variable that is not sharded, and for a
+    /// sharded one whose index cannot be planned: a sharding configuration
+    /// this build does not read, or a shard of more than
+    /// [`fieldglass_zarr::MAX_SHARD_ENTRIES`] inner chunks. Fetch `chunks`
+    /// whole then.
     pub shard_indexes: Option<Vec<ShardIndexRef>>,
     /// For a sharded variable, the byte range of every inner chunk the
     /// window's cells sit in, in row-major order of the shards and then of the
@@ -198,7 +202,11 @@ pub struct WindowPlan {
     /// never written are left out, as are those of a shard the store does not
     /// hold: they are the fill value. Fetch these and decode. `null` for a
     /// variable that is not sharded, and until every index `shard_indexes`
-    /// names (or its whole shard, or a 404 for it) is in the store.
+    /// names (or its whole shard, or a 404 for it) is in the store. Also
+    /// `null` when an index in hand cannot be read (a failed checksum, an
+    /// entry outside its shard or over the index) or the window touches more
+    /// inner chunks than one plan holds: fetch `chunks` whole then, and the
+    /// decode reports what is wrong with a shard.
     pub inner_chunks: Option<Vec<InnerChunkRef>>,
 }
 
@@ -223,7 +231,9 @@ pub enum IndexLocation {
 /// inner chunk a shard holds, and four more for its checksum), so a host
 /// fetches it without knowing the shard's size: the last `length` bytes (an
 /// HTTP suffix range, `bytes=-length`) or the first. The store needs the
-/// shard's whole size with them, which the response's `Content-Range` states.
+/// shard's whole size with them: a `HEAD`'s `Content-Length`, which a browser
+/// can always read, or the range's `Content-Range` where the bucket exposes it
+/// to the page.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -259,7 +269,9 @@ pub struct InnerChunkRef {
     pub inner: Vec<u64>,
     /// The chunk's first byte, from the start of the shard.
     pub offset: u64,
-    /// How many bytes it is. Zero is a legal length, which needs no fetch.
+    /// How many bytes it is. An index may state zero, which leaves nothing to
+    /// fetch (an HTTP range cannot name it) and nothing to decode: the decode
+    /// refuses such a chunk, as it does inside a shard read whole.
     pub length: u64,
 }
 
@@ -1112,10 +1124,18 @@ impl<O: ObjectSource> Keyed for fieldglass_zarr::ZarrStore<O> {
         array: &str,
         region: &[Range<u64>],
     ) -> Result<Option<ShardReads>, FieldglassError> {
-        let Some(indexes) = self.shard_indexes(array, region)? else {
+        // A plan names the shards in `chunks` whatever happens here, and a
+        // host can always fetch those whole. So a sharded read that cannot be
+        // planned by range (a sharding configuration this build does not read,
+        // an index over its cap, an index in hand that fails its checksum, a
+        // window touching more inner chunks than one plan holds) leaves these
+        // fields `null` rather than failing the plan; the decode of what the
+        // host then fetches reports any fault in the shard itself.
+        let Ok(Some(indexes)) = self.shard_indexes(array, region) else {
             return Ok(None);
         };
-        Ok(Some((indexes, self.inner_chunk_ranges(array, region)?)))
+        let inner = self.inner_chunk_ranges(array, region).ok().flatten();
+        Ok(Some((indexes, inner)))
     }
 
     fn unfetched_for(

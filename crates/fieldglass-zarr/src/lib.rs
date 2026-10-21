@@ -149,7 +149,7 @@ pub use store::{InnerChunkRange, ShardIndexRange};
 // would re-enable `render` and `fs` across the whole dependency graph (#537).
 pub use fieldglass_core::FieldglassError;
 #[cfg(feature = "codecs")]
-pub use shard::{IndexLocation, Shard, ShardIndex, Sharding};
+pub use shard::{IndexLocation, MAX_SHARD_ENTRIES, Shard, ShardIndex, ShardLayout, Sharding};
 
 /// The decode side of one Zarr array: its element type, its chunk shape, and
 /// the codec chain its chunks were written through.

@@ -521,6 +521,165 @@ fn whole_shards_still_decode_and_plan_their_inner_chunks() {
     }
 }
 
+/// The sharded fixture with its index ranges given for `window`'s shards, and
+/// `edit` applied to each object first.
+fn sharded_with_indexes(
+    window: &Value,
+    coordinates: &BTreeSet<String>,
+    edit: impl Fn(&str, Vec<u8>) -> Vec<u8>,
+) -> PrefetchedObjects {
+    let all: Vec<(String, Vec<u8>)> = objects("window_sharded_v3")
+        .into_iter()
+        .map(|(k, v)| {
+            let v = edit(&k, v);
+            (k, v)
+        })
+        .collect();
+    let mut held = holding(&all, coordinates);
+    let indexes: Vec<ShardIndexRef> =
+        serde_json::from_value(window["shard_indexes"].clone()).expect("index refs");
+    for index in indexes {
+        let shard = &all.iter().find(|(k, _)| *k == index.key).expect("shard").1;
+        let size = shard.len() as u64;
+        let start = size - index.length;
+        held.insert_range(
+            index.key.clone(),
+            size,
+            start,
+            shard[usize::try_from(start).expect("small")..].to_vec(),
+        )
+        .unwrap();
+    }
+    held
+}
+
+/// A plan names a sharded variable's shards in `chunks` whatever else
+/// happens, so one that cannot be planned by range leaves the shard fields
+/// `null` and the host fetches the shards whole, rather than the plan failing
+/// (#1123 review). Each case failed `plan_window` outright before.
+#[test]
+fn a_sharded_plan_that_cannot_go_by_range_still_names_its_shards() {
+    let oracle = oracle();
+    let case = &oracle["window_sharded_v3"];
+    let coordinates = keys(&refs(&case["coordinate_chunks"]));
+    let window = &case["windows"]["t2m"][0];
+    let time = u32::try_from(window["time"].as_u64().expect("time")).expect("small");
+    let inner: Vec<InnerChunkRef> =
+        serde_json::from_value(window["inner_chunks"].clone()).expect("inner refs");
+
+    // An inner codec this build does not decode: locating the inner chunks
+    // reads only the index, so the plan is the full one.
+    let unknown = |key: &str, bytes: Vec<u8>| {
+        if key == "zarr.json" || key == "t2m/zarr.json" {
+            String::from_utf8(bytes)
+                .expect("JSON")
+                .replace("\"name\": \"blosc\"", "\"name\": \"made_up\"")
+                .into_bytes()
+        } else {
+            bytes
+        }
+    };
+    let session =
+        Session::open_store(sharded_with_indexes(window, &coordinates, unknown)).expect("opens");
+    let asked = request(variable(&session, "t2m"), bounds(&window["bounds"]), time);
+    let plan = session.plan_window(&asked).expect("plans");
+    assert_eq!(plan.chunks, Some(refs(&window["chunks"])));
+    assert_eq!(
+        plan.inner_chunks,
+        Some(inner.clone()),
+        "unknown inner codec"
+    );
+
+    // A whole shard whose index fails its checksum: the shards, and no inner
+    // chunks; the decode says what is wrong.
+    let all = objects("window_sharded_v3");
+    let shards = keys(&refs(&window["chunks"]));
+    let broken: Vec<(String, Vec<u8>)> = all
+        .into_iter()
+        .map(|(k, mut v)| {
+            if shards.contains(&k) {
+                let at = v.len() - 30;
+                v[at] ^= 0xff;
+            }
+            (k, v)
+        })
+        .collect();
+    let given: BTreeSet<String> = coordinates.union(&shards).cloned().collect();
+    let session = Session::open_store(holding(&broken, &given)).expect("opens");
+    let plan = session.plan_window(&asked).expect("plans");
+    assert_eq!(plan.chunks, Some(refs(&window["chunks"])), "corrupt index");
+    assert!(plan.shard_indexes.is_some(), "the indexes are metadata");
+    assert_eq!(plan.inner_chunks, None, "a corrupt index locates nothing");
+    let err = session
+        .decode_window(&asked, &DecodeOptions::default())
+        .expect_err("the shard is corrupt");
+    assert_eq!(err.code(), "decode", "{err}");
+}
+
+/// `t(lat, lon)` in shards of `shard_rows` x 1024 cells, as one-cell inner
+/// chunks, over a regular global grid of `rows` x 1024: metadata and
+/// coordinates only.
+fn one_cell_inner_chunks(rows: usize, shard_rows: usize) -> MemoryObjects {
+    let lat: Vec<f64> = (0..rows)
+        .map(|j| 90.0 - (j as f64 + 0.5) * 180.0 / rows as f64)
+        .collect();
+    let lon: Vec<f64> = (0..1024).map(|i| f64::from(i) * 360.0 / 1024.0).collect();
+    let t = format!(
+        "{{\"zarr_format\":3,\"node_type\":\"array\",\"shape\":[{rows},1024],\
+         \"data_type\":\"float32\",\"chunk_grid\":{{\"name\":\"regular\",\
+         \"configuration\":{{\"chunk_shape\":[{shard_rows},1024]}}}},\
+         \"chunk_key_encoding\":{{\"name\":\"default\",\"configuration\":{{\"separator\":\"/\"}}}},\
+         \"fill_value\":\"NaN\",\"codecs\":[{{\"name\":\"sharding_indexed\",\"configuration\":{{\
+         \"chunk_shape\":[1,1],\
+         \"codecs\":[{{\"name\":\"bytes\",\"configuration\":{{\"endian\":\"little\"}}}}],\
+         \"index_codecs\":[{{\"name\":\"bytes\",\"configuration\":{{\"endian\":\"little\"}}}},\
+         {{\"name\":\"crc32c\"}}]}}}}],\
+         \"dimension_names\":[\"lat\",\"lon\"],\"attributes\":{{}}}}"
+    );
+    MemoryObjects::from_iter([
+        ("zarr.json", V3_GROUP.to_vec()),
+        (
+            "lat/zarr.json",
+            v3_array(&format!("[{rows}]"), &format!("[{rows}]"), "[\"lat\"]"),
+        ),
+        ("lat/c/0", f8(&lat)),
+        ("lon/zarr.json", v3_array("[1024]", "[1024]", "[\"lon\"]")),
+        ("lon/c/0", f8(&lon)),
+        ("t/zarr.json", t.into_bytes()),
+    ])
+}
+
+/// Metadata cannot make a plan name a vast index or a vast list of inner
+/// chunks: a shard over the inner-chunk cap has no index plan, and a window
+/// touching more inner chunks than one plan holds has no inner-chunk plan.
+/// Both still name the shards (#1123 review).
+#[test]
+fn a_sharded_plan_past_its_caps_names_its_shards_and_nothing_finer() {
+    let whole_globe = [-90.0, 90.0, -180.0, 180.0];
+
+    // 1024 x 1024 one-cell inner chunks per shard is the cap exactly; two
+    // shards' worth is twice what one plan may name.
+    let session = Session::open_store(one_cell_inner_chunks(2048, 1024)).expect("opens");
+    let t = variable(&session, "t");
+    let plan = session
+        .plan_window(&WindowRequest::new(t, 0, 1, whole_globe, vec![0, 0]))
+        .expect("plans");
+    assert_eq!(plan.chunks.as_ref().map(Vec::len), Some(2));
+    let indexes = plan.shard_indexes.expect("within the cap");
+    assert_eq!(indexes[0].length, (1 << 20) * 16 + 4);
+    assert_eq!(plan.inner_chunks, None, "two million inner chunks");
+
+    // One row of inner chunks more per shard is past the cap: no index plan.
+    let session = Session::open_store(one_cell_inner_chunks(1025, 1025)).expect("opens");
+    let t = variable(&session, "t");
+    let plan = session
+        .plan_window(&WindowRequest::new(t, 0, 1, whole_globe, vec![0, 0]))
+        .expect("plans");
+    assert_eq!(plan.chunks.as_ref().map(Vec::len), Some(1));
+    assert_eq!(plan.shard_indexes, None, "an index past the cap");
+    assert_eq!(plan.inner_chunks, None);
+}
+
 #[test]
 fn a_box_that_holds_no_cell_is_an_empty_plan_and_no_window() {
     let all = objects("window_v3");

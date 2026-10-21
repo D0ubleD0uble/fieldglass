@@ -32,6 +32,13 @@ const ENTRY_LEN: usize = 16;
 /// The sentinel both fields carry for an inner chunk that was never written.
 const EMPTY: u64 = u64::MAX;
 
+/// The most inner chunks one shard may hold (#1123): the array model's cap on
+/// the chunks one plan names, so an index is at most 16 MiB. Real stores hold
+/// tens to a few thousand (dynamical.org's: 72 to 1,518).
+/// Spelled out rather than re-exported from core, which would put a core name
+/// in this crate's public surface; a test holds the two equal.
+pub const MAX_SHARD_ENTRIES: u64 = 1 << 20;
+
 /// Which end of the shard the index sits at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IndexLocation {
@@ -50,6 +57,20 @@ pub struct Sharding {
     pub chunk_shape: Vec<usize>,
     /// The chain each inner chunk's bytes were written through.
     inner: CodecChain,
+    /// The inner grid, the index chain and where the index is.
+    layout: ShardLayout,
+}
+
+/// What locates a shard's inner chunks (#1123): the inner chunk shape, the
+/// chain the index was written through, and which end of the shard it is at.
+///
+/// The metadata half of [`Sharding`], read without the inner chunks' own
+/// codecs, so a shard's index can be found and read, and its inner chunks
+/// located, whatever those codecs are: planning a read is not decoding one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShardLayout {
+    /// The inner chunk shape.
+    chunk_shape: Vec<usize>,
     /// The chain the index itself was written through. Every codec in it must
     /// be fixed-size, which is what makes the index's length computable
     /// without reading it.
@@ -98,7 +119,7 @@ impl Shard {
 impl Sharding {
     /// Read the codec's `configuration` object.
     pub(crate) fn from_v3(config: &Value, dtype: DType) -> Result<Self, FieldglassError> {
-        let chunk_shape = read_shape(config.get("chunk_shape"), "sharding_indexed chunk_shape")?;
+        let layout = ShardLayout::from_v3(config)?;
         let inner = CodecChain::from_v3(
             config.get("codecs").ok_or_else(|| {
                 FieldglassError::Parse(
@@ -112,6 +133,19 @@ impl Sharding {
                 "a shard nested inside a shard is not decoded".to_string(),
             ));
         }
+        Ok(Self {
+            chunk_shape: layout.chunk_shape.clone(),
+            inner,
+            layout,
+        })
+    }
+}
+
+impl ShardLayout {
+    /// Read the metadata half of a `sharding_indexed` codec's
+    /// `configuration`: everything but the inner `codecs`.
+    pub fn from_v3(config: &Value) -> Result<Self, FieldglassError> {
+        let chunk_shape = read_shape(config.get("chunk_shape"), "sharding_indexed chunk_shape")?;
         let index = CodecChain::from_v3(
             config.get("index_codecs").ok_or_else(|| {
                 FieldglassError::Parse(
@@ -136,19 +170,15 @@ impl Sharding {
         };
         Ok(Self {
             chunk_shape,
-            inner,
             index,
             location,
         })
     }
 
-    /// The byte order the inner chunks' own `bytes` codec states.
-    ///
-    /// The elements of a sharded array live in its inner chunks, so this is
-    /// where its byte order is stated — the array's outer chain holds only this
-    /// codec.
-    pub(crate) fn inner_endian(&self) -> Option<Endian> {
-        self.inner.declared_endian()
+    /// The inner chunk shape.
+    #[must_use]
+    pub fn chunk_shape(&self) -> &[usize] {
+        &self.chunk_shape
     }
 
     /// Which end of the shard its index sits at.
@@ -183,6 +213,16 @@ impl Sharding {
             .iter()
             .try_fold(1usize, |acc, &n| acc.checked_mul(n))
             .ok_or_else(|| FieldglassError::Parse("a shard's inner grid overflows".to_string()))?;
+        // The index's length is what a host is told to fetch, so it is held
+        // to a size a host should fetch: past this, metadata could ask for a
+        // 16 TiB index, or one longer than a JS number counts exactly.
+        if entries as u64 > MAX_SHARD_ENTRIES {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "a shard of {entries} inner chunks; at most {MAX_SHARD_ENTRIES} are read, an \
+                 index of {} MiB",
+                (MAX_SHARD_ENTRIES * ENTRY_LEN as u64) >> 20
+            )));
+        }
         Ok((chunks_per_shard, entries))
     }
 
@@ -341,6 +381,55 @@ impl Sharding {
             chunks_per_shard,
             entries: out,
         })
+    }
+}
+
+impl Sharding {
+    /// The byte order the inner chunks' own `bytes` codec states.
+    ///
+    /// The elements of a sharded array live in its inner chunks, so this is
+    /// where its byte order is stated — the array's outer chain holds only this
+    /// codec.
+    pub(crate) fn inner_endian(&self) -> Option<Endian> {
+        self.inner.declared_endian()
+    }
+
+    /// Where this codec's index is and how it is read: the part of it that
+    /// is metadata, which locating inner chunks needs and decoding them does
+    /// not.
+    #[must_use]
+    pub fn layout(&self) -> &ShardLayout {
+        &self.layout
+    }
+
+    /// Which end of the shard its index sits at.
+    #[must_use]
+    pub fn index_location(&self) -> IndexLocation {
+        self.layout.location
+    }
+
+    /// See [`ShardLayout::index_len`].
+    pub fn index_len(&self, outer_shape: &[usize]) -> Result<u64, FieldglassError> {
+        self.layout.index_len(outer_shape)
+    }
+
+    /// See [`ShardLayout::index_range`].
+    pub fn index_range(
+        &self,
+        outer_shape: &[usize],
+        shard_size: u64,
+    ) -> Result<ByteRange, FieldglassError> {
+        self.layout.index_range(outer_shape, shard_size)
+    }
+
+    /// See [`ShardLayout::read_index`].
+    pub fn read_index(
+        &self,
+        raw_index: &[u8],
+        outer_shape: &[usize],
+        shard_size: u64,
+    ) -> Result<ShardIndex, FieldglassError> {
+        self.layout.read_index(raw_index, outer_shape, shard_size)
     }
 
     /// Decode one inner chunk's stored bytes to its raw element bytes, in C
@@ -551,7 +640,7 @@ mod tests {
             u8_dtype(),
         )
         .unwrap();
-        assert_eq!(defaulted.location, IndexLocation::End);
+        assert_eq!(defaulted.index_location(), IndexLocation::End);
     }
 
     /// The all-ones sentinel is an absent chunk, and a zero-length chunk at
@@ -720,6 +809,14 @@ mod tests {
             "past the end",
         );
         // The index of this shard is its last 68 bytes, from byte 16.
+        //
+        // A known divergence from zarr-python (3.3.0), which reads such an
+        // entry and decodes the index's own bytes as the chunk's values
+        // (recorded with its reproduction in tests/fixtures/NOTICE.md). The
+        // specification lays the index and the chunk content out as separate
+        // parts of the shard and states no case where they share bytes, so an
+        // entry over the index is a malformed or hostile index, and reading it
+        // would show index bytes as data.
         refused(
             &index_at_end(&[(0, 4), (4, 4), (8, 4), (14, 4)]),
             "end",
@@ -782,6 +879,21 @@ mod tests {
             u8_dtype(),
         )
         .unwrap();
+        assert_eq!(
+            MAX_SHARD_ENTRIES,
+            fieldglass_core::array::MAX_PLANNED_CHUNKS
+        );
+        // At the cap the index is 16 MiB and four bytes; one past it is
+        // refused, so metadata cannot ask a host for a larger index.
+        let grid = |n: usize| [n, 1024, 1, 1];
+        assert_eq!(
+            sharding.index_len(&grid(1024)).unwrap(),
+            MAX_SHARD_ENTRIES * 16 + 4
+        );
+        assert!(matches!(
+            sharding.index_len(&grid(1025)),
+            Err(FieldglassError::UnsupportedSection(_))
+        ));
         let huge = usize::MAX / 2 + 1;
         assert!(sharding.index_len(&[huge, 2, 1, 1]).is_err());
         assert!(sharding.index_len(&[usize::MAX / 8, 1, 1, 1]).is_err());

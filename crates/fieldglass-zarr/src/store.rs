@@ -1024,10 +1024,10 @@ fn read<O: ObjectSource>(
 
     let mut out = vec![fill; count];
     for (index, key) in covering.iter().zip(&keys) {
-        if let Some((sharded, touched)) = &by_range
+        if let Some(plan) = &by_range
             && ranged.contains(key)
         {
-            sharded::read_ranged(objects, sharded, touched, index, key, region, &mut out)?;
+            sharded::read_ranged(objects, &decoder, plan, index, key, region, &mut out)?;
             continue;
         }
         // Absent is the fill value, which `out` already holds.
