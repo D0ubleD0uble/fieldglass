@@ -204,6 +204,10 @@ pub use render::{
     WarpTarget,
 };
 pub use session::PlacedSlice;
+/// The held-index check `Session::decode_slice` runs, for a host that holds its
+/// own array source (#1301).
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub use session::check_slice_indices;
 /// One line through a combined map, for a host that holds an `ArraySource`
 /// rather than a `Session` (#1208).
 #[cfg(all(feature = "analysis", any(feature = "netcdf", feature = "zarr")))]

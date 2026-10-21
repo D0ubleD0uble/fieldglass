@@ -255,3 +255,40 @@ fn the_twins_decode_to_the_dataset_they_were_written_from() {
     }
     assert_eq!(f.georef.kind, "latlon");
 }
+
+/// A held index at its axis's length is the caller's mistake on a Zarr store:
+/// `invalid_option`, not the `decode` of a file that did not parse (#1301).
+/// Every renderable variable with a held axis (the window stores have a time
+/// axis), in both editions, with each held axis in turn.
+#[test]
+fn a_held_index_past_its_axis_is_invalid_option_on_a_zarr_store() {
+    let mut checked = 0;
+    for session in [
+        Session::open_store(load(&format!("{FIXTURES}/windows/window_v2"))).expect("v2"),
+        Session::open_store(load(&format!("{FIXTURES}/windows/window_v3"))).expect("v3"),
+    ] {
+        for v in session.variables() {
+            let (Some(y), Some(x)) = (v.detected_y_dim, v.detected_x_dim) else {
+                continue;
+            };
+            for d in 0..v.dims.len() {
+                if d as u32 == y || d as u32 == x {
+                    continue;
+                }
+                let mut indices = vec![0u32; v.dims.len()];
+                indices[d] = u32::try_from(v.dims[d].length).expect("small axis");
+                let err = session
+                    .decode_slice(v.index, y, x, &indices, &DecodeOptions::default())
+                    .expect_err("an index at the axis length is refused");
+                assert_eq!(err.code(), "invalid_option", "{}: {err}", v.name);
+                // The last valid index still decodes.
+                indices[d] -= 1;
+                session
+                    .decode_slice(v.index, y, x, &indices, &DecodeOptions::default())
+                    .unwrap_or_else(|e| panic!("{}: {e}", v.name));
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 0, "the fixtures hold a variable with a held axis");
+}

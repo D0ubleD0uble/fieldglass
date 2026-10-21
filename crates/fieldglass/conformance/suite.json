@@ -32480,6 +32480,53 @@
       }
     },
     {
+      "id": "ersst/decode_slice/index_past_axis",
+      "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
+      "op": "decodeSlice",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": 2,
+        "xDim": 3,
+        "sliceIndices": [
+          0,
+          1,
+          0,
+          0
+        ],
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "error": {
+          "code": "invalid_option",
+          "hasMessage": true
+        }
+      }
+    },
+    {
       "id": "ersst/decode_slice/same_axis",
       "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
       "op": "decodeSlice",

@@ -2930,6 +2930,9 @@ impl NetcdfFile {
             ))
             .into());
         }
+        // Each held index against its own axis, as `decode_line` words it
+        // (#1301), before the reader calls it a parse error.
+        fieldglass::check_slice_indices(&var.name, &var.dims, y_dim, x_dim, slice_indices)?;
         // The two horizontal entries are ignored by the read, so they are not
         // part of what names the plane either.
         let fixed: Vec<usize> = slice_indices
@@ -5655,6 +5658,45 @@ mod netcdf_slice_tests {
             curvilinear: Mutex::new(std::collections::HashMap::new()),
             warps: fieldglass::WarpMemo::new(),
         }
+    }
+
+    /// A held index at its axis's length is the caller's mistake, refused as
+    /// `invalid_option` before the reader, on the render path and on the plane
+    /// every other read (probe, CSV, Compare B) shares (#1301). ersst's `lev`
+    /// has one level; a drawn axis's own entry is ignored, as before.
+    #[test]
+    fn a_held_index_past_its_axis_is_invalid_option() {
+        let handle = handle(ERSST);
+        let var = handle
+            .view
+            .renderable_variables()
+            .into_iter()
+            .next()
+            .expect("a renderable variable");
+        assert_eq!(var.dims.len(), 4, "time, lev, lat, lon");
+        let (y, x) = (2usize, 3usize);
+
+        let err = handle
+            .render_slice(
+                var.decode_index as u32,
+                y as u32,
+                x as u32,
+                vec![0, 1, 0, 0],
+                opts("source"),
+            )
+            .expect_err("lev has one level");
+        assert_eq!(err.api().map(Error::code), Some("invalid_option"));
+        let err = handle
+            .slice_plane(&var, y, x, &[0, 1, 0, 0])
+            .expect_err("lev has one level");
+        let api = err.api().expect("an api error");
+        assert_eq!(api.code(), "invalid_option");
+        assert!(api.to_string().contains("past the end"), "{api}");
+
+        // The drawn axes' entries are not held, so they are not checked.
+        handle
+            .slice_plane(&var, y, x, &[0, 0, 9999, 9999])
+            .expect("a drawn axis's entry is ignored");
     }
 
     /// `t2m(120, 721, 1440)` float32, about 2.5 GB decoded whole, of which two
