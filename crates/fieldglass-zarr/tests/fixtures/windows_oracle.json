@@ -929,6 +929,2126 @@
    }
   ]
  },
+ "window_sharded_v3": {
+  "coordinate_chunks": [
+   {
+    "array": "time",
+    "index": [
+     0
+    ],
+    "key": "time/c/0"
+   },
+   {
+    "array": "latitude",
+    "index": [
+     0
+    ],
+    "key": "latitude/c/0"
+   },
+   {
+    "array": "longitude",
+    "index": [
+     0
+    ],
+    "key": "longitude/c/0"
+   }
+  ],
+  "dimensions": [
+   "time",
+   "latitude",
+   "longitude"
+  ],
+  "edition": 3,
+  "index_length": 100,
+  "variables": [
+   "t2m",
+   "t2m_start"
+  ],
+  "windows": {
+   "t2m": [
+    {
+     "bounds": [
+      5.0,
+      45.0,
+      50.0,
+      130.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m/c/1/0/0"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "key": "t2m/c/1/1/0"
+      }
+     ],
+     "columns": [
+      [
+       2,
+       5
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m/c/1/0/0",
+       "length": 48,
+       "offset": 48
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        0
+       ],
+       "key": "t2m/c/1/0/0",
+       "length": 48,
+       "offset": 144
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        1
+       ],
+       "key": "t2m/c/1/0/0",
+       "length": 48,
+       "offset": 192
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/1/1/0",
+       "length": 48,
+       "offset": 0
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m/c/1/1/0",
+       "length": 48,
+       "offset": 48
+      }
+     ],
+     "name": "crosses_chunk_edges",
+     "rows": [
+      3,
+      7
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m/c/1/0/0",
+       "length": 100,
+       "location": "end"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "key": "t2m/c/1/1/0",
+       "length": 100,
+       "location": "end"
+      }
+     ],
+     "shard_sizes": {
+      "t2m/c/1/0/0": 340,
+      "t2m/c/1/1/0": 196
+     },
+     "time": 1,
+     "values": [
+      1302.0,
+      1303.0,
+      "NaN",
+      1402.0,
+      1403.0,
+      1404.0,
+      1502.0,
+      1503.0,
+      1504.0,
+      1602.0,
+      1603.0,
+      1604.0
+     ]
+    },
+    {
+     "bounds": [
+      55.0,
+      75.0,
+      -75.0,
+      75.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        2,
+        0,
+        0
+       ],
+       "key": "t2m/c/2/0/0"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        2,
+        0,
+        1
+       ],
+       "key": "t2m/c/2/0/1"
+      }
+     ],
+     "columns": [
+      [
+       10,
+       12
+      ],
+      [
+       0,
+       3
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        2,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/2/0/0",
+       "length": 48,
+       "offset": 0
+      },
+      {
+       "array": "t2m",
+       "index": [
+        2,
+        0,
+        1
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/2/0/1",
+       "length": 48,
+       "offset": 0
+      }
+     ],
+     "name": "crosses_the_seam",
+     "rows": [
+      0,
+      2
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m",
+       "index": [
+        2,
+        0,
+        0
+       ],
+       "key": "t2m/c/2/0/0",
+       "length": 100,
+       "location": "end"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        2,
+        0,
+        1
+       ],
+       "key": "t2m/c/2/0/1",
+       "length": 100,
+       "location": "end"
+      }
+     ],
+     "shard_sizes": {
+      "t2m/c/2/0/0": 388,
+      "t2m/c/2/0/1": 244
+     },
+     "time": 2,
+     "values": [
+      2010.0,
+      2011.0,
+      2000.0,
+      2001.0,
+      2002.0,
+      2110.0,
+      2111.0,
+      2100.0,
+      2101.0,
+      2102.0
+     ]
+    },
+    {
+     "bounds": [
+      -90.0,
+      90.0,
+      -180.0,
+      180.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/0/0/0"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m/c/0/0/1"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m/c/0/1/0"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "key": "t2m/c/0/1/1"
+      }
+     ],
+     "columns": [
+      [
+       0,
+       12
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/0/0/0",
+       "length": 48,
+       "offset": 0
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m/c/0/0/0",
+       "length": 48,
+       "offset": 96
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m/c/0/0/0",
+       "length": 48,
+       "offset": 48
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        1,
+        1
+       ],
+       "key": "t2m/c/0/0/0",
+       "length": 48,
+       "offset": 144
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        0
+       ],
+       "key": "t2m/c/0/0/0",
+       "length": 48,
+       "offset": 192
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        1
+       ],
+       "key": "t2m/c/0/0/0",
+       "length": 48,
+       "offset": 240
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        1
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/0/0/1",
+       "length": 48,
+       "offset": 0
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        1
+       ],
+       "inner": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m/c/0/0/1",
+       "length": 48,
+       "offset": 48
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        1
+       ],
+       "inner": [
+        0,
+        2,
+        0
+       ],
+       "key": "t2m/c/0/0/1",
+       "length": 48,
+       "offset": 96
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/0/1/0",
+       "length": 48,
+       "offset": 0
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m/c/0/1/0",
+       "length": 48,
+       "offset": 48
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/0/1/1",
+       "length": 48,
+       "offset": 0
+      }
+     ],
+     "name": "whole_grid",
+     "rows": [
+      0,
+      8
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/0/0/0",
+       "length": 100,
+       "location": "end"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m/c/0/0/1",
+       "length": 100,
+       "location": "end"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m/c/0/1/0",
+       "length": 100,
+       "location": "end"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "key": "t2m/c/0/1/1",
+       "length": 100,
+       "location": "end"
+      }
+     ],
+     "shard_sizes": {
+      "t2m/c/0/0/0": 388,
+      "t2m/c/0/0/1": 244,
+      "t2m/c/0/1/0": 196,
+      "t2m/c/0/1/1": 148
+     },
+     "time": 0,
+     "values": [
+      0.0,
+      1.0,
+      2.0,
+      3.0,
+      4.0,
+      5.0,
+      6.0,
+      7.0,
+      8.0,
+      9.0,
+      10.0,
+      11.0,
+      100.0,
+      101.0,
+      102.0,
+      103.0,
+      104.0,
+      105.0,
+      106.0,
+      107.0,
+      108.0,
+      109.0,
+      110.0,
+      111.0,
+      200.0,
+      201.0,
+      202.0,
+      203.0,
+      204.0,
+      205.0,
+      206.0,
+      207.0,
+      208.0,
+      209.0,
+      210.0,
+      211.0,
+      300.0,
+      301.0,
+      302.0,
+      303.0,
+      304.0,
+      305.0,
+      306.0,
+      307.0,
+      308.0,
+      309.0,
+      310.0,
+      311.0,
+      400.0,
+      401.0,
+      402.0,
+      403.0,
+      404.0,
+      405.0,
+      406.0,
+      407.0,
+      408.0,
+      409.0,
+      410.0,
+      411.0,
+      500.0,
+      501.0,
+      502.0,
+      503.0,
+      504.0,
+      505.0,
+      506.0,
+      507.0,
+      508.0,
+      509.0,
+      510.0,
+      511.0,
+      600.0,
+      601.0,
+      602.0,
+      603.0,
+      604.0,
+      605.0,
+      606.0,
+      607.0,
+      608.0,
+      609.0,
+      610.0,
+      611.0,
+      700.0,
+      701.0,
+      702.0,
+      703.0,
+      704.0,
+      705.0,
+      706.0,
+      707.0,
+      708.0,
+      709.0,
+      710.0,
+      711.0
+     ]
+    },
+    {
+     "bounds": [
+      10.0,
+      40.0,
+      60.0,
+      120.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m/c/1/0/0"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "key": "t2m/c/1/1/0"
+      }
+     ],
+     "columns": [
+      [
+       2,
+       5
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m/c/1/0/0",
+       "length": 48,
+       "offset": 48
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        0
+       ],
+       "key": "t2m/c/1/0/0",
+       "length": 48,
+       "offset": 144
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        1
+       ],
+       "key": "t2m/c/1/0/0",
+       "length": 48,
+       "offset": 192
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/1/1/0",
+       "length": 48,
+       "offset": 0
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m/c/1/1/0",
+       "length": 48,
+       "offset": 48
+      }
+     ],
+     "name": "edges_on_centres",
+     "rows": [
+      3,
+      7
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m/c/1/0/0",
+       "length": 100,
+       "location": "end"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "key": "t2m/c/1/1/0",
+       "length": 100,
+       "location": "end"
+      }
+     ],
+     "shard_sizes": {
+      "t2m/c/1/0/0": 340,
+      "t2m/c/1/1/0": 196
+     },
+     "time": 1,
+     "values": [
+      1302.0,
+      1303.0,
+      "NaN",
+      1402.0,
+      1403.0,
+      1404.0,
+      1502.0,
+      1503.0,
+      1504.0,
+      1602.0,
+      1603.0,
+      1604.0
+     ]
+    },
+    {
+     "bounds": [
+      -1.0,
+      1.0,
+      329.0,
+      331.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m/c/0/1/0"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "key": "t2m/c/0/1/1"
+      }
+     ],
+     "columns": [
+      [
+       11,
+       12
+      ],
+      [
+       0,
+       1
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/0/1/0",
+       "length": 48,
+       "offset": 0
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m/c/0/1/1",
+       "length": 48,
+       "offset": 0
+      }
+     ],
+     "name": "one_cell_at_the_corner",
+     "rows": [
+      6,
+      8
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m/c/0/1/0",
+       "length": 100,
+       "location": "end"
+      },
+      {
+       "array": "t2m",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "key": "t2m/c/0/1/1",
+       "length": 100,
+       "location": "end"
+      }
+     ],
+     "shard_sizes": {
+      "t2m/c/0/1/0": 196,
+      "t2m/c/0/1/1": 148
+     },
+     "time": 0,
+     "values": [
+      611.0,
+      600.0,
+      711.0,
+      700.0
+     ]
+    },
+    {
+     "bounds": [
+      35.0,
+      65.0,
+      115.0,
+      215.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m/c/1/0/0"
+      }
+     ],
+     "columns": [
+      [
+       4,
+       8
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m/c/1/0/0",
+       "length": 48,
+       "offset": 96
+      }
+     ],
+     "name": "over_the_unwritten_inner_chunk",
+     "rows": [
+      1,
+      4
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m/c/1/0/0",
+       "length": 100,
+       "location": "end"
+      }
+     ],
+     "shard_sizes": {
+      "t2m/c/1/0/0": 340
+     },
+     "time": 1,
+     "values": [
+      1104.0,
+      1105.0,
+      1106.0,
+      1107.0,
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN"
+     ]
+    }
+   ],
+   "t2m_start": [
+    {
+     "bounds": [
+      5.0,
+      45.0,
+      50.0,
+      130.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/1/0/0"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/1/1/0"
+      }
+     ],
+     "columns": [
+      [
+       2,
+       5
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/1/0/0",
+       "length": 41,
+       "offset": 141
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        0
+       ],
+       "key": "t2m_start/c/1/0/0",
+       "length": 41,
+       "offset": 223
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        1
+       ],
+       "key": "t2m_start/c/1/0/0",
+       "length": 41,
+       "offset": 264
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/1/1/0",
+       "length": 41,
+       "offset": 100
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m_start/c/1/1/0",
+       "length": 41,
+       "offset": 141
+      }
+     ],
+     "name": "crosses_chunk_edges",
+     "rows": [
+      3,
+      7
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/1/0/0",
+       "length": 100,
+       "location": "start"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/1/1/0",
+       "length": 100,
+       "location": "start"
+      }
+     ],
+     "shard_sizes": {
+      "t2m_start/c/1/0/0": 305,
+      "t2m_start/c/1/1/0": 182
+     },
+     "time": 1,
+     "values": [
+      1302.0,
+      1303.0,
+      "NaN",
+      1402.0,
+      1403.0,
+      1404.0,
+      1502.0,
+      1503.0,
+      1504.0,
+      1602.0,
+      1603.0,
+      1604.0
+     ]
+    },
+    {
+     "bounds": [
+      55.0,
+      75.0,
+      -75.0,
+      75.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        2,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/2/0/0"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        2,
+        0,
+        1
+       ],
+       "key": "t2m_start/c/2/0/1"
+      }
+     ],
+     "columns": [
+      [
+       10,
+       12
+      ],
+      [
+       0,
+       3
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        2,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/2/0/0",
+       "length": 41,
+       "offset": 100
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        2,
+        0,
+        1
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/2/0/1",
+       "length": 41,
+       "offset": 100
+      }
+     ],
+     "name": "crosses_the_seam",
+     "rows": [
+      0,
+      2
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m_start",
+       "index": [
+        2,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/2/0/0",
+       "length": 100,
+       "location": "start"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        2,
+        0,
+        1
+       ],
+       "key": "t2m_start/c/2/0/1",
+       "length": 100,
+       "location": "start"
+      }
+     ],
+     "shard_sizes": {
+      "t2m_start/c/2/0/0": 346,
+      "t2m_start/c/2/0/1": 223
+     },
+     "time": 2,
+     "values": [
+      2010.0,
+      2011.0,
+      2000.0,
+      2001.0,
+      2002.0,
+      2110.0,
+      2111.0,
+      2100.0,
+      2101.0,
+      2102.0
+     ]
+    },
+    {
+     "bounds": [
+      -90.0,
+      90.0,
+      -180.0,
+      180.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/0/0/0"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m_start/c/0/0/1"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/0/1/0"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "key": "t2m_start/c/0/1/1"
+      }
+     ],
+     "columns": [
+      [
+       0,
+       12
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/0/0/0",
+       "length": 41,
+       "offset": 100
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m_start/c/0/0/0",
+       "length": 41,
+       "offset": 182
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/0/0/0",
+       "length": 41,
+       "offset": 141
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        1,
+        1
+       ],
+       "key": "t2m_start/c/0/0/0",
+       "length": 41,
+       "offset": 223
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        0
+       ],
+       "key": "t2m_start/c/0/0/0",
+       "length": 41,
+       "offset": 264
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        1
+       ],
+       "key": "t2m_start/c/0/0/0",
+       "length": 41,
+       "offset": 305
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        1
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/0/0/1",
+       "length": 41,
+       "offset": 100
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        1
+       ],
+       "inner": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/0/0/1",
+       "length": 41,
+       "offset": 141
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        1
+       ],
+       "inner": [
+        0,
+        2,
+        0
+       ],
+       "key": "t2m_start/c/0/0/1",
+       "length": 41,
+       "offset": 182
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/0/1/0",
+       "length": 41,
+       "offset": 100
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m_start/c/0/1/0",
+       "length": 41,
+       "offset": 141
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/0/1/1",
+       "length": 41,
+       "offset": 100
+      }
+     ],
+     "name": "whole_grid",
+     "rows": [
+      0,
+      8
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/0/0/0",
+       "length": 100,
+       "location": "start"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m_start/c/0/0/1",
+       "length": 100,
+       "location": "start"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/0/1/0",
+       "length": 100,
+       "location": "start"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "key": "t2m_start/c/0/1/1",
+       "length": 100,
+       "location": "start"
+      }
+     ],
+     "shard_sizes": {
+      "t2m_start/c/0/0/0": 346,
+      "t2m_start/c/0/0/1": 223,
+      "t2m_start/c/0/1/0": 182,
+      "t2m_start/c/0/1/1": 141
+     },
+     "time": 0,
+     "values": [
+      0.0,
+      1.0,
+      2.0,
+      3.0,
+      4.0,
+      5.0,
+      6.0,
+      7.0,
+      8.0,
+      9.0,
+      10.0,
+      11.0,
+      100.0,
+      101.0,
+      102.0,
+      103.0,
+      104.0,
+      105.0,
+      106.0,
+      107.0,
+      108.0,
+      109.0,
+      110.0,
+      111.0,
+      200.0,
+      201.0,
+      202.0,
+      203.0,
+      204.0,
+      205.0,
+      206.0,
+      207.0,
+      208.0,
+      209.0,
+      210.0,
+      211.0,
+      300.0,
+      301.0,
+      302.0,
+      303.0,
+      304.0,
+      305.0,
+      306.0,
+      307.0,
+      308.0,
+      309.0,
+      310.0,
+      311.0,
+      400.0,
+      401.0,
+      402.0,
+      403.0,
+      404.0,
+      405.0,
+      406.0,
+      407.0,
+      408.0,
+      409.0,
+      410.0,
+      411.0,
+      500.0,
+      501.0,
+      502.0,
+      503.0,
+      504.0,
+      505.0,
+      506.0,
+      507.0,
+      508.0,
+      509.0,
+      510.0,
+      511.0,
+      600.0,
+      601.0,
+      602.0,
+      603.0,
+      604.0,
+      605.0,
+      606.0,
+      607.0,
+      608.0,
+      609.0,
+      610.0,
+      611.0,
+      700.0,
+      701.0,
+      702.0,
+      703.0,
+      704.0,
+      705.0,
+      706.0,
+      707.0,
+      708.0,
+      709.0,
+      710.0,
+      711.0
+     ]
+    },
+    {
+     "bounds": [
+      10.0,
+      40.0,
+      60.0,
+      120.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/1/0/0"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/1/1/0"
+      }
+     ],
+     "columns": [
+      [
+       2,
+       5
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/1/0/0",
+       "length": 41,
+       "offset": 141
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        0
+       ],
+       "key": "t2m_start/c/1/0/0",
+       "length": 41,
+       "offset": 223
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        2,
+        1
+       ],
+       "key": "t2m_start/c/1/0/0",
+       "length": 41,
+       "offset": 264
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/1/1/0",
+       "length": 41,
+       "offset": 100
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m_start/c/1/1/0",
+       "length": 41,
+       "offset": 141
+      }
+     ],
+     "name": "edges_on_centres",
+     "rows": [
+      3,
+      7
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/1/0/0",
+       "length": 100,
+       "location": "start"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/1/1/0",
+       "length": 100,
+       "location": "start"
+      }
+     ],
+     "shard_sizes": {
+      "t2m_start/c/1/0/0": 305,
+      "t2m_start/c/1/1/0": 182
+     },
+     "time": 1,
+     "values": [
+      1302.0,
+      1303.0,
+      "NaN",
+      1402.0,
+      1403.0,
+      1404.0,
+      1502.0,
+      1503.0,
+      1504.0,
+      1602.0,
+      1603.0,
+      1604.0
+     ]
+    },
+    {
+     "bounds": [
+      -1.0,
+      1.0,
+      329.0,
+      331.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/0/1/0"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "key": "t2m_start/c/0/1/1"
+      }
+     ],
+     "columns": [
+      [
+       11,
+       12
+      ],
+      [
+       0,
+       1
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/0/1/0",
+       "length": 41,
+       "offset": 100
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "inner": [
+        0,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/0/1/1",
+       "length": 41,
+       "offset": 100
+      }
+     ],
+     "name": "one_cell_at_the_corner",
+     "rows": [
+      6,
+      8
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        0
+       ],
+       "key": "t2m_start/c/0/1/0",
+       "length": 100,
+       "location": "start"
+      },
+      {
+       "array": "t2m_start",
+       "index": [
+        0,
+        1,
+        1
+       ],
+       "key": "t2m_start/c/0/1/1",
+       "length": 100,
+       "location": "start"
+      }
+     ],
+     "shard_sizes": {
+      "t2m_start/c/0/1/0": 182,
+      "t2m_start/c/0/1/1": 141
+     },
+     "time": 0,
+     "values": [
+      611.0,
+      600.0,
+      711.0,
+      700.0
+     ]
+    },
+    {
+     "bounds": [
+      35.0,
+      65.0,
+      115.0,
+      215.0
+     ],
+     "chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/1/0/0"
+      }
+     ],
+     "columns": [
+      [
+       4,
+       8
+      ]
+     ],
+     "inner_chunks": [
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "inner": [
+        0,
+        0,
+        1
+       ],
+       "key": "t2m_start/c/1/0/0",
+       "length": 41,
+       "offset": 182
+      }
+     ],
+     "name": "over_the_unwritten_inner_chunk",
+     "rows": [
+      1,
+      4
+     ],
+     "shard_indexes": [
+      {
+       "array": "t2m_start",
+       "index": [
+        1,
+        0,
+        0
+       ],
+       "key": "t2m_start/c/1/0/0",
+       "length": 100,
+       "location": "start"
+      }
+     ],
+     "shard_sizes": {
+      "t2m_start/c/1/0/0": 305
+     },
+     "time": 1,
+     "values": [
+      1104.0,
+      1105.0,
+      1106.0,
+      1107.0,
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN"
+     ]
+    }
+   ]
+  }
+ },
  "window_v2": {
   "coordinate_chunks": [
    {

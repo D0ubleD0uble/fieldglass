@@ -140,14 +140,16 @@ pub use fieldglass_core::{LeftOut, LeftOutCause};
 // a store can name the trait, the tree and the seam without a `fieldglass-core`
 // line of its own (#658).
 pub use fieldglass_core::array::{ArrayDescription, ArraySource, Group};
-pub use fieldglass_core::bytes::ObjectSource;
+pub use fieldglass_core::bytes::{ByteRange, ObjectSource};
 pub use store::ZarrStore;
+#[cfg(feature = "codecs")]
+pub use store::{InnerChunkRange, ShardIndexRange};
 // Re-exported so a consumer needs no direct `fieldglass-core` line in its
 // manifest, and so cannot take one without `default-features = false` — which
 // would re-enable `render` and `fs` across the whole dependency graph (#537).
 pub use fieldglass_core::FieldglassError;
 #[cfg(feature = "codecs")]
-pub use shard::{IndexLocation, Shard, Sharding};
+pub use shard::{IndexLocation, Shard, ShardIndex, Sharding};
 
 /// The decode side of one Zarr array: its element type, its chunk shape, and
 /// the codec chain its chunks were written through.

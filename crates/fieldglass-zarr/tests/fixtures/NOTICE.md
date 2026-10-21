@@ -156,6 +156,31 @@ The oracle lists each store's unwritten coordinate chunks, and the script fails
 if `latitude/c/2` is ever written. Four windows: across chunk edges, across the
 seam, the whole grid, and the equator row (widened to the row before it).
 
+`windows/window_sharded_v3` (#1123) is the north-to-south dataset again, with
+its data variable sharded: shards of 1 x 6 x 8 holding inner chunks of 1 x 2 x 4,
+so the grid is ragged both ways and the second shard of each axis carries index
+entries for inner chunks past the array. `t2m` has its index at the end of each
+shard (zarr-python's default, and what dynamical.org's stores write) and its
+inner chunks through blosc (lz4, byte shuffle); `t2m_start` holds the same
+values with its index at the start and its inner chunks through zstd. Both
+index chains are `bytes` + `crc32c`. Step 1's cells at rows 2-3, columns 4-7 are
+NaN, the fill value, so zarr-python writes no bytes for that inner chunk and its
+index entry is the all-ones sentinel; the script fails if it is ever written.
+`t2m` is written by xarray's `to_zarr` and `t2m_start` by zarr-python's
+`create_array` with an explicit `ShardingCodec`, then the store is consolidated.
+Written by the same script with `--windows-only` (zarr-python 3.3.0, numcodecs
+0.16.5, xarray 2026.7.0), and reproducible byte for byte.
+
+Its oracle entry gives, per variable and per window (the five of `window_v3`
+and one over the unwritten inner chunk), the shards the window touches, each
+shard's index range and size, the byte range of every inner chunk the window
+intersects, and the values. The ranges come from the shard files themselves,
+read with Python's `struct` (pairs of little-endian `uint64`, the all-ones
+sentinel for an absent chunk), not through this crate; the values come back
+through xarray. `crates/fieldglass-zarr/tests/shard_ranges.rs`,
+`crates/fieldglass/tests/zarr_window.rs` and
+`crates/fieldglass-wasm/tests/node/zarr.mjs` read it.
+
 ## zstd wide-window store (`zstd_wide_window/`)
 
 A v2 `uint8` array of `(64, 64)` in one 4 KiB chunk under the `zstd`
