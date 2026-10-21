@@ -319,8 +319,10 @@ small, and it is *not* a substitute for the per-feature sections below it.
 - [ ] **Export PNG** from one render; the file opens and matches what was on
       screen.
 - [ ] Tick **Contours** and **only**, then **Export PNG**: the file shows the
-      isolines on a white background, without the colour field, and keeps the
-      colour bar. Untick Contours with **only** still ticked: the field is back
+      isolines without the colour field, and keeps the colour bar. The map area
+      is the editor's background, as on screen: dark in Dark Modern, white in
+      Light Modern, with the isolines and coastlines clearly readable in both
+      (the title and colour bar stay on white). Untick Contours with **only** still ticked: the field is back
       on screen and in the next PNG (#1270).
 - [ ] On a file with two grids, set Compare to A − B with Field B on the other
       grid. The status line says "Error: …", and **Export PNG** says "Export

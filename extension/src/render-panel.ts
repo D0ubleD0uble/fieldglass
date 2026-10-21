@@ -5114,8 +5114,14 @@ export function renderImagePanelHtml(
           }
           // Map: raster at native resolution, overlay scaled to align on top.
           const mapY = margin + titleH;
-          // Left out under Contours + only, by the rule the screen hides it by
-          // (#1270); the colour bar stays, as it does on screen.
+          // The map area gets the editor's background first, as on screen: cells
+          // the raster leaves transparent (masked, off the projection's disc,
+          // non-positive under log10) show it, and under Contours + only (#1270)
+          // the raster is left out and it is all that shows. So the
+          // theme-coloured isolines, coastlines and arrow key read as they do
+          // on screen (#1300). The colour bar stays either way.
+          g.fillStyle = themedBackground();
+          g.fillRect(margin, mapY, W, H);
           if (!contoursOnlyOn()) g.drawImage(raster, margin, mapY, W, H);
           if (overlay && overlay.width && overlay.height) {
             // The overlay is at the panel's size and is scaled to the raster's
