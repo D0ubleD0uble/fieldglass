@@ -744,6 +744,8 @@ def xarray_task(path: Path, args, variable: str) -> list[Result]:
         doc = run_probe(path, args, "--variable", variable)
     except Exception as e:
         raise RuntimeError(f"{path.name}:{variable}: {e}") from e
+    if not doc["items"]:
+        return [Result(path.name, variable).fail("probe returned no items")]
     try:
         ds = open_dataset(path, doc["format"] == "zarr")
     except OSError as e:
@@ -901,7 +903,8 @@ def report(results: list[Result], skipped_files: list[tuple[str, str]]) -> int:
     return 1 if n_fail else 0
 
 
-def main(argv=None) -> int:
+def main(argv=None, executor=None) -> int:
+    """`executor` is a factory `(max_workers=...)` for a context manager with `submit`; tests inject one."""
     ap = argparse.ArgumentParser(description="Probe-parity sweep of sample files against eccodes and xarray.")
     ap.add_argument("paths", nargs="*", type=Path, help="files, Zarr stores or directories (default: samples/ and samples/0.6.0/)")
     ap.add_argument("--n", type=int, default=200, help="points per message or slice (default 200)")
@@ -923,7 +926,8 @@ def main(argv=None) -> int:
         print("probe_parity_sweep: no sample files found; run tools/fetch_samples.sh first", file=sys.stderr)
         return 2
 
-    from concurrent.futures import ProcessPoolExecutor
+    if executor is None:
+        from concurrent.futures import ProcessPoolExecutor as executor
 
     docs = []
     skipped_files: list[tuple[str, str]] = []
@@ -948,7 +952,7 @@ def main(argv=None) -> int:
     ordered: list = []  # result slots in report order
     sentinel_of = SENTINELS.get
     try:
-        with ProcessPoolExecutor(max_workers=args.jobs) as pool:
+        with executor(max_workers=args.jobs) as pool:
             for f, doc in docs:
                 if doc["format"] in ("grib1", "grib2"):
                     ordered.append({"file": f.name, "future": pool.submit(grib_count_task, f, len(doc["items"]))})
@@ -967,7 +971,10 @@ def main(argv=None) -> int:
                     for name in doc["variables"]:
                         ordered.append({"file": f.name, "future": pool.submit(xarray_task, f, args, name)})
                 else:
-                    skipped_files.append((f.name, f"format {doc['format']!r}"))
+                    # A file with a GRIB/NetCDF/Zarr name that Fieldglass cannot identify was not checked.
+                    ordered.append({"file": f.name, "static": [
+                        Result(f.name, "format").fail(f"Fieldglass does not recognise the format ({doc['format']!r}); not checked")
+                    ]})
             results: list[Result] = []
             for slot in ordered:
                 if "static" in slot:

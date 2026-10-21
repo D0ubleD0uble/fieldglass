@@ -341,6 +341,135 @@ class HandleRelease(unittest.TestCase):
         self.assertEqual(ec.released, ["h0"])
 
 
+class SyncPool:
+    """A stand-in for the process pool: runs each task on submit."""
+
+    def __init__(self, max_workers=None):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def submit(self, fn, *a):
+        from concurrent.futures import Future
+
+        fut = Future()
+        try:
+            fut.set_result(fn(*a))
+        except Exception as e:
+            fut.set_exception(e)
+        return fut
+
+
+class MainWiring(unittest.TestCase):
+    """main() must route the new checks to a failing exit (#1314)."""
+
+    def setUp(self):
+        import contextlib
+        import io
+        import tempfile
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.saved = (sweep.run_probe, sweep.grib_task, sweep.grib_count_task)
+        self.io, self.cm = io, contextlib
+
+    def tearDown(self):
+        sweep.run_probe, sweep.grib_task, sweep.grib_count_task = self.saved
+        self.tmp.cleanup()
+
+    def sweep_exit(self, name, doc, grib_probes=None, eccodes_count=None):
+        (self.dir / name).write_bytes(b"x")
+        sweep.run_probe = lambda path, args, *extra: doc
+        if grib_probes is not None:
+            def task(path, item, probes, sentinel):
+                r = sweep.Result(path.name, item["label"])
+                r.probes = r.compared = r.both_valid = grib_probes
+                return r
+            sweep.grib_task = task
+        if eccodes_count is not None:
+            sweep.grib_count_task = lambda path, fg: sweep.count_check(path.name, fg, eccodes_count)
+        out = self.io.StringIO()
+        with self.cm.redirect_stdout(out), self.cm.redirect_stderr(self.io.StringIO()):
+            code = sweep.main([str(self.dir), "--n", "200"], executor=SyncPool)
+        return code, out.getvalue()
+
+    def grib_doc(self, n_items):
+        item = {"status": "ok", "probes": [], "grid": None, "raster": [1, 1], "bounds": [0, 1, 0, 1]}
+        return {"format": "grib2", "items": [dict(item, label=f"msg#{k}", index=k) for k in range(n_items)]}
+
+    def test_a_grib_file_fieldglass_reads_as_empty_fails(self):
+        code, out = self.sweep_exit("a.grib2", self.grib_doc(0), eccodes_count=2)
+        self.assertEqual(code, 1)
+        self.assertIn("Fieldglass finds 0", out)
+
+    def test_a_count_mismatch_fails(self):
+        code, out = self.sweep_exit("a.grib2", self.grib_doc(2), grib_probes=200, eccodes_count=3)
+        self.assertEqual(code, 1)
+        self.assertIn("message count", out)
+
+    def test_matching_counts_and_full_probes_pass(self):
+        code, _ = self.sweep_exit("a.grib2", self.grib_doc(2), grib_probes=200, eccodes_count=2)
+        self.assertEqual(code, 0)
+
+    def test_a_netcdf_file_with_no_variables_fails(self):
+        code, out = self.sweep_exit("b.nc", {"format": "netcdf", "variables": []})
+        self.assertEqual(code, 1)
+        self.assertIn("variables", out)
+
+    def test_an_item_with_few_probes_fails_through_main(self):
+        code, out = self.sweep_exit("a.grib2", self.grib_doc(1), grib_probes=10, eccodes_count=1)
+        self.assertEqual(code, 1)
+        self.assertIn("10 of 200", out)
+
+    def test_an_unrecognised_format_fails(self):
+        code, out = self.sweep_exit("c.grib", {"format": "unknown"})
+        self.assertEqual(code, 1)
+        self.assertIn("does not recognise", out)
+
+    def test_a_slice_with_few_probes_fails_in_xarray_task(self):
+        class DA:
+            dims = ("y", "x")
+
+            def isel(self, idx):
+                return self
+
+            def transpose(self, *d):
+                return self
+
+            values = None
+
+        class DS:
+            variables = {"v": 1}
+
+            def __getitem__(self, name):
+                return DA()
+
+            def close(self):
+                pass
+
+        item = {"label": "v[0]", "status": "ok", "name": "v", "yDim": 0, "xDim": 1, "sliceIndices": [0, 0],
+                "raster": GEOMETRY[0], "bounds": GEOMETRY[1], "probes": [probe(0, 0, 1.0)] * 10}
+        saved = sweep.open_dataset, sweep.GridOracle
+        sweep.run_probe = lambda path, args, *extra: {"format": "netcdf", "items": [item]}
+        sweep.open_dataset = lambda path, is_zarr: DS()
+        sweep.GridOracle = lambda *a: FakeOracle((0, 0), {(0, 0): 1.0})
+        try:
+            (res,) = sweep.xarray_task(self.dir / "b.nc", type("A", (), {"n": 200})(), "v")
+        finally:
+            sweep.open_dataset, sweep.GridOracle = saved
+        self.assertEqual(res.status, "FAIL")
+        self.assertIn("10 of 200", res.reason)
+
+    def test_a_variable_with_no_items_fails(self):
+        sweep.run_probe = lambda path, args, *extra: {"format": "netcdf", "items": []}
+        (res,) = sweep.xarray_task(self.dir / "b.nc", type("A", (), {"n": 200})(), "v")
+        self.assertEqual((res.status, res.reason), ("FAIL", "probe returned no items"))
+
+
 class GridSearch(unittest.TestCase):
     def setUp(self):
         try:
