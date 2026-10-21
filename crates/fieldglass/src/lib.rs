@@ -218,7 +218,10 @@ pub use session::{PaletteOptions, Raster, WarpOptions};
 /// One line through a named array, and one axis of it with its coordinates, for
 /// a host that holds an `ArraySource` rather than a `Session` (#172, #171).
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
-pub use session::{axis_values, left_out_of, line_through, undrawable_of, variables_of};
+pub use session::{
+    axis_values, dimensions_of, left_out_of, line_through, undrawable_of, variables_of,
+    vector_pairing_of,
+};
 
 // The seams a **host** implements, and the error they return. `Session::open`
 // takes bytes and `Session::open_store` takes an `impl ObjectSource`, so a host

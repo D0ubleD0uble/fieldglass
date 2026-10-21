@@ -89,6 +89,7 @@ const COMPARED: &[Op] = &[
     Op::Render,
     Op::Variables,
     Op::Dimensions,
+    Op::VectorPairing,
     Op::LeftOut,
     Op::Undrawable,
     Op::DecodeSlice,
@@ -282,9 +283,8 @@ fn observe(case: &Case) -> Option<Value> {
         Op::Variables => handle
             .variables()
             .and_then(|variables| Ok(to_js(serde_json::to_value(variables))?)),
-        Op::Dimensions => handle
-            .metadata()
-            .map(|meta| axes(meta.dimensions.iter().map(|d| (d.name.as_str(), d.length)))),
+        Op::Dimensions => handle.dimensions(),
+        Op::VectorPairing => handle.vector_pairing(args.index, args.index_v),
         Op::LeftOut => handle.left_out(),
         Op::Undrawable => handle.undrawable(),
         Op::DecodeSlice => {
@@ -408,18 +408,6 @@ fn display_value(display: &DisplayGrid) -> Result<Value, RenderError> {
         "georef": georef,
         "samples": samples,
     }))
-}
-
-/// A list of named axes in the shape `DimensionInfo` serialises to.
-///
-/// This host carries a length as `f64`, because napi hands JavaScript a number;
-/// the suite compares a length as an integer, so it crosses back as one. A
-/// length here is a dimension's size, never fractional and far below 2^53.
-fn axes<'a>(axes: impl Iterator<Item = (&'a str, f64)>) -> Value {
-    Value::Array(
-        axes.map(|(name, length)| json!({ "name": name, "length": length as u64 }))
-            .collect(),
-    )
 }
 
 /// Whether this host's call is an answer to the *same question* the case asks.

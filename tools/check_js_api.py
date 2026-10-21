@@ -58,6 +58,8 @@ SHARED: dict[str, str] = {
     "count": "",
     "message": "index: number",
     "variables": "",
+    "dimensions": "",
+    "vectorPairing": "u: number, v: number",
     "leftOut": "",
     "undrawable": "",
     "decode": "index: number, options?: DecodeOptions | null",
@@ -109,8 +111,6 @@ NAPI_ONLY_FUNCTIONS: dict[str, str] = {
 }
 WASM_ONLY: dict[str, str] = {
     "free": "wasm-bindgen's own release, which `close` also is",
-    "dimensions": "the shared dimensions a page builds one slider from",
-    "vectorPairing": "whether two fields are a u/v pair, asked before drawing",
     "warp": "values resampled for a GPU texture",
     "warpDisplay": "values resampled for a GPU texture, for a field decoded to draw",
     "palette": "colour as data for a shader",

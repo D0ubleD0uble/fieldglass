@@ -358,6 +358,10 @@ function withHandle(caseSpec, handle) {
   // rather than a message decoded by index.
   if (op === 'variables') return wire(handle.variables(), `${current}: variables`);
   if (op === 'dimensions') return wire(handle.dimensions(), `${current}: dimensions`);
+  // Whether two fields are a u/v pair (#1205): the wire string.
+  if (op === 'vectorPairing') {
+    return wire(handle.vectorPairing(args.index, args.indexV), `${current}: vectorPairing`);
+  }
   // What the listing leaves out and why (#1073): the same two lists the Node
   // addon's `leftOut()` and `undrawable()` return, held to one recording.
   if (op === 'leftOut') return wire(handle.leftOut(), `${current}: leftOut`);

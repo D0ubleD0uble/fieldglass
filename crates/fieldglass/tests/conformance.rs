@@ -222,8 +222,13 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "ersst/decode_line/short_slice_indices",
     "ersst/decode_slice/no_such_variable",
     "ersst/decode_slice/short_slice_indices",
+    "ersst/vector_pairing/past_the_end",
     "latlon/decode_line",
     "latlon/decode_slice",
+    "uv_grib1/vector_pairing/past_the_end",
+    "uv_grib1/vector_pairing/u_past_the_end",
+    "uv_grib2/vector_pairing/past_the_end",
+    "uv_grib2/vector_pairing/u_past_the_end",
 ];
 
 /// A case that stopped exercising its operation records a failure instead, and
