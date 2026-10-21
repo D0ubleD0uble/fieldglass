@@ -53,8 +53,19 @@ pub struct SourceSpec {
     pub latency_minutes: u32,
     /// How many cycles back to offer, newest first. A host walks them until a
     /// fetch succeeds, which is what covers a late or skipped run.
+    ///
+    /// At most [`MAX_CANDIDATES`]; more is refused by
+    /// [`validate`](Self::validate).
     pub max_candidates: u32,
 }
+
+/// The most cycles a [`SourceSpec`] may ask for.
+///
+/// A catalog asks for 3 to 5. 1024 is a month and a half of an hourly model,
+/// far past any walk-back a host would make, and small enough that the list a
+/// hostile catalog entry can force is a few tens of kilobytes rather than the
+/// four billion keys a `u32` would allow.
+pub const MAX_CANDIDATES: u32 = 1024;
 
 impl SourceSpec {
     /// Check the entry before it is used.
@@ -74,6 +85,12 @@ impl SourceSpec {
         if self.cycle_hours.windows(2).any(|w| w[0] >= w[1]) {
             return Err(FetchPlanError::UnsortedCycleHours {
                 hours: self.cycle_hours.clone(),
+            });
+        }
+        if self.max_candidates > MAX_CANDIDATES {
+            return Err(FetchPlanError::TooManyCandidates {
+                max_candidates: self.max_candidates,
+                limit: MAX_CANDIDATES,
             });
         }
         // Expanded against a fixed instant purely to reach every placeholder in
@@ -138,6 +155,8 @@ pub fn candidates(
     // epoch.
     let mut day = div_floor(due_by, SECS_PER_DAY);
     let per_day = source.cycle_hours.len() as u32;
+    // `validate` bounded `max_candidates` and `per_day` is 1..=24, so this
+    // cannot overflow.
     let days_needed = source.max_candidates.div_ceil(per_day.max(1)) + 1;
 
     for _ in 0..days_needed {
@@ -524,5 +543,41 @@ mod tests {
         // …and the boundary itself is still accepted, so the check is a bound
         // and not an off-by-one that quietly narrows the range.
         assert!(candidates(&hrrr(), MAX_UNIX_SECS, 0).is_ok());
+    }
+
+    /// `max_candidates` is host catalog data. `u32::MAX` used to wrap the day
+    /// budget to zero in release and return `Ok(vec![])`, which reads as "no run
+    /// is due yet", and to panic in debug; a billion tried to build a billion
+    /// keys. Both are refused, at the cap and one past it.
+    #[test]
+    fn an_unbounded_max_candidates_is_refused_not_emptied() {
+        let mut spec = hrrr();
+        spec.cycle_hours = vec![0];
+        for absurd in [u32::MAX, 1_000_000_000, MAX_CANDIDATES + 1] {
+            spec.max_candidates = absurd;
+            let want = FetchPlanError::TooManyCandidates {
+                max_candidates: absurd,
+                limit: MAX_CANDIDATES,
+            };
+            assert_eq!(spec.validate(), Err(want.clone()), "{absurd}");
+            assert_eq!(candidates(&spec, SEP_4, 0), Err(want), "{absurd}");
+        }
+    }
+
+    /// The cap itself is accepted and yields exactly that many distinct runs,
+    /// so the bound is a bound and not an off-by-one narrowing.
+    #[test]
+    fn the_cap_is_allowed_and_bounds_the_output() {
+        for hours in [vec![0_u8], (0..24).collect()] {
+            let mut spec = hrrr();
+            spec.cycle_hours = hours;
+            spec.max_candidates = MAX_CANDIDATES;
+            let got = candidates(&spec, SEP_4, 0).unwrap();
+            assert_eq!(got.len(), MAX_CANDIDATES as usize);
+            assert!(
+                got.windows(2)
+                    .all(|w| w[0].cycle_unix_secs > w[1].cycle_unix_secs)
+            );
+        }
     }
 }
