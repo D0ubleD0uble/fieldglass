@@ -375,8 +375,9 @@ export const MAP_MOST_ASPECT = 48;
  *  Web Mercator), whose raster has its grid's or its Bounds window's shape:
  *  it passes {@link MAP_MOST_ASPECT} as `most` instead, so only an extreme
  *  raster (about 1 × 720) is held, to a width a pixel can show (#1251).
- *  While arrows are drawn it holds neither, because the arrows are laid out
- *  in square raster pixels and a stretch would bend them (#1251). Whether the
+ *  So does a view with arrows drawn: they are laid out in square raster
+ *  pixels, which a stretch would bend, and up to that limit there is none
+ *  (#1251). Whether the
  *  image is then drawn to the page's height rather than across the panel's
  *  width follows from the aspect drawn and the page, not from this (#1252).
  *
@@ -2922,10 +2923,11 @@ export function renderImagePanelHtml(
         // with no geographic meaning (source, cross-section) is held to eight to
         // one when the raster is longer than that (#1226). A lat/lon map keeps
         // its own shape, held only past MAP_MOST_ASPECT so a 1 x 720 raster is
-        // not a hairline (#1251). While arrows are asked for neither is held:
-        // Rust lays the arrows out in square raster pixels, so a stretch would
-        // turn them and make the key wrong for every arrow not along the
-        // stretched axis. Any image that would be taller than most of the page
+        // not a hairline (#1251). While arrows are asked for the view is held
+        // like a map, at MAP_MOST_ASPECT: Rust lays the arrows out in square
+        // raster pixels, so a stretch would turn them and make the key wrong,
+        // and up to 48 to 1 there is none. Past it the stretch is real, and
+        // drawVectorKey leaves the key off and says why. Any image that would be taller than most of the page
         // at the panel's width is drawn to that height instead, held or not
         // (#1252): the stylesheet caps the wrapper's width at the height times
         // --drawn-aspect, so a slightly less thin image is never drawn taller
@@ -2933,9 +2935,11 @@ export function renderImagePanelHtml(
         function setDisplayAspect(payload) {
           const canvas = document.getElementById('canvas');
           if (!canvas || !payload) return;
-          const held = vectorsEnabled()
-            ? ''
-            : displayAspect(payload.width, payload.height, warpsLatLon(drawnProjection()) ? MAP_MOST_ASPECT : undefined);
+          const held = displayAspect(
+            payload.width,
+            payload.height,
+            vectorsEnabled() || warpsLatLon(drawnProjection()) ? MAP_MOST_ASPECT : undefined,
+          );
           canvas.style.aspectRatio = held;
           const wrap = canvas.closest('.canvas-wrap');
           if (wrap) {
@@ -4909,7 +4913,10 @@ export function renderImagePanelHtml(
           // the arrows are laid out in square raster pixels, so the key, scaled
           // by sx, is wrong for every arrow not along x. Not drawn, and said so.
           // A canvas not laid out yet has no ratio to speak of.
-          if (lastVectors && vectorsEnabled() && o.clientWidth > 0 && Math.abs(sx / sy - 1) > 0.05) {
+          // Rounding the overlay's two sides to whole pixels can skew the ratio
+          // by about one pixel over the shorter side, so that much is allowed.
+          const rounding = 2 / Math.max(1, Math.min(o.width, o.height));
+          if (lastVectors && vectorsEnabled() && o.clientWidth > 0 && Math.abs(sx / sy - 1) > 0.05 + rounding) {
             if (note) note.textContent = VECTOR_KEY_STRETCHED;
             return;
           }

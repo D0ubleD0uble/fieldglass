@@ -7,8 +7,8 @@
 // along the stretched axis changed direction and length, and the arrow key,
 // which is scaled by the horizontal axis alone, gave the wrong speed for it.
 //
-// Now the picture is not stretched while arrows are drawn, and if it still is
-// not square (a few pixels wide, rounded) the key is left off and says why.
+// Now a view with arrows is held to 48:1 at most, like a map, and past that
+// (a real stretch) the key is left off and says why.
 //
 // Driven through the real panel over GRIB2 messages built here: a constant
 // u/v pair on a regular lat/lon grid, so every arrow points the same way and
@@ -19,7 +19,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
-import { VECTOR_KEY_STRETCHED, VECTOR_KEY_LEFT_OFF } from "../../render-panel";
+import { VECTOR_KEY_STRETCHED } from "../../render-panel";
 import { isType, type Msg, openEditor, openReal, provider, type PageState } from "./real-panel";
 
 /** One GRIB2 message: a constant field on an `ni` × `nj` regular lat/lon grid
@@ -90,8 +90,6 @@ function pairFile(ni: number, nj: number): { dir: string; file: string } {
   return { dir, file };
 }
 
-const NOTES = [VECTOR_KEY_STRETCHED, VECTOR_KEY_LEFT_OFF];
-
 /** Open the pair on the source view, arrows on, and read the page once the
  *  arrows have been drawn. */
 async function arrowsOnSource(
@@ -122,6 +120,13 @@ async function arrowsOnSource(
     editor.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** How wide a raster pixel is drawn against how tall, from the image's box. */
+function pixelRatio(state: PageState, grid: Msg): number {
+  const box = state.image;
+  assert.ok(box, "the image is laid out");
+  return (box.right - box.left - 2) / grid.width / ((box.bottom - box.top - 2) / grid.height);
 }
 
 /** The overlay's backing pixels per raster pixel, across and down. */
@@ -165,20 +170,23 @@ suite("Arrows are not drawn on a stretched picture (#1251)", function () {
     });
   });
 
-  test("a source view far past 8:1 either has square pixels or no key, and says why", async () => {
-    // 4 × 400 is 1:100, a column a few pixels wide on a normal page: too narrow
-    // for its pixels to be square after rounding, or for a key to fit.
+  test("a source view at 40:1 with arrows on keeps square pixels and does not blame a stretch", async () => {
+    await arrowsOnSource(10, 400, (state, grid) => {
+      assert.deepStrictEqual([grid.width, grid.height], [10, 400]);
+      const ratio = pixelRatio(state, grid);
+      assert.ok(Math.abs(ratio - 1) <= 0.1, `a raster pixel is ${ratio.toFixed(2)} times as wide as tall on screen`);
+      assert.ok(!state.text.includes(VECTOR_KEY_STRETCHED), "a rounding of the overlay is not called a stretch");
+    });
+  });
+
+  test("a raster past 48:1 with arrows on is held visible, with no key, and the page says it is stretched", async () => {
+    // 4 x 400 is 1:100: held to 1:48, so its pixels are not square.
     await arrowsOnSource(4, 400, (state, grid) => {
       assert.deepStrictEqual([grid.width, grid.height], [4, 400]);
-      if (state.vectorKey) {
-        const [sx, sy] = scales(state, grid);
-        assert.ok(Math.abs(sx / sy - 1) <= 0.05, `a key is drawn on a ${sx.toFixed(2)} × ${sy.toFixed(2)} px stretch`);
-      } else {
-        assert.ok(
-          NOTES.some((n) => state.text.includes(n)),
-          `no key and no reason on the page: "${state.text}"`,
-        );
-      }
+      assert.ok(state.image && state.image.right - state.image.left >= 8, "the column is wide enough to see");
+      assert.ok(Math.abs(pixelRatio(state, grid) - 1) > 0.5, "the pixels really are stretched");
+      assert.strictEqual(state.vectorKey, null, "no key on a stretched picture");
+      assert.ok(state.text.includes(VECTOR_KEY_STRETCHED), `the reason is on the page: "${state.text}"`);
     });
   });
 });
