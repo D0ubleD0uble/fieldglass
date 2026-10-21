@@ -64,7 +64,8 @@ pub enum Op {
     PlaceSlice,
     /// Resample a decoded field onto its own extent.
     Warp,
-    /// Build the colour decision for a decoded field.
+    /// Build the colour decision for a decoded field, and the range it spans
+    /// with the field's cells counted, as the browser host's `palette` does.
     Palette,
     /// Paint a decoded field to RGBA.
     Render,
@@ -390,8 +391,10 @@ impl Prepared {
             }
             (Op::Palette, State::Field(boxed)) => {
                 let (session, field) = *boxed;
+                // What `Handle.palette` calls: the palette and the range it
+                // spans, with the field counted against it (#1196).
                 let palette = session
-                    .palette(&field, &PaletteOptions::new(None, None))
+                    .palette_with_range(&field, &PaletteOptions::new(None, None))
                     .expect("palette");
                 done!(0, (session, field, palette))
             }

@@ -1873,10 +1873,8 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         Op::Palette => {
             let field = field(case.args.index)?;
             let options = palette_options(&case.args);
-            ranged_palette_value(
-                &session.palette(&field, &options)?,
-                &session.palette_range(&field, &options)?,
-            )
+            let (palette, range) = session.palette_with_range(&field, &options)?;
+            ranged_palette_value(&palette, &range)
         }
         Op::Render => raster_value(&session.render(
             &field(case.args.index)?,
@@ -1890,10 +1888,9 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         Op::PaletteDisplay => {
             let (display, full) = (display()?, full_stats()?);
             let options = palette_options(&case.args);
-            ranged_palette_value(
-                &session.palette_display(&display, full.as_ref(), &options)?,
-                &session.palette_display_range(&display, full.as_ref(), &options)?,
-            )
+            let (palette, range) =
+                session.palette_display_with_range(&display, full.as_ref(), &options)?;
+            ranged_palette_value(&palette, &range)
         }
         Op::RenderDisplay => raster_value(&session.render_display(
             &display()?,
