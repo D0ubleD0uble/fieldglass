@@ -1486,6 +1486,15 @@ cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
       "Rendering…" only briefly. `crates/fieldglass/tests/warp_is_memoised.rs`
       and `crates/fieldglass-napi/src/warp_memo_tests.rs` check that none of
       those changes warps again and that the picture is a full render's.
+- [ ] Closing frees the file's memory (#1204). Open *Developer: Open Process
+      Explorer* and note the extension host's memory with the Equirectangular
+      panel drawn. Close the render panel: memory stays about where it was,
+      since the file's tab still holds the file. Close the file's tab too:
+      within a few seconds memory falls by several hundred MB. If it stays
+      up, the file was left for the garbage collector. Through the addon
+      alone, this file holds about 995 MB open and 227 MB once closed.
+      `extension/src/test/suite/handle-close.test.ts` checks that the handle
+      closes with the last tab or panel on it, and not before.
 
 ## 42. Error messages read the same in both hosts (#574)
 

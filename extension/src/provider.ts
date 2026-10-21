@@ -9,6 +9,7 @@ import {
   useColorTableStore,
   type PickerColormap,
 } from "./color-tables";
+import { HandleLeases, HeldHandles } from "./handle-leases";
 import { escapeHtml, nonce } from "./html";
 import { couldNotOpen, errorText, nothingToDraw, notAStore, reportProblem } from "./problems";
 import {
@@ -333,19 +334,24 @@ export class FieldglassEditorProvider
       await reportProblem("error", couldNotOpen("Zarr store", name, storeUri.fsPath, err));
       return;
     }
-    const variables = listVariables(native, handle);
-    if (variables.length === 0) {
+    let problem: ReturnType<typeof nothingToDraw> | undefined;
+    try {
+      const variables = listVariables(native, handle);
+      if (variables.length > 0) {
+        this._zarrHandlesByStore.set(storeUri.toString(), handle);
+        this.openZarrRenderPanel(storeUri, variables[0].index);
+        return;
+      }
       // A store that opened but holds nothing drawable. `leftOut` and
       // `undrawable` say why for each of its arrays (#1129), and
       // saying so beats a panel with an empty picker.
-      await reportProblem(
-        "warning",
-        nothingToDraw(storeUri.fsPath, handle.leftOut(), handle.undrawable()),
-      );
-      return;
+      problem = nothingToDraw(storeUri.fsPath, handle.leftOut(), handle.undrawable());
+    } finally {
+      // Kept only by the map, which a store with nothing to draw is not put
+      // in (#1204).
+      if (this._zarrHandlesByStore.get(storeUri.toString()) !== handle) handle.close();
     }
-    this._zarrHandlesByStore.set(storeUri.toString(), handle);
-    this.openZarrRenderPanel(storeUri, variables[0].index);
+    await reportProblem("warning", problem);
   }
 
   /** Ask for a `.cpt` file, import it, and offer it in every open render panel.
@@ -406,25 +412,34 @@ export class FieldglassEditorProvider
     new vscode.EventEmitter<vscode.CustomDocumentEditEvent<FieldglassDocument>>();
   public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 
+  /** Who holds each native handle: the maps below, each render panel's gate,
+   *  and a CSV export waiting on its dialogs. The last to let go closes it
+   *  (#1204), so its native memory is freed then rather than whenever V8
+   *  collects the JS object. */
+  private readonly leases = new HandleLeases<Handle>();
+
   // All panels currently rendering each document, keyed by uri.toString().
   private readonly _panelsByDoc = new Map<string, Set<vscode.WebviewPanel>>();
 
   // GRIB handles per document. Parsed once; subsequent decode / render calls
   // reuse the same handle rather than re-parsing the buffer on every napi call
   // (was #41 — closed by the handle API).
-  private readonly _handlesByDoc = new Map<string, Handle>();
+  private readonly _handlesByDoc = new HeldHandles<Handle>(this.leases);
 
   // NetCDF handles per document, parallel to `_handlesByDoc`: the same `Handle`
   // type (#1073), kept apart because a NetCDF document is opened through the
   // metadata view and its slice panels rather than the message list. Built
   // lazily when a NetCDF file is opened and dropped with the last panel (see
   // `trackPanel`).
-  private readonly _netcdfHandlesByDoc = new Map<string, Handle>();
+  private readonly _netcdfHandlesByDoc = new HeldHandles<Handle>(this.leases);
   /** Zarr store handles, keyed by the store directory's URI (#659).
    *
    * Not by document, because a store has none: a custom editor cannot bind to a
-   * directory, so a store arrives from the "Open Zarr Store…" command. */
-  private readonly _zarrHandlesByStore = new Map<string, Handle>();
+   * directory, so a store arrives from the "Open Zarr Store…" command. Dropped
+   * with the store's last panel. */
+  private readonly _zarrHandlesByStore = new HeldHandles<Handle>(this.leases);
+  /** The render panels open on each store, by the same key. */
+  private readonly _panelsByStore = new Map<string, Set<vscode.WebviewPanel>>();
 
   // -------------------------------------------------------------------------
   // CustomEditorProvider lifecycle
@@ -670,7 +685,27 @@ export class FieldglassEditorProvider
       );
       return;
     }
+    await this.whileHeld(handle, () => this.exportMessageCsv(document, handle, messageIndex, fieldA));
+  }
 
+  /** Hold `handle` open until `run` settles (#1204): an export asks for its
+   *  layout before it reads, and the file's last panel can close meanwhile. */
+  private async whileHeld(handle: Handle, run: () => Promise<void>): Promise<void> {
+    const lease = {};
+    this.leases.hold(handle, lease);
+    try {
+      await run();
+    } finally {
+      this.leases.release(handle, lease);
+    }
+  }
+
+  private async exportMessageCsv(
+    document: FieldglassDocument,
+    handle: Handle,
+    messageIndex: number,
+    fieldA: boolean,
+  ): Promise<void> {
     // The long layout only where Rust says this message's grid takes it: its
     // family places its points (#945). A message it cannot answer for is
     // offered the matrix.
@@ -792,7 +827,15 @@ export class FieldglassEditorProvider
       );
       return;
     }
+    await this.whileHeld(handle, () => this.exportSliceCsv(subject, handle, spec, fieldA));
+  }
 
+  private async exportSliceCsv(
+    subject: SlicePanelSubject,
+    handle: Handle,
+    spec: { variableIndex: number; yDim: number; xDim: number; sliceIndices: number[] },
+    fieldA: boolean,
+  ): Promise<void> {
     // As for a GRIB message: the long layout only where the slice's grid
     // takes it (#945).
     let longCsv = false;
@@ -939,7 +982,7 @@ export class FieldglassEditorProvider
     // heading. None, or more than one, is refused, and the new file's messages
     // are offered instead (`picking`); nothing is drawn until one is picked.
     // Made before the first write, which numbers the page from it.
-    const gate = new PanelHandleGate<Handle>(opened);
+    const gate = new PanelHandleGate<Handle>(opened, this.leases);
 
     const write = () => {
       panel.webview.html = renderImagePanelHtml(
@@ -1296,7 +1339,10 @@ export class FieldglassEditorProvider
         }
       },
     );
-    panel.onDidDispose(() => sub.dispose());
+    panel.onDidDispose(() => {
+      sub.dispose();
+      gate.dispose();
+    });
   }
 
   /** Public for tests; webview message handler also calls into this. */
@@ -1327,21 +1373,28 @@ export class FieldglassEditorProvider
         return;
       }
     }
-    if (handle.format() !== "grib1") {
-      vscode.window.showErrorMessage(
-        "Fieldglass: setP1 only applies to GRIB1 documents",
-      );
-      return;
-    }
+    // Held while it is read, so a transient handle is closed after (#1204).
+    const lease = {};
+    this.leases.hold(handle, lease);
     let newBytes: Uint8Array;
     try {
-      newBytes = handle.setP1(messageIndex, value);
-    } catch (err) {
-      console.error("[Fieldglass] setP1 failed:", err);
-      vscode.window.showErrorMessage(`Fieldglass: failed to set p1: ${errorText(err)}`);
-      // Re-broadcast the old state so the input snaps back.
-      this.broadcastUpdate(document);
-      return;
+      if (handle.format() !== "grib1") {
+        vscode.window.showErrorMessage(
+          "Fieldglass: setP1 only applies to GRIB1 documents",
+        );
+        return;
+      }
+      try {
+        newBytes = handle.setP1(messageIndex, value);
+      } catch (err) {
+        console.error("[Fieldglass] setP1 failed:", err);
+        vscode.window.showErrorMessage(`Fieldglass: failed to set p1: ${errorText(err)}`);
+        // Re-broadcast the old state so the input snaps back.
+        this.broadcastUpdate(document);
+        return;
+      }
+    } finally {
+      this.leases.release(handle, lease);
     }
 
     document.setBytes(newBytes);
@@ -1383,7 +1436,8 @@ export class FieldglassEditorProvider
         if (s.size === 0) {
           // Last panel for this document closed — drop the reader handle
           // so we don't leak the parsed bytes + per-message decode cache
-          // for every file the user has ever opened in this session.
+          // for every file the user has ever opened in this session. It is
+          // closed now, or with the last render panel still on it (#1204).
           // The handle will be rebuilt on the next `resolveCustomEditor`.
           this._panelsByDoc.delete(key);
           this._handlesByDoc.delete(key);
@@ -1412,7 +1466,8 @@ export class FieldglassEditorProvider
    *  the new handles: a GRIB file's messages, or a NetCDF file's dump and
    *  variables. Every render panel on the document is written again too, so it
    *  asks at once, and its {@link PanelHandleGate} finds the new handle and
-   *  looks for its message or variable in the new file. */
+   *  looks for its message or variable in the new file. An old handle is
+   *  closed once every render panel on it has moved to the new one (#1204). */
   private reloadDocument(document: FieldglassDocument): void {
     const key = document.uri.toString();
     this._handlesByDoc.delete(key);
@@ -1474,13 +1529,8 @@ export class FieldglassEditorProvider
     try {
       const handle: Handle | undefined =
         format === "grib1" || format === "grib2" ? native.open(document.bytes) : undefined;
-      if (handle) {
-        this._handlesByDoc.set(key, handle);
-        // Drop the cached handle when the document is closed.
-        // VS Code doesn't expose a per-document close event on
-        // CustomEditorProvider, so we rely on bytes changes (handled
-        // in applyP1Edit) plus the LRU effect of files being re-opened.
-      }
+      // Dropped, and closed, with the document's last panel (`trackPanel`).
+      if (handle) this._handlesByDoc.set(key, handle);
       return handle;
     } catch (err) {
       void reportProblem(
@@ -1553,20 +1603,46 @@ export class FieldglassEditorProvider
     const key = storeUri.toString();
     const handle = this._zarrHandlesByStore.get(key);
     if (!handle) return;
-    this.openSliceRenderPanel(
-      {
-        handle: () => this._zarrHandlesByStore.get(key),
-        gone: "Zarr store handle was disposed",
-        // Inside the store, not beside it: a store *is* a directory, so its own
-        // folder is where a user expects an export to land.
-        exportDir: storeUri,
-        container: "Zarr",
-        noun: "store",
-        source: sourceName(storeUri),
-      },
-      handle,
-      variableIndex,
-    );
+    // Dropped when no panel comes of this and none is open on the store, so
+    // the map does not keep it for good.
+    const unused = () => {
+      if (!this._panelsByStore.has(key)) this._zarrHandlesByStore.delete(key);
+    };
+    let panel: vscode.WebviewPanel | undefined;
+    try {
+      panel = this.openSliceRenderPanel(
+        {
+          handle: () => this._zarrHandlesByStore.get(key),
+          gone: "Zarr store handle was disposed",
+          // Inside the store, not beside it: a store *is* a directory, so its own
+          // folder is where a user expects an export to land.
+          exportDir: storeUri,
+          container: "Zarr",
+          noun: "store",
+          source: sourceName(storeUri),
+        },
+        handle,
+        variableIndex,
+      );
+    } catch (err) {
+      unused();
+      throw err;
+    }
+    if (!panel) {
+      unused();
+      return;
+    }
+    // The store's handle goes with its last panel (#1204): a store has no
+    // editor to keep it, and is opened again from the command.
+    let panels = this._panelsByStore.get(key);
+    if (!panels) this._panelsByStore.set(key, (panels = new Set()));
+    panels.add(panel);
+    panel.onDidDispose(() => {
+      panels.delete(panel);
+      if (panels.size > 0 || this._panelsByStore.get(key) !== panels) return;
+      this._panelsByStore.delete(key);
+      this._zarrHandlesByStore.delete(key);
+    });
   }
 
   /** The slice panel, over whichever container answered.
@@ -1580,11 +1656,11 @@ export class FieldglassEditorProvider
     subject: SlicePanelSubject,
     handle: Handle,
     variableIndex: number,
-  ): void {
+  ): vscode.WebviewPanel | undefined {
     let variables = listVariablesOf(handle);
     let initialVar =
       variables.find((v) => v.index === variableIndex) ?? variables[0];
-    if (!initialVar) return;
+    if (!initialVar) return undefined;
 
     let initial = defaultSliceSpec(initialVar);
     // The slice's own answers — its family, and whether it can be reprojected —
@@ -1645,7 +1721,7 @@ export class FieldglassEditorProvider
     // panel is written again from the new file, and the page restores its
     // selection by the variable's name (#839). Made before the first write,
     // which numbers the page from it.
-    const gate = new PanelHandleGate<Handle>(handle);
+    const gate = new PanelHandleGate<Handle>(handle, this.leases);
     // Said in place of drawing while the variable the page was showing is no
     // longer in the file, or the file has none left, and none has been picked
     // since. Kept until a pick, as a GRIB panel keeps `picking`: a page
@@ -2076,7 +2152,11 @@ export class FieldglassEditorProvider
         }
       },
     );
-    panel.onDidDispose(() => sub.dispose());
+    panel.onDidDispose(() => {
+      sub.dispose();
+      gate.dispose();
+    });
+    return panel;
   }
 }
 
@@ -2099,7 +2179,16 @@ export class PanelHandleGate<H> {
   private awaitingReady = false;
   private written = 0;
 
-  constructor(private pageHandle: H | undefined) {}
+  /** `leases`, when given, is held on the page's handle until the panel adopts
+   *  another or is disposed (#1204): a revert or a reopen replaces the
+   *  document's handle, and the old one stays open until the panel moves off
+   *  it. */
+  constructor(
+    private pageHandle: H | undefined,
+    private readonly leases?: { hold(handle: H, holder: object): void; release(handle: H | undefined, holder: object): void },
+  ) {
+    if (pageHandle) leases?.hold(pageHandle, this);
+  }
 
   /** The number to write the page with, which it sends back on every message.
    *  A page written again for the same file (an imported colormap, say) keeps
@@ -2132,7 +2221,7 @@ export class PanelHandleGate<H> {
 
   /** The page is being written again from `handle`'s file. */
   rewrite(handle: H): void {
-    this.pageHandle = handle;
+    this.adopt(handle);
     this.written += 1;
     this.awaitingReady = true;
   }
@@ -2140,7 +2229,22 @@ export class PanelHandleGate<H> {
   /** The page stays as it is, and its numbers are read from `handle`'s file
    *  from now on. */
   keep(handle: H): void {
+    this.adopt(handle);
+  }
+
+  /** The panel closed: let go of its handle. */
+  dispose(): void {
+    const old = this.pageHandle;
+    this.pageHandle = undefined;
+    this.leases?.release(old, this);
+  }
+
+  private adopt(handle: H): void {
+    const old = this.pageHandle;
     this.pageHandle = handle;
+    if (old === handle) return;
+    this.leases?.hold(handle, this);
+    this.leases?.release(old, this);
   }
 }
 
