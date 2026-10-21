@@ -104,6 +104,21 @@ ECMWF open data is published under the Creative Commons Attribution 4.0
 International licence (CC BY 4.0); see
 <https://www.ecmwf.int/en/forecasts/datasets/open-data>. Attribution: ECMWF.
 
+### `ecmwf_ifs_0p25_enfo_ep_tpg100.index`
+
+One line of
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/ifs/0p25/enfo/20260904000000-240h-enfo-ep.index`,
+ECMWF's open-data mirror on AWS, fetched on 2026-10-21: line 799 of 1,480,
+the `tpg100` record at step `12-36`, unmodified, with its newline. The same
+run as `ecmwf_ifs_0p25_oper.index`, from the ensemble's probability product
+(`stream` `enfo`, `type` `ep`). The whole index is 327,485 bytes and only this
+record is read, so only this line is committed; its `_offset` and `_length`
+still address the mirror's object. The message it points at is
+`crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_tpg100.grib2`. SHA-256
+`ead9e9233b24c138c95a8a1c123edf71957db94b0e06e58de0d9880aebce0369`.
+
+CC BY 4.0, as above. Attribution: ECMWF.
+
 ## Zarr and kerchunk fixtures (`zarr/`, generated)
 
 Written by `tools/build_zarr_fixtures.py --plan-only`, from the committed

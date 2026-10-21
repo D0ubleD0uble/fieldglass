@@ -204,6 +204,52 @@ as a layer too, so it is numbered by its bottom like `sol 3`.
 It is the second soil fixture of
 `crates/fieldglass/tests/verify_message_real_pairs.rs` (#1116).
 
+### `ecmwf_ifs_0p25_10u.grib2`, `ecmwf_ifs_0p25_msl.grib2`, `ecmwf_ifs_0p25_str.grib2`
+
+Three more records of `ecmwf_ifs_0p25_oper.index`, fetched on 2026-10-21 from
+the same AWS mirror object, whose index was fetched again that day and is
+still byte-identical to the committed one. Each is the record's `_offset` for
+its `_length`, unmodified:
+
+| File | Record | `Range` | Bytes | SHA-256 |
+|---|---|---|---|---|
+| `ecmwf_ifs_0p25_10u.grib2` | line 33, `10u`, `sfc` | `bytes=19248396-19990385` | 741,990 | `02101bd301878789754a1d151714503341878c28ef24c4a3838fe82e2cd9a0c7` |
+| `ecmwf_ifs_0p25_msl.grib2` | line 3, `msl`, `sfc` | `bytes=897075-1418370` | 521,296 | `38784131f5bebfe95768cea9c38679c17b42e056ef3d82bcc0fa1358bf08840b` |
+| `ecmwf_ifs_0p25_str.grib2` | line 99, `str`, `sfc` | `bytes=68948951-68949174` | 224 | `3fb2a60f07f4e1b7f23944feb6bd3f1c15fc67c1c3951c6302a9f32ae7346ef7` |
+
+eccodes 2.34.1 (`grib_ls`) reads them as `10u` (discipline 0, category 2,
+number 2, surface 103 at scaled value 10, scale factor 0, minimum -32.696,
+maximum 36.7415), `msl` (0.3.0, surface 101 with its value coded missing,
+minimum 95438.1, maximum 103810) and `str` (0.5.5, product template 4.8,
+statistical process 1, surface 1, a constant field of 0). The first two are
+template 4.0. All three are CCSDS-packed (5.42), 2026-09-04 00Z, step 0,
+tables version 32. eccodes 2.48.0 (the PyPI wheel) gives the same three names.
+
+They are the shared-codes half of
+`crates/fieldglass/tests/verify_message_real_pairs.rs` (#1298): `100u` on the
+`10u` bytes, `sp` on `msl`'s and `ttr` on `str`'s, each a neighbouring record
+whose codes are the same and whose surface is not.
+
+### `ecmwf_ifs_0p25_tpg100.grib2`
+
+The `tpg100` record of the same run's ensemble probability index, committed as
+`crates/fieldglass-fetchplan/tests/fixtures/ecmwf_ifs_0p25_enfo_ep_tpg100.index`,
+fetched on 2026-10-21 from
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/ifs/0p25/enfo/20260904000000-240h-enfo-ep.grib2`.
+The record's `_offset` for its `_length`, `Range: bytes=385882941-385893887`,
+unmodified, 10,947 bytes, SHA-256
+`820264e678665d7728723f67fdd7961448f63f41fc1ca05ee5a3adc2a8234625`.
+
+eccodes 2.34.1 (`grib_ls`) reads it as `tpg100`: discipline 0, category 1,
+number 52 (as `tp`), product template 4.9, statistical process 1, surface 1,
+probability type 3 above a lower limit of scaled value 100 at scale factor 0,
+step range 12-36, minimum 0, maximum 99, CCSDS-packed (5.42), 2026-09-04 00Z,
+tables version 32. eccodes 2.48.0 gives the same name.
+
+It is the probability half of
+`crates/fieldglass/tests/verify_message_real_pairs.rs` (#1298): `tp`, `tpg50`
+and `tpg25` against its probability block.
+
 ## Built wind fixtures
 
 ### `uv_pairs.grib2`, `uv_pairs.grib1`

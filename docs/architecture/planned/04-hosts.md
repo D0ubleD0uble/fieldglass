@@ -200,8 +200,10 @@ Notes that shape the two hosts:
   parameter, level, reference time and forecast window against the sidecar
   line, comparing values rather than wording (`2 mb` is a message coded at
   200 Pa), and throws `decode` for a valid message that is another field
-  (#1093). An ECMWF line's MARS name is checked against eccodes' definition of
-  it for ECMWF's open-data parameters, so `mx2t3` is not `mn2t3` (#1116). A
+  (#1093). An ECMWF line's MARS name is compared with eccodes' definitions
+  for ECMWF's open-data parameters on the codes, surfaces, statistics and
+  probability, the most specific match winning, so `mx2t3` is not `mn2t3` and
+  `100u` is not `10u` (#1116, #1298). A
   wgrib2 line's probability, ensemble member, derived forecast and percentile
   are checked against the product template's block, so a probability line is
   not the amount it is a probability of (#1117). A chemistry or aerosol
