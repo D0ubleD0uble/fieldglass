@@ -11,6 +11,7 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as vm from "vm";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
@@ -171,4 +172,232 @@ suite("File: Revert File", function () {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("an answer from a replaced editor page changes nothing on the new page (#1219)", async () => {
+    const before = Buffer.concat([gribFixture("regular_latlon_surface.grib2"), gribFixture("eta_lambert_msg0.grib2")]);
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1219-"));
+    const file = path.join(dir, "reverted.grib2");
+    fs.writeFileSync(file, before);
+    const editor = await openEditor(p, file);
+    try {
+      // The old page asks for row 0; the provider answers under the number it
+      // was asked at.
+      const oldPage = pageNumberOf(editor.html());
+      const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+      panel.dispose();
+      const answer = editor.sent.find((m) => m.type === "renderOpened");
+      assert.ok(answer, "the provider answers");
+      assert.strictEqual(answer.page, oldPage, "the answer carries the page that asked");
+
+      // A failed request is answered the same way.
+      editor.send({ type: "decodeGrid", messageIndex: 99 });
+      const failed = editor.sent.find((m) => m.type === "gridError");
+      assert.ok(failed, "an out-of-range row is refused");
+      assert.strictEqual(failed.page, oldPage, "and the refusal carries it too");
+
+      // File: Revert File writes the page again. The answers were posted
+      // before, and reach the new page after.
+      await revert(p, editor.document);
+      const newPage = pageNumberOf(editor.html());
+      assert.notStrictEqual(newPage, oldPage);
+      const page = runEditorScript(editor.html());
+      assert.deepStrictEqual(page.posted.map((m) => m.page), [newPage], "the page's own ready is numbered");
+      page.receive(answer);
+      page.receive({ ...failed, messageIndex: 0 });
+      assert.strictEqual(page.text("status-0"), "", "the old page's answers do not set the new page's status");
+
+      // The same answers from this page are shown.
+      page.receive({ ...answer, page: newPage });
+      assert.match(page.text("status-0"), /Opened render of message 0/);
+      page.receive({ ...failed, messageIndex: 0, page: newPage });
+      assert.match(page.text("status-0"), /^Render failed: /);
+
+      // The host's own `update` carries the number too.
+      editor.send({ type: "ready" });
+      const update = editor.sent.filter((m) => m.type === "update").pop();
+      assert.strictEqual(update?.page, newPage, "an update names the page it is for");
+    } finally {
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a NetCDF render answer from a replaced editor page does not set the new page's status (#1219)", async () => {
+    const before = netcdfFixture("ersst_v5_187001_cdf1.nc");
+    const after = netcdfFixture("oisst_avhrr_v2.nc");
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1219-"));
+    const file = path.join(dir, "reverted.nc");
+    fs.writeFileSync(file, before);
+    const editor = await openEditor(p, file);
+    try {
+      const oldPage = pageNumberOf(editor.html());
+      const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: 0 }));
+      panel.dispose();
+      const answer = editor.sent.find((m) => m.type === "renderOpened");
+      assert.strictEqual(answer?.page, oldPage, "the answer carries the page that asked");
+
+      fs.writeFileSync(file, after);
+      await revert(p, editor.document);
+      const page = runEditorScript(editor.html());
+      page.receive(answer);
+      assert.strictEqual(page.text("netcdf-render-status"), "", "the old page's answer is ignored");
+      page.receive({ ...answer, page: pageNumberOf(editor.html()) });
+      assert.strictEqual(page.text("netcdf-render-status"), "Opened render in a new tab.");
+    } finally {
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a CSV export whose file was reverted during the layout prompt writes nothing (#1219)", async () => {
+    const before = Buffer.concat([gribFixture("regular_latlon_surface.grib2"), gribFixture("eta_lambert_msg0.grib2")]);
+    const after = Buffer.concat([gribFixture("eta_lambert_msg0.grib2"), gribFixture("regular_latlon_surface.grib2")]);
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1219-"));
+    const file = path.join(dir, "reverted.grib2");
+    fs.writeFileSync(file, before);
+    const editor = await openEditor(p, file);
+    const errors: string[] = [];
+    let saveAsked = false;
+    const w = vscode.window as unknown as Record<string, unknown>;
+    const saved = { showQuickPick: w.showQuickPick, showSaveDialog: w.showSaveDialog, showErrorMessage: w.showErrorMessage };
+    w.showQuickPick = async (items: Array<{ format?: string }>) => {
+      // The revert lands while the layout prompt is open.
+      fs.writeFileSync(file, after);
+      await revert(p, editor.document);
+      return items.find((i) => i.format === "matrix");
+    };
+    w.showSaveDialog = () => {
+      saveAsked = true;
+      return Promise.resolve(undefined);
+    };
+    w.showErrorMessage = (message: string) => {
+      errors.push(message);
+      return Promise.resolve(undefined);
+    };
+    try {
+      editor.send({ type: "exportCsv", messageIndex: 0 });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (p as any)._csvExport;
+      assert.ok(!saveAsked, "no destination is asked for a CSV of the old file");
+      assert.strictEqual(errors.length, 1, `one refusal: ${errors.join("; ")}`);
+      assert.match(errors[0], /file changed/);
+    } finally {
+      Object.assign(w, saved);
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a CSV export whose file was reverted during the save dialog writes nothing (#1219)", async () => {
+    const before = Buffer.concat([gribFixture("regular_latlon_surface.grib2"), gribFixture("eta_lambert_msg0.grib2")]);
+    const after = Buffer.concat([gribFixture("eta_lambert_msg0.grib2"), gribFixture("regular_latlon_surface.grib2")]);
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1219-"));
+    const file = path.join(dir, "reverted.grib2");
+    const out = path.join(dir, "out.csv");
+    fs.writeFileSync(file, before);
+    const editor = await openEditor(p, file);
+    const errors: string[] = [];
+    const w = vscode.window as unknown as Record<string, unknown>;
+    const saved = { showQuickPick: w.showQuickPick, showSaveDialog: w.showSaveDialog, showErrorMessage: w.showErrorMessage };
+    w.showQuickPick = (items: Array<{ format?: string }>) => Promise.resolve(items.find((i) => i.format === "matrix"));
+    w.showSaveDialog = async () => {
+      // The revert lands while the destination dialog is open.
+      fs.writeFileSync(file, after);
+      await revert(p, editor.document);
+      return vscode.Uri.file(out);
+    };
+    w.showErrorMessage = (message: string) => {
+      errors.push(message);
+      return Promise.resolve(undefined);
+    };
+    try {
+      editor.send({ type: "exportCsv", messageIndex: 0 });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (p as any)._csvExport;
+      assert.ok(!fs.existsSync(out), "the old file's field is not written");
+      assert.strictEqual(errors.length, 1, `one refusal: ${errors.join("; ")}`);
+      assert.match(errors[0], /file changed/);
+    } finally {
+      Object.assign(w, saved);
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a slice CSV export whose file was reverted during the layout prompt writes nothing (#1219)", async () => {
+    const before = netcdfFixture("ersst_v5_187001_cdf1.nc");
+    const after = netcdfFixture("oisst_avhrr_v2.nc");
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1219-"));
+    const file = path.join(dir, "reverted.nc");
+    fs.writeFileSync(file, before);
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: 0 }));
+    const errors: string[] = [];
+    let saveAsked = false;
+    const w = vscode.window as unknown as Record<string, unknown>;
+    const saved = { showQuickPick: w.showQuickPick, showSaveDialog: w.showSaveDialog, showErrorMessage: w.showErrorMessage };
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      w.showQuickPick = async (items: Array<{ format?: string }>) => {
+        fs.writeFileSync(file, after);
+        await revert(p, editor.document);
+        return items.find((i) => i.format === "matrix");
+      };
+      w.showSaveDialog = () => {
+        saveAsked = true;
+        return Promise.resolve(undefined);
+      };
+      w.showErrorMessage = (message: string) => {
+        errors.push(message);
+        return Promise.resolve(undefined);
+      };
+      await panel.drive([{ id: "export-csv", click: true }]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (p as any)._csvExport;
+      assert.ok(!saveAsked, "no destination is asked for a CSV of the old file");
+      assert.strictEqual(errors.length, 1, `one refusal: ${errors.join("; ")}`);
+      assert.match(errors[0], /file changed/);
+    } finally {
+      Object.assign(w, saved);
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
+
+/** The editor page's own script, run against a stand-in document: the status
+ *  elements it writes to, and the messages it posts. `receive` delivers a
+ *  message to it as the webview would. */
+function runEditorScript(html: string) {
+  const script = /<script nonce="[^"]*">([\s\S]*?)<\/script>/.exec(html);
+  assert.ok(script, "the page has its script");
+  const elements = new Map<string, { textContent: string }>();
+  const posted: Msg[] = [];
+  const listeners: Array<(e: { data: Msg }) => void> = [];
+  const el = (id: string) => {
+    let e = elements.get(id);
+    if (!e) elements.set(id, (e = { textContent: "" }));
+    return e;
+  };
+  vm.runInNewContext(script[1], {
+    acquireVsCodeApi: () => ({ postMessage: (m: Msg) => posted.push(m) }),
+    document: {
+      getElementById: el,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      activeElement: null,
+    },
+    window: { addEventListener: (_t: string, cb: (e: { data: Msg }) => void) => listeners.push(cb) },
+  });
+  return {
+    posted,
+    receive: (m: Msg) => listeners.forEach((cb) => cb({ data: m })),
+    text: (id: string) => el(id).textContent,
+  };
+}
