@@ -42,6 +42,10 @@ pub enum Surface {
     /// A depth below the land surface, in metres (`0-0.1 m below ground`,
     /// `0.5 m underground`).
     DepthBelowLand,
+    /// A model soil level, numbered down from the surface (ECMWF `sol`; WMO
+    /// Code Table 4.5 type 151). Not [`Self::DepthBelowLand`]: the value is
+    /// the level's number, not a depth.
+    SoilLevel,
     /// A model hybrid level (ECMWF `ml`).
     HybridLevel,
     /// A sigma level or layer.
@@ -280,6 +284,7 @@ pub fn parse_ecmwf_level(levtype: &str, levelist: Option<&str>) -> LevelSpec {
         "pl" => Surface::Isobaric,
         "ml" => Surface::HybridLevel,
         "pt" => Surface::PotentialTemperature,
+        "sol" => Surface::SoilLevel,
         // `pv` (potential vorticity) and anything newer keep their own tag, in
         // ECMWF's spelling, rather than being folded into a surface that means
         // something else.
@@ -436,6 +441,20 @@ mod tests {
         assert_eq!(
             parse_ecmwf_level("ml", Some("137")),
             parse_ncep_level("137 hybrid level")
+        );
+    }
+
+    /// `sol` is a soil level by its number, not a depth: `sol 3` is the
+    /// third level down, whatever its thickness (#1116).
+    #[test]
+    fn an_ecmwf_soil_level_is_numbered() {
+        assert_eq!(
+            parse_ecmwf_level("sol", Some("3")),
+            LevelSpec::at(Surface::SoilLevel, 3.0)
+        );
+        assert_ne!(
+            parse_ecmwf_level("sol", Some("1")),
+            parse_ecmwf_level("sol", Some("3"))
         );
     }
 

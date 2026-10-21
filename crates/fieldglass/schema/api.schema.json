@@ -2986,6 +2986,11 @@
           "type": "string"
         },
         {
+          "const": "soil_level",
+          "description": "A model soil level, numbered down from the surface (ECMWF `sol`; WMO\nCode Table 4.5 type 151). Not [`Self::DepthBelowLand`]: the value is\nthe level's number, not a depth.",
+          "type": "string"
+        },
+        {
           "const": "hybrid_level",
           "description": "A model hybrid level (ECMWF `ml`).",
           "type": "string"

@@ -136,7 +136,7 @@ sequenceDiagram
     W->>H: message(0)
     H-->>W: MessageInfo
     W->>P: verifyMessage(item, info)
-    Note over P: level, reference time and (wgrib2 only) parameter against the plan
+    Note over P: parameter, level, reference time and forecast window against the plan
     W->>H: decode(0, { reduce, dtype })
     H-->>W: Field { values, mask, georef, stats }
     W->>H: palette(opts)
@@ -196,14 +196,16 @@ Notes that shape the two hosts:
   planner calls are built behind `fieldglass-wasm`'s `fetchplan` feature and
   ship in the package's second entry, `@fieldglass/wasm/full`, beside Zarr; the
   default entry leaves both out (#1158). `verifyMessage` then checks the opened message's
-  level and reference time against the sidecar line, and its parameter on a
-  wgrib2 line (an ECMWF line names it in MARS, which nothing here maps to WMO
-  codes yet), comparing
-  values rather than wording (`2 mb` is a message coded at 200 Pa), and throws
-  `decode` for a valid message that is another field (#1093). A message on a
-  product template the reader does not parse (for example the chemistry and
-  aerosol templates 4.40–4.48)
-  is checked on its reference time alone (#1126).
+  parameter, level, reference time and forecast window against the sidecar
+  line, comparing values rather than wording (`2 mb` is a message coded at
+  200 Pa), and throws `decode` for a valid message that is another field
+  (#1093). An ECMWF line's MARS name is checked against eccodes' definition of
+  it for ECMWF's open-data parameters, so `mx2t3` is not `mn2t3` (#1116). A
+  wgrib2 line's probability, ensemble member, derived forecast and percentile
+  are checked against the product template's block, so a probability line is
+  not the amount it is a probability of (#1117). A message on a product
+  template the reader does not parse (for example the chemistry and aerosol
+  templates 4.40–4.48) is checked on its reference time alone (#1126).
 - **The extension later.** "Open URL…" in VS Code (#247) is the same
   `fetchplan` call from TypeScript with `fetch()` in the extension host, then
   the existing napi path. Nothing new in Rust.
