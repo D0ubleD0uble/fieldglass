@@ -3555,7 +3555,7 @@
           "type": "array"
         },
         "innerChunks": {
-          "description": "For a sharded variable, the byte range of every inner chunk the\nwindow's cells sit in, in row-major order of the shards and then of the\ninner chunks in each (#1123). Inner chunks a shard's index marks as\nnever written are left out, as are those of a shard the store does not\nhold: they are the fill value. Fetch these and decode. `null` for a\nvariable that is not sharded, and until every index `shard_indexes`\nnames (or its whole shard, or a 404 for it) is in the store. Also\n`null` when an index in hand cannot be read (a failed checksum, an\nentry outside its shard or over the index) or the window touches more\ninner chunks than one plan holds: fetch `chunks` whole then, and the\ndecode reports what is wrong with a shard.",
+          "description": "For a sharded variable, the byte range of every inner chunk the\nwindow's cells sit in, in row-major order of the shards and then of the\ninner chunks in each (#1123). Inner chunks a shard's index marks as\nnever written are left out, as are those of a shard the store does not\nhold: they are the fill value. Fetch these and decode. `null` for a\nvariable that is not sharded, and until every index `shard_indexes`\nnames (or its whole shard, or a 404 for it) is in the store. Also\n`null` when an index in hand cannot be read (a failed checksum, an\nentry outside its shard or over the index) or the window touches more\ninner chunks than one plan holds. **The rule for a host:** if this is\nstill `null` once every `shard_indexes` entry is in the store, fetch\n`chunks` whole; the decode then reports anything wrong with a shard.",
           "items": {
             "$ref": "#/$defs/InnerChunkRef"
           },

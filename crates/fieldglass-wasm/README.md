@@ -295,6 +295,9 @@ for (const index of plan.shardIndexes ?? []) {
   const header = index.location === 'end' ? `bytes=-${index.length}` : `bytes=0-${index.length - 1}`;
   const [bytes, size] = await Promise.all([range(index.key, header), sizeOf(index.key)]);
   if (bytes === null) { objects.set(index.key, null); continue; } // a 404: all fill
+  // No size, no ranges: `openStore` refuses `{ size, ranges }` without a
+  // byte-count `size` (`invalid_option`), so take this shard whole instead.
+  if (size === null) { objects.set(index.key, await get(index.key)); continue; }
   const offset = index.location === 'end' ? size - index.length : 0;
   objects.set(index.key, { size, ranges: [{ offset, bytes }] });
 }
@@ -303,12 +306,19 @@ ds = openStore(objects);
 
 // `innerChunks`, now that the indexes are in: each inner chunk the window
 // intersects, as an `offset` and `length` within its shard. Inner chunks the
-// index marks as never written are left out; they are the fill value.
-for (const inner of ds.planWindow(request).innerChunks) {
-  // Zero bytes cannot be named by a range, and the decode refuses such a chunk.
-  if (inner.length === 0) continue;
-  const bytes = await range(inner.key, `bytes=${inner.offset}-${inner.offset + inner.length - 1}`);
-  objects.get(inner.key).ranges.push({ offset: inner.offset, bytes });
+// index marks as never written are left out; they are the fill value. Still
+// `null` with every index in the map means the plan could not go by range
+// (an index that fails its checksum, say): fetch the shards whole.
+const { innerChunks } = ds.planWindow(request);
+if (innerChunks === null) {
+  for (const { key } of plan.chunks) objects.set(key, await get(key));
+} else {
+  for (const inner of innerChunks) {
+    // Zero bytes cannot be named by a range, and the decode refuses such a chunk.
+    if (inner.length === 0) continue;
+    const bytes = await range(inner.key, `bytes=${inner.offset}-${inner.offset + inner.length - 1}`);
+    objects.get(inner.key).ranges.push({ offset: inner.offset, bytes });
+  }
 }
 ds.free();
 ds = openStore(objects);
@@ -317,8 +327,12 @@ const field = ds.decodeWindow(request);
 
 `shardIndexes` and `innerChunks` are `null` for a variable that is not sharded,
 and `innerChunks` is `null` until every index is in the map (a shard given
-whole, or as `null` for a 404, counts). A read takes each range from one range
-you gave that holds it, so give each range as fetched. `decodeWindow` throws
+whole, or as `null` for a 404, counts). **If `innerChunks` is still `null` once
+every `shardIndexes` entry is in the map, fetch `chunks` whole**: the plan could
+not go by range. The same holds when a shard's size is unknown (a `HEAD` that
+failed): `openStore` refuses `{ size, ranges }` without a byte-count `size` as
+`invalid_option`, so give that shard whole instead. A read takes each range from
+one range you gave that holds it, so give each range as fetched. `decodeWindow` throws
 `invalid_option` naming each index or inner-chunk range it lacks. A shard index
 that fails its checksum, or names bytes outside its shard or over the index
 itself, is never read: `planWindow` leaves `innerChunks` `null`, so fetch

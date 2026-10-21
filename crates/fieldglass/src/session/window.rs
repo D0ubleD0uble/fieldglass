@@ -205,8 +205,9 @@ pub struct WindowPlan {
     /// names (or its whole shard, or a 404 for it) is in the store. Also
     /// `null` when an index in hand cannot be read (a failed checksum, an
     /// entry outside its shard or over the index) or the window touches more
-    /// inner chunks than one plan holds: fetch `chunks` whole then, and the
-    /// decode reports what is wrong with a shard.
+    /// inner chunks than one plan holds. **The rule for a host:** if this is
+    /// still `null` once every `shard_indexes` entry is in the store, fetch
+    /// `chunks` whole; the decode then reports anything wrong with a shard.
     pub inner_chunks: Option<Vec<InnerChunkRef>>,
 }
 

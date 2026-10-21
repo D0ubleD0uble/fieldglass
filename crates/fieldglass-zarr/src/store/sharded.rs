@@ -199,14 +199,15 @@ impl Sharded {
         // metadata, and a codec this crate cannot decode is a decode's
         // failure, not a plan's.
         let config = match array.meta.codecs() {
-            CodecSource::V3 { codecs } => codecs.as_array().and_then(|steps| {
-                steps
-                    .iter()
-                    .find(|step| {
-                        step.get("name").and_then(Value::as_str) == Some("sharding_indexed")
-                    })
-                    .map(|step| step.get("configuration").unwrap_or(&Value::Null))
-            }),
+            // The last step, as `CodecChain::sharding` has it: a shard is an
+            // object only when nothing is applied after the sharding codec.
+            // Behind a `gzip`, say, the stored object is a compressed shard,
+            // whose index cannot be fetched by range.
+            CodecSource::V3 { codecs } => codecs
+                .as_array()
+                .and_then(|steps| steps.last())
+                .filter(|step| step.get("name").and_then(Value::as_str) == Some("sharding_indexed"))
+                .map(|step| step.get("configuration").unwrap_or(&Value::Null)),
             CodecSource::V2 { .. } => None,
         };
         let Some(config) = config else {

@@ -616,6 +616,47 @@ fn a_sharded_plan_that_cannot_go_by_range_still_names_its_shards() {
     assert_eq!(err.code(), "decode", "{err}");
 }
 
+/// A sharding codec with another codec after it does not make the stored
+/// object a shard: it is a compressed one, whose index no range can reach. So
+/// the plan treats the variable as unsharded, the rule `CodecChain::sharding`
+/// follows (#1123 review).
+#[test]
+fn a_shard_behind_another_codec_plans_as_unsharded() {
+    let oracle = oracle();
+    let case = &oracle["window_sharded_v3"];
+    let coordinates = keys(&refs(&case["coordinate_chunks"]));
+    let window = &case["windows"]["t2m"][0];
+    let time = u32::try_from(window["time"].as_u64().expect("time")).expect("small");
+    let gzip_after = |key: &str, bytes: Vec<u8>| {
+        let codecs = |doc: &mut Value| {
+            doc["codecs"]
+                .as_array_mut()
+                .expect("codecs")
+                .push(serde_json::json!({"name": "gzip", "configuration": {"level": 5}}));
+        };
+        let mut doc: Value = match key {
+            "zarr.json" | "t2m/zarr.json" => serde_json::from_slice(&bytes).expect("JSON"),
+            _ => return bytes,
+        };
+        if key == "zarr.json" {
+            codecs(&mut doc["consolidated_metadata"]["metadata"]["t2m"]);
+        } else {
+            codecs(&mut doc);
+        }
+        serde_json::to_vec(&doc).expect("JSON")
+    };
+    let session =
+        Session::open_store(sharded_with_indexes(window, &coordinates, gzip_after)).expect("opens");
+    let asked = request(variable(&session, "t2m"), bounds(&window["bounds"]), time);
+    let plan = session.plan_window(&asked).expect("plans");
+    assert_eq!(plan.chunks, Some(refs(&window["chunks"])));
+    assert_eq!(
+        plan.shard_indexes, None,
+        "a gzipped shard has no index to range"
+    );
+    assert_eq!(plan.inner_chunks, None);
+}
+
 /// `t(lat, lon)` in shards of `shard_rows` x 1024 cells, as one-cell inner
 /// chunks, over a regular global grid of `rows` x 1024: metadata and
 /// coordinates only.
