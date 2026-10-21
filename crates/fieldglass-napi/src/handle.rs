@@ -5,9 +5,9 @@
 //! four classes, one per container, with four sets of names for the same
 //! questions. Now it ships one, and a method that both hosts have is spelt the
 //! same and takes the same arguments in both: `count`, `message`, `variables`,
-//! `dimensions`, `vectorPairing`,
-//! `leftOut`, `undrawable`, `decode`, `decodeSlice`, `decodeLine`,
-//! `decodeDisplay`, `format`, `addressing` and `close`.
+//! `dimensions`, `vectorPairing`, `leftOut`, `undrawable`, `decode`,
+//! `decodeSlice`, `decodeLine`, `decodeDisplay`, `format`, `addressing` and
+//! `close`.
 //!
 //! The rest of this handle is the extension's map pipeline, which the browser
 //! module does not have: a field painted, its overlays projected and its pixels

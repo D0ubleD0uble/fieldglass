@@ -1185,8 +1185,9 @@ pub fn cases() -> Vec<Case> {
     // and the refusal for an index past the end; the NetCDF listing is asked
     // too, where the indices are variables and the names are CF
     // `standard_name`s. No NetCDF fixture here holds a wind component, so its
-    // `recognised` and `unknown` answers are pinned by the Zarr and NetCDF
-    // tests in `fieldglass-napi` and `tests/vector_pairing.rs`.
+    // `recognised` and `unknown` answers are not in the suite; the Zarr tests
+    // (same `vector_pairing_of`) in `fieldglass-napi` and
+    // `tests/vector_pairing.rs` cover them.
     let uv2 = "fieldglass/tests/fixtures/uv_pairs.grib2".to_string();
     let uv1 = "fieldglass/tests/fixtures/uv_pairs.grib1".to_string();
     for (tag, fixture) in [("uv_grib2", &uv2), ("uv_grib1", &uv1)] {
