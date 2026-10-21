@@ -75,6 +75,17 @@ pub enum Error {
         /// How many were asked for.
         wanted: u64,
     },
+    /// A call on something the caller already closed: a handle, a decoded
+    /// field, a display grid.
+    ///
+    /// The library has no such state, since a [`crate::Session`] is dropped, not
+    /// closed. A host that exposes `close()` to a garbage-collected language
+    /// does, and every call after it refuses with this one code, so a caller
+    /// can tell "you released it" from "your input was wrong" (#1203).
+    Closed {
+        /// What was closed, as a noun for the message: `handle`, `field`.
+        what: String,
+    },
     /// A caller-supplied option is out of range or self-contradictory.
     InvalidOption {
         /// Which option, and what it would have had to be.
@@ -88,6 +99,11 @@ pub enum Error {
 }
 
 impl Error {
+    /// [`Self::Closed`] for `what`.
+    pub fn closed(what: impl Into<String>) -> Self {
+        Self::Closed { what: what.into() }
+    }
+
     /// [`Self::InvalidOption`] with `detail`, for an option other than a colour
     /// range.
     pub fn invalid_option(detail: impl Into<String>) -> Self {
@@ -116,6 +132,7 @@ impl Error {
             Self::WrongAddressing { .. } => "wrong_addressing",
             Self::ShortRead { .. } => "short_read",
             Self::InvalidOption { .. } => "invalid_option",
+            Self::Closed { .. } => "closed",
         }
     }
 
@@ -137,6 +154,7 @@ impl Error {
                 format!("this session is addressed by {expected}: {detail}")
             }
             Self::InvalidOption { detail, .. } => detail.clone(),
+            Self::Closed { what } => format!("this {what} was closed; open or decode it again"),
         }
     }
 }
@@ -237,6 +255,7 @@ mod tests {
                 detail: "x".into(),
             },
             Error::invalid_option("x"),
+            Error::closed("handle"),
         ];
         for e in &all {
             match e {
@@ -246,6 +265,7 @@ mod tests {
                 | Error::Unsupported { .. }
                 | Error::WrongAddressing { .. }
                 | Error::ShortRead { .. }
+                | Error::Closed { .. }
                 | Error::InvalidOption { .. } => {}
             }
         }

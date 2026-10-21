@@ -77,6 +77,8 @@ suite("One handle for every container (#1073)", () => {
     handle.close();
     assert.throws(() => handle.count(), /closed/);
     assert.throws(() => handle.message(0), /closed/);
+    assert.strictEqual(codeOf(() => handle.count()), "closed", "a closed handle has a code (#1203)");
+    assert.strictEqual(codeOf(() => handle.variables()), "closed");
 
     const field = native.open(fixture("regular_latlon_surface.grib2")).decodeDisplay(0);
     assert.strictEqual(field[Symbol.dispose], field.close, "a display grid's dispose is close");
@@ -84,6 +86,29 @@ suite("One handle for every container (#1073)", () => {
     field[Symbol.dispose]();
     assert.throws(() => field.ni(), /closed/, "a closed display grid refuses a read");
     assert.throws(() => field.grid(), /closed/);
+    assert.strictEqual(codeOf(() => field.ni()), "closed", "a closed grid has a code (#1203)");
+  });
+
+  test("the addon's own refusals carry an API code (#1203)", () => {
+    const native = addon();
+    const netcdf = native.open(fixture("ersst_v5_187001_cdf1.nc"));
+    const sst = netcdf.variables()[0];
+    const at = (variable: number, sliceIndices: number[]) => ({
+      variable,
+      yDim: 2,
+      xDim: 3,
+      sliceIndices,
+    });
+    // A position the file does not list, as the browser package gives it.
+    assert.strictEqual(codeOf(() => netcdf.decodeSlice(at(99, [0, 0, 0, 0]))), "no_such_message");
+    // A sliceIndices of the wrong length.
+    assert.strictEqual(codeOf(() => netcdf.decodeSlice(at(sst.index, [0, 0]))), "invalid_option");
+    assert.strictEqual(
+      codeOf(() => netcdf.renderGrid(at(sst.index, [0]), { projection: "source", resampling: "nearest", flipY: false })),
+      "invalid_option",
+    );
+    // A colour table that does not parse.
+    assert.strictEqual(codeOf(() => native.parseColorTable("0 red 1 blue\n2 red 3 blue\n")), "invalid_option");
   });
 
   test("each mode refuses the other's question as wrong_addressing", () => {

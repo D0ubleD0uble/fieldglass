@@ -336,7 +336,7 @@ fn unreadable(what: &str, e: &dyn std::fmt::Display) -> JsValue {
 
 /// The refusal every call on a closed object gives (#1073).
 fn closed(what: &str) -> JsValue {
-    js_sys::Error::new(&format!("this {what} was closed; open or decode it again")).into()
+    throw(fieldglass::Error::closed(what))
 }
 
 /// Every field-combine operation, in menu order: `[{ value, label }, …]`.

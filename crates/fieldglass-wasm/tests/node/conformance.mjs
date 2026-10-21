@@ -337,6 +337,8 @@ function run(caseSpec, bytes) {
   // 149 leaked sessions over the committed corpus is not much, but a runner
   // that ignores the contract it is checking is not a good example of it.
   try {
+    // A call on a handle the caller closed (#1203).
+    if (caseSpec.args.closed === true) handle.close();
     return withHandle(caseSpec, handle);
   } finally {
     handle.free();

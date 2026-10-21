@@ -345,11 +345,12 @@ impl Subject<'_> {
             (g, ni, nj)
         };
         match self {
-            Self::Grib1(h, i) => h.resolved_georef(*i).map(georef),
-            Self::Grib2(h, i) => h.resolved_georef(*i).map(georef),
+            Self::Grib1(h, i) => h.resolved_georef(*i).map(georef).map_err(Into::into),
+            Self::Grib2(h, i) => h.resolved_georef(*i).map(georef).map_err(Into::into),
             Self::Netcdf(h, v, y, x, _) => {
                 let var = h.renderable(*v)?;
                 h.slice_georef(&var, *y as usize, *x as usize)
+                    .map_err(Into::into)
             }
         }
     }
@@ -377,9 +378,11 @@ impl Subject<'_> {
 
     fn probe(&self, o: RenderOptions, px: u32, py: u32) -> napi::Result<Option<ProbeResult>> {
         match self {
-            Self::Grib1(h, i) => h.probe(*i, o, px, py),
-            Self::Grib2(h, i) => h.probe(*i, o, px, py),
-            Self::Netcdf(h, v, y, x, idx) => h.probe(*v, *y, *x, idx.clone(), o, px, py),
+            Self::Grib1(h, i) => h.probe(*i, o, px, py).map_err(Into::into),
+            Self::Grib2(h, i) => h.probe(*i, o, px, py).map_err(Into::into),
+            Self::Netcdf(h, v, y, x, idx) => h
+                .probe(*v, *y, *x, idx.clone(), o, px, py)
+                .map_err(Into::into),
         }
     }
 
@@ -401,9 +404,11 @@ impl Subject<'_> {
     fn csv(&self, format: &str) -> napi::Result<Vec<u8>> {
         let format = format.to_string();
         match self {
-            Self::Grib1(h, i) => h.export_csv(*i, format),
-            Self::Grib2(h, i) => h.export_csv(*i, format),
-            Self::Netcdf(h, v, y, x, idx) => h.export_csv(*v, *y, *x, idx.clone(), format),
+            Self::Grib1(h, i) => h.export_csv(*i, format).map_err(Into::into),
+            Self::Grib2(h, i) => h.export_csv(*i, format).map_err(Into::into),
+            Self::Netcdf(h, v, y, x, idx) => h
+                .export_csv(*v, *y, *x, idx.clone(), format)
+                .map_err(Into::into),
         }
     }
 
@@ -443,11 +448,11 @@ impl Subject<'_> {
     ) -> napi::Result<Option<ProbeResult>> {
         let op = op.to_string();
         match self {
-            Self::Grib1(h, i) => h.probe_combined(*i, *i, op, o, px, py),
-            Self::Grib2(h, i) => h.probe_combined(*i, *i, op, o, px, py),
-            Self::Netcdf(h, v, y, x, idx) => {
-                h.probe_slice_combined(*v, *y, *x, idx.clone(), *v, idx.clone(), op, o, px, py)
-            }
+            Self::Grib1(h, i) => h.probe_combined(*i, *i, op, o, px, py).map_err(Into::into),
+            Self::Grib2(h, i) => h.probe_combined(*i, *i, op, o, px, py).map_err(Into::into),
+            Self::Netcdf(h, v, y, x, idx) => h
+                .probe_slice_combined(*v, *y, *x, idx.clone(), *v, idx.clone(), op, o, px, py)
+                .map_err(Into::into),
         }
     }
 

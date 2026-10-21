@@ -329,7 +329,8 @@ Treat the Worker as disposable and start another.
 
 Every failure throws a JS `Error` with a stable `code` property —
 `unsupported_format`, `decode`, `no_such_message`, `unsupported`,
-`wrong_addressing`, `invalid_option`, `short_read`. Branch on `code`; the
+`wrong_addressing`, `invalid_option`, `short_read`, `closed` (any call on an
+object you closed). Branch on `code`; the
 `message` is prose and may be reworded. `short_read` comes only from the
 planner's `verifyEnvelope`, for a fetch that returned fewer bytes than the plan
 asked for or the message declares. A sidecar that does not parse is `decode`,

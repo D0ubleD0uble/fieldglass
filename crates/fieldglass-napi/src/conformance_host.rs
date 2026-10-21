@@ -56,27 +56,16 @@
 //! it is the *only* place the skip is stated, so an op that becomes comparable
 //! and is not added fails here.
 //!
-//! # Why the error mapping is checked loosely
+//! # Errors are compared with their code
 //!
-//! `Error::code()` is the stable half of the API contract. The `Handle` throws
-//! an API refusal with its `code`, as the browser module does, but a few
-//! refusals are this host's own prose (a variable index the NetCDF reader does
-//! not list, a closed handle) and carry none. So this runner asserts that the
-//! same input fails, not that it fails with the same code. That is recorded as
-//! `THE_NAPI_ERROR_MAPPING_LOSES_THE_CODE` rather than left as a silent gap.
+//! `Error::code()` is the stable half of the API contract. Every refusal this
+//! `Handle` throws carries it (#1073, #1203), as the browser module's do, so an
+//! error observation is `{ error: { code, hasMessage } }` and is compared whole.
+//! A refusal that arrives without a code is a disagreement, not a bare failure.
 
 use super::*;
 use fieldglass::conformance::{self, Args, Case, Op, RecordedCase, Tolerance, sample_indices};
 use serde_json::{Value, json};
-
-/// Some of this host's refusals are its own prose with no `code`, so a JS
-/// caller cannot always branch on `fieldglass::Error::code()` the way the
-/// wasm host's `e.code` lets one.
-///
-/// Named rather than described so the gap is greppable from the issue that
-/// closes it.
-const THE_NAPI_ERROR_MAPPING_LOSES_THE_CODE: &str =
-    "some napi refusals are prose with no code; the suite compares failure, not the code";
 
 /// The suite ops this runner compares, and the ops it skips with the reason.
 ///
@@ -253,9 +242,15 @@ fn observe(case: &Case) -> Option<Value> {
         None => &bytes[..],
     };
 
-    let Ok(handle) = crate::Handle::from_vec(bytes.to_vec()) else {
-        return Some(failed());
+    let handle = match crate::Handle::from_vec(bytes.to_vec()) {
+        Ok(handle) => handle,
+        Err(e) => return Some(refusal(&e)),
     };
+    let mut handle = handle;
+    // A call on a handle the caller closed (#1203).
+    if case.args.closed == Some(true) {
+        handle.close();
+    }
     let args = &case.args;
 
     let observed = match case.op {
@@ -282,7 +277,7 @@ fn observe(case: &Case) -> Option<Value> {
             .map(|raster| raster_value(&raster)),
         Op::Variables => handle
             .variables()
-            .and_then(|variables| Ok(to_js(serde_json::to_value(variables))?)),
+            .and_then(|variables| to_js(serde_json::to_value(variables))),
         Op::Dimensions => handle.dimensions(),
         Op::VectorPairing => handle.vector_pairing(args.index, args.index_v),
         Op::LeftOut => handle.left_out(),
@@ -341,14 +336,20 @@ fn observe(case: &Case) -> Option<Value> {
         | Op::WarpDisplay
         | Op::PaletteDisplay => return None,
     };
-    Some(observed.unwrap_or_else(|e| match e.api() {
-        // An API refusal crosses with its code (#1073), so the code is
-        // compared; this host's own prose has none, and is compared as failed.
+    Some(observed.unwrap_or_else(|e| refusal(&e)))
+}
+
+/// The error observation for a refusal: its code, compared with the suite's.
+///
+/// A refusal that is not an API error has no code, and is recorded with a
+/// `null` one, which no recorded case has, so it is a disagreement (#1203).
+fn refusal(e: &RenderError) -> Value {
+    match e.api() {
         Some(api) => {
             json!({ "error": { "code": api.code(), "hasMessage": !api.message().is_empty() } })
         }
-        None => failed(),
-    }))
+        None => json!({ "error": { "code": null, "hasMessage": !e.reason().is_empty() } }),
+    }
 }
 
 /// A line in `fieldglass::conformance::line_value`'s shape, less `dtype`: this
@@ -427,17 +428,11 @@ fn asks_the_same_question(case: &Case) -> bool {
     case.args.short_read.is_none()
 }
 
-/// The shape this runner records for a failed call: that it failed, and
-/// nothing about how, because `THE_NAPI_ERROR_MAPPING_LOSES_THE_CODE`.
-fn failed() -> Value {
-    json!({ "failed": true })
-}
-
 /// Reduce a reference observation to the keys this runner produces, so the two
 /// are compared on exactly the ground they share.
 ///
-/// An error observation on either side collapses to `failed`. Everything else
-/// is projected key by key — a key this host does not answer is dropped, and a
+/// An error observation on the reference side is kept whole, code included.
+/// Everything else is projected key by key — a key this host does not answer is dropped, and a
 /// key it answers that the reference does not is a *failure*, not a skip.
 ///
 /// Recursive, and through arrays element by element: a variable list is an
@@ -446,13 +441,9 @@ fn failed() -> Value {
 /// so the comparison reports the length rather than a projection of it.
 fn projected(reference: &Value, observed: &Value) -> Value {
     if reference.get("error").is_some() {
-        // Compared whole when this host answered with a code, and as a bare
-        // failure when it answered in its own words.
-        return if observed.get("error").is_some() {
-            reference.clone()
-        } else {
-            failed()
-        };
+        // Compared whole, code included: a host that answered without the
+        // code, or answered at all, is a disagreement.
+        return reference.clone();
     }
     match (reference, observed) {
         (Value::Array(r), Value::Array(o)) if r.len() == o.len() => {
@@ -541,10 +532,6 @@ fn every_comparable_op_is_actually_compared() {
     for (op, reason) in SKIPPED {
         assert!(!reason.is_empty(), "{op:?} is skipped with no reason");
     }
-    assert!(
-        !THE_NAPI_ERROR_MAPPING_LOSES_THE_CODE.is_empty(),
-        "the error-mapping gap must stay stated"
-    );
 }
 
 /// The comparison would notice if this host's numbers moved.
@@ -566,12 +553,30 @@ fn the_projection_keeps_what_both_hosts_answer() {
         "a moved raster height must be a disagreement"
     );
 
-    // An error on the reference side collapses to `failed`, and a host that
-    // *succeeded* where the API failed is then a disagreement rather than a
-    // silent pass.
+    // An error on the reference side is kept whole. A host that *succeeded*
+    // where the API failed, or failed without the code, or with another one,
+    // is a disagreement rather than a silent pass (#1203).
     let errored = json!({"error": {"code": "unsupported", "hasMessage": true}});
-    assert_eq!(projected(&errored, &observed), failed());
-    assert!(!conformance::compare(&failed(), &observed, Tolerance::default()).is_empty());
+    assert_eq!(projected(&errored, &observed), errored);
+    assert!(!conformance::compare(&errored, &observed, Tolerance::default()).is_empty());
+    for wrong in [
+        json!({"error": {"code": null, "hasMessage": true}}),
+        json!({"error": {"code": "decode", "hasMessage": true}}),
+    ] {
+        assert!(
+            !conformance::compare(&projected(&errored, &wrong), &wrong, Tolerance::default())
+                .is_empty(),
+            "{wrong} must not agree with an `unsupported` refusal"
+        );
+    }
+    assert!(
+        conformance::compare(
+            &projected(&errored, &errored),
+            &errored,
+            Tolerance::default()
+        )
+        .is_empty()
+    );
 
     // Through an array of objects, element by element: the unshared key goes,
     // a moved shared value still fails, and a list of a different length is

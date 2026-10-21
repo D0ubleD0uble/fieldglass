@@ -285,6 +285,11 @@ pub struct Args {
     /// case; this is how a case pins what a host does with an option it cannot
     /// read, which is `invalid_option` on every host.
     pub decode_options: Option<Value>,
+    /// Close the handle after opening it and before the call (#1203). Every
+    /// host that has a `close()` refuses the call with `closed`. The library
+    /// has no such state, so the reference runner records the refusal itself:
+    /// this case pins what a host does, not something `Session` can do.
+    pub closed: Option<bool>,
 }
 
 /// One case: an operation on a fixture, and what it produced.
@@ -1316,6 +1321,23 @@ pub fn cases() -> Vec<Case> {
         op: Op::DecodeSlice,
         args: slice(99, vec![0, 0, 0, 0]),
     });
+    // An axis pair the variable cannot give (#1203): one axis named twice, and
+    // one past the variable's rank. The reader would call both a parse error.
+    for (id, y_dim, x_dim) in [
+        ("ersst/decode_slice/same_axis", 3, 3),
+        ("ersst/decode_slice/axis_out_of_range", 9, 3),
+    ] {
+        out.push(Case {
+            id: id.to_string(),
+            fixture: ersst.clone(),
+            op: Op::DecodeSlice,
+            args: Args {
+                y_dim: Some(y_dim),
+                x_dim: Some(x_dim),
+                ..slice(0, vec![0, 0, 0, 0])
+            },
+        });
+    }
 
     // The same refusals for a line, and the one a line adds: an axis to read
     // along that the variable does not have. A message stream refuses before
@@ -1345,6 +1367,32 @@ pub fn cases() -> Vec<Case> {
         args: line(99, 2, vec![0, 0, 0, 0]),
     });
 
+    // A call on a handle the caller closed (#1203): one code on every host that
+    // has a `close()`, whichever container it held.
+    for (id, fixture, op) in [
+        (
+            "closed/decode",
+            format!("{G2}regular_latlon_surface.grib2"),
+            Op::Decode,
+        ),
+        (
+            "closed/variables",
+            format!("{NC}ersst_v5_187001_cdf1.nc"),
+            Op::Variables,
+        ),
+    ] {
+        out.push(Case {
+            id: id.to_string(),
+            fixture,
+            op,
+            args: Args {
+                dtype: Some(Dtype::Auto),
+                closed: Some(true),
+                ..Args::default()
+            },
+        });
+    }
+
     out
 }
 
@@ -1356,6 +1404,7 @@ pub fn cases() -> Vec<Case> {
 #[must_use]
 pub fn error_codes() -> Vec<String> {
     [
+        "closed",
         "decode",
         "invalid_option",
         "no_such_message",
@@ -1772,6 +1821,10 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         })?,
         None => Session::open(truncated.to_vec())?,
     };
+
+    if case.args.closed == Some(true) {
+        return Err(Error::closed("handle"));
+    }
 
     let field = |index: u32| -> Result<Field, Error> {
         session.decode(index, &decode_options(&case.args)?)
