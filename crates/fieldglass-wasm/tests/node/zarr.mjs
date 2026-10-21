@@ -17,6 +17,9 @@
 // --windows-only` computes from the coordinate values and reads back through
 // xarray, not anything recorded from this project's Rust.
 //
+// A sharded store (#1123) is read in part: each shard's index by range, then
+// the inner chunks the plan names, by range; see its section below.
+//
 // A CI gate, like `fetchplan.mjs`: it needs only committed files and a build
 // of the full entry (`@fieldglass/wasm/full`, #1158), and it fails loudly when
 // either is missing. Against the default build it fails at the first call,
@@ -314,6 +317,8 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
     ni: 0,
     nj: 0,
     chunks: [],
+    shardIndexes: null,
+    innerChunks: null,
   });
   same(`${store}: and decodes nothing`, codeOf(() => handle.decodeWindow(off)), 'invalid_option');
   handle.free();
@@ -544,6 +549,137 @@ same(
   without.set('temp/.zattrs', null);
   same('passed as null, the store opens', codeOf(() => wasm.openStore(without).free()), 'did not throw');
 }
+// A sharded store read in part (#1123): each shard's index by range, then the
+// inner chunks the window intersects, by range, and never a whole shard. The
+// "fetch" serves HTTP-style ranges off the committed shard files: a suffix
+// range for an index at the end, an explicit one otherwise, and reports the
+// shard's size as a `Content-Range` would. The shards, index ranges and inner
+// chunk ranges expected are the oracle's, read from the shard files with
+// Python's `struct`, and the values are xarray's.
+{
+  const store = 'window_sharded_v3';
+  console.log(`\n${store}`);
+  const root = join(FIXTURES, 'windows', store);
+  const expected = oracle[store];
+  const pathOf = (key) => join(root, ...key.split('/'));
+  const whole = (key) => (existsSync(pathOf(key)) ? new Uint8Array(readFileSync(pathOf(key))) : null);
+  const served = [];
+  /** `Range: bytes=-length` or `bytes=offset-(offset+length-1)`: the bytes, and the size. */
+  const fetchRange = (key, { suffix, offset, length }) => {
+    const file = readFileSync(pathOf(key));
+    const start = suffix ? file.length - length : offset;
+    served.push([key, start, length]);
+    return { size: file.length, offset: start, bytes: new Uint8Array(file.subarray(start, start + length)) };
+  };
+  const base = new Map(listing(root).filter(isMetadata).map((k) => [k, whole(k)]));
+  for (const { key } of expected.coordinate_chunks) base.set(key, whole(key));
+
+  for (const name of expected.variables) {
+    const opened = wasm.openStore(base);
+    const variable = opened.variables().find((v) => v.name === name);
+    check(`${name}: listed`, variable !== undefined);
+    opened.free();
+    for (const window of expected.windows[name]) {
+      const label = `${name}/${window.name}`;
+      const request = { variable: variable.index, yDim: 1, xDim: 2, bounds: window.bounds, sliceIndices: [window.time, 0, 0] };
+      served.length = 0;
+
+      // 1. The shards and their indexes; no inner chunk yet.
+      let handle = wasm.openStore(base);
+      let plan = handle.planWindow(request);
+      handle.free();
+      same(`${label}: shards`, plan.chunks, window.chunks);
+      same(`${label}: shard indexes`, plan.shardIndexes, window.shard_indexes);
+      same(`${label}: no inner chunk before the indexes`, plan.innerChunks, null);
+
+      // Each index by range, given back with the shard's size.
+      const parts = new Map();
+      for (const index of plan.shardIndexes) {
+        const got = fetchRange(index.key, {
+          suffix: index.location === 'end',
+          offset: 0,
+          length: index.length,
+        });
+        same(`${label}: ${index.key} is the size the oracle read`, got.size, window.shard_sizes[index.key]);
+        parts.set(index.key, { size: got.size, ranges: [{ offset: got.offset, bytes: got.bytes }] });
+      }
+      const withParts = () => {
+        const objects = new Map(base);
+        for (const [key, value] of parts) objects.set(key, value);
+        return objects;
+      };
+
+      // 2. Exactly the inner chunks the window intersects, as byte ranges.
+      handle = wasm.openStore(withParts());
+      plan = handle.planWindow(request);
+      same(`${label}: inner chunks`, plan.innerChunks, window.inner_chunks);
+      const owed = codeOf(() => handle.decodeWindow(request));
+      same(`${label}: decoding before the inner chunks is invalid_option`, owed, 'invalid_option');
+      handle.free();
+
+      // 3. Those ranges, and decode.
+      for (const inner of plan.innerChunks) {
+        const got = fetchRange(inner.key, { suffix: false, offset: inner.offset, length: inner.length });
+        parts.get(inner.key).ranges.push({ offset: got.offset, bytes: got.bytes });
+      }
+      handle = wasm.openStore(withParts());
+      const field = handle.decodeWindow(request);
+      const values = Array.from(field.values());
+      const mask = Array.from(field.mask());
+      let right = values.length === window.values.length;
+      for (let at = 0; at < window.values.length && right; at += 1) {
+        const want = window.values[at];
+        right = want === 'NaN' ? mask[at] === 0 : mask[at] === 1 && values[at] === want;
+      }
+      check(`${label}: values are xarray's, the unwritten inner chunk masked`, right);
+      field.free();
+      handle.free();
+
+      // Only the indexes and the planned inner chunks were ever served.
+      const planned = [
+        ...window.shard_indexes.map((i) => [i.key, i.location === 'end' ? window.shard_sizes[i.key] - i.length : 0, i.length]),
+        ...window.inner_chunks.map((c) => [c.key, c.offset, c.length]),
+      ];
+      same(`${label}: served only the planned ranges`, served, planned);
+      // A window that needs every inner chunk of its shards (the whole grid,
+      // whose shards hold one step) fetches at most the shards' bytes; any
+      // other fetches fewer.
+      const servedBytes = planned.reduce((n, [, , len]) => n + len, 0);
+      const shardBytes = window.chunks.reduce((n, c) => n + window.shard_sizes[c.key], 0);
+      check(
+        `${label}: ${window.name === 'whole_grid' ? 'no more' : 'fewer'} bytes than the whole shards`,
+        window.name === 'whole_grid' ? servedBytes <= shardBytes : servedBytes < shardBytes,
+        `${servedBytes} of ${shardBytes}`,
+      );
+    }
+  }
+
+  // The shape `openStore` takes for part of an object is checked.
+  const key = 't2m/c/0/0/0';
+  const size = statSync(pathOf(key)).size;
+  const bytes = new Uint8Array(4);
+  for (const [what, value] of [
+    ['a range past the size', { size: 2, ranges: [{ offset: 0, bytes }] }],
+    ['a size that is not a byte count', { size: -1, ranges: [] }],
+    ['a misspelt key', { size, ranges: [{ offest: 0, bytes }] }],
+    ['bytes that are not a Uint8Array', { size, ranges: [{ offset: 0, bytes: [1, 2] }] }],
+    ['an unknown key beside size and ranges', { size, ranges: [], etag: 'x' }],
+  ]) {
+    same(`object ranges: ${what} is refused`, codeOf(() => wasm.openStore(new Map([...base, [key, value]]))), 'invalid_option');
+  }
+  // An index altered on the way is refused when planned, never sliced.
+  const index = fetchRange(key, { suffix: true, offset: 0, length: expected.index_length });
+  index.bytes[0] ^= 0xff;
+  const tampered = wasm.openStore(new Map([...base, [key, { size: index.size, ranges: [{ offset: index.offset, bytes: index.bytes }] }]]));
+  const t2m = tampered.variables().find((v) => v.name === 't2m');
+  same(
+    'a tampered shard index is refused by the plan',
+    codeOf(() => tampered.planWindow({ variable: t2m.index, yDim: 1, xDim: 2, bounds: [55, 75, 0, 30], sliceIndices: [0, 0, 0] })),
+    'decode',
+  );
+  tampered.free();
+}
+
 // A message stream has no windows to plan.
 const grib = wasm.open(
   new Uint8Array(readFileSync(join(repoRoot, 'crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2'))),

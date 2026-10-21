@@ -14,6 +14,14 @@
 //!    time step touch.
 //!
 //! Then `openStore(objects)` once more and `handle.decodeWindow(request)`.
+//!
+//! A sharded variable can be read in part (#1123): the plan's
+//! `shardIndexes` name each shard's index, fetched as a range, and once those
+//! are in the map, a second `planWindow` names the byte range of each inner
+//! chunk in `innerChunks`. Both go into the map as `{ size, ranges }` under the
+//! shard's key, so a window fetches the inner chunks it shows and not whole
+//! shards.
+//!
 //! Every call is synchronous and reads only the map (ADR-0005): the network is
 //! the Worker's, and so is the choice of which objects to keep between views.
 //!
@@ -35,6 +43,15 @@ use crate::{Handle, WasmField, from_js, object_brand, strict, throw, to_js};
 /// editions, consolidated or not. Every buffer is copied into linear memory;
 /// the caller may reuse its own at once.
 ///
+/// **Part of an object** is `{ size, ranges: [{ offset, bytes }] }`: the
+/// object's whole length (an HTTP response's `Content-Range` states it) and
+/// each range fetched of it, by its first byte (#1123). That is how a sharded
+/// variable is read in part: give each shard's index and the inner chunks
+/// `planWindow` names this way, under the shard's key, all the ranges of one
+/// shard in one entry. A read takes each range from one given range that holds
+/// it. Throws `invalid_option` for a range past `size`, two sizes for one key,
+/// and a key it does not know.
+///
 /// **Pass a key whose fetch came back 404 as `null`.** That says the store
 /// holds no such object, and a chunk it never wrote is the array's fill value:
 /// how a sparse store works, and how zarr-python leaves a chunk that is all
@@ -51,13 +68,13 @@ use crate::{Handle, WasmField, from_js, object_brand, strict, throw, to_js};
 /// document is asked for speculatively and may be left out.
 ///
 /// Throws `decode` when the objects hold no Zarr root document, or one that
-/// does not parse, and `invalid_option` for a value that is not a `Uint8Array`
-/// or `null`. A `Map` and `Uint8Array`s made in another realm (a `vm` context,
-/// an iframe) are read like those made here (#1244).
+/// does not parse, and `invalid_option` for a value that is not a `Uint8Array`,
+/// `{ size, ranges }` or `null`. A `Map` and `Uint8Array`s made in another
+/// realm (a `vm` context, an iframe) are read like those made here (#1244).
 #[wasm_bindgen(js_name = openStore)]
 pub fn open_store(
     #[wasm_bindgen(
-        unchecked_param_type = "Map<string, Uint8Array | null> | Record<string, Uint8Array | null>"
+        unchecked_param_type = "Map<string, Uint8Array | ObjectRanges | null> | Record<string, Uint8Array | ObjectRanges | null>"
     )]
     objects: JsValue,
 ) -> Result<Handle, JsValue> {
@@ -102,15 +119,115 @@ fn read_objects(objects: &JsValue) -> Result<PrefetchedObjects, JsValue> {
             store.insert_absent(key);
             continue;
         }
-        let Some(bytes) = uint8_bytes(&value)? else {
+        if let Some(bytes) = uint8_bytes(&value)? {
+            store.insert(key, bytes);
+            continue;
+        }
+        let Some((size, ranges)) = object_ranges(&key, &value)? else {
             return Err(invalid(format!(
-                "the object {key:?} must be a Uint8Array, or null for one the store does not hold"
+                "the object {key:?} must be a Uint8Array, `{{ size, ranges }}` for parts of \
+                 it, or null for one the store does not hold"
             )));
         };
-        store.insert(key, bytes);
+        // No ranges still states the size, so a read names the ranges it
+        // lacks rather than the whole object.
+        let ranges = if ranges.is_empty() {
+            vec![(0, Vec::new())]
+        } else {
+            ranges
+        };
+        for (offset, bytes) in ranges {
+            store
+                .insert_range(key.clone(), size, offset, bytes)
+                .map_err(|e| invalid(e.to_string()))?;
+        }
     }
     Ok(store)
 }
+
+/// The parts of one object a page fetched by range (#1123), as
+/// `{ size, ranges: [{ offset, bytes }] }`: `None` when `value` is not an
+/// object of that shape at all, and a refusal when it is one with a key
+/// missing, a key it does not know, or a number that is not a byte count.
+fn object_ranges(key: &str, value: &JsValue) -> Result<Option<ObjectParts>, JsValue> {
+    if !value.is_object()
+        || js_sys::Array::is_array(value)
+        || js_sys::ArrayBuffer::is_view(value)
+        || !has_only_keys(value, &["size", "ranges"])
+    {
+        return Ok(None);
+    }
+    let size = byte_count(&js_sys::Reflect::get(value, &"size".into())?).ok_or_else(|| {
+        invalid(format!(
+            "the object {key:?} needs `size`, its whole length in bytes"
+        ))
+    })?;
+    let ranges = js_sys::Reflect::get(value, &"ranges".into())?;
+    if !js_sys::Array::is_array(&ranges) {
+        return Err(invalid(format!(
+            "the object {key:?} needs `ranges`, a list of `{{ offset, bytes }}`"
+        )));
+    }
+    let mut out = Vec::new();
+    for range in ranges.unchecked_into::<js_sys::Array>().iter() {
+        let bad = || {
+            invalid(format!(
+                "each range of {key:?} must be `{{ offset, bytes }}`: a byte offset and a \
+                 Uint8Array"
+            ))
+        };
+        if !range.is_object()
+            || js_sys::Array::is_array(&range)
+            || !has_only_keys(&range, &["offset", "bytes"])
+        {
+            return Err(bad());
+        }
+        let offset =
+            byte_count(&js_sys::Reflect::get(&range, &"offset".into())?).ok_or_else(bad)?;
+        let bytes =
+            uint8_bytes(&js_sys::Reflect::get(&range, &"bytes".into())?)?.ok_or_else(bad)?;
+        out.push((offset, bytes));
+    }
+    Ok(Some((size, out)))
+}
+
+/// An object's size and each fetched range of it, by its first byte.
+type ObjectParts = (u64, Vec<(u64, Vec<u8>)>);
+
+/// Whether `value`'s own enumerable keys are exactly `keys`: a misspelt
+/// `offest` is refused rather than read as a missing offset.
+fn has_only_keys(value: &JsValue, keys: &[&str]) -> bool {
+    let own: Vec<String> = Object::keys(value.unchecked_ref::<Object>())
+        .iter()
+        .filter_map(|k| k.as_string())
+        .collect();
+    own.len() == keys.len() && keys.iter().all(|k| own.iter().any(|o| o == k))
+}
+
+/// A JS number that is a byte count: a whole number from zero up to
+/// `Number.MAX_SAFE_INTEGER`, past which a double no longer counts bytes
+/// exactly.
+fn byte_count(value: &JsValue) -> Option<u64> {
+    let n = value.as_f64()?;
+    // 2^53 - 1, `Number.MAX_SAFE_INTEGER`.
+    let safe = 9_007_199_254_740_991.0;
+    (n.is_finite() && n >= 0.0 && n.fract() == 0.0 && n <= safe).then_some(n as u64)
+}
+
+/// The shape `openStore` takes for part of an object (#1123).
+#[wasm_bindgen(typescript_custom_section)]
+const OBJECT_RANGES: &str = r#"
+/**
+ * Parts of one stored object a page fetched by range: a shard's index, or
+ * some of its inner chunks (`WindowPlan.shardIndexes`, `WindowPlan.innerChunks`).
+ */
+export interface ObjectRanges {
+  /** The object's whole length in bytes, as the response's `Content-Range` states it. */
+  size: number;
+  /** Each range fetched: its first byte, and its bytes. */
+  ranges: { offset: number; bytes: Uint8Array }[];
+}
+"#;
 
 /// The entries of `objects` when it is a `Map`, from this realm or another;
 /// `None` when it is not one, so the caller reads it as a plain object.
@@ -206,10 +323,22 @@ impl Handle {
     /// antimeridian runs past 180 (`[.., 170, 190]`) rather than wrapping. Every
     /// key is required and an unknown one throws `invalid_option`.
     ///
-    /// The answer is `{ rows, columns, ni, nj, chunks }`: `chunks` is every
-    /// object to fetch for `decodeWindow`, each once, and `columns` is one run,
-    /// or two when the box crosses the seam of a global grid. A box that holds
-    /// no cell is an empty plan, not an error.
+    /// The answer is `{ rows, columns, ni, nj, chunks, shardIndexes,
+    /// innerChunks }`: `chunks` is every object to fetch for `decodeWindow`,
+    /// each once, and `columns` is one run, or two when the box crosses the
+    /// seam of a global grid. A box that holds no cell is an empty plan, not an
+    /// error.
+    ///
+    /// For a sharded variable `chunks` are its shards, and a page may read
+    /// them in part (#1123). `shardIndexes` says where each shard's index is:
+    /// its last `length` bytes (`Range: bytes=-length`) or its first, as
+    /// `location` says. Pass each back as `{ size, ranges }` with the shard's
+    /// size, open the store again and plan again: `innerChunks` then names the
+    /// `offset` and `length` of every inner chunk the window intersects,
+    /// leaving out those the index marks as never written (they are the fill
+    /// value). Add those ranges to the same entries and decode. Both are
+    /// `null` for a variable that is not sharded, and `innerChunks` is `null`
+    /// until every index is in the map.
     ///
     /// A window is at least two cells each way, since one row or column cannot
     /// be placed: a box that holds one takes the next one too.
@@ -220,7 +349,8 @@ impl Handle {
     /// slice not placed on a regular lat/lon grid, as 1-D latitude and
     /// longitude coordinates place one. That refusal names a coordinate the
     /// store left out and why, and coordinate chunks passed as `null` whose
-    /// fill value placed nothing. A sharded array's plan names whole shards.
+    /// fill value placed nothing. An index that fails its checksum, or names
+    /// bytes outside its shard or over the index itself, throws `decode`.
     #[wasm_bindgen(js_name = planWindow, unchecked_return_type = "WindowPlan")]
     pub fn plan_window(
         &self,
@@ -238,7 +368,8 @@ impl Handle {
     /// window's own corners, so `warp`, `palette`, `render`, `probe` and
     /// `contours` take it. It is yours; free it. Throws `invalid_option` for a
     /// box that holds no cell, and, naming them, for planned chunks the map
-    /// was not passed. A planned chunk passed as `null` reads as the fill
+    /// was not passed, or for a shard passed by range, the index or inner chunk
+    /// ranges it lacks. A planned chunk passed as `null` reads as the fill
     /// value.
     #[wasm_bindgen(js_name = decodeWindow)]
     pub fn decode_window(

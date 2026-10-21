@@ -232,7 +232,7 @@ const request = {
   bounds: [20, 55, -130, -60],          // [latMin, latMax, lonMin, lonMax]
   sliceIndices: [0, 0, 0],               // the time step; the two map axes are ignored
 };
-const plan = ds.planWindow(request);     // { rows, columns, ni, nj, chunks }
+const plan = ds.planWindow(request);     // { rows, columns, ni, nj, chunks, shardIndexes, innerChunks }
 for (const { key } of plan.chunks) objects.set(key, await get(key));
 ds.free();
 ds = openStore(objects);
@@ -267,10 +267,53 @@ each array's and group's `.zattrs` too, or `null` for a 404: it holds the
 dimension names and the CF scale and fill, so `openStore` throws `decode`
 naming one it was not given.
 
-**A sharded array plans whole shards.** In a v3 store with `sharding_indexed`,
-each planned key is a shard, and a window fetches every shard it touches in
-full, inner chunks it does not need included. Fetching only the inner chunks
-by range, through the shard index, is not done yet.
+**A sharded array can be read in part.** In a v3 store with `sharding_indexed`,
+each planned key in `chunks` is a shard, which may hold many time steps or a
+large area. Fetching each whole still works. To fetch only what the window
+shows, read each shard's index first and then the inner chunks it needs, both
+by range, and give them to `openStore` as `{ size, ranges }` under the shard's
+key:
+
+```js
+// `shardIndexes`: each index is the shard's last `length` bytes, or its first.
+// The store needs the shard's whole size, which `Content-Range` states, so the
+// bucket must expose that header to the page (most public buckets do).
+const range = async (key, header) => {
+  const response = await fetch(`${store}/${key}`, { headers: { Range: header } });
+  if (response.status === 404) return null;
+  if (response.status !== 206) throw new Error(`${key}: HTTP ${response.status}`);
+  const [, start, , size] = response.headers.get('Content-Range').match(/(\d+)-(\d+)\/(\d+)/);
+  return { offset: Number(start), size: Number(size), bytes: new Uint8Array(await response.arrayBuffer()) };
+};
+for (const index of plan.shardIndexes ?? []) {
+  const header = index.location === 'end' ? `bytes=-${index.length}` : `bytes=0-${index.length - 1}`;
+  const got = await range(index.key, header);
+  objects.set(index.key, got && { size: got.size, ranges: [{ offset: got.offset, bytes: got.bytes }] });
+}
+ds.free();
+ds = openStore(objects);
+
+// `innerChunks`, now that the indexes are in: each inner chunk the window
+// intersects, as an `offset` and `length` within its shard. Inner chunks the
+// index marks as never written are left out; they are the fill value.
+for (const inner of ds.planWindow(request).innerChunks) {
+  if (inner.length === 0) continue;
+  const got = await range(inner.key, `bytes=${inner.offset}-${inner.offset + inner.length - 1}`);
+  objects.get(inner.key).ranges.push({ offset: got.offset, bytes: got.bytes });
+}
+ds.free();
+ds = openStore(objects);
+const field = ds.decodeWindow(request);
+```
+
+`shardIndexes` and `innerChunks` are `null` for a variable that is not sharded,
+and `innerChunks` is `null` until every index is in the map (a shard given
+whole, or as `null` for a 404, counts). A read takes each range from one range
+you gave that holds it, so give each range as fetched. `decodeWindow` throws
+`invalid_option` naming each index or inner-chunk range it lacks, and a shard
+index that fails its checksum, or names bytes outside its shard or over the
+index itself, throws `decode` from `planWindow` and `decodeWindow` rather than
+being read.
 
 ### Which way up a raster comes out
 
@@ -688,6 +731,11 @@ which the fixture script computes from the coordinates and reads back through
 xarray, and nothing unplanned may be fetched. It also checks that a planned
 chunk left out of the map throws, naming it, and that a coordinate whose fill
 value places nothing, or that the store leaves out, is named in the refusal.
+Over a sharded store (index at the end through blosc, and at the start through
+zstd), it fetches each shard's index by range, then the inner chunks the plan
+names, and decodes each window from those ranges alone; the ranges are checked
+against ones the fixture script read from the shard files with Python's
+`struct`, and the values against xarray's.
 
 **`tests/node/colour_range.mjs`** — the colour-range rule both hosts follow
 (#1155), over the committed GFS fixture. An empty field paints transparent; one
