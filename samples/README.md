@@ -44,6 +44,12 @@ code --extensionDevelopmentPath="$PWD/extension" "$PWD/samples/gfs.grib2"
 A quick headless pre-flight (decode + reproject every sample without opening the
 UI) lives at `tools/preflight_samples.js`: `node tools/preflight_samples.js`.
 
+The pre-flight proves a file decodes and renders, not that it lands in the right
+place. `tools/probe_parity_sweep.py` reads 200 seeded points per message or
+slice through the native module and again through eccodes (GRIB) or xarray
+(NetCDF, Zarr), and exits non-zero where the two disagree on the cell, the
+value or whether it is masked: `python3 tools/probe_parity_sweep.py samples samples/0.6.0`.
+
 Or open the repo in VS Code, press `F5`, and open any `samples/` file in the
 launched window. Click a message row to open its render panel, then use the
 projection picker / colormap / overlay controls.
