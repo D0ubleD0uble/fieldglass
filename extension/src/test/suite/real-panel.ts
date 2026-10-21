@@ -1275,6 +1275,8 @@ export interface Editor {
   send(m: object): void;
   /** The editor page's HTML as the provider last wrote it. */
   html(): string;
+  /** Every message the provider has posted to the editor page. */
+  sent: Msg[];
   /** The document the editor is open on. */
   document: FieldglassDocument;
   /** Close the editor tab, which drops the document's reader handle once no
@@ -1290,6 +1292,7 @@ export async function openEditor(p: FieldglassEditorProvider, file: string): Pro
     new vscode.CancellationTokenSource().token,
   )) as FieldglassDocument;
   let handler: ((m: object) => void) | undefined;
+  const sent: Msg[] = [];
   const onDispose: Array<() => void> = [];
   const editor = {
     webview: {
@@ -1300,7 +1303,10 @@ export async function openEditor(p: FieldglassEditorProvider, file: string): Pro
         handler = cb;
         return { dispose: () => undefined };
       },
-      postMessage: () => Promise.resolve(true),
+      postMessage: (m: Msg) => {
+        sent.push(m);
+        return Promise.resolve(true);
+      },
     },
     onDidDispose: (cb: () => void) => {
       onDispose.push(cb);
@@ -1315,6 +1321,7 @@ export async function openEditor(p: FieldglassEditorProvider, file: string): Pro
   return {
     send: (m) => send({ page: pageNumberOf(editor.webview.html), ...m }),
     html: () => editor.webview.html,
+    sent,
     document: doc,
     close: () => {
       for (const cb of onDispose.splice(0)) cb();

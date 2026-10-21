@@ -593,7 +593,7 @@ export class FieldglassEditorProvider
       case "ready":
         // Webview just finished mounting; push the current state so its
         // inputs are guaranteed to reflect document.bytes.
-        this.postCurrentMessages(panel, document);
+        this.postCurrentMessages(panel, document, msg.page);
         return;
       case "edit-p1":
         if (!isNonNegativeInt(msg.messageIndex) || !isNonNegativeInt(msg.value)) return;
@@ -601,7 +601,7 @@ export class FieldglassEditorProvider
         return;
       case "decodeGrid":
         if (!isNonNegativeInt(msg.messageIndex)) return;
-        this.handleDecodeGrid(document, panel, msg.messageIndex);
+        this.handleDecodeGrid(document, panel, msg.messageIndex, msg.page);
         return;
       case "exportCsv":
         if (!isNonNegativeInt(msg.messageIndex)) return;
@@ -610,7 +610,7 @@ export class FieldglassEditorProvider
       case "renderVariable":
         if (!isNonNegativeInt(msg.variableIndex)) return;
         this.openNetcdfRenderPanel(document, msg.variableIndex);
-        panel.webview.postMessage({ type: "renderOpened", variableIndex: msg.variableIndex });
+        void panel.webview.postMessage({ type: "renderOpened", variableIndex: msg.variableIndex, page: msg.page });
         return;
     }
   }
@@ -619,11 +619,15 @@ export class FieldglassEditorProvider
   private handleDecodeGrid(
     document: FieldglassDocument,
     panel: vscode.WebviewPanel,
-    messageIndex: number
+    messageIndex: number,
+    page: unknown,
   ): void {
+    // Every reply names the page that asked (#1219): a revert can write the
+    // page again before the reply lands, and the new page drops it.
+    const reply = (m: object) => void panel.webview.postMessage({ ...m, page });
     const native = loadNative();
     if (!native) {
-      panel.webview.postMessage({
+      reply({
         type: "gridError",
         messageIndex,
         error: `native module ${nativeBinaryName()} not loaded`,
@@ -632,7 +636,7 @@ export class FieldglassEditorProvider
     }
     const handle = this._handlesByDoc.get(document.uri.toString());
     if (!handle) {
-      panel.webview.postMessage({
+      reply({
         type: "gridError",
         messageIndex,
         error: "no reader handle for document (not a GRIB file?)",
@@ -643,7 +647,7 @@ export class FieldglassEditorProvider
     // bounds-checked against the count before the handle is asked for it.
     const meta = messageIndex < handle.count() ? handle.message(messageIndex) : undefined;
     if (!meta) {
-      panel.webview.postMessage({
+      reply({
         type: "gridError",
         messageIndex,
         error: `message ${messageIndex} out of range`,
@@ -651,7 +655,7 @@ export class FieldglassEditorProvider
       return;
     }
     if (!messageIsRenderable(meta)) {
-      panel.webview.postMessage({
+      reply({
         type: "gridError",
         messageIndex,
         error: "message has no grid dimensions (unsupported GDS)",
@@ -665,7 +669,7 @@ export class FieldglassEditorProvider
     // in.
     this.openRenderPanel(document, meta);
 
-    panel.webview.postMessage({ type: "renderOpened", messageIndex });
+    reply({ type: "renderOpened", messageIndex });
   }
 
   /** Export one GRIB message's decoded field to a CSV file the user picks.
@@ -685,7 +689,24 @@ export class FieldglassEditorProvider
       );
       return;
     }
-    await this.whileHeld(handle, () => this.exportMessageCsv(document, handle, messageIndex, fieldA));
+    await this.whileHeld(handle, () =>
+      this.exportMessageCsv(document, handle, messageIndex, fieldA, this.unrevertedSince(document.uri)),
+    );
+  }
+
+  /** How many times each document has been read from disk again (File: Revert
+   *  File, #1219). A handle map entry cannot say so: it is also dropped when
+   *  the document's last panel closes, which leaves an export in flight valid. */
+  private readonly _reverts = new Map<string, number>();
+
+  /** A check, for an export about to ask the user something, of whether the
+   *  document has been reverted since: the field it chose belongs to the old
+   *  file. Always true for a store, which cannot be reverted. */
+  private unrevertedSince(uri: vscode.Uri | undefined): () => boolean {
+    if (!uri) return () => true;
+    const key = uri.toString();
+    const at = this._reverts.get(key) ?? 0;
+    return () => (this._reverts.get(key) ?? 0) === at;
   }
 
   /** Hold `handle` open until `run` settles (#1204): an export asks for its
@@ -705,6 +726,7 @@ export class FieldglassEditorProvider
     handle: Handle,
     messageIndex: number,
     fieldA: boolean,
+    current: () => boolean,
   ): Promise<void> {
     // The long layout only where Rust says this message's grid takes it: its
     // family places its points (#945). A message it cannot answer for is
@@ -724,6 +746,7 @@ export class FieldglassEditorProvider
     }
     const format = await this.pickCsvFormat(longCsv, placed, fieldA);
     if (!format) return;
+    if (!current()) return refuseChangedExport();
 
     let csv: Uint8Array;
     try {
@@ -735,7 +758,7 @@ export class FieldglassEditorProvider
       return;
     }
 
-    await this.saveCsv(csv, vscode.Uri.joinPath(document.uri, ".."), name);
+    await this.saveCsv(csv, vscode.Uri.joinPath(document.uri, ".."), name, current);
   }
 
   /** Ask for a CSV layout (long / matrix). Returns the chosen format, or
@@ -773,7 +796,13 @@ export class FieldglassEditorProvider
   /** Confirm a large export, prompt for a destination, and write the CSV.
    *  Shared by the GRIB and NetCDF export commands. The dialog starts in
    *  `exportDir` on `defaultName`, as the PNG export's does (#1039). */
-  private async saveCsv(csv: Uint8Array, exportDir: vscode.Uri, defaultName: string): Promise<void> {
+  private async saveCsv(
+    csv: Uint8Array,
+    exportDir: vscode.Uri,
+    defaultName: string,
+    // Whether `csv` still comes from the file the panel shows (#1219).
+    current: () => boolean,
+  ): Promise<void> {
     // Guard a large export: writing tens of megabytes is slow and easy to do
     // by accident on a big grid, so confirm above ~50 MB. `csv` already holds
     // the UTF-8 bytes (from napi), so this is the exact write size — no scan or
@@ -787,6 +816,7 @@ export class FieldglassEditorProvider
         "Export"
       );
       if (proceed !== "Export") return;
+      if (!current()) return refuseChangedExport();
     }
 
     const dest = await saveDestination(
@@ -798,6 +828,7 @@ export class FieldglassEditorProvider
       "csv",
     );
     if (!dest) return;
+    if (!current()) return refuseChangedExport();
 
     try {
       await vscode.workspace.fs.writeFile(dest, csv);
@@ -827,7 +858,9 @@ export class FieldglassEditorProvider
       );
       return;
     }
-    await this.whileHeld(handle, () => this.exportSliceCsv(subject, handle, spec, fieldA));
+    await this.whileHeld(handle, () =>
+      this.exportSliceCsv(subject, handle, spec, fieldA, this.unrevertedSince(subject.document)),
+    );
   }
 
   private async exportSliceCsv(
@@ -835,6 +868,7 @@ export class FieldglassEditorProvider
     handle: Handle,
     spec: { variableIndex: number; yDim: number; xDim: number; sliceIndices: number[] },
     fieldA: boolean,
+    current: () => boolean,
   ): Promise<void> {
     // As for a GRIB message: the long layout only where the slice's grid
     // takes it (#945).
@@ -849,6 +883,7 @@ export class FieldglassEditorProvider
     }
     const format = await this.pickCsvFormat(longCsv, placed, fieldA);
     if (!format) return;
+    if (!current()) return refuseChangedExport();
 
     let csv: Uint8Array;
     try {
@@ -868,7 +903,7 @@ export class FieldglassEditorProvider
       // Named by the variable's index below.
     }
     const name = sliceExportName(variable, spec, subject.source, "csv", axisReader(handle, spec.variableIndex));
-    await this.saveCsv(csv, subject.exportDir, name);
+    await this.saveCsv(csv, subject.exportDir, name, current);
   }
 
   /** Save a PNG the render panel composited (#243). The webview sends a
@@ -1458,7 +1493,7 @@ export class FieldglassEditorProvider
     const messages = this.reparseAndCache(document);
     if (!messages) return;
     for (const p of panels) {
-      p.webview.postMessage({ type: "update", messages });
+      p.webview.postMessage({ type: "update", messages, page: this._editorPages.get(p) });
     }
   }
 
@@ -1472,6 +1507,7 @@ export class FieldglassEditorProvider
    *  closed once every render panel on it has moved to the new one (#1204). */
   private reloadDocument(document: FieldglassDocument): void {
     const key = document.uri.toString();
+    this._reverts.set(key, (this._reverts.get(key) ?? 0) + 1);
     this._handlesByDoc.delete(key);
     this._netcdfHandlesByDoc.delete(key);
     for (const panel of this._panelsByDoc.get(key) ?? []) this.writeEditorPage(document, panel);
@@ -1487,10 +1523,11 @@ export class FieldglassEditorProvider
   private postCurrentMessages(
     panel: vscode.WebviewPanel,
     document: FieldglassDocument,
+    page: unknown,
   ): void {
     const cached = this._handlesByDoc.get(document.uri.toString());
     if (!cached) return;
-    panel.webview.postMessage({ type: "update", messages: listMessages(cached) });
+    panel.webview.postMessage({ type: "update", messages: listMessages(cached), page });
   }
 
   /** Open the document's bytes again as GRIB, for the edit path's `update`.
@@ -2831,6 +2868,15 @@ function sliceExportName(
   );
 }
 
+/** An export that was waiting on a dialog when File: Revert File replaced
+ *  the file it was asked of (#1219). The number it was asked at, and the
+ *  layout it was offered, belong to the old file, so nothing is written. */
+function refuseChangedExport(): void {
+  void vscode.window.showErrorMessage(
+    "Fieldglass: the file changed while the export was waiting. Export again."
+  );
+}
+
 /** The file a save dialog's answer names, with `.<ext>` added when the name
  *  typed lacks it (#1039). On Linux the dialog saves a name as typed, so
  *  `out` was written with no extension. The name it gains can be a file the
@@ -3451,6 +3497,9 @@ export function renderHtml(
         window.addEventListener('message', (event) => {
           const msg = event.data;
           if (!msg || typeof msg.type !== 'string') return;
+          // An answer to a request an earlier page sent (#1219): its row and
+          // variable numbers are the old file's.
+          if (msg.page !== PAGE) return;
           if (msg.type === 'renderOpened') {
             if (typeof msg.variableIndex === 'number') {
               const s = document.getElementById('netcdf-render-status');
