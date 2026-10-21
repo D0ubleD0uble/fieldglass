@@ -215,7 +215,9 @@ pub use session::line_through_combined;
 /// A lat/lon box over a variable, planned into the chunks it touches and
 /// decoded from them alone (#1083).
 #[cfg(feature = "zarr")]
-pub use session::{ChunkRef, WindowPlan, WindowRequest};
+pub use session::{
+    ChunkRef, IndexLocation, InnerChunkRef, ShardIndexRef, WindowPlan, WindowRequest,
+};
 pub use session::{
     DecodeOptions, DisplayDecodeOptions, LineRequest, Session, SliceRequest, pack_values,
 };

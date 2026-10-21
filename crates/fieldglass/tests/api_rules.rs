@@ -44,7 +44,9 @@ use fieldglass::{
     VectorOptions, VectorPairing, Vertical, WarpOptions, WarpTarget, Warped,
 };
 // The window planner's (#1083), behind `zarr`, a default feature.
-use fieldglass::{ChunkRef, WindowPlan, WindowRequest};
+use fieldglass::{
+    ChunkRef, IndexLocation, InnerChunkRef, ShardIndexRef, WindowPlan, WindowRequest,
+};
 // The planner's wire types (#1081). `fetchplan` is a default feature, so this
 // suite names them unconditionally: a build without it is not one this file is
 // meant to pass, and a compile error says so louder than a skipped check would.
@@ -198,6 +200,10 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("WindowRequest", Class::Wire, ""),
     ("WindowPlan", Class::Wire, ""),
     ("ChunkRef", Class::Wire, ""),
+    // A sharded variable read by range (#1123).
+    ("ShardIndexRef", Class::Wire, ""),
+    ("InnerChunkRef", Class::Wire, ""),
+    ("IndexLocation", Class::Wire, ""),
     // --- render.rs ----------------------------------------------------------
     ("RenderOptions", Class::Wire, ""),
     (
@@ -574,6 +580,9 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<WindowRequest>();
     is_wire_shaped::<WindowPlan>();
     is_wire_shaped::<ChunkRef>();
+    is_wire_shaped::<ShardIndexRef>();
+    is_wire_shaped::<InnerChunkRef>();
+    is_wire_shaped::<IndexLocation>();
 
     // The planner's (#1081), declared in `fieldglass-fetchplan`.
     is_wire_shaped::<PlanItem>();
@@ -839,12 +848,32 @@ fn every_wire_type_round_trips_through_json() {
     );
     round_trip::<WindowPlan>(
         "WindowPlan",
-        r#"{"rows":[0,2],"columns":[[10,12],[0,3]],"ni":5,"nj":2,"chunks":[{"array":"t2m","key":"t2m/2.0.0","index":[2,0,0]}]}"#,
+        r#"{"rows":[0,2],"columns":[[10,12],[0,3]],"ni":5,"nj":2,"chunks":[{"array":"t2m","key":"t2m/2.0.0","index":[2,0,0]}],"shardIndexes":null,"innerChunks":null}"#,
     );
     round_trip::<WindowPlan>(
         "WindowPlan",
-        r#"{"rows":[1,3],"columns":[[1,4]],"ni":3,"nj":2,"chunks":null}"#,
+        r#"{"rows":[1,3],"columns":[[1,4]],"ni":3,"nj":2,"chunks":null,"shardIndexes":null,"innerChunks":null}"#,
     );
+    // A sharded variable (#1123): the indexes in hand, so the inner chunks
+    // too; and before them, the inner chunks `null`.
+    round_trip::<WindowPlan>(
+        "WindowPlan",
+        r#"{"rows":[1,4],"columns":[[4,8]],"ni":4,"nj":3,"chunks":[{"array":"t2m","key":"t2m/c/1/0/0","index":[1,0,0]}],"shardIndexes":[{"array":"t2m","key":"t2m/c/1/0/0","index":[1,0,0],"location":"end","length":100}],"innerChunks":[{"array":"t2m","key":"t2m/c/1/0/0","index":[1,0,0],"inner":[0,0,1],"offset":61,"length":51}]}"#,
+    );
+    round_trip::<WindowPlan>(
+        "WindowPlan",
+        r#"{"rows":[1,4],"columns":[[4,8]],"ni":4,"nj":3,"chunks":[{"array":"t2m","key":"t2m/c/1/0/0","index":[1,0,0]}],"shardIndexes":[{"array":"t2m","key":"t2m/c/1/0/0","index":[1,0,0],"location":"start","length":100}],"innerChunks":null}"#,
+    );
+    round_trip::<ShardIndexRef>(
+        "ShardIndexRef",
+        r#"{"array":"t2m","key":"t2m/c/0/0/0","index":[0,0,0],"location":"end","length":100}"#,
+    );
+    round_trip::<InnerChunkRef>(
+        "InnerChunkRef",
+        r#"{"array":"t2m","key":"t2m/c/0/0/0","index":[0,0,0],"inner":[0,1,0],"offset":0,"length":0}"#,
+    );
+    round_trip::<IndexLocation>("IndexLocation", r#""start""#);
+    round_trip::<IndexLocation>("IndexLocation", r#""end""#);
 
     // The planner's (#1081). Every variant of each tagged enum, because the tag
     // spelling is per variant.
@@ -975,6 +1004,9 @@ const ROUND_TRIPPED: &[&str] = &[
     "WindowRequest",
     "WindowPlan",
     "ChunkRef",
+    "ShardIndexRef",
+    "InnerChunkRef",
+    "IndexLocation",
     "PlanItem",
     "PlanRange",
     "Address",
@@ -2102,6 +2134,9 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<WindowRequest>("WindowRequest");
     check_schema::<WindowPlan>("WindowPlan");
     check_schema::<ChunkRef>("ChunkRef");
+    check_schema::<ShardIndexRef>("ShardIndexRef");
+    check_schema::<InnerChunkRef>("InnerChunkRef");
+    check_schema::<IndexLocation>("IndexLocation");
     check_schema::<PlanItem>("PlanItem");
     check_schema::<PlanRange>("PlanRange");
     check_schema::<Address>("Address");
@@ -2175,6 +2210,9 @@ const SCHEMA_CHECKED: &[&str] = &[
     "WindowRequest",
     "WindowPlan",
     "ChunkRef",
+    "ShardIndexRef",
+    "InnerChunkRef",
+    "IndexLocation",
     "PlanItem",
     "PlanRange",
     "Address",
@@ -2357,6 +2395,7 @@ fn the_feature_of_a_root_is_read_off_its_module() {
     assert_eq!(feature_of_module::<CandidateOptions>(), "fetchplan");
     assert_eq!(feature_of_module::<WindowPlan>(), "zarr");
     assert_eq!(feature_of_module::<WindowRequest>(), "zarr");
+    assert_eq!(feature_of_module::<ShardIndexRef>(), "zarr");
     assert_eq!(feature_of_module::<MessageInfo>(), "always");
     assert_eq!(feature_of_module::<Error>(), "always");
     // A Zarr crate's own type is Zarr's, and a crate on no list matches no
@@ -2433,7 +2472,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     register!(returned ["fetchplan"]:
         PlanItem, PlanRange, Address, Expect, ParameterId, LevelSpec, Surface, Candidate,
     );
-    register!(returned ["zarr"]: WindowPlan, ChunkRef);
+    register!(returned ["zarr"]: WindowPlan, ChunkRef, ShardIndexRef, InnerChunkRef, IndexLocation);
     register!(sent ["always"]:
         DecodeOptions, DisplayDecodeOptions, SliceRequest, LineRequest, WarpOptions, PaletteOptions, ContourOptions, RenderOptions, VectorOptions,
     );

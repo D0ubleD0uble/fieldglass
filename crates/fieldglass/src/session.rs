@@ -4546,7 +4546,9 @@ mod grib2_compiled_out {
 #[cfg(feature = "zarr")]
 mod window;
 #[cfg(feature = "zarr")]
-pub use window::{ChunkRef, WindowPlan, WindowRequest};
+pub use window::{
+    ChunkRef, IndexLocation, InnerChunkRef, ShardIndexRef, WindowPlan, WindowRequest,
+};
 
 /// The container [`Arrays`] holds. With `zarr` it is the array seam plus the
 /// one question a window plan asks of a store and not of a file, which objects

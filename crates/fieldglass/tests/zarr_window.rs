@@ -23,9 +23,10 @@ use std::path::Path;
 use std::rc::Rc;
 
 use fieldglass::{
-    ChunkRef, DecodeOptions, Error, FieldglassError, MemoryObjects, ObjectSource,
-    PrefetchedObjects, Session, WindowRequest,
+    ChunkRef, DecodeOptions, Error, FieldglassError, InnerChunkRef, MemoryObjects, ObjectSource,
+    PrefetchedObjects, Session, ShardIndexRef, WindowRequest,
 };
+use fieldglass_core::bytes::ByteRange;
 use fieldglass_core::testing::Recording;
 use serde_json::Value;
 
@@ -117,6 +118,24 @@ impl ObjectSource for Shared {
 
     fn unfetched(&self, keys: &[&str]) -> Vec<String> {
         self.0.unfetched(keys)
+    }
+
+    fn object_size(&self, key: &str) -> Result<Option<u64>, FieldglassError> {
+        self.0.object_size(key)
+    }
+
+    fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
+        self.0
+            .get_range(key, range)
+            .map(|v| v.map(|v| Cow::Owned(v.into_owned())))
+    }
+
+    fn unfetched_ranges(&self, wanted: &[(&str, ByteRange)]) -> Vec<(String, ByteRange)> {
+        self.0.unfetched_ranges(wanted)
     }
 }
 
@@ -328,6 +347,176 @@ fn a_window_decodes_from_its_planned_chunks_and_nothing_else() {
                     }
                 }
             }
+        }
+    }
+}
+
+/// A sharded variable planned in two steps and decoded from byte ranges
+/// (#1123): the plan names each shard's index, then, with the indexes in
+/// hand, exactly the inner chunks the window intersects; the window decodes
+/// from those ranges and the indexes, and never reads a shard whole. The
+/// shards, index ranges and inner-chunk ranges are the oracle's, read from the
+/// shard files with Python's `struct`, and the values are xarray's.
+#[test]
+fn a_sharded_window_plans_and_decodes_exactly_the_inner_chunks_it_intersects() {
+    let oracle = oracle();
+    let case = &oracle["window_sharded_v3"];
+    let all = objects("window_sharded_v3");
+    let coordinates = keys(&refs(&case["coordinate_chunks"]));
+    let bytes_of = |key: &str| -> &[u8] {
+        &all.iter()
+            .find(|(k, _)| k == key)
+            .unwrap_or_else(|| panic!("no shard {key}"))
+            .1
+    };
+    let range_of = |key: &str, start: u64, len: u64| -> Vec<u8> {
+        let at = usize::try_from(start).expect("small");
+        bytes_of(key)[at..at + usize::try_from(len).expect("small")].to_vec()
+    };
+    for name in ["t2m", "t2m_start"] {
+        for window in case["windows"][name].as_array().expect("windows") {
+            let label = format!("{name}/{}", window["name"]);
+            let time = u32::try_from(window["time"].as_u64().expect("time")).expect("small");
+
+            // 1. The metadata and the coordinates: the shards and their
+            // indexes, and no inner chunk yet.
+            let mut held = holding(&all, &coordinates);
+            let session = Session::open_store(holding(&all, &coordinates)).expect("opens");
+            let asked = request(variable(&session, name), bounds(&window["bounds"]), time);
+            let plan = session.plan_window(&asked).expect("plans");
+            assert_eq!(plan.chunks, Some(refs(&window["chunks"])), "{label}");
+            let indexes: Vec<ShardIndexRef> =
+                serde_json::from_value(window["shard_indexes"].clone()).expect("index refs");
+            assert_eq!(plan.shard_indexes.as_ref(), Some(&indexes), "{label}");
+            assert_eq!(plan.inner_chunks, None, "{label}: no index is in hand");
+
+            // The host fetches each index by range, learning the size.
+            for index in &indexes {
+                let size = window["shard_sizes"][&index.key].as_u64().expect("size");
+                let start = match index.location {
+                    fieldglass::IndexLocation::End => size - index.length,
+                    _ => 0,
+                };
+                held.insert_range(
+                    index.key.clone(),
+                    size,
+                    start,
+                    range_of(&index.key, start, index.length),
+                )
+                .unwrap();
+            }
+
+            // 2. Exactly the inner chunks the window intersects.
+            let session = Session::open_store(held).expect("opens");
+            let plan = session.plan_window(&asked).expect("plans");
+            let inner: Vec<InnerChunkRef> =
+                serde_json::from_value(window["inner_chunks"].clone()).expect("inner refs");
+            assert_eq!(plan.inner_chunks.as_ref(), Some(&inner), "{label}");
+
+            // Decoding before they are fetched names each one's range.
+            let err = session
+                .decode_window(&asked, &DecodeOptions::default())
+                .expect_err("the inner chunks are owed");
+            assert_eq!(err.code(), "invalid_option", "{label}: {err}");
+            for c in &inner {
+                let range = format!("bytes {}..{} of `{}`", c.offset, c.offset + c.length, c.key);
+                assert!(err.message().contains(&range), "{label}: {err}");
+            }
+
+            // 3. Fetched: decoded from those ranges and the indexes alone.
+            let mut held = holding(&all, &coordinates);
+            for (start, len, key) in indexes
+                .iter()
+                .map(|i| {
+                    let size = window["shard_sizes"][&i.key].as_u64().expect("size");
+                    let start = match i.location {
+                        fieldglass::IndexLocation::End => size - i.length,
+                        _ => 0,
+                    };
+                    (start, i.length, i.key.clone())
+                })
+                .chain(inner.iter().map(|c| (c.offset, c.length, c.key.clone())))
+            {
+                let size = bytes_of(&key).len() as u64;
+                held.insert_range(key.clone(), size, start, range_of(&key, start, len))
+                    .unwrap();
+            }
+            let recorded = Rc::new(Recording::new(held));
+            let session = Session::open_store(Shared(Rc::clone(&recorded))).expect("opens");
+            recorded.clear();
+            let field = session
+                .decode_window(&asked, &DecodeOptions::default())
+                .unwrap_or_else(|e| panic!("{label}: {e}"));
+            let data = format!("{name}/c/");
+            assert!(
+                recorded.gets().iter().all(|k| !k.starts_with(&data)),
+                "{label}: a shard was read whole: {:?}",
+                recorded.gets()
+            );
+            for (key, range) in recorded.range_gets() {
+                let planned = indexes.iter().any(|i| {
+                    i.key == key
+                        && range.len == i.length
+                        && (range.start == 0 || range.end() == Some(bytes_of(&key).len() as u64))
+                }) || inner
+                    .iter()
+                    .any(|c| c.key == key && c.offset == range.start && c.length == range.len);
+                assert!(
+                    planned,
+                    "{label}: read {range:?} of {key}, which no plan named"
+                );
+            }
+
+            // The values, as xarray reads them back; the unwritten inner
+            // chunk's cells are masked.
+            let values = field.values.to_f64();
+            let want = window["values"].as_array().expect("values");
+            assert_eq!(values.len(), want.len(), "{label}");
+            for (at, (want, (&mask, &got))) in want
+                .iter()
+                .zip(field.mask.iter().zip(values.iter()))
+                .enumerate()
+            {
+                match want.as_f64() {
+                    Some(want) => assert_eq!((mask, got), (1, want), "{label}: cell {at}"),
+                    None => assert_eq!(mask, 0, "{label}: cell {at} is fill"),
+                }
+            }
+        }
+    }
+}
+
+/// A host that fetches a sharded variable's shards whole, as before #1123,
+/// still decodes the window, and its plan still names the inner chunks, read
+/// from the indexes inside the whole shards.
+#[test]
+fn whole_shards_still_decode_and_plan_their_inner_chunks() {
+    let oracle = oracle();
+    let case = &oracle["window_sharded_v3"];
+    let all = objects("window_sharded_v3");
+    let coordinates = keys(&refs(&case["coordinate_chunks"]));
+    let window = &case["windows"]["t2m"][0];
+    let time = u32::try_from(window["time"].as_u64().expect("time")).expect("small");
+    let shards = keys(&refs(&window["chunks"]));
+    let given: BTreeSet<String> = coordinates.union(&shards).cloned().collect();
+    let session = Session::open_store(holding(&all, &given)).expect("opens");
+    let asked = request(variable(&session, "t2m"), bounds(&window["bounds"]), time);
+    let plan = session.plan_window(&asked).expect("plans");
+    let inner: Vec<InnerChunkRef> =
+        serde_json::from_value(window["inner_chunks"].clone()).expect("inner refs");
+    assert_eq!(plan.inner_chunks, Some(inner));
+    let field = session
+        .decode_window(&asked, &DecodeOptions::default())
+        .expect("decodes");
+    let want = window["values"].as_array().expect("values");
+    for (at, (want, (&mask, &got))) in want
+        .iter()
+        .zip(field.mask.iter().zip(field.values.to_f64().iter()))
+        .enumerate()
+    {
+        match want.as_f64() {
+            Some(want) => assert_eq!((mask, got), (1, want), "cell {at}"),
+            None => assert_eq!(mask, 0, "cell {at} is fill"),
         }
     }
 }

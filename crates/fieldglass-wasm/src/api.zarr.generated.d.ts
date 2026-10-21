@@ -34,6 +34,84 @@ export interface ChunkRef {
 }
 
 /**
+ * Which end of a shard its index sits at (#1123): the Zarr sharding codec's
+ * `index_location`.
+ */
+export type IndexLocation =
+  /**
+   * The index is the shard's first bytes.
+   */
+  | "start"
+  /**
+   * The index is the shard's last bytes: the specification's default, and
+   * what zarr-python writes.
+   */
+  | "end";
+
+/**
+ * One inner chunk of a shard, as the bytes a host fetches for it (#1123).
+ */
+export interface InnerChunkRef {
+  /**
+   * The array, path-qualified as `Session::variables` names it.
+   */
+  array: string;
+  /**
+   * The shard's key from the store's root: the object to read a range of.
+   */
+  key: string;
+  /**
+   * The shard's position on the array's chunk grid, one entry per axis.
+   */
+  index: number[];
+  /**
+   * The inner chunk's position on its shard's grid of inner chunks.
+   */
+  inner: number[];
+  /**
+   * The chunk's first byte, from the start of the shard.
+   */
+  offset: number;
+  /**
+   * How many bytes it is. Zero is a legal length, which needs no fetch.
+   */
+  length: number;
+}
+
+/**
+ * Where one shard's index is: the first range a host fetches of a shard it
+ * reads in part (#1123).
+ *
+ * The index's length is fixed by the store's metadata (sixteen bytes per
+ * inner chunk a shard holds, and four more for its checksum), so a host
+ * fetches it without knowing the shard's size: the last `length` bytes (an
+ * HTTP suffix range, `bytes=-length`) or the first. The store needs the
+ * shard's whole size with them, which the response's `Content-Range` states.
+ */
+export interface ShardIndexRef {
+  /**
+   * The array, path-qualified as `Session::variables` names it.
+   */
+  array: string;
+  /**
+   * The shard's key from the store's root.
+   */
+  key: string;
+  /**
+   * The shard's position on the array's chunk grid, one entry per axis.
+   */
+  index: number[];
+  /**
+   * Which end of the shard the index is at.
+   */
+  location: IndexLocation;
+  /**
+   * The index's length in bytes.
+   */
+  length: number;
+}
+
+/**
  * Which cells a window holds and which chunks hold them.
  */
 export interface WindowPlan {
@@ -63,8 +141,28 @@ export interface WindowPlan {
    * order of their index, each once. Fetch these, and only these, before
    * `Session::decode_window`. `null` for a container that is not stored
    * as keyed objects — a NetCDF file, which a host reads by range.
+   *
+   * For a sharded variable these are its shards, which a host may fetch
+   * whole or, through `shard_indexes` and `inner_chunks`, by range.
    */
   chunks: ChunkRef[] | null;
+  /**
+   * For a sharded variable, where the index of each shard in `chunks` is,
+   * in the same order (#1123). Fetch each as a range of its shard and give
+   * the store the shard's size with it; then plan again for
+   * `inner_chunks`. `null` for a variable that is not sharded.
+   */
+  shardIndexes: ShardIndexRef[] | null;
+  /**
+   * For a sharded variable, the byte range of every inner chunk the
+   * window's cells sit in, in row-major order of the shards and then of the
+   * inner chunks in each (#1123). Inner chunks a shard's index marks as
+   * never written are left out, as are those of a shard the store does not
+   * hold: they are the fill value. Fetch these and decode. `null` for a
+   * variable that is not sharded, and until every index `shard_indexes`
+   * names (or its whole shard, or a 404 for it) is in the store.
+   */
+  innerChunks: InnerChunkRef[] | null;
 }
 
 /**

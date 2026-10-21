@@ -18,6 +18,13 @@
 //! (ADR-0005): the host fetches between them and opens the store again with the
 //! larger set of objects.
 //!
+//! A sharded variable's chunks are shards, which may hold every step of a
+//! forecast or a large area, so step 3 has a finer form (#1123). The plan also
+//! names where each shard's index is ([`WindowPlan::shard_indexes`]); with
+//! those fetched by range and in the store, planning again names the byte range
+//! of each inner chunk the window intersects ([`WindowPlan::inner_chunks`]),
+//! and the window decodes from those ranges and the indexes alone.
+//!
 //! # Which cells a box holds
 //!
 //! A cell is in the box when its centre is: latitude in `[lat_min, lat_max]`,
@@ -176,7 +183,84 @@ pub struct WindowPlan {
     /// order of their index, each once. Fetch these, and only these, before
     /// [`Session::decode_window`]. `null` for a container that is not stored
     /// as keyed objects — a NetCDF file, which a host reads by range.
+    ///
+    /// For a sharded variable these are its shards, which a host may fetch
+    /// whole or, through `shard_indexes` and `inner_chunks`, by range.
     pub chunks: Option<Vec<ChunkRef>>,
+    /// For a sharded variable, where the index of each shard in `chunks` is,
+    /// in the same order (#1123). Fetch each as a range of its shard and give
+    /// the store the shard's size with it; then plan again for
+    /// `inner_chunks`. `null` for a variable that is not sharded.
+    pub shard_indexes: Option<Vec<ShardIndexRef>>,
+    /// For a sharded variable, the byte range of every inner chunk the
+    /// window's cells sit in, in row-major order of the shards and then of the
+    /// inner chunks in each (#1123). Inner chunks a shard's index marks as
+    /// never written are left out, as are those of a shard the store does not
+    /// hold: they are the fill value. Fetch these and decode. `null` for a
+    /// variable that is not sharded, and until every index `shard_indexes`
+    /// names (or its whole shard, or a 404 for it) is in the store.
+    pub inner_chunks: Option<Vec<InnerChunkRef>>,
+}
+
+/// Which end of a shard its index sits at (#1123): the Zarr sharding codec's
+/// `index_location`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum IndexLocation {
+    /// The index is the shard's first bytes.
+    Start,
+    /// The index is the shard's last bytes: the specification's default, and
+    /// what zarr-python writes.
+    End,
+}
+
+/// Where one shard's index is: the first range a host fetches of a shard it
+/// reads in part (#1123).
+///
+/// The index's length is fixed by the store's metadata (sixteen bytes per
+/// inner chunk a shard holds, and four more for its checksum), so a host
+/// fetches it without knowing the shard's size: the last `length` bytes (an
+/// HTTP suffix range, `bytes=-length`) or the first. The store needs the
+/// shard's whole size with them, which the response's `Content-Range` states.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+#[non_exhaustive]
+pub struct ShardIndexRef {
+    /// The array, path-qualified as [`Session::variables`] names it.
+    pub array: String,
+    /// The shard's key from the store's root.
+    pub key: String,
+    /// The shard's position on the array's chunk grid, one entry per axis.
+    pub index: Vec<u64>,
+    /// Which end of the shard the index is at.
+    pub location: IndexLocation,
+    /// The index's length in bytes.
+    pub length: u64,
+}
+
+/// One inner chunk of a shard, as the bytes a host fetches for it (#1123).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+#[non_exhaustive]
+pub struct InnerChunkRef {
+    /// The array, path-qualified as [`Session::variables`] names it.
+    pub array: String,
+    /// The shard's key from the store's root: the object to read a range of.
+    pub key: String,
+    /// The shard's position on the array's chunk grid, one entry per axis.
+    pub index: Vec<u64>,
+    /// The inner chunk's position on its shard's grid of inner chunks.
+    pub inner: Vec<u64>,
+    /// The chunk's first byte, from the start of the shard.
+    pub offset: u64,
+    /// How many bytes it is. Zero is a legal length, which needs no fetch.
+    pub length: u64,
 }
 
 /// A request checked against the session and resolved to cells.
@@ -226,6 +310,54 @@ impl Window<'_> {
         planned.sort_by(|a, b| a.index.cmp(&b.index));
         planned.dedup_by(|a, b| a.index == b.index);
         Ok(keyed.then_some(planned))
+    }
+
+    /// For a sharded variable, every touched shard's index and, once those
+    /// are in the store, every touched inner chunk's range; `(None, None)`
+    /// otherwise.
+    fn planned_shards(&self) -> Result<PlannedShards, FieldglassError> {
+        if self.is_empty() {
+            return Ok((None, None));
+        }
+        let mut indexes: Vec<ShardIndexRef> = Vec::new();
+        let mut inner: Option<Vec<InnerChunkRef>> = Some(Vec::new());
+        for run in &self.columns {
+            let Some((run_indexes, run_inner)) = self
+                .arrays
+                .source
+                .shard_reads(&self.var.name, &self.region(run))?
+            else {
+                return Ok((None, None));
+            };
+            indexes.extend(run_indexes.into_iter().map(|i| ShardIndexRef {
+                array: self.var.name.clone(),
+                key: i.key,
+                index: i.index,
+                location: match i.location {
+                    fieldglass_zarr::IndexLocation::Start => IndexLocation::Start,
+                    fieldglass_zarr::IndexLocation::End => IndexLocation::End,
+                },
+                length: i.len,
+            }));
+            inner = inner.zip(run_inner).map(|(mut held, more)| {
+                held.extend(more.into_iter().map(|c| InnerChunkRef {
+                    array: self.var.name.clone(),
+                    key: c.key,
+                    index: c.index,
+                    inner: c.inner,
+                    offset: c.range.start,
+                    length: c.range.len,
+                }));
+                held
+            });
+        }
+        indexes.sort_by(|a, b| a.index.cmp(&b.index));
+        indexes.dedup_by(|a, b| a.index == b.index);
+        if let Some(inner) = inner.as_mut() {
+            inner.sort_by(|a, b| (&a.index, &a.inner).cmp(&(&b.index, &b.inner)));
+            inner.dedup_by(|a, b| a.index == b.index && a.inner == b.inner);
+        }
+        Ok((Some(indexes), inner))
     }
 
     /// The region one column run reads, in the variable's declared axis order.
@@ -306,6 +438,7 @@ impl Session {
     pub fn plan_window(&self, request: &WindowRequest) -> Result<WindowPlan, Error> {
         let window = self.window(request, "plan_window")?;
         let chunks = window.planned_chunks()?;
+        let (shard_indexes, inner_chunks) = window.planned_shards()?;
         Ok(WindowPlan {
             rows: if window.is_empty() {
                 [0, 0]
@@ -328,6 +461,8 @@ impl Session {
                 u32::try_from(window.nj()).unwrap_or(u32::MAX)
             },
             chunks,
+            shard_indexes,
+            inner_chunks,
         })
     }
 
@@ -365,19 +500,29 @@ impl Session {
                 request.bounds, window.var.name
             )));
         }
-        // Every planned chunk the host has not fetched, named in one refusal
-        // rather than read as the fill value (#1124).
-        if let Some(planned) = window.planned_chunks()? {
-            let keys: Vec<&str> = planned.iter().map(|c| c.key.as_str()).collect();
-            let unfetched = window.arrays.source.unfetched(&keys);
-            if !unfetched.is_empty() {
-                return Err(Error::invalid_option(format!(
-                    "the store was not given {}: fetch every chunk `plan_window` names \
-                         before decoding the window, and give one the store does not hold \
-                         (a 404) as absent",
-                    ticked(&unfetched)
-                )));
+        // Everything the read needs that the host has not fetched, named in
+        // one refusal rather than read as the fill value (#1124): a chunk, or
+        // for a shard given by range, its index or an inner chunk (#1123).
+        let mut owed: Vec<String> = Vec::new();
+        for run in &window.columns {
+            for item in window
+                .arrays
+                .source
+                .unfetched_for(&window.var.name, &window.region(run))?
+            {
+                if !owed.contains(&item) {
+                    owed.push(item);
+                }
             }
+        }
+        if !owed.is_empty() {
+            return Err(Error::invalid_option(format!(
+                "the store was not given {}: fetch every chunk `plan_window` names (or, \
+                 for a sharded variable, every index and inner chunk range it names) \
+                 before decoding the window, and give one the store does not hold (a 404) \
+                 as absent",
+                owed.join(", ")
+            )));
         }
         let source = window.arrays.source.as_ref();
         let (ni, nj) = (window.ni(), window.nj());
@@ -881,6 +1026,16 @@ fn window_params(window: &Window<'_>) -> LatLonParams {
 /// chunk grid, and its key.
 type Keys = Result<Vec<(Vec<u64>, String)>, FieldglassError>;
 
+/// What [`Keyed::shard_reads`] answers for a sharded array: each touched
+/// shard's index, and each touched inner chunk once every index is in hand.
+type ShardReads = (
+    Vec<fieldglass_zarr::ShardIndexRange>,
+    Option<Vec<fieldglass_zarr::InnerChunkRange>>,
+);
+
+/// A plan's two shard fields.
+type PlannedShards = (Option<Vec<ShardIndexRef>>, Option<Vec<InnerChunkRef>>);
+
 /// An [`ArraySource`] that can also say which stored objects a region read
 /// fetches: what `Session`'s arrays arm holds when this crate reads Zarr.
 ///
@@ -905,6 +1060,26 @@ pub(super) trait Keyed: ArraySource {
     /// was given: chunks it never wrote, which read as the fill value. Empty
     /// for a container not stored as keyed objects.
     fn unwritten(&self, keys: &[&str]) -> Result<Vec<String>, FieldglassError>;
+
+    /// For a sharded array, the indexes of the shards a read of `region`
+    /// touches, and the ranges of the inner chunks it touches once every one
+    /// of those indexes is in the source (#1123). `None` for an array that is
+    /// not sharded, and for a container not stored as keyed objects.
+    fn shard_reads(
+        &self,
+        array: &str,
+        region: &[Range<u64>],
+    ) -> Result<Option<ShardReads>, FieldglassError>;
+
+    /// What a read of `region` of `array` needs that the source was never
+    /// given, worded for a refusal
+    /// ([`fieldglass_zarr::ZarrStore::unfetched_for`]). Empty for a container
+    /// not stored as keyed objects.
+    fn unfetched_for(
+        &self,
+        array: &str,
+        region: &[Range<u64>],
+    ) -> Result<Vec<String>, FieldglassError>;
 }
 
 impl<O: ObjectSource> Keyed for fieldglass_zarr::ZarrStore<O> {
@@ -931,6 +1106,25 @@ impl<O: ObjectSource> Keyed for fieldglass_zarr::ZarrStore<O> {
         }
         Ok(out)
     }
+
+    fn shard_reads(
+        &self,
+        array: &str,
+        region: &[Range<u64>],
+    ) -> Result<Option<ShardReads>, FieldglassError> {
+        let Some(indexes) = self.shard_indexes(array, region)? else {
+            return Ok(None);
+        };
+        Ok(Some((indexes, self.inner_chunk_ranges(array, region)?)))
+    }
+
+    fn unfetched_for(
+        &self,
+        array: &str,
+        region: &[Range<u64>],
+    ) -> Result<Vec<String>, FieldglassError> {
+        fieldglass_zarr::ZarrStore::unfetched_for(self, array, region)
+    }
 }
 
 #[cfg(feature = "netcdf")]
@@ -951,6 +1145,22 @@ where
     }
 
     fn unwritten(&self, _keys: &[&str]) -> Result<Vec<String>, FieldglassError> {
+        Ok(Vec::new())
+    }
+
+    fn shard_reads(
+        &self,
+        _array: &str,
+        _region: &[Range<u64>],
+    ) -> Result<Option<ShardReads>, FieldglassError> {
+        Ok(None)
+    }
+
+    fn unfetched_for(
+        &self,
+        _array: &str,
+        _region: &[Range<u64>],
+    ) -> Result<Vec<String>, FieldglassError> {
         Ok(Vec::new())
     }
 }
