@@ -53,6 +53,17 @@ tools/fetch_samples.sh
 # Sanity: decode + reproject every sample headlessly before touching the UI.
 node tools/preflight_samples.js
 # Run it again over samples/0.6.0 once the next step has built those files.
+
+# Placement: read 200 seeded points per message or slice through the native
+# module and through eccodes / xarray, and compare the cell, the value and the
+# mask. The preflight only proves a file draws; this proves it draws in the
+# right place. Needs the pre-commit venv's python3 (eccodes, xarray, netCDF4,
+# zarr, scipy). About a quarter of an hour, most of it the RTOFS grid. Exit 0
+# is clean; a FAILURES block is a decode or placement bug until shown to be the
+# oracle's. The MRMS -999 sentinel and eccodes' j-consecutive lookup are listed
+# in the output as documented exceptions, not failures.
+( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py samples )
+# Run it again over samples/0.6.0 with the preflight above.
 ```
 
 Then `F5` to launch the dev host.
@@ -195,8 +206,9 @@ write("members_8_8.grib2", m8, m8)
 (out / "hsv.cpt").write_text("# COLOR_MODEL = HSV\n0 0-1-1 1 360-1-1\n")
 EOF
 
-# Every file above decodes and renders headlessly.
+# Every file above decodes and renders headlessly, and lands in the right place.
 node tools/preflight_samples.js samples/0.6.0
+( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py samples/0.6.0 )
 ```
 
 `.h5` files do not open in Fieldglass by double-click: right-click the file,

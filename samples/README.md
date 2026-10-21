@@ -44,6 +44,35 @@ code --extensionDevelopmentPath="$PWD/extension" "$PWD/samples/gfs.grib2"
 A quick headless pre-flight (decode + reproject every sample without opening the
 UI) lives at `tools/preflight_samples.js`: `node tools/preflight_samples.js`.
 
+The pre-flight proves a file decodes and renders, not that it lands in the right
+place. `tools/probe_parity_sweep.py` reads 200 seeded points per message or
+slice through the native module and again through eccodes (GRIB) or xarray
+(NetCDF, Zarr), and exits non-zero where the two disagree on the cell, the
+value or whether it is masked:
+
+```sh
+( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py samples samples/0.6.0 )
+```
+
+### Known oracle exceptions
+
+The sweep lists these in its output rather than failing on them.
+
+- **MRMS `-999`.** MRMS marks no coverage with a -999 value that is not a bitmap.
+  Both decoders return it as data, so the sweep compares it as a value.
+- **eccodes `find_nearest` on a j-consecutive message.** eccodes returns the
+  row-major index and reads the value at that index of the column-major data,
+  so the cell and value belong to another point (`geo/nearest/Regular.cc` sets
+  `k = i + Ni * j` whatever the scanning mode). Reproduce with
+  `samples/0.6.0/grib1_names.grib1` (built by RELEASE-TEST-PLAN.md section 0),
+  message 0, at 45N 15E: `codes_grib_find_nearest` gives index 27 and value
+  25.0; the geo iterator, the `values` array in file order and Fieldglass all
+  give 33.0. For those messages the sweep uses eccodes' geo iterator. The sweep
+  prints the installed eccodes version; this was seen on the 2.48 wheel.
+- **eccodes `values` on an alternate-row message** (NBM). The key keeps storage
+  order, odd rows reversed, while the nearest-point lookup puts each value under
+  its own latitude and longitude, so the sweep takes values from the lookup.
+
 Or open the repo in VS Code, press `F5`, and open any `samples/` file in the
 launched window. Click a message row to open its render panel, then use the
 projection picker / colormap / overlay controls.
