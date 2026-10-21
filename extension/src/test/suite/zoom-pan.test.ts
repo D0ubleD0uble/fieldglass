@@ -984,49 +984,108 @@ suite("Zoom and pan through the panel (#1147)", function () {
     });
   });
 
-  test("a wheel over a slice drawn in its source view, with a lat/lon target held, scrolls the page (#1272)", async () => {
-    // lat_bnds is placed on nothing, so it is drawn in the source view while
-    // the Equirectangular target chosen before is held for the next map slice
-    // (#1099). That render has answered, and no lat/lon map is coming: the
-    // wheel is not held.
-    const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
-    const native = loadNative();
-    assert.ok(native, "native binding required");
-    const index = (name: string): number => {
-      const v = native.open(fs.readFileSync(file)).variables().find((x) => x.name === name);
-      assert.ok(v, `the fixture has ${name}`);
-      return v.index;
-    };
-    const p = await provider();
-    const editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: index("temperature") }));
-    try {
-      await panel.waitSent(isType("gridReady"), 0, "the first render");
-      let from = panel.sent.length;
-      await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
-      await panel.waitSent((m) => m.type === "gridReady" && m.options.projection === "equirectangular", from, "the map");
-      from = panel.sent.length;
-      const received = panel.received.length;
-      const latBnds = index("lat_bnds");
-      await panel.drive([{ id: "slice-variable", value: latBnds }]);
-      const flat = await panel.waitSent((m) => m.type === "gridReady" && m.messageIndex === latBnds, from, "lat_bnds");
-      assert.strictEqual(flat.options.projection, "source", "lat_bnds is drawn in the source view");
-      const asked = panel.received.slice(received).filter(isType("rerenderRequest"));
-      assert.strictEqual(asked[asked.length - 1].projection, "equirectangular", "the render asked for Equirectangular");
-      assert.strictEqual(lastDrawn(panel).seq, asked[asked.length - 1].seq, "and its answer is the one drawn");
+  for (const inFlight of [false, true]) {
+    const when = inFlight ? ", while its re-render is on its way," : "";
+    test(`a wheel over a slice drawn in its source view${when} with a lat/lon target held scrolls the page (#1272)`, async () => {
+      // lat_bnds is placed on nothing, so it is drawn in the source view while
+      // the Equirectangular target chosen before is held for the next map
+      // slice (#1099). Every render of it still asks for Equirectangular, but
+      // no lat/lon map is coming from that: the wheel is never held, neither
+      // once the render has answered nor while a re-render (here Flip Y axis)
+      // is on its way, as during playback.
+      const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
+      const native = loadNative();
+      assert.ok(native, "native binding required");
+      const index = (name: string): number => {
+        const v = native.open(fs.readFileSync(file)).variables().find((x) => x.name === name);
+        assert.ok(v, `the fixture has ${name}`);
+        return v.index;
+      };
+      const p = await provider();
+      const editor = await openEditor(p, file);
+      const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: index("temperature") }));
+      try {
+        await panel.waitSent(isType("gridReady"), 0, "the first render");
+        let from = panel.sent.length;
+        await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+        await panel.waitSent((m) => m.type === "gridReady" && m.options.projection === "equirectangular", from, "the map");
+        from = panel.sent.length;
+        let received = panel.received.length;
+        const latBnds = index("lat_bnds");
+        await panel.drive([{ id: "slice-variable", value: latBnds }]);
+        const flat = await panel.waitSent((m) => m.type === "gridReady" && m.messageIndex === latBnds, from, "lat_bnds");
+        assert.strictEqual(flat.options.projection, "source", "lat_bnds is drawn in the source view");
+        const asked = panel.received.slice(received).filter(isType("rerenderRequest"));
+        assert.strictEqual(asked[asked.length - 1].projection, "equirectangular", "the render asked for Equirectangular");
+        assert.strictEqual(lastDrawn(panel).seq, asked[asked.length - 1].seq, "and its answer is the one drawn");
 
-      const wheeled = panel.received.length;
-      const turned = await panel.wheel([0.5, 0.5], -250);
-      assert.strictEqual(turned.prevented, false, "the wheel scrolls the page");
-      await panel.pageTimer(300);
-      assert.deepStrictEqual(
-        panel.received.slice(wheeled).filter(isType("rerenderRequest")),
-        [],
-        "and the wheel asks for no render",
-      );
-    } finally {
-      panel.dispose();
-      editor.close();
-    }
+        let held: ReturnType<RealPanel["hold"]> | null = null;
+        if (inFlight) {
+          held = panel.hold(isType("gridReady"));
+          received = panel.received.length;
+          await panel.drive([{ id: "flip-y", checked: true }]);
+          const again = await waitUntil(
+            () => panel.received.slice(received).find(isType("rerenderRequest")),
+            "the re-render of lat_bnds",
+          );
+          assert.strictEqual(again.projection, "equirectangular", "the re-render asks for Equirectangular too");
+          await waitUntil(() => held?.held.find((m) => m.seq === again.seq), "that render, held back");
+        }
+        try {
+          const wheeled = panel.received.length;
+          const turned = await panel.wheel([0.5, 0.5], -250);
+          assert.strictEqual(turned.prevented, false, "the wheel scrolls the page");
+          await panel.pageTimer(300);
+          assert.deepStrictEqual(
+            panel.received.slice(wheeled).filter(isType("rerenderRequest")),
+            [],
+            "and the wheel asks for no render",
+          );
+        } finally {
+          await held?.release();
+        }
+      } finally {
+        panel.dispose();
+        editor.close();
+      }
+    });
+  }
+
+  test("a wheel over a Mollweide map whose lat/lon render failed scrolls the page (#1272)", async () => {
+    // The render last asked for has answered, with an error, so no lat/lon
+    // map is coming and the Mollweide image stays: the wheel is not held.
+    await onMap(
+      false,
+      async (panel) => {
+        const gate = panel.hold(isType("gridReady"));
+        try {
+          const received = panel.received.length;
+          await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+          const asked = await waitUntil(
+            () => panel.received.slice(received).find((m) => m.type === "rerenderRequest" && m.projection === "equirectangular"),
+            "the Equirectangular render",
+          );
+          await waitUntil(() => gate.held.find((m) => m.seq === asked.seq), "that render, held back");
+          // It fails instead, as the provider answers a render it could not draw.
+          await panel.post({ type: "gridError", seq: asked.seq, error: "render failed" });
+          await panel.controls();
+          assert.strictEqual(lastDrawn(panel).options.projection, "mollweide", "the Mollweide map stays on screen");
+          const wheeled = panel.received.length;
+          const turned = await panel.wheel([0.5, 0.5], -250);
+          assert.strictEqual(turned.prevented, false, "the wheel scrolls the page");
+          await panel.pageTimer(300);
+          assert.deepStrictEqual(
+            panel.received.slice(wheeled).filter(isType("rerenderRequest")),
+            [],
+            "and the wheel asks for no render",
+          );
+        } finally {
+          // Dropped, not delivered: its render has already answered.
+          gate.held.length = 0;
+          await gate.release();
+        }
+      },
+      "mollweide",
+    );
   });
 });

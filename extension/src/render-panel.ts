@@ -4087,15 +4087,13 @@ export function renderImagePanelHtml(
           if (gesture && gesture.moved) { ev.preventDefault(); return; }
           // Over a map no wheel zooms, the page scrolls: a target with no
           // window drawn, or asked for while a lat/lon image is still up
-          // (#1147), as it will once that render lands. The other way round,
-          // a lat/lon render on its way over a map with no window (one picked
-          // over Mollweide, or a stale Mollweide image landing after Reset
-          // view), the wheel zooms once that render lands, so it is held
-          // back meanwhile, as in the wait for Reset view's window (#1272).
-          // Once the last render asked for has answered, a map still not
-          // lat/lon (a slice drawn in its source view) lets the page scroll.
+          // (#1147), as it will once that render lands. A lat/lon map picked
+          // and still on its way over one with no window is zoomed once it
+          // lands, so the wheel over the image is held meanwhile (#1272). A
+          // target held while the picker is put away (#1099) never holds it:
+          // no lat/lon map is coming from that.
           const drawn = drawnMapWindow();
-          const coming = !drawn && answeredSeq < renderSeq &&
+          const coming = !drawn && heldProjection === null && answeredSeq < renderSeq &&
             warpsLatLon(requestedProjection()) && !warpsLatLon(drawnProjection());
           if (!drawn && !coming) return;
           const at = imageFraction(ev.clientX, ev.clientY);
