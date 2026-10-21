@@ -300,6 +300,60 @@ fn ecmwf_soil_levels_are_compared_by_number() {
     );
 }
 
+/// ECMWF `vsw` on `sol 1`, the top soil layer: the bytes code it as the layer
+/// between soil levels 0 and 1, so it too is numbered by its bottom. The
+/// `sol 2` record is refused on the level, and `sot` on `sol 1` on the name.
+#[test]
+fn the_top_ecmwf_soil_layer_is_level_1() {
+    let sol1 = ecmwf_record("vsw", "sol 1");
+    let info = message(&sol1, read("ecmwf_ifs_0p25_vsw_sol1.grib2"));
+    verify_message(&sol1.expect, &info).expect("line 69 is the message at its offset");
+
+    let sol2 = ecmwf_record("vsw", "sol 2");
+    assert_eq!(
+        refused_field(verify_message(&sol2.expect, &info)),
+        ("level", "sol 2".to_string())
+    );
+    let sot1 = ecmwf_record("sot", "sol 1");
+    assert_eq!(
+        refused_field(verify_message(&sot1.expect, &info)),
+        ("abbreviation", "sot".to_string())
+    );
+}
+
+fn gefs_member() -> Wgrib2Idx {
+    Wgrib2Idx::parse("gep01.t00z.pgrb2a.0p50.f000", &text("gefs_p01_0p50.idx"))
+        .expect("the committed sidecar parses")
+}
+
+/// GEFS member 1's `ICETK:surface:anl:ENS=+1` (record 63) against its 24,114
+/// bytes, template 4.1, perturbed member 1 (#1117). The same line naming
+/// member 2, or the control, is refused; so is the line without its `ENS=`
+/// qualifier, which wgrib2 prints for every member forecast.
+#[test]
+fn a_gefs_member_is_compared_by_its_ens_qualifier() {
+    let item = gefs_member().items()[62].clone();
+    assert_eq!(item.expect.abbreviation.as_deref(), Some("ICETK"));
+    assert_eq!(item.expect.qualifiers, ["ENS=+1"]);
+    let info = message(&item, read("gefs_p01_0p50_icetk.grib2"));
+    verify_message(&item.expect, &info).expect("record 63 is the message at its offset");
+
+    for other in ["ENS=+2", "ENS=-1", "ENS=low-res ctl"] {
+        let mut expect = item.expect.clone();
+        expect.qualifiers = vec![other.to_string()];
+        assert_eq!(
+            refused_field(verify_message(&expect, &info)),
+            ("ensemble", other.to_string())
+        );
+    }
+    let mut bare = item.expect.clone();
+    bare.qualifiers.clear();
+    assert_eq!(
+        refused_field(verify_message(&bare, &info)),
+        ("ensemble", "none".to_string())
+    );
+}
+
 /// Every parameter the committed ECMWF index names is one the MARS table
 /// checks (#1116): each record is refused on a message whose codes no MARS
 /// name has, which a name missing from the table would pass.

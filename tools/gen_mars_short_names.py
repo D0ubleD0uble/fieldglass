@@ -103,6 +103,7 @@ CONCEPT_FILES = (
     "grib2/localConcepts/ecmf/shortName.legacy.def",
     "grib2/shortName.def",
     "grib2/shortName.lte33.def",
+    "grib2/shortName.legacy.def",
 )
 
 OUT = (

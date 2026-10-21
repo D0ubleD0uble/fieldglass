@@ -1,6 +1,6 @@
 # Test fixture provenance
 
-Eight real GRIB messages, each the bytes a record of a sidecar in
+Ten real GRIB messages, each the bytes a record of a sidecar in
 `crates/fieldglass-fetchplan/tests/fixtures/` points at, so a plan can be
 checked against what it fetches. They live here because the umbrella crate
 reads them and `fieldglass-fetchplan` does not, which keeps them out of the
@@ -80,8 +80,27 @@ upper limit scale factor 3 and scaled value 254, so above 0.254 kg m-2, values
 They are the probability half of
 `crates/fieldglass/tests/verify_message_real_pairs.rs` (#1117): two lines with
 the same name, level, window and cycle that only the probability block tells
-apart. They are among the larger records of the product, and the smallest
-pair the issue names.
+apart. They are the pair the issue names.
+
+### `gefs_p01_0p50_icetk.grib2`
+
+Record 63 of `gefs_p01_0p50.idx` (`ICETK:surface:anl:ENS=+1`), fetched on
+2026-10-21 from the object that sidecar describes,
+`https://noaa-gefs-pds.s3.amazonaws.com/gefs.20260904/00/atmos/pgrb2ap5/gep01.t00z.pgrb2a.0p50.f000`,
+with `Range: bytes=12095249-12119362`: from the record's offset to one byte
+before record 64's. Unmodified, 24,114 bytes, SHA-256
+`2067184a3c45a4bcd2cc73a0533451dde68accdd91beed6081833069b2b54d5a`. The live
+sidecar was fetched again the same day and is byte-identical to the committed
+one. It is the smallest record in the sidecar.
+
+eccodes 2.34.1 (`grib_get`) reads it as product template 4.1, type of
+ensemble forecast 3 (positive perturbation), perturbation number 1 of 30,
+discipline 10, category 2, number 1 (ice thickness), on the ground (surface
+type 1), 2026-09-04 00Z, step 0, 259,920 values, minimum 0, maximum 5, packed
+complex with spatial differencing (5.3).
+
+It is the ensemble half of `crates/fieldglass/tests/verify_message_real_pairs.rs`
+(#1117): `ENS=+1` against the member block, and the line without it.
 
 ## ECMWF messages (CC-BY-4.0)
 
@@ -141,3 +160,21 @@ CCSDS-packed (5.42), 2026-09-04 00Z, tables version 32.
 They are the parameter and soil-level half of
 `crates/fieldglass/tests/verify_message_real_pairs.rs` (#1116): `mx2t3` against
 `mn2t3` bytes, and `sol 1` against `sol 3` bytes.
+
+### `ecmwf_ifs_0p25_vsw_sol1.grib2`
+
+Line 69 of the same index, `vsw` on `sol` `1`, fetched on 2026-10-21 from the
+same AWS mirror object, whose index was fetched again that day and is still
+byte-identical to the committed one. The record's `_offset` for its `_length`,
+`Range: bytes=45216327-45693667`, unmodified, 477,341 bytes, SHA-256
+`db4171044a6a6503e9277af41e31600d7c52109ae2e481909e269950d487b2f1`.
+
+eccodes 2.34.1 (`grib_get`) reads it as `vsw` (discipline 2, category 0,
+number 25), product template 4.0, on the
+layer between soil levels 0 and 1 (first and second fixed surface type 151,
+scaled values 0 and 1), `level` 1, 2026-09-04 00Z, step 0, minimum 0, maximum
+0.764893, CCSDS-packed (5.42), tables version 32. The top soil layer is coded
+as a layer too, so it is numbered by its bottom like `sol 3`.
+
+It is the second soil fixture of
+`crates/fieldglass/tests/verify_message_real_pairs.rs` (#1116).

@@ -331,10 +331,11 @@ impl ParameterResolver for TableResolver {
 ///   way only where the tables are complete (see below).
 /// * **MARS short name**, on an ECMWF `.index` (#1116): the message must match
 ///   one of the eccodes concept blocks for the name, on the parameter codes,
-///   the statistical process and the length of its time range. `2t`, `mx2t3`
-///   and `mn2t3` share discipline 0, category 0 and number 0, and the process
-///   is what tells them apart. The table covers ECMWF's open-data parameters;
-///   another name is not compared.
+///   the statistical process and the length of its time range. `mx2t3` and
+///   `mn2t3` share discipline 0, category 0 and number 0, and the process is
+///   what tells them apart. `2t` shares them too and states no process, so a
+///   `2t` line is not refused on `mx2t3` bytes at the same step. The table
+///   covers ECMWF's open-data parameters; another name is not compared.
 /// * **Level**: the line's [`LevelSpec`] against one built from the message's
 ///   fixed surfaces (GRIB2 Code Table 4.5, GRIB1 Table 3), in the line's units
 ///   — hectopascals for pressure, so `2 mb` and 200 Pa are the same level. A
@@ -362,19 +363,24 @@ impl ParameterResolver for TableResolver {
 ///   and the other derived forecasts against 4.2 and 4.12, and `10% level`
 ///   against the percentile of 4.6 and 4.10. wgrib2 prints each of these for
 ///   every message on those templates, so a line from a real `.idx` that
-///   carries none of them is refused for a message that has one. A line built
-///   by hand (no [`Expect::dialect`]) is not refused for leaving one out. An
+///   carries none of them is refused for a message that has one. A derived
+///   forecast and a percentile are words a newer wgrib2 can add to, so a line
+///   carrying a qualifier this does not read is not refused for lacking
+///   those two. A line built by hand (no [`Expect::dialect`]) is not refused
+///   for leaving one out. An
 ///   ECMWF `number` is compared with the ensemble member.
 ///
 /// **Some names are not compared.** A MARS name outside the open-data table
 /// is not, and neither is a wgrib2 line's name when the message's codes have
 /// no short name in this build's tables, unless those codes are where the
-/// tables are complete: a discipline the tables cover, and a category and a
-/// number below 192, the local-use range. There, a name the tables give to
-/// other codes is refused. Elsewhere, resolving the name to codes would
-/// refuse a correct record, since the tables do not hold every code a
-/// producer names: MRMS publishes `VIL` under its own discipline 209, and
-/// NCEP publishes `REFD` as both 0.16.4 and its local 0.16.195.
+/// tables are complete: a discipline the tables cover, a category and a
+/// number below 192, the local-use range, and a triple the WMO master table
+/// does not define at all. There, a name the tables give to other codes is
+/// refused. Elsewhere, resolving the name to codes would refuse a correct
+/// record, since the tables do not hold every code a producer names: MRMS
+/// publishes `VIL` under its own discipline 209, NCEP publishes `REFD` as both
+/// 0.16.4 and its local 0.16.195, and 167 WMO parameters have no short name
+/// here that a newer wgrib2 may give one.
 ///
 /// **A message on a product template the reader does not parse** (for
 /// example the chemistry and aerosol templates 4.40–4.48, such as
@@ -478,10 +484,22 @@ fn ncep_names() -> &'static TableResolver {
     NAMES.get_or_init(TableResolver::ncep)
 }
 
-/// Whether the message's codes are where this build's tables name every
-/// parameter that has a short name: a discipline WMO Code Table 0.0 assigns
-/// and the tables cover, and a category and a number outside the local-use
-/// range 192–254.
+/// Whether the message's codes are where this build's tables are complete, so
+/// that their naming nothing means no parameter is there: a discipline WMO
+/// Code Table 0.0 assigns and the tables cover, a category and a number
+/// outside the local-use range 192–254, and a triple the WMO master table
+/// (v37) does not define at all.
+///
+/// A triple WMO defines but gives no short name is not complete: 167 of
+/// them are (0.16.6–8, the layer-maximum reflectivities, among them), and a
+/// newer wgrib2 can name one after a centre's local parameter it replaces,
+/// which our index resolves to the local codes. A record for it would be
+/// refused while right.
+///
+/// The §1 master tables version is not in [`MessageIdentity`], so a message
+/// written against a newer WMO version is read against v37 all the same. A
+/// parameter added after v37 is then undefined here, and a newer wgrib2 name
+/// for it that this build gives to other codes is refused.
 fn codes_where_tables_are_complete(identity: &MessageIdentity) -> bool {
     matches!(
         identity,
@@ -494,6 +512,15 @@ fn codes_where_tables_are_complete(identity: &MessageIdentity) -> bool {
         } if *category < 192
             && *number < 192
             && disciplines().contains(discipline)
+            // Below 192 no centre's table applies, so NCEP's originator
+            // reads the WMO master table alone.
+            && fieldglass_grib2::lookup_parameter(
+                fieldglass_grib2::Originator::new(7, 0, 1),
+                *discipline,
+                *category,
+                *number,
+            )
+            .is_none()
     )
 }
 
@@ -818,6 +845,12 @@ fn qualifiers_hold(
     let whole_line = expect.dialect == Some(Dialect::Wgrib2Idx);
     let octets = product_octets.as_deref().and_then(from_hex);
     let qualifiers = || expect.qualifiers.iter().map(|q| q.trim());
+    // A derived forecast and a percentile are written in a closed vocabulary
+    // of words, which a newer wgrib2 can add to. A qualifier this does not
+    // read may be one of them, so it leaves their absence unproven. A
+    // probability and a member are always recognisable (`prob `, `ENS=`), so
+    // their absence holds whatever else the line says.
+    let every_qualifier_read = qualifiers().all(qualifier_is_read);
 
     // Probability: templates 4.5 and 4.9.
     let message_probability =
@@ -869,7 +902,7 @@ fn qualifiers_hold(
         (Some((q, Some(want))), Some(have)) if want != *have => {
             return refuse("derivedForecast", q, format!("Code Table 4.7 {have}"));
         }
-        (None, Some(have)) if whole_line => {
+        (None, Some(have)) if whole_line && every_qualifier_read => {
             return refuse("derivedForecast", "none", format!("Code Table 4.7 {have}"));
         }
         _ => {}
@@ -884,7 +917,7 @@ fn qualifiers_hold(
         (Some((q, want)), Some(Some(have))) if want != have => {
             return refuse("percentile", q, format!("{have}% level"));
         }
-        (None, Some(have)) if whole_line => {
+        (None, Some(have)) if whole_line && every_qualifier_read => {
             return refuse(
                 "percentile",
                 "none",
@@ -895,6 +928,25 @@ fn qualifiers_hold(
     }
 
     Ok(())
+}
+
+/// Whether a wgrib2 qualifier is one this reads: a probability, a member, a
+/// derived forecast, a percentile, or one of the fixed words `ExtName.c`
+/// prints for the generating process.
+fn qualifier_is_read(q: &str) -> bool {
+    q.starts_with("prob ")
+        || q.contains("ENS=")
+        || derived_code(q).is_some()
+        || parse_percentile(q).is_some()
+        || matches!(
+            q,
+            "probability forecast"
+                | "analysis/forecast error"
+                | "climatological"
+                | "Confidence Indicator"
+                | "Neighborhood Probability"
+        )
+        || q.starts_with("process=")
 }
 
 /// Lowercase hex, as [`MessageIdentity`] carries unread octets, to bytes.
@@ -936,7 +988,14 @@ impl Probability {
     fn same_as(&self, other: &Self) -> bool {
         let close =
             |a: f64, b: f64| a == b || (a - b).abs() <= PRINTED_PRECISION * a.abs().max(b.abs());
-        match (self, other) {
+        // `Prob.c` prints a type 2 range as `prob =x` when its limits are
+        // equal as the `f32`s `scaled2flt` returns, which two limits coded at
+        // different scales can be while their `f64`s differ.
+        let settled = |p: &Self| match *p {
+            Self::Between(a, b) if a as f32 == b as f32 => Self::Equal(a),
+            other => other,
+        };
+        match (&settled(self), &settled(other)) {
             (Self::Below(a), Self::Below(b))
             | (Self::Above(a), Self::Above(b))
             | (Self::Equal(a), Self::Equal(b)) => close(*a, *b),
@@ -1013,7 +1072,7 @@ fn probability_of(block: Option<&[u8]>) -> Option<Probability> {
         1 => Probability::Above(upper()?),
         2 => {
             let (low, high) = (lower()?, upper()?);
-            if low == high {
+            if low as f32 == high as f32 {
                 Probability::Equal(low)
             } else {
                 Probability::Between(low, high)
@@ -2335,6 +2394,60 @@ mod tests {
         );
     }
 
+    /// A qualifier the grammar does not read may be a derived forecast or a
+    /// percentile in wording a newer wgrib2 added, so a line carrying one is
+    /// not refused for lacking them. A probability or a member is always
+    /// recognisable, so its absence is still refused.
+    #[test]
+    fn an_unread_qualifier_leaves_a_missing_one_unproven() {
+        let mean = derived(on_template(2, None, 1, 0), 0);
+        let tenth = on_template(6, Some("0a"), 1, 0);
+        let novel = line("anl", &["ens median of all members"]);
+        assert_eq!(refused(&novel, &mean), None);
+        assert_eq!(refused(&novel, &tenth), None);
+        // Words this reads still prove the absence.
+        let known = line("anl", &["probability forecast"]);
+        assert_eq!(refused(&known, &mean), Some("derivedForecast"));
+        assert_eq!(refused(&known, &tenth), Some("percentile"));
+
+        let prob = on_template(
+            9,
+            Some(&probability_block(1, (0xff, u32::MAX), (3, 254))),
+            1,
+            0,
+        );
+        assert_eq!(refused(&novel, &prob), Some("probability"));
+        let member1 = member(on_template(1, None, 1, 0), 3, 1);
+        assert_eq!(refused(&novel, &member1), Some("ensemble"));
+    }
+
+    /// `Prob.c` prints a type 2 range as `prob =x` when its limits are equal as
+    /// `f32`s, which two limits at different scales can be while their `f64`s
+    /// differ.
+    #[test]
+    fn a_range_with_limits_equal_as_f32_is_an_equality() {
+        let block = probability_block(2, (0, 1), (9, 1_000_000_001));
+        let message = on_template(9, Some(&block), 1, 0);
+        let check = |q: &str| refused(&line("anl", &[q, "prob fcst 255/255"]), &message);
+        assert_eq!(check("prob =1"), None);
+        assert_eq!(check("prob =2"), Some("probability"));
+    }
+
+    /// An unnamed triple the WMO master table defines is not where the tables
+    /// are complete: NCEP's local `MAXREF` (0.16.198) may be published at
+    /// WMO's layer-maximum reflectivity 0.16.8, which has no short name here,
+    /// under the name a newer wgrib2 gives it (#1116 review).
+    #[test]
+    fn an_unnamed_wmo_parameter_is_not_compared_by_name() {
+        assert_eq!(
+            verify_message(
+                &Expect::new().with_abbreviation("MAXREF"),
+                &unnamed(0, 16, 8, None)
+            ),
+            Ok(())
+        );
+    }
+
     /// An ECMWF `number` is the member a message is.
     #[test]
     fn an_ecmwf_number_is_the_member() {
@@ -2382,8 +2495,10 @@ mod tests {
         );
         assert_eq!(refused(&mars("mx2t6"), &max_3h), Some("abbreviation"));
         assert_eq!(refused(&mars("mx2t3"), &instant), Some("abbreviation"));
-        // `2t` states no process, so a maximum still matches it: what tells
-        // them apart then is the step.
+        // `2t` states no process, so a maximum still matches it. Nothing
+        // here tells them apart: a `2t` line at step 3 passes on `mx2t3`
+        // bytes (step 3 is the end of their window), and only a `2t` line at
+        // another step is refused, on the forecast.
         assert_eq!(refused(&mars("2t"), &max_3h), None);
         // Nested time ranges are not compared.
         let mut nested = max_3h.clone();
