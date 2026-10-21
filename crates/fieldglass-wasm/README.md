@@ -276,19 +276,27 @@ key:
 
 ```js
 // `shardIndexes`: each index is the shard's last `length` bytes, or its first.
-// The store needs the shard's whole size, which `Content-Range` states, so the
-// bucket must expose that header to the page (most public buckets do).
+// The store also needs each shard's whole size. A page can read it from
+// `Content-Range` only where the bucket lists that header in
+// `Access-Control-Expose-Headers`, and dynamical.org's does not (checked
+// 2026-10-21). So this asks a `HEAD` for `Content-Length`, which a page can
+// always read, at the same time as the range.
 const range = async (key, header) => {
   const response = await fetch(`${store}/${key}`, { headers: { Range: header } });
   if (response.status === 404) return null;
   if (response.status !== 206) throw new Error(`${key}: HTTP ${response.status}`);
-  const [, start, , size] = response.headers.get('Content-Range').match(/(\d+)-(\d+)\/(\d+)/);
-  return { offset: Number(start), size: Number(size), bytes: new Uint8Array(await response.arrayBuffer()) };
+  return new Uint8Array(await response.arrayBuffer());
+};
+const sizeOf = async (key) => {
+  const response = await fetch(`${store}/${key}`, { method: 'HEAD' });
+  return response.ok ? Number(response.headers.get('Content-Length')) : null;
 };
 for (const index of plan.shardIndexes ?? []) {
   const header = index.location === 'end' ? `bytes=-${index.length}` : `bytes=0-${index.length - 1}`;
-  const got = await range(index.key, header);
-  objects.set(index.key, got && { size: got.size, ranges: [{ offset: got.offset, bytes: got.bytes }] });
+  const [bytes, size] = await Promise.all([range(index.key, header), sizeOf(index.key)]);
+  if (bytes === null) { objects.set(index.key, null); continue; } // a 404: all fill
+  const offset = index.location === 'end' ? size - index.length : 0;
+  objects.set(index.key, { size, ranges: [{ offset, bytes }] });
 }
 ds.free();
 ds = openStore(objects);
@@ -297,9 +305,10 @@ ds = openStore(objects);
 // intersects, as an `offset` and `length` within its shard. Inner chunks the
 // index marks as never written are left out; they are the fill value.
 for (const inner of ds.planWindow(request).innerChunks) {
+  // Zero bytes cannot be named by a range, and the decode refuses such a chunk.
   if (inner.length === 0) continue;
-  const got = await range(inner.key, `bytes=${inner.offset}-${inner.offset + inner.length - 1}`);
-  objects.get(inner.key).ranges.push({ offset: got.offset, bytes: got.bytes });
+  const bytes = await range(inner.key, `bytes=${inner.offset}-${inner.offset + inner.length - 1}`);
+  objects.get(inner.key).ranges.push({ offset: inner.offset, bytes });
 }
 ds.free();
 ds = openStore(objects);
@@ -310,10 +319,12 @@ const field = ds.decodeWindow(request);
 and `innerChunks` is `null` until every index is in the map (a shard given
 whole, or as `null` for a 404, counts). A read takes each range from one range
 you gave that holds it, so give each range as fetched. `decodeWindow` throws
-`invalid_option` naming each index or inner-chunk range it lacks, and a shard
-index that fails its checksum, or names bytes outside its shard or over the
-index itself, throws `decode` from `planWindow` and `decodeWindow` rather than
-being read.
+`invalid_option` naming each index or inner-chunk range it lacks. A shard index
+that fails its checksum, or names bytes outside its shard or over the index
+itself, is never read: `planWindow` leaves `innerChunks` `null`, so fetch
+`chunks` whole, and `decodeWindow` throws `decode` naming what is wrong.
+`shardIndexes` is `null` too for a sharding configuration this build does not
+read, or a shard of more than 1,048,576 inner chunks.
 
 ### Which way up a raster comes out
 

@@ -44,7 +44,8 @@ use crate::{Handle, WasmField, from_js, object_brand, strict, throw, to_js};
 /// the caller may reuse its own at once.
 ///
 /// **Part of an object** is `{ size, ranges: [{ offset, bytes }] }`: the
-/// object's whole length (an HTTP response's `Content-Range` states it) and
+/// object's whole length (a `HEAD`'s `Content-Length`, or a range response's
+/// `Content-Range` where the bucket exposes it to the page) and
 /// each range fetched of it, by its first byte (#1123). That is how a sharded
 /// variable is read in part: give each shard's index and the inner chunks
 /// `planWindow` names this way, under the shard's key, all the ranges of one
@@ -222,7 +223,7 @@ const OBJECT_RANGES: &str = r#"
  * some of its inner chunks (`WindowPlan.shardIndexes`, `WindowPlan.innerChunks`).
  */
 export interface ObjectRanges {
-  /** The object's whole length in bytes, as the response's `Content-Range` states it. */
+  /** The object's whole length in bytes: a `HEAD`'s `Content-Length`, or `Content-Range` where exposed. */
   size: number;
   /** Each range fetched: its first byte, and its bytes. */
   ranges: { offset: number; bytes: Uint8Array }[];
@@ -349,8 +350,10 @@ impl Handle {
     /// slice not placed on a regular lat/lon grid, as 1-D latitude and
     /// longitude coordinates place one. That refusal names a coordinate the
     /// store left out and why, and coordinate chunks passed as `null` whose
-    /// fill value placed nothing. An index that fails its checksum, or names
-    /// bytes outside its shard or over the index itself, throws `decode`.
+    /// fill value placed nothing. An index in hand that fails its checksum, or
+    /// names bytes outside its shard or over the index itself, leaves
+    /// `innerChunks` `null` (fetch `chunks` whole), and `decodeWindow` throws
+    /// `decode` for it.
     #[wasm_bindgen(js_name = planWindow, unchecked_return_type = "WindowPlan")]
     pub fn plan_window(
         &self,

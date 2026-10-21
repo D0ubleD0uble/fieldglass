@@ -463,8 +463,8 @@ pub trait ObjectSource {
     /// A reader that addresses part of an object from its end — a Zarr shard
     /// whose index is its last bytes — needs this before it can name the
     /// range. A source given only some ranges of an object knows its size all
-    /// the same, because the host learnt it with the bytes (an HTTP
-    /// `Content-Range`).
+    /// the same, because the host learnt it beside the bytes (an HTTP
+    /// `HEAD`'s `Content-Length`, or a `Content-Range`).
     ///
     /// The default reads the object, which a whole map or a directory does
     /// anyway.

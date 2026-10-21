@@ -667,16 +667,18 @@ same(
   ]) {
     same(`object ranges: ${what} is refused`, codeOf(() => wasm.openStore(new Map([...base, [key, value]]))), 'invalid_option');
   }
-  // An index altered on the way is refused when planned, never sliced.
+  // An index altered on the way is never sliced: the plan still names the
+  // shard and leaves `innerChunks` null (fetch it whole), and the decode
+  // refuses the index.
   const index = fetchRange(key, { suffix: true, offset: 0, length: expected.index_length });
   index.bytes[0] ^= 0xff;
   const tampered = wasm.openStore(new Map([...base, [key, { size: index.size, ranges: [{ offset: index.offset, bytes: index.bytes }] }]]));
   const t2m = tampered.variables().find((v) => v.name === 't2m');
-  same(
-    'a tampered shard index is refused by the plan',
-    codeOf(() => tampered.planWindow({ variable: t2m.index, yDim: 1, xDim: 2, bounds: [55, 75, 0, 30], sliceIndices: [0, 0, 0] })),
-    'decode',
-  );
+  const corner = { variable: t2m.index, yDim: 1, xDim: 2, bounds: [55, 75, 0, 30], sliceIndices: [0, 0, 0] };
+  const tamperedPlan = tampered.planWindow(corner);
+  same('a tampered shard index still plans its shard', tamperedPlan.chunks.map((c) => c.key), [key]);
+  same('and no inner chunk', tamperedPlan.innerChunks, null);
+  same('and the decode refuses it', codeOf(() => tampered.decodeWindow(corner)), 'decode');
   tampered.free();
 }
 
