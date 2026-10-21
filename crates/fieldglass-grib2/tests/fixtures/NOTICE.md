@@ -987,7 +987,9 @@ Two of them are byte layouts eccodes does not write:
   `fieldglass-grib2` reads the WMO layout. A known divergence from eccodes:
   `ECCODES_MISREADS` in `tests/eccodes_reference.rs` compares these keys with
   the spec's values instead, and fails if eccodes ever reads them as the spec
-  does. The builder asserts the pin's misreadings too.
+  does. The builder asserts the pin's misreadings too. The decision and its
+  evidence (WMO, NCEPLIBS-g2c, wgrib2) are ADR-0017,
+  `docs/decisions/0017-grib2-template-4-47-follows-wmo.md`.
 - **`constituent_4_44_four_octet_time.grib2` has a four-octet forecast time.**
   WMO's 4.44 states it in two unsigned octets (32-33; 45 octets in all), which
   the other 4.44 fixture uses. eccodes once wrote four (GRIB-29) and reads a

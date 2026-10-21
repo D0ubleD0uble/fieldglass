@@ -14,7 +14,7 @@ from another template's octets shows:
 - Two layouts eccodes does not write as WMO's tables have them:
   - `constituent_4_47.grib2`, template 4.47 as WMO lays it out: the type of
     generating process at octet 12, then the aerosol type at 13-14 and the
-    size range at 15-25. eccodes (2.34.1, and 2.45.0 and the 2.48 wheel) lays
+    size range at 15-25. eccodes (2.34.1, 2.45.0 and the 2.48 wheel) lays
     4.47 out as 4.46, with the aerosol type at 12-13 and the generating
     process at 25, so the wheel's message has its octets 12-25 rotated here to
     the spec's order. wgrib2 reads 4.47 as the spec does

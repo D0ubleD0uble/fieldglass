@@ -518,7 +518,9 @@ fn limit(
 /// (`code_table_4_233_location` returns `sec[4] + 12` for 4.47 alone). The
 /// parameter, the fixed surfaces, the forecast time, the ensemble block and the
 /// interval sit at the same octets in both layouts, and are compared with
-/// eccodes as usual. The fixture's provenance is in `tests/fixtures/NOTICE.md`.
+/// eccodes as usual. The fixture's provenance is in `tests/fixtures/NOTICE.md`,
+/// and the decision and its evidence in ADR-0017
+/// (`docs/decisions/0017-grib2-template-4-47-follows-wmo.md`).
 const ECCODES_MISREADS: &[(&str, &str, i64)] = &[
     ("constituent_4_47.grib2", "typeOfGeneratingProcess", 4),
     ("constituent_4_47.grib2", "constituentType", 62009),

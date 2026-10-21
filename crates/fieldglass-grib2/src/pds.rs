@@ -329,12 +329,14 @@ pub struct EnsembleBlock {
 /// not, or not only:
 ///
 /// * **4.47** puts the type of generating process at octet 12 and the aerosol
-///   type at 13–14, unlike every other aerosol template (WMO's own table, and
-///   wgrib2's `code_table_4_233_location`). eccodes (2.34.1 and 2.45.0) lays
-///   4.47 out as 4.46 is, with the aerosol type at 12–13 and the generating
-///   process at 25, so it reads a conforming 4.47's constituent, size range and
-///   generating process from the wrong octets. A known divergence; see
-///   `tests/fixtures/NOTICE.md`.
+///   type at 13–14, unlike every other aerosol template (WMO's own table,
+///   NCEPLIBS-g2c and wgrib2's `code_table_4_233_location`). eccodes (2.34.1,
+///   2.45.0 and the 2.48 PyPI wheel) lays 4.47 out as 4.46 is, with the
+///   aerosol type at 12–13 and the generating process at 25, so it reads a
+///   conforming 4.47's constituent, size range and generating process from the
+///   wrong octets, and a 4.47 it writes reads wrongly here. A known
+///   divergence: ADR-0017 (`docs/decisions/0017-grib2-template-4-47-follows-wmo.md`)
+///   and `tests/fixtures/NOTICE.md`.
 /// * **4.44** states its forecast time in two unsigned octets (32–33), so the
 ///   template is 45 octets long. eccodes once wrote it in four signed octets
 ///   (its GRIB-29) and reads a 4.44 of any other length that way; so does this
