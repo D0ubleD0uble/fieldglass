@@ -303,7 +303,7 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       const from = panel.sent.length;
       await panel.drive([{ id: "compare-field-b", value: 2 }]);
       await panel.waitSent((m: Msg) => m.type === "gridError" && !m.rangeRefusal, from, "the different-grid error");
-      const sentBefore = panel.sent.length;
+      const receivedBefore = panel.received.length;
       state = await panel.drive([{ id: "export-png", click: true }]);
       assert.strictEqual(state.rangeNote, null);
       assert.deepStrictEqual(state.rangeInvalid, []);
@@ -311,7 +311,7 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       // The render failed, so the PNG would be of an older picture: it is
       // refused, for that and not for the range (#1187).
       assert.ok(state.exportStatus.includes("last render failed"), state.exportStatus);
-      assert.ok(!panel.sent.slice(sentBefore).some(isType("exportPngDone")), "nothing went to the host");
+      assert.ok(!panel.received.slice(receivedBefore).some(isType("exportPng")), "no PNG was posted");
     } finally {
       vscode.window.showSaveDialog = savedDialog;
       panel.dispose();
@@ -405,14 +405,14 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
         "the grid error after the log toggle",
       );
       assert.ok(err.error);
-      const sentBefore = panel.sent.length;
+      const receivedBefore = panel.received.length;
       const state = await panel.drive([{ id: "export-png", click: true }]);
       assert.strictEqual(state.rangeNote, null, "the edit ended the refusal");
       assert.deepStrictEqual(state.rangeInvalid, []);
       assert.ok(!state.exportStatus.includes("range fields"), "export is not blocked by the range");
       // The render failed, so the PNG would be of an older picture (#1187).
       assert.ok(state.exportStatus.includes("last render failed"), state.exportStatus);
-      assert.ok(!panel.sent.slice(sentBefore).some(isType("exportPngDone")), "nothing went to the host");
+      assert.ok(!panel.received.slice(receivedBefore).some(isType("exportPng")), "no PNG was posted");
     } finally {
       vscode.window.showSaveDialog = savedDialog;
       panel.dispose();

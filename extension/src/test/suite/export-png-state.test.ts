@@ -134,11 +134,10 @@ suite("Export PNG keeps what the screen shows, and refuses a stale picture", () 
       from = panel.sent.length;
       await panel.drive([{ id: "compare-field-b", value: 0 }]);
       await panel.waitSent(isType("gridReady"), from, "the redraw");
-      state = await panel.drive([]);
       const before = panel.received.length;
       const sentBefore = panel.sent.length;
       await panel.drive([{ id: "export-png", click: true }]);
-      assert.ok(panel.received.slice(before).some(isType("exportPng")), "export works after a render that drew");
+      await waitUntil(() => panel.received.slice(before).find(isType("exportPng")), "export works after a render that drew");
       await panel.waitSent(isType("exportPngDone"), sentBefore, "the PNG export's outcome");
     } finally {
       vscode.window.showSaveDialog = savedDialog;

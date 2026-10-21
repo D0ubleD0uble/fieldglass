@@ -3191,8 +3191,9 @@ export function renderImagePanelHtml(
           if (!msg || typeof msg.seq !== 'number' || msg.seq >= renderSeq) {
             answeredSeq = renderSeq;
             clearGesturePreview();
-            // A refused range has its own export message (rangeRefused).
-            lastRenderFailed = !msg.rangeRefusal;
+            // A refused range has its own export message (rangeRefused), and does
+            // not clear an earlier failure: the picture is still the old one.
+            if (!msg.rangeRefusal) lastRenderFailed = true;
           }
           const err = msg.error || 'render failed';
           const askedKey = takeAskedKey(msg);
