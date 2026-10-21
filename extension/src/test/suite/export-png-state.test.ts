@@ -299,3 +299,167 @@ suite("Export PNG draws on the editor's background (#1300)", () => {
     });
   });
 });
+
+// ---- Layer colours follow a theme change (#1340) ---------------------------
+
+/** The GFS fixture twice over: a u/v pair on one grid, for the arrows. */
+function pairFile(): string {
+  const gfs = path.join(extensionPath(), "..", "crates", "fieldglass-grib2", "tests", "fixtures", "gfs_c255_latlon.grib2");
+  const one = fs.readFileSync(gfs);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1340-"));
+  const file = path.join(dir, "gfs_pair.grib2");
+  fs.writeFileSync(file, Buffer.concat([one, one]));
+  return file;
+}
+
+/** Switch the workbench to `theme` and wait until the page shows `kind`. */
+async function switchTheme(panel: RealPanel, theme: string, kind: string): Promise<void> {
+  await vscode.workspace.getConfiguration("workbench").update("colorTheme", theme, vscode.ConfigurationTarget.Global);
+  await waitForRead(() => panel.drive([]), (s) => s.themeKind === kind, `the page in ${theme}`);
+}
+
+/** Wait until every themed colour input, and the arrow key on the map, show the
+ *  page's own foreground. */
+async function expectFollowing(panel: RealPanel, kind: string, what: string): Promise<void> {
+  await waitForRead(
+    () => panel.drive([]),
+    (s) =>
+      s.themeKind === kind &&
+      [s.coastlineColour, s.contoursColour, s.vectorsColour].every((c) => c !== null && hex(c) === hex(s.foreground)) &&
+      s.vectorKey !== null &&
+      hex(s.vectorKey.drawn.colour) === hex(s.foreground),
+    `${what}: the coastline, contour and arrow colours follow ${kind}`,
+  );
+}
+
+/** Export a PNG and check the strokes and the arrow key leave the map's
+ *  background toward the foreground: lighter in a dark theme, darker in a light
+ *  one. The Contours-only view leaves the map as one colour plus strokes. */
+async function expectExported(
+  panel: RealPanel,
+  drawn: { width: number; height: number },
+  dark: boolean,
+  what: string,
+): Promise<void> {
+  const png = await exportedPng(panel);
+  const top = png.height - MARGIN - drawn.height;
+  const bg = modeColour(png, top, drawn);
+  assert.strictEqual(bright(bg) < 80, dark, `${what}: the PNG's map background is the editor's (${bg})`);
+  let reach = 0;
+  let strokes = 0;
+  for (let y = top; y < top + drawn.height; y++) {
+    for (let x = MARGIN; x < MARGIN + drawn.width; x++) {
+      const i = (y * png.width + x) * 4;
+      const c = [png.rgba[i], png.rgba[i + 1], png.rgba[i + 2]];
+      if (c[0] === bg[0] && c[1] === bg[1] && c[2] === bg[2]) continue;
+      strokes += 1;
+      reach = Math.max(reach, dark ? bright(c) - bright(bg) : bright(bg) - bright(c));
+    }
+  }
+  assert.ok(strokes >= 10, `${what}: strokes are drawn (${strokes} px)`);
+  assert.ok(reach >= 30, `${what}: strokes reach ${reach.toFixed(0)}/255 toward the foreground`);
+  // The arrow key's shaft, in the PNG's own pixels.
+  const state = await panel.drive([]);
+  const key = state.exportedKey;
+  assert.ok(key, `${what}: the export drew the arrow key`);
+  // The shaft is a thin line: take the strongest pixel within a pixel or two
+  // of its middle, toward the foreground.
+  const mid = Math.round((key.tail + key.tip) / 2);
+  let shaft = dark ? 0 : 255;
+  for (let y = Math.round(key.y) - 2; y <= Math.round(key.y) + 2; y++) {
+    for (let x = mid - 2; x <= mid + 2; x++) {
+      const i = (y * png.width + x) * 4;
+      const b = bright([png.rgba[i], png.rgba[i + 1], png.rgba[i + 2]]);
+      shaft = dark ? Math.max(shaft, b) : Math.min(shaft, b);
+    }
+  }
+  // Scaled onto the PNG's map the shaft is a faint blend, like the strokes.
+  const keyReach = dark ? shaft - bright(bg) : bright(bg) - shaft;
+  assert.ok(keyReach >= 30, `${what}: the key's shaft reaches ${keyReach.toFixed(0)}/255 toward the foreground in the PNG`);
+}
+
+suite("Layer colours follow a theme change (#1340)", () => {
+  test("seeded colours follow a switch with the panel visible and again after a hide and show, on screen and in the PNG", async function () {
+    this.timeout(300_000);
+    await inTheme("Default Dark Modern", async (restore) => {
+      const p = await provider();
+      const editor = await openEditor(p, pairFile());
+      const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+      try {
+        const drawn = await panel.waitSent(isType("gridReady"), 0, "the first render");
+        await waitForRead(() => panel.drive([]), (s) => s.themeKind === "vscode-dark", "the page in a dark theme");
+        let from = panel.sent.length;
+        await panel.drive([
+          { id: "overlay-coastlines", checked: true },
+          { id: "vector-field-v", value: 1 },
+          { id: "overlay-vectors", checked: true },
+          { id: "overlay-contours", checked: true },
+          { id: "contours-only", checked: true },
+        ]);
+        await panel.waitSent(isType("contourReady"), from, "the contours");
+        await expectFollowing(panel, "vscode-dark", "dark at the start");
+
+        // A switch with the panel visible.
+        await switchTheme(panel, "Default Light Modern", "vscode-light");
+        await expectFollowing(panel, "vscode-light", "light, panel visible");
+        await expectExported(panel, drawn, false, "light, panel visible");
+
+        // A hide and show rebuilds the page from its saved state; the seeded
+        // colours must still count as the theme's, not the user's.
+        from = panel.sent.length;
+        await panel.hideShow();
+        await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");
+        await expectFollowing(panel, "vscode-light", "light, after a hide and show");
+
+        await switchTheme(panel, "Default Dark Modern", "vscode-dark");
+        await expectFollowing(panel, "vscode-dark", "dark, after a hide and show");
+        await expectExported(panel, drawn, true, "dark, after a hide and show");
+        await restore(panel);
+      } finally {
+        panel.dispose();
+        editor.close();
+      }
+    });
+  });
+
+  test("a colour the user picked is kept across a theme switch and a hide and show; the rest follow", async function () {
+    this.timeout(300_000);
+    const PICKED = "#ff00ff";
+    await inTheme("Default Dark Modern", async (restore) => {
+      const p = await provider();
+      const editor = await openEditor(p, pairFile());
+      const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+      try {
+        await panel.waitSent(isType("gridReady"), 0, "the first render");
+        await waitForRead(() => panel.drive([]), (s) => s.themeKind === "vscode-dark", "the page in a dark theme");
+        let from = panel.sent.length;
+        await panel.drive([
+          { id: "overlay-coastlines", checked: true },
+          { id: "vector-field-v", value: 1 },
+          { id: "overlay-vectors", checked: true },
+          { id: "overlay-contours", checked: true },
+          { id: "color-contours", value: PICKED },
+        ]);
+        await panel.waitSent(isType("contourReady"), from, "the contours");
+        const others = (s: { coastlineColour: string | null; vectorsColour: string | null; foreground: string }): boolean =>
+          hex(s.coastlineColour ?? "") === hex(s.foreground) && hex(s.vectorsColour ?? "") === hex(s.foreground);
+        const keptAnd = async (kind: string, what: string): Promise<void> => {
+          const s = await waitForRead(() => panel.drive([]), (x) => x.themeKind === kind && others(x), `${what}: the others follow`);
+          assert.strictEqual(hex(s.contoursColour ?? ""), PICKED, `${what}: the picked Contours colour is kept`);
+        };
+        await switchTheme(panel, "Default Light Modern", "vscode-light");
+        await keptAnd("vscode-light", "light, visible");
+        from = panel.sent.length;
+        await panel.hideShow();
+        await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");
+        await keptAnd("vscode-light", "light, after a hide and show");
+        await switchTheme(panel, "Default Dark Modern", "vscode-dark");
+        await keptAnd("vscode-dark", "dark, after a hide and show");
+        await restore(panel);
+      } finally {
+        panel.dispose();
+        editor.close();
+      }
+    });
+  });
+});

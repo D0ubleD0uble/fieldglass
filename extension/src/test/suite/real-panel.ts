@@ -185,6 +185,10 @@ export interface PageState {
    *  as the page reads it: the input is seeded from the second at load. */
   contoursColour: string | null;
   foreground: string;
+  /** The Coastlines and Vectors colour inputs' values (#1340), `null` when
+   *  absent. */
+  coastlineColour: string | null;
+  vectorsColour: string | null;
   /** The arrow key on the map (#1046), `null` when none is drawn. */
   vectorKey: VectorKeyState | null;
   /** The arrow key the last Export PNG drew, in PNG pixels (#1046), `null`
@@ -629,6 +633,8 @@ const DRIVER = `
           })),
         themeKind: document.body.getAttribute('data-vscode-theme-kind') || document.body.className,
         contoursColour: (document.getElementById('color-contours') || {}).value || null,
+        coastlineColour: (document.getElementById('color-coastline') || {}).value || null,
+        vectorsColour: (document.getElementById('color-vectors') || {}).value || null,
         foreground: getComputedStyle(document.documentElement).getPropertyValue('--vscode-foreground').trim(),
         vectorKey: vectorKey(),
         exportedKey: document.body.dataset.exportedKey ? JSON.parse(document.body.dataset.exportedKey) : null,
@@ -940,6 +946,9 @@ const DRIVER = `
         // waited on and no resize is nudged, so the page is left to notice.
         if ('display' in a) { el.style.display = a.display; continue; }
         if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
+        // A colour picker fires \`input\` as the colour is chosen, and the
+        // panel marks the colour as the user's on it (#1340).
+        if (el.type === 'color') el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
       const send = () => api.postMessage({ type: 'test:state', tag: m.tag, state: report() });
