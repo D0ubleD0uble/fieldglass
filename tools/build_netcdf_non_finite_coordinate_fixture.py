@@ -8,8 +8,8 @@ breaks both, so the slices these coordinates span cannot be placed. Before
 and a NaN in the middle of a latitude was placed from its finite ends as if
 nothing were wrong.
 
-Every value is written as itself: no coordinate carries `_FillValue` or
-`missing_value`, so a reader that masks fill values still sees the NaN.
+Every value is written as itself. Only `lat_fill` carries a `_FillValue`, so a
+reader that masks fill values still sees every NaN.
 
   * `all_nan(lat_nan, lon)`        every latitude NaN, as a coordinate read from
                                    chunks a store never wrote is when its fill
@@ -17,6 +17,9 @@ Every value is written as itself: no coordinate carries `_FillValue` or
   * `hole(lat_hole, lon)`          finite ends, NaN in the middle
   * `infinite_end(lat, lon_inf)`   a longitude ending in +infinity
   * `placed(lat, lon)`             finite coordinates, the control
+  * `masked(lat_fill, lon)`        a latitude whose `_FillValue` (-999) sits in
+                                   the middle: masked as it is read, and refused
+                                   the way the NaN is
 
 NetCDF-3 classic, 3 x 4 float32 fields. Run from the repo root (needs
 `netCDF4` + `numpy`):
@@ -47,7 +50,9 @@ FIELDS = [
     ("hole", "lat_hole", "lon"),
     ("infinite_end", "lat", "lon_inf"),
     ("placed", "lat", "lon"),
+    ("masked", "lat_fill", "lon"),
 ]
+FILL = -999.0
 
 
 def coordinate(d, name: str, values: list[float], units: str, standard: str) -> None:
@@ -70,6 +75,12 @@ def main() -> int:
         d.Conventions = "CF-1.8"
         for name, values in LATITUDES.items():
             coordinate(d, name, values, "degrees_north", "latitude")
+        d.createDimension("lat_fill", 3)
+        v = d.createVariable("lat_fill", "f8", ("lat_fill",), fill_value=FILL)
+        v.units = "degrees_north"
+        v.standard_name = "latitude"
+        v.set_auto_mask(False)  # write the sentinel verbatim
+        v[:] = np.array([10.0, FILL, 30.0], dtype="f8")
         for name, values in LONGITUDES.items():
             coordinate(d, name, values, "degrees_east", "longitude")
         for name, y, x in FIELDS:

@@ -60,6 +60,13 @@ fn a_netcdf_coordinate_that_is_not_finite_is_refused_naming_it() {
     // what has to be found.
     assert_refused(&session, "hole", &["`lat_hole`", "NaN", "index 1"]);
     assert_refused(&session, "infinite_end", &["`lon_inf`", "inf", "index 3"]);
+    // A value at the coordinate's own `_FillValue`, masked as it is read: the
+    // refusal a masked value always had, now in the same words.
+    assert_refused(
+        &session,
+        "masked",
+        &["`lat_fill`", "a fill value", "index 1"],
+    );
 
     // The control: the same field on finite coordinates is placed.
     let placed = variable(&session, "placed");

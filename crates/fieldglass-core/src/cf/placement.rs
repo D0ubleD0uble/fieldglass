@@ -459,7 +459,7 @@ fn coordinate_values(
 fn no_position(name: &str, at: usize, what: &str) -> FieldglassError {
     FieldglassError::Parse(format!(
         "coordinate `{name}` holds {what} at index {at}, so the slices it spans cannot be \
-         placed: a coordinate's values must all be finite numbers"
+         placed: a coordinate's values must all be present and finite"
     ))
 }
 
@@ -512,8 +512,9 @@ fn dims_end_with(entry: &Entry<'_>, y: &str, x: &str) -> bool {
 /// One cell of a 2-D coordinate field at a flat C-order index, CF-scaled.
 ///
 /// **A masked corner is a hard error**, and so is one that is not finite.
-/// Shifting to the next present cell would move the origin and mis-georeference the whole domain, which is the
-/// failure this guard exists to prevent rather than to survive.
+/// Shifting to the next present cell would move the origin and
+/// mis-georeference the whole domain, which is the failure this guard exists
+/// to prevent rather than to survive.
 fn corner_value(
     source: &dyn ArraySource,
     entry: &Entry<'_>,

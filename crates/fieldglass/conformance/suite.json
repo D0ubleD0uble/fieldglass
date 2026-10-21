@@ -31592,6 +31592,25 @@
           "index": 3,
           "name": "placed",
           "units": "K"
+        },
+        {
+          "detectedTimeDim": null,
+          "detectedXDim": 1,
+          "detectedYDim": null,
+          "dims": [
+            {
+              "length": 3,
+              "name": "lat_fill"
+            },
+            {
+              "length": 4,
+              "name": "lon"
+            }
+          ],
+          "dtype": "float",
+          "index": 4,
+          "name": "masked",
+          "units": "K"
         }
       ]
     },
@@ -31804,6 +31823,50 @@
         },
         "truncation": null,
         "units": "K"
+      }
+    },
+    {
+      "id": "non_finite_coordinates/decode_slice/masked",
+      "fixture": "fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc",
+      "op": "decodeSlice",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 4,
+        "yDim": 0,
+        "xDim": 1,
+        "sliceIndices": [
+          0,
+          0
+        ],
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": {
+        "error": {
+          "code": "decode",
+          "hasMessage": true
+        }
       }
     },
     {
