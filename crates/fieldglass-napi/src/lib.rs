@@ -3300,6 +3300,122 @@ pub struct ZarrStore {
     session: fieldglass::Session,
     /// The last warp's pixel-to-cell map (#1233), as the other handles keep.
     warps: fieldglass::WarpMemo,
+    /// The last few slices decoded (#1273), as the NetCDF handle keeps its
+    /// planes: a colour change, a probe or a contour of the slice on screen
+    /// reads it again. See `SliceMemo` for the bound.
+    slices: Mutex<SliceMemo>,
+    /// How many slices this handle has decoded; what a test counts to hold
+    /// that a repaint does not decode again.
+    #[cfg(test)]
+    decodes: std::sync::atomic::AtomicU64,
+}
+
+/// One decoded Zarr slice, kept whole: its values in the shape every display
+/// reads, and the placement with its geometry shared, so the warp memo
+/// recognises the grid by address instead of comparing it (#1273).
+#[derive(Debug)]
+struct ZarrSlice {
+    placed: Placed,
+    values: Vec<Option<f64>>,
+    /// The decoded field with its geometry swapped for a placeholder: the
+    /// geometry lives once, in `placed`, and `Self::field` puts it back for the
+    /// callers that need a whole `Field` (a combine).
+    rest: fieldglass::Field,
+}
+
+impl ZarrSlice {
+    /// `kept` is the memo the slice is about to join: a slice on the same grid
+    /// as one kept (another time step or variable on the same coordinates)
+    /// shares that slice's geometry rather than holding its own copy, so the
+    /// warp memo's pointer check keeps hitting across slices and one grid is
+    /// held once. One fingerprint per decode, as the NetCDF handle pays once
+    /// per coordinate pair.
+    fn new(mut field: fieldglass::Field, kept: &SliceMemo) -> Self {
+        let values = field_values(&field);
+        let geometry = std::mem::replace(
+            &mut field.georef.geometry,
+            GridGeometry::Unsupported {
+                label: String::new(),
+                declared: None,
+            },
+        );
+        let placed = Placed {
+            ni: field.ni,
+            nj: field.nj,
+            scan: field.georef.scan,
+            family: field.georef.label.clone(),
+            points_per_row: field.georef.points_per_row.clone(),
+            geometry: kept
+                .entries
+                .iter()
+                .map(|(_, s)| &s.placed.geometry)
+                .find(|g| fieldglass::same_grid(g, &geometry))
+                .map_or_else(|| std::sync::Arc::new(geometry), std::sync::Arc::clone),
+        };
+        Self {
+            placed,
+            values,
+            rest: field,
+        }
+    }
+
+    /// The whole field again, which copies the geometry.
+    fn field(&self) -> fieldglass::Field {
+        let mut field = self.rest.clone();
+        field.georef.geometry = (*self.placed.geometry).clone();
+        field
+    }
+
+    fn cells(&self) -> usize {
+        self.values.len()
+    }
+}
+
+/// Two Zarr slices combined: `a`, which the result is placed as, the combined
+/// field, and its values rejoined.
+type CombinedSlices = (
+    std::sync::Arc<ZarrSlice>,
+    fieldglass::Field,
+    Vec<Option<f64>>,
+);
+
+/// The slices a `ZarrStore` keeps: the most recently used, newest last.
+///
+/// Bounded as `PlaneMemo` is, and for the same reason (ADR-0011): at most
+/// `Self::ENTRIES` slices and `Self::CELLS` cells across them, the newest
+/// always kept because it is the one on screen. A kept slice costs about 25
+/// bytes a cell (the dense values, the mask and the `Option` copy every display
+/// reads) plus its geometry once, which is 28 bytes a cell for a curvilinear
+/// grid, so the budget bounds the memo near 200 MB plus that.
+#[derive(Debug, Default)]
+struct SliceMemo {
+    entries: std::collections::VecDeque<(PlaneKey, std::sync::Arc<ZarrSlice>)>,
+}
+
+impl SliceMemo {
+    /// The most slices kept.
+    const ENTRIES: usize = 4;
+    /// The most cells kept across them: 8 M.
+    const CELLS: usize = 8 << 20;
+
+    fn get(&mut self, key: &PlaneKey) -> Option<std::sync::Arc<ZarrSlice>> {
+        let at = self.entries.iter().position(|(k, _)| k == key)?;
+        let entry = self.entries.remove(at)?;
+        let slice = std::sync::Arc::clone(&entry.1);
+        self.entries.push_back(entry);
+        Some(slice)
+    }
+
+    fn insert(&mut self, key: PlaneKey, slice: std::sync::Arc<ZarrSlice>) {
+        self.entries.retain(|(k, _)| *k != key);
+        self.entries.push_back((key, slice));
+        while self.entries.len() > 1
+            && (self.entries.len() > Self::ENTRIES
+                || self.entries.iter().map(|(_, s)| s.cells()).sum::<usize>() > Self::CELLS)
+        {
+            self.entries.pop_front();
+        }
+    }
 }
 
 impl ZarrStore {
@@ -3329,6 +3445,9 @@ impl ZarrStore {
         Ok(Self {
             session,
             warps: fieldglass::WarpMemo::new(),
+            slices: Mutex::new(SliceMemo::default()),
+            #[cfg(test)]
+            decodes: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -3395,8 +3514,8 @@ impl ZarrStore {
         slice_indices: Vec<u32>,
         options: RenderOptions,
     ) -> Result<RenderedGrid, RenderError> {
-        let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
-        render_field(&self.warps, field, &values, &options)
+        let slice = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
+        render_placed(&self.warps, &slice.placed, &slice.values, &options)
     }
 
     /// Geographic polylines projected onto this slice's raster.
@@ -3428,12 +3547,17 @@ impl ZarrStore {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> Result<ProjectedOverlay, RenderError> {
-        let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
+        let slice = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         let engine = engine_options(&options);
         ResolvedOptions::parse(&engine)?;
-        fieldglass::render::contour_polylines(&field.source(), &values, &engine, interval)
-            .map_err(RenderError::from)
-            .map(ProjectedOverlay::from_polylines)
+        fieldglass::render::contour_polylines(
+            &slice.placed.source(),
+            &slice.values,
+            &engine,
+            interval,
+        )
+        .map_err(RenderError::from)
+        .map(ProjectedOverlay::from_polylines)
     }
 
     /// Sample the field under one output pixel.
@@ -3450,8 +3574,8 @@ impl ZarrStore {
         px: u32,
         py: u32,
     ) -> Result<Option<ProbeResult>, RenderError> {
-        let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
-        probe_from_source(&field.source(), &values, &options, px, py)
+        let slice = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
+        probe_from_source(&slice.placed.source(), &slice.values, &options, px, py)
     }
 
     /// The handle's `renderGrid` for two slices combined. The refusal is the engine's, so
@@ -3468,7 +3592,7 @@ impl ZarrStore {
         op: String,
         options: RenderOptions,
     ) -> Result<RenderedGrid, RenderError> {
-        let (combined, values) = self.combined(
+        let (a, _, values) = self.combined(
             variable_index_a,
             y_dim,
             x_dim,
@@ -3477,7 +3601,7 @@ impl ZarrStore {
             &slice_indices_b,
             &op,
         )?;
-        render_field(&self.warps, combined, &values, &options)
+        render_placed(&self.warps, &a.placed, &values, &options)
     }
 
     /// Probe the combined field, so the readout matches the displayed map
@@ -3496,7 +3620,7 @@ impl ZarrStore {
         px: u32,
         py: u32,
     ) -> Result<Option<ProbeResult>, RenderError> {
-        let (combined, values) = self.combined(
+        let (a, _, values) = self.combined(
             variable_index_a,
             y_dim,
             x_dim,
@@ -3505,7 +3629,7 @@ impl ZarrStore {
             &slice_indices_b,
             &op,
         )?;
-        probe_from_source(&combined.source(), &values, &options, px, py)
+        probe_from_source(&a.placed.source(), &values, &options, px, py)
     }
 
     /// The handle's `projectContours` for two slices combined. The refusal is the engine's, so
@@ -3523,7 +3647,7 @@ impl ZarrStore {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> Result<ProjectedOverlay, RenderError> {
-        let (combined, values) = self.combined(
+        let (a, _, values) = self.combined(
             variable_index_a,
             y_dim,
             x_dim,
@@ -3534,7 +3658,7 @@ impl ZarrStore {
         )?;
         let engine = engine_options(&options);
         ResolvedOptions::parse(&engine)?;
-        fieldglass::render::contour_polylines(&combined.source(), &values, &engine, interval)
+        fieldglass::render::contour_polylines(&a.placed.source(), &values, &engine, interval)
             .map_err(RenderError::from)
             .map(ProjectedOverlay::from_polylines)
     }
@@ -3664,7 +3788,7 @@ impl ZarrStore {
         b: &fieldglass::SliceRequest,
         op: &str,
     ) -> Result<LineResult, RenderError> {
-        let (combined, values) = self.combined(
+        let (a_slice, combined, values) = self.combined(
             a.variable,
             a.y_dim,
             a.x_dim,
@@ -3674,7 +3798,7 @@ impl ZarrStore {
             op,
         )?;
         fieldglass::render::zonal_mean(
-            &combined.source(),
+            &a_slice.placed.source(),
             &values,
             combined.parameter.as_deref(),
             combined.units.as_deref(),
@@ -3692,24 +3816,51 @@ impl ZarrStore {
         slice_indices: Vec<u32>,
         format: String,
     ) -> Result<Vec<u8>, RenderError> {
-        let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
+        let slice = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         let text = self
             .session
-            .field_csv(&field.source(), &values, &format)
+            .field_csv(&slice.placed.source(), &slice.values, &format)
             .into_refusal()?;
         Ok(text.into_bytes())
     }
 }
 
 impl ZarrStore {
-    /// One slice, decoded, with its values rejoined.
+    /// One slice, decoded, with its values rejoined, from the memo when it was
+    /// read lately (#1273).
     fn slice(
         &self,
         variable_index: u32,
         y_dim: u32,
         x_dim: u32,
         slice_indices: &[u32],
-    ) -> Result<(fieldglass::Field, Vec<Option<f64>>), RenderError> {
+    ) -> Result<std::sync::Arc<ZarrSlice>, RenderError> {
+        // The two drawn axes are not part of what names the slice, as in
+        // `NetcdfFile::slice_plane`.
+        let key = PlaneKey {
+            variable: variable_index as usize,
+            y_dim: y_dim as usize,
+            x_dim: x_dim as usize,
+            fixed: slice_indices
+                .iter()
+                .enumerate()
+                .map(|(d, &i)| {
+                    if d == y_dim as usize || d == x_dim as usize {
+                        0
+                    } else {
+                        i as usize
+                    }
+                })
+                .collect(),
+        };
+        if let Some(hit) = self
+            .slices
+            .lock()
+            .expect("slice memo mutex poisoned")
+            .get(&key)
+        {
+            return Ok(hit);
+        }
         let field = self
             .session
             .decode_slice(
@@ -3720,15 +3871,22 @@ impl ZarrStore {
                 &fieldglass::DecodeOptions::default(),
             )
             .into_refusal()?;
-        let values = field_values(&field);
-        Ok((field, values))
+        #[cfg(test)]
+        self.decodes
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut kept = self.slices.lock().expect("slice memo mutex poisoned");
+        let slice = std::sync::Arc::new(ZarrSlice::new(field, &kept));
+        kept.insert(key, std::sync::Arc::clone(&slice));
+        Ok(slice)
     }
 
     /// Two slices combined under a wire-tag op, as one field.
     ///
     /// The alignment gate and the arithmetic are `Session::combine`'s, so a
     /// mismatched pair is refused there in the words every host reports rather
-    /// than compared field by field here.
+    /// than compared field by field here. The result is placed as `a` is, which
+    /// is the grid the gate just found `b` on too, so it shares `a`'s geometry
+    /// with the warp memo.
     #[allow(clippy::too_many_arguments)]
     fn combined(
         &self,
@@ -3739,13 +3897,16 @@ impl ZarrStore {
         variable_index_b: u32,
         slice_indices_b: &[u32],
         op: &str,
-    ) -> Result<(fieldglass::Field, Vec<Option<f64>>), RenderError> {
+    ) -> Result<CombinedSlices, RenderError> {
         let op = fieldglass::op_from_wire(op).into_refusal()?;
-        let (a, _) = self.slice(variable_index_a, y_dim, x_dim, slice_indices_a)?;
-        let (b, _) = self.slice(variable_index_b, y_dim, x_dim, slice_indices_b)?;
-        let combined = self.session.combine(&a, &b, op).into_refusal()?;
+        let a = self.slice(variable_index_a, y_dim, x_dim, slice_indices_a)?;
+        let b = self.slice(variable_index_b, y_dim, x_dim, slice_indices_b)?;
+        let combined = self
+            .session
+            .combine(&a.field(), &b.field(), op)
+            .into_refusal()?;
         let values = field_values(&combined);
-        Ok((combined, values))
+        Ok((a, combined, values))
     }
 
     /// Where one slice sits, without decoding it.
@@ -4001,8 +4162,8 @@ fn render_from_source(
 }
 
 /// Paint a placed field. Every handle renders through this: the GRIB and
-/// NetCDF handles from their `Placed`, the Zarr handle from a decoded field's
-/// own placement (#659, `render_field`).
+/// NetCDF handles from their `Placed`, the Zarr handle from the placement of
+/// the slice it kept (#659, #1273).
 ///
 /// The warp goes through the handle's memo (#1233): a repaint that changes
 /// only the colours, or draws another field on the same grid, samples through
@@ -4021,18 +4182,6 @@ fn render_placed(
         options,
         fieldglass::min_max_ignoring_mask(raw.iter().copied()),
     )
-}
-
-/// `render_placed` for a field `Session` decoded, which owns its geometry
-/// rather than sharing a handle's: it is moved into the placement the memo
-/// keeps, not copied.
-fn render_field(
-    warps: &fieldglass::WarpMemo,
-    field: fieldglass::Field,
-    raw: &[Option<f64>],
-    options: &RenderOptions,
-) -> Result<RenderedGrid, RenderError> {
-    render_placed(warps, &Placed::from_field(field), raw, options)
 }
 
 /// The paint step under `render_placed`, with the present-cell range the
@@ -4213,22 +4362,6 @@ impl Placed {
         Self {
             ni: georef.ni.unwrap_or_default(),
             nj: georef.nj.unwrap_or_default(),
-            scan: georef.scan,
-            family: georef.label,
-            points_per_row: georef.points_per_row,
-            geometry: std::sync::Arc::new(georef.geometry),
-        }
-    }
-
-    /// A decoded field's own placement, its geometry moved rather than copied.
-    ///
-    /// The same source `Field::source` reads the field through: the shape is
-    /// the field's `ni × nj` rather than the georef's optional pair.
-    fn from_field(field: fieldglass::Field) -> Self {
-        let fieldglass::Field { ni, nj, georef, .. } = field;
-        Self {
-            ni,
-            nj,
             scan: georef.scan,
             family: georef.label,
             points_per_row: georef.points_per_row,

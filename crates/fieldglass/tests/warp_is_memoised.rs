@@ -423,3 +423,105 @@ fn a_plan_past_the_budget_is_not_kept() {
 
     assert_eq!(WarpMemo::MAX_PLAN_BYTES, 256 << 20);
 }
+
+/// `geometry` with the centres at `fill` left as fill values (NaN), the way a
+/// swath granule or a masked ocean coordinate arrives.
+fn with_fill_value_centres(geometry: &GridGeometry, fill: &[usize]) -> GridGeometry {
+    let GridGeometry::Lookup(index) = geometry else {
+        panic!("a lookup grid");
+    };
+    let (ni, nj) = index.dims();
+    let (mut lats, mut lons) = (Vec::new(), Vec::new());
+    for j in 0..nj {
+        for i in 0..ni {
+            let (lat, lon) = index.centre(i, j).unwrap_or((f64::NAN, f64::NAN));
+            lats.push(lat);
+            lons.push(lon);
+        }
+    }
+    for &k in fill {
+        lats[k] = f64::NAN;
+        lons[k] = f64::NAN;
+    }
+    GridGeometry::Lookup(
+        fieldglass_core::SpatialIndex::new(ni, nj, &lats, &lons).expect("finite centres remain"),
+    )
+}
+
+#[test]
+fn a_curvilinear_grid_with_fill_value_centres_warps_once_from_fresh_copies() {
+    // `NaN != NaN`, so such a grid does not equal a copy of itself. A host that
+    // hands a fresh geometry on every draw (the Zarr handle before it kept its
+    // slices) used to plan again, about five seconds on RTOFS, on every colour
+    // change (#1273). The grids compare by fingerprint instead.
+    let fields = rtofs_fields();
+    let field = &fields[0];
+    let grid = with_fill_value_centres(&field.georef.geometry, &[0, 7, 1234]);
+    assert_ne!(grid, grid.clone(), "the grid is not equal to its own copy");
+
+    let memo = WarpMemo::new();
+    let draw = |o: &RenderOptions| {
+        let geometry = Arc::new(grid.clone());
+        let values = cells(field);
+        let memoised = memo
+            .project(&geometry, &on(field, &geometry), &values, o)
+            .expect("the memo projects");
+        let fresh = project(&on(field, &geometry), &values, o).expect("a fresh warp");
+        assert_eq!(memoised, fresh, "under {o:?}");
+    };
+    draw(&options("equirectangular"));
+    assert_eq!(memo.plans_made(), 1);
+    for o in colour_changes("equirectangular") {
+        draw(&o);
+    }
+    assert_eq!(
+        memo.plans_made(),
+        1,
+        "no colour change plans again on a copy of the same grid"
+    );
+
+    // A different grid is still told apart: one more centre left as a fill.
+    let other = Arc::new(with_fill_value_centres(&grid, &[2000]));
+    memo.project(
+        &other,
+        &on(field, &other),
+        &cells(field),
+        &options("equirectangular"),
+    )
+    .expect("the memo projects");
+    assert_eq!(memo.plans_made(), 2, "another grid plans");
+}
+
+#[test]
+fn a_new_orthographic_centre_latitude_or_polar_hemisphere_makes_a_new_plan() {
+    // The key is the resolved target, so a change of only `lat0` or only
+    // `south_pole` must not be served from the plan before it (#1233 review).
+    let fields = rtofs_fields();
+    let field = &fields[0];
+    let geometry = Arc::new(field.georef.geometry.clone());
+    let memo = WarpMemo::new();
+    let mut made = 0;
+    let mut expect_new_plan = |o: &RenderOptions, why: &str| {
+        assert_projects_as_fresh(&memo, &geometry, field, o);
+        made += 1;
+        assert_eq!(memo.plans_made(), made, "{why} plans again");
+    };
+
+    let mut ortho = options("orthographic");
+    ortho.center_lat = Some(40.0);
+    ortho.center_lon = Some(-30.0);
+    expect_new_plan(&ortho, "the first orthographic draw");
+    ortho.center_lat = Some(60.0);
+    expect_new_plan(&ortho, "a new centre latitude alone");
+
+    let mut polar = options("polar_stereographic");
+    polar.projection_preset = Some("north".into());
+    expect_new_plan(&polar, "a polar target");
+    polar.projection_preset = Some("south".into());
+    expect_new_plan(&polar, "the other pole alone");
+
+    // And a colour change on the last one is free.
+    polar.colormap = Some("turbo".into());
+    assert_projects_as_fresh(&memo, &geometry, field, &polar);
+    assert_eq!(memo.plans_made(), made, "a colour change plans nothing");
+}

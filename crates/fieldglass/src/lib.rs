@@ -141,6 +141,8 @@ mod test_fixtures;
 pub use align::aligned;
 #[cfg(any(feature = "render", feature = "analysis"))]
 pub use align::component_frame;
+#[cfg(any(feature = "render", feature = "analysis"))]
+pub use align::same_grid;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{

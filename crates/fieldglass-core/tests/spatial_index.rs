@@ -312,6 +312,18 @@ fn the_fingerprint_distinguishes_grids_without_reading_them_all() {
 }
 
 #[test]
+fn the_fingerprint_includes_the_query_cutoff() {
+    let (ni, nj) = (16, 12);
+    let (lats, lons) = lattice(ni, nj, (0.0, 11.0), (0.0, 15.0));
+    let a = SpatialIndex::new(ni, nj, &lats, &lons).expect("builds");
+    let b = SpatialIndex::new(ni, nj, &lats, &lons)
+        .expect("builds")
+        .with_max_distance(1_000.0, 6_371_000.0);
+    assert_ne!(a, b);
+    assert_ne!(a.fingerprint(), b.fingerprint());
+}
+
+#[test]
 fn an_explicit_cutoff_overrides_the_measured_one() {
     // `with_max_distance` is for a caller that knows the grid's real cell size
     // better than its centres do — a swath whose along-track and across-track

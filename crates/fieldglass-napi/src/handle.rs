@@ -379,6 +379,16 @@ impl Handle {
         }
     }
 
+    /// How many Zarr slices this handle has decoded (#1273): what a test counts
+    /// to hold that a repaint of a slice already read decodes nothing.
+    #[cfg(test)]
+    pub(crate) fn zarr_decodes_made(&self) -> u64 {
+        match self.inner.as_ref().expect("an open handle") {
+            Inner::Zarr(h) => h.decodes.load(std::sync::atomic::Ordering::Relaxed),
+            _ => panic!("not a Zarr handle"),
+        }
+    }
+
     /// The container, or the refusal a closed handle gives.
     fn inner(&self) -> Result<&Inner, RenderError> {
         self.inner

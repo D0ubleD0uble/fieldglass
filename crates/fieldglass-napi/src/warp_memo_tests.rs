@@ -174,3 +174,242 @@ fn a_colour_change_on_a_store_slice_warps_once() {
     });
     assert_eq!(handle.plans_made(), 1);
 }
+
+/// The first drawable variable of a store, as the arguments of `slice`.
+fn a_drawable_slice(store: &crate::ZarrStore) -> (u32, u32, u32, Vec<u32>) {
+    store
+        .variables()
+        .iter()
+        .find_map(|v| {
+            Some((
+                u32::try_from(v.variable_index).ok()?,
+                u32::try_from(v.detected_y_dim?).ok()?,
+                u32::try_from(v.detected_x_dim?).ok()?,
+                vec![0; v.dims.len()],
+            ))
+        })
+        .expect("a drawable variable")
+}
+
+/// A repaint of a Zarr slice reads the slice it already decoded (#1273): a
+/// colour change, a probe, contours and an export of the slice on screen
+/// decode nothing, and a combined map decodes each of its slices once. Counted
+/// through the handle's own decode counter, as the plans are.
+#[test]
+fn a_repaint_of_a_store_slice_does_not_decode_it_again() {
+    let handle = crate::Handle::from_store(STORE.to_string()).expect("the fixture is a store");
+    let targets = slice_targets(&handle);
+    let target = targets.first().expect("a drawable variable");
+    let base = || opts("mollweide");
+
+    handle.render_grid(target.clone(), base()).expect("renders");
+    assert_eq!(handle.zarr_decodes_made(), 1, "the first draw decodes");
+    each_colour_change("mollweide", |o| {
+        handle.render_grid(target.clone(), o()).expect("renders");
+    });
+    handle
+        .probe_pixel(target.clone(), base(), 10, 10)
+        .expect("probes");
+    handle
+        .project_contours(target.clone(), base(), None)
+        .expect("contours");
+    handle
+        .export_csv(target.clone(), "matrix".into())
+        .expect("exports");
+    assert_eq!(
+        handle.zarr_decodes_made(),
+        1,
+        "no repaint, probe, contour or export reads the slice again"
+    );
+
+    // The picture is the one a handle that has decoded nothing yet paints.
+    let fresh = crate::Handle::from_store(STORE.to_string()).expect("the fixture is a store");
+    let drawn = handle.render_grid(target.clone(), base()).expect("renders");
+    let full = fresh.render_grid(target.clone(), base()).expect("renders");
+    assert!(drawn.rgba.as_ref() == full.rgba.as_ref());
+
+    // A combined map reads each of its two slices once, and `a` is kept.
+    let combined = json!({ "a": target, "b": target, "op": "a_minus_b" });
+    handle
+        .render_grid(combined.clone(), base())
+        .expect("a combined map renders");
+    assert_eq!(handle.zarr_decodes_made(), 1, "both slices were kept");
+    handle
+        .render_grid(
+            combined,
+            RenderOptions {
+                colormap: Some("turbo".into()),
+                ..base()
+            },
+        )
+        .expect("renders");
+    assert_eq!(handle.zarr_decodes_made(), 1);
+    assert_eq!(handle.plans_made(), 1, "and the warp is shared throughout");
+}
+
+/// The store keeps the geometry it placed a slice on, so the warp memo
+/// recognises it by address rather than by comparing it.
+#[test]
+fn a_store_slice_is_served_with_the_same_placement_each_time() {
+    let store = crate::ZarrStore::from_directory(STORE.to_string()).expect("a store");
+    let (variable, y, x, idx) = a_drawable_slice(&store);
+    let first = store.slice(variable, y, x, &idx).expect("decodes");
+    let again = store.slice(variable, y, x, &idx).expect("kept");
+    assert!(std::sync::Arc::ptr_eq(&first, &again));
+    assert!(std::sync::Arc::ptr_eq(
+        &first.placed.geometry,
+        &again.placed.geometry
+    ));
+    // The whole field is the decoded one, geometry back in place.
+    assert_eq!(first.field().georef.geometry, *first.placed.geometry);
+}
+
+/// The slice memo is bounded like the plane memo: at most `ENTRIES` slices and
+/// `CELLS` cells, the newest always kept, the least recently used going first.
+#[test]
+fn the_slice_memo_is_bounded_in_slices_and_cells() {
+    let store = crate::ZarrStore::from_directory(STORE.to_string()).expect("a store");
+    let (variable, y, x, idx) = a_drawable_slice(&store);
+    let slice = store.slice(variable, y, x, &idx).expect("decodes");
+    let key = |variable| crate::PlaneKey {
+        variable,
+        y_dim: 0,
+        x_dim: 1,
+        fixed: vec![0, 0],
+    };
+    let mut memo = crate::SliceMemo::default();
+    for k in 0..10 {
+        memo.insert(key(k), slice.clone());
+    }
+    let held: Vec<usize> = memo.entries.iter().map(|(k, _)| k.variable).collect();
+    assert_eq!(held, [6, 7, 8, 9]);
+    assert!(memo.get(&key(6)).is_some(), "a hit moves to the back");
+    memo.insert(key(10), slice.clone());
+    let held: Vec<usize> = memo.entries.iter().map(|(k, _)| k.variable).collect();
+    assert_eq!(held, [8, 9, 6, 10]);
+}
+
+/// The value under the top-left pixel of the source view of a slice.
+fn probe_value(handle: &crate::Handle, target: &serde_json::Value) -> Option<f64> {
+    handle
+        .probe_pixel(target.clone(), opts("source"), 0, 0)
+        .expect("probes")
+        .expect("on the grid")
+        .value
+}
+
+/// Another slice on the same grid is a new decode with its own values, the
+/// memo does not answer one slice with another, and the two share one geometry
+/// so the warp memo keeps recognising it by address (#1273 review).
+#[test]
+fn another_variable_on_the_grid_decodes_once_and_shares_the_geometry() {
+    let handle = crate::Handle::from_store(STORE.to_string()).expect("a store");
+    let targets = slice_targets(&handle);
+    assert!(targets.len() >= 2, "two drawable variables: {targets:?}");
+    let (a, t) = (&targets[0], &targets[1]);
+
+    let va = probe_value(&handle, a);
+    assert_eq!(handle.zarr_decodes_made(), 1);
+    let vt = probe_value(&handle, t);
+    assert_eq!(handle.zarr_decodes_made(), 2, "another variable decodes");
+    assert_ne!(va, vt, "and answers with its own values");
+    assert_eq!(probe_value(&handle, a), va);
+    assert_eq!(probe_value(&handle, t), vt);
+    assert_eq!(handle.zarr_decodes_made(), 2, "both are kept");
+
+    // A combined map is the one a fresh handle paints.
+    let combined = json!({ "a": a, "b": t, "op": "a_minus_b" });
+    let fresh = crate::Handle::from_store(STORE.to_string()).expect("a store");
+    let drawn = handle
+        .render_grid(combined.clone(), opts("mollweide"))
+        .expect("renders");
+    let full = fresh
+        .render_grid(combined, opts("mollweide"))
+        .expect("renders");
+    assert!(drawn.rgba.as_ref() == full.rgba.as_ref());
+    assert_eq!(handle.zarr_decodes_made(), 2);
+
+    // Same grid, one geometry.
+    let store = crate::ZarrStore::from_directory(STORE.to_string()).expect("a store");
+    let drawable: Vec<_> = store
+        .variables()
+        .iter()
+        .filter_map(|v| {
+            Some((
+                u32::try_from(v.variable_index).ok()?,
+                u32::try_from(v.detected_y_dim?).ok()?,
+                u32::try_from(v.detected_x_dim?).ok()?,
+                vec![0; v.dims.len()],
+            ))
+        })
+        .collect();
+    let first = store
+        .slice(drawable[0].0, drawable[0].1, drawable[0].2, &drawable[0].3)
+        .expect("decodes");
+    let second = store
+        .slice(drawable[1].0, drawable[1].1, drawable[1].2, &drawable[1].3)
+        .expect("decodes");
+    assert!(!std::sync::Arc::ptr_eq(&first, &second));
+    assert!(
+        std::sync::Arc::ptr_eq(&first.placed.geometry, &second.placed.geometry),
+        "a slice on a kept slice's grid shares its geometry"
+    );
+}
+
+/// A v3 store with one `v(time, y, x)` array of 3 x 2 x 3 float32, value
+/// `100 * time + 3 * y + x + 1`, one chunk a time step, in a fresh directory.
+fn three_dimensional_store() -> std::path::PathBuf {
+    // Under the workspace target directory, not a shared temp directory.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target")
+        .join(format!("fieldglass-1273-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("v/c")).expect("a directory");
+    std::fs::write(
+        dir.join("zarr.json"),
+        r#"{"zarr_format":3,"node_type":"group","attributes":{}}"#,
+    )
+    .expect("writes");
+    std::fs::write(
+        dir.join("v/zarr.json"),
+        r#"{"zarr_format":3,"node_type":"array","shape":[3,2,3],"data_type":"float32",
+"chunk_grid":{"name":"regular","configuration":{"chunk_shape":[1,2,3]}},
+"chunk_key_encoding":{"name":"default","configuration":{"separator":"/"}},
+"fill_value":0,"codecs":[{"name":"bytes","configuration":{"endian":"little"}}],
+"dimension_names":["time","y","x"],"attributes":{}}"#,
+    )
+    .expect("writes");
+    for time in 0..3u32 {
+        std::fs::create_dir_all(dir.join(format!("v/c/{time}/0"))).expect("a directory");
+        let bytes: Vec<u8> = (0..6u32)
+            .flat_map(|k| ((100 * time + k + 1) as f32).to_le_bytes())
+            .collect();
+        std::fs::write(dir.join(format!("v/c/{time}/0/0")), bytes).expect("writes");
+    }
+    dir
+}
+
+/// The memo's key: two fixed indices are two slices, and the drawn axes'
+/// indices are not part of it (#1273 review).
+#[test]
+fn the_memo_key_tells_fixed_indices_apart_and_ignores_the_drawn_axes() {
+    let dir = three_dimensional_store();
+    let handle = crate::Handle::from_store(dir.to_string_lossy().into_owned()).expect("a store");
+    let at = |time: u32, y: u32, x: u32| json!({ "variable": 0, "yDim": 1, "xDim": 2, "sliceIndices": [time, y, x] });
+    let v0 = probe_value(&handle, &at(0, 0, 0));
+    assert_eq!(handle.zarr_decodes_made(), 1);
+    let v1 = probe_value(&handle, &at(1, 0, 0));
+    assert_eq!(handle.zarr_decodes_made(), 2, "another time step decodes");
+    assert_ne!(v0, v1);
+    assert_eq!(v1.map(|v| v - v0.unwrap()), Some(100.0));
+    // The same time step with other indices on the drawn axes is the same slice.
+    assert_eq!(probe_value(&handle, &at(0, 1, 2)), v0);
+    assert_eq!(probe_value(&handle, &at(1, 1, 1)), v1);
+    assert_eq!(
+        handle.zarr_decodes_made(),
+        2,
+        "the drawn axes are not the key"
+    );
+    drop(handle);
+    let _ = std::fs::remove_dir_all(dir);
+}

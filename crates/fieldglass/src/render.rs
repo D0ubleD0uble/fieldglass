@@ -1667,9 +1667,12 @@ impl PlannedWarp {
             && self.bounds == resolved.bounds
             && self.size == resolved.size
             // The pointer first: a host that shares one geometry between draws
-            // (the addon's NetCDF cache) is answered without comparing a
-            // curvilinear grid's cell centres one by one.
-            && (std::ptr::eq(self.geometry.as_ref(), geometry) || *self.geometry == *geometry)
+            // (the addon's NetCDF and Zarr handles) is answered without
+            // looking at a curvilinear grid's cell centres at all. Past it,
+            // `same_grid` rather than `==`: a centre the source left as a fill
+            // value is NaN, which is not equal to itself, so `==` would call
+            // the same grid new on every draw and plan again (#1273).
+            && crate::align::same_grid(self.geometry.as_ref(), geometry)
     }
 }
 
@@ -1712,7 +1715,7 @@ impl WarpMemo {
             return project(source, values, options);
         };
         let shared = match source.geometry {
-            Ok(placed) => std::ptr::eq(placed, geometry.as_ref()) || placed == geometry.as_ref(),
+            Ok(placed) => crate::align::same_grid(placed, geometry.as_ref()),
             Err(_) => false,
         };
         if !shared {

@@ -128,7 +128,11 @@ fn side(geometry: &Result<&GridGeometry, Error>) -> String {
 /// normalises `NaN` so an excluded cell hashes consistently. The pointer check
 /// in front of it is the common case — a host caching one index per coordinate
 /// pair hands the same borrow twice — and makes it free there.
-pub(crate) fn same_grid(a: &GridGeometry, b: &GridGeometry) -> bool {
+///
+/// A `Lookup` grid is compared by a 64-bit hash of its centres, dimensions and
+/// cutoff, so a collision is possible in principle; a false match costs a stale
+/// render, not a wrong number.
+pub fn same_grid(a: &GridGeometry, b: &GridGeometry) -> bool {
     if std::ptr::eq(a, b) {
         return true;
     }
