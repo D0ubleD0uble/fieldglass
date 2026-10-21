@@ -344,6 +344,9 @@ impl ParameterResolver for TableResolver {
 ///   with. A level the grammar kept as [`Surface::Named`] was not understood
 ///   and is not compared; a level it did understand and the message is not on
 ///   is refused, including a message on a surface this check does not model.
+///   A wgrib2 line's level is not compared with a template 4.44 message,
+///   because wgrib2 reads the surface of 4.44's four-octet form from the
+///   wrong octets.
 ///   An ECMWF `sfc` is every single-level field (2-metre temperature is
 ///   `sfc`), so it is refused only for a message on a surface ECMWF lists
 ///   levels of (`pl`, `ml`, `pt`, `pv`, `sol`). An ECMWF `sol N` is soil
@@ -426,6 +429,7 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
     }
 
     if let Some(promised) = promised_level(expect, ecmwf)
+        && (ecmwf || !wgrib2_misreads_4_44(&info.identity))
         && !level_holds(&promised, ecmwf, &info.identity)
     {
         return Err(Mismatch::Field {
@@ -454,7 +458,7 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
     }
 
     if let Some(promised) = expect.forecast.as_deref()
-        && (ecmwf || !wgrib2_misreads_forecast(&info.identity))
+        && (ecmwf || !wgrib2_misreads_4_44(&info.identity))
         && let Some(actual) = message_window(&info.identity)
         && !window_holds(promised, ecmwf, &actual)
     {
@@ -468,12 +472,20 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
     qualifiers_hold(expect, ecmwf, &info.identity)
 }
 
-/// Whether wgrib2 prints a wrong forecast time for this message, so a wgrib2
-/// line's window is not compared with it: template 4.44, whose forecast time
-/// WMO writes in two octets. wgrib2 knows that (`forecast_time_in_units_location`
-/// sets the size to 2 for 4.44) but `forecast_time_in_units` reads four octets
-/// for either size, taking two octets of the first fixed surface with it.
-fn wgrib2_misreads_forecast(identity: &MessageIdentity) -> bool {
+/// Whether this is a template 4.44 message, whose forecast time and level a
+/// wgrib2 line can state wrongly, so neither is compared with a wgrib2 line.
+///
+/// * **Forecast time.** WMO writes 4.44's in two octets. wgrib2 knows that
+///   (`forecast_time_in_units_location` sets the size to 2 for 4.44) but
+///   `forecast_time_in_units` reads four octets for either size, taking two
+///   octets of the first fixed surface with it.
+/// * **Level.** wgrib2 reads 4.44's first fixed surface at octet 34, which is
+///   right for WMO's 45-octet form but falls inside the forecast time of the
+///   four-octet form eccodes once wrote (GRIB-29), which `fieldglass-grib2`
+///   also reads. [`MessageIdentity`] does not say which form a message is in,
+///   so the level of every 4.44 is left uncompared on a wgrib2 line; an ECMWF
+///   line's is still compared. 4.44 is deprecated in favour of 4.48.
+fn wgrib2_misreads_4_44(identity: &MessageIdentity) -> bool {
     matches!(
         identity,
         MessageIdentity::Grib2 {
@@ -1260,17 +1272,47 @@ impl Interval {
 
 impl std::fmt::Display for Interval {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let g = printed_g;
         match self {
-            Self::Below(x) => write!(f, "<{x}"),
-            Self::Above(x) => write!(f, ">{x}"),
-            Self::AtMost(x) => write!(f, "<={x}"),
-            Self::AtLeast(x) => write!(f, ">={x}"),
-            Self::HalfOpen(x, y) => write!(f, ">={x},<{y}"),
-            Self::Closed(x, y) => write!(f, ">={x},<={y}"),
-            Self::OpenClosed(x, y) => write!(f, ">{x},<={y}"),
-            Self::Equal(x) => write!(f, "={x}"),
+            Self::Below(x) => write!(f, "<{}", g(*x)),
+            Self::Above(x) => write!(f, ">{}", g(*x)),
+            Self::AtMost(x) => write!(f, "<={}", g(*x)),
+            Self::AtLeast(x) => write!(f, ">={}", g(*x)),
+            Self::HalfOpen(x, y) => write!(f, ">={},<{}", g(*x), g(*y)),
+            Self::Closed(x, y) => write!(f, ">={},<={}", g(*x), g(*y)),
+            Self::OpenClosed(x, y) => write!(f, ">{},<={}", g(*x), g(*y)),
+            Self::Equal(x) => write!(f, "={}", g(*x)),
             Self::Unread => f.write_str("a range this does not read"),
         }
+    }
+}
+
+/// `x` as C's `%lg` prints it, which is how wgrib2 writes a range: six
+/// significant figures, trailing zeros dropped, and an exponent (at least two
+/// digits) below 1e-4 or from 1e6, so a refusal reads `<1e-05` beside a line
+/// that says `<1e-05`.
+fn printed_g(x: f64) -> String {
+    if x == 0.0 || !x.is_finite() {
+        return format!("{x}");
+    }
+    // Rounded to six significant figures first, so 999999.5 takes the
+    // exponent its rounding gives it, as `%g` decides.
+    let sci = format!("{x:.5e}");
+    let (mantissa, exponent) = sci.split_once('e').expect("`{:e}` writes an exponent");
+    let exponent: i32 = exponent.parse().expect("`{:e}` writes an integer exponent");
+    let trim = |s: &str| {
+        if s.contains('.') {
+            s.trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    if !(-4..6).contains(&exponent) {
+        let sign = if exponent < 0 { '-' } else { '+' };
+        format!("{}e{sign}{:02}", trim(mantissa), exponent.unsigned_abs())
+    } else {
+        let decimals = usize::try_from(5 - exponent).unwrap_or(0);
+        trim(&format!("{x:.decimals$}"))
     }
 }
 
@@ -2542,8 +2584,6 @@ mod tests {
         assert_eq!(refused(&step("90m"), &at(6)), None);
     }
 
-    /// A 13-octet probability block as hex: Code Table 4.9 `kind`, then the
-    /// lower and upper limits as (scale factor octet, scaled value).
     /// A size or wavelength range as hex: Code Table 4.91 `kind`, then two
     /// `(scale factor, scaled value)` limits.
     fn range_block(kind: u8, first: (u8, u32), second: (u8, u32)) -> String {
@@ -2574,6 +2614,19 @@ mod tests {
             // Printed back, it reads the same again.
             assert_eq!(parse_interval(&want.to_string()), want, "{text}");
         }
+        // Printed as C's `%lg`, the way wgrib2 wrote the line.
+        assert_eq!(Below(1e-5).to_string(), "<1e-05");
+        assert_eq!(
+            Closed(3.38e-7, 3.42e-7).to_string(),
+            ">=3.38e-07,<=3.42e-07"
+        );
+        assert_eq!(printed_g(2.5e-6), "2.5e-06");
+        assert_eq!(printed_g(1e-4), "0.0001");
+        assert_eq!(printed_g(500.0), "500");
+        assert_eq!(printed_g(0.125), "0.125");
+        assert_eq!(printed_g(1_234_567.0), "1.23457e+06");
+        assert_eq!(printed_g(999_999.6), "1e+06");
+        assert_eq!(printed_g(-2e-7), "-2e-07");
         for unread in ["??? code_table_4.91=12", "", "<", ">=1,<", "<=x", "1e-05"] {
             assert_eq!(parse_interval(unread), Unread, "{unread:?}");
         }
@@ -2742,6 +2795,19 @@ mod tests {
         assert_eq!(refused(&line("anl", &[]), &at_six(48)), Some("forecast"));
         assert_eq!(refused(&line("6 hour fcst", &[]), &at_six(48)), None);
 
+        // Nor its level: wgrib2 reads it at octet 34, inside the forecast time
+        // of the four-octet form, and the identity does not say which form.
+        // The message is on 2 m above ground; a line for 2 mb is refused on
+        // 4.48 and not compared on 4.44.
+        assert_eq!(
+            refused(&level("2 mb"), &constituent_message(48, 62001)),
+            Some("level")
+        );
+        assert_eq!(
+            refused(&level("2 mb"), &constituent_message(44, 62001)),
+            None
+        );
+
         // A message on any other template has no constituent at all.
         let plain = on_template(0, None, 1, 0);
         assert_eq!(
@@ -2754,6 +2820,8 @@ mod tests {
         );
     }
 
+    /// A 13-octet probability block as hex: Code Table 4.9 `kind`, then the
+    /// lower and upper limits as (scale factor octet, scaled value).
     fn probability_block(kind: u8, lower: (u8, u32), upper: (u8, u32)) -> String {
         let mut octets = vec![0, 255, kind, lower.0];
         octets.extend(lower.1.to_be_bytes());
