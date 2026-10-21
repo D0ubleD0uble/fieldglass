@@ -361,6 +361,123 @@ fn ecmwf_temperature_is_refused_on_relative_humidity_bytes() {
     );
 }
 
+/// ECMWF `10u` and `100u` (#1298): both `sfc`, step 0, and both discipline 0,
+/// category 2, number 2. Only the height of the first fixed surface (10 m or
+/// 100 m) tells them apart, which is how eccodes does, so a `100u` line on the
+/// `10u` bytes is refused.
+#[test]
+fn ecmwf_100u_is_refused_on_10u_bytes() {
+    let u10 = ecmwf_record("10u", "sfc");
+    let info = message(&u10, read("ecmwf_ifs_0p25_10u.grib2"));
+    verify_message(&u10.expect, &info).expect("line 33 is the message at its offset");
+    let u100 = ecmwf_record("100u", "sfc");
+    assert_eq!(
+        refused_field(verify_message(&u100.expect, &info)),
+        ("abbreviation", "100u".to_string())
+    );
+}
+
+/// ECMWF `msl` and `sp` (#1298): both 0.3.0 at step 0, one at mean sea level
+/// (surface type 101) and one on the ground (type 1).
+#[test]
+fn ecmwf_sp_is_refused_on_msl_bytes() {
+    let msl = ecmwf_record("msl", "sfc");
+    let info = message(&msl, read("ecmwf_ifs_0p25_msl.grib2"));
+    verify_message(&msl.expect, &info).expect("line 3 is the message at its offset");
+    let sp = ecmwf_record("sp", "sfc");
+    assert_eq!(
+        refused_field(verify_message(&sp.expect, &info)),
+        ("abbreviation", "sp".to_string())
+    );
+}
+
+/// ECMWF `str` and `ttr` (#1298): both 0.5.5 accumulated from step 0, 224
+/// bytes each, one at the ground (surface type 1) and one at the top of the
+/// atmosphere (type 8).
+#[test]
+fn ecmwf_ttr_is_refused_on_str_bytes() {
+    let str_ = ecmwf_record("str", "sfc");
+    let info = message(&str_, read("ecmwf_ifs_0p25_str.grib2"));
+    verify_message(&str_.expect, &info).expect("line 99 is the message at its offset");
+    let ttr = ecmwf_record("ttr", "sfc");
+    assert_eq!(
+        refused_field(verify_message(&ttr.expect, &info)),
+        ("abbreviation", "ttr".to_string())
+    );
+}
+
+/// ECMWF `2t` on `mx2t3`'s bytes (#1298). `2t`'s eccodes block (the codes
+/// and the 2 m surface) matches a 3-hour maximum at 2 m too, but `mx2t3`'s
+/// states the process and the range as well, and eccodes names the message
+/// after the block that states the most. The `2t` line at step 3, the end of
+/// the window, is refused on its name.
+#[test]
+fn ecmwf_2t_is_refused_on_mx2t3_bytes() {
+    let mx2t3 = ecmwf_record("mx2t3", "sfc");
+    let info = message(&mx2t3, read("ecmwf_ifs_0p25_mx2t3.grib2"));
+    let mut two_t = ecmwf_record("2t", "sfc").expect;
+    two_t.forecast = Some("3".to_string());
+    assert_eq!(
+        refused_field(verify_message(&two_t, &info)),
+        ("abbreviation", "2t".to_string())
+    );
+}
+
+/// The ECMWF ensemble probability index line for `tpg100` (one line of the
+/// same run's `240h-enfo-ep` index) and its 10,947 bytes, template 4.9 (#1298):
+/// the probability that 24-hour precipitation exceeds 100 mm. It is 0.1.52
+/// accumulated on the ground, as `tp` is; only the probability block (Code
+/// Table 4.9 type 3, lower limit 100) makes it `tpg100`. The same line naming
+/// `tp`, or another threshold, is refused.
+#[test]
+fn ecmwf_tp_is_refused_on_a_precipitation_probability() {
+    let index = EcmwfIndex::parse(
+        "20260904000000-240h-enfo-ep.grib2",
+        &text("ecmwf_ifs_0p25_enfo_ep_tpg100.index"),
+    )
+    .expect("the committed sidecar line parses");
+    let tpg100 = index.items()[0].clone();
+    assert_eq!(tpg100.expect.abbreviation.as_deref(), Some("tpg100"));
+    let info = message(&tpg100, read("ecmwf_ifs_0p25_tpg100.grib2"));
+    verify_message(&tpg100.expect, &info).expect("the line is the message at its offset");
+
+    for other in ["tp", "tpg50", "tpg25"] {
+        let mut expect = tpg100.expect.clone();
+        expect.abbreviation = Some(other.to_string());
+        assert_eq!(
+            refused_field(verify_message(&expect, &info)),
+            ("abbreviation", other.to_string())
+        );
+    }
+}
+
+/// The ECMWF wave ensemble probability line for `swhg8` (one line of the same
+/// run's `240h-waef-ep` index) and its 137,974 bytes: template 4.5, wave height
+/// 10.0.3 at mean sea level (surface 101), above 8 m. It pins the surface
+/// ECMWF writes today, which eccodes 2.48 no longer requires (#1298). Another
+/// threshold, and `swh` itself, are refused.
+#[test]
+fn an_ecmwf_wave_height_probability_is_what_its_line_promised() {
+    let index = EcmwfIndex::parse(
+        "20260904000000-240h-waef-ep.grib2",
+        &text("ecmwf_ifs_0p25_waef_ep_swhg8.index"),
+    )
+    .expect("the committed sidecar line parses");
+    let swhg8 = index.items()[0].clone();
+    assert_eq!(swhg8.expect.abbreviation.as_deref(), Some("swhg8"));
+    let info = message(&swhg8, read("ecmwf_ifs_0p25_waef_swhg8.grib2"));
+    verify_message(&swhg8.expect, &info).expect("the line is the message at its offset");
+
+    for other in ["swhg2", "swh"] {
+        let mut expect = swhg8.expect.clone();
+        expect.abbreviation = Some(other.to_string());
+        assert_eq!(
+            refused_field(verify_message(&expect, &info)),
+            ("abbreviation", other.to_string())
+        );
+    }
+}
+
 /// ECMWF `sot` on `sol 3` against its 625,288 bytes, which code the layer
 /// between soil levels 2 and 3 (surface type 151 twice). eccodes, and so
 /// MARS, numbers such a layer by its bottom (#1116). The `sol 1` line is

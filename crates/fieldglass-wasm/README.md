@@ -551,13 +551,19 @@ three drawing calls.
 `3d897b4e`, rebased onto #1082's merge): 28.4% above the baseline gzipped,
 and 28.0% raw. That is the fetch planner and the Zarr stores.
 
+All three rows were re-recorded from the `ci.yml` run on #1298's PR (run
+39625919587), whose `full` build had drifted 5.0% from the row above it. Most
+of that drift is the MARS short-name table, which now keeps each eccodes
+block's surface, probability and template conditions and the rival blocks
+that can outrank them. The rest is what merged since the previous recording.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,664,807 | 653,912 |
-| `+simd128` | 1,651,138 | 650,608 |
-| full | 2,130,575 | 839,579 |
+| baseline | 1,686,389 | 661,820 |
+| `+simd128` | 1,672,656 | 658,795 |
+| full | 2,237,984 | 875,896 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

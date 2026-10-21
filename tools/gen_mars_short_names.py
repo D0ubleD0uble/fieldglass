@@ -6,6 +6,7 @@ Regenerate, naming each eccodes definitions tree read and its version:
     python3 tools/gen_mars_short_names.py \
         --definitions 2.34.1=/usr/share/eccodes/definitions \
         --definitions 2.45.0=<eccodes 2.45.0 source>/definitions \
+        --definitions 2.48.0=<eccodes 2.48.0 source>/definitions \
         && cargo fmt
 
 Writes `crates/fieldglass/src/fetchplan/mars_short_names.rs`.
@@ -20,13 +21,13 @@ table is how: for each name, the eccodes concept blocks that define it.
 # Source
 
 eccodes' `shortName` concept, the files eccodes consults for an ECMWF
-(centre 98) GRIB2 message: `definitions/grib2/localConcepts/ecmf/` and then
+(centre 98) GRIB2 message: `definitions/grib2/localConcepts/ecmf/` and
 `definitions/grib2/`, each `shortName.def` with its `.legacy.def` and, from
 eccodes 2.38 on, `.lte33.def` (the encodings of GRIB2 tables version 33 and
 older, which the committed ECMWF messages, at version 32, are). Apache-2.0;
 the definitions are factual data from ECMWF's parameter database.
 
-Two eccodes versions, and the union of their blocks:
+Three eccodes versions:
 
 * **2.34.1**, the version the rest of the repo validates against
   (`gen_localconcepts_tables.py` reads the same install).
@@ -34,10 +35,16 @@ Two eccodes versions, and the union of their blocks:
   definitions give `2tl273`, `tpl01`, `tprg3` and five other AIFS ensemble
   probabilities a WMO encoding 2.34.1 does not know, only an older local one.
   A table from 2.34.1 alone would refuse those records when they are right.
+* **2.48.0**, the newest read. It dropped `typeOfFirstFixedSurface = 101`
+  from `swhg2` to `swhg8`, so a producer on it may write those on another
+  surface; without it the table would refuse such a record.
 
-The union keeps an encoding either version defines, so it accepts what either
-eccodes would name the parameter. Bump either deliberately and re-read the
-diff.
+The table therefore assumes a producer's definitions are no looser than the
+union of these trees. A later eccodes that loosens a block again (drops a
+condition, or adds an encoding) can make a right record fail until the table
+is regenerated with that tree added.
+
+# How eccodes names a message
 
 A block looks like
 
@@ -52,24 +59,64 @@ A block looks like
          indicatorOfUnitForTimeRange = 1 ;
         }
 
-and eccodes names a message after a block when every key in it matches. One
-name can have several blocks (older and newer encodings of one parameter), and
-a message carrying the name may match any of them.
+A block matches a message when every condition in it holds. Several blocks,
+of several names, can match one message: `2t` states the codes and the 2 m
+surface, six conditions, and so matches `mx2t3`'s bytes too. eccodes names
+the message after the matching block that states the most conditions
+(`concept_evaluate` in `src/eccodes/accessor/Concept.cc`), so those bytes are
+`mx2t3`, whose block states nine. eccodes 2.34.1 counts an array condition
+once; from ECC-1992 (in 2.45.0 and 2.48.0) it counts it once per element, and
+the count here follows the version each block was read from.
+
+That ranking is within one set of files at a time, which this table calls a
+pool. eccodes reads `shortName.def` (or, from 2.38, `shortName.lte33.def` for
+a message of tables version 33 or older) from both directories as one pool,
+and falls back to the `.legacy.def` pool only when nothing in it matches
+(`grib2/parameters.def`). So each eccodes version gives two or three pools:
+
+    2.34.1  shortName.def
+    2.34.1  shortName.legacy.def
+    2.45.0  shortName.def
+    2.45.0  shortName.lte33.def
+    2.45.0  shortName.legacy.def
+    2.48.0  shortName.def
+    2.48.0  shortName.lte33.def
+    2.48.0  shortName.legacy.def
+
+Each block records the pools that hold it. `verify_message` accepts a name
+when, in some pool, one of its blocks may match and no block of another name
+in that pool certainly matches with more conditions. Which pool a message
+reads is not known here (it turns on the tables version, which the message
+identity does not carry), so a name any version read would give the message
+under any of its sets of files is accepted. A legacy pool is ranked on its own, not
+only when its main pool has no match, which can accept a name eccodes would
+not reach but never refuses one it would. `shortName.chemsplit.def`, read for
+the chemistry split of MARS classes `mc` and `cr`, is not open data and is not
+read.
 
 # What is kept from a block
 
-The parameter codes, and the two keys that tell apart parameters sharing them
-and that `MessageIdentity` carries as written: the statistical process (Code
-Table 4.10) and the length of its time range with its unit. `2t`, `mx2t3`,
-`mn2t3`, `mx2t6` and `mn2t6` are all discipline 0, category 0, number 0; the
-process and the length are what separate them.
+The conditions `MessageIdentity` carries as written: the parameter codes, the
+product template, both fixed surfaces (type, scale factor, scaled value, or
+`missing()`), the statistical process and the length of its time range with
+its unit, and for templates 4.5 and 4.9 the probability type and limits.
+These are what tell apart names that share codes: `10u` and `100u` by the
+height, `msl` and `sp` and `str` and `ttr` by the surface type, `tp` and
+`tpg25` by the probability. Only these kept conditions are ever compared.
 
-Every other key (the fixed surfaces, a chemical constituent, a probability
-limit, a product template) is dropped. Dropping a key widens what the block
-accepts, never narrows it, so a message the full block would match is still
-accepted: the table can fail to refuse a wrong record, but never refuses a
-right one. The level is compared on its own, from the `levtype`/`levelist`
-the record states.
+Two kinds of names are not told apart. The wave-period heights `h1012` to
+`h2530` state a period range the table does not keep, so they stay possible
+on any `swh` message. And `tpl01`, `2tl273` and `10spg10` (and the other AIFS
+probabilities with only a local encoding in 2.34.1) have no WMO block there,
+so eccodes 2.34.1 names their WMO-encoded bytes `tp`, `2t` and `10si`, and
+those names pass too.
+
+Every other condition (a local tables version, a wave period range, a
+chemical constituent) is counted but not kept. A block with one is never
+certain to match, so it can widen what its own name accepts but never
+refuses another name. The table can therefore fail to refuse a wrong record,
+but never refuses a record eccodes would name so. The level is compared on
+its own, from the `levtype`/`levelist` the record states.
 
 # Which names
 
@@ -82,6 +129,19 @@ the table is not compared, which is what an ECMWF record got before.
 
 A listed name no eccodes read defines is reported and left out, for the same
 reason.
+
+# Rivals
+
+A name outside the list can still be what eccodes calls a message a listed
+name also matches. From tables version 34 eccodes names a 3-hour maximum of
+2 m temperature `max_2t`, not `mx2t3`, and `2t`'s block matches those bytes
+with fewer conditions. So the table also carries, without their names, the
+blocks of other names that could outrank a listed name's block: those with
+the same parameter codes as a block of a listed name in the same pool, that
+state more conditions than the fewest any such block states, and whose every
+condition is kept (a block with one that is not can never be certain, so it
+could never refuse). They are compared only as rivals: a record naming one is
+still not compared.
 """
 from __future__ import annotations
 
@@ -92,18 +152,25 @@ from pathlib import Path
 
 # The trees the committed table was built from. Regenerating from others is
 # refused, so a stale header cannot describe a different table.
-VERSIONS = ("2.34.1", "2.45.0")
+VERSIONS = ("2.34.1", "2.45.0", "2.48.0")
 
-# eccodes' own lookup order for a centre-98 message: the local files, then the
-# WMO master files. A file a version does not have is skipped (`.lte33.def`
-# arrived after 2.34.1).
-CONCEPT_FILES = (
-    "grib2/localConcepts/ecmf/shortName.def",
-    "grib2/localConcepts/ecmf/shortName.lte33.def",
-    "grib2/localConcepts/ecmf/shortName.legacy.def",
-    "grib2/shortName.def",
-    "grib2/shortName.lte33.def",
-    "grib2/shortName.legacy.def",
+# Versions from before ECC-1992, whose `concept_evaluate` counts an array
+# condition once rather than once per element.
+COUNTS_ARRAYS_ONCE = {"2.34.1"}
+
+# The pools of one eccodes version, each the files eccodes reads together for
+# a centre-98 message, local before WMO. A pool none of whose files a version
+# has is skipped (`.lte33.def` arrived after 2.34.1).
+POOL_FILES = (
+    ("shortName.def", ("grib2/localConcepts/ecmf/shortName.def", "grib2/shortName.def")),
+    (
+        "shortName.lte33.def",
+        ("grib2/localConcepts/ecmf/shortName.lte33.def", "grib2/shortName.lte33.def"),
+    ),
+    (
+        "shortName.legacy.def",
+        ("grib2/localConcepts/ecmf/shortName.legacy.def", "grib2/shortName.legacy.def"),
+    ),
 )
 
 OUT = (
@@ -144,6 +211,30 @@ PAIR = re.compile(r"(\w+)\s*=\s*([^;]+);")
 
 TRIPLE = ("discipline", "parameterCategory", "parameterNumber")
 
+# The eccodes keys kept, each with the `Key` variant `verify_message` reads it
+# by, in the order a block lists them.
+KEPT = {
+    "discipline": "Discipline",
+    "parameterCategory": "Category",
+    "parameterNumber": "Number",
+    "productDefinitionTemplateNumber": "ProductTemplate",
+    "typeOfFirstFixedSurface": "FirstSurfaceType",
+    "scaleFactorOfFirstFixedSurface": "FirstScaleFactor",
+    "scaledValueOfFirstFixedSurface": "FirstScaledValue",
+    "typeOfSecondFixedSurface": "SecondSurfaceType",
+    "scaleFactorOfSecondFixedSurface": "SecondScaleFactor",
+    "scaledValueOfSecondFixedSurface": "SecondScaledValue",
+    "typeOfStatisticalProcessing": "StatisticalProcess",
+    "indicatorOfUnitForTimeRange": "TimeRangeUnit",
+    "lengthOfTimeRange": "TimeRangeLength",
+    "probabilityType": "ProbabilityType",
+    "scaleFactorOfLowerLimit": "LowerLimitScaleFactor",
+    "scaledValueOfLowerLimit": "LowerLimitScaledValue",
+}
+
+# A `missing()` value, as the table writes it.
+MISSING = "missing()"
+
 
 def parse(path: Path) -> list[tuple[str, dict[str, str]]]:
     """Every block of one concept file, in file order."""
@@ -167,34 +258,61 @@ def integer(value: str | None) -> int | None:
         return None
 
 
-def row(keys: dict[str, str]) -> tuple | None:
-    """The kept part of one block, or `None` when its codes do not read."""
+def conditions(keys: dict[str, str], per_element: bool) -> int:
+    """How many conditions eccodes counts for a block: one per key, and, where
+    `per_element` (ECC-1992), one per element of an array value."""
+    count = 0
+    for value in keys.values():
+        if per_element and value.startswith("["):
+            count += len([v for v in re.split(r"[\s,]+", value.strip("[]")) if v])
+        else:
+            count += 1
+    return count
+
+
+def row(keys: dict[str, str], version: str) -> tuple | None:
+    """The kept part of one block, or `None` when its codes do not read.
+
+    `(conditions read, conditions stated)`, where each read condition is a
+    `(Key variant, value)` pair and the value is an integer or `None` for
+    `missing()`. A kept key whose value is neither (an array, an expression)
+    is left unread, so it is counted and not compared.
+    """
     codes = [integer(keys.get(k)) for k in TRIPLE]
     if any(c is None or not 0 <= c <= 255 for c in codes):
         return None
-    process = integer(keys.get("typeOfStatisticalProcessing"))
-    length = integer(keys.get("lengthOfTimeRange"))
-    unit = integer(keys.get("indicatorOfUnitForTimeRange"))
-    # A length is only a length with its unit.
-    time_range = (unit, length) if unit is not None and length is not None else None
-    return (*codes, process, time_range)
+    read = []
+    for key, value in keys.items():
+        variant = KEPT.get(key)
+        if variant is None:
+            continue
+        if value == MISSING:
+            read.append((variant, None))
+        elif (number := integer(value)) is not None and -(2**31) <= number < 2**31:
+            read.append((variant, number))
+    return (tuple(read), conditions(keys, version not in COUNTS_ARRAYS_ONCE))
 
 
-def rust(value) -> str:
-    return "None" if value is None else f"Some({value})"
+def rust_block(read: tuple, stated: int, mask: int, width: int) -> str:
+    conds = ", ".join(
+        f"(Key::{k}, {'None' if v is None else f'Some({v})'})" for k, v in read
+    )
+    return f"Block {{ read: &[{conds}], conditions: {stated}, pools: 0b{mask:0{width}b} }}"
 
 
-def render(table: dict[str, list[tuple]], missing: list[str]) -> str:
-    arms = []
+def render(
+    table: dict[str, list[list]],
+    rivals: list[list],
+    pools: list[tuple[str, str]],
+    missing: list[str],
+) -> str:
+    entries = []
     for name in sorted(table):
-        rows = ", ".join(
-            "Block { "
-            f"discipline: {d}, category: {c}, number: {n}, "
-            f"statistical_process: {rust(p)}, "
-            f"time_range: {'None' if t is None else f'Some(({t[0]}, {t[1]}))'} }}"
-            for d, c, n, p, t in table[name]
-        )
-        arms.append(f'        "{name}" => &[{rows}],')
+        rows = ", ".join(rust_block(read, stated, mask, len(pools)) for read, stated, mask in table[name])
+        entries.append(f'    ("{name}", &[{rows}]),')
+    rival_rows = "\n".join(
+        f"    {rust_block(read, stated, mask, len(pools))}," for read, stated, mask in rivals
+    )
     blocks = sum(len(v) for v in table.values())
     left_out = (
         "\n//! Listed but not defined by this eccodes, so not compared: "
@@ -203,43 +321,71 @@ def render(table: dict[str, list[tuple]], missing: list[str]) -> str:
         if missing
         else ""
     )
+    pool_docs = "\n".join(
+        f"/// * bit {i}: eccodes {version} `{kind}`" for i, (version, kind) in enumerate(pools)
+    )
+    variants = "\n".join(
+        f"    /// `{key}`.\n    {variant},"
+        for key, variant in KEPT.items()
+    )
     return f'''//! MARS short names of ECMWF's open-data parameters — generated, do not edit.
 //!
 //! Do not edit: regenerate with `python3 tools/gen_mars_short_names.py`.
-//! Source: eccodes {" and ".join(VERSIONS)}, the union of their `shortName`
-//! concept for an ECMWF GRIB2 message (`definitions/grib2/localConcepts/ecmf/`
-//! and `definitions/grib2/`; Apache-2.0, factual data from ECMWF's parameter
+//! Source: eccodes {" and ".join(VERSIONS)}, their `shortName` concept for an
+//! ECMWF GRIB2 message (`definitions/grib2/localConcepts/ecmf/` and
+//! `definitions/grib2/`; Apache-2.0, factual data from ECMWF's parameter
 //! database).
 //!
-//! {len(table)} names, {blocks} blocks. Each block keeps the parameter codes, the
-//! statistical process and the time range's length; every other key of the
-//! eccodes block is dropped, which widens what it accepts. See the
-//! generator's module docs for why.{left_out}
+//! {len(table)} names, {blocks} blocks, and {len(rivals)} blocks of other names
+//! that can outrank them. Each block keeps the conditions the message identity
+//! carries and counts every condition eccodes ranks it by; see the
+//! generator's module docs for which and why.{left_out}
 
-/// One way a MARS short name is encoded: what an eccodes concept block for it
-/// requires of a message, as far as this table keeps.
+/// An eccodes key this table keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Block {{
-    /// Discipline (Code Table 0.0).
-    pub discipline: u8,
-    /// Parameter category (Code Table 4.1).
-    pub category: u8,
-    /// Parameter number (Code Table 4.2).
-    pub number: u8,
-    /// The statistical process (Code Table 4.10), when the block states one.
-    pub statistical_process: Option<u8>,
-    /// The time range as `(unit, length)` (Code Table 4.4), when the block
-    /// states one.
-    pub time_range: Option<(u8, u32)>,
+pub(crate) enum Key {{
+{variants}
 }}
 
-/// The blocks that define `name`, in eccodes' lookup order, or `None` for a
-/// name this table does not carry.
+/// One way a MARS short name is encoded: an eccodes concept block for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Block {{
+    /// The conditions this table compares, each a key and the value the block
+    /// requires, `None` for `missing()`.
+    pub read: &'static [(Key, Option<i32>)],
+    /// How many conditions the eccodes block states, read here or not: what
+    /// eccodes ranks matching blocks by.
+    pub conditions: u8,
+    /// The pools that hold the block, a bit each (see [`POOLS`]).
+    pub pools: u8,
+}}
+
+/// How many pools there are: the sets of concept files eccodes ranks blocks
+/// within.
+///
+{pool_docs}
+pub(crate) const POOLS: u32 = {len(pools)};
+
+/// Every name the table carries, sorted, with its blocks in eccodes' lookup
+/// order.
+pub(crate) static NAMES: &[(&str, &[Block])] = &[
+{chr(10).join(entries)}
+];
+
+/// Blocks of names not in [`NAMES`] that share parameter codes with a block of
+/// one there, in the same pool, and could outrank it: compared only as
+/// rivals, never as the name a record gives.
+pub(crate) static RIVALS: &[Block] = &[
+{rival_rows}
+];
+
+/// The blocks that define `name`, or `None` for a name this table does not
+/// carry.
 pub(crate) fn blocks(name: &str) -> Option<&'static [Block]> {{
-    Some(match name {{
-{chr(10).join(arms)}
-        _ => return None,
-    }})
+    NAMES
+        .binary_search_by(|(n, _)| (*n).cmp(name))
+        .ok()
+        .map(|i| NAMES[i].1)
 }}
 '''
 
@@ -265,34 +411,76 @@ def main() -> int:
         raise SystemExit(f"read exactly eccodes {', '.join(VERSIONS)}; got {', '.join(roots)}")
 
     wanted = set(OPEN_DATA)
-    table: dict[str, list[tuple]] = {}
+    # Every block of every pool: (pool bit, name, codes, kept), file order.
+    everything: list[tuple[int, str, tuple, tuple]] = []
+    pools: list[tuple[str, str]] = []
     for version in VERSIONS:
-        read = 0
-        for rel in CONCEPT_FILES:
-            path = roots[version] / rel
-            if not path.exists():
-                continue
-            read += 1
-            for name, keys in parse(path):
-                if name not in wanted:
-                    continue
-                kept = row(keys)
-                if kept is None:
-                    raise SystemExit(f"{path}: '{name}' has codes that do not read: {keys}")
-                rows = table.setdefault(name, [])
-                # Two blocks that differ only in dropped keys keep one row.
-                if kept not in rows:
-                    rows.append(kept)
-        if read == 0:
+        if not any((roots[version] / f).exists() for _, files in POOL_FILES for f in files):
             raise SystemExit(f"{roots[version]}: no shortName concept file found")
+        for kind, files in POOL_FILES:
+            paths = [roots[version] / f for f in files if (roots[version] / f).exists()]
+            if not paths:
+                continue
+            bit = 1 << len(pools)
+            pools.append((version, kind))
+            for path in paths:
+                for name, keys in parse(path):
+                    kept = row(keys, version)
+                    if kept is None:
+                        if name in wanted:
+                            raise SystemExit(
+                                f"{path}: '{name}' has codes that do not read: {keys}"
+                            )
+                        continue
+                    codes = tuple(integer(keys[k]) for k in TRIPLE)
+                    everything.append((bit, name, codes, kept))
+
+    def merge(rows: list[list], kept: tuple, bit: int) -> None:
+        # Two blocks that differ only in unread keys keep one row.
+        for existing in rows:
+            if (existing[0], existing[1]) == kept:
+                existing[2] |= bit
+                return
+        rows.append([kept[0], kept[1], bit])
+
+    # name -> [[read, stated, pool mask]], first appearance first.
+    table: dict[str, list[list]] = {}
+    # The fewest conditions a listed name's block states, per pool and codes.
+    fewest: dict[tuple[int, tuple], int] = {}
+    for bit, name, codes, kept in everything:
+        if name in wanted:
+            merge(table.setdefault(name, []), kept, bit)
+            fewest[(bit, codes)] = min(fewest.get((bit, codes), kept[1]), kept[1])
+    # [[read, stated, pool mask]] of the blocks of other names that can
+    # outrank a listed name's, and can be certain to match (module docs).
+    rivals: list[list] = []
+    for bit, name, codes, (read, stated) in everything:
+        if (
+            name not in wanted
+            and stated > fewest.get((bit, codes), 255)
+            and len(read) == stated
+        ):
+            merge(rivals, (read, stated), bit)
+
+    every_row = [r for rows in table.values() for r in rows] + rivals
+    used = {k for read, _, _ in every_row for k, _ in read}
+    unused = [key for key, variant in KEPT.items() if variant not in used]
+    if unused:
+        # A `Key` no block reads would be dead code in the crate.
+        raise SystemExit(f"no block reads {', '.join(unused)}: drop it from KEPT")
+    if len(pools) > 8:
+        raise SystemExit(f"{len(pools)} pools do not fit the table's u8 mask")
     missing = sorted(wanted - table.keys())
     for name in missing:
         print(f"not defined by any eccodes read: {name}", file=sys.stderr)
 
-    text = render(table, missing)
+    text = render(table, rivals, pools, missing)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(text, encoding="utf-8")
-    print(f"wrote {OUT}: {len(table)} names", file=sys.stderr)
+    print(
+        f"wrote {OUT}: {len(table)} names, {len(rivals)} rival blocks, {len(pools)} pools",
+        file=sys.stderr,
+    )
     return 0
 
 

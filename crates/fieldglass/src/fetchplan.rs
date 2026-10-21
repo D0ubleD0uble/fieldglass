@@ -103,6 +103,7 @@ pub use fieldglass_fetchplan::{
 
 use crate::api::{MessageIdentity, MessageInfo, StatisticalStep, SurfaceCodes};
 use crate::error::Error;
+use fieldglass_core::bits::sign_magnitude_to_i64;
 
 mod mars_short_names;
 
@@ -564,66 +565,238 @@ fn codes_where_tables_are_complete(identity: &MessageIdentity) -> bool {
     )
 }
 
-/// Whether a GRIB2 message matches one of the eccodes concept blocks for the
-/// MARS name `promised`. `true` for a name the table does not carry, and for a
-/// message whose parameter is unread (GRIB1, or a template the reader does not
-/// parse).
+/// Whether a GRIB2 message is one eccodes may name `promised`, the MARS name
+/// an ECMWF record gives it (#1116, #1298). `true` for a name the table does
+/// not carry, and for a message whose parameter is unread (GRIB1, or a
+/// template the reader does not parse).
+///
+/// eccodes names a message after the concept block, among those whose every
+/// condition holds, that states the most conditions (`concept_evaluate`). So
+/// `2t`'s block, which states the codes and the 2 m surface, matches `mx2t3`'s
+/// bytes but loses to `mx2t3`'s, which also states the process and the range.
+/// The record passes when, in some pool of concept files, a block of
+/// `promised` may match and no block of another name in that pool certainly
+/// matches with more conditions: another listed name, or one of the rival
+/// blocks the table keeps (eccodes 2.45's `max_2t`, which from tables version
+/// 34 is what `mx2t3` was). A block certainly matches when every
+/// condition it states is one the table keeps and the identity carries, and
+/// each holds. A condition either side cannot read leaves its block possible
+/// but never certain, so it can widen what a name accepts and never refuses
+/// one (see `tools/gen_mars_short_names.py`).
 fn mars_name_holds(promised: &str, identity: &MessageIdentity) -> bool {
-    let Some(blocks) = mars_short_names::blocks(promised.trim()) else {
+    let promised = promised.trim();
+    let Some(own) = mars_short_names::blocks(promised) else {
         return true;
     };
-    let MessageIdentity::Grib2 {
-        discipline,
-        product_template,
-        parameter_category: Some(category),
-        parameter_number: Some(number),
-        statistics,
-        ..
-    } = identity
-    else {
+    let Some(facts) = ConceptFacts::of(identity) else {
         return true;
     };
-    blocks.iter().any(|block| {
-        block.discipline == *discipline
-            && block.category == *category
-            && block.number == *number
-            && statistics_hold(block, *product_template, statistics)
+    (0..mars_short_names::POOLS).any(|pool| {
+        let in_pool = |block: &&mars_short_names::Block| block.pools & (1 << pool) != 0;
+        let rival = mars_short_names::NAMES
+            .iter()
+            .filter(|(name, _)| *name != promised)
+            .flat_map(|(_, blocks)| blocks.iter())
+            .chain(mars_short_names::RIVALS)
+            .filter(in_pool)
+            .filter(|block| facts.block(block) == Holds::Yes)
+            .map(|block| block.conditions)
+            .max();
+        own.iter()
+            .filter(in_pool)
+            .filter(|block| facts.block(block) != Holds::No)
+            .any(|block| rival.is_none_or(|rival| rival <= block.conditions))
     })
 }
 
-/// Whether a concept block's statistical process and time range hold for the
-/// message.
-///
-/// A message on a template with no statistical block (4.0, 4.1, 4.2, 4.5, 4.6,
-/// 4.7) has neither, so a block requiring one does not match it, as it does
-/// not for eccodes. A message with one time range is compared with it. A
-/// message whose statistics the identity does not carry as one range (4.15,
-/// or several nested ranges) is not compared.
-fn statistics_hold(
-    block: &mars_short_names::Block,
-    template: u16,
-    statistics: &[StatisticalStep],
-) -> bool {
-    if block.statistical_process.is_none() && block.time_range.is_none() {
-        return true;
+/// Whether a concept condition holds for a message, `Maybe` where it cannot be
+/// read from the block or from the message. Ordered so that a block holds as
+/// well as its weakest condition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Holds {
+    /// It does not.
+    No,
+    /// It cannot be told.
+    Maybe,
+    /// It does.
+    Yes,
+}
+
+impl Holds {
+    /// `Yes` when `have` is `want`: two values, or two `missing()`s, compared
+    /// as eccodes compares a concept's integer keys.
+    fn equal(want: Option<i64>, have: Option<i64>) -> Self {
+        if want == have { Self::Yes } else { Self::No }
     }
-    match statistics {
-        [] => !matches!(template, 0 | 1 | 2 | 5 | 6 | 7),
-        [step] => {
-            block
-                .statistical_process
-                .is_none_or(|process| process == step.process)
-                && block.time_range.is_none_or(|(unit, length)| {
-                    match (
-                        seconds(unit, i64::from(length)),
-                        seconds(step.length_unit, i64::from(step.length)),
-                    ) {
-                        (Some(want), Some(have)) => want == have,
-                        _ => true,
-                    }
-                })
+}
+
+/// What a concept block's conditions are compared with, read once from a
+/// GRIB2 message's identity.
+struct ConceptFacts<'a> {
+    /// Discipline, category, number.
+    codes: [u8; 3],
+    /// The product template.
+    template: u16,
+    /// The first fixed surface, `None` when unread.
+    first: Option<SurfaceCodes>,
+    /// The second fixed surface, `None` when unread.
+    second: Option<SurfaceCodes>,
+    /// The statistical processes, outermost first.
+    statistics: &'a [StatisticalStep],
+    /// The probability block of 4.5 and 4.9 (§4 octets 35-47), `None` for
+    /// another template or a block the identity does not carry.
+    probability: Option<Vec<u8>>,
+}
+
+impl<'a> ConceptFacts<'a> {
+    /// The facts of a GRIB2 message whose parameter the reader parsed.
+    fn of(identity: &'a MessageIdentity) -> Option<Self> {
+        let MessageIdentity::Grib2 {
+            discipline,
+            product_template,
+            product_octets,
+            parameter_category: Some(category),
+            parameter_number: Some(number),
+            first_surface,
+            second_surface,
+            statistics,
+            ..
+        } = identity
+        else {
+            return None;
+        };
+        Some(Self {
+            codes: [*discipline, *category, *number],
+            template: *product_template,
+            first: *first_surface,
+            second: *second_surface,
+            statistics,
+            probability: matches!(product_template, 5 | 9)
+                .then(|| product_octets.as_deref().and_then(from_hex))
+                .flatten(),
+        })
+    }
+
+    /// Whether every condition of `block` holds: its weakest condition, and
+    /// at most `Maybe` when it states one the table does not keep.
+    fn block(&self, block: &mars_short_names::Block) -> Holds {
+        let unkept = if block.read.len() < usize::from(block.conditions) {
+            Holds::Maybe
+        } else {
+            Holds::Yes
+        };
+        block
+            .read
+            .iter()
+            .map(|&(key, want)| self.condition(block, key, want.map(i64::from)))
+            .fold(unkept, Ord::min)
+    }
+
+    /// Whether the condition `key` = `want` (`None` for `missing()`) holds.
+    fn condition(
+        &self,
+        block: &mars_short_names::Block,
+        key: mars_short_names::Key,
+        want: Option<i64>,
+    ) -> Holds {
+        use mars_short_names::Key;
+        let is = |have: i64| Holds::equal(want, Some(have));
+        let surface = |surface: Option<SurfaceCodes>, part: fn(SurfaceCodes) -> Option<i64>| {
+            surface.map_or(Holds::Maybe, |s| Holds::equal(want, part(s)))
+        };
+        match key {
+            Key::Discipline => is(self.codes[0].into()),
+            Key::Category => is(self.codes[1].into()),
+            Key::Number => is(self.codes[2].into()),
+            Key::ProductTemplate => is(self.template.into()),
+            Key::FirstSurfaceType => surface(self.first, |s| Some(s.surface_type.into())),
+            Key::FirstScaleFactor => surface(self.first, |s| s.scale_factor.map(i64::from)),
+            Key::FirstScaledValue => surface(self.first, |s| s.scaled_value),
+            Key::SecondSurfaceType => surface(self.second, |s| Some(s.surface_type.into())),
+            Key::SecondScaleFactor => surface(self.second, |s| s.scale_factor.map(i64::from)),
+            Key::SecondScaledValue => surface(self.second, |s| s.scaled_value),
+            Key::StatisticalProcess => self.statistic(|step| is(step.process.into())),
+            Key::TimeRangeUnit => {
+                self.statistic(|step| is(step.length_unit.into()).max(same_length(block, step)))
+            }
+            Key::TimeRangeLength => {
+                self.statistic(|step| is(step.length.into()).max(same_length(block, step)))
+            }
+            Key::ProbabilityType => self.probability(want, |b| Some(Some(i64::from(*b.get(2)?)))),
+            // Sign and magnitude, all ones coded missing, as eccodes reads a
+            // `signed` key that `can_be_missing`.
+            Key::LowerLimitScaleFactor => self.probability(want, |b| {
+                let octet = *b.get(3)?;
+                Some((octet != 0xff).then(|| sign_magnitude_to_i64(octet.into(), 8)))
+            }),
+            Key::LowerLimitScaledValue => self.probability(want, |b| {
+                let raw = u32::from_be_bytes(b.get(4..8)?.try_into().ok()?);
+                Some((raw != u32::MAX).then(|| sign_magnitude_to_i64(raw, 32)))
+            }),
         }
-        _ => true,
+    }
+
+    /// A statistical condition. A template with no statistical block (4.0,
+    /// 4.1, 4.2, 4.5, 4.6, 4.7) has none of its keys, so it does not hold, as
+    /// it does not for eccodes. A message whose statistics the identity does
+    /// not carry as one range (4.15, or several nested ranges) is not
+    /// compared.
+    fn statistic(&self, holds: impl Fn(&StatisticalStep) -> Holds) -> Holds {
+        match self.statistics {
+            [] if matches!(self.template, 0 | 1 | 2 | 5 | 6 | 7) => Holds::No,
+            [step] => holds(step),
+            _ => Holds::Maybe,
+        }
+    }
+
+    /// A probability condition against `want`, `value` reading the message's
+    /// side from its 13-octet block (`Some(None)` for a value coded missing,
+    /// `None` for a block too short to hold it). A template the reader parses
+    /// without a probability block has none of its keys; one whose block is
+    /// not carried is not compared.
+    fn probability(
+        &self,
+        want: Option<i64>,
+        value: impl Fn(&[u8]) -> Option<Option<i64>>,
+    ) -> Holds {
+        if !matches!(self.template, 5 | 9) {
+            return if matches!(self.template, 0..=2 | 6..=8 | 10..=12 | 15 | 40..=48) {
+                Holds::No
+            } else {
+                Holds::Maybe
+            };
+        }
+        match self.probability.as_deref().and_then(value) {
+            Some(have) => Holds::equal(want, have),
+            None => Holds::Maybe,
+        }
+    }
+}
+
+/// `Maybe` where a block's time range differs from `step`'s only in how it is
+/// written: the same length in other units, or a unit without a fixed length
+/// on either side. eccodes compares the unit and the length as written, so
+/// such a block would not match for it; it is left possible here, as before
+/// #1298, rather than refused. `No` for a block without both keys.
+fn same_length(block: &mars_short_names::Block, step: &StatisticalStep) -> Holds {
+    use mars_short_names::Key;
+    let stated = |key: Key| {
+        block
+            .read
+            .iter()
+            .find(|(k, _)| *k == key)
+            .and_then(|(_, v)| *v)
+    };
+    let (Some(unit), Some(length)) = (stated(Key::TimeRangeUnit), stated(Key::TimeRangeLength))
+    else {
+        return Holds::No;
+    };
+    let want = u8::try_from(unit)
+        .ok()
+        .and_then(|unit| seconds(unit, i64::from(length)));
+    match (want, seconds(step.length_unit, i64::from(step.length))) {
+        (Some(want), Some(have)) if want != have => Holds::No,
+        _ => Holds::Maybe,
     }
 }
 
@@ -2306,13 +2479,24 @@ mod tests {
     }
 
     /// MARS vocabulary: `2t` is compared with eccodes' definition of it (the
-    /// codes 0.0.0 every message here has), not with the WMO short name `TMP`,
-    /// and `sfc` is any single-level surface but not one ECMWF lists levels of.
+    /// codes 0.0.0 every message here has, at 2 m), not with the WMO short
+    /// name `TMP`, and `sfc` is any single-level surface but not one ECMWF
+    /// lists levels of.
     #[test]
     fn an_ecmwf_line_is_read_in_its_own_vocabulary() {
         let sfc = ecmwf(r#"{"param": "2t", "levtype": "sfc", "_offset": 0, "_length": 1}"#);
         assert_eq!(verify_message(&sfc, &info("TMP", TWO_METRES)), Ok(()));
-        assert_eq!(verify_message(&sfc, &info("MSL", (101, 0, 0))), Ok(()));
+        // 0.0.0 at mean sea level is not `2t`, whose block states 2 m (#1298).
+        assert_eq!(
+            refused(&sfc, &info("TMP", (101, 0, 0))),
+            Some("abbreviation")
+        );
+        // The level alone, from a name the table does not carry.
+        let level_only = ecmwf(r#"{"param": "zz", "levtype": "sfc", "_offset": 0, "_length": 1}"#);
+        assert_eq!(
+            verify_message(&level_only, &info("MSL", (101, 0, 0))),
+            Ok(())
+        );
         assert!(verify_message(&sfc, &info("TMP", (100, 0, 50_000))).is_err());
         assert!(verify_message(&sfc, &info("TMP", (105, 0, 137))).is_err());
 
@@ -3061,11 +3245,12 @@ mod tests {
         );
         assert_eq!(refused(&mars("mx2t6"), &max_3h), Some("abbreviation"));
         assert_eq!(refused(&mars("mx2t3"), &instant), Some("abbreviation"));
-        // `2t` states no process, so a maximum still matches it. Nothing
-        // here tells them apart: a `2t` line at step 3 passes on `mx2t3`
-        // bytes (step 3 is the end of their window), and only a `2t` line at
-        // another step is refused, on the forecast.
-        assert_eq!(refused(&mars("2t"), &max_3h), None);
+        // `2t` states no process, so its block matches a maximum too, but
+        // `mx2t3`'s states more and is the one eccodes names it after
+        // (#1298). From tables version 34 eccodes 2.45 names it `max_2t`,
+        // which also outranks `2t`.
+        assert_eq!(refused(&mars("2t"), &max_3h), Some("abbreviation"));
+        assert_eq!(refused(&mars("2t"), &instant), None);
         // Nested time ranges are not compared.
         let mut nested = max_3h.clone();
         if let crate::api::MessageIdentity::Grib2 { statistics, .. } = &mut nested.identity {
@@ -3074,6 +3259,163 @@ mod tests {
         assert_eq!(refused(&mars("mn2t3"), &nested), None);
         assert_eq!(refused(&mars("notamarsname"), &instant), None);
         assert_eq!(refused(&mars("r"), &instant), Some("abbreviation"));
+    }
+
+    /// An ECMWF line naming `param` and nothing else.
+    fn mars(name: &str) -> Expect {
+        ecmwf(&format!(
+            r#"{{"param": "{name}", "_offset": 0, "_length": 1}}"#
+        ))
+    }
+
+    /// A message on `codes` at `first`, on product template `template` with
+    /// its unread octets `octets`.
+    fn coded(
+        codes: (u8, u8, u8),
+        first: crate::api::SurfaceCodes,
+        template: u16,
+        octets: Option<&str>,
+    ) -> MessageInfo {
+        let mut message = on_template(template, octets, 1, 0);
+        if let crate::api::MessageIdentity::Grib2 {
+            discipline,
+            parameter_category,
+            parameter_number,
+            first_surface,
+            ..
+        } = &mut message.identity
+        {
+            *discipline = codes.0;
+            *parameter_category = Some(codes.1);
+            *parameter_number = Some(codes.2);
+            *first_surface = Some(first);
+        }
+        message
+    }
+
+    /// A surface of type `kind` with its value coded missing.
+    fn bare(kind: u8) -> crate::api::SurfaceCodes {
+        crate::api::SurfaceCodes {
+            surface_type: kind,
+            scale_factor: None,
+            scaled_value: None,
+        }
+    }
+
+    /// Names that share parameter codes are told apart by the surface, as
+    /// eccodes tells them, and the most specific block wins (#1298): `10u`,
+    /// `100u` and `u` are all 0.2.2, `msl` and `sp` both 0.3.0, `str` and
+    /// `ttr` both 0.5.5 accumulated.
+    #[test]
+    fn mars_names_sharing_codes_are_told_apart_by_the_surface() {
+        let u = (0, 2, 2);
+        let at_10m = coded(u, surface((103, 0, 10)), 0, None);
+        let at_100m = coded(u, surface((103, 0, 100)), 0, None);
+        let at_500hpa = coded(u, surface((100, 0, 50_000)), 0, None);
+        assert_eq!(refused(&mars("10u"), &at_10m), None);
+        assert_eq!(refused(&mars("100u"), &at_10m), Some("abbreviation"));
+        // `u` states the codes alone, so `10u`'s block outranks it.
+        assert_eq!(refused(&mars("u"), &at_10m), Some("abbreviation"));
+        assert_eq!(refused(&mars("100u"), &at_100m), None);
+        assert_eq!(refused(&mars("10u"), &at_100m), Some("abbreviation"));
+        assert_eq!(refused(&mars("u"), &at_500hpa), None);
+        assert_eq!(refused(&mars("10u"), &at_500hpa), Some("abbreviation"));
+
+        let pressure = (0, 3, 0);
+        let msl = coded(pressure, bare(101), 0, None);
+        let ground = coded(pressure, bare(1), 0, None);
+        assert_eq!(refused(&mars("msl"), &msl), None);
+        assert_eq!(refused(&mars("sp"), &msl), Some("abbreviation"));
+        assert_eq!(refused(&mars("sp"), &ground), None);
+        assert_eq!(refused(&mars("msl"), &ground), Some("abbreviation"));
+
+        let radiation = (0, 5, 5);
+        let str_ = over(coded(radiation, bare(1), 8, None), 1, 1, 6);
+        let ttr = over(coded(radiation, bare(8), 8, None), 1, 1, 6);
+        assert_eq!(refused(&mars("str"), &str_), None);
+        assert_eq!(refused(&mars("ttr"), &str_), Some("abbreviation"));
+        assert_eq!(refused(&mars("ttr"), &ttr), None);
+        assert_eq!(refused(&mars("str"), &ttr), Some("abbreviation"));
+    }
+
+    /// A probability of precipitation (template 4.9) is named after its
+    /// probability block, so `tp` is not a `tpg25`, and one threshold is not
+    /// another (#1298). A block the identity does not carry is not compared.
+    #[test]
+    fn a_mars_probability_is_named_after_its_threshold() {
+        let precipitation = (0, 1, 52);
+        // Code Table 4.9 type 3, above the lower limit of 25 (scale 0).
+        let above_25 = probability_block(3, (0, 25), (0xff, u32::MAX));
+        let tpg25 = over(coded(precipitation, bare(1), 9, Some(&above_25)), 1, 1, 24);
+        assert_eq!(refused(&mars("tpg25"), &tpg25), None);
+        assert_eq!(refused(&mars("tp"), &tpg25), Some("abbreviation"));
+        assert_eq!(refused(&mars("tpg50"), &tpg25), Some("abbreviation"));
+        // The same limit at another scale is another key value to eccodes.
+        let rescaled = probability_block(3, (1, 250), (0xff, u32::MAX));
+        let mut other_scale = tpg25.clone();
+        if let crate::api::MessageIdentity::Grib2 { product_octets, .. } = &mut other_scale.identity
+        {
+            *product_octets = Some(rescaled);
+        }
+        assert_eq!(refused(&mars("tpg25"), &other_scale), Some("abbreviation"));
+
+        // The amount: template 4.8 has no probability block.
+        let amount = over(coded(precipitation, bare(1), 8, None), 1, 1, 24);
+        assert_eq!(refused(&mars("tp"), &amount), None);
+        assert_eq!(refused(&mars("tpg25"), &amount), Some("abbreviation"));
+
+        // A 4.9 whose block is not carried: the probability names are only
+        // possible, so they cannot refuse `tp`, and are not refused.
+        let unread = over(coded(precipitation, bare(1), 9, None), 1, 1, 24);
+        assert_eq!(refused(&mars("tp"), &unread), None);
+        assert_eq!(refused(&mars("tpg25"), &unread), None);
+
+        // `tpl01` (eccodes 2.45) states its surface value `missing()`, and a
+        // value coded missing is what matches it: below 0.1 (type 0, scale 1).
+        let below_01 = probability_block(0, (1, 1), (0xff, u32::MAX));
+        let tpl01 = over(coded(precipitation, bare(1), 9, Some(&below_01)), 1, 1, 24);
+        assert_eq!(refused(&mars("tpl01"), &tpl01), None);
+        // eccodes 2.34.1 has no WMO block for `tpl01`, so it names these
+        // bytes `tp`, and either version's name passes.
+        assert_eq!(refused(&mars("tp"), &tpl01), None);
+        assert_eq!(refused(&mars("tpg25"), &tpl01), Some("abbreviation"));
+        let mut valued = tpl01.clone();
+        if let crate::api::MessageIdentity::Grib2 { first_surface, .. } = &mut valued.identity {
+            *first_surface = Some(surface((1, 0, 0)));
+        }
+        assert_eq!(refused(&mars("tpl01"), &valued), Some("abbreviation"));
+    }
+
+    /// A block stating a condition the table does not keep (ECMWF's local
+    /// `tp`, 0.1.193, states `localTablesVersion`) is possible, never
+    /// certain: its own name passes, and it refuses no other.
+    #[test]
+    fn a_block_with_an_unkept_condition_is_only_possible() {
+        let local_tp = over(coded((0, 1, 193), bare(1), 8, None), 1, 1, 24);
+        assert_eq!(refused(&mars("tp"), &local_tp), None);
+        // eccodes 2.45's local `tprate` is 0.1.193 too, with `localTablesVersion`
+        // and an average: not certain either, and not this message.
+        assert_eq!(refused(&mars("tprate"), &local_tp), Some("abbreviation"));
+    }
+
+    /// eccodes 2.48 dropped the mean-sea-level surface from `swhg2`..`swhg8`,
+    /// so a producer on 2.48 may write a wave-height probability on another
+    /// surface and still call it `swhg2`. The table reads 2.48 too, so that
+    /// record passes, as it did before #1298; the threshold still counts.
+    #[test]
+    fn a_name_the_newest_eccodes_loosened_still_passes() {
+        let wave_height = (10, 0, 3);
+        // Code Table 4.9 type 3, above 2 m (scale 0).
+        let above_2 = probability_block(3, (0, 2), (0xff, u32::MAX));
+        for surface in [bare(1), bare(101), surface((103, 0, 10))] {
+            let message = coded(wave_height, surface, 5, Some(&above_2));
+            assert_eq!(refused(&mars("swhg2"), &message), None, "{surface:?}");
+            assert_eq!(
+                refused(&mars("swhg4"), &message),
+                Some("abbreviation"),
+                "{surface:?}"
+            );
+        }
     }
 
     /// `sol N` against soil level N, and against the soil layer whose bottom
