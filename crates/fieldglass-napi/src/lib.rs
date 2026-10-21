@@ -2367,51 +2367,160 @@ struct PlaneKey {
     fixed: Vec<usize>,
 }
 
-/// The planes a `NetcdfFile` keeps: the most recently used, newest last.
+/// What a memo entry weighs against the cell budget.
+trait Cells {
+    fn cells(&self) -> usize;
+}
+
+impl Cells for std::sync::Arc<Vec<Option<f64>>> {
+    fn cells(&self) -> usize {
+        self.len()
+    }
+}
+
+/// The planes or slices a handle keeps: the most recently used, newest last.
+/// `PlaneMemo` is the NetCDF handle's, `SliceMemo` the Zarr handle's.
 ///
 /// Bounded twice, because ADR-0011 rejects a memo that grows with use: at most
-/// `Self::ENTRIES` planes, enough for an A/B comparison and the frames either
-/// side of it, and at most `Self::CELLS` cells across them. The newest plane
-/// is kept whatever its size: it is the one on screen, and every repaint of it
-/// would otherwise read it again.
+/// `Self::ENTRIES` entries, enough for an A/B comparison and the frames either
+/// side of it, and at most `CELLS` cells across them. The newest entry is kept
+/// whatever its size: it is the one on screen, and every repaint of it would
+/// otherwise read it again.
 ///
-/// Below it, the reader keeps the decompressed chunks it last read, up to
+/// The two entries of the combined map on screen (`pin`) are exempt from the
+/// cell budget (#1319): a pair each over half of it would otherwise push one
+/// another out, and every colour change and probe would decode both again.
+/// That is at most two entries past the budget. The exemption ends when a
+/// plain render is drawn (`unpin`), when an entry outside the pair is read
+/// (`unpin_unless`; a probe, contour or export of A or B keeps it), when
+/// another pair is drawn, or when a combine is refused.
+///
+/// Below it, the NetCDF reader keeps the decompressed chunks it last read, up to
 /// 64 MiB a file (`fieldglass-netcdf`'s `CHUNK_BYTE_BUDGET`), so stepping to a
 /// plane that shares chunks with this one does not inflate them again (#939).
 /// That memo is bounded by size and is a pure function of the file, the kind
 /// ADR-0011 lets a library keep; which slices to keep is this memo's policy.
-#[derive(Debug, Default)]
-struct PlaneMemo {
-    entries: std::collections::VecDeque<(PlaneKey, std::sync::Arc<Vec<Option<f64>>>)>,
+#[derive(Debug)]
+struct PinnedLru<V, const CELLS: usize> {
+    entries: std::collections::VecDeque<(PlaneKey, V)>,
+    /// The keys of the combined map's two entries, empty when the map on
+    /// screen is not a combined one.
+    pair: Vec<PlaneKey>,
+    /// The cell budget: `CELLS`, less in a test.
+    cells: usize,
+    /// How many entries were inserted, which is how many were decoded: an
+    /// entry is inserted only after a miss. What a test counts.
+    #[cfg(test)]
+    inserted: u64,
+    /// How many reads the memo answered. What a test counts to hold that a
+    /// display read the kept entry rather than the container.
+    #[cfg(test)]
+    hits: u64,
 }
 
-impl PlaneMemo {
-    /// The most planes kept.
-    const ENTRIES: usize = 4;
-    /// The most cells kept across them: 16 M, 256 MB of `Option<f64>`, so
-    /// four planes of a 0.1° global grid (6.5 M cells each) do not all fit.
-    const CELLS: usize = 16 << 20;
+impl<V, const CELLS: usize> Default for PinnedLru<V, CELLS> {
+    fn default() -> Self {
+        Self {
+            entries: std::collections::VecDeque::new(),
+            pair: Vec::new(),
+            cells: CELLS,
+            #[cfg(test)]
+            inserted: 0,
+            #[cfg(test)]
+            hits: 0,
+        }
+    }
+}
 
-    /// The plane `key` names, if it is kept, marked as the most recently used.
-    fn get(&mut self, key: &PlaneKey) -> Option<std::sync::Arc<Vec<Option<f64>>>> {
+impl<V: Cells + Clone, const CELLS: usize> PinnedLru<V, CELLS> {
+    /// The most entries kept.
+    const ENTRIES: usize = 4;
+    /// The most cells kept across them, which a test reads by value.
+    #[cfg(test)]
+    const CELLS: usize = CELLS;
+
+    /// The entry `key` names, if it is kept, marked as the most recently used.
+    fn get(&mut self, key: &PlaneKey) -> Option<V> {
         let at = self.entries.iter().position(|(k, _)| k == key)?;
         let entry = self.entries.remove(at)?;
-        let plane = std::sync::Arc::clone(&entry.1);
+        let value = entry.1.clone();
         self.entries.push_back(entry);
-        Some(plane)
+        #[cfg(test)]
+        {
+            self.hits += 1;
+        }
+        Some(value)
     }
 
-    /// Keep `plane` as the most recently used, dropping the least recently
+    /// Keep `value` as the most recently used, dropping the least recently
     /// used past either bound.
-    fn insert(&mut self, key: PlaneKey, plane: std::sync::Arc<Vec<Option<f64>>>) {
+    fn insert(&mut self, key: PlaneKey, value: V) {
+        #[cfg(test)]
+        {
+            self.inserted += 1;
+        }
         self.entries.retain(|(k, _)| *k != key);
-        self.entries.push_back((key, plane));
+        self.entries.push_back((key, value));
         while self.entries.len() > 1
             && (self.entries.len() > Self::ENTRIES
-                || self.entries.iter().map(|(_, p)| p.len()).sum::<usize>() > Self::CELLS)
+                || self.entries.iter().map(|(_, v)| v.cells()).sum::<usize>() > self.cells)
         {
-            self.entries.pop_front();
+            // The least recently used entry that is not the combined pair and
+            // not the newest; none left means the memo is as small as it can be.
+            let newest = self.entries.len() - 1;
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .take(newest)
+                .position(|(k, _)| !self.pair.contains(k))
+            else {
+                break;
+            };
+            self.entries.remove(oldest);
         }
+    }
+
+    /// The combined map's two entries, which the cell budget leaves alone.
+    fn pin(&mut self, a: &PlaneKey, b: &PlaneKey) {
+        self.pair = vec![a.clone(), b.clone()];
+    }
+
+    /// The combined map is no longer the one on screen.
+    fn unpin(&mut self) {
+        self.pair.clear();
+    }
+
+    /// An entry was read on its own: unless it is one of the pair, the map on
+    /// screen is no longer the combined one.
+    fn unpin_unless(&mut self, key: &PlaneKey) {
+        if !self.pair.contains(key) {
+            self.pair.clear();
+        }
+    }
+}
+
+/// The NetCDF handle's planes: 16 M cells, 256 MB of `Option<f64>`, so four
+/// planes of a 0.1 degree global grid (6.5 M cells each) do not all fit.
+type PlaneMemo = PinnedLru<std::sync::Arc<Vec<Option<f64>>>, { 16 << 20 }>;
+
+/// What names a plane or slice in a memo: the two drawn axes are not part of
+/// the fixed indices, whatever the caller holds there.
+fn plane_key(variable: usize, y_dim: usize, x_dim: usize, slice_indices: &[u32]) -> PlaneKey {
+    PlaneKey {
+        variable,
+        y_dim,
+        x_dim,
+        fixed: slice_indices
+            .iter()
+            .enumerate()
+            .map(|(d, &i)| {
+                if d == y_dim || d == x_dim {
+                    0
+                } else {
+                    i as usize
+                }
+            })
+            .collect(),
     }
 }
 
@@ -2507,6 +2616,11 @@ impl NetcdfFile {
     ) -> Result<RenderedGrid, RenderError> {
         let var = self.renderable(variable_index)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
+        // A plain draw: the combined map is no longer the one on screen.
+        self.planes
+            .lock()
+            .expect("plane memo mutex poisoned")
+            .unpin();
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
         let placed = self.slice_placed(&var, y, x)?;
         render_placed(&self.warps, &placed, &plane, &options)
@@ -2691,11 +2805,12 @@ impl NetcdfFile {
         let (y, x) = (a.y_dim as usize, a.x_dim as usize);
         let var_a = self.renderable(a.variable)?;
         let var_b = self.renderable(b.variable)?;
-        let plane_a = self.slice_plane(&var_a, y, x, &a.slice_indices)?;
-        let plane_b = self.slice_plane(&var_b, y, x, &b.slice_indices)?;
-        let placed_a = self.slice_placed(&var_a, y, x)?;
-        let placed_b = self.slice_placed(&var_b, y, x)?;
-        let combined = combined_field(&placed_a, &plane_a, &placed_b, &plane_b, op.as_str())?;
+        let (placed_a, combined) = self.combined_planes(
+            (&var_a, &a.slice_indices),
+            (&var_b, &b.slice_indices),
+            (y, x),
+            op.as_str(),
+        )?;
         zonal_mean_of(
             &combined,
             &placed_a,
@@ -2746,19 +2861,13 @@ impl NetcdfFile {
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
-        let plane_a = self.slice_plane(&var_a, y, x, &slice_indices_a)?;
-        let plane_b = self.slice_plane(&var_b, y, x, &slice_indices_b)?;
-        let placed_a = self.slice_placed(&var_a, y, x)?;
-        let placed_b = self.slice_placed(&var_b, y, x)?;
-        render_combined(
-            &self.warps,
-            &placed_a,
-            &plane_a,
-            &placed_b,
-            &plane_b,
+        let (placed_a, combined) = self.combined_planes(
+            (&var_a, &slice_indices_a),
+            (&var_b, &slice_indices_b),
+            (y, x),
             op.as_str(),
-            &options,
-        )
+        )?;
+        render_placed(&self.warps, &placed_a, &combined, &options)
     }
 
     /// Project geographic polylines onto the same raster `render_slice` produces
@@ -2841,11 +2950,12 @@ impl NetcdfFile {
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
-        let plane_a = self.slice_plane(&var_a, y, x, &slice_indices_a)?;
-        let plane_b = self.slice_plane(&var_b, y, x, &slice_indices_b)?;
-        let placed_a = self.slice_placed(&var_a, y, x)?;
-        let placed_b = self.slice_placed(&var_b, y, x)?;
-        let combined = combined_field(&placed_a, &plane_a, &placed_b, &plane_b, op.as_str())?;
+        let (placed_a, combined) = self.combined_planes(
+            (&var_a, &slice_indices_a),
+            (&var_b, &slice_indices_b),
+            (y, x),
+            op.as_str(),
+        )?;
         probe_placed(&self.warps, &placed_a, &combined, &options, px, py)
     }
 
@@ -2869,17 +2979,51 @@ impl NetcdfFile {
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
-        let plane_a = self.slice_plane(&var_a, y, x, &slice_indices_a)?;
-        let plane_b = self.slice_plane(&var_b, y, x, &slice_indices_b)?;
-        let placed_a = self.slice_placed(&var_a, y, x)?;
-        let placed_b = self.slice_placed(&var_b, y, x)?;
-        let combined = combined_field(&placed_a, &plane_a, &placed_b, &plane_b, op.as_str())?;
+        let (placed_a, combined) = self.combined_planes(
+            (&var_a, &slice_indices_a),
+            (&var_b, &slice_indices_b),
+            (y, x),
+            op.as_str(),
+        )?;
         project_contours_impl(&placed_a, &combined, &options, interval)
             .map(ProjectedOverlay::from_polylines)
     }
 }
 
 impl NetcdfFile {
+    /// The two planes of a combined map, combined, and `a`'s placement.
+    ///
+    /// Both are pinned in the plane memo before either is read, so reading `b`
+    /// cannot push `a` out (#1319), and unpinned again if the pair is refused,
+    /// so a map that was never drawn holds nothing past the budget.
+    fn combined_planes(
+        &self,
+        (var_a, indices_a): (&RenderableVariable, &[u32]),
+        (var_b, indices_b): (&RenderableVariable, &[u32]),
+        (y, x): (usize, usize),
+        op: &str,
+    ) -> Result<(Placed, Vec<Option<f64>>), RenderError> {
+        self.planes.lock().expect("plane memo mutex poisoned").pin(
+            &plane_key(var_a.decode_index, y, x, indices_a),
+            &plane_key(var_b.decode_index, y, x, indices_b),
+        );
+        let combined = (|| -> Result<(Placed, Vec<Option<f64>>), RenderError> {
+            let plane_a = self.slice_plane(var_a, y, x, indices_a)?;
+            let plane_b = self.slice_plane(var_b, y, x, indices_b)?;
+            let placed_a = self.slice_placed(var_a, y, x)?;
+            let placed_b = self.slice_placed(var_b, y, x)?;
+            let values = combined_field(&placed_a, &plane_a, &placed_b, &plane_b, op)?;
+            Ok((placed_a, values))
+        })();
+        if combined.is_err() {
+            self.planes
+                .lock()
+                .expect("plane memo mutex poisoned")
+                .unpin();
+        }
+        combined
+    }
+
     /// Look up a renderable variable by its decode index.
     fn renderable(&self, variable_index: u32) -> Result<RenderableVariable, RenderError> {
         self.view
@@ -2935,29 +3079,15 @@ impl NetcdfFile {
         fieldglass::check_slice_indices(&var.name, &var.dims, y_dim, x_dim, slice_indices)?;
         // The two horizontal entries are ignored by the read, so they are not
         // part of what names the plane either.
-        let fixed: Vec<usize> = slice_indices
-            .iter()
-            .enumerate()
-            .map(|(d, &i)| {
-                if d == y_dim || d == x_dim {
-                    0
-                } else {
-                    i as usize
-                }
-            })
-            .collect();
-        let key = PlaneKey {
-            variable: var.decode_index,
-            y_dim,
-            x_dim,
-            fixed,
+        let key = plane_key(var.decode_index, y_dim, x_dim, slice_indices);
+        let hit = {
+            let mut kept = self.planes.lock().expect("plane memo mutex poisoned");
+            // Unless it is one of the combined pair, this plane read on its
+            // own means the combined map is no longer the one on screen.
+            kept.unpin_unless(&key);
+            kept.get(&key)
         };
-        if let Some(hit) = self
-            .planes
-            .lock()
-            .expect("plane memo mutex poisoned")
-            .get(&key)
-        {
+        if let Some(hit) = hit {
             return Ok(hit);
         }
         // `renderable` found the variable in this view, so it has the
@@ -3362,62 +3492,30 @@ impl ZarrSlice {
         }
     }
 
-    /// The whole field again, which copies the geometry.
+    /// The whole field again, which copies the geometry. A test reads it; no
+    /// display does (a combine reads the kept values and placements).
+    #[cfg(test)]
     fn field(&self) -> fieldglass::Field {
         let mut field = self.rest.clone();
         field.georef.geometry = (*self.placed.geometry).clone();
         field
     }
+}
 
+/// Two Zarr slices combined: `a`, which the result is placed as and named
+/// by, and the combined values.
+type CombinedSlices = (std::sync::Arc<ZarrSlice>, Vec<Option<f64>>);
+
+/// The slices a `ZarrStore` keeps (#1273): a `PinnedLru` of 8 M cells. A kept
+/// slice costs about 25 bytes a cell (the dense values, the mask and the
+/// `Option` copy every display reads) plus its geometry once, which is 28 bytes
+/// a cell for a curvilinear grid, so the budget bounds the memo near 200 MB
+/// plus that.
+type SliceMemo = PinnedLru<std::sync::Arc<ZarrSlice>, { 8 << 20 }>;
+
+impl Cells for std::sync::Arc<ZarrSlice> {
     fn cells(&self) -> usize {
         self.values.len()
-    }
-}
-
-/// Two Zarr slices combined: `a`, which the result is placed as, the combined
-/// field, and its values rejoined.
-type CombinedSlices = (
-    std::sync::Arc<ZarrSlice>,
-    fieldglass::Field,
-    Vec<Option<f64>>,
-);
-
-/// The slices a `ZarrStore` keeps: the most recently used, newest last.
-///
-/// Bounded as `PlaneMemo` is, and for the same reason (ADR-0011): at most
-/// `Self::ENTRIES` slices and `Self::CELLS` cells across them, the newest
-/// always kept because it is the one on screen. A kept slice costs about 25
-/// bytes a cell (the dense values, the mask and the `Option` copy every display
-/// reads) plus its geometry once, which is 28 bytes a cell for a curvilinear
-/// grid, so the budget bounds the memo near 200 MB plus that.
-#[derive(Debug, Default)]
-struct SliceMemo {
-    entries: std::collections::VecDeque<(PlaneKey, std::sync::Arc<ZarrSlice>)>,
-}
-
-impl SliceMemo {
-    /// The most slices kept.
-    const ENTRIES: usize = 4;
-    /// The most cells kept across them: 8 M.
-    const CELLS: usize = 8 << 20;
-
-    fn get(&mut self, key: &PlaneKey) -> Option<std::sync::Arc<ZarrSlice>> {
-        let at = self.entries.iter().position(|(k, _)| k == key)?;
-        let entry = self.entries.remove(at)?;
-        let slice = std::sync::Arc::clone(&entry.1);
-        self.entries.push_back(entry);
-        Some(slice)
-    }
-
-    fn insert(&mut self, key: PlaneKey, slice: std::sync::Arc<ZarrSlice>) {
-        self.entries.retain(|(k, _)| *k != key);
-        self.entries.push_back((key, slice));
-        while self.entries.len() > 1
-            && (self.entries.len() > Self::ENTRIES
-                || self.entries.iter().map(|(_, s)| s.cells()).sum::<usize>() > Self::CELLS)
-        {
-            self.entries.pop_front();
-        }
     }
 }
 
@@ -3517,6 +3615,11 @@ impl ZarrStore {
         slice_indices: Vec<u32>,
         options: RenderOptions,
     ) -> Result<RenderedGrid, RenderError> {
+        // A plain draw: the combined map is no longer the one on screen.
+        self.slices
+            .lock()
+            .expect("slice memo mutex poisoned")
+            .unpin();
         let slice = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         render_placed(&self.warps, &slice.placed, &slice.values, &options)
     }
@@ -3595,7 +3698,7 @@ impl ZarrStore {
         op: String,
         options: RenderOptions,
     ) -> Result<RenderedGrid, RenderError> {
-        let (a, _, values) = self.combined(
+        let (a, values) = self.combined(
             variable_index_a,
             y_dim,
             x_dim,
@@ -3623,7 +3726,7 @@ impl ZarrStore {
         px: u32,
         py: u32,
     ) -> Result<Option<ProbeResult>, RenderError> {
-        let (a, _, values) = self.combined(
+        let (a, values) = self.combined(
             variable_index_a,
             y_dim,
             x_dim,
@@ -3650,7 +3753,7 @@ impl ZarrStore {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> Result<ProjectedOverlay, RenderError> {
-        let (a, _, values) = self.combined(
+        let (a, values) = self.combined(
             variable_index_a,
             y_dim,
             x_dim,
@@ -3761,22 +3864,12 @@ impl ZarrStore {
         x_dim: u32,
         slice_indices: Vec<u32>,
     ) -> Result<LineResult, RenderError> {
-        let field = self
-            .session
-            .decode_slice(
-                variable_index,
-                y_dim,
-                x_dim,
-                &slice_indices,
-                &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
-            )
-            .into_refusal()?;
-        let values = field_values(&field);
+        let slice = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         fieldglass::render::zonal_mean(
-            &field.source(),
-            &values,
-            field.parameter.as_deref(),
-            field.units.as_deref(),
+            &slice.placed.source(),
+            &slice.values,
+            slice.rest.parameter.as_deref(),
+            slice.rest.units.as_deref(),
         )
         .map(LineResult::from)
         .into_refusal()
@@ -3791,7 +3884,7 @@ impl ZarrStore {
         b: &fieldglass::SliceRequest,
         op: &str,
     ) -> Result<LineResult, RenderError> {
-        let (a_slice, combined, values) = self.combined(
+        let (a_slice, values) = self.combined(
             a.variable,
             a.y_dim,
             a.x_dim,
@@ -3803,8 +3896,8 @@ impl ZarrStore {
         fieldglass::render::zonal_mean(
             &a_slice.placed.source(),
             &values,
-            combined.parameter.as_deref(),
-            combined.units.as_deref(),
+            a_slice.rest.parameter.as_deref(),
+            a_slice.rest.units.as_deref(),
         )
         .map(LineResult::from)
         .into_refusal()
@@ -3838,24 +3931,34 @@ impl ZarrStore {
         x_dim: u32,
         slice_indices: &[u32],
     ) -> Result<std::sync::Arc<ZarrSlice>, RenderError> {
-        // The two drawn axes are not part of what names the slice, as in
-        // `NetcdfFile::slice_plane`.
-        let key = PlaneKey {
-            variable: variable_index as usize,
-            y_dim: y_dim as usize,
-            x_dim: x_dim as usize,
-            fixed: slice_indices
-                .iter()
-                .enumerate()
-                .map(|(d, &i)| {
-                    if d == y_dim as usize || d == x_dim as usize {
-                        0
-                    } else {
-                        i as usize
-                    }
-                })
-                .collect(),
-        };
+        let key = Self::slice_key(variable_index, y_dim, x_dim, slice_indices);
+        self.slices
+            .lock()
+            .expect("slice memo mutex poisoned")
+            .unpin_unless(&key);
+        self.slice_keyed(key, variable_index, y_dim, x_dim, slice_indices)
+    }
+
+    /// What names a slice in the memo. The two drawn axes are not part of it,
+    /// as in `NetcdfFile::slice_plane`.
+    fn slice_key(variable_index: u32, y_dim: u32, x_dim: u32, slice_indices: &[u32]) -> PlaneKey {
+        plane_key(
+            variable_index as usize,
+            y_dim as usize,
+            x_dim as usize,
+            slice_indices,
+        )
+    }
+
+    /// `slice`, under the key it has already named.
+    fn slice_keyed(
+        &self,
+        key: PlaneKey,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: &[u32],
+    ) -> Result<std::sync::Arc<ZarrSlice>, RenderError> {
         if let Some(hit) = self
             .slices
             .lock()
@@ -3885,11 +3988,15 @@ impl ZarrStore {
 
     /// Two slices combined under a wire-tag op, as one field.
     ///
-    /// The alignment gate and the arithmetic are `Session::combine`'s, so a
-    /// mismatched pair is refused there in the words every host reports rather
-    /// than compared field by field here. The result is placed as `a` is, which
-    /// is the grid the gate just found `b` on too, so it shares `a`'s geometry
-    /// with the warp memo.
+    /// The alignment gate and the arithmetic are `combine_values`', through
+    /// `combined_field` as the NetCDF handle combines, so a mismatched pair is
+    /// refused in the words every host reports. It runs over the two kept
+    /// placements and values, with no `Field` built or cloned, so a pair on
+    /// one grid shares one geometry and the gate's pointer check answers
+    /// without hashing it. The result is placed as `a` is, which is the grid
+    /// the gate just found `b` on too, so it shares `a`'s geometry with the
+    /// warp memo. Both slices are pinned in the memo while the pair is on
+    /// screen (`SliceMemo`).
     #[allow(clippy::too_many_arguments)]
     fn combined(
         &self,
@@ -3902,14 +4009,26 @@ impl ZarrStore {
         op: &str,
     ) -> Result<CombinedSlices, RenderError> {
         let op = fieldglass::op_from_wire(op).into_refusal()?;
-        let a = self.slice(variable_index_a, y_dim, x_dim, slice_indices_a)?;
-        let b = self.slice(variable_index_b, y_dim, x_dim, slice_indices_b)?;
-        let combined = self
-            .session
-            .combine(&a.field(), &b.field(), op)
-            .into_refusal()?;
-        let values = field_values(&combined);
-        Ok((a, combined, values))
+        let key_a = Self::slice_key(variable_index_a, y_dim, x_dim, slice_indices_a);
+        let key_b = Self::slice_key(variable_index_b, y_dim, x_dim, slice_indices_b);
+        self.slices
+            .lock()
+            .expect("slice memo mutex poisoned")
+            .pin(&key_a, &key_b);
+        let combined = (|| -> Result<CombinedSlices, RenderError> {
+            let a = self.slice_keyed(key_a, variable_index_a, y_dim, x_dim, slice_indices_a)?;
+            let b = self.slice_keyed(key_b, variable_index_b, y_dim, x_dim, slice_indices_b)?;
+            let values = combined_field(&a.placed, &a.values, &b.placed, &b.values, op.as_str())?;
+            Ok((a, values))
+        })();
+        if combined.is_err() {
+            // A refused pair is not on screen: leave nothing pinned.
+            self.slices
+                .lock()
+                .expect("slice memo mutex poisoned")
+                .unpin();
+        }
+        combined
     }
 
     /// Where one slice sits, without decoding it.
