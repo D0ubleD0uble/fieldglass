@@ -53,8 +53,33 @@ surface missing, 2026-09-04 00Z, step 0, 1,038,240 values, minimum 0.000127789,
 maximum 1359.05. Packing is complex with spatial differencing (5.3).
 
 It is the aerosol half of `crates/fieldglass/tests/verify_message_real_pairs.rs`
-(#1126): a correct line on a template the reader does not parse, whose level
-was refused as a stale sidecar before that issue.
+(#1126): a correct line whose level was refused as a stale sidecar before that
+issue, on a template the reader did not parse then. Since #1130 the reader
+parses 4.48, and the same file pins what it reads (`message_identity.rs`)
+against this `grib_dump -O` output from eccodes 2.34.1:
+
+```text
+10        parameterCategory = 13 [Aerosols (grib2/tables/2/4.1.0.table) ]
+11        parameterNumber = 192 [Unknown code table entry (grib2/tables/2/4.2.0.13.table) ]
+12-13     constituentType = 62001 [Unknown code table entry () ]
+14        typeOfSizeInterval = 0 [Below lower limit (grib2/tables/2/4.91.table) ]
+15        scaleFactorOfFirstSize = 6
+16-19     scaledValueOfFirstSize = 10
+20        scaleFactorOfSecondSize = 0
+21-24     scaledValueOfSecondSize = 0
+25        typeOfWavelengthInterval = 255 [Missing (grib2/tables/2/4.91.table) ]
+36        typeOfGeneratingProcess = 2 [Forecast (grib2/tables/2/4.3.table) ]
+42        indicatorOfUnitOfTimeRange = 1 [Hour (grib2/tables/2/4.4.table) ]
+43-46     forecastTime = 0
+47        typeOfFirstFixedSurface = 1 [Ground or water surface (grib2/tables/2/4.5.table , grib2/tables/local/kwbc/1/4.5.table) ]
+48        scaleFactorOfFirstFixedSurface = 0
+49-52     scaledValueOfFirstFixedSurface = 0
+53        typeOfSecondFixedSurface = 255 [Missing (grib2/tables/2/4.5.table , grib2/tables/local/kwbc/1/4.5.table) ]
+```
+
+The real-pair tests accept it against record 22 and refuse it against records
+21, 23, 24 and 25 of the same cycle (another name, or for 24 the same name and
+size of another aerosol type) and against record 26's level.
 
 ### `nbm_core_co_apcp_prob.grib2`, `nbm_core_co_apcp.grib2`
 

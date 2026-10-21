@@ -6,7 +6,7 @@ Source: the machine-readable CSVs published on tagged releases of
 `gen_wmo_grib2_tables.py`: regenerating from the same tag must be
 byte-identical, and moving to a new tag is a reviewable diff.
 
-Writes four files from one download:
+Writes five files from one download:
 
   * `crates/fieldglass-grib1/src/tables_cct.rs` — centres, from **C-1**.
   * `crates/fieldglass-grib2/src/tables_cct.rs` — centres, from **C-11**.
@@ -14,6 +14,9 @@ Writes four files from one download:
     Both GRIB modules re-export its `lookup_sub_centre` (#537), so the
     re-export is emitted by `render_centres` rather than written by hand into
     a generated file.
+  * `crates/fieldglass-grib2/src/tables_constituent.rs` — atmospheric
+    chemical and aerosol constituents, from **C-14**, which GRIB2 Code Tables
+    4.230 and 4.233 both are (#1130).
   * `crates/fieldglass-grib2/tests/fixtures/wmo_cct.ref.json` — the oracle
     the table tests check the shipped tables against.
 
@@ -70,6 +73,7 @@ SOURCE_URL = "https://github.com/wmo-im/CCT/archive/refs/tags/v2026-06-01.tar.gz
 GRIB1_OUT = Path("crates/fieldglass-grib1/src/tables_cct.rs")
 GRIB2_OUT = Path("crates/fieldglass-grib2/src/tables_cct.rs")
 CORE_OUT = Path("crates/fieldglass-core/src/cct_tables.rs")
+CONSTITUENT_OUT = Path("crates/fieldglass-grib2/src/tables_constituent.rs")
 ORACLE_OUT = Path("crates/fieldglass-grib2/tests/fixtures/wmo_cct.ref.json")
 
 # The lone `)` the CSV uses for "this code shares the name above".
@@ -181,6 +185,23 @@ def parse_sub_centres(text: str) -> dict[tuple[int, int], str]:
         if int(sub) == 0:
             continue
         out[(int(centre), int(sub))] = name
+    return out
+
+
+def parse_constituents(text: str) -> dict[int, str]:
+    """Read C-14 as {code: name}, dropping its range rows (`47-9999:
+    Reserved`) and anything reserved. Every name is unique once those go,
+    which the generated reverse lookup relies on; assert rather than trust."""
+    out: dict[int, str] = {}
+    for row in csv.DictReader(io.StringIO(text)):
+        code, name = clean(row["CodeFigure"]), clean(row["Meaning_en"])
+        if not code.isdigit() or not usable(name):
+            continue
+        out[int(code)] = name
+    folded = [name.lower() for name in out.values()]
+    duplicates = sorted({n for n in folded if folded.count(n) > 1})
+    if duplicates:
+        raise SystemExit(f"C-14 names more than one code alike: {duplicates}")
     return out
 
 
@@ -305,9 +326,51 @@ pub fn lookup_sub_centre(centre: u16, sub_centre: u16) -> Option<&'static str> {
 '''
 
 
+def render_constituents(constituents: dict[int, str]) -> str:
+    rows = "\n".join(f"    ({code}, {rs(name)})," for code, name in sorted(constituents.items()))
+    return f'''//! Atmospheric chemical and aerosol constituents, generated from WMO Common
+//! Code Table C-14.
+//!
+//! Do not edit: regenerate with `python3 tools/gen_wmo_cct_tables.py`.
+//! Source: `wmo-im/CCT` `{CCT_TAG}` (MIT), file `C14.csv`.
+//!
+//! GRIB2 Code Table 4.230 (the chemical constituent of templates 4.40-4.43)
+//! and Code Table 4.233 (the aerosol type of 4.44-4.48) are both C-14, as
+//! eccodes and wgrib2 read them. {len(constituents)} codes.
+
+/// Every code C-14 assigns, with its name, in code order.
+const CONSTITUENT_TYPES: &[(u16, &str)] = &[
+{rows}
+];
+
+/// The name of an atmospheric chemical constituent or aerosol type (WMO Common
+/// Code Table C-14, GRIB2 Code Tables 4.230 and 4.233).
+///
+/// `None` for a code the table does not assign; callers render the number.
+pub fn lookup_constituent_type(code: u16) -> Option<&'static str> {{
+    CONSTITUENT_TYPES
+        .binary_search_by_key(&code, |&(c, _)| c)
+        .ok()
+        .map(|i| CONSTITUENT_TYPES[i].1)
+}}
+
+/// The code C-14 gives `name`, compared without regard to ASCII case and
+/// surrounding whitespace: the reverse of [`lookup_constituent_type`]. No two
+/// codes share a name, which the generator checks. `None` for a name the table
+/// does not hold.
+pub fn constituent_type_code(name: &str) -> Option<u16> {{
+    let name = name.trim();
+    CONSTITUENT_TYPES
+        .iter()
+        .find(|(_, n)| n.eq_ignore_ascii_case(name))
+        .map(|&(code, _)| code)
+}}
+'''
+
+
 def main() -> int:
     csvs = fetch_csvs()
-    for required in ("C01.csv", "C11.csv", "C12.csv"):
+    for required in ("C01.csv", "C11.csv", "C12.csv", "C14.csv"):
         if required not in csvs:
             raise SystemExit(f"{required} not in the {CCT_TAG} release")
 
@@ -320,6 +383,7 @@ def main() -> int:
     if over:
         raise SystemExit(f"C-1 assigned codes above 255, which GRIB1 cannot encode: {over}")
     subs = parse_sub_centres(csvs["C12.csv"])
+    constituents = parse_constituents(csvs["C14.csv"])
 
     centres1, centres2 = apply_overrides(raw1), apply_overrides(raw2)
     # Explicit UTF-8 on every write: the names carry `ö`, `é` and `ü`, and
@@ -347,6 +411,7 @@ def main() -> int:
         encoding="utf-8",
     )
     CORE_OUT.write_text(render_sub_centres(subs), encoding="utf-8")
+    CONSTITUENT_OUT.write_text(render_constituents(constituents), encoding="utf-8")
 
     # The oracle carries the *unmodified* upstream text plus the overrides, so
     # the test can check both that the table matches WMO and that every
@@ -358,6 +423,7 @@ def main() -> int:
                 "grib1_centres": {str(k): v for k, v in sorted(raw1.items())},
                 "grib2_centres": {str(k): v for k, v in sorted(raw2.items())},
                 "sub_centres": {f"{c}/{s}": n for (c, s), n in sorted(subs.items())},
+                "constituent_types": {str(k): v for k, v in sorted(constituents.items())},
                 "overrides": {str(k): list(v) for k, v in sorted(OVERRIDES.items())},
             },
             indent=1,
@@ -369,7 +435,8 @@ def main() -> int:
     )
     print(
         f"{CCT_TAG}: {len(centres1)} GRIB1 centres, {len(centres2)} GRIB2 centres, "
-        f"{len(subs)} sub-centre pairs, {len(OVERRIDES)} overrides"
+        f"{len(subs)} sub-centre pairs, {len(constituents)} constituents, "
+        f"{len(OVERRIDES)} overrides"
     )
     return 0
 

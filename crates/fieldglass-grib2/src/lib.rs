@@ -64,6 +64,7 @@ pub mod section;
 pub mod spectral;
 pub mod tables;
 pub mod tables_cct;
+pub mod tables_constituent;
 mod tables_ecmf;
 mod tables_edzw;
 mod tables_local;
@@ -126,9 +127,10 @@ pub use is::{
 };
 pub use lus::{LUS_SECTION_NUMBER, LocalUseSection, parse_local_use};
 pub use pds::{
-    FixedSurface, HorizontalProductCommon, PDS_SECTION_NUMBER, ProductDefinitionSection,
-    ProductTemplate, SharedLayoutTemplate, StatisticalProcessing, Template40, Template48,
-    Template411, TimeRangeSpec, parse_product_definition,
+    ConstituentTemplate, EnsembleBlock, FixedSurface, HorizontalProductCommon, PDS_SECTION_NUMBER,
+    ProductDefinitionSection, ProductTemplate, ScaledLimit, SharedLayoutTemplate,
+    StatisticalProcessing, Template40, Template48, Template411, TimeRangeSpec, TypedInterval,
+    parse_product_definition,
 };
 pub use reader::{Grib2Message, Grib2Reader, MatrixField};
 pub use reduced::{DecodeOptions, DisplayRaster};

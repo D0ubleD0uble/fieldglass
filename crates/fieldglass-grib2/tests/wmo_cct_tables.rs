@@ -17,6 +17,7 @@
 
 use fieldglass_core::cct_tables::lookup_sub_centre;
 use fieldglass_grib1::tables_cct::lookup_centre as lookup_grib1_centre;
+use fieldglass_grib2::tables_constituent::{constituent_type_code, lookup_constituent_type};
 use fieldglass_grib2::{Grib2Reader, lookup_centre as lookup_grib2_centre};
 use std::collections::BTreeMap;
 
@@ -427,4 +428,34 @@ fn a_message_carrying_a_sub_centre_resolves_it() {
     let ids = clean.messages[0].ids;
     assert_eq!(ids.sub_centre, 0);
     assert_eq!(lookup_sub_centre(ids.centre, ids.sub_centre), None);
+}
+
+/// Every constituent C-14 assigns resolves, both ways, and the reserved code
+/// space does not (#1130). Code Tables 4.230 and 4.233 are both C-14.
+#[test]
+fn the_constituent_table_matches_the_cct() {
+    let upstream = map("constituent_types");
+    assert!(
+        upstream.len() > 600,
+        "oracle not loaded: {}",
+        upstream.len()
+    );
+    for (code, name) in &upstream {
+        let code: u16 = code.parse().expect("code");
+        assert_eq!(lookup_constituent_type(code), Some(name.as_str()), "{code}");
+        assert_eq!(constituent_type_code(name), Some(code), "{name}");
+        assert_eq!(
+            constituent_type_code(&name.to_ascii_uppercase()),
+            Some(code),
+            "case does not matter: {name}"
+        );
+    }
+    // The GEFS-Aerosols types its sidecar names, as wgrib2 prints them.
+    assert_eq!(constituent_type_code("Dust dry"), Some(62001));
+    assert_eq!(constituent_type_code(" Total aerosol "), Some(62000));
+    assert_eq!(lookup_constituent_type(62008), Some("Sea salt dry"));
+    // `47-9999: Reserved` is a range row, not a code.
+    assert_eq!(lookup_constituent_type(47), None);
+    assert_eq!(constituent_type_code("Reserved"), None);
+    assert_eq!(constituent_type_code("not a constituent"), None);
 }

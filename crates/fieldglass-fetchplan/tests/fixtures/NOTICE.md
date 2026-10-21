@@ -86,7 +86,8 @@ unmodified, 3,833 bytes, SHA-256
 each carrying wgrib2's aerosol qualifiers (`aerosol=Dust dry`,
 `aerosol_size <1e-05`, `aerosol_wavelength …`). eccodes 2.34.1 (`grib_get -p
 productDefinitionTemplateNumber`) reads every one of its messages as product
-template 4.48 (optical properties of aerosol), which the reader does not parse.
+template 4.48 (optical properties of aerosol), which the reader parses since
+#1130.
 
 ## ECMWF sidecar (CC-BY-4.0)
 

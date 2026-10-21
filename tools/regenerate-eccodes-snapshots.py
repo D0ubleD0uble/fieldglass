@@ -99,6 +99,24 @@ GRIB2_KEYS: list[str] = [
     "monthOfEndOfOverallTimeInterval",
     "dayOfEndOfOverallTimeInterval",
     "hourOfEndOfOverallTimeInterval",
+    # The ensemble block of 4.1, 4.11 and the chemistry and aerosol members
+    # (4.41, 4.43, 4.45, 4.47), and what the chemistry and aerosol templates
+    # (4.40-4.48) put between the parameter and the generating process: the
+    # constituent, the size range and, for 4.48, the wavelength range (#1130).
+    "typeOfEnsembleForecast",
+    "perturbationNumber",
+    "numberOfForecastsInEnsemble",
+    "constituentType",
+    "typeOfSizeInterval",
+    "scaleFactorOfFirstSize",
+    "scaledValueOfFirstSize",
+    "scaleFactorOfSecondSize",
+    "scaledValueOfSecondSize",
+    "typeOfWavelengthInterval",
+    "scaleFactorOfFirstWavelength",
+    "scaledValueOfFirstWavelength",
+    "scaleFactorOfSecondWavelength",
+    "scaledValueOfSecondWavelength",
     # §5 Data Representation
     "dataRepresentationTemplateNumber",
     "referenceValue",

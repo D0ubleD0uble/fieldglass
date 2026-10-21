@@ -204,9 +204,10 @@ Notes that shape the two hosts:
   it for ECMWF's open-data parameters, so `mx2t3` is not `mn2t3` (#1116). A
   wgrib2 line's probability, ensemble member, derived forecast and percentile
   are checked against the product template's block, so a probability line is
-  not the amount it is a probability of (#1117). A message on a product
-  template the reader does not parse (for example the chemistry and aerosol
-  templates 4.40–4.48) is checked on its reference time alone (#1126).
+  not the amount it is a probability of (#1117). A chemistry or aerosol
+  line's constituent and size and wavelength ranges are checked against
+  templates 4.40–4.48 (#1130). A message on a product template the reader
+  does not parse is checked on its reference time alone (#1126).
 - **The extension later.** "Open URL…" in VS Code (#247) is the same
   `fetchplan` call from TypeScript with `fetch()` in the extension host, then
   the existing napi path. Nothing new in Rust.
