@@ -39,9 +39,10 @@ Three checks per point, so a bug has to fool all of them to pass:
    and
 3. the position `probePixel` reports for pixel (px, py) against where that
    pixel falls on the Equirectangular raster, from the raster size and the
-   extent the render reports, to within half a pixel. (A shared offset in
-   the render and the probe would not show here; the cell and value checks
-   against the oracle are what catch that.)
+   extent the render reports, to within 1e-3 of a pixel (the render's own
+   mapping, so float noise passes and a half-pixel centre-versus-edge mix-up
+   does not). A shared offset in the render and the probe would not show
+   here; the cell and value checks against the oracle are what catch that.
 
 A cell that is not the oracle's nearest but is within 2% of its distance is a
 tie (a point on a cell boundary, where the two readers round differently), not
@@ -55,7 +56,10 @@ axes, a grid Fieldglass itself says it cannot place, a file the oracle's
 libhdf5 is too old to open, a grid mapping with no oracle here) are listed with
 the reason and do not fail the run. A probe that threw, a message count that
 differs between the two readers, or any other reason for not checking an item
-is a failure: a skip must not be a way to go green.
+is a failure: a skip must not be a way to go green. So is a message count that
+differs in either direction (including Fieldglass finding none), a NetCDF or
+Zarr file with no listed variables (unless pinned), and an item where fewer than
+MIN_PROBE_SHARE of the requested `--n` probes landed on the grid.
 
 Tolerances. A GRIB value must agree within 1/1000 of the packing's quantisation
 step (2^E / 10^D) plus a 1e-9 relative float term: two decoders reading the same
@@ -112,6 +116,11 @@ ZARR_MARKERS = ("zarr.json", ".zgroup", ".zmetadata", ".zarray")
 TIE_RATIO = 1.02
 # More ties than this share of an item's points fails it.
 TIE_SHARE_LIMIT = 0.10
+# An item must land at least this share of the requested `--n` probes. The
+# probe's sampler draws up to max(50 n, 1000) pixels and, once 20 land, narrows
+# to the box around them, so a thin swath still fills `--n`; an item below half
+# of that is a grid the draw barely hit, and its verdict rests on too few points.
+MIN_PROBE_SHARE = 0.5
 # Probes per pool task for a GRIB message.
 CHUNK = 50
 
@@ -128,6 +137,7 @@ PINNED_REASONS = (
     "grid is not reprojectable (unplaceable)",
     "grid is not reprojectable (no_raster)",
     "no CF image axes",
+    "no variables listed",
 )
 PINNED_SKIPS = {
     ("tiny_earth_pair.grib2", "msg#0", "grid is not reprojectable (unplaceable)"),
@@ -501,13 +511,19 @@ class GridOracle:
 # ---------------------------------------------------------------------------
 
 
-def finalize(res: Result) -> Result:
-    """Turn an item's counters into its verdict."""
+def finalize(res: Result, requested: int | None = None) -> Result:
+    """Turn an item's counters into its verdict.
+
+    `requested` is the `--n` the probes were drawn for; with it, an item that
+    landed fewer than MIN_PROBE_SHARE of that fails.
+    """
     if res.status != "PASS":
         return res
     fails = []
     if res.probes == 0:
         fails.append("no on-grid probe could be drawn")
+    elif requested is not None and res.probes < MIN_PROBE_SHARE * requested:
+        fails.append(f"only {res.probes} of {requested} requested probes landed on the grid (< {MIN_PROBE_SHARE:.0%})")
     if res.cell_bad:
         fails.append(f"{res.cell_bad} cell disagreement(s)")
     if res.place_bad:
@@ -651,6 +667,36 @@ def apply_item_status(res: Result, item: dict) -> None:
         res.skip(item["reason"])
 
 
+def eccodes_message_count(ec, path: Path) -> int:
+    """Messages eccodes finds in the file, each handle released as it goes."""
+    n = 0
+    with open(path, "rb") as fh:
+        while True:
+            handle = ec.codes_grib_new_from_file(fh)
+            if handle is None:
+                return n
+            ec.codes_release(handle)
+            n += 1
+
+
+def count_check(name: str, fieldglass: int, eccodes: int) -> list[Result]:
+    """A failing result unless both readers find the same, non-zero, number of messages."""
+    if fieldglass == eccodes and fieldglass > 0:
+        return []
+    why = (
+        f"Fieldglass finds {fieldglass} message(s), eccodes {eccodes}: the readers disagree on the count"
+        if fieldglass != eccodes
+        else "neither reader finds a message in the file"
+    )
+    return [Result(name, "message count").fail(why)]
+
+
+def grib_count_task(path: Path, fieldglass: int) -> list[Result]:
+    import eccodes as ec
+
+    return count_check(path.name, fieldglass, eccodes_message_count(ec, path))
+
+
 def grib_task(path: Path, item: dict, probes: list, sentinel) -> Result:
     """One chunk of one message's probes against eccodes' nearest-point lookup."""
     import eccodes as ec
@@ -659,10 +705,14 @@ def grib_task(path: Path, item: dict, probes: list, sentinel) -> Result:
     handle = None
     try:
         with open(path, "rb") as fh:
-            for _ in range(item["index"] + 1):
+            # One pass: every message before the target is released as soon as it is passed.
+            for k in range(item["index"] + 1):
                 handle = ec.codes_grib_new_from_file(fh)
                 if handle is None:
                     return res.fail("eccodes finds fewer messages than Fieldglass does: the readers disagree on the count")
+                if k < item["index"]:
+                    ec.codes_release(handle)
+                    handle = None
         try:
             oracle = GribOracle(ec, handle, item["grid"])
         except Skip as s:
@@ -738,10 +788,15 @@ def xarray_task(path: Path, args, variable: str) -> list[Result]:
                 res.skip(str(s))
                 continue
             compare(res, item["probes"], oracle, None, (item["raster"], item["bounds"], None))
-            finalize(res)
+            finalize(res, args.n)
     finally:
         ds.close()
     return results
+
+
+def no_variables_result(name: str) -> Result:
+    """A NetCDF/Zarr file that lists no variable has nothing to check: a failure unless pinned."""
+    return Result(name, "variables").skip("no variables listed: the file contributes no item")
 
 
 def is_zarr_dir(p: Path) -> bool:
@@ -896,6 +951,7 @@ def main(argv=None) -> int:
         with ProcessPoolExecutor(max_workers=args.jobs) as pool:
             for f, doc in docs:
                 if doc["format"] in ("grib1", "grib2"):
+                    ordered.append({"file": f.name, "future": pool.submit(grib_count_task, f, len(doc["items"]))})
                     for item in doc["items"]:
                         slot = {"file": f.name, "item": item, "parts": []}
                         ordered.append(slot)
@@ -906,12 +962,17 @@ def main(argv=None) -> int:
                         for chunk in chunks:
                             slot["parts"].append(pool.submit(grib_task, f, item, chunk, sentinel_of(f.name)))
                 elif doc["format"] in ("netcdf", "zarr"):
+                    if not doc["variables"]:
+                        ordered.append({"file": f.name, "static": [no_variables_result(f.name)]})
                     for name in doc["variables"]:
                         ordered.append({"file": f.name, "future": pool.submit(xarray_task, f, args, name)})
                 else:
                     skipped_files.append((f.name, f"format {doc['format']!r}"))
             results: list[Result] = []
             for slot in ordered:
+                if "static" in slot:
+                    results.extend(slot["static"])
+                    continue
                 if "future" in slot:
                     results.extend(slot["future"].result())
                     continue
@@ -924,7 +985,7 @@ def main(argv=None) -> int:
                         res.merge(part.result())
                         if res.status != "PASS":
                             break
-                    finalize(res)
+                    finalize(res, args.n)
                 results.append(res)
     except ImportError as e:
         print(f"probe_parity_sweep: {e}; use the pre-commit venv's python3", file=sys.stderr)

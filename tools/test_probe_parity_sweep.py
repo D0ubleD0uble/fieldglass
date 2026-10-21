@@ -237,6 +237,110 @@ class Skips(unittest.TestCase):
         self.assertEqual(sweep.finalize(whole).status, "FAIL")
 
 
+class CountsAndCoverage(unittest.TestCase):
+    """The ways a file or an item could contribute nothing and still go green (#1314)."""
+
+    def test_equal_nonzero_counts_pass(self):
+        self.assertEqual(sweep.count_check("f.grib2", 3, 3), [])
+
+    def test_eccodes_finding_fewer_fails(self):
+        (r,) = sweep.count_check("f.grib2", 3, 2)
+        self.assertEqual(r.status, "FAIL")
+        self.assertIn("3 message(s), eccodes 2", r.reason)
+
+    def test_eccodes_finding_more_fails(self):
+        (r,) = sweep.count_check("f.grib2", 2, 3)
+        self.assertEqual(r.status, "FAIL")
+
+    def test_fieldglass_finding_none_fails(self):
+        (r,) = sweep.count_check("f.grib2", 0, 4)
+        self.assertEqual(r.status, "FAIL")
+
+    def test_neither_reader_finding_a_message_fails(self):
+        (r,) = sweep.count_check("f.grib2", 0, 0)
+        self.assertEqual(r.status, "FAIL")
+
+    def test_a_file_with_no_variables_fails_unless_pinned(self):
+        self.assertEqual(sweep.no_variables_result("empty.nc").status, "FAIL")
+        sweep.PINNED_SKIPS.add(("pinned_empty.nc", "variables", "no variables listed"))
+        try:
+            self.assertEqual(sweep.no_variables_result("pinned_empty.nc").status, "SKIP")
+        finally:
+            sweep.PINNED_SKIPS.discard(("pinned_empty.nc", "variables", "no variables listed"))
+
+    def test_an_item_with_few_probes_fails(self):
+        probes = [probe(0, 0, 1.0)] * 99
+        res = sweep.Result("f", "item")
+        sweep.compare(res, probes, FakeOracle((0, 0), {(0, 0): 1.0}), None, GEOMETRY)
+        self.assertEqual(sweep.finalize(res, 200).status, "FAIL")
+        self.assertIn("99 of 200", res.reason)
+
+    def test_half_of_the_requested_probes_is_enough(self):
+        res = sweep.Result("f", "item")
+        sweep.compare(res, [probe(0, 0, 1.0)] * 100, FakeOracle((0, 0), {(0, 0): 1.0}), None, GEOMETRY)
+        self.assertEqual(sweep.finalize(res, 200).status, "PASS")
+
+
+class FakeEccodes:
+    """A file of `n` messages whose handles are counted in and out."""
+
+    def __init__(self, n):
+        self.n, self.read, self.released = n, 0, []
+
+    def codes_grib_new_from_file(self, fh):
+        if self.read >= self.n:
+            return None
+        self.read += 1
+        return f"h{self.read - 1}"
+
+    def codes_release(self, handle):
+        self.released.append(handle)
+
+
+class HandleRelease(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "f.grib2"
+        self.path.write_bytes(b"x")
+        self.saved = sys.modules.get("eccodes")
+
+    def tearDown(self):
+        if self.saved is None:
+            sys.modules.pop("eccodes", None)
+        else:
+            sys.modules["eccodes"] = self.saved
+        self.tmp.cleanup()
+
+    def test_the_count_releases_every_handle(self):
+        ec = FakeEccodes(4)
+        self.assertEqual(sweep.eccodes_message_count(ec, self.path), 4)
+        self.assertEqual(ec.released, ["h0", "h1", "h2", "h3"])
+
+    def test_grib_task_releases_every_handle_it_opens(self):
+        ec = FakeEccodes(5)
+        sys.modules["eccodes"] = ec
+        item = {"label": "msg#2", "index": 2, "grid": None, "raster": (1, 1), "bounds": (0, 1, 0, 1)}
+        original = sweep.GribOracle
+        sweep.GribOracle = lambda *a: (_ for _ in ()).throw(sweep.Skip("reduced grid"))
+        try:
+            res = sweep.grib_task(self.path, item, [], None)
+        finally:
+            sweep.GribOracle = original
+        self.assertEqual(res.status, "SKIP")
+        self.assertEqual(sorted(ec.released), ["h0", "h1", "h2"])
+        self.assertEqual(ec.read, 3)  # one pass, stopping at the target
+
+    def test_a_short_file_releases_what_it_opened(self):
+        ec = FakeEccodes(1)
+        sys.modules["eccodes"] = ec
+        item = {"label": "msg#3", "index": 3}
+        res = sweep.grib_task(self.path, item, [], None)
+        self.assertEqual(res.status, "FAIL")
+        self.assertEqual(ec.released, ["h0"])
+
+
 class GridSearch(unittest.TestCase):
     def setUp(self):
         try:
