@@ -997,18 +997,23 @@ fn read<O: ObjectSource>(
     // so it is not the fill value either (#1124). Named, all of them, so a host
     // fetches them in one round; for a shard given by range, the ranges
     // (#1123).
-    let owed = sharded::owed(objects, array, region)?;
-    if !owed.is_empty() {
-        return Err(FieldglassError::Parse(format!(
-            "this read needs {}, which the store's source was never given: fetch them, and \
-             give one the store does not hold (a 404) as absent",
-            owed.join(", ")
-        )));
+    // Asked once. A source that answers every key itself (a map, a directory)
+    // names none, and then nothing below is built: the ranged path costs an
+    // unsharded or whole-shard read nothing.
+    let ranged = objects.unfetched(&refs);
+    if !ranged.is_empty() {
+        let owed = sharded::owed_of(objects, array, region, &covering, &keys, &ranged)?;
+        if !owed.is_empty() {
+            return Err(FieldglassError::Parse(format!(
+                "this read needs {}, which the store's source was never given: fetch them, \
+                 and give one the store does not hold (a 404) as absent",
+                owed.join(", ")
+            )));
+        }
     }
     objects.prefetch(&refs)?;
     // Owing nothing, a key the source does not hold whole is a shard it holds
     // by range, read by range.
-    let ranged = objects.unfetched(&refs);
     let by_range = if ranged.is_empty() {
         None
     } else {

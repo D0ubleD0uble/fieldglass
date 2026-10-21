@@ -335,17 +335,31 @@ pub(super) fn owed<O: ObjectSource>(
     let keys = keys_of(array, &covering)?;
     let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
     let unfetched = objects.unfetched(&refs);
+    owed_of(objects, array, region, &covering, &keys, &unfetched)
+}
+
+/// [`owed`], for a read that has already spelled the covering chunks' keys
+/// and asked the source which it was never given: a source that answers
+/// every key costs nothing more here (#1123).
+pub(super) fn owed_of<O: ObjectSource>(
+    objects: &O,
+    array: &StoredArray,
+    region: &[Range<u64>],
+    covering: &[Vec<u64>],
+    keys: &[String],
+    unfetched: &[String],
+) -> Result<Vec<String>, FieldglassError> {
     if unfetched.is_empty() {
         return Ok(Vec::new());
     }
     let whole = |keys: &[String]| keys.iter().map(|k| format!("`{k}`")).collect();
     // Only a shard can be read in part.
     let Some(sharded) = Sharded::of(array)? else {
-        return Ok(whole(&unfetched));
+        return Ok(whole(unfetched));
     };
     let touched = sharded.touched(array, region)?;
     let mut out = Vec::new();
-    for (shard, key) in covering.iter().zip(&keys) {
+    for (shard, key) in covering.iter().zip(keys) {
         if !unfetched.contains(key) {
             continue;
         }
