@@ -169,6 +169,44 @@ fn decode_shard_puts_a_transposed_shard_back_in_the_arrays_order() {
     }
 }
 
+/// The public layout methods work in the stored axis order (#1349). The `wide`
+/// array's shard is 4x8, its inner chunks [4, 2] in stored order, and `order`
+/// is [1, 0]: the stored shard is 8x4, a 2x2 inner grid. The array's own
+/// chunk shape gives a 1x4 grid with the same four entries, so it is not
+/// refused and names the wrong grid.
+#[test]
+fn the_layout_methods_take_the_shard_in_stored_axis_order() {
+    let all = files();
+    let meta = std::str::from_utf8(bytes_of(&all, "wide/zarr.json")).unwrap();
+    let decoder = ChunkDecoder::from_v3_metadata(meta).expect("reads");
+    let sharding = decoder.chain().sharding().expect("sharded");
+    let order = decoder
+        .chain()
+        .shard_order(decoder.chunk_shape().len())
+        .expect("one transpose")
+        .expect("transposed");
+    assert_eq!(order, [1, 0]);
+    let stored: Vec<usize> = order
+        .iter()
+        .map(|&axis| decoder.chunk_shape()[axis])
+        .collect();
+    assert_eq!(stored, [8, 4]);
+
+    let shard = bytes_of(&all, "wide/c/0/0");
+    let size = shard.len() as u64;
+    let layout = sharding.layout();
+    let at = layout.index_range(&stored, size).expect("index");
+    let raw = &shard[at.start as usize..(at.start + at.len) as usize];
+    let right = layout.read_index(raw, &stored, size).expect("reads");
+    assert_eq!(right.chunks_per_shard(), [2, 2]);
+    // The array's own shape: the same entry count, a different grid.
+    let wrong = layout
+        .read_index(raw, decoder.chunk_shape(), size)
+        .expect("not refused");
+    assert_eq!(wrong.chunks_per_shard(), [1, 4]);
+    assert_eq!(wrong.len(), right.len());
+}
+
 /// Read by range: each region plans its shards' indexes, then exactly the
 /// inner chunks it touches, at the places on the transposed grid the oracle
 /// names, and reads from those ranges alone the values zarr-python reads.

@@ -18,6 +18,20 @@
 //!   chunks that exist would read the index short.
 //! * **An absent chunk is both fields set to `2^64 − 1`**, not a zero length.
 //!   A zero-length chunk at offset zero is a legal thing to write.
+//!
+//! # Axis order
+//!
+//! A `transpose` before `sharding_indexed` hands the sharding codec each shard
+//! in the transposed ("stored") axis order (#1343). [`ShardLayout`],
+//! [`Sharding`], [`ShardIndex`] and the inner chunks [`Sharding::decode_inner`]
+//! returns all work in that stored order: the inner shape, the shard's
+//! `outer_shape`, the inner grid and the C order of an inner chunk's bytes.
+//! They do not know the array's order. [`CodecChain::shard_order`] gives the
+//! permutation (`order[k]` is the array axis that became stored axis `k`;
+//! `None` means the orders agree), and
+//! [`ChunkDecoder::decode_shard`](crate::ChunkDecoder::decode_shard) and
+//! [`ZarrStore`](crate::ZarrStore)'s reads apply it, so they return the
+//! array's order.
 
 use crate::codec::CodecChain;
 use crate::crc32c;
@@ -62,6 +76,16 @@ pub struct Sharding {
 /// What locates a shard's inner chunks (#1123): the inner chunk shape, the
 /// chain the index was written through, and which end of the shard it is at.
 ///
+/// # Axis order
+///
+/// Every shape here is in the sharding codec's stored axis order, which
+/// differs from the array's when a `transpose` precedes the codec (#1343): see
+/// the [module notes](self#axis-order). To take an array's chunk shape to the
+/// `outer_shape` these methods expect, permute it with
+/// [`CodecChain::shard_order`]: `outer[k] = chunk_shape[order[k]]`. Passing
+/// the array's own chunk shape instead is not refused when its inner grid has
+/// the same number of chunks, and reads the wrong grid.
+///
 /// The metadata half of [`Sharding`], read without the inner chunks' own
 /// codecs, so a shard's index can be found and read, and its inner chunks
 /// located, whatever those codecs are: planning a read is not decoding one.
@@ -78,6 +102,9 @@ pub struct ShardLayout {
 }
 
 /// One decoded shard: the inner chunks, in the C order of the inner grid.
+///
+/// What [`ChunkDecoder::decode_shard`](crate::ChunkDecoder::decode_shard)
+/// returns is in the array's own axis order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shard {
     chunks_per_shard: Vec<usize>,
@@ -230,7 +257,9 @@ impl ShardLayout {
         })
     }
 
-    /// The inner chunk shape.
+    /// The inner chunk shape, in the stored axis order: the sharding codec's
+    /// own `chunk_shape`, not put back in the array's order when a `transpose`
+    /// precedes it. See [`CodecChain::shard_order`].
     #[must_use]
     pub fn chunk_shape(&self) -> &[usize] {
         &self.chunk_shape
@@ -313,6 +342,10 @@ impl ShardLayout {
     /// per inner chunk the grid could hold, and four more when the index chain
     /// ends in `crc32c` (#1123).
     ///
+    /// `outer_shape` is the shard as the sharding codec sees it, in the stored
+    /// axis order: the array's chunk shape permuted by
+    /// [`CodecChain::shard_order`] when a `transpose` precedes the codec.
+    ///
     /// What a host fetches before any inner chunk: the last this many bytes of
     /// the shard, or the first, as [`Self::index_location`] says.
     pub fn index_len(&self, outer_shape: &[usize]) -> Result<u64, FieldglassError> {
@@ -321,6 +354,8 @@ impl ShardLayout {
     }
 
     /// Where the index of a shard `shard_size` bytes long sits in it.
+    ///
+    /// `outer_shape` is in the stored axis order, as for [`Self::index_len`].
     ///
     /// # Errors
     ///
@@ -355,6 +390,12 @@ impl ShardLayout {
 
     /// Read a shard's index: where in the shard each inner chunk is, or that
     /// it is absent (#1123).
+    ///
+    /// `outer_shape` is in the stored axis order, as for [`Self::index_len`],
+    /// and the returned [`ShardIndex`] is on the grid that shape gives: entry
+    /// `position` walks the stored grid in C order, not the array's. The array's
+    /// own chunk shape is not refused when its grid holds as many chunks as the
+    /// stored one, and then names the wrong grid.
     ///
     /// `raw_index` is the bytes [`Self::index_range`] names, and `shard_size`
     /// the whole shard's length, which a host learns with them. The one
@@ -475,7 +516,8 @@ impl Sharding {
         self.inner.declared_endian()
     }
 
-    /// The inner chunk shape, which must divide the shard's own chunk shape.
+    /// The inner chunk shape, which must divide the shard's own chunk shape,
+    /// in the stored axis order (see [`ShardLayout::chunk_shape`]).
     ///
     /// The layout's, rather than a copy of it: a chain is built per read, and
     /// a second vector there was an allocation and 48 bytes of peak heap on
@@ -499,12 +541,14 @@ impl Sharding {
         self.layout.location
     }
 
-    /// See [`ShardLayout::index_len`].
+    /// See [`ShardLayout::index_len`]. `outer_shape` is in the stored axis
+    /// order.
     pub fn index_len(&self, outer_shape: &[usize]) -> Result<u64, FieldglassError> {
         self.layout.index_len(outer_shape)
     }
 
-    /// See [`ShardLayout::index_range`].
+    /// See [`ShardLayout::index_range`]. `outer_shape` is in the stored axis
+    /// order.
     pub fn index_range(
         &self,
         outer_shape: &[usize],
@@ -513,7 +557,8 @@ impl Sharding {
         self.layout.index_range(outer_shape, shard_size)
     }
 
-    /// See [`ShardLayout::read_index`].
+    /// See [`ShardLayout::read_index`]. `outer_shape` is in the stored axis
+    /// order, and the index is on the stored grid.
     pub fn read_index(
         &self,
         raw_index: &[u8],
@@ -525,6 +570,10 @@ impl Sharding {
 
     /// Decode one inner chunk's stored bytes to its raw element bytes, in C
     /// order: what [`Self::read_index`] located, read by range (#1123).
+    ///
+    /// The bytes are in C order of the *stored* axes, so their shape is
+    /// [`Self::chunk_shape`]. When a `transpose` precedes the codec they are
+    /// not in the array's order; undo it with [`CodecChain::shard_order`].
     pub fn decode_inner(
         &self,
         stored: &[u8],
@@ -542,8 +591,12 @@ impl Sharding {
 
     /// Decode a shard object into its inner chunks.
     ///
-    /// `outer_shape` is the array's own chunk shape — the shard's extent —
-    /// which must be a whole number of inner chunks along every axis.
+    /// `outer_shape` is the shard's extent as this codec sees it, in the stored
+    /// axis order, which must be a whole number of inner chunks along every
+    /// axis. It is the array's own chunk shape only when no `transpose` comes
+    /// before the codec; otherwise the caller permutes it, as
+    /// [`ChunkDecoder::decode_shard`](crate::ChunkDecoder::decode_shard) does.
+    /// The [`Shard`] returned is in the stored order too.
     pub(crate) fn decode(
         &self,
         stored: &[u8],
@@ -593,7 +646,8 @@ pub struct ShardIndex {
 }
 
 impl ShardIndex {
-    /// How many inner chunks the grid holds along each axis.
+    /// How many inner chunks the grid holds along each axis, in the stored axis
+    /// order: [`ShardLayout::read_index`] was given a stored-order shape.
     #[must_use]
     pub fn chunks_per_shard(&self) -> &[usize] {
         &self.chunks_per_shard
@@ -601,7 +655,7 @@ impl ShardIndex {
 
     /// Where inner chunk `position` is in the shard, or `None` when the shard
     /// holds none there (the fill value stands in) or `position` is past the
-    /// grid. `position` walks the inner grid in C order, as the index does.
+    /// grid. `position` walks the stored inner grid in C order, as the index does.
     #[must_use]
     pub fn entry(&self, position: usize) -> Option<ByteRange> {
         self.entries.get(position).copied().flatten()

@@ -240,6 +240,14 @@ impl CodecChain {
     /// [`Codec::Transpose`]. `None` when the shard is stored in the array's
     /// own axis order, which includes a chain that is not sharded.
     ///
+    /// This is the route between the array's axis order and the one the
+    /// public [`ShardLayout`](crate::ShardLayout) and
+    /// [`Sharding`] methods work in. Their `outer_shape` is
+    /// the array's chunk shape permuted into stored order,
+    /// `outer[k] = chunk_shape[order[k]]`; the inner shape, inner grid and an
+    /// inner chunk's bytes they return are in stored order, and `order` maps
+    /// each stored axis back to the array's.
+    ///
     /// Several transposes compose into one. Allocates only when there is a
     /// transpose to compose, so a plain sharded read pays nothing for it.
     ///
