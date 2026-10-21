@@ -158,9 +158,16 @@ and refuses it only on a surface ECMWF lists levels of, `LEVEL_LISTS` below
 The concept says some messages on those surfaces are `sfc` all the same: medium
 cloud cover is the layer from 800 hPa to 450 hPa (`'sfc' = {100 at 80000;
 100 at 45000}`), high cloud cover from 450 hPa to the top of the atmosphere,
-and three isothermal levels (107 at 273.15 K, 274.15 K, 274.65 K) are `sfc`
-from eccodes 2.45 on. A block naming two isobaric surfaces outranks `'pl' =
-{100; 100}` because it states more conditions.
+and three isentropic levels (type 107, θ = 273.15 K, 274.15 K, 274.65 K) are
+`sfc` from eccodes 2.45 on. Their parameters (`h0thg`, `h1thg`, `h1p5thg`) are
+heights of the 0, 1 and 1.5 °C isotherms, so 107 there is likely an eccodes
+slip for the isothermal type 20; the table mirrors eccodes all the same, since
+eccodes is what writes a record's `levtype`. A block naming two isobaric
+surfaces outranks `'pl' = {100; 100}` because it states more conditions.
+
+The table is a union across eccodes versions, so this widens one case: an
+`sfc` line on θ = 273.15 K is accepted although eccodes 2.34.1, which has no
+such block, reads that message as `pt`.
 
 So the table also carries the concept's blocks whose first surface is one of
 `LEVEL_LISTS`: the `sfc` ones, and, as rivals, every other levtype's. Each

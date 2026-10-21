@@ -1845,9 +1845,15 @@ fn on_an_ecmwf_level_list(identity: &MessageIdentity) -> bool {
 /// 800 hPa to 450 hPa and high cloud cover from 450 hPa to the top of the
 /// atmosphere, both isobaric, and an AIFS `.index` gives both `sfc`, as
 /// eccodes does: the concept's `sfc` block for each layer states more
-/// conditions than `pl`'s. eccodes 2.45 adds three isothermal levels (0, 1
-/// and 1.5 °C) to `sfc`. The concept is parameter-blind; the name check is
-/// what holds the parameter to its layer.
+/// conditions than `pl`'s. eccodes 2.45 adds three isentropic levels
+/// (type 107, θ = 273.15, 274.15 and 274.65 K) to `sfc`. Their parameters
+/// (`h0thg`, `h1thg`, `h1p5thg`) are heights of the 0, 1 and 1.5 °C
+/// isotherms, so type 107 there is likely an eccodes slip for the isothermal
+/// type 20, but this mirrors eccodes, which is what writes a record's
+/// `levtype`. The table is a union across eccodes versions, so an `sfc` line
+/// on θ = 273.15 K passes although 2.34.1 reads that message as `pt`. The
+/// concept is parameter-blind; the name check is what holds the parameter to
+/// its layer.
 fn eccodes_levtype_is_sfc(identity: &MessageIdentity) -> bool {
     ConceptFacts::of(identity).is_some_and(|facts| {
         facts.concept_may_give(
@@ -2559,7 +2565,8 @@ mod tests {
     /// eccodes' `marsLevtype` concept calls some isobaric and isentropic
     /// messages `sfc` (#1323): the medium cloud layer (800 to 450 hPa), the
     /// high cloud layer (450 hPa to the top of the atmosphere) and, from
-    /// eccodes 2.45, the 0, 1 and 1.5 °C isothermal levels. An ECMWF `sfc`
+    /// eccodes 2.45, the isentropic levels θ = 273.15, 274.15 and 274.65 K
+    /// (type 107, as eccodes writes them). An ECMWF `sfc`
     /// line holds on exactly those, and still not on the isobaric or
     /// isentropic levels and layers next to them.
     #[test]
@@ -2580,11 +2587,34 @@ mod tests {
         assert!(!on((100, 0, 80_000), Some((100, 0, 50_000))));
         // 80000 Pa written at another scale is another pair of conditions.
         assert!(!on((100, 1, 800_000), Some((100, 0, 45_000))));
-        // The isothermal levels: 273.15 K is `sfc`, 300 K is `pt`.
+        // The isentropic levels eccodes lists: θ = 273.15 K is `sfc`, 300 K
+        // is `pt`.
         assert!(on((107, 2, 27_315), None));
         assert!(on((107, 2, 27_465), None));
         assert!(!on((107, 2, 30_000), None));
         assert!(!on((107, 0, 273), None));
+    }
+
+    /// The generator keeps the `levtype` blocks on its `LEVEL_LISTS`
+    /// surfaces, and [`on_an_ecmwf_level_list`] decides when they are
+    /// consulted. A surface the generator has and this side lacks would make
+    /// its blocks dead, so every block's first surface must be one this side
+    /// lists.
+    #[test]
+    fn every_levtype_block_is_on_a_surface_the_level_check_lists() {
+        use mars_short_names::{Key, LEVTYPES_ON_LEVEL_LISTS, SFC_ON_LEVEL_LISTS};
+        assert!(!SFC_ON_LEVEL_LISTS.is_empty());
+        for block in SFC_ON_LEVEL_LISTS.iter().chain(LEVTYPES_ON_LEVEL_LISTS) {
+            let first = block
+                .read
+                .iter()
+                .find(|(key, _)| *key == Key::FirstSurfaceType)
+                .and_then(|&(_, value)| value)
+                .expect("every block states its first surface");
+            let surface_type = u8::try_from(first).expect("a Code Table 4.5 type");
+            let identity = info_on("ZZ", (surface_type, 0, 0), None).identity;
+            assert!(on_an_ecmwf_level_list(&identity), "{block:?}");
+        }
     }
 
     /// An expectation that crossed the wire with its level text and no parsed
