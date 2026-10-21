@@ -114,8 +114,10 @@ fn record_manifest(
         .iter()
         .map(|q| {
             let plan = manifest.select(&query(q), resolver);
-            let headers: Vec<Option<String>> =
-                plan.iter().map(|i| i.range.http_range_header()).collect();
+            let headers: Vec<Option<String>> = plan
+                .iter()
+                .map(|i| i.range.http_range_header().unwrap())
+                .collect();
             json!({ "query": q, "items": wire(&plan), "rangeHeaders": headers })
         })
         .collect();
@@ -242,7 +244,7 @@ fn one_gfs_field_is_planned_fetched_and_verified() {
         .expect("a range reads")
     );
     assert_eq!(
-        item.range.http_range_header().as_deref(),
+        item.range.http_range_header().unwrap().as_deref(),
         Some("bytes=76032983-76033192"),
         "the header the fixture was fetched with"
     );

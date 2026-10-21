@@ -88,7 +88,7 @@ enum Entry {
 ///
 /// let item = refs.chunk_at("temp", &meta, &[1, 1])?.expect("a planned chunk");
 /// assert_eq!(item.key, "s3://bucket/archive.nc");
-/// assert_eq!(item.range.http_range_header().as_deref(), Some("bytes=4096-4119"));
+/// assert_eq!(item.range.http_range_header()?.as_deref(), Some("bytes=4096-4119"));
 /// # Ok::<(), fieldglass_fetchplan::FetchPlanError>(())
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -440,11 +440,24 @@ fn entry(
             [url] => Ok(Entry::Whole {
                 url: resolve(key, url, templates)?,
             }),
-            [url, offset, length] => Ok(Entry::Range {
-                url: resolve(key, url, templates)?,
-                offset: count(key, offset, "offset")?,
-                length: count(key, length, "length")?,
-            }),
+            [url, offset, length] => {
+                let url = resolve(key, url, templates)?;
+                let offset = count(key, offset, "offset")?;
+                let length = count(key, length, "length")?;
+                // A zero length has no `Range` header and an overflowing end no
+                // server offset; both are refused here rather than at the fetch.
+                if let Some(fault) = crate::plan::exact_fault(offset, length) {
+                    return Err(FetchPlanError::BadReference {
+                        key: key.to_string(),
+                        detail: format!("offset {offset} and length {length}: {fault}"),
+                    });
+                }
+                Ok(Entry::Range {
+                    url,
+                    offset,
+                    length,
+                })
+            }
             other => Err(FetchPlanError::BadReference {
                 key: key.to_string(),
                 detail: format!(
@@ -578,7 +591,7 @@ mod tests {
         assert_eq!(whole.key, "s3://b/whole.bin");
         assert_eq!(whole.range, PlanRange::Whole);
         // A whole-object range sends no `Range` header at all.
-        assert_eq!(whole.range.http_range_header(), None);
+        assert_eq!(whole.range.http_range_header(), Ok(None));
 
         // Inline data is bytes, and is not a fetch.
         assert_eq!(refs.inline("temp/1.0").unwrap(), b"raw bytes");
@@ -672,6 +685,38 @@ mod tests {
                 "{body} gave {err:?}"
             );
         }
+    }
+
+    /// A zero length has no `Range` header and an end past `u64::MAX` has no
+    /// server offset. Both are refused at parse time, naming the key, so a host
+    /// never reads a missing header as "fetch the whole object" and nothing
+    /// overflows in `http_range_header` (#1344).
+    #[test]
+    fn a_reference_with_no_fetchable_range_is_refused() {
+        for body in [
+            r#""a/0.0": ["s3://b/o", 10, 0]"#,
+            r#""a/0.0": ["s3://b/o", "10", "0"]"#,
+            r#""a/0.0": ["s3://b/o", 18446744073709551615, 2]"#,
+            r#""a/0.0": ["s3://b/o", 1, 18446744073709551615]"#,
+        ] {
+            let err = KerchunkRefs::parse(&document(body)).unwrap_err();
+            assert!(
+                matches!(&err, FetchPlanError::BadReference { key, .. } if key == "a/0.0"),
+                "{body} gave {err:?}"
+            );
+        }
+        // The edge that fits: the last byte of the address space.
+        let refs = KerchunkRefs::parse(&document(
+            r#""a/0.0": ["s3://b/o", 18446744073709551614, 1]"#,
+        ))
+        .unwrap();
+        assert!(
+            refs.range_of("a/0.0")
+                .unwrap()
+                .range
+                .http_range_header()
+                .is_ok()
+        );
     }
 
     /// The seam this type exists for, without a store: metadata in, a chunk

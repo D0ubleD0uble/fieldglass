@@ -103,6 +103,8 @@ impl<S: ByteSource> KerchunkObjects<S> {
                  that object — call `KerchunkObjects::insert` for every URL `urls()` lists",
                 item.range
                     .http_range_header()
+                    .ok()
+                    .flatten()
                     .unwrap_or_else(|| "the whole object".to_string()),
                 item.key
             )));

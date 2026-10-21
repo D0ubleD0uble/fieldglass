@@ -30,7 +30,7 @@
 //!
 //! let item = refs.chunk_at("temp", &meta, &[1, 1])?.expect("the document addresses it");
 //! assert_eq!(item.key, "s3://bucket/archive.nc");
-//! assert_eq!(item.range.http_range_header().as_deref(), Some("bytes=4096-4119"));
+//! assert_eq!(item.range.http_range_header()?.as_deref(), Some("bytes=4096-4119"));
 //! assert_eq!(item.address, Address::Chunk { array: "temp".into(), index: vec![1, 1] });
 //!
 //! // The same chunk is the whole of the plan the document states.
@@ -64,7 +64,7 @@
 //! let idx = Wgrib2Idx::parse("gfs.t00z.pgrb2.0p25.f000", &fetch_text()?)?;
 //! let item = &idx.select(&Query::abbreviation("TMP"), &TableResolver::ncep())[0];
 //!
-//! let bytes = fetch(&item.key, item.range.http_range_header());
+//! let bytes = fetch(&item.key, item.range.http_range_header()?);
 //! item.expect.verify_envelope(&bytes, &item.range)?;   // syntax: magic, §0 length
 //!
 //! let session = fieldglass::Session::open(bytes)?;

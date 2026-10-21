@@ -148,14 +148,18 @@ impl MessageManifest {
 
 /// The value of the HTTP `Range` header that fetches `range`, or `null` when
 /// the whole object is wanted and no header should be sent.
+///
+/// Throws for an `exact` range of no bytes or whose end passes 2^64, which has
+/// no header; the planner refuses both when it reads a sidecar, so only a
+/// range built by hand gets here. `null` would have the host fetch the whole
+/// object.
 #[wasm_bindgen(js_name = httpRangeHeader, unchecked_return_type = "string | null")]
 pub fn http_range_header(
     #[wasm_bindgen(unchecked_param_type = "PlanRange")] range: JsValue,
 ) -> Result<JsValue, JsValue> {
     let range: PlanRange = required(range, "range")?;
-    Ok(range
-        .http_range_header()
-        .map_or(JsValue::NULL, |h| JsValue::from_str(&h)))
+    let header = range.http_range_header().map_err(|e| throw(e.into()))?;
+    Ok(header.map_or(JsValue::NULL, |h| JsValue::from_str(&h)))
 }
 
 /// Check fetched bytes against what a plan item promised: the GRIB magic, the

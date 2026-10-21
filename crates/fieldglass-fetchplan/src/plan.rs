@@ -109,24 +109,46 @@ impl PlanRange {
         Ok(fieldglass_core::ByteRange::new(offset, length))
     }
 
-    /// The value of an HTTP `Range` header, or `None` when the whole object is
-    /// wanted and no header should be sent.
+    /// The value of an HTTP `Range` header, or `Ok(None)` when the whole object
+    /// is wanted and no header should be sent.
     ///
     /// `None` rather than `Some("bytes=0-")` on purpose: the two are equivalent
     /// to a compliant server, but an unconditional header turns every whole
     /// fetch into a `206 Partial Content`, which some caches decline to store.
-    pub fn http_range_header(&self) -> Option<String> {
+    ///
+    /// `Ok(None)` is only ever [`Whole`](Self::Whole). An
+    /// [`Exact`](Self::Exact) range with no bytes, or whose end does not fit in
+    /// a `u64`, has no header form (`bytes=n-(n-1)` is backwards), and reporting
+    /// it as "no header" would send the host to download the whole object. It is
+    /// an [`UnfetchableRange`](FetchPlanError::UnfetchableRange) instead. The
+    /// parsers in this crate refuse both at parse time, so this only fires on a
+    /// range built by hand or read from JSON.
+    pub fn http_range_header(&self) -> Result<Option<String>, FetchPlanError> {
         match self {
-            // `length` of zero has no valid header form — `bytes=n-(n-1)` is
-            // backwards — and no message is zero bytes long, so it is reported
-            // as "nothing to fetch" rather than as a malformed header.
-            Self::Exact { length: 0, .. } => None,
-            Self::Exact { offset, length } => {
-                Some(format!("bytes={offset}-{}", offset + length - 1))
-            }
-            Self::OpenEnded { offset } => Some(format!("bytes={offset}-")),
-            Self::Whole => None,
+            Self::Exact { offset, length } => match exact_fault(*offset, *length) {
+                None => Ok(Some(format!("bytes={offset}-{}", offset + length - 1))),
+                Some(_) => Err(FetchPlanError::UnfetchableRange {
+                    offset: *offset,
+                    length: *length,
+                }),
+            },
+            Self::OpenEnded { offset } => Ok(Some(format!("bytes={offset}-"))),
+            Self::Whole => Ok(None),
         }
+    }
+}
+
+/// Why `offset` and `length` cannot be a [`PlanRange::Exact`] range, if they
+/// cannot: no message is zero bytes long, and an end past `u64::MAX` is no
+/// offset a server has. The one place that rule lives, so the parsers and
+/// [`PlanRange::http_range_header`] cannot disagree.
+pub(crate) fn exact_fault(offset: u64, length: u64) -> Option<&'static str> {
+    if length == 0 {
+        Some("the length is zero")
+    } else if offset.checked_add(length).is_none() {
+        Some("offset + length does not fit in 64 bits")
+    } else {
+        None
     }
 }
 
@@ -445,6 +467,7 @@ mod tests {
                 length: 50
             }
             .http_range_header()
+            .unwrap()
             .as_deref(),
             // Inclusive on both ends: `bytes=100-149` is 50 bytes, and the
             // off-by-one here would silently fetch 51.
@@ -453,10 +476,58 @@ mod tests {
         assert_eq!(
             PlanRange::OpenEnded { offset: 100 }
                 .http_range_header()
+                .unwrap()
                 .as_deref(),
             Some("bytes=100-")
         );
-        assert_eq!(PlanRange::Whole.http_range_header(), None);
+        assert_eq!(PlanRange::Whole.http_range_header(), Ok(None));
+    }
+
+    /// `Ok(None)` means "send no header", which a host reads as "fetch the whole
+    /// object". An exact range must never say that, and must never wrap or
+    /// panic on an end past `u64::MAX` (#1344).
+    #[test]
+    fn an_exact_range_with_no_header_form_is_an_error_not_none() {
+        let zero = PlanRange::Exact {
+            offset: 1000,
+            length: 0,
+        };
+        assert_eq!(
+            zero.http_range_header(),
+            Err(FetchPlanError::UnfetchableRange {
+                offset: 1000,
+                length: 0
+            })
+        );
+        let overflow = PlanRange::Exact {
+            offset: u64::MAX,
+            length: 2,
+        };
+        assert_eq!(
+            overflow.http_range_header(),
+            Err(FetchPlanError::UnfetchableRange {
+                offset: u64::MAX,
+                length: 2
+            })
+        );
+        // The last range that fits is still a valid header.
+        assert_eq!(
+            PlanRange::Exact {
+                offset: u64::MAX - 1,
+                length: 1
+            }
+            .http_range_header(),
+            Ok(Some(format!("bytes={0}-{0}", u64::MAX - 1)))
+        );
+        assert!(
+            PlanRange::Exact {
+                offset: u64::MAX,
+                length: 1
+            }
+            .http_range_header()
+            .is_err(),
+            "offset + length = 2^64 does not fit"
+        );
     }
 
     /// Closing is what a host does when it learns the object size, and it hands
