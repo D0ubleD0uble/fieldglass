@@ -629,7 +629,12 @@ fn three_dimensional_store() -> std::path::PathBuf {
     // Under the workspace target directory, not a shared temp directory.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target")
-        .join(format!("fieldglass-1273-{}", std::process::id()));
+        .join(format!("fieldglass-1273-{}-{}", std::process::id(), {
+            // Tests run in parallel threads of one process; each gets its own
+            // directory, or one removes the files another is reading.
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        }));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("v/c")).expect("a directory");
     std::fs::write(
