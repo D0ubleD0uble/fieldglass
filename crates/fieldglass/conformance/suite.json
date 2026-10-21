@@ -31483,6 +31483,437 @@
       }
     },
     {
+      "id": "non_finite_coordinates/variables",
+      "fixture": "fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc",
+      "op": "variables",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": [
+        {
+          "detectedTimeDim": null,
+          "detectedXDim": 1,
+          "detectedYDim": null,
+          "dims": [
+            {
+              "length": 3,
+              "name": "lat_nan"
+            },
+            {
+              "length": 4,
+              "name": "lon"
+            }
+          ],
+          "dtype": "float",
+          "index": 0,
+          "name": "all_nan",
+          "units": "K"
+        },
+        {
+          "detectedTimeDim": null,
+          "detectedXDim": 1,
+          "detectedYDim": null,
+          "dims": [
+            {
+              "length": 3,
+              "name": "lat_hole"
+            },
+            {
+              "length": 4,
+              "name": "lon"
+            }
+          ],
+          "dtype": "float",
+          "index": 1,
+          "name": "hole",
+          "units": "K"
+        },
+        {
+          "detectedTimeDim": null,
+          "detectedXDim": null,
+          "detectedYDim": 0,
+          "dims": [
+            {
+              "length": 3,
+              "name": "lat"
+            },
+            {
+              "length": 4,
+              "name": "lon_inf"
+            }
+          ],
+          "dtype": "float",
+          "index": 2,
+          "name": "infinite_end",
+          "units": "K"
+        },
+        {
+          "detectedTimeDim": null,
+          "detectedXDim": 1,
+          "detectedYDim": 0,
+          "dims": [
+            {
+              "length": 3,
+              "name": "lat"
+            },
+            {
+              "length": 4,
+              "name": "lon"
+            }
+          ],
+          "dtype": "float",
+          "index": 3,
+          "name": "placed",
+          "units": "K"
+        },
+        {
+          "detectedTimeDim": null,
+          "detectedXDim": 1,
+          "detectedYDim": null,
+          "dims": [
+            {
+              "length": 3,
+              "name": "lat_fill"
+            },
+            {
+              "length": 4,
+              "name": "lon"
+            }
+          ],
+          "dtype": "float",
+          "index": 4,
+          "name": "masked",
+          "units": "K"
+        }
+      ]
+    },
+    {
+      "id": "non_finite_coordinates/decode_slice/all_nan",
+      "fixture": "fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc",
+      "op": "decodeSlice",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": 0,
+        "xDim": 1,
+        "sliceIndices": [
+          0,
+          0
+        ],
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": {
+        "error": {
+          "code": "decode",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "non_finite_coordinates/decode_slice/hole",
+      "fixture": "fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc",
+      "op": "decodeSlice",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 1,
+        "yDim": 0,
+        "xDim": 1,
+        "sliceIndices": [
+          0,
+          0
+        ],
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": {
+        "error": {
+          "code": "decode",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "non_finite_coordinates/decode_slice/infinite_end",
+      "fixture": "fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc",
+      "op": "decodeSlice",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 2,
+        "yDim": 0,
+        "xDim": 1,
+        "sliceIndices": [
+          0,
+          0
+        ],
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": {
+        "error": {
+          "code": "decode",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "non_finite_coordinates/decode_slice/placed",
+      "fixture": "fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc",
+      "op": "decodeSlice",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 3,
+        "yDim": 0,
+        "xDim": 1,
+        "sliceIndices": [
+          0,
+          0
+        ],
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "affine": {
+            "dx": 90.0,
+            "dy": 10.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 10.0
+          },
+          "boundsLonlat": [
+            10.0,
+            30.0,
+            0.0,
+            270.0
+          ],
+          "corners": [
+            10.0,
+            0.0,
+            30.0,
+            270.0
+          ],
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 4,
+          "nj": 3,
+          "periodicX": true,
+          "placement": "placed",
+          "pointsPerRow": null,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "reprojectable": true,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "supports": {
+            "bilinear": true,
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
+          }
+        },
+        "len": 12,
+        "maskLen": 12,
+        "maskOnes": 12,
+        "ni": 4,
+        "nj": 3,
+        "parameter": "placed",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 270.0
+          },
+          {
+            "i": 3,
+            "m": 1,
+            "v": 273.0
+          },
+          {
+            "i": 6,
+            "m": 1,
+            "v": 276.0
+          },
+          {
+            "i": 9,
+            "m": 1,
+            "v": 279.0
+          },
+          {
+            "i": 11,
+            "m": 1,
+            "v": 281.0
+          }
+        ],
+        "stats": {
+          "max": 281.0,
+          "min": 270.0,
+          "validCount": 12
+        },
+        "truncation": null,
+        "units": "K"
+      }
+    },
+    {
+      "id": "non_finite_coordinates/decode_slice/masked",
+      "fixture": "fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc",
+      "op": "decodeSlice",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 4,
+        "yDim": 0,
+        "xDim": 1,
+        "sliceIndices": [
+          0,
+          0
+        ],
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": {
+        "error": {
+          "code": "decode",
+          "hasMessage": true
+        }
+      }
+    },
+    {
       "id": "curvilinear/decode_slice",
       "fixture": "fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc",
       "op": "decodeSlice",

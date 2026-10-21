@@ -298,7 +298,11 @@ impl Session {
     /// lat/lon grid running west to east, naming a horizontal coordinate the
     /// store left out and why, and any chunk of them the store never wrote (it
     /// reads as the fill value, which places nothing unless that is the
-    /// coordinate's value); and a decode failure reading the coordinates.
+    /// coordinate's value); and a decode failure reading the coordinates,
+    /// or for a coordinate holding a value that is not a finite number,
+    /// which places nothing (#1172). That last is `Unsupported` instead when
+    /// the value is the fill of a chunk of that coordinate the store never
+    /// wrote, naming the chunk, since the missing chunk is then the cause.
     pub fn plan_window(&self, request: &WindowRequest) -> Result<WindowPlan, Error> {
         let window = self.window(request, "plan_window")?;
         let chunks = window.planned_chunks()?;
@@ -510,11 +514,13 @@ impl Session {
         // as the Zarr spec has it, and is read as such (#1163).
         let mut unfetched = Vec::new();
         let mut unwritten = Vec::new();
+        let mut coordinate_chunks = Vec::new();
         for d in [y, x] {
             if let Some(chunks) = arrays.coordinate_refs(&var, d)? {
                 let keys: Vec<&str> = chunks.iter().map(|c| c.key.as_str()).collect();
                 unfetched.extend(arrays.source.unfetched(&keys));
                 unwritten.extend(arrays.source.unwritten(&keys)?);
+                coordinate_chunks.extend(chunks);
             }
         }
         if !unfetched.is_empty() {
@@ -526,7 +532,40 @@ impl Session {
             )));
         }
 
-        let placement = arrays.placement(&var, y, x)?;
+        // Placement refuses a coordinate that is not all finite numbers
+        // (#1172). Read from a chunk the store never wrote, a value is that
+        // chunk's fill, and a NaN fill is the usual cause: then the refusal is
+        // the planner's, naming the chunk, as it was before placement refused
+        // first (#1163). Only then: the refusal must name that chunk's
+        // coordinate, and the chunk's fill must itself place nothing, so a
+        // finite-fill chunk is never blamed for a bad value written elsewhere.
+        // Any other failure is the read's own.
+        let placement = arrays
+            .placement(&var, y, x)
+            .map_err(|e| match Error::from(e) {
+                Error::Decode { detail } => {
+                    let culprits: Vec<String> = coordinate_chunks
+                        .iter()
+                        .filter(|c| unwritten.contains(&c.key))
+                        .filter(|c| detail.contains(&format!("coordinate `{}` ", c.array)))
+                        .filter(|c| arrays.fill_places_nothing(c))
+                        .map(|c| c.key.clone())
+                        .collect();
+                    if culprits.is_empty() {
+                        Error::Decode { detail }
+                    } else {
+                        Error::Unsupported {
+                            detail: format!(
+                                "`{}` on these axes cannot be placed, so a box cannot be \
+                                 matched against it: {detail}{}",
+                                var.name,
+                                arrays.why_not_placed(&var, [y, x], &culprits)
+                            ),
+                        }
+                    }
+                }
+                other => other,
+            })?;
         let scan = placement.scan.unwrap_or_else(Scan::north_down);
         let whole = match &placement.geometry {
             GridGeometry::LatLon(p) if !scan.i_negative && p.ni >= 2 && p.nj >= 2 => *p,
@@ -545,9 +584,9 @@ impl Session {
         let forward = placement.geometry.forward_at();
         let lats: Vec<Option<f64>> = (0..whole.nj).map(|j| forward(0, j).map(|p| p.0)).collect();
         let lons: Vec<Option<f64>> = (0..whole.ni).map(|i| forward(i, 0).map(|p| p.1)).collect();
-        // A coordinate that is not a number everywhere, as one read from
-        // chunks the store never wrote is when its fill value is NaN, places
-        // no cell, and a box over it would plan nothing without saying why.
+        // Placement has refused a coordinate that is not finite, but finite
+        // corners can still interpolate to centres that are not (ends near
+        // ±1e308), and a box over those would plan nothing without saying why.
         if !lats
             .iter()
             .chain(&lons)
@@ -659,6 +698,31 @@ impl Arrays {
         }
         let whole = 0..axis.length;
         self.chunk_refs(&axis.name, std::slice::from_ref(&whole))
+    }
+
+    /// Whether a 1-D coordinate chunk the store never wrote reads as a value
+    /// that places nothing: its fill, read at the chunk's first element, is
+    /// masked or not a finite number (#1172). `false` whenever that cannot be
+    /// told, so a refusal is only ever pinned on a chunk shown to cause it.
+    fn fill_places_nothing(&self, chunk: &ChunkRef) -> bool {
+        let Some(grid) = self
+            .source
+            .array(&chunk.array)
+            .and_then(|a| a.chunk_grid.as_ref())
+        else {
+            return false;
+        };
+        let (Some(&index), Some(&extent)) = (chunk.index.first(), grid.chunk_shape().first())
+        else {
+            return false;
+        };
+        let Some(at) = index.checked_mul(extent) else {
+            return false;
+        };
+        let first = at..at.saturating_add(1);
+        self.source
+            .read_region(&chunk.array, std::slice::from_ref(&first))
+            .is_ok_and(|v| v.first().copied().flatten().is_none_or(|v| !v.is_finite()))
     }
 
     /// What a refusal to window `var` adds about its horizontal axes' own

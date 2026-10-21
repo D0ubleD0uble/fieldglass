@@ -1243,6 +1243,42 @@ pub fn cases() -> Vec<Case> {
         },
     });
 
+    // 1-D coordinates holding NaN or infinity place nothing, and a slice over
+    // one is refused as `decode` naming the coordinate rather than handed back
+    // with a NaN georef (#1172): every latitude NaN, a NaN between finite
+    // ends, a longitude ending in infinity, the same field on finite
+    // coordinates, which places, and a latitude
+    // masked at its own `_FillValue`, refused as a NaN is. The variable list
+    // pins which index is which.
+    let non_finite = format!("{NC}non_finite_coordinates.nc");
+    out.push(Case {
+        id: "non_finite_coordinates/variables".to_string(),
+        fixture: non_finite.clone(),
+        op: Op::Variables,
+        args: Args::default(),
+    });
+    for (id, variable) in [
+        ("all_nan", 0),
+        ("hole", 1),
+        ("infinite_end", 2),
+        ("placed", 3),
+        ("masked", 4),
+    ] {
+        out.push(Case {
+            id: format!("non_finite_coordinates/decode_slice/{id}"),
+            fixture: non_finite.clone(),
+            op: Op::DecodeSlice,
+            args: Args {
+                dtype: Some(Dtype::Auto),
+                variable: Some(variable),
+                y_dim: Some(0),
+                x_dim: Some(1),
+                slice_indices: Some(vec![0, 0]),
+                ..Args::default()
+            },
+        });
+    }
+
     // A curvilinear slice: NOAA-21 MiRS total precipitable water, 100 scanlines
     // by 96 fields of view, placed by its 2-D latitude and longitude arrays.
     // Its georef's `label` is the caption every host shows and every refusal

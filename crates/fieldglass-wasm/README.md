@@ -255,7 +255,8 @@ holds no such object. A chunk the store never wrote is its array's fill value,
 which is how a sparse store works and how zarr-python leaves any chunk that is
 all fill, coordinate chunks included: a coordinate chunk passed as `null` reads
 as its fill value, and when that value places no grid (NaN, say) `planWindow`
-throws `unsupported` naming the chunk. A key you do **not** pass at all, or
+throws `unsupported` naming the chunk, and `decodeSlice` throws `decode` naming
+the coordinate. A key you do **not** pass at all, or
 pass as `undefined`, is one you have not fetched, and it is never read as fill: `planWindow` and
 `decodeWindow` throw `invalid_option` naming every such coordinate or planned
 chunk, and any other read that needs one (`decodeSlice`, `decodeLine`,

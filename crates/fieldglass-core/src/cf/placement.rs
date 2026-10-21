@@ -227,9 +227,9 @@ fn no_such_array(array: &str) -> FieldglassError {
 /// # Errors
 ///
 /// An array the source does not hold, axes that are equal or out of range, a
-/// coordinate that fails to read, and a masked value where a position has to
-/// be — a 1-D axis, or a WRF corner — since shifting past it would move the
-/// grid.
+/// coordinate that fails to read, and a masked or non-finite value where a
+/// position has to be — a 1-D axis, or a WRF corner — since shifting past it
+/// would move the grid (#1172).
 pub fn slice_placement(
     source: &dyn ArraySource,
     array: &str,
@@ -428,22 +428,38 @@ fn plane(source: &dyn ArraySource, entry: &Entry<'_>) -> Result<Vec<f64>, Fieldg
 /// **A fill value here is a hard error**, and that asymmetry with a 2-D
 /// coordinate is the point: an axis is a monotonic run of positions, so a hole
 /// in it means the corners and the spacing derived from it are not what the
-/// file says.
+/// file says. CF says the same: a coordinate variable is strictly monotonic
+/// and may hold no missing value (CF §1.3, after the NUG).
+///
+/// **So is a value that is not finite** (#1172). A NaN is the hole a masked
+/// value is, without the mask: a Zarr coordinate whose fill value is NaN reads
+/// as NaN wherever the store never wrote a chunk, and a file can write one
+/// outright. Placed anyway, an all-NaN latitude gave a lat/lon grid with NaN
+/// corners, and a NaN between two finite ends was placed from those ends as if
+/// the axis were whole. An infinity places no cell either. Checked after the
+/// scale and offset, which is where a position is read.
 fn coordinate_values(
     source: &dyn ArraySource,
     entry: &Entry<'_>,
 ) -> Result<Vec<f64>, FieldglassError> {
     let raw: Vec<f64> = whole(source, entry)?
         .into_iter()
-        .map(|v| {
-            v.ok_or_else(|| {
-                FieldglassError::Parse("coordinate variable contains a fill value".to_string())
-            })
-        })
+        .enumerate()
+        .map(|(at, v)| v.ok_or_else(|| no_position(&entry.name, at, "a fill value")))
         .collect::<Result<_, _>>()?;
-    Ok(super::resolvers::apply_scale_offset(
-        &raw,
-        &entry.array.attributes,
+    let values = super::resolvers::apply_scale_offset(&raw, &entry.array.attributes);
+    if let Some((at, v)) = values.iter().enumerate().find(|(_, v)| !v.is_finite()) {
+        return Err(no_position(&entry.name, at, &v.to_string()));
+    }
+    Ok(values)
+}
+
+/// The refusal for a 1-D coordinate value that is no position: `what` sits at
+/// `at` in the array `name`.
+fn no_position(name: &str, at: usize, what: &str) -> FieldglassError {
+    FieldglassError::Parse(format!(
+        "coordinate `{name}` holds {what} at index {at}, so the slices it spans cannot be \
+         placed: a coordinate's values must all be present and finite"
     ))
 }
 
@@ -495,9 +511,10 @@ fn dims_end_with(entry: &Entry<'_>, y: &str, x: &str) -> bool {
 
 /// One cell of a 2-D coordinate field at a flat C-order index, CF-scaled.
 ///
-/// **A masked corner is a hard error.** Shifting to the next present cell
-/// would move the origin and mis-georeference the whole domain, which is the
-/// failure this guard exists to prevent rather than to survive.
+/// **A masked corner is a hard error**, and so is one that is not finite.
+/// Shifting to the next present cell would move the origin and
+/// mis-georeference the whole domain, which is the failure this guard exists
+/// to prevent rather than to survive.
 fn corner_value(
     source: &dyn ArraySource,
     entry: &Entry<'_>,
@@ -512,7 +529,15 @@ fn corner_value(
             FieldglassError::Parse(format!("{name}[{flat_index}] is missing or masked"))
         })?;
     let (scale, offset) = cf_scale_offset(&entry.array.attributes);
-    Ok(raw * scale + offset)
+    let value = raw * scale + offset;
+    // A NaN or an infinity is no origin either, and a resolver handed one
+    // builds a grid with it (#1172).
+    if !value.is_finite() {
+        return Err(FieldglassError::Parse(format!(
+            "{name}[{flat_index}] is {value}, not a position"
+        )));
+    }
+    Ok(value)
 }
 
 /// A WRF projected grid, when the container carries the `MAP_PROJ` globals and
