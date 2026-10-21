@@ -10,7 +10,9 @@
 //
 // The files are one committed GRIB2 message (`regular_latlon_surface.grib2`,
 // 2 m temperature) with its parameter number rewritten, so every message is a
-// different field on the same grid, and any two can be compared.
+// different field on the same grid, and any two can be compared. The GRIB1
+// case is one committed message (`spectral_simple_t63.grib1`) with its ensemble
+// member rewritten.
 
 import * as assert from "assert";
 import * as fs from "fs";
@@ -52,6 +54,19 @@ function field(number: number): Buffer {
   throw new Error("the fixture has no §4");
 }
 
+/** The fixture's one GRIB1 message, ECMWF local definition 1, as ensemble
+ *  member `number`. It is committed as member 0 with a 52-octet PDS, which
+ *  follows the 8-octet indicator section; PDS octet 50 is the perturbation
+ *  number (`grib_dump -O`, eccodes 2.34.1). */
+function member(number: number): Buffer {
+  const bytes = fs.readFileSync(
+    path.join(extensionPath(), "src", "test", "fixtures", "spectral_simple_t63.grib1"),
+  );
+  assert.strictEqual(bytes.readUIntBE(8, 3), 52, "a 52-octet PDS");
+  bytes[8 + 49] = number;
+  return bytes;
+}
+
 /** The labels the panel lists `bytes`' messages under. */
 function labels(bytes: Buffer): string[] {
   const native = loadNative();
@@ -68,16 +83,16 @@ function heading(bytes: Buffer, index: number): string {
   return `Message ${index} — ${m.parameter}` + (m.units ? ` (${m.units})` : "");
 }
 
-/** A GRIB2 file in a temporary folder, opened in the editor with a render
+/** A GRIB file in a temporary folder, opened in the editor with a render
  *  panel on message `index`, which can then change on disk under the panel. */
-async function changingFile(first: Buffer, index: number): Promise<{
+async function changingFile(first: Buffer, index: number, name = "changing.grib2"): Promise<{
   panel: RealPanel;
   change(bytes: Buffer): Promise<void>;
   done(): void;
 }> {
   const p = await provider();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-959-"));
-  const file = path.join(dir, "changing.grib2");
+  const file = path.join(dir, name);
   fs.writeFileSync(file, first);
   let editor: Editor = await openEditor(p, file);
   const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: index }));
@@ -246,6 +261,52 @@ suite("A GRIB render panel whose file changed", function () {
       assert.strictEqual(reply.error, MESSAGE_GONE);
       const state = await panel.drive([]);
       assert.deepStrictEqual(state.messageOffers, labels(after));
+    } finally {
+      done();
+    }
+  });
+
+  // GRIB1 has no ensemble octets of its own: a centre writes the member in its
+  // PDS extension. A file that held member 3 and now holds member 5 has one
+  // candidate, which used to match and be drawn under member 3's heading
+  // (#994).
+  test("refuses when a GRIB1 file now holds another ensemble member", async () => {
+    const after = member(5);
+    const { panel, change, done } = await changingFile(member(3), 0, "changing.grib1");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await change(after);
+      const from = panel.sent.length;
+      panel.rebuild();
+      const reply = await panel.waitSent(drawnOrRefused, from, "the render after the change");
+      assert.strictEqual(
+        reply.type,
+        "gridError",
+        `drew message ${reply.messageIndex} titled "${reply.titleLine}" instead of refusing`,
+      );
+      assert.strictEqual(reply.error, MESSAGE_GONE);
+      const state = await panel.drive([]);
+      assert.deepStrictEqual(state.messageOffers, labels(after));
+    } finally {
+      done();
+    }
+  });
+
+  // The control for the refusal above: a GRIB1 member that moved is found by
+  // the same identity, and drawn where it now sits.
+  test("draws a GRIB1 ensemble member where the changed file now holds it", async () => {
+    const after = Buffer.concat([member(5), member(3)]);
+    const { panel, change, done } = await changingFile(member(3), 0, "changing.grib1");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await change(after);
+      const from = panel.sent.length;
+      panel.rebuild();
+      const reply = await panel.waitSent(drawnOrRefused, from, "the render after the change");
+      assert.strictEqual(reply.type, "gridReady", `${reply.error ?? ""}`);
+      assert.strictEqual(reply.messageIndex, 1, "member 3, now message 1");
+      const state = await panel.drive([]);
+      assert.strictEqual(state.messageOffers, null, "nothing to pick");
     } finally {
       done();
     }

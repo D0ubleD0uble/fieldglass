@@ -1084,6 +1084,18 @@ api_type! {
             /// The time range indicator (PDS octet 21, Code Table 5), which
             /// says how `p1` and `p2` make a step or a range.
             time_range: u8,
+            /// The PDS octets from 29 to the section's end, as lowercase hex,
+            /// or `None` for a 28-octet PDS (#994). That is where a centre
+            /// extends the PDS with its own definitions: the ensemble member,
+            /// or a mean, spread or probability of the ensemble (ECMWF's local
+            /// definitions and NCEP's ensemble extension, both from octet 41).
+            /// The reader does not parse them, so they are compared whole and
+            /// as written, as GRIB2's `product_octets` are for a template it
+            /// does not parse. That includes what GRIB2's identity leaves out,
+            /// such as the ensemble size, and reserved or padding octets: a
+            /// rewrite that changes only those no longer matches, which is the
+            /// safe direction.
+            extension_octets: Option<String>,
             /// The data representation type (GDS octet 6, Code Table 6), or
             /// `None` when the message has no GDS.
             grid_type: Option<u8>,
@@ -1150,8 +1162,8 @@ api_type! {
             forecast_time_unit: Option<u8>,
             /// The forecast step, or the start of a statistical range.
             forecast_time: Option<i64>,
-            /// The end of a statistical range as RFC 3339 (templates 4.8 and
-            /// 4.11). `None` for a field at an instant.
+            /// The end of a statistical range as RFC 3339 (templates 4.8 to
+            /// 4.12). `None` for a field at an instant.
             range_end: Option<String>,
             /// What was done over the range, outermost first; empty for a field
             /// at an instant.
@@ -1181,7 +1193,7 @@ api_type! {
     }
 
     /// One step of a GRIB2 statistical process (one time-range specification of
-    /// templates 4.8 and 4.11), as §4 writes it.
+    /// templates 4.8 to 4.12), as §4 writes it.
     #[derive(Copy, Eq)]
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]

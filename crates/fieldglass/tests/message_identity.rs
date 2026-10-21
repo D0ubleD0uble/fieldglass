@@ -388,3 +388,67 @@ fn a_local_parameter_from_two_centres_is_two_messages() {
         "WMO temperature"
     );
 }
+
+/// `reduced_gg_n32.grib1` with PDS octet `octet` (1-based) set to `value`. The
+/// fixture's PDS is 52 octets: ECMWF local definition 1 from octet 41, whose
+/// octet 43 is the MARS type and octet 50 the perturbation number (`grib_dump
+/// -O`, eccodes 2.34.1). The PDS follows the 8-octet indicator section.
+fn grib1_with_pds_octet(octet: usize, value: u8) -> Vec<u8> {
+    let mut bytes = read(GRIB1, "reduced_gg_n32.grib1");
+    assert_eq!(&bytes[8..11], &[0, 0, 52], "a 52-octet PDS");
+    bytes[8 + octet - 1] = value;
+    bytes
+}
+
+/// Two members of one GRIB1 field are two messages (#994). GRIB1 has no
+/// ensemble octets of its own: a centre writes the member in its PDS
+/// extension, here ECMWF local definition 1's perturbation number. Before,
+/// the identity stopped at octet 28, so a file that held member 3 and now
+/// holds member 5 matched, and a panel drew member 5 as member 3.
+#[test]
+fn two_grib1_members_of_one_field_are_two_messages() {
+    let three = grib1_with_pds_octet(50, 3);
+    let five = grib1_with_pds_octet(50, 5);
+    let wanted = &identities(three.clone())[0];
+    let MessageIdentity::Grib1 {
+        extension_octets, ..
+    } = wanted
+    else {
+        panic!("a GRIB1 message gives a GRIB1 identity: {wanted:?}");
+    };
+    assert_eq!(
+        extension_octets.as_deref(),
+        Some("000000000000000000000000010102040130303031030000"),
+        "octets 29-52 as written, member 3 at octet 50"
+    );
+    assert!(
+        matches(&identities(five.clone()), wanted).is_empty(),
+        "another member"
+    );
+    assert_eq!(
+        matches(&identities(concat(&[&five, &three])), wanted),
+        vec![1]
+    );
+}
+
+/// A product of the ensemble is not a member, nor the analysis: MARS type 2
+/// (an analysis) and 17 (the ensemble mean) of one field are two messages.
+#[test]
+fn a_grib1_analysis_and_an_ensemble_mean_are_two_messages() {
+    let analysis = read(GRIB1, "reduced_gg_n32.grib1");
+    let mean = grib1_with_pds_octet(43, 17);
+    assert!(matches(&identities(mean), &identities(analysis)[0]).is_empty());
+}
+
+/// A 28-octet PDS has no extension, which the identity says as `None`.
+#[test]
+fn a_grib1_pds_of_28_octets_has_no_extension() {
+    let ids = identities(read(GRIB1, "ecmwf_lfpw_msg0.grib1"));
+    assert!(matches!(
+        ids[0],
+        MessageIdentity::Grib1 {
+            extension_octets: None,
+            ..
+        }
+    ));
+}

@@ -1197,6 +1197,20 @@ export type MessageIdentity =
      */
     timeRange: number;
     /**
+     * The PDS octets from 29 to the section's end, as lowercase hex,
+     * or `None` for a 28-octet PDS (#994). That is where a centre
+     * extends the PDS with its own definitions: the ensemble member,
+     * or a mean, spread or probability of the ensemble (ECMWF's local
+     * definitions and NCEP's ensemble extension, both from octet 41).
+     * The reader does not parse them, so they are compared whole and
+     * as written, as GRIB2's `product_octets` are for a template it
+     * does not parse. That includes what GRIB2's identity leaves out,
+     * such as the ensemble size, and reserved or padding octets: a
+     * rewrite that changes only those no longer matches, which is the
+     * safe direction.
+     */
+    extensionOctets: string | null;
+    /**
      * The data representation type (GDS octet 6, Code Table 6), or
      * `None` when the message has no GDS.
      */
@@ -1300,8 +1314,8 @@ export type MessageIdentity =
      */
     forecastTime: number | null;
     /**
-     * The end of a statistical range as RFC 3339 (templates 4.8 and
-     * 4.11). `None` for a field at an instant.
+     * The end of a statistical range as RFC 3339 (templates 4.8 to
+     * 4.12). `None` for a field at an instant.
      */
     rangeEnd: string | null;
     /**
@@ -2127,7 +2141,7 @@ export interface SpectralTruncation {
 
 /**
  * One step of a GRIB2 statistical process (one time-range specification of
- * templates 4.8 and 4.11), as §4 writes it.
+ * templates 4.8 to 4.12), as §4 writes it.
  */
 export interface StatisticalStep {
   /**

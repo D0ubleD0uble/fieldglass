@@ -978,9 +978,11 @@ export class FieldglassEditorProvider
     // A changed file is read through the gate slice panels use (#839). The
     // panel's message is looked for in the new file by its identity, which is
     // Rust's (`MessageInfo.identity`): the parameter, level, reference time,
-    // step or range, and grid. Exactly one match is drawn under its own
-    // heading. None, or more than one, is refused, and the new file's messages
-    // are offered instead (`picking`); nothing is drawn until one is picked.
+    // step or range, grid, and ensemble member or product (for GRIB1, the
+    // centre's PDS extension as written). Exactly one match is drawn under its
+    // own heading. None, or more than one, is refused, and the new file's
+    // messages are offered instead (`picking`); nothing is drawn until one is
+    // picked.
     // Made before the first write, which numbers the page from it.
     const gate = new PanelHandleGate<Handle>(opened, this.leases);
 
