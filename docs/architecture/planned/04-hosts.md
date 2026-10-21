@@ -100,11 +100,36 @@ sequenceDiagram
     H-->>W: Field over the window, placed at its own corners
 ```
 
+A sharded variable's `chunks` are shards, which can hold many steps or a large
+area. The plan also names each shard's index (`shardIndexes`, the shard's last
+or first bytes), and once those are in the map, as `{ size, ranges }` under the
+shard's key, planning again names the byte range of each inner chunk the window
+intersects (`innerChunks`). The Worker fetches those ranges and decodes from
+them and the indexes alone (#1123).
+
+```mermaid
+sequenceDiagram
+    participant W as Worker (JS)
+    participant B as bucket (HTTPS)
+    participant H as wasm handle
+
+    W->>H: planWindow(request)
+    H-->>W: WindowPlan { chunks, shardIndexes }
+    W->>B: GET each shard (Range: bytes=-length)
+    W->>H: openStore(objects + { size, ranges } per shard)
+    W->>H: planWindow(request)
+    H-->>W: WindowPlan { innerChunks }
+    W->>B: GET each inner chunk (Range: bytes=offset-end)
+    W->>H: openStore(objects + the inner ranges)
+    W->>H: decodeWindow(request)
+```
+
 A cell is in the box when its centre is, and a box across the seam of a global
 grid is two column runs read as one window. The plan's keys are spelled by the
 code the read fetches with (`ZarrStore::chunk_keys`), so fetching exactly them
-is enough. A key the Worker does not pass reads as the fill value, as an absent
-chunk does. Windows are planned over slices placed on a regular lat/lon grid,
+is enough. A key the Worker passes as `null` (a 404) reads as the fill value,
+as an absent chunk does, and one it does not pass at all is refused by name
+(#1124). Windows are planned over slices placed on a regular lat/lon grid,
 as 1-D latitude and longitude coordinates place them; any other placement is
 refused. Built behind `fieldglass-wasm`'s `zarr` feature, and shipped in the
 package's `@fieldglass/wasm/full` entry (#1158).

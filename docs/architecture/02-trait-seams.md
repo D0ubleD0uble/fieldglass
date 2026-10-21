@@ -157,6 +157,20 @@ metadata alone; `ZarrStore`'s region read asks `unfetched` before it reads a
 chunk and refuses, naming every key. `MemoryObjects` and `DirectoryObjects` hold
 a whole store, so the provided default, nothing unfetched, is their answer.
 
+An object can also be held in part (#1123). A Zarr shard is one object holding
+many inner chunks and an index of where each is, so a browser fetches the index
+and then the inner chunks a window needs, by range, rather than the shard.
+`PrefetchedObjects::insert_range` takes each range with the object's whole
+size, and three provided methods read it: `object_size(key)`,
+`get_range(key, range)`, and `unfetched_ranges(wanted)`, the ranged twin of
+`unfetched`. The defaults read the whole object, so a map or a directory
+answers them unchanged. A key held only by range is unfetched as a whole object,
+and `get` refuses it rather than answering `None`, which would read the shard as
+absent. `ZarrStore` plans with them (`shard_indexes`, `inner_chunk_ranges`) and
+its region read takes a shard held by range one inner chunk at a time; both
+parse the index with `Sharding::read_index`, the parser the whole-shard decode
+uses.
+
 `ArraySource` is the rung above both (#658, ADR-0010's amendment to decision
 3). The byte seams answer "give me these bytes"; this answers "give me this
 array's values": a container's `Group` tree and a raw region read, with the CF
@@ -194,6 +208,9 @@ classDiagram
         +require(key) Cow (provided)
         +list_children(prefix) (provided, #708)
         +unfetched(keys) (provided, #1124)
+        +object_size(key) (provided, #1123)
+        +get_range(key, range) (provided, #1123)
+        +unfetched_ranges(wanted) (provided, #1123)
     }
 
     class ArraySource {
