@@ -1073,7 +1073,7 @@ fn shard_block(
     let inner: Vec<u64> = decoder
         .chain()
         .sharding()
-        .map(|sharding| sharding.chunk_shape.iter().map(|&n| n as u64).collect())
+        .map(|sharding| sharding.chunk_shape().iter().map(|&n| n as u64).collect())
         .ok_or_else(|| {
             FieldglassError::WrongLayout("this array's chunks are not shards".to_string())
         })?;

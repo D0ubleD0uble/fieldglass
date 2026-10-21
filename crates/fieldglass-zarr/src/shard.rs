@@ -53,8 +53,6 @@ pub enum IndexLocation {
 /// A `sharding_indexed` codec's configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sharding {
-    /// The inner chunk shape, which must divide the shard's own chunk shape.
-    pub chunk_shape: Vec<usize>,
     /// The chain each inner chunk's bytes were written through.
     inner: CodecChain,
     /// The inner grid, the index chain and where the index is.
@@ -133,11 +131,7 @@ impl Sharding {
                 "a shard nested inside a shard is not decoded".to_string(),
             ));
         }
-        Ok(Self {
-            chunk_shape: layout.chunk_shape.clone(),
-            inner,
-            layout,
-        })
+        Ok(Self { inner, layout })
     }
 }
 
@@ -276,7 +270,15 @@ impl ShardLayout {
         outer_shape: &[usize],
         shard_size: u64,
     ) -> Result<ByteRange, FieldglassError> {
-        let len = self.index_len(outer_shape)?;
+        let (_, entries) = self.grid(outer_shape)?;
+        self.index_at(entries, shard_size)
+    }
+
+    /// Where the index of `entries` inner chunks sits in a shard
+    /// `shard_size` bytes long: [`Self::index_range`] for a grid already in
+    /// hand.
+    fn index_at(&self, entries: usize, shard_size: u64) -> Result<ByteRange, FieldglassError> {
+        let len = self.index_bytes(entries)? as u64;
         let start = match self.location {
             IndexLocation::Start => (len <= shard_size).then_some(0),
             IndexLocation::End => shard_size.checked_sub(len),
@@ -317,7 +319,29 @@ impl ShardLayout {
         shard_size: u64,
     ) -> Result<ShardIndex, FieldglassError> {
         let (chunks_per_shard, entries) = self.grid(outer_shape)?;
-        let at = self.index_range(outer_shape, shard_size)?;
+        let mut out = Vec::with_capacity(entries);
+        self.each_entry(raw_index, entries, shard_size, |entry| {
+            out.push(entry);
+            Ok(())
+        })?;
+        Ok(ShardIndex {
+            chunks_per_shard,
+            entries: out,
+        })
+    }
+
+    /// Check `raw_index` as the index of `entries` inner chunks in a shard
+    /// `shard_size` bytes long, and hand `each` every entry in order: the one
+    /// walk [`Self::read_index`] collects and the whole-shard decode consumes
+    /// as it goes, so a shard decoded whole builds no list of entries.
+    fn each_entry(
+        &self,
+        raw_index: &[u8],
+        entries: usize,
+        shard_size: u64,
+        mut each: impl FnMut(Option<ByteRange>) -> Result<(), FieldglassError>,
+    ) -> Result<(), FieldglassError> {
+        let at = self.index_at(entries, shard_size)?;
         if raw_index.len() as u64 != at.len {
             return Err(FieldglassError::Parse(format!(
                 "a shard index for {entries} inner chunks is {} bytes, not {}",
@@ -333,7 +357,6 @@ impl ShardLayout {
         let big_endian = self.index.declared_endian() == Some(Endian::Big);
         let index_end = at.end().unwrap_or(u64::MAX);
 
-        let mut out = Vec::with_capacity(entries);
         for entry in index.as_chunks::<ENTRY_LEN>().0 {
             let read = |at: usize| {
                 let word: [u8; 8] = entry[at..at + 8].try_into().expect("eight bytes");
@@ -345,7 +368,7 @@ impl ShardLayout {
             };
             let (offset, length) = (read(0), read(8));
             if offset == EMPTY && length == EMPTY {
-                out.push(None);
+                each(None)?;
                 continue;
             }
             // A half-sentinel is not a spelling the specification gives, and
@@ -375,12 +398,9 @@ impl ShardLayout {
                     at.start
                 )));
             }
-            out.push(Some(ByteRange::new(offset, length)));
+            each(Some(ByteRange::new(offset, length)))?;
         }
-        Ok(ShardIndex {
-            chunks_per_shard,
-            entries: out,
-        })
+        Ok(())
     }
 }
 
@@ -392,6 +412,16 @@ impl Sharding {
     /// codec.
     pub(crate) fn inner_endian(&self) -> Option<Endian> {
         self.inner.declared_endian()
+    }
+
+    /// The inner chunk shape, which must divide the shard's own chunk shape.
+    ///
+    /// The layout's, rather than a copy of it: a chain is built per read, and
+    /// a second vector there was an allocation and 48 bytes of peak heap on
+    /// every sharded read (#1123).
+    #[must_use]
+    pub fn chunk_shape(&self) -> &[usize] {
+        &self.layout.chunk_shape
     }
 
     /// Where this codec's index is and how it is read: the part of it that
@@ -440,12 +470,13 @@ impl Sharding {
         element_size: usize,
     ) -> Result<Vec<u8>, FieldglassError> {
         let inner_bytes = self
+            .layout
             .chunk_shape
             .iter()
             .try_fold(element_size, |acc, &n| acc.checked_mul(n))
             .ok_or_else(|| FieldglassError::Parse("inner chunk size overflows".to_string()))?;
         self.inner
-            .decode(stored, inner_bytes, &self.chunk_shape, element_size)
+            .decode(stored, inner_bytes, &self.layout.chunk_shape, element_size)
     }
 
     /// Decode a shard object into its inner chunks.
@@ -459,20 +490,24 @@ impl Sharding {
         element_size: usize,
     ) -> Result<Shard, FieldglassError> {
         let size = stored.len() as u64;
-        let at = self.index_range(outer_shape, size)?;
-        // In bounds: `index_range` placed it inside `size`.
+        // The grid once, and the entries consumed as the parser checks them:
+        // a shard decoded whole allocates what it did before the index could
+        // be read on its own (#1123).
+        let (chunks_per_shard, entries) = self.layout.grid(outer_shape)?;
+        let at = self.layout.index_at(entries, size)?;
+        // In bounds: `index_at` placed it inside `size`.
         let raw_index = slice(stored, at);
-        let index = self.read_index(raw_index, outer_shape, size)?;
-        let mut chunks = Vec::with_capacity(index.len());
-        for entry in &index.entries {
+        let mut chunks = Vec::with_capacity(entries);
+        self.layout.each_entry(raw_index, entries, size, |entry| {
             chunks.push(match entry {
                 None => None,
-                // In bounds: `read_index` held every entry to `size`.
-                Some(range) => Some(self.decode_inner(slice(stored, *range), element_size)?),
+                // In bounds: the parser held every entry to `size`.
+                Some(range) => Some(self.decode_inner(slice(stored, range), element_size)?),
             });
-        }
+            Ok(())
+        })?;
         Ok(Shard {
-            chunks_per_shard: index.chunks_per_shard,
+            chunks_per_shard,
             chunks,
         })
     }
