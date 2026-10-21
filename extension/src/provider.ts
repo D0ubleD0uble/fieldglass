@@ -225,11 +225,14 @@ export type PngExportOutcome =
  *
  * A NetCDF panel is keyed by a document and a Zarr panel by a store path, and
  * neither fact belongs inside the panel. What it actually needs is: how to
- * re-fetch the handle (one can be disposed while the panel lives), where an
- * export should start, what to caption the geometry, and what to say when the
- * handle has gone.
+ * re-fetch the handle (a revert or a reopen replaces it while the panel lives),
+ * where an export should start, what to caption the geometry, and what to say
+ * when the panel has no handle.
  */
 interface SlicePanelSubject {
+  /** The container's handle now, which a panel's gate compares with the one
+   *  it holds to notice a revert or a reopen. A request is served from the
+   *  gate's handle (#1338); an export is given that one. */
   handle(): Handle | undefined;
   gone: string;
   exportDir: vscode.Uri;
@@ -395,15 +398,25 @@ export class FieldglassEditorProvider
   private _csvExport: Promise<void> = Promise.resolve();
 
   /** Build `panel`'s HTML now, and again whenever the colormaps change. */
-  private trackRenderPanel(panel: vscode.WebviewPanel, build: () => void, document?: vscode.Uri): void {
+  private trackRenderPanel(
+    panel: vscode.WebviewPanel,
+    build: () => void,
+    gate: PanelHandleGate<Handle>,
+    document?: vscode.Uri,
+  ): void {
     build();
     this._renderPanelBuilders.set(panel, build);
+    this._renderPanelGates.set(panel, gate);
     if (document) this._renderPanelDocs.set(panel, document.toString());
     panel.onDidDispose(() => {
       this._renderPanelBuilders.delete(panel);
+      this._renderPanelGates.delete(panel);
       this._renderPanelDocs.delete(panel);
     });
   }
+  /** Each render panel's gate, which a revert tells that its handle is the
+   *  old file's (#1338). */
+  private readonly _renderPanelGates = new Map<vscode.WebviewPanel, PanelHandleGate<Handle>>();
   /** The document each render panel draws from, for the panels a revert
    *  writes again (#1217). A Zarr panel has none. */
   private readonly _renderPanelDocs = new Map<vscode.WebviewPanel, string>();
@@ -681,11 +694,18 @@ export class FieldglassEditorProvider
     messageIndex: number,
     // Asked from a render panel with Compare on: the CSV is Field A's.
     fieldA = false,
+    // Asked from a render panel: the handle the panel holds, which outlives
+    // the document's editor (#1338). The message table reads the document's.
+    panelHandle?: () => Handle | undefined,
   ): Promise<void> {
-    const handle = this._handlesByDoc.get(document.uri.toString());
+    const handle = panelHandle ? panelHandle() : this._handlesByDoc.get(document.uri.toString());
     if (!handle) {
+      // A panel is on a GRIB file whatever happened to its handle, so it says
+      // what is missing, as a slice panel does.
       void vscode.window.showErrorMessage(
-        "Fieldglass: CSV export is available for GRIB files only."
+        panelHandle
+          ? "Fieldglass: CSV export is available only for an open message."
+          : "Fieldglass: CSV export is available for GRIB files only."
       );
       return;
     }
@@ -1037,7 +1057,7 @@ export class FieldglassEditorProvider
         gate.page,
       );
     };
-    this.trackRenderPanel(panel, write, document.uri);
+    this.trackRenderPanel(panel, write, gate, document.uri);
 
     const refuse = (ask: { seq?: number } = {}) => {
       if (!picking) return;
@@ -1080,10 +1100,10 @@ export class FieldglassEditorProvider
       return false;
     };
     // The user picked one of the new file's messages. The index is the one the
-    // refusal listed; the gate has already checked that the file has not
-    // changed again since.
+    // refusal listed, in the file the gate holds: it has already checked that
+    // the file has not changed again since, and the editor may have closed.
     const pick = (index: unknown) => {
-      const current = docHandle();
+      const current = gate.handle;
       if (!picking || !current || !isNonNegativeInt(index) || index >= current.count()) return;
       const m = current.message(index);
       if (!messageIsRenderable(m)) {
@@ -1103,8 +1123,8 @@ export class FieldglassEditorProvider
     };
 
     const paint = (options: RenderOptions, compare?: GribCompare, ask: { seq?: number } = {}) => {
-      const docHandle = this._handlesByDoc.get(key);
-      if (!docHandle) {
+      const reader = gate.handle;
+      if (!reader) {
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: shown.index,
@@ -1117,7 +1137,7 @@ export class FieldglassEditorProvider
         // A difference map combines this message (A) with the chosen message
         // (B); otherwise a plain single-field render. Both return the same
         // paint-ready RGBA, so the panel displays them identically.
-        const rendered = docHandle.renderGrid(
+        const rendered = reader.renderGrid(
           messageTarget(shown.index, compare),
           options,
         );
@@ -1145,12 +1165,12 @@ export class FieldglassEditorProvider
     // values, so toggling the overlay never re-decodes the grid. `seq` is
     // echoed verbatim so the webview can drop a reply for a superseded request.
     const projectOverlay = (req: OverlayRequest) => {
-      const docHandle = this._handlesByDoc.get(key);
-      if (!docHandle) return;
+      const reader = gate.handle;
+      if (!reader) return;
       const options = resolveRerenderOptions(req.options ?? {});
       const layers: OverlayLayerPayload[] = [];
       const project = (name: string, geom: OverlayGeometry) => {
-        const projected = docHandle.projectOverlay(shown.index, options, {
+        const projected = reader.projectOverlay(shown.index, options, {
           latlon: geom.latlon,
           ringLengths: geom.ringLengths,
         });
@@ -1186,14 +1206,14 @@ export class FieldglassEditorProvider
     // Unlike the geographic overlays this decodes values, so it rides the same
     // handle as `paint`; `seq` lets the panel drop a superseded reply.
     const projectContours = (req: ContourRequest) => {
-      const docHandle = this._handlesByDoc.get(key);
-      if (!docHandle) return;
+      const reader = gate.handle;
+      if (!reader) return;
       const options = resolveRerenderOptions(req.options ?? {});
       const interval = resolveInterval(req.interval);
       // A difference-map contour traces the combined field, not field A (#329).
       const compare = resolveGribCompare(req);
       try {
-        const c = docHandle.projectContours(
+        const c = reader.projectContours(
           messageTarget(shown.index, compare),
           options,
           { interval },
@@ -1222,20 +1242,20 @@ export class FieldglassEditorProvider
     // combine would be (#793) — so the panel can say why rather than drawing
     // nothing.
     const projectVectors = (req: VectorRequest) => {
-      const docHandle = this._handlesByDoc.get(key);
-      if (!docHandle) return;
+      const reader = gate.handle;
+      if (!reader) return;
       if (!isNonNegativeInt(req.messageIndexV)) return;
       const options = resolveRerenderOptions(req.options ?? {});
       const spacing = isNonNegativeInt(req.spacing) && req.spacing > 0 ? req.spacing : undefined;
       try {
-        const arrows = docHandle.projectVectors(
+        const arrows = reader.projectVectors(
           { u: shown.index, v: req.messageIndexV, spacing, gridRelative: req.gridRelative === true },
           options,
         );
         // Whether the two are a u/v pair is Rust's answer (#1049); the names
         // are what the note says it about.
         const named = (i: number) => {
-          const m = docHandle.message(i);
+          const m = reader.message(i);
           return m.abbreviation ?? m.parameter ?? `#${i}`;
         };
         panel.webview.postMessage({
@@ -1263,10 +1283,10 @@ export class FieldglassEditorProvider
     // difference map's is the combined field's, not field A's (#1208).
     const zonal = (req: { seq?: number }) => {
       const seq = req.seq;
-      const docHandle = this._handlesByDoc.get(key);
-      if (!docHandle) return;
+      const reader = gate.handle;
+      if (!reader) return;
       try {
-        const result = docHandle.zonalMean(messageTarget(shown.index, resolveGribCompare(req)));
+        const result = reader.zonalMean(messageTarget(shown.index, resolveGribCompare(req)));
         panel.webview.postMessage({ type: "zonalResult", seq, messageIndex: shown.index, result, error: null });
       } catch (err) {
         panel.webview.postMessage({
@@ -1281,15 +1301,15 @@ export class FieldglassEditorProvider
 
     // Read the field under a clicked pixel and post the readout back (#172).
     const probe = (req: ProbeRequest) => {
-      const docHandle = this._handlesByDoc.get(key);
-      if (!docHandle) return;
+      const reader = gate.handle;
+      if (!reader) return;
       const options = resolveRerenderOptions(req.options ?? {});
       const px = Math.max(0, Math.floor(req.px));
       const py = Math.max(0, Math.floor(req.py));
       // A click on a difference map reads the combined field, not field A (#329).
       const compare = resolveGribCompare(req);
       try {
-        const result = docHandle.probePixel(
+        const result = reader.probePixel(
           messageTarget(shown.index, compare),
           options,
           px,
@@ -1358,7 +1378,13 @@ export class FieldglassEditorProvider
         // Export CSV beside Export PNG (#1039): the message the panel draws,
         // which until then only the message table could export.
         if (m.type === "exportCsv") {
-          this._csvExport = this.handleExportCsv(document, shown.index, (m as { fieldA?: unknown }).fieldA === true);
+          // From the message's own file, which the panel holds (#1338).
+          this._csvExport = this.handleExportCsv(
+            document,
+            shown.index,
+            (m as { fieldA?: unknown }).fieldA === true,
+            () => gate.handle,
+          );
           return;
         }
         if (m.type === "exportPng") {
@@ -1474,8 +1500,9 @@ export class FieldglassEditorProvider
           // Last panel for this document closed — drop the reader handle
           // so we don't leak the parsed bytes + per-message decode cache
           // for every file the user has ever opened in this session. It is
-          // closed now, or with the last render panel still on it (#1204).
-          // The handle will be rebuilt on the next `resolveCustomEditor`.
+          // closed now, or with the last render panel still on it (#1204),
+          // which goes on drawing from it (#1338). The handle will be
+          // rebuilt on the next `resolveCustomEditor`.
           this._panelsByDoc.delete(key);
           this._handlesByDoc.delete(key);
           this._netcdfHandlesByDoc.delete(key);
@@ -1504,7 +1531,9 @@ export class FieldglassEditorProvider
    *  variables. Every render panel on the document is written again too, so it
    *  asks at once, and its {@link PanelHandleGate} finds the new handle and
    *  looks for its message or variable in the new file. An old handle is
-   *  closed once every render panel on it has moved to the new one (#1204). */
+   *  closed once every render panel on it has moved to the new one (#1204),
+   *  and is never drawn from again: when the new bytes do not open, the
+   *  panel says it has no file (#1338). */
   private reloadDocument(document: FieldglassDocument): void {
     const key = document.uri.toString();
     this._reverts.set(key, (this._reverts.get(key) ?? 0) + 1);
@@ -1512,7 +1541,11 @@ export class FieldglassEditorProvider
     this._netcdfHandlesByDoc.delete(key);
     for (const panel of this._panelsByDoc.get(key) ?? []) this.writeEditorPage(document, panel);
     for (const [panel, doc] of this._renderPanelDocs) {
-      if (doc === key) this._renderPanelBuilders.get(panel)?.();
+      if (doc !== key) continue;
+      // The panel's handle is the old file's. If the new bytes did not open,
+      // the panel has nothing to draw, not the old file (#1338).
+      this._renderPanelGates.get(panel)?.outdate();
+      this._renderPanelBuilders.get(panel)?.();
     }
   }
 
@@ -1618,8 +1651,10 @@ export class FieldglassEditorProvider
     if (!handle) return;
     this.openSliceRenderPanel(
       {
-        // Re-fetched rather than captured: a document can close under a panel
-        // that is still open, and the handle goes with it.
+        // Re-fetched rather than captured: a revert or a reopen gives the
+        // document a new handle, which the panel's gate moves to. The panel
+        // draws from the handle its gate holds, which stays open after the
+        // document's editor closes (#1338).
         handle: () => this._netcdfHandlesByDoc.get(document.uri.toString()),
         gone: "NetCDF handle was disposed",
         exportDir: vscode.Uri.joinPath(document.uri, ".."),
@@ -1791,7 +1826,7 @@ export class FieldglassEditorProvider
         gate.page,
       );
     };
-    this.trackRenderPanel(panel, write, subject.document);
+    this.trackRenderPanel(panel, write, gate, subject.document);
 
     // `picked`: the request is a render, which a page waiting for a pick asks
     // for only once a variable is picked, so its slice names a choice.
@@ -1812,7 +1847,9 @@ export class FieldglassEditorProvider
         // Nothing is left under the old heading or tab either: the page clears
         // its picture on this error, and a page written again names no
         // variable (#1237). The gate keeps the old handle, so the next request
-        // looks at the file again.
+        // looks at the file again, but nothing is drawn from it: should the
+        // editor close, the panel has no file, not the old one (#1338).
+        gate.outdate();
         refusal = `The ${subject.container} ${subject.noun} no longer has a variable to draw.`;
         lost = name;
         panel.title = composeTabTitle("pick a variable", subject.source);
@@ -1850,8 +1887,8 @@ export class FieldglassEditorProvider
       variables.find((v) => v.index === spec.variableIndex) ?? initialVar;
 
     const paint = (requested: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare, ask: { seq?: number } = {}) => {
-      const docHandle = subject.handle();
-      if (!docHandle) {
+      const reader = gate.handle;
+      if (!reader) {
         // With no handle nothing is placed, so the picker and the Overlay row
         // stop offering what only a placed slice takes (#839).
         panel.webview.postMessage({
@@ -1868,7 +1905,7 @@ export class FieldglassEditorProvider
       // request for one that this slice cannot take — the picker has just moved
       // onto it — is drawn in the source view, and the answer goes back with
       // the render so the picker follows.
-      const grid = gridOf(docHandle, spec);
+      const grid = gridOf(reader, spec);
       const options: RenderOptions =
         grid?.reprojectable || requested.projection === "source"
           ? requested
@@ -1877,7 +1914,7 @@ export class FieldglassEditorProvider
         // A difference map combines this slice (A) with a second slice (B) —
         // the same or another variable at its own indices; otherwise a plain
         // single-slice render. Both return the same paint-ready RGBA.
-        const rendered = docHandle.renderGrid(sliceTarget(spec, compare), options);
+        const rendered = reader.renderGrid(sliceTarget(spec, compare), options);
         shown = { meta: sliceField(renderedVar(spec), grid), grid };
         // Every animation frame renders, and the tab is renamed only when the
         // variable changed.
@@ -1887,7 +1924,7 @@ export class FieldglassEditorProvider
         const held = heldSliceParts(
           renderedVar(spec).dims.map((d) => d.name),
           spec,
-          axisOf(docHandle, spec.variableIndex),
+          axisOf(reader, spec.variableIndex),
         );
         panel.webview.postMessage({
           ...ask,
@@ -1923,13 +1960,13 @@ export class FieldglassEditorProvider
     };
 
     const projectOverlay = (req: OverlayRequest & { slice?: SliceSpec }) => {
-      const docHandle = subject.handle();
-      if (!docHandle) return;
+      const reader = gate.handle;
+      if (!reader) return;
       const spec = req.slice ?? initial;
       const options = resolveRerenderOptions(req.options ?? {});
       const layers: OverlayLayerPayload[] = [];
       const project = (name: string, geom: OverlayGeometry) => {
-        const projected = docHandle.projectOverlay(sliceOf(spec), options, {
+        const projected = reader.projectOverlay(sliceOf(spec), options, {
           latlon: geom.latlon,
           ringLengths: geom.ringLengths,
         });
@@ -1960,15 +1997,15 @@ export class FieldglassEditorProvider
 
     // Contour isolines for the current slice, projected onto its raster (#238).
     const projectContours = (req: ContourRequest) => {
-      const docHandle = subject.handle();
-      if (!docHandle) return;
+      const reader = gate.handle;
+      if (!reader) return;
       const spec = req.slice ?? initial;
       const options = resolveRerenderOptions(req.options ?? {});
       const interval = resolveInterval(req.interval);
       // A difference-map contour traces the combined field, not slice A (#329).
       const compare = resolveNetcdfCompare(req);
       try {
-        const c = docHandle.projectContours(sliceTarget(spec, compare), options, { interval });
+        const c = reader.projectContours(sliceTarget(spec, compare), options, { interval });
         panel.webview.postMessage({
           type: "contourReady",
           messageIndex: spec.variableIndex,
@@ -1989,11 +2026,11 @@ export class FieldglassEditorProvider
     // The slice's zonal mean (#240), with the refusal passed through as on the
     // GRIB panel. A difference map's is the combined field's (#1208).
     const zonal = (req: { slice?: SliceSpec; seq?: number }) => {
-      const docHandle = subject.handle();
-      if (!docHandle) return;
+      const reader = gate.handle;
+      if (!reader) return;
       const spec = req.slice ?? initial;
       try {
-        const result = docHandle.zonalMean(sliceTarget(spec, resolveNetcdfCompare(req)));
+        const result = reader.zonalMean(sliceTarget(spec, resolveNetcdfCompare(req)));
         panel.webview.postMessage({ type: "zonalResult", seq: req.seq, messageIndex: spec.variableIndex, result, error: null });
       } catch (err) {
         panel.webview.postMessage({
@@ -2011,8 +2048,8 @@ export class FieldglassEditorProvider
     // a companion to the readout, and a variable with no axis to read along is
     // an ordinary state, not something the user did wrong.
     const line = (req: LineRequest) => {
-      const docHandle = subject.handle();
-      if (!docHandle) return;
+      const reader = gate.handle;
+      if (!reader) return;
       const spec = req.slice ?? initial;
       const indices = lineIndices(spec, req.gridI, req.gridJ);
       if (!indices || !isNonNegativeInt(req.alongDim)) {
@@ -2035,13 +2072,13 @@ export class FieldglassEditorProvider
       }
       try {
         const result = compare && indicesB
-          ? docHandle.decodeLineCombined({
+          ? reader.decodeLineCombined({
             a,
             b: { variable: compare.variableIndexB, alongDim: req.alongDim, sliceIndices: indicesB },
             op: compare.op,
             holdB: req.alongDim !== spec.yDim && req.alongDim !== spec.xDim,
           })
-          : docHandle.decodeLine(a);
+          : reader.decodeLine(a);
         panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result });
       } catch {
         panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
@@ -2057,12 +2094,12 @@ export class FieldglassEditorProvider
     // cross-section's render for its Y axis (#1043), and the render is what
     // tells the user the file is gone.
     const axis = (req: { slice?: SliceSpec; dim?: unknown }) => {
-      const docHandle = subject.handle();
+      const reader = gate.handle;
       const spec = req.slice ?? initial;
       // The answer names the variable it is for, so a page that has moved to
       // another variable meanwhile files it under the right one (#1041).
       const variableIndex = spec.variableIndex;
-      if (!docHandle) {
+      if (!reader) {
         panel.webview.postMessage({ type: "axisResult", dim: req.dim, variableIndex, result: null, handleGone: true });
         return;
       }
@@ -2073,7 +2110,7 @@ export class FieldglassEditorProvider
         return;
       }
       try {
-        reply(docHandle.axisValues(spec.variableIndex, req.dim));
+        reply(reader.axisValues(spec.variableIndex, req.dim));
       } catch {
         reply(null);
       }
@@ -2081,8 +2118,8 @@ export class FieldglassEditorProvider
 
     // Point-probe readout for the current slice (#172).
     const probe = (req: ProbeRequest) => {
-      const docHandle = subject.handle();
-      if (!docHandle) return;
+      const reader = gate.handle;
+      if (!reader) return;
       const spec = req.slice ?? initial;
       const options = resolveRerenderOptions(req.options ?? {});
       const px = Math.max(0, Math.floor(req.px));
@@ -2090,7 +2127,7 @@ export class FieldglassEditorProvider
       // A click on a difference map reads the combined field, not slice A (#329).
       const compare = resolveNetcdfCompare(req);
       try {
-        const result = docHandle.probePixel(sliceTarget(spec, compare), options, px, py);
+        const result = reader.probePixel(sliceTarget(spec, compare), options, px, py);
         panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: spec.variableIndex, result });
       } catch {
         panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
@@ -2114,16 +2151,17 @@ export class FieldglassEditorProvider
         if (!served) return;
         if (m.type === "ready" && refusal !== null) {
           const spec = (m as { slice?: SliceSpec }).slice ?? initial;
+          // Read from the file the panel holds, which stays open after its
+          // editor closes (#1338).
+          const reader = gate.handle;
           panel.webview.postMessage({
             type: "gridError",
             messageIndex: spec.variableIndex,
-            // With the file closed meanwhile, that is what is said; the page
-            // still waits for a pick, which the file opened again answers.
-            error: current ? refusal : subject.gone,
+            error: reader ? refusal : subject.gone,
             ...seqOf(m),
-            sliceGrid: sliceAnswer(current ? gridOf(current, spec) : null),
+            sliceGrid: sliceAnswer(reader ? gridOf(reader, spec) : null),
             pickVariable: true,
-            ...(current ? {} : { handleGone: true }),
+            ...(reader ? {} : { handleGone: true }),
           } satisfies GridErrorMessage);
           return;
         }
@@ -2175,7 +2213,12 @@ export class FieldglassEditorProvider
             Array.isArray(spec.sliceIndices) &&
             spec.sliceIndices.every((n) => isNonNegativeInt(n))
           ) {
-            this._csvExport = this.handleExportSliceCsv(subject, spec, (m as { fieldA?: unknown }).fieldA === true);
+            // From the slice's own file, which the panel holds (#1338).
+            this._csvExport = this.handleExportSliceCsv(
+              { ...subject, handle: () => gate.handle },
+              spec,
+              (m as { fieldA?: unknown }).fieldA === true,
+            );
           }
         }
         if (m.type === "exportPng") {
@@ -2217,6 +2260,10 @@ export class FieldglassEditorProvider
 export class PanelHandleGate<H> {
   private awaitingReady = false;
   private written = 0;
+  // Set once the page's handle no longer holds what the document shows: the
+  // document was read again (File: Revert File), or its new file has nothing
+  // the page can draw. Cleared when the panel adopts a handle.
+  private outdated = false;
 
   /** `leases`, when given, is held on the page's handle until the panel adopts
    *  another or is disposed (#1204): a revert or a reopen replaces the
@@ -2227,6 +2274,27 @@ export class PanelHandleGate<H> {
     private readonly leases?: { hold(handle: H, holder: object): void; release(handle: H | undefined, holder: object): void },
   ) {
     if (pageHandle) leases?.hold(pageHandle, this);
+  }
+
+  /** The handle to serve the page's requests from (#1338). After
+   *  {@link admit} has let a request through, it is the document's handle
+   *  when the document has one, and the one the panel kept when the
+   *  document's editor has closed. It is `undefined` when the panel has no
+   *  file it may draw: none was open when it opened, or the document was
+   *  read again into bytes that did not open (see {@link outdate}). */
+  get handle(): H | undefined {
+    return this.outdated ? undefined : this.pageHandle;
+  }
+
+  /** The page's handle no longer holds what the document shows: the document
+   *  was read again (File: Revert File), or its new file has nothing the page
+   *  can draw. The handle stays held, so a panel that moves to the document's
+   *  new handle on its next request lets go of it then (#1204). Until it
+   *  moves, nothing is drawn from it: should the document have no handle at
+   *  that request (the new bytes did not open, or its editor closed), the
+   *  panel says it has no file and lets go of the old one (#1338). */
+  outdate(): void {
+    if (this.pageHandle) this.outdated = true;
   }
 
   /** The number to write the page with, which it sends back on every message.
@@ -2255,6 +2323,9 @@ export class PanelHandleGate<H> {
     // again while that page loaded, and its numbers are then the previous
     // file's.
     if (current && current !== this.pageHandle) return adopt(current);
+    // Outdated with nothing to move to: the old file is not drawn as the
+    // document's, and is no longer kept for it.
+    if (this.outdated && !current) this.dispose();
     return true;
   }
 
@@ -2275,12 +2346,14 @@ export class PanelHandleGate<H> {
   dispose(): void {
     const old = this.pageHandle;
     this.pageHandle = undefined;
+    this.outdated = false;
     this.leases?.release(old, this);
   }
 
   private adopt(handle: H): void {
     const old = this.pageHandle;
     this.pageHandle = handle;
+    this.outdated = false;
     if (old === handle) return;
     this.leases?.hold(handle, this);
     this.leases?.release(old, this);

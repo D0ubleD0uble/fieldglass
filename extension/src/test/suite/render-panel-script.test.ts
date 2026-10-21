@@ -98,7 +98,8 @@ async function changingFile(
       assert.ok(handles.has(vscode.Uri.file(file).toString()), "the document has a handle to replace");
       handles.set(vscode.Uri.file(file).toString(), native.open(bytes));
     },
-    // The editor closes, which drops its handle, and opens the file again.
+    // The editor closes, which drops the document's handle (the panel keeps
+    // the one it holds, #1338), and opens the file again.
     close: () => editor.close(),
     reopen: async () => {
       editor = await openEditor(p, file);
@@ -116,11 +117,11 @@ const drawnOrRefused = (m: Msg) => m && (m.type === "gridReady" || m.type === "g
 suite("The render panel's own script", function () {
   this.timeout(60_000);
 
-  // A slice panel outlives the editor it was opened from. Close the editor and
-  // the panel has no handle, so every render it asks for fails. Here that
-  // render is the first after a restore, the case the issue asks about, with a
-  // map target saved.
-  test("a slice render that fails withdraws the map targets and overlays (#839)", async () => {
+  // A slice panel outlives the editor it was opened from (#839). It holds the
+  // file open (#1204) and goes on drawing from it (#1338), so a restore with a
+  // map target saved, the case #839 asked about, draws on that target and
+  // keeps the map targets and overlays on offer.
+  test("a slice panel restored after its editor closed draws on its saved map target (#839, #1338)", async () => {
     const original = fs.readFileSync(fixture("netcdf4_dimscale.nc"));
     const temperature = indexOf(original, "temperature");
     const p = await provider();
@@ -147,23 +148,88 @@ suite("The render panel's own script", function () {
       assert.strictEqual(state.controlShown.overlay, true);
 
       // The editor closes under the panel, and the panel is restored with
-      // equirectangular saved. Its first render fails.
+      // equirectangular saved. It draws from the file it holds.
       editor.close();
-      const before = { sent: panel.sent.length, received: panel.received.length };
+      from = panel.sent.length;
       panel.rebuild();
-      const failed = await panel.waitSent(isType("gridError"), before.sent, "the restored render's error");
+      const restored = await panel.waitSent(drawnOrRefused, from, "the restored render");
+      assert.strictEqual(restored.type, "gridReady", `${restored.error ?? ""}`);
+      assert.strictEqual(restored.options.projection, "equirectangular", "the saved map target is drawn");
+      assert.strictEqual(restored.sliceGrid.placed, true);
+      await panel.waitSent(isType("overlayReady"), from, "the coastlines after the restore");
+      state = await panel.drive([]);
+      assert.ok(state.projectionOffers.includes("equirectangular"), `got ${state.projectionOffers.join(", ")}`);
+      assert.strictEqual(state.projection, "equirectangular");
+      assert.strictEqual(state.controlShown.projection, true);
+      assert.strictEqual(reasonFor(state, "Projection"), null);
+      assert.strictEqual(state.controlShown.overlay, true);
+      assert.strictEqual(reasonFor(state, "Overlay"), null);
+
+      // The file opened again: the panel moves to its new handle and still
+      // draws temperature on the map.
+      editor = await openEditor(p, file);
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: temperature }]);
+      const drawn = await panel.waitSent(isType("gridReady"), from, "temperature again");
+      assert.strictEqual(drawn.options.projection, "equirectangular", "the saved map target survives");
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The file is read again (File: Revert File) into bytes that do not open
+  // (#1338). The panel's handle is the old file's, so it is not drawn from:
+  // the panel has no file, and a restore with a map target saved fails, the
+  // case #839 asked about. The page then offers what a slice with no file
+  // takes, and draws on its map target again once the file opens.
+  test("a slice panel whose file is reverted to bytes that do not open withdraws the map targets and overlays (#839, #1338)", async () => {
+    const original = fs.readFileSync(fixture("netcdf4_dimscale.nc"));
+    const temperature = indexOf(original, "temperature");
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-839-"));
+    const file = path.join(dir, "closing.nc");
+    fs.writeFileSync(file, original);
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature }));
+    const revert = () => p.revertCustomDocument(editor.document, new vscode.CancellationTokenSource().token);
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let from = panel.sent.length;
+      let state = await panel.drive([
+        { id: "picker-projection", value: "equirectangular" },
+        { id: "overlay-coastlines", checked: true },
+      ]);
+      await panel.waitSent(
+        (m) => m.type === "gridReady" && m.options.projection === "equirectangular",
+        from,
+        "temperature on a map",
+      );
+      await panel.waitSent(isType("overlayReady"), from, "the coastlines");
+      state = await panel.drive([]);
+      assert.ok(state.projectionOffers.includes("equirectangular"));
+      assert.strictEqual(state.controlShown.overlay, true);
+
+      // Reverted to bytes that are not NetCDF: the panel is written again
+      // with equirectangular saved, and its first render fails.
+      fs.writeFileSync(file, Buffer.from("not a NetCDF file"));
+      const before = { sent: panel.sent.length, received: panel.received.length };
+      await revert();
+      const failed = await panel.waitSent(drawnOrRefused, before.sent, "the restored render's answer");
+      assert.strictEqual(failed.type, "gridError", `drew "${failed.titleLine}" from the file before the revert`);
       assert.match(failed.error, /disposed/);
-      // The page offers what the slice takes: source only, with the reason,
-      // and no overlays. Turning on another layer asks for nothing.
+      // The page offers what the slice takes: source only, and no overlays.
+      // Turning on another layer asks for nothing.
       state = await panel.drive([{ id: "overlay-graticule", checked: true }]);
       assert.deepStrictEqual(state.projectionOffers, ["source"], "no map targets for a slice nothing places");
       assert.strictEqual(state.projection, "source");
-      assert.strictEqual(failed.handleGone, true, "the answer is about the closed file");
+      assert.strictEqual(failed.handleGone, true, "the answer is about the missing file");
       assert.strictEqual(state.controlDisplay.projection, "none", "the picker is hidden");
       assert.strictEqual(state.controlDisplay.overlay, "none", "the Overlay row is hidden");
-      // The file is closed, which says nothing about the grid: the line does
-      // not claim it has no position on the Earth (#1036), and the status
-      // says what happened.
+      // A missing file says nothing about the grid: the line does not claim
+      // it has no position on the Earth (#1036), and the status says what
+      // happened.
       assert.strictEqual(state.unavailable?.display, "none", "no 'Not available for this grid' line");
       assert.strictEqual(reasonFor(state, "Projection"), null);
       assert.match(state.status, /disposed/);
@@ -198,17 +264,15 @@ suite("The render panel's own script", function () {
         ],
       });
 
-      // The file is opened again. Picking the variable asks for a render,
-      // which a panel whose first render failed used to have no way to do: it
-      // waited for an image before sending any change. The render draws
-      // temperature, and the map targets and overlays come back with it.
-      editor = await openEditor(p, file);
+      // The file is written back and reverted again. The panel moves to the
+      // new handle and draws temperature, and the map targets and overlays
+      // come back with it, on the map target saved before: a missing file
+      // says nothing about the slice, so it did not overwrite that choice.
+      fs.writeFileSync(file, original);
       from = panel.sent.length;
-      await panel.drive([{ id: "slice-variable", value: temperature }]);
+      await revert();
       const drawn = await panel.waitSent(isType("gridReady"), from, "temperature again");
       assert.strictEqual(drawn.sliceGrid.placed, true);
-      // On the map target saved before the editor closed: a missing handle
-      // says nothing about the slice, so it did not overwrite that choice.
       assert.strictEqual(drawn.options.projection, "equirectangular", "the saved map target survives");
       await panel.waitSent(isType("overlayReady"), from, "the coastlines again");
       state = await panel.drive([]);
@@ -493,14 +557,15 @@ suite("The render panel's own script", function () {
       assert.strictEqual(panel.title(), "CMI · changing.nc");
 
       // The page on screen was written while the pick was awaited. Shown
-      // again from that HTML with the file closed, the answer is that the
-      // file is closed, not the refusal: the pick was made, so the page does
-      // not go on waiting, and draws again once the file is open.
+      // again from that HTML with the editor closed, it draws the variable
+      // picked from the file the panel holds (#1338), not the refusal: the
+      // pick was made, so the page does not go on waiting.
       close();
       from = panel.sent.length;
       await panel.hideShow();
-      const closed = await panel.waitSent(drawnOrRefused, from, "the answer with the file closed");
-      assert.strictEqual(closed.error, "NetCDF handle was disposed");
+      const closed = await panel.waitSent(drawnOrRefused, from, "the answer with the editor closed");
+      assert.strictEqual(closed.type, "gridReady", `${closed.error ?? ""}`);
+      assert.match(closed.titleLine, /^CMI\b/);
       state = await panel.drive([]);
       assert.strictEqual(state.sliceVariable, "CMI", "the picker shows the variable picked");
       assert.strictEqual(state.playDisabled, false, "and the page is not waiting");
@@ -525,8 +590,8 @@ suite("The render panel's own script", function () {
   // The file changes again while the panel waits for a pick (#1237). The
   // page's slice is then the first variable of the file in between, which
   // nobody picked: the panel goes on looking for the variable it drew last,
-  // and draws it once a file holds it again. With the file closed meanwhile,
-  // it says so, and still waits.
+  // and draws it once a file holds it again. With the editor closed
+  // meanwhile, it still refuses from the file it holds, and still waits.
   test("a slice panel waiting for a pick looks for its own variable through further changes (#1237)", async () => {
     const first = fs.readFileSync(netcdfFixture("missing_value_classic.nc"));
     const second = fs.readFileSync(netcdfFixture("goes16_abi_cmip.nc"));
@@ -539,13 +604,14 @@ suite("The render panel's own script", function () {
       await panel.drive([{ id: "flip-y", checked: true }]);
       assert.strictEqual((await panel.waitSent(drawnOrRefused, from, "the refusal")).type, "gridError");
 
-      // Closed while waiting: a rebuild says the file is closed, not drawn.
+      // The editor closed while waiting: a rebuild is refused from the file
+      // the panel holds (#1338), not drawn.
       close();
       from = panel.sent.length;
       panel.rebuild();
-      const closed = await panel.waitSent(drawnOrRefused, from, "the answer with the file closed");
+      const closed = await panel.waitSent(drawnOrRefused, from, "the answer with the editor closed");
       assert.strictEqual(closed.type, "gridError", `drew "${closed.titleLine}"`);
-      assert.strictEqual(closed.error, "NetCDF handle was disposed");
+      assert.match(closed.error, /temp is no longer in the file/);
       let state = await panel.drive([]);
       assert.strictEqual(state.title, NO_VARIABLE_HEADING);
       assert.strictEqual(state.sliceVariable, "", "still waiting for a pick");
@@ -595,7 +661,7 @@ suite("The render panel's own script", function () {
     const first = fs.readFileSync(netcdfFixture("missing_value_classic.nc"));
     const empty = classicNetcdf([["time", 3]], []);
     const second = fs.readFileSync(netcdfFixture("goes16_abi_cmip.nc"));
-    const { panel, change, done } = await changingFile(first, "temp");
+    const { panel, change, close, done } = await changingFile(first, "temp");
     try {
       const opened = await panel.waitSent(isType("gridReady"), 0, "the first render");
       let state = await panel.drive([]);
@@ -630,6 +696,16 @@ suite("The render panel's own script", function () {
       state = await panel.drive([]);
       assert.strictEqual(state.title, NO_VARIABLE_HEADING);
       assert.ok(!panel.sent.slice(from).some(isType("gridReady")), "nothing is drawn");
+
+      // The editor closes while the file has nothing to draw. The panel still
+      // holds the file it drew temp from, but a pick is not drawn from it
+      // (#1338): the panel says it has no file.
+      close();
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: indexOf(first, "temp") }]);
+      const closed = await panel.waitSent(drawnOrRefused, from, "the answer with the editor closed");
+      assert.strictEqual(closed.type, "gridError", `drew "${closed.titleLine}" from the file before the change`);
+      assert.strictEqual(closed.handleGone, true, "the answer is that the panel has no file");
 
       // The file gets variables again. temp is not one of them, so the panel
       // waits for a pick in the new file's list, which picking any variable
