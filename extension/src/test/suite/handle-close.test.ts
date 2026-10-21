@@ -89,14 +89,20 @@ async function serves(panel: RealPanel, what: string): Promise<void> {
 }
 
 /** Stand in for the CSV export's dialogs while `run` runs: the layout prompt
- *  picks the matrix and the save dialog is cancelled. Hands back every error
- *  shown and whether the save dialog was asked for. */
-async function withCsvDialogs(run: () => Promise<void>): Promise<{ errors: string[]; saveAsked: boolean }> {
+ *  runs `onPick`, then picks the matrix, and the save dialog is cancelled.
+ *  Hands back every error shown and whether the save dialog was asked for. */
+async function withCsvDialogs(
+  run: () => Promise<void>,
+  onPick: () => void = () => undefined,
+): Promise<{ errors: string[]; saveAsked: boolean }> {
   const errors: string[] = [];
   let saveAsked = false;
   const w = vscode.window as unknown as Record<string, unknown>;
   const saved = { showQuickPick: w.showQuickPick, showSaveDialog: w.showSaveDialog, showErrorMessage: w.showErrorMessage };
-  w.showQuickPick = (items: Array<{ format?: string }>) => Promise.resolve(items.find((i) => i.format === "matrix"));
+  w.showQuickPick = (items: Array<{ format?: string }>) => {
+    onPick();
+    return Promise.resolve(items.find((i) => i.format === "matrix"));
+  };
   w.showSaveDialog = () => {
     saveAsked = true;
     return Promise.resolve(undefined);
@@ -300,6 +306,70 @@ suite("Native handles close with their last panel (#1204)", function () {
     }
   });
 
+  // A revert to bytes that do not open leaves the document with no handle,
+  // as a closed editor does, but the panel's handle is now the old file's
+  // (#1338): it is not drawn from, read or exported, and it is let go.
+  for (const [kind, source, map, open, csv, missing] of [
+    [
+      "GRIB",
+      GRIB,
+      "_handlesByDoc",
+      { type: "decodeGrid", messageIndex: 0 },
+      "exportCsv",
+      "Fieldglass: CSV export is available only for an open message.",
+    ],
+    [
+      "NetCDF",
+      NETCDF,
+      "_netcdfHandlesByDoc",
+      { type: "renderVariable", variableIndex: 0 },
+      "exportSliceCsv",
+      "Fieldglass: CSV export is available only for an open slice.",
+    ],
+  ] as const) {
+    test(`a ${kind} render panel draws nothing from its file once it is reverted to bytes that do not open (#1338)`, async () => {
+      const p = await provider();
+      const copy = copyOf(source());
+      const editor = await openEditor(p, copy.file);
+      const panel = await openReal(p, () => editor.send(open));
+      try {
+        await panel.waitSent(isType("gridReady"), 0, "the first render");
+        const old = maps(p)[map].get(copy.key);
+        assert.ok(old, "the editor opened a handle");
+        fs.writeFileSync(copy.file, Buffer.from("not a GRIB or NetCDF file"));
+        let from = panel.sent.length;
+        await p.revertCustomDocument(editor.document, new vscode.CancellationTokenSource().token);
+        assert.ok(!maps(p)[map].has(copy.key), "the new bytes open no handle");
+        const reply = await panel.waitSent(isReply, from, "the answer after the revert");
+        assert.strictEqual(reply.type, "gridError", `drew "${reply.titleLine}" from the file before the revert`);
+        assert.match(reply.error, /disposed/);
+        await closes(old, "the old file's handle to be let go");
+
+        // A render, a probe and contours asked for now read nothing.
+        from = panel.sent.length;
+        const page = pageNumberOf(panel.html());
+        await panel.sendAsPage({ type: "rerenderRequest", page, seq: 900 });
+        await panel.sendAsPage({ type: "probeRequest", page, seq: 901, px: 1, py: 1 });
+        await panel.sendAsPage({ type: "contourRequest", page, seq: 902 });
+        const render = await panel.waitSent(isReply, from, "the render after the revert");
+        assert.strictEqual(render.type, "gridError", `drew "${render.titleLine}" from the file before the revert`);
+        await new Promise((r) => setTimeout(r, 200));
+        assert.deepStrictEqual(
+          panel.sent.slice(from).filter((m: Msg) => m.type === "probeResult" || m.type === "contourReady").map((m: Msg) => m.type),
+          [],
+          "no value or contour is read from the old file",
+        );
+        const exported = await withCsvDialogs(() => exportCsv(p, panel, csv));
+        assert.deepStrictEqual(exported.errors, [missing], "Export CSV names what is missing");
+        assert.ok(!exported.saveAsked, "nothing is saved");
+      } finally {
+        panel.dispose();
+        editor.close();
+        copy.done();
+      }
+    });
+  }
+
   test("a CSV export keeps the handle open while its layout prompt is up, then lets go", async () => {
     // The file's last panel closes while the user picks a layout. The export
     // still reads the field, and the handle closes after it.
@@ -308,31 +378,18 @@ suite("Native handles close with their last panel (#1204)", function () {
     const editor = await openEditor(p, copy.file);
     const handle = maps(p)._handlesByDoc.get(copy.key);
     assert.ok(handle, "the editor opened a handle");
-    const errors: string[] = [];
-    let saveAsked = false;
-    const w = vscode.window as unknown as Record<string, unknown>;
-    const saved = { showQuickPick: w.showQuickPick, showSaveDialog: w.showSaveDialog, showErrorMessage: w.showErrorMessage };
-    w.showQuickPick = (items: Array<{ format?: string }>) => {
-      editor.close();
-      return Promise.resolve(items.find((i) => i.format === "matrix"));
-    };
-    w.showSaveDialog = () => {
-      saveAsked = true;
-      return Promise.resolve(undefined);
-    };
-    w.showErrorMessage = (message: string) => {
-      errors.push(message);
-      return Promise.resolve(undefined);
-    };
+    let exported: { errors: string[]; saveAsked: boolean };
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (p as any).handleExportCsv(editor.document, 0);
+      exported = await withCsvDialogs(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        () => (p as any).handleExportCsv(editor.document, 0),
+        () => editor.close(),
+      );
     } finally {
-      Object.assign(w, saved);
       copy.done();
     }
-    assert.deepStrictEqual(errors, [], "the export read the field");
-    assert.ok(saveAsked, "and went on to ask where to save it");
+    assert.deepStrictEqual(exported.errors, [], "the export read the field");
+    assert.ok(exported.saveAsked, "and went on to ask where to save it");
     assert.ok(isClosed(handle), "the handle closed once the export let go");
   });
 });

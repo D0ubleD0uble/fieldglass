@@ -398,15 +398,25 @@ export class FieldglassEditorProvider
   private _csvExport: Promise<void> = Promise.resolve();
 
   /** Build `panel`'s HTML now, and again whenever the colormaps change. */
-  private trackRenderPanel(panel: vscode.WebviewPanel, build: () => void, document?: vscode.Uri): void {
+  private trackRenderPanel(
+    panel: vscode.WebviewPanel,
+    build: () => void,
+    gate: PanelHandleGate<Handle>,
+    document?: vscode.Uri,
+  ): void {
     build();
     this._renderPanelBuilders.set(panel, build);
+    this._renderPanelGates.set(panel, gate);
     if (document) this._renderPanelDocs.set(panel, document.toString());
     panel.onDidDispose(() => {
       this._renderPanelBuilders.delete(panel);
+      this._renderPanelGates.delete(panel);
       this._renderPanelDocs.delete(panel);
     });
   }
+  /** Each render panel's gate, which a revert tells that its handle is the
+   *  old file's (#1338). */
+  private readonly _renderPanelGates = new Map<vscode.WebviewPanel, PanelHandleGate<Handle>>();
   /** The document each render panel draws from, for the panels a revert
    *  writes again (#1217). A Zarr panel has none. */
   private readonly _renderPanelDocs = new Map<vscode.WebviewPanel, string>();
@@ -1047,7 +1057,7 @@ export class FieldglassEditorProvider
         gate.page,
       );
     };
-    this.trackRenderPanel(panel, write, document.uri);
+    this.trackRenderPanel(panel, write, gate, document.uri);
 
     const refuse = (ask: { seq?: number } = {}) => {
       if (!picking) return;
@@ -1521,7 +1531,9 @@ export class FieldglassEditorProvider
    *  variables. Every render panel on the document is written again too, so it
    *  asks at once, and its {@link PanelHandleGate} finds the new handle and
    *  looks for its message or variable in the new file. An old handle is
-   *  closed once every render panel on it has moved to the new one (#1204). */
+   *  closed once every render panel on it has moved to the new one (#1204),
+   *  and is never drawn from again: when the new bytes do not open, the
+   *  panel says it has no file (#1338). */
   private reloadDocument(document: FieldglassDocument): void {
     const key = document.uri.toString();
     this._reverts.set(key, (this._reverts.get(key) ?? 0) + 1);
@@ -1529,7 +1541,11 @@ export class FieldglassEditorProvider
     this._netcdfHandlesByDoc.delete(key);
     for (const panel of this._panelsByDoc.get(key) ?? []) this.writeEditorPage(document, panel);
     for (const [panel, doc] of this._renderPanelDocs) {
-      if (doc === key) this._renderPanelBuilders.get(panel)?.();
+      if (doc !== key) continue;
+      // The panel's handle is the old file's. If the new bytes did not open,
+      // the panel has nothing to draw, not the old file (#1338).
+      this._renderPanelGates.get(panel)?.outdate();
+      this._renderPanelBuilders.get(panel)?.();
     }
   }
 
@@ -1810,7 +1826,7 @@ export class FieldglassEditorProvider
         gate.page,
       );
     };
-    this.trackRenderPanel(panel, write, subject.document);
+    this.trackRenderPanel(panel, write, gate, subject.document);
 
     // `picked`: the request is a render, which a page waiting for a pick asks
     // for only once a variable is picked, so its slice names a choice.
@@ -1831,7 +1847,9 @@ export class FieldglassEditorProvider
         // Nothing is left under the old heading or tab either: the page clears
         // its picture on this error, and a page written again names no
         // variable (#1237). The gate keeps the old handle, so the next request
-        // looks at the file again.
+        // looks at the file again, but nothing is drawn from it: should the
+        // editor close, the panel has no file, not the old one (#1338).
+        gate.outdate();
         refusal = `The ${subject.container} ${subject.noun} no longer has a variable to draw.`;
         lost = name;
         panel.title = composeTabTitle("pick a variable", subject.source);
@@ -2242,6 +2260,10 @@ export class FieldglassEditorProvider
 export class PanelHandleGate<H> {
   private awaitingReady = false;
   private written = 0;
+  // Set once the page's handle no longer holds what the document shows: the
+  // document was read again (File: Revert File), or its new file has nothing
+  // the page can draw. Cleared when the panel adopts a handle.
+  private outdated = false;
 
   /** `leases`, when given, is held on the page's handle until the panel adopts
    *  another or is disposed (#1204): a revert or a reopen replaces the
@@ -2254,12 +2276,25 @@ export class PanelHandleGate<H> {
     if (pageHandle) leases?.hold(pageHandle, this);
   }
 
-  /** The handle the page was written from, which the panel holds open and
-   *  serves every request from (#1338). After {@link admit} has let a request
-   *  through, it is the document's handle when the document has one, and the
-   *  one the panel kept when the document's editor has closed. */
+  /** The handle to serve the page's requests from (#1338). After
+   *  {@link admit} has let a request through, it is the document's handle
+   *  when the document has one, and the one the panel kept when the
+   *  document's editor has closed. It is `undefined` when the panel has no
+   *  file it may draw: none was open when it opened, or the document was
+   *  read again into bytes that did not open (see {@link outdate}). */
   get handle(): H | undefined {
-    return this.pageHandle;
+    return this.outdated ? undefined : this.pageHandle;
+  }
+
+  /** The page's handle no longer holds what the document shows: the document
+   *  was read again (File: Revert File), or its new file has nothing the page
+   *  can draw. The handle stays held, so a panel that moves to the document's
+   *  new handle on its next request lets go of it then (#1204). Until it
+   *  moves, nothing is drawn from it: should the document have no handle at
+   *  that request (the new bytes did not open, or its editor closed), the
+   *  panel says it has no file and lets go of the old one (#1338). */
+  outdate(): void {
+    if (this.pageHandle) this.outdated = true;
   }
 
   /** The number to write the page with, which it sends back on every message.
@@ -2288,6 +2323,9 @@ export class PanelHandleGate<H> {
     // again while that page loaded, and its numbers are then the previous
     // file's.
     if (current && current !== this.pageHandle) return adopt(current);
+    // Outdated with nothing to move to: the old file is not drawn as the
+    // document's, and is no longer kept for it.
+    if (this.outdated && !current) this.dispose();
     return true;
   }
 
@@ -2308,12 +2346,14 @@ export class PanelHandleGate<H> {
   dispose(): void {
     const old = this.pageHandle;
     this.pageHandle = undefined;
+    this.outdated = false;
     this.leases?.release(old, this);
   }
 
   private adopt(handle: H): void {
     const old = this.pageHandle;
     this.pageHandle = handle;
+    this.outdated = false;
     if (old === handle) return;
     this.leases?.hold(handle, this);
     this.leases?.release(old, this);
