@@ -353,6 +353,35 @@ fn values_of_the_wrong_length_are_refused_as_project_refuses_them() {
 }
 
 #[test]
+fn a_plan_past_the_budget_keeps_the_plan_before_it() {
+    let fields = rtofs_fields();
+    let field = &fields[0];
+    let geometry = Arc::new(field.georef.geometry.clone());
+    let o = options("equirectangular");
+    let fresh = project(&field.source(), &cells(field), &o).expect("a fresh warp");
+    let bytes = u64::from(fresh.width) * u64::from(fresh.height) * 4;
+
+    // Room for the default raster and no more.
+    let memo = WarpMemo::with_max_plan_bytes(bytes);
+    assert_projects_as_fresh(&memo, &geometry, field, &o);
+    assert_eq!(memo.plans_made(), 1);
+
+    // A named size twice as wide plans past the budget: it runs unmemoised.
+    let mut big = o.clone();
+    big.width = Some(fresh.width * 2);
+    big.height = Some(fresh.height);
+    assert_projects_as_fresh(&memo, &geometry, field, &big);
+    assert_eq!(memo.plans_made(), 1, "the oversize plan is not made");
+
+    assert_projects_as_fresh(&memo, &geometry, field, &o);
+    assert_eq!(
+        memo.plans_made(),
+        1,
+        "the kept plan still serves the original options"
+    );
+}
+
+#[test]
 fn a_plan_past_the_budget_is_not_kept() {
     let fields = rtofs_fields();
     let field = &fields[0];
