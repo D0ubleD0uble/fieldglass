@@ -5,8 +5,9 @@
 // up to 256 MiB (#1233) in native memory, which V8 does not count. The
 // extension used to drop a closed file's handle and leave the rest to the
 // garbage collector, which can keep that memory for as long as it likes. Each
-// test works on a copy of its fixture, so no other test's editor shares the
-// handle.
+// file test works on a copy of its fixture, so no other test's editor shares
+// the handle. The Zarr test opens the committed store, and no other suite
+// leaves a panel open on it.
 
 import * as assert from "assert";
 import * as fs from "fs";
@@ -129,6 +130,38 @@ suite("Native handles close with their last panel (#1204)", function () {
     assert.ok(!isClosed(handle), "a store handle another panel still draws from stays open");
     two.dispose();
     await closes(handle, "the store's handle to close with its last panel");
+    assert.ok(!maps(p)._zarrHandlesByStore.has(key), "and to leave the map");
+  });
+
+  test("a Zarr store opened again while its panel is open closes the first handle once that panel moves off it", async () => {
+    const p = await provider();
+    const key = vscode.Uri.file(STORE()).toString();
+    const store = vscode.Uri.file(STORE());
+    const one = await openReal(p, () => void p.openZarrStore(store));
+    await one.waitSent(isType("gridReady"), 0, "the store's first render");
+    const first = maps(p)._zarrHandlesByStore.get(key);
+    assert.ok(first, "the store's handle is kept for its panel");
+    const two = await openReal(p, () => void p.openZarrStore(store));
+    let second: Handle | undefined;
+    try {
+      await two.waitSent(isType("gridReady"), 0, "the second open's render");
+      second = maps(p)._zarrHandlesByStore.get(key);
+      assert.ok(second && second !== first, "opening the store again opens a new handle");
+      assert.ok(!isClosed(first), "the first panel still holds the first handle");
+      // The first panel's next request moves it to the new handle.
+      const from = one.sent.length;
+      one.rebuild();
+      await one.waitSent(isReply, from, "the first panel's render on the new handle");
+      assert.ok(isClosed(first), "the first handle closes once no panel holds it");
+      one.dispose();
+      await new Promise((r) => setTimeout(r, 200));
+      assert.ok(!isClosed(second), "the second panel still draws from the new handle");
+    } finally {
+      one.dispose();
+      two.dispose();
+    }
+    assert.ok(second);
+    await closes(second, "the second handle to close with the last panel");
     assert.ok(!maps(p)._zarrHandlesByStore.has(key), "and to leave the map");
   });
 

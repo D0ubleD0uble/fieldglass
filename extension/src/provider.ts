@@ -1603,22 +1603,33 @@ export class FieldglassEditorProvider
     const key = storeUri.toString();
     const handle = this._zarrHandlesByStore.get(key);
     if (!handle) return;
-    const panel = this.openSliceRenderPanel(
-      {
-        handle: () => this._zarrHandlesByStore.get(key),
-        gone: "Zarr store handle was disposed",
-        // Inside the store, not beside it: a store *is* a directory, so its own
-        // folder is where a user expects an export to land.
-        exportDir: storeUri,
-        container: "Zarr",
-        noun: "store",
-        source: sourceName(storeUri),
-      },
-      handle,
-      variableIndex,
-    );
+    // Dropped when no panel comes of this and none is open on the store, so
+    // the map does not keep it for good.
+    const unused = () => {
+      if (!this._panelsByStore.has(key)) this._zarrHandlesByStore.delete(key);
+    };
+    let panel: vscode.WebviewPanel | undefined;
+    try {
+      panel = this.openSliceRenderPanel(
+        {
+          handle: () => this._zarrHandlesByStore.get(key),
+          gone: "Zarr store handle was disposed",
+          // Inside the store, not beside it: a store *is* a directory, so its own
+          // folder is where a user expects an export to land.
+          exportDir: storeUri,
+          container: "Zarr",
+          noun: "store",
+          source: sourceName(storeUri),
+        },
+        handle,
+        variableIndex,
+      );
+    } catch (err) {
+      unused();
+      throw err;
+    }
     if (!panel) {
-      this._zarrHandlesByStore.delete(key);
+      unused();
       return;
     }
     // The store's handle goes with its last panel (#1204): a store has no
