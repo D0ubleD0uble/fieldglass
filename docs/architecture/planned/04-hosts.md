@@ -205,7 +205,9 @@ Notes that shape the two hosts:
   statistics and probability alone, the most specific match winning, so
   `mx2t3` is not `mn2t3` and `100u` is not `10u` (#1116, #1298). Wave-period
   heights are not told apart from `swh`, nor the AIFS probabilities `tpl01`,
-  `2tl273` and `10spg10` from `tp`, `2t` and `10si`. A
+  `2tl273` and `10spg10` from `tp`, `2t` and `10si`, nor `u`, `v` and `ws`
+  from `100u`, `100v` and `100si`, which eccodes 2.48 gives them from tables
+  version 34. A
   wgrib2 line's probability, ensemble member, derived forecast and percentile
   are checked against the product template's block, so a probability line is
   not the amount it is a probability of (#1117). A chemistry or aerosol
