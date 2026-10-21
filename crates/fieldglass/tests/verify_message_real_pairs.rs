@@ -451,6 +451,33 @@ fn ecmwf_tp_is_refused_on_a_precipitation_probability() {
     }
 }
 
+/// The ECMWF wave ensemble probability line for `swhg8` (one line of the same
+/// run's `240h-waef-ep` index) and its 137,974 bytes: template 4.5, wave height
+/// 10.0.3 at mean sea level (surface 101), above 8 m. It pins the surface
+/// ECMWF writes today, which eccodes 2.48 no longer requires (#1298). Another
+/// threshold, and `swh` itself, are refused.
+#[test]
+fn an_ecmwf_wave_height_probability_is_what_its_line_promised() {
+    let index = EcmwfIndex::parse(
+        "20260904000000-240h-waef-ep.grib2",
+        &text("ecmwf_ifs_0p25_waef_ep_swhg8.index"),
+    )
+    .expect("the committed sidecar line parses");
+    let swhg8 = index.items()[0].clone();
+    assert_eq!(swhg8.expect.abbreviation.as_deref(), Some("swhg8"));
+    let info = message(&swhg8, read("ecmwf_ifs_0p25_waef_swhg8.grib2"));
+    verify_message(&swhg8.expect, &info).expect("the line is the message at its offset");
+
+    for other in ["swhg2", "swh"] {
+        let mut expect = swhg8.expect.clone();
+        expect.abbreviation = Some(other.to_string());
+        assert_eq!(
+            refused_field(verify_message(&expect, &info)),
+            ("abbreviation", other.to_string())
+        );
+    }
+}
+
 /// ECMWF `sot` on `sol 3` against its 625,288 bytes, which code the layer
 /// between soil levels 2 and 3 (surface type 151 twice). eccodes, and so
 /// MARS, numbers such a layer by its bottom (#1116). The `sol 1` line is

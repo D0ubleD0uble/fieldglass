@@ -6,6 +6,7 @@ Regenerate, naming each eccodes definitions tree read and its version:
     python3 tools/gen_mars_short_names.py \
         --definitions 2.34.1=/usr/share/eccodes/definitions \
         --definitions 2.45.0=<eccodes 2.45.0 source>/definitions \
+        --definitions 2.48.0=<eccodes 2.48.0 source>/definitions \
         && cargo fmt
 
 Writes `crates/fieldglass/src/fetchplan/mars_short_names.rs`.
@@ -26,7 +27,7 @@ eccodes 2.38 on, `.lte33.def` (the encodings of GRIB2 tables version 33 and
 older, which the committed ECMWF messages, at version 32, are). Apache-2.0;
 the definitions are factual data from ECMWF's parameter database.
 
-Two eccodes versions:
+Three eccodes versions:
 
 * **2.34.1**, the version the rest of the repo validates against
   (`gen_localconcepts_tables.py` reads the same install).
@@ -34,6 +35,14 @@ Two eccodes versions:
   definitions give `2tl273`, `tpl01`, `tprg3` and five other AIFS ensemble
   probabilities a WMO encoding 2.34.1 does not know, only an older local one.
   A table from 2.34.1 alone would refuse those records when they are right.
+* **2.48.0**, the newest read. It dropped `typeOfFirstFixedSurface = 101`
+  from `swhg2` to `swhg8`, so a producer on it may write those on another
+  surface; without it the table would refuse such a record.
+
+The table therefore assumes a producer's definitions are no looser than the
+union of these trees. A later eccodes that loosens a block again (drops a
+condition, or adds an encoding) can make a right record fail until the table
+is regenerated with that tree added.
 
 # How eccodes names a message
 
@@ -54,9 +63,10 @@ A block matches a message when every condition in it holds. Several blocks,
 of several names, can match one message: `2t` states the codes and the 2 m
 surface, six conditions, and so matches `mx2t3`'s bytes too. eccodes names
 the message after the matching block that states the most conditions
-(`concept_evaluate` in `src/eccodes/accessor/Concept.cc`, which counts an
-array condition once per element, ECC-1992), so those bytes are `mx2t3`,
-whose block states nine.
+(`concept_evaluate` in `src/eccodes/accessor/Concept.cc`), so those bytes are
+`mx2t3`, whose block states nine. eccodes 2.34.1 counts an array condition
+once; from ECC-1992 (in 2.45.0 and 2.48.0) it counts it once per element, and
+the count here follows the version each block was read from.
 
 That ranking is within one set of files at a time, which this table calls a
 pool. eccodes reads `shortName.def` (or, from 2.38, `shortName.lte33.def` for
@@ -69,13 +79,16 @@ and falls back to the `.legacy.def` pool only when nothing in it matches
     2.45.0  shortName.def
     2.45.0  shortName.lte33.def
     2.45.0  shortName.legacy.def
+    2.48.0  shortName.def
+    2.48.0  shortName.lte33.def
+    2.48.0  shortName.legacy.def
 
 Each block records the pools that hold it. `verify_message` accepts a name
 when, in some pool, one of its blocks may match and no block of another name
 in that pool certainly matches with more conditions. Which pool a message
 reads is not known here (it turns on the tables version, which the message
-identity does not carry), so a name either version would give the message
-under either set of files is accepted. A legacy pool is ranked on its own, not
+identity does not carry), so a name any version read would give the message
+under any of its sets of files is accepted. A legacy pool is ranked on its own, not
 only when its main pool has no match, which can accept a name eccodes would
 not reach but never refuses one it would. `shortName.chemsplit.def`, read for
 the chemistry split of MARS classes `mc` and `cr`, is not open data and is not
@@ -89,7 +102,14 @@ product template, both fixed surfaces (type, scale factor, scaled value, or
 its unit, and for templates 4.5 and 4.9 the probability type and limits.
 These are what tell apart names that share codes: `10u` and `100u` by the
 height, `msl` and `sp` and `str` and `ttr` by the surface type, `tp` and
-`tpg25` by the probability.
+`tpg25` by the probability. Only these kept conditions are ever compared.
+
+Two kinds of names are not told apart. The wave-period heights `h1012` to
+`h2530` state a period range the table does not keep, so they stay possible
+on any `swh` message. And `tpl01`, `2tl273` and `10spg10` (and the other AIFS
+probabilities with only a local encoding in 2.34.1) have no WMO block there,
+so eccodes 2.34.1 names their WMO-encoded bytes `tp`, `2t` and `10si`, and
+those names pass too.
 
 Every other condition (a local tables version, a wave period range, a
 chemical constituent) is counted but not kept. A block with one is never
@@ -132,7 +152,11 @@ from pathlib import Path
 
 # The trees the committed table was built from. Regenerating from others is
 # refused, so a stale header cannot describe a different table.
-VERSIONS = ("2.34.1", "2.45.0")
+VERSIONS = ("2.34.1", "2.45.0", "2.48.0")
+
+# Versions from before ECC-1992, whose `concept_evaluate` counts an array
+# condition once rather than once per element.
+COUNTS_ARRAYS_ONCE = {"2.34.1"}
 
 # The pools of one eccodes version, each the files eccodes reads together for
 # a centre-98 message, local before WMO. A pool none of whose files a version
@@ -234,19 +258,19 @@ def integer(value: str | None) -> int | None:
         return None
 
 
-def conditions(keys: dict[str, str]) -> int:
-    """How many conditions eccodes counts for a block: one per key, and one
-    per element of an array value (ECC-1992)."""
+def conditions(keys: dict[str, str], per_element: bool) -> int:
+    """How many conditions eccodes counts for a block: one per key, and, where
+    `per_element` (ECC-1992), one per element of an array value."""
     count = 0
     for value in keys.values():
-        if value.startswith("["):
+        if per_element and value.startswith("["):
             count += len([v for v in re.split(r"[\s,]+", value.strip("[]")) if v])
         else:
             count += 1
     return count
 
 
-def row(keys: dict[str, str]) -> tuple | None:
+def row(keys: dict[str, str], version: str) -> tuple | None:
     """The kept part of one block, or `None` when its codes do not read.
 
     `(conditions read, conditions stated)`, where each read condition is a
@@ -266,7 +290,7 @@ def row(keys: dict[str, str]) -> tuple | None:
             read.append((variant, None))
         elif (number := integer(value)) is not None and -(2**31) <= number < 2**31:
             read.append((variant, number))
-    return (tuple(read), conditions(keys))
+    return (tuple(read), conditions(keys, version not in COUNTS_ARRAYS_ONCE))
 
 
 def rust_block(read: tuple, stated: int, mask: int, width: int) -> str:
@@ -401,7 +425,7 @@ def main() -> int:
             pools.append((version, kind))
             for path in paths:
                 for name, keys in parse(path):
-                    kept = row(keys)
+                    kept = row(keys, version)
                     if kept is None:
                         if name in wanted:
                             raise SystemExit(

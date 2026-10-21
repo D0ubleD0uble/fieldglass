@@ -1,12 +1,12 @@
 //! MARS short names of ECMWF's open-data parameters — generated, do not edit.
 //!
 //! Do not edit: regenerate with `python3 tools/gen_mars_short_names.py`.
-//! Source: eccodes 2.34.1 and 2.45.0, their `shortName` concept for an
+//! Source: eccodes 2.34.1 and 2.45.0 and 2.48.0, their `shortName` concept for an
 //! ECMWF GRIB2 message (`definitions/grib2/localConcepts/ecmf/` and
 //! `definitions/grib2/`; Apache-2.0, factual data from ECMWF's parameter
 //! database).
 //!
-//! 108 names, 188 blocks, and 280 blocks of other names
+//! 108 names, 192 blocks, and 280 blocks of other names
 //! that can outrank them. Each block keeps the conditions the message identity
 //! carries and counts every condition eccodes ranks it by; see the
 //! generator's module docs for which and why.
@@ -69,7 +69,10 @@ pub(crate) struct Block {
 /// * bit 2: eccodes 2.45.0 `shortName.def`
 /// * bit 3: eccodes 2.45.0 `shortName.lte33.def`
 /// * bit 4: eccodes 2.45.0 `shortName.legacy.def`
-pub(crate) const POOLS: u32 = 5;
+/// * bit 5: eccodes 2.48.0 `shortName.def`
+/// * bit 6: eccodes 2.48.0 `shortName.lte33.def`
+/// * bit 7: eccodes 2.48.0 `shortName.legacy.def`
+pub(crate) const POOLS: u32 = 8;
 
 /// Every name the table carries, sorted, with its blocks in eccodes' lookup
 /// order.
@@ -87,7 +90,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::FirstScaleFactor, Some(0)),
                 ],
                 conditions: 6,
-                pools: 0b01101,
+                pools: 0b01001101,
             },
             Block {
                 read: &[
@@ -96,7 +99,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(249)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -113,7 +116,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::FirstScaleFactor, Some(0)),
                 ],
                 conditions: 6,
-                pools: 0b01101,
+                pools: 0b01001101,
             },
             Block {
                 read: &[
@@ -122,7 +125,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(246)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -139,7 +142,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::FirstScaleFactor, Some(0)),
                 ],
                 conditions: 6,
-                pools: 0b01101,
+                pools: 0b01001101,
             },
             Block {
                 read: &[
@@ -148,7 +151,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(247)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -165,7 +168,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::StatisticalProcess, Some(2)),
             ],
             conditions: 7,
-            pools: 0b01001,
+            pools: 0b01001001,
         }],
     ),
     (
@@ -186,7 +189,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 11,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -202,7 +205,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 10,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -224,7 +227,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 11,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -240,7 +243,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 10,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -262,7 +265,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 11,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -278,7 +281,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 10,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -294,7 +297,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::FirstScaleFactor, Some(0)),
             ],
             conditions: 6,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -307,7 +310,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(68)),
                 ],
                 conditions: 3,
-                pools: 0b10001,
+                pools: 0b10010001,
             },
             Block {
                 read: &[
@@ -316,7 +319,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(21)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -331,7 +334,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 9,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -345,7 +348,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(69)),
                 ],
                 conditions: 3,
-                pools: 0b10001,
+                pools: 0b10010001,
             },
             Block {
                 read: &[
@@ -354,7 +357,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(22)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -369,7 +372,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 9,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -385,7 +388,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::FirstScaleFactor, Some(0)),
             ],
             conditions: 6,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -400,7 +403,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::FirstScaleFactor, Some(0)),
             ],
             conditions: 6,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -415,7 +418,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::FirstScaleFactor, Some(0)),
             ],
             conditions: 6,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -430,7 +433,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::FirstScaleFactor, Some(0)),
             ],
             conditions: 6,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -443,7 +446,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(73)),
                 ],
                 conditions: 3,
-                pools: 0b10001,
+                pools: 0b10010001,
             },
             Block {
                 read: &[
@@ -458,7 +461,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(0)),
                 ],
                 conditions: 9,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -472,7 +475,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(192)),
                 ],
                 conditions: 4,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -481,7 +484,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(19)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -490,7 +493,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(32)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -504,7 +507,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(16)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -513,7 +516,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(233)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -529,7 +532,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 6,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -540,7 +543,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
         ],
     ),
@@ -553,7 +556,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(13)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -568,7 +571,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -577,7 +580,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(180)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -590,7 +593,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(121)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -602,7 +605,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(5)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -614,7 +617,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(3)),
             ],
             conditions: 8,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -626,7 +629,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(3)),
             ],
             conditions: 8,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -638,7 +641,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(3)),
             ],
             conditions: 8,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -650,7 +653,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(3)),
             ],
             conditions: 8,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -662,7 +665,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(3)),
             ],
             conditions: 8,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -674,7 +677,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(3)),
             ],
             conditions: 8,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -687,7 +690,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(195)),
                 ],
                 conditions: 4,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -696,7 +699,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(5)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -705,7 +708,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(188)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -719,7 +722,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(193)),
                 ],
                 conditions: 4,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -728,7 +731,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(3)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -737,7 +740,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(186)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -751,7 +754,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::FirstSurfaceType, Some(1)),
             ],
             conditions: 4,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -764,7 +767,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(194)),
                 ],
                 conditions: 4,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -773,7 +776,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(4)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -782,7 +785,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(187)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -801,7 +804,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::TimeRangeLength, Some(3)),
             ],
             conditions: 9,
-            pools: 0b01001,
+            pools: 0b01001001,
         }],
     ),
     (
@@ -819,7 +822,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::TimeRangeLength, Some(6)),
             ],
             conditions: 9,
-            pools: 0b01001,
+            pools: 0b01001001,
         }],
     ),
     (
@@ -832,7 +835,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(28)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -841,7 +844,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(221)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -855,7 +858,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::FirstSurfaceType, Some(101)),
             ],
             conditions: 4,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -870,7 +873,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::FirstScaleFactor, None),
             ],
             conditions: 6,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -882,7 +885,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(14)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -894,7 +897,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(15)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -906,7 +909,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(79)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -918,7 +921,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(80)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -930,7 +933,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(81)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -942,7 +945,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(78)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -960,7 +963,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::TimeRangeLength, Some(3)),
             ],
             conditions: 9,
-            pools: 0b01001,
+            pools: 0b01001001,
         }],
     ),
     (
@@ -978,7 +981,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::TimeRangeLength, Some(6)),
             ],
             conditions: 9,
-            pools: 0b01001,
+            pools: 0b01001001,
         }],
     ),
     (
@@ -993,7 +996,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1002,7 +1005,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(181)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1016,7 +1019,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(34)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1025,7 +1028,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(231)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1044,7 +1047,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1057,7 +1060,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 7,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -1076,7 +1079,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1089,7 +1092,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 7,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -1108,7 +1111,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1121,7 +1124,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 7,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -1140,7 +1143,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(0)),
                 ],
                 conditions: 8,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1153,7 +1156,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(0)),
                 ],
                 conditions: 7,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -1172,7 +1175,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(0)),
                 ],
                 conditions: 8,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1185,7 +1188,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(0)),
                 ],
                 conditions: 7,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -1204,7 +1207,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(0)),
                 ],
                 conditions: 8,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1217,7 +1220,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(0)),
                 ],
                 conditions: 7,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -1230,7 +1233,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(19)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -1242,7 +1245,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(0)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -1254,7 +1257,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(1)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -1268,7 +1271,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1277,7 +1280,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(33)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1286,7 +1289,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(205)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1300,7 +1303,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::StatisticalProcess, Some(1)),
             ],
             conditions: 4,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -1313,7 +1316,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(61)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1322,7 +1325,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(33)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1336,7 +1339,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(254)),
                 ],
                 conditions: 4,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1345,7 +1348,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(60)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
         ],
     ),
@@ -1359,7 +1362,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(20)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1368,7 +1371,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(160)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1384,7 +1387,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 6,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1395,7 +1398,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1404,7 +1407,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(144)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1424,7 +1427,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::SecondScaleFactor, None),
                 ],
                 conditions: 9,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1433,7 +1436,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(98)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
             Block {
                 read: &[
@@ -1442,7 +1445,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(1)),
                 ],
                 conditions: 3,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -1456,7 +1459,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::FirstSurfaceType, Some(1)),
             ],
             conditions: 4,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -1469,7 +1472,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(22)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1478,7 +1481,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(163)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1491,7 +1494,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(18)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -1504,7 +1507,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::FirstSurfaceType, Some(1)),
             ],
             conditions: 4,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -1517,7 +1520,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(176)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1528,7 +1531,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
         ],
     ),
@@ -1544,7 +1547,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1553,7 +1556,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(169)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1567,7 +1570,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(177)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1578,7 +1581,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
         ],
     ),
@@ -1594,7 +1597,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1603,7 +1606,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(175)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1623,7 +1626,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::SecondScaleFactor, None),
                 ],
                 conditions: 9,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1632,7 +1635,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(14)),
                 ],
                 conditions: 3,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -1652,7 +1655,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::SecondScaleFactor, None),
                 ],
                 conditions: 9,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1661,7 +1664,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(15)),
                 ],
                 conditions: 3,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -1674,7 +1677,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(3)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -1692,7 +1695,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1705,7 +1708,19 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 7,
-                pools: 0b01100,
+                pools: 0b00001100,
+            },
+            Block {
+                read: &[
+                    (Key::Discipline, Some(10)),
+                    (Key::Category, Some(0)),
+                    (Key::Number, Some(3)),
+                    (Key::LowerLimitScaledValue, Some(2)),
+                    (Key::LowerLimitScaleFactor, Some(0)),
+                    (Key::ProbabilityType, Some(3)),
+                ],
+                conditions: 6,
+                pools: 0b01100000,
             },
         ],
     ),
@@ -1724,7 +1739,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1737,7 +1752,19 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 7,
-                pools: 0b01100,
+                pools: 0b00001100,
+            },
+            Block {
+                read: &[
+                    (Key::Discipline, Some(10)),
+                    (Key::Category, Some(0)),
+                    (Key::Number, Some(3)),
+                    (Key::LowerLimitScaledValue, Some(4)),
+                    (Key::LowerLimitScaleFactor, Some(0)),
+                    (Key::ProbabilityType, Some(3)),
+                ],
+                conditions: 6,
+                pools: 0b01100000,
             },
         ],
     ),
@@ -1756,7 +1783,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1769,7 +1796,19 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 7,
-                pools: 0b01100,
+                pools: 0b00001100,
+            },
+            Block {
+                read: &[
+                    (Key::Discipline, Some(10)),
+                    (Key::Category, Some(0)),
+                    (Key::Number, Some(3)),
+                    (Key::LowerLimitScaledValue, Some(6)),
+                    (Key::LowerLimitScaleFactor, Some(0)),
+                    (Key::ProbabilityType, Some(3)),
+                ],
+                conditions: 6,
+                pools: 0b01100000,
             },
         ],
     ),
@@ -1788,7 +1827,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -1801,7 +1840,19 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 7,
-                pools: 0b01100,
+                pools: 0b00001100,
+            },
+            Block {
+                read: &[
+                    (Key::Discipline, Some(10)),
+                    (Key::Category, Some(0)),
+                    (Key::Number, Some(3)),
+                    (Key::LowerLimitScaledValue, Some(8)),
+                    (Key::LowerLimitScaleFactor, Some(0)),
+                    (Key::ProbabilityType, Some(3)),
+                ],
+                conditions: 6,
+                pools: 0b01100000,
             },
         ],
     ),
@@ -1814,7 +1865,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(0)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -1829,7 +1880,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::SecondSurfaceType, Some(8)),
                 ],
                 conditions: 6,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1840,7 +1891,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::SecondSurfaceType, Some(8)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1849,7 +1900,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(164)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1865,7 +1916,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::SecondSurfaceType, Some(8)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1874,7 +1925,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(79)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1890,7 +1941,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::SecondSurfaceType, Some(8)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1899,7 +1950,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(78)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1915,7 +1966,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::SecondSurfaceType, Some(8)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1924,7 +1975,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(89)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1939,7 +1990,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::SecondSurfaceType, Some(8)),
             ],
             conditions: 5,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -1954,7 +2005,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::SecondSurfaceType, Some(8)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1963,7 +2014,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(137)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -1980,7 +2031,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 7,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -1991,7 +2042,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
         ],
     ),
@@ -2011,7 +2062,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 9,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -2020,7 +2071,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(60)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
             Block {
                 read: &[
@@ -2034,7 +2085,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2054,7 +2105,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 9,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -2068,7 +2119,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2088,7 +2139,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 9,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -2097,7 +2148,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(85)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
             Block {
                 read: &[
@@ -2111,7 +2162,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2131,7 +2182,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 9,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -2145,7 +2196,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2165,7 +2216,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 9,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -2179,7 +2230,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2199,7 +2250,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 9,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -2208,7 +2259,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(61)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
             Block {
                 read: &[
@@ -2222,7 +2273,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2242,7 +2293,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 9,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -2256,7 +2307,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 8,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2270,7 +2321,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(64)),
                 ],
                 conditions: 3,
-                pools: 0b10001,
+                pools: 0b10010001,
             },
             Block {
                 read: &[
@@ -2286,7 +2337,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(0)),
                 ],
                 conditions: 10,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2300,7 +2351,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(228)),
                 ],
                 conditions: 3,
-                pools: 0b10011,
+                pools: 0b10010011,
             },
             Block {
                 read: &[
@@ -2310,7 +2361,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::FirstSurfaceType, Some(1)),
                 ],
                 conditions: 4,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -2321,7 +2372,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(0)),
                 ],
                 conditions: 6,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2335,7 +2386,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(66)),
                 ],
                 conditions: 3,
-                pools: 0b10001,
+                pools: 0b10010001,
             },
             Block {
                 read: &[
@@ -2351,7 +2402,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 10,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2365,7 +2416,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(67)),
                 ],
                 conditions: 3,
-                pools: 0b10001,
+                pools: 0b10010001,
             },
             Block {
                 read: &[
@@ -2381,7 +2432,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(3)),
                 ],
                 conditions: 10,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2395,7 +2446,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(65)),
                 ],
                 conditions: 3,
-                pools: 0b10001,
+                pools: 0b10010001,
             },
             Block {
                 read: &[
@@ -2411,7 +2462,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::ProbabilityType, Some(0)),
                 ],
                 conditions: 10,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2425,7 +2476,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(179)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -2434,7 +2485,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(179)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -2445,7 +2496,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::StatisticalProcess, Some(1)),
                 ],
                 conditions: 5,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
         ],
     ),
@@ -2458,7 +2509,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(2)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -2470,7 +2521,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(3)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -2483,7 +2534,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(12)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -2494,7 +2545,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::SecondSurfaceType, Some(168)),
                 ],
                 conditions: 5,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
         ],
     ),
@@ -2507,7 +2558,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(25)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -2519,7 +2570,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(8)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -2532,7 +2583,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(7)),
                 ],
                 conditions: 3,
-                pools: 0b01101,
+                pools: 0b01101101,
             },
             Block {
                 read: &[
@@ -2541,7 +2592,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(219)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
         ],
     ),
@@ -2554,7 +2605,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(1)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -2566,7 +2617,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                 (Key::Number, Some(4)),
             ],
             conditions: 3,
-            pools: 0b01101,
+            pools: 0b01101101,
         }],
     ),
     (
@@ -2585,7 +2636,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::SecondScaleFactor, None),
                 ],
                 conditions: 9,
-                pools: 0b00001,
+                pools: 0b00000001,
             },
             Block {
                 read: &[
@@ -2594,7 +2645,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(145)),
                 ],
                 conditions: 3,
-                pools: 0b10010,
+                pools: 0b10010010,
             },
             Block {
                 read: &[
@@ -2603,7 +2654,7 @@ pub(crate) static NAMES: &[(&str, &[Block])] = &[
                     (Key::Number, Some(1)),
                 ],
                 conditions: 3,
-                pools: 0b01100,
+                pools: 0b01101100,
             },
         ],
     ),
@@ -2626,7 +2677,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::TimeRangeLength, Some(24)),
         ],
         conditions: 9,
-        pools: 0b01001,
+        pools: 0b01001001,
     },
     Block {
         read: &[
@@ -2641,7 +2692,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::TimeRangeLength, Some(24)),
         ],
         conditions: 9,
-        pools: 0b01001,
+        pools: 0b01001001,
     },
     Block {
         read: &[
@@ -2656,7 +2707,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 9,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -2671,7 +2722,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 9,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -2686,7 +2737,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 9,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -2701,7 +2752,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 9,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -2716,7 +2767,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 9,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -2731,7 +2782,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 9,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -2744,7 +2795,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 7,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2757,7 +2808,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 7,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2770,7 +2821,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstScaleFactor, Some(0)),
         ],
         conditions: 7,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2785,7 +2836,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::TimeRangeLength, Some(3)),
         ],
         conditions: 9,
-        pools: 0b01001,
+        pools: 0b01001001,
     },
     Block {
         read: &[
@@ -2799,7 +2850,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::TimeRangeLength, Some(6)),
         ],
         conditions: 8,
-        pools: 0b01001,
+        pools: 0b01001001,
     },
     Block {
         read: &[
@@ -2810,7 +2861,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::SecondSurfaceType, Some(255)),
         ],
         conditions: 5,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2821,7 +2872,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 5,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2832,7 +2883,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 5,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2844,7 +2895,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstScaleFactor, None),
         ],
         conditions: 6,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2856,7 +2907,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstScaleFactor, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01101,
+        pools: 0b01001101,
     },
     Block {
         read: &[
@@ -2868,7 +2919,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstScaleFactor, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01101,
+        pools: 0b01001101,
     },
     Block {
         read: &[
@@ -2880,7 +2931,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstScaleFactor, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01101,
+        pools: 0b01001101,
     },
     Block {
         read: &[
@@ -2890,7 +2941,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstSurfaceType, Some(185)),
         ],
         conditions: 4,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2900,7 +2951,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstSurfaceType, Some(186)),
         ],
         conditions: 4,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2910,7 +2961,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstSurfaceType, Some(187)),
         ],
         conditions: 4,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2920,7 +2971,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstSurfaceType, Some(185)),
         ],
         conditions: 4,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2930,7 +2981,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstSurfaceType, Some(187)),
         ],
         conditions: 4,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2941,7 +2992,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::SecondSurfaceType, Some(185)),
         ],
         conditions: 5,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2952,7 +3003,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::SecondSurfaceType, Some(185)),
         ],
         conditions: 5,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2963,7 +3014,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 5,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2973,7 +3024,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2983,7 +3034,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -2994,7 +3045,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 5,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3006,7 +3057,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstScaleFactor, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3018,7 +3069,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::TimeRangeLength, Some(1)),
         ],
         conditions: 6,
-        pools: 0b01001,
+        pools: 0b01001001,
     },
     Block {
         read: &[
@@ -3030,7 +3081,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::TimeRangeLength, Some(3)),
         ],
         conditions: 6,
-        pools: 0b01001,
+        pools: 0b01001001,
     },
     Block {
         read: &[
@@ -3042,7 +3093,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::TimeRangeLength, Some(1)),
         ],
         conditions: 6,
-        pools: 0b01001,
+        pools: 0b01001001,
     },
     Block {
         read: &[
@@ -3054,7 +3105,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::TimeRangeLength, Some(3)),
         ],
         conditions: 6,
-        pools: 0b01001,
+        pools: 0b01001001,
     },
     Block {
         read: &[
@@ -3066,7 +3117,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::TimeRangeLength, Some(6)),
         ],
         conditions: 6,
-        pools: 0b01001,
+        pools: 0b01001001,
     },
     Block {
         read: &[
@@ -3078,7 +3129,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::TimeRangeLength, Some(6)),
         ],
         conditions: 6,
-        pools: 0b01001,
+        pools: 0b01001001,
     },
     Block {
         read: &[
@@ -3093,7 +3144,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::SecondScaleFactor, None),
         ],
         conditions: 9,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3108,7 +3159,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::SecondScaleFactor, None),
         ],
         conditions: 9,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3123,7 +3174,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::SecondScaleFactor, None),
         ],
         conditions: 9,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3139,7 +3190,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 10,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -3155,7 +3206,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 10,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -3171,7 +3222,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 10,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -3187,7 +3238,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 10,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -3199,7 +3250,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 6,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -3215,7 +3266,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 10,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3231,7 +3282,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 10,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3247,7 +3298,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 10,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3263,7 +3314,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(1)),
         ],
         conditions: 10,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3279,7 +3330,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(1)),
         ],
         conditions: 10,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3296,7 +3347,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 11,
-        pools: 0b00001,
+        pools: 0b00000001,
     },
     Block {
         read: &[
@@ -3306,7 +3357,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstSurfaceType, Some(1)),
         ],
         conditions: 4,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3319,7 +3370,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 7,
-        pools: 0b01101,
+        pools: 0b01101101,
     },
     Block {
         read: &[
@@ -3333,7 +3384,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 8,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3347,7 +3398,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 8,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3361,7 +3412,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 8,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3375,7 +3426,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 8,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3389,7 +3440,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 8,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3403,7 +3454,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 8,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3413,7 +3464,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3423,7 +3474,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3433,7 +3484,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3443,7 +3494,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3453,7 +3504,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3463,7 +3514,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3473,7 +3524,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3483,7 +3534,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3493,7 +3544,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3503,7 +3554,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3513,7 +3564,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3523,7 +3574,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3533,7 +3584,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3543,7 +3594,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3553,7 +3604,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3563,7 +3614,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3573,7 +3624,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3583,7 +3634,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3593,7 +3644,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3603,7 +3654,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3613,7 +3664,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3623,7 +3674,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3633,7 +3684,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3643,7 +3694,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3658,7 +3709,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::SecondScaleFactor, Some(1)),
         ],
         conditions: 9,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3673,7 +3724,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::SecondScaleFactor, Some(0)),
         ],
         conditions: 9,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3685,7 +3736,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::FirstScaleFactor, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3696,7 +3747,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::SecondSurfaceType, Some(167)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3706,7 +3757,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3718,7 +3769,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3730,7 +3781,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3744,7 +3795,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 8,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3757,7 +3808,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3767,7 +3818,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3777,7 +3828,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3787,7 +3838,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3797,7 +3848,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3807,7 +3858,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3817,7 +3868,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3829,7 +3880,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3845,7 +3896,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 10,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3861,7 +3912,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 10,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3874,7 +3925,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3890,7 +3941,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 10,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3906,7 +3957,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 10,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3916,7 +3967,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3926,7 +3977,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3936,7 +3987,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3946,7 +3997,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3956,7 +4007,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3967,7 +4018,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3977,7 +4028,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -3989,7 +4040,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4001,7 +4052,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4011,7 +4062,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4022,7 +4073,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4032,7 +4083,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4042,7 +4093,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4055,7 +4106,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4068,7 +4119,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4081,7 +4132,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4091,7 +4142,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4103,7 +4154,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 6,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -4115,7 +4166,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4128,7 +4179,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4141,7 +4192,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4154,7 +4205,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4166,7 +4217,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4176,7 +4227,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4186,7 +4237,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4197,7 +4248,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4207,7 +4258,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4219,7 +4270,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4231,7 +4282,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4245,7 +4296,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 8,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4258,7 +4309,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4268,7 +4319,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -4278,7 +4329,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4288,7 +4339,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4298,7 +4349,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4308,7 +4359,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4318,7 +4369,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4330,7 +4381,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4343,7 +4394,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4353,7 +4404,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4363,7 +4414,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4373,7 +4424,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4383,7 +4434,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4393,7 +4444,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4404,7 +4455,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4414,7 +4465,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4426,7 +4477,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4438,7 +4489,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4448,7 +4499,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4459,7 +4510,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4469,7 +4520,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4479,7 +4530,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4492,7 +4543,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4505,7 +4556,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4518,7 +4569,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4531,7 +4582,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4541,7 +4592,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4553,7 +4604,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4565,7 +4616,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4578,7 +4629,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4591,7 +4642,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4604,7 +4655,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4616,7 +4667,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4626,7 +4677,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4636,7 +4687,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4647,7 +4698,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4657,7 +4708,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4669,7 +4720,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4681,7 +4732,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4695,7 +4746,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 8,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4708,7 +4759,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4718,7 +4769,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -4728,7 +4779,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4738,7 +4789,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4748,7 +4799,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4758,7 +4809,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4768,7 +4819,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4780,7 +4831,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4793,7 +4844,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4803,7 +4854,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4813,7 +4864,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4823,7 +4874,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4833,7 +4884,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4843,7 +4894,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4854,7 +4905,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4864,7 +4915,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4876,7 +4927,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4888,7 +4939,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4898,7 +4949,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4909,7 +4960,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4919,7 +4970,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4929,7 +4980,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4942,7 +4993,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4955,7 +5006,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4968,7 +5019,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4981,7 +5032,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -4991,7 +5042,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5003,7 +5054,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5015,7 +5066,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5028,7 +5079,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5041,7 +5092,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5054,7 +5105,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5066,7 +5117,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5077,7 +5128,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5087,7 +5138,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5097,7 +5148,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5108,7 +5159,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5118,7 +5169,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5130,7 +5181,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5142,7 +5193,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5156,7 +5207,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 8,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5166,7 +5217,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5176,7 +5227,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5186,7 +5237,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5196,7 +5247,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5206,7 +5257,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5216,7 +5267,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5228,7 +5279,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5241,7 +5292,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5251,7 +5302,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5261,7 +5312,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5271,7 +5322,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5281,7 +5332,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5291,7 +5342,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5302,7 +5353,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5312,7 +5363,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5324,7 +5375,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5336,7 +5387,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5346,7 +5397,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5357,7 +5408,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 5,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5367,7 +5418,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5377,7 +5428,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5390,7 +5441,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5403,7 +5454,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5416,7 +5467,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5429,7 +5480,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5442,7 +5493,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5452,7 +5503,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5464,7 +5515,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5476,7 +5527,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5489,7 +5540,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5502,7 +5553,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5515,7 +5566,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5527,7 +5578,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 6,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5542,7 +5593,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::SecondScaleFactor, Some(1)),
         ],
         conditions: 9,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5557,7 +5608,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::SecondScaleFactor, Some(0)),
         ],
         conditions: 9,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5567,7 +5618,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(100)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5577,7 +5628,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(101)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5587,7 +5638,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5597,7 +5648,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5607,7 +5658,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5617,7 +5668,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 4,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5627,7 +5678,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5637,7 +5688,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5647,7 +5698,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5657,7 +5708,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5673,7 +5724,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 10,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5689,7 +5740,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 10,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5705,7 +5756,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(2)),
         ],
         conditions: 10,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5715,7 +5766,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5725,7 +5776,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5735,7 +5786,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5745,7 +5796,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5761,7 +5812,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 10,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5777,7 +5828,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 10,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5793,7 +5844,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(3)),
         ],
         conditions: 10,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5803,7 +5854,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5813,7 +5864,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5823,7 +5874,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5833,7 +5884,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 4,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5849,7 +5900,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 10,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5865,7 +5916,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 10,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5881,7 +5932,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(6)),
         ],
         conditions: 10,
-        pools: 0b00100,
+        pools: 0b00100100,
     },
     Block {
         read: &[
@@ -5894,7 +5945,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::StatisticalProcess, Some(0)),
         ],
         conditions: 7,
-        pools: 0b01100,
+        pools: 0b01101100,
     },
     Block {
         read: &[
@@ -5910,7 +5961,7 @@ pub(crate) static RIVALS: &[Block] = &[
             (Key::ProbabilityType, Some(3)),
         ],
         conditions: 10,
-        pools: 0b01000,
+        pools: 0b01001000,
     },
 ];
 

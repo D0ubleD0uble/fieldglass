@@ -3398,6 +3398,26 @@ mod tests {
         assert_eq!(refused(&mars("tprate"), &local_tp), Some("abbreviation"));
     }
 
+    /// eccodes 2.48 dropped the mean-sea-level surface from `swhg2`..`swhg8`,
+    /// so a producer on 2.48 may write a wave-height probability on another
+    /// surface and still call it `swhg2`. The table reads 2.48 too, so that
+    /// record passes, as it did before #1298; the threshold still counts.
+    #[test]
+    fn a_name_the_newest_eccodes_loosened_still_passes() {
+        let wave_height = (10, 0, 3);
+        // Code Table 4.9 type 3, above 2 m (scale 0).
+        let above_2 = probability_block(3, (0, 2), (0xff, u32::MAX));
+        for surface in [bare(1), bare(101), surface((103, 0, 10))] {
+            let message = coded(wave_height, surface, 5, Some(&above_2));
+            assert_eq!(refused(&mars("swhg2"), &message), None, "{surface:?}");
+            assert_eq!(
+                refused(&mars("swhg4"), &message),
+                Some("abbreviation"),
+                "{surface:?}"
+            );
+        }
+    }
+
     /// `sol N` against soil level N, and against the soil layer whose bottom
     /// is level N, which is how eccodes numbers it (#1116).
     #[test]

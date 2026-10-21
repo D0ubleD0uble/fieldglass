@@ -119,6 +119,20 @@ still address the mirror's object. The message it points at is
 
 CC BY 4.0, as above. Attribution: ECMWF.
 
+### `ecmwf_ifs_0p25_waef_ep_swhg8.index`
+
+One line of
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/ifs/0p25/waef/20260904000000-240h-waef-ep.index`,
+fetched on 2026-10-21: line 66 of 80, the `swhg8` record at step `12`,
+unmodified, with its newline. The same run, from the wave ensemble's
+probability product (`stream` `waef`, `type` `ep`). Only this record is read,
+so only this line is committed; its `_offset` and `_length` still address the
+mirror's object. The message it points at is
+`crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_waef_swhg8.grib2`. SHA-256
+`c78ff3b61eb1cff228a66fc531836412d45268619fa0b8e0bfc44fe43eaadae2`.
+
+CC BY 4.0, as above. Attribution: ECMWF.
+
 ## Zarr and kerchunk fixtures (`zarr/`, generated)
 
 Written by `tools/build_zarr_fixtures.py --plan-only`, from the committed

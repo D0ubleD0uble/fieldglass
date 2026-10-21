@@ -250,6 +250,26 @@ It is the probability half of
 `crates/fieldglass/tests/verify_message_real_pairs.rs` (#1298): `tp`, `tpg50`
 and `tpg25` against its probability block.
 
+### `ecmwf_ifs_0p25_waef_swhg8.grib2`
+
+The `swhg8` record of the same run's wave ensemble probability index,
+committed as
+`crates/fieldglass-fetchplan/tests/fixtures/ecmwf_ifs_0p25_waef_ep_swhg8.index`,
+fetched on 2026-10-21 from
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/ifs/0p25/waef/20260904000000-240h-waef-ep.grib2`.
+The record's `_offset` for its `_length`, `Range: bytes=13947266-14085239`,
+unmodified, 137,974 bytes, SHA-256
+`49a68dda49772baad3b4efc3071e7e32773a3b05f43493ee0e5923a66b6ec5e0`.
+
+eccodes 2.34.1 (`grib_ls`) reads it as `swhg8`: discipline 10, category 0,
+number 3 (significant wave height), product template 4.5, surface 101 (mean
+sea level), probability type 3 above a lower limit of scaled value 8 at scale
+factor 0, step 12, minimum 0, maximum 100, CCSDS-packed (5.42), 2026-09-04
+00Z, tables version 32. eccodes 2.48.0 gives the same name.
+
+It pins the surface ECMWF writes for these probabilities, which eccodes 2.48
+no longer requires, in `verify_message_real_pairs.rs` (#1298).
+
 ## Built wind fixtures
 
 ### `uv_pairs.grib2`, `uv_pairs.grib1`
