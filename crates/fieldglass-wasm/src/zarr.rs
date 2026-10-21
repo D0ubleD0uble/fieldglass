@@ -235,31 +235,41 @@ export interface ObjectRanges {
 ///
 /// Not `dyn_ref::<Map>`, which is `instanceof` and false for a `Map` made in a
 /// `vm` context or an iframe: that map fell through and read as an object with
-/// no entries, an empty store (#1244). `Map.prototype.forEach` called on the
-/// value checks the value's internal slot, which holds across realms and which
-/// `Symbol.toStringTag` cannot forge, so a look-alike throws `TypeError` and is
-/// `None`. The brand ([`object_brand`], #1242) only spares the call for a value
-/// that is plainly not a `Map`.
+/// no entries, an empty store (#1244). Not the brand ([`object_brand`], #1242)
+/// either, which is `Symbol.toStringTag`: a `Map` subclass with a tag of its own
+/// read as a plain object (#1322). The test is the intrinsic `Map.prototype.size`
+/// getter, which throws `TypeError` unless its receiver has the internal `Map`
+/// slot. That holds across realms and no tag, own property or prototype can
+/// forge it, so a look-alike is `None`. The entries are then read with the
+/// intrinsic `Map.prototype.forEach`, not the value's own, which a subclass may
+/// override. The brand only names the one refusal: a value tagged `Map` that is
+/// not one.
 fn map_entries(objects: &JsValue) -> Result<Option<Vec<(JsValue, JsValue)>>, JsValue> {
-    if object_brand(objects)? != "[object Map]" {
-        return Ok(None);
+    let proto = Object::get_prototype_of(&Map::new());
+    let descriptor = Object::get_own_property_descriptor(&proto, &"size".into());
+    let size: js_sys::Function = js_sys::Reflect::get(&descriptor, &"get".into())?.unchecked_into();
+    if size.call0(objects).is_err() {
+        // Tagged `[object Map]` but not a Map. With keys of its own it is an
+        // object of objects; with none it would read as an empty store.
+        return if object_brand(objects)? == "[object Map]"
+            && Object::keys(objects.unchecked_ref::<Object>()).length() == 0
+        {
+            Err(invalid(
+                "the store's objects are tagged as a Map but are not one".to_string(),
+            ))
+        } else {
+            Ok(None)
+        };
     }
     let for_each: js_sys::Function =
-        js_sys::Reflect::get(&Map::new(), &"forEach".into())?.unchecked_into();
+        js_sys::Reflect::get(&proto, &"forEach".into())?.unchecked_into();
     let out = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let sink = out.clone();
     let collect = Closure::<dyn FnMut(JsValue, JsValue)>::new(move |value, key| {
         sink.borrow_mut().push((key, value));
     });
-    match for_each.call1(objects, collect.as_ref().unchecked_ref()) {
-        Ok(_) => Ok(Some(out.take())),
-        // Tagged `[object Map]` but not a Map. With keys of its own it is an
-        // object of objects; with none it would read as an empty store.
-        Err(_) if Object::keys(objects.unchecked_ref::<Object>()).length() == 0 => Err(invalid(
-            "the store's objects are tagged as a Map but are not one".to_string(),
-        )),
-        Err(_) => Ok(None),
-    }
+    for_each.call1(objects, collect.as_ref().unchecked_ref())?;
+    Ok(Some(out.take()))
 }
 
 /// The bytes of `value` when it is a `Uint8Array`, from this realm or another;
