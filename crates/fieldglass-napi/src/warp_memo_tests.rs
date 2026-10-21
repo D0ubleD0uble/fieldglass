@@ -580,3 +580,57 @@ fn a_probe_the_plan_does_not_serve_falls_back_and_plans_nothing() {
         .expect("probes");
     assert_eq!(handle.probes_served(), 1);
 }
+
+/// A global grid, which is periodic in longitude, with a bilinear plan (the
+/// plan keeps the fractional index) wraps at the seam as the uncached probe
+/// does.
+#[test]
+fn a_probe_across_the_seam_of_a_global_grid_reads_the_kept_plan() {
+    const GLOBAL: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
+    let fresh = || Handle::from_vec(GLOBAL.to_vec()).expect("GFS opens");
+    for projection in ["equirectangular", "mollweide"] {
+        assert_probes_as_uncached(fresh, &json!(0), || RenderOptions {
+            resampling: "bilinear".into(),
+            ..opts(projection)
+        });
+    }
+}
+
+/// The plan holds cells, never values: a probe of another field on the grid
+/// that was drawn reads that field's values.
+#[test]
+fn a_probe_of_another_field_reads_its_own_values_through_the_plan() {
+    let fresh = || Handle::from_vec(RTOFS.to_vec()).expect("RTOFS opens");
+    let drawn = fresh();
+    let uncached = fresh();
+    let targets = slice_targets(&drawn);
+    let o = || opts("equirectangular");
+    let image = drawn.render_grid(targets[0].clone(), o()).expect("renders");
+    let mut differs = 0;
+    for (px, py) in probe_pixels(image.width as u32, image.height as u32) {
+        let kept = drawn
+            .probe_pixel(targets[1].clone(), o(), px, py)
+            .expect("probes");
+        let plain = uncached
+            .probe_pixel(targets[1].clone(), o(), px, py)
+            .expect("probes");
+        assert_eq!(format!("{kept:?}"), format!("{plain:?}"), "({px}, {py})");
+        let first = drawn
+            .probe_pixel(targets[0].clone(), o(), px, py)
+            .expect("probes");
+        differs += usize::from(
+            kept.as_ref().and_then(|p| p.value) != first.as_ref().and_then(|p| p.value),
+        );
+    }
+    assert!(differs > 0, "the two fields differ somewhere probed");
+    assert_eq!(drawn.plans_made(), 1);
+}
+
+#[test]
+fn a_combined_probe_of_a_store_reads_the_kept_plan() {
+    let fresh = || crate::Handle::from_store(STORE.to_string()).expect("a store");
+    let targets = slice_targets(&fresh());
+    let combined = json!({ "a": targets[0], "b": targets[1], "op": "a_minus_b" });
+    assert_probes_as_uncached(fresh, &combined, || opts("mollweide"));
+}

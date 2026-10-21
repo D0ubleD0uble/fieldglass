@@ -130,8 +130,10 @@ fn side(geometry: &Result<&GridGeometry, Error>) -> String {
 /// pair hands the same borrow twice — and makes it free there.
 ///
 /// A `Lookup` grid is compared by a 64-bit hash of its centres, dimensions and
-/// cutoff, so a collision is possible in principle; a false match costs a stale
-/// render, not a wrong number.
+/// cutoff, so a collision is possible in principle. A false match lets a render
+/// or a pixel probe go through a plan made for another grid: a stale picture,
+/// or a probe naming the wrong cell and value. At 64 bits that is not a case
+/// to plan for, but it is not harmless.
 pub fn same_grid(a: &GridGeometry, b: &GridGeometry) -> bool {
     if std::ptr::eq(a, b) {
         return true;

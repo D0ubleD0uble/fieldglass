@@ -1826,6 +1826,10 @@ impl WarpMemo {
     /// plan does not serve (no draw yet, other options, another grid) is
     /// answered by [`probe_pixel`](fn@probe_pixel) and makes no plan: a probe
     /// should cost a lookup, not a warp of the whole raster.
+    ///
+    /// The plan is matched to the grid by [`same_grid`](crate::same_grid), a
+    /// 64-bit fingerprint for a lookup grid, so a collision would make the
+    /// probe name another grid's cell.
     pub fn probe_pixel(
         &self,
         geometry: &std::sync::Arc<GridGeometry>,
@@ -1892,8 +1896,8 @@ impl WarpMemo {
             .map(std::sync::Arc::clone)
     }
 
-    /// How many pixel probes the kept plan has answered (#1313): what a test
-    /// counts to hold that a probe of a grid already drawn reads the plan
+    /// How many pixel probes the kept plan has answered (#1313), off-raster
+    /// and off-globe ones included: what a test counts to hold that a probe of a grid already drawn reads the plan
     /// rather than building the target and the inverse map again.
     pub fn probes_served(&self) -> u64 {
         self.probed.load(std::sync::atomic::Ordering::Relaxed)
