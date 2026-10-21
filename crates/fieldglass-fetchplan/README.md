@@ -20,7 +20,7 @@ let idx = Wgrib2Idx::parse("gfs.t00z.pgrb2.0p25.f000", sidecar)?;
 let hit = &idx.select(&Query::abbreviation("TMP"), &NoResolver)[0];
 
 // The host issues this against the object and checks what comes back.
-assert_eq!(hit.range.http_range_header().as_deref(), Some("bytes=875084-"));
+assert_eq!(hit.range.http_range_header()?.as_deref(), Some("bytes=875084-"));
 # Ok::<(), fieldglass_fetchplan::FetchPlanError>(())
 ```
 

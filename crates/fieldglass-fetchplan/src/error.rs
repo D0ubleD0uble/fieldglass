@@ -86,6 +86,39 @@ pub enum FetchPlanError {
         value: i64,
     },
 
+    /// A record's offset and length cannot make a fetchable range: the length
+    /// is zero, or `offset + length` does not fit in a `u64`.
+    ///
+    /// Refused at parse time because a zero length has no `Range` header, and a
+    /// host that read the missing header as "no range" would download the
+    /// whole object.
+    #[error("{dialect} line {line}: _offset {offset} and _length {length}: {detail}")]
+    BadRange {
+        /// Which dialect was being read.
+        dialect: Dialect,
+        /// 1-based line number.
+        line: usize,
+        /// The record's offset.
+        offset: u64,
+        /// The record's length.
+        length: u64,
+        /// Which rule it broke.
+        detail: &'static str,
+    },
+
+    /// An [`Exact`](crate::PlanRange::Exact) range with a zero length, or whose
+    /// end does not fit in a `u64`, was asked for an HTTP `Range` header.
+    #[error(
+        "a range of {length} bytes at offset {offset} has no HTTP Range header: \
+         the length must be above zero and offset + length must fit in 64 bits"
+    )]
+    UnfetchableRange {
+        /// Where the range starts.
+        offset: u64,
+        /// How many bytes it claims.
+        length: u64,
+    },
+
     /// A wgrib2 record number was neither `n` nor `n.m`.
     #[error("wgrib2 .idx line {line}: record number {value:?} is neither `n` nor `n.m`")]
     BadRecordNumber {

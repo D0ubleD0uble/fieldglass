@@ -196,6 +196,20 @@ check(
   wasm.httpRangeHeader({ kind: 'openEnded', offset: 490148925 }) === 'bytes=490148925-',
 );
 
+// An exact range with no header form throws: `null` would have the host fetch
+// the whole object (#1344).
+for (const [what, range] of [
+  ['a zero-length exact range', { kind: 'exact', offset: 1000, length: 0 }],
+]) {
+  let outcome = 'did not throw';
+  try {
+    outcome = `returned ${wasm.httpRangeHeader(range)}`;
+  } catch (e) {
+    outcome = e.code === 'invalid_option' && /no HTTP Range header/.test(String(e.message)) ? 'threw' : `threw ${e.code}: ${e.message}`;
+  }
+  check(`${what} throws instead of sending no header`, outcome === 'threw');
+}
+
 // Misuse is refused, not guessed at.
 check(
   'a misspelt query key throws rather than widening the query',

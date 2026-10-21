@@ -175,7 +175,7 @@ const items = idx.select({ abbreviation: 'TMP', levelText: '2 m above ground' })
 //              level: { surface: 'height_above_ground', value: 2, value2: null } });
 
 const item = items[0];
-const header = httpRangeHeader(item.range);          // 'bytes=…' or null for the whole object
+const header = httpRangeHeader(item.range);          // 'bytes=…', or null for the whole object; throws (invalid_option) for an exact range of no bytes or past 2^64
 const response = await fetch(`${bucket}/${key}`, header ? { headers: { Range: header } } : {});
 // 206 for a ranged request, 200 for the whole object. Check before trusting the
 // bytes: a 200 to a ranged request is a server that ignored `Range` and sent the

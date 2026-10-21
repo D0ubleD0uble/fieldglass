@@ -81,6 +81,15 @@ fn to_item(
 ) -> Result<PlanItem, FetchPlanError> {
     let offset = integer(line_no, record, "_offset")?;
     let length = integer(line_no, record, "_length")?;
+    if let Some(detail) = crate::plan::exact_fault(offset, length) {
+        return Err(FetchPlanError::BadRange {
+            dialect: DIALECT,
+            line: line_no,
+            offset,
+            length,
+            detail,
+        });
+    }
 
     let levtype = string(record, "levtype");
     let levelist = string(record, "levelist");
@@ -344,6 +353,37 @@ mod tests {
                 length: 896_851
             }
         );
+    }
+
+    /// A record of no bytes has no `Range` header; read as "no header" it would
+    /// have the host download the whole object (#1344). Refused with its line.
+    /// (`_offset` + `_length` cannot overflow here: each is read as an `i64`.)
+    #[test]
+    fn a_zero_length_record_is_refused() {
+        let text = concat!(
+            r#"{"param":"2t","_offset":0,"_length":20}"#,
+            "\n\n",
+            r#"{"param":"2t","levtype":"sfc","_offset":1000,"_length":0}"#,
+        );
+        assert_eq!(
+            EcmwfIndex::parse("o", text).unwrap_err(),
+            FetchPlanError::BadRange {
+                dialect: Dialect::EcmwfIndex,
+                line: 3,
+                offset: 1000,
+                length: 0,
+                detail: "the length is zero",
+            }
+        );
+        let as_string = r#"{"param":"2t","_offset":"5","_length":"0"}"#;
+        assert!(matches!(
+            EcmwfIndex::parse("o", as_string).unwrap_err(),
+            FetchPlanError::BadRange {
+                offset: 5,
+                length: 0,
+                ..
+            }
+        ));
     }
 
     /// A producer that wrote the offsets as strings is still readable; a

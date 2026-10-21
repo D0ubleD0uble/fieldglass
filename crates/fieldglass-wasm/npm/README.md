@@ -70,6 +70,8 @@ if (!sidecar.ok) throw new Error(`HTTP ${sidecar.status}`);
 const [item] = parseWgrib2Idx(key, await sidecar.text())
   .select({ abbreviation: 'TMP', levelText: '2 m above ground' });
 
+// 'bytes=…', or null for the whole object. Throws (code invalid_option) for an
+// exact range of no bytes or whose end passes 2^64; the planner never makes one.
 const header = httpRangeHeader(item.range);
 const response = await fetch(url, header ? { headers: { Range: header } } : {});
 // Check the status first: a 200 to a ranged request means the server sent the
