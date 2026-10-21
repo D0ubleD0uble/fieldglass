@@ -3152,7 +3152,10 @@ export function renderImagePanelHtml(
           stopAnimation();
           // As a drawn render: only the answer to the last request ends what
           // a gesture is waiting for.
-          if (!msg || typeof msg.seq !== 'number' || msg.seq >= renderSeq) clearGesturePreview();
+          if (!msg || typeof msg.seq !== 'number' || msg.seq >= renderSeq) {
+            answeredSeq = renderSeq;
+            clearGesturePreview();
+          }
           const err = msg.error || 'render failed';
           const askedKey = takeAskedKey(msg);
           mountAnswered = true;
@@ -3227,6 +3230,9 @@ export function renderImagePanelHtml(
         // knows (the host refusing on its own) is taken to be about the field
         // chosen now.
         let renderSeq = 0;
+        // The id of the last request answered, drawn or refused: less than
+        // renderSeq while the render last asked for is on its way.
+        let answeredSeq = 0;
         const askedKeys = new Map();
         function newAsk() {
           const seq = ++renderSeq;
@@ -4012,6 +4018,7 @@ export function renderImagePanelHtml(
         function settleGesturePreview(payload) {
           const latest = !payload || typeof payload.seq !== 'number' || payload.seq >= renderSeq;
           if (latest) {
+            answeredSeq = renderSeq;
             gestureWindow = null;
             gestureView = null;
             windowAwaited = false;
@@ -4080,11 +4087,21 @@ export function renderImagePanelHtml(
           if (gesture && gesture.moved) { ev.preventDefault(); return; }
           // Over a map no wheel zooms, the page scrolls: a target with no
           // window drawn, or asked for while a lat/lon image is still up
-          // (#1147), as it will once that render lands.
-          if (!drawnMapWindow()) return;
+          // (#1147), as it will once that render lands. The other way round,
+          // a lat/lon render on its way over a map with no window (one picked
+          // over Mollweide, or a stale Mollweide image landing after Reset
+          // view), the wheel zooms once that render lands, so it is held
+          // back meanwhile, as in the wait for Reset view's window (#1272).
+          // Once the last render asked for has answered, a map still not
+          // lat/lon (a slice drawn in its source view) lets the page scroll.
+          const drawn = drawnMapWindow();
+          const coming = !drawn && answeredSeq < renderSeq &&
+            warpsLatLon(requestedProjection()) && !warpsLatLon(drawnProjection());
+          if (!drawn && !coming) return;
           const at = imageFraction(ev.clientX, ev.clientY);
           if (!at || at.fx < 0 || at.fx > 1 || at.fy < 0 || at.fy > 1) return;
           ev.preventDefault();
+          if (!drawn) return;
           // The window asked for is not known until its render lands (Reset
           // view, or Auto): the wheel is held back, not let through to
           // scroll the page out from under the pointer (#1269).
