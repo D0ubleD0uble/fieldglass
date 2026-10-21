@@ -73,11 +73,11 @@ flag_management:
 #    `tables.rs`, which is a stronger guarantee than line coverage.
 #  - `crates/fieldglass/src/fetchplan/mars_short_names.rs`: the MARS short
 #    names of ECMWF's open-data parameters (from
-#    `tools/gen_mars_short_names.py`, out of eccodes' `shortName` concept) —
-#    constant slices of concept blocks and one lookup. The matching that reads
-#    it is in `fetchplan.rs` and covered there, and
-#    `tests/verify_message_real_pairs.rs` reaches the blocks of every name the
-#    committed ECMWF index uses.
+#    `tools/gen_mars_short_names.py`, out of eccodes' `shortName` and
+#    `marsLevtype` concepts) — constant slices of concept blocks and one
+#    lookup. The matching that reads it is in `fetchplan.rs` and covered
+#    there, and `tests/verify_message_real_pairs.rs` reaches the blocks of
+#    every name the committed ECMWF index uses.
 #  - `crates/fieldglass-grib1/src/tables_cct.rs`,
 #    `crates/fieldglass-grib2/src/tables_cct.rs` and
 #    `crates/fieldglass-core/src/cct_tables.rs`: the WMO Common Code Table

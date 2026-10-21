@@ -133,6 +133,31 @@ mirror's object. The message it points at is
 
 CC BY 4.0, as above. Attribution: ECMWF.
 
+### `ecmwf_aifs_single_0p25_oper_mcc.index`
+
+One line of
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/aifs-single/0p25/oper/20260904000000-6h-oper-fc.index`,
+fetched on 2026-10-21: line 61 of 122, the AIFS-single `mcc` record at step
+`6`, `levtype` `sfc`, unmodified, with its newline. Only this record is read,
+so only this line is committed; its `_offset` and `_length` still address the
+mirror's object. The message it points at is
+`crates/fieldglass/tests/fixtures/ecmwf_aifs_single_0p25_mcc.grib2` (#1323).
+SHA-256 `69a9d8f1a1be6ded5b255adf8fd014761fc140b733d230bde5ffca751f616208`.
+
+CC BY 4.0, as above. Attribution: ECMWF.
+
+### `ecmwf_aifs_ens_0p25_cf_hcc.index`
+
+One line of
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/aifs-ens/0p25/enfo/20260904000000-6h-enfo-cf.index`,
+fetched on 2026-10-21: line 105 of 108, the AIFS-ens control forecast's `hcc`
+record at step `6`, `levtype` `sfc`, unmodified, with its newline. Only this
+record is read, so only this line is committed. The message it points at is
+`crates/fieldglass/tests/fixtures/ecmwf_aifs_ens_0p25_cf_hcc.grib2` (#1323).
+SHA-256 `c53302b9962554971de48cb8091f21b2fed25efdca4e757151c23948220bcc78`.
+
+CC BY 4.0, as above. Attribution: ECMWF.
+
 ## Zarr and kerchunk fixtures (`zarr/`, generated)
 
 Written by `tools/build_zarr_fixtures.py --plan-only`, from the committed

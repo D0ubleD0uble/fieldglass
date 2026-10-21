@@ -142,6 +142,40 @@ state more conditions than the fewest any such block states, and whose every
 condition is kept (a block with one that is not can never be certain, so it
 could never refuse). They are compared only as rivals: a record naming one is
 still not compared.
+
+# The `sfc` levtype on a surface ECMWF lists levels of (#1323)
+
+An ECMWF `.index` states each message's `levtype` as eccodes reads it, from
+its `marsLevtype` concept (`grib2/marsLevtypeConcept.def` with the ECMWF
+local file, in `grib2/templates/template.4.horizontal.def`; in 2.48.0, not
+2.45.0, also a `.lte33.def` for tables version 33 and older). It is
+ranked the same way: of the matching blocks, the one stating the most
+conditions. `verify_message` reads an ECMWF `sfc` as any single-level field
+and refuses it only on a surface ECMWF lists levels of, `LEVEL_LISTS` below
+(isobaric, hybrid, isentropic, potential vorticity, soil: what it gives a
+`pl`, `ml`, `pt`, `pv` or `sol` levtype with a `levelist`).
+
+The concept says some messages on those surfaces are `sfc` all the same: medium
+cloud cover is the layer from 800 hPa to 450 hPa (`'sfc' = {100 at 80000;
+100 at 45000}`), high cloud cover from 450 hPa to the top of the atmosphere,
+and three isentropic levels (type 107, θ = 273.15 K, 274.15 K, 274.65 K) are
+`sfc` from eccodes 2.45 on. Their parameters (`h0thg`, `h1thg`, `h1p5thg`) are
+heights of the 0, 1 and 1.5 °C isotherms, so 107 there is likely an eccodes
+slip for the isothermal type 20; the table mirrors eccodes all the same, since
+eccodes is what writes a record's `levtype`. A block naming two isobaric
+surfaces outranks `'pl' = {100; 100}` because it states more conditions.
+
+The table is a union across eccodes versions, so this widens one case: an
+`sfc` line on θ = 273.15 K is accepted although eccodes 2.34.1, which has no
+such block, reads that message as `pt`.
+
+So the table also carries the concept's blocks whose first surface is one of
+`LEVEL_LISTS`: the `sfc` ones, and, as rivals, every other levtype's. Each
+records the levtype pools that hold it (see `LEVTYPE_POOL_FILES`), and
+`verify_message` accepts `sfc` on such a surface when, in some pool, an `sfc`
+block may match and no other levtype's block certainly matches with more
+conditions. The concept is parameter-blind: which parameter the bytes are is
+the name check's business, not this one's.
 """
 from __future__ import annotations
 
@@ -172,6 +206,29 @@ POOL_FILES = (
         ("grib2/localConcepts/ecmf/shortName.legacy.def", "grib2/shortName.legacy.def"),
     ),
 )
+
+# The levtype pools of one eccodes version, as `POOL_FILES` for `shortName`.
+# The concept has no `.legacy.def`; of the trees read, only 2.48.0 has a
+# `.lte33.def` for it.
+# `.chemsplit.def` is for the MARS chemistry classes, not open data.
+LEVTYPE_POOL_FILES = (
+    (
+        "marsLevtypeConcept.def",
+        ("grib2/localConcepts/ecmf/marsLevtypeConcept.def", "grib2/marsLevtypeConcept.def"),
+    ),
+    (
+        "marsLevtypeConcept.lte33.def",
+        (
+            "grib2/localConcepts/ecmf/marsLevtypeConcept.lte33.def",
+            "grib2/marsLevtypeConcept.lte33.def",
+        ),
+    ),
+)
+
+# The GRIB2 surfaces (Code Table 4.5) an ECMWF `.index` gives a levtype with a
+# levelist: isobaric, hybrid, isentropic, potential vorticity, soil. The same
+# set as `on_an_ecmwf_level_list` in `crates/fieldglass/src/fetchplan.rs`.
+LEVEL_LISTS = (100, 105, 107, 109, 151)
 
 OUT = (
     Path(__file__).resolve().parent.parent
@@ -281,6 +338,12 @@ def row(keys: dict[str, str], version: str) -> tuple | None:
     codes = [integer(keys.get(k)) for k in TRIPLE]
     if any(c is None or not 0 <= c <= 255 for c in codes):
         return None
+    return read_block(keys, version)
+
+
+def read_block(keys: dict[str, str], version: str) -> tuple:
+    """`(conditions read, conditions stated)` of a block, as `row` describes,
+    whatever its codes."""
     read = []
     for key, value in keys.items():
         variant = KEPT.get(key)
@@ -305,6 +368,8 @@ def render(
     rivals: list[list],
     pools: list[tuple[str, str]],
     missing: list[str],
+    levtypes: dict[str, list[list]],
+    levtype_pools: list[tuple[str, str]],
 ) -> str:
     entries = []
     for name in sorted(table):
@@ -324,6 +389,17 @@ def render(
     pool_docs = "\n".join(
         f"/// * bit {i}: eccodes {version} `{kind}`" for i, (version, kind) in enumerate(pools)
     )
+    def level_rows(rows: list[list]) -> str:
+        return "\n".join(
+            f"    {rust_block(read, stated, mask, len(levtype_pools))},"
+            for read, stated, mask in rows
+        )
+
+    levtype_pool_docs = "\n".join(
+        f"/// * bit {i}: eccodes {version} `{kind}`"
+        for i, (version, kind) in enumerate(levtype_pools)
+    )
+    level_lists = ", ".join(str(t) for t in LEVEL_LISTS)
     variants = "\n".join(
         f"    /// `{key}`.\n    {variant},"
         for key, variant in KEPT.items()
@@ -340,6 +416,10 @@ def render(
 //! that can outrank them. Each block keeps the conditions the message identity
 //! carries and counts every condition eccodes ranks it by; see the
 //! generator's module docs for which and why.{left_out}
+//!
+//! Also {len(levtypes["sfc"])} blocks of eccodes' `marsLevtype` concept that
+//! make a message `sfc` on a surface ECMWF lists levels of, and
+//! {len(levtypes["other"])} blocks of other levtypes on those surfaces (#1323).
 
 /// An eccodes key this table keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,6 +459,25 @@ pub(crate) static RIVALS: &[Block] = &[
 {rival_rows}
 ];
 
+/// How many levtype pools there are: the sets of `marsLevtype` concept files
+/// eccodes ranks blocks within. [`SFC_ON_LEVEL_LISTS`] and
+/// [`LEVTYPES_ON_LEVEL_LISTS`] mark these in [`Block::pools`], not [`POOLS`].
+///
+{levtype_pool_docs}
+pub(crate) const LEVTYPE_POOLS: u32 = {len(levtype_pools)};
+
+/// The `marsLevtype` blocks that make a message `sfc` although its first
+/// fixed surface is one ECMWF lists levels of ({level_lists}).
+pub(crate) static SFC_ON_LEVEL_LISTS: &[Block] = &[
+{level_rows(levtypes["sfc"])}
+];
+
+/// The `marsLevtype` blocks of every other levtype whose first fixed surface
+/// is one of those: compared only as rivals of [`SFC_ON_LEVEL_LISTS`].
+pub(crate) static LEVTYPES_ON_LEVEL_LISTS: &[Block] = &[
+{level_rows(levtypes["other"])}
+];
+
 /// The blocks that define `name`, or `None` for a name this table does not
 /// carry.
 pub(crate) fn blocks(name: &str) -> Option<&'static [Block]> {{
@@ -388,6 +487,49 @@ pub(crate) fn blocks(name: &str) -> Option<&'static [Block]> {{
         .map(|i| NAMES[i].1)
 }}
 '''
+
+
+def merge(rows: list[list], kept: tuple, bit: int) -> None:
+    """Add a `(read, stated)` block found in pool `bit` to `rows`, as
+    `[read, stated, pool mask]`; two blocks that differ only in unread keys
+    keep one row."""
+    for existing in rows:
+        if (existing[0], existing[1]) == kept:
+            existing[2] |= bit
+            return
+    rows.append([kept[0], kept[1], bit])
+
+
+def level_list_levtypes(roots: dict[str, Path]) -> tuple[dict[str, list[list]], list]:
+    """The `marsLevtype` blocks whose first fixed surface is one of
+    `LEVEL_LISTS`, split into `sfc` and every other levtype, with the levtype
+    pools they were read from."""
+    levtypes: dict[str, list[list]] = {"sfc": [], "other": []}
+    pools: list[tuple[str, str]] = []
+    for version in VERSIONS:
+        for kind, files in LEVTYPE_POOL_FILES:
+            paths = [roots[version] / f for f in files if (roots[version] / f).exists()]
+            if not paths:
+                continue
+            bit = 1 << len(pools)
+            pools.append((version, kind))
+            for path in paths:
+                for levtype, keys in parse(path):
+                    first = integer(keys.get("typeOfFirstFixedSurface"))
+                    if first is None:
+                        # A block not stating the first surface could match a
+                        # message on any, so it would belong here too.
+                        raise SystemExit(f"{path}: '{levtype}' states no first surface: {keys}")
+                    if first not in LEVEL_LISTS:
+                        continue
+                    merge(
+                        levtypes["sfc" if levtype == "sfc" else "other"],
+                        read_block(keys, version),
+                        bit,
+                    )
+        if not any(version == v for v, _ in pools):
+            raise SystemExit(f"{roots[version]}: no marsLevtype concept file found")
+    return levtypes, pools
 
 
 def main() -> int:
@@ -435,14 +577,6 @@ def main() -> int:
                     codes = tuple(integer(keys[k]) for k in TRIPLE)
                     everything.append((bit, name, codes, kept))
 
-    def merge(rows: list[list], kept: tuple, bit: int) -> None:
-        # Two blocks that differ only in unread keys keep one row.
-        for existing in rows:
-            if (existing[0], existing[1]) == kept:
-                existing[2] |= bit
-                return
-        rows.append([kept[0], kept[1], bit])
-
     # name -> [[read, stated, pool mask]], first appearance first.
     table: dict[str, list[list]] = {}
     # The fewest conditions a listed name's block states, per pool and codes.
@@ -462,23 +596,32 @@ def main() -> int:
         ):
             merge(rivals, (read, stated), bit)
 
-    every_row = [r for rows in table.values() for r in rows] + rivals
+    levtypes, levtype_pools = level_list_levtypes(roots)
+
+    every_row = (
+        [r for rows in table.values() for r in rows]
+        + rivals
+        + levtypes["sfc"]
+        + levtypes["other"]
+    )
     used = {k for read, _, _ in every_row for k, _ in read}
     unused = [key for key, variant in KEPT.items() if variant not in used]
     if unused:
         # A `Key` no block reads would be dead code in the crate.
         raise SystemExit(f"no block reads {', '.join(unused)}: drop it from KEPT")
-    if len(pools) > 8:
-        raise SystemExit(f"{len(pools)} pools do not fit the table's u8 mask")
+    if max(len(pools), len(levtype_pools)) > 8:
+        raise SystemExit("more pools than the table's u8 mask holds")
     missing = sorted(wanted - table.keys())
     for name in missing:
         print(f"not defined by any eccodes read: {name}", file=sys.stderr)
 
-    text = render(table, rivals, pools, missing)
+    text = render(table, rivals, pools, missing, levtypes, levtype_pools)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(text, encoding="utf-8")
     print(
-        f"wrote {OUT}: {len(table)} names, {len(rivals)} rival blocks, {len(pools)} pools",
+        f"wrote {OUT}: {len(table)} names, {len(rivals)} rival blocks, {len(pools)} pools; "
+        f"{len(levtypes['sfc'])} sfc and {len(levtypes['other'])} other levtype blocks "
+        f"on level-list surfaces, {len(levtype_pools)} levtype pools",
         file=sys.stderr,
     )
     return 0

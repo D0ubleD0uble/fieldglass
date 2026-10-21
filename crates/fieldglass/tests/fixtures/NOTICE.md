@@ -270,6 +270,32 @@ factor 0, step 12, minimum 0, maximum 100, CCSDS-packed (5.42), 2026-09-04
 It pins the surface ECMWF writes for these probabilities, which eccodes 2.48
 no longer requires, in `verify_message_real_pairs.rs` (#1298).
 
+### `ecmwf_aifs_single_0p25_mcc.grib2` and `ecmwf_aifs_ens_0p25_cf_hcc.grib2`
+
+ECMWF AIFS medium and high cloud cover, from the same 2026-09-04 00Z run,
+step 6, each the record of one committed index line (#1323):
+
+| File | Index line | Object | Range | Bytes | SHA-256 |
+|---|---|---|---|---|---|
+| `ecmwf_aifs_single_0p25_mcc.grib2` | `ecmwf_aifs_single_0p25_oper_mcc.index` | `aifs-single/0p25/oper/20260904000000-6h-oper-fc.grib2` | `bytes=42691398-43990511` | 1,299,114 | `34e1eab734c0a2fb36cc03e40a7d419603df484600608f6d8c168e72fca781c1` |
+| `ecmwf_aifs_ens_0p25_cf_hcc.grib2` | `ecmwf_aifs_ens_0p25_cf_hcc.index` | `aifs-ens/0p25/enfo/20260904000000-6h-enfo-cf.grib2` | `bytes=84789446-85995752` | 1,206,307 | `24ff48a00cadabb85340ef65c81381c04be878a076d4c79f2c52b29998b4db86` |
+
+Both objects are under `https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/`,
+fetched on 2026-10-21 by the line's `_offset` for its `_length`, unmodified.
+
+eccodes 2.34.1 (`grib_ls`) reads the first as `mcc` (paramId 3074, 0.6.4) on
+the layer from isobaric 80000 Pa to isobaric 45000 Pa (`typeOfLevel`
+`mediumCloudLayer`), and the second as `hcc` (3075, 0.6.5) from isobaric
+45000 Pa to the nominal top of the atmosphere (surface 8, value missing,
+`highCloudLayer`). Both give `levtype` `sfc`, product template 4.0 for `mcc`
+and 4.1 (control, member 0) for `hcc`, minimum 0, maximum 100, CCSDS-packed
+(5.42), tables version 36. eccodes 2.48.0 (the PyPI wheel) gives the same
+names, layers and `levtype`.
+
+CC BY 4.0, as above. Attribution: ECMWF. They are the AIFS pairs in
+`verify_message_real_pairs.rs`: each line holds on its own bytes although
+the first surface is isobaric, and the other cloud layer's name is refused.
+
 ## Built wind fixtures
 
 ### `uv_pairs.grib2`, `uv_pairs.grib1`

@@ -232,7 +232,9 @@ Notes that shape the two hosts:
   heights are not told apart from `swh`, nor the AIFS probabilities `tpl01`,
   `2tl273` and `10spg10` from `tp`, `2t` and `10si`, nor `u`, `v` and `ws`
   from `100u`, `100v` and `100si`, which eccodes 2.48 gives them from tables
-  version 34. A
+  version 34. An ECMWF `sfc` holds on any single-level surface, and on a
+  pressure or isentropic one only where eccodes' `levtype` definitions call
+  it `sfc`, as for the AIFS `mcc` and `hcc` cloud layers (#1323). A
   wgrib2 line's probability, ensemble member, derived forecast and percentile
   are checked against the product template's block, so a probability line is
   not the amount it is a probability of (#1117). A chemistry or aerosol
