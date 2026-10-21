@@ -978,6 +978,82 @@ pub fn undrawable_of(source: &dyn ArraySource) -> Vec<LeftOutArray> {
         .collect()
 }
 
+/// The region of `var` a line through `indices` reads, or the one cell at
+/// `indices` when `span` is false (a held combined line's Field B, #1220).
+///
+/// With `span` true the `along` axis is read whole and its entry in `indices`
+/// is ignored; with `span` false that entry is a position like any other and
+/// is checked against `var`'s own axis. Every refusal is
+/// [`Error::InvalidOption`].
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn line_region(
+    var: &RenderableArray,
+    along: usize,
+    indices: &[u32],
+    span: bool,
+) -> Result<Vec<std::ops::Range<u64>>, Error> {
+    let rank = var.dims.len();
+    if along >= rank {
+        return Err(Error::invalid_option(format!(
+            "`{}` has {rank} dimensions, so along_dim {along} is outside them",
+            var.name
+        )));
+    }
+    if indices.len() != rank {
+        return Err(Error::invalid_option(format!(
+            "`{}` has {rank} dimensions, so `indices` needs {rank} entries{}; {} were given",
+            var.name,
+            if span {
+                " (the one being read along is ignored)"
+            } else {
+                ""
+            },
+            indices.len()
+        )));
+    }
+    let mut region = Vec::with_capacity(rank);
+    for (d, dim) in var.dims.iter().enumerate() {
+        if span && d == along {
+            region.push(0..dim.length);
+            continue;
+        }
+        let at = u64::from(indices[d]);
+        if at >= dim.length {
+            return Err(Error::invalid_option(format!(
+                "index {at} is past the end of `{}`'s dimension {d} \
+                     (`{}`, length {})",
+                var.name, dim.name, dim.length
+            )));
+        }
+        region.push(at..at + 1);
+    }
+    Ok(region)
+}
+
+/// The one cell of `array` at `indices`, in physical units: a held combined
+/// line's Field B (#1220). Reads that cell alone, not the line through it.
+#[cfg(all(feature = "analysis", any(feature = "netcdf", feature = "zarr")))]
+fn cell_through(
+    source: &dyn ArraySource,
+    array: &str,
+    along_dim: u32,
+    indices: &[u32],
+) -> Result<Option<f64>, Error> {
+    let vars = renderable_arrays(source.group());
+    let var = vars
+        .iter()
+        .find(|v| v.name == array)
+        .ok_or_else(|| no_such_array(array, vars.len()))?;
+    let region = line_region(var, along_dim as usize, indices, false)?;
+    let raw = source.read_region(&var.name, &region)?;
+    let attributes = source
+        .array(&var.name)
+        .map(|d| d.attributes.as_slice())
+        .unwrap_or_default();
+    let mut physical = CfUnpacking::from_attributes(attributes).apply_owned(raw);
+    Ok(physical.pop().flatten())
+}
+
 /// One line through the array named `array` in `source` — the implementation
 /// behind [`Session::decode_line`], for a host that holds an [`ArraySource`]
 /// rather than a `Session` (#172).
@@ -1007,38 +1083,8 @@ pub fn line_through(
         .iter()
         .find(|v| v.name == array)
         .ok_or_else(|| no_such_array(array, vars.len()))?;
-    let rank = var.dims.len();
     let along = along_dim as usize;
-    if along >= rank {
-        return Err(Error::invalid_option(format!(
-            "`{}` has {rank} dimensions, so along_dim {along} is outside them",
-            var.name
-        )));
-    }
-    if indices.len() != rank {
-        return Err(Error::invalid_option(format!(
-            "`{}` has {rank} dimensions, so `indices` needs {rank} entries \
-                 (the one being read along is ignored); {} were given",
-            var.name,
-            indices.len()
-        )));
-    }
-    let mut region = Vec::with_capacity(rank);
-    for (d, dim) in var.dims.iter().enumerate() {
-        if d == along {
-            region.push(0..dim.length);
-            continue;
-        }
-        let at = u64::from(indices[d]);
-        if at >= dim.length {
-            return Err(Error::invalid_option(format!(
-                "index {at} is past the end of `{}`'s dimension {d} \
-                     (`{}`, length {})",
-                var.name, dim.name, dim.length
-            )));
-        }
-        region.push(at..at + 1);
-    }
+    let region = line_region(var, along, indices, true)?;
     // A region with every axis but one a single index comes back as
     // exactly the points on the line, in index order.
     let raw = source.read_region(&var.name, &region)?;
@@ -1073,8 +1119,9 @@ pub fn line_through(
 /// [`line_through`] is.
 ///
 /// `a` and `b` each name an array and a position on every axis of it, as
-/// [`line_through`] takes them. Both lines run along `along_dim`, which must be
-/// the same axis, by name and length, in each array.
+/// [`line_through`] takes them. Both lines run along `along_dim`. With `hold_b`
+/// false it must be the same axis, by name and length, in each array; with
+/// `hold_b` true `b` is one cell and its axes are its own (#1220).
 ///
 /// `hold_b` says which kind of axis the line runs along, which only the host
 /// knows:
@@ -1097,8 +1144,9 @@ pub fn line_through(
 /// # Errors
 ///
 /// Whatever [`line_through`] reports for either line; [`Error::InvalidOption`]
-/// for a held `b` whose entry for `along_dim` is past the end of the axis; and
-/// [`Error::Unsupported`] when the two lines do not run along the same axis.
+/// for a held `b` whose entry for any axis, `along_dim` included, is past the
+/// end of that axis of `b`; and [`Error::Unsupported`] when two lines that are
+/// both read along an axis do not run along the same one.
 #[cfg(all(feature = "analysis", any(feature = "netcdf", feature = "zarr")))]
 pub fn line_through_combined(
     source: &dyn ArraySource,
@@ -1111,50 +1159,44 @@ pub fn line_through_combined(
 ) -> Result<Line, Error> {
     let exact = DecodeOptions::new(Dtype::F64);
     let line_a = line_through(source, a.0, along_dim, a.1, &exact)?;
-    let line_b = line_through(source, b.0, along_dim, b.1, &exact)?;
     let n = line_a.mask.len();
-    if line_a.dimension != line_b.dimension || n != line_b.mask.len() {
-        return Err(Error::Unsupported {
-            detail: format!(
-                "the two lines of a combined line run along the same axis; `a` runs along `{}` \
-                 ({n} points), `b` along `{}` ({} points)",
-                line_a.dimension,
-                line_b.dimension,
-                line_b.mask.len()
-            ),
-        });
-    }
-    let points = |line: &Line| -> Vec<Option<f64>> {
-        let values = line.values.to_f64();
-        line.mask
+    let values_a = line_a.values.to_f64();
+    let points_a: Vec<Option<f64>> = line_a
+        .mask
+        .iter()
+        .zip(values_a.iter())
+        .map(|(&m, &v)| (m == 1).then_some(v))
+        .collect();
+    // A held `b` is its one cell, read alone and checked against `b`'s own
+    // axes: its along axis need not match `a`'s in name or length (#1220).
+    let cells: Vec<Option<f64>> = if hold_b {
+        let held = cell_through(source, b.0, along_dim, b.1)?;
+        points_a
             .iter()
-            .zip(values.iter())
-            .map(|(&m, &v)| (m == 1).then_some(v))
+            .map(|&value_a| crate::combine::combine_cell(value_a, held, op))
+            .collect()
+    } else {
+        let line_b = line_through(source, b.0, along_dim, b.1, &exact)?;
+        if line_a.dimension != line_b.dimension || n != line_b.mask.len() {
+            return Err(Error::Unsupported {
+                detail: format!(
+                    "the two lines of a combined line run along the same axis; `a` runs along \
+                     `{}` ({n} points), `b` along `{}` ({} points)",
+                    line_a.dimension,
+                    line_b.dimension,
+                    line_b.mask.len()
+                ),
+            });
+        }
+        let values_b = line_b.values.to_f64();
+        points_a
+            .iter()
+            .zip(line_b.mask.iter().zip(values_b.iter()))
+            .map(|(&value_a, (&m, &v))| {
+                crate::combine::combine_cell(value_a, (m == 1).then_some(v), op)
+            })
             .collect()
     };
-    let (points_a, points_b) = (points(&line_a), points(&line_b));
-    // A held `b` is its one cell: the point of its line at its own entry.
-    // `line_through` has checked the position holds one entry per axis.
-    let held = if hold_b {
-        let at = b.1[along_dim as usize] as usize;
-        let Some(&cell) = points_b.get(at) else {
-            return Err(Error::invalid_option(format!(
-                "`b`'s index {at} along `{}` is past the end of it (length {n})",
-                line_a.dimension
-            )));
-        };
-        Some(cell)
-    } else {
-        None
-    };
-    let cells: Vec<Option<f64>> = points_a
-        .iter()
-        .enumerate()
-        .map(|(k, &value_a)| {
-            let value_b = held.unwrap_or_else(|| points_b.get(k).copied().flatten());
-            crate::combine::combine_cell(value_a, value_b, op)
-        })
-        .collect();
     let (values, mask, stats) = pack_values(&cells, options);
     Ok(Line {
         values,

@@ -2243,6 +2243,23 @@ mod tests {
                     .collect();
                 assert_eq!(points(&combined), want, "along {along}");
                 out.push(points(&combined));
+
+                // Held, B is its one cell at its own position (#1220): the
+                // point of its line at its own entry for the axis.
+                let held = handle
+                    .decode_line_combined(
+                        json!({ "a": line(t), "b": line(a), "op": "a_minus_b", "holdB": true }),
+                        None,
+                    )
+                    .expect("the held combined line");
+                let cell = single(a)[at[along as usize] as usize];
+                let want: Vec<Option<f64>> = single(t)
+                    .into_iter()
+                    .map(|x| fieldglass::combine_cell(x, cell, fieldglass::CombineOp::Difference))
+                    .collect();
+                assert!(want.iter().any(Option::is_some), "a held line");
+                assert_eq!(points(&held), want, "held, along {along}");
+                out.push(points(&held));
             }
             let slice = |variable: u32| json!({ "variable": variable, "yDim": 0, "xDim": 1, "sliceIndices": [0, 0] });
             let zonal = handle
@@ -2252,7 +2269,7 @@ mod tests {
             out
         };
         let (from_store, from_twin) = (answers(&store), answers(&twin));
-        assert!(from_store[2].iter().any(Option::is_some), "a zonal mean");
+        assert!(from_store[4].iter().any(Option::is_some), "a zonal mean");
         assert_eq!(from_store, from_twin);
     }
 

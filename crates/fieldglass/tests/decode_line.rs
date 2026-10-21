@@ -251,6 +251,87 @@ fn a_combined_line_refuses_what_it_cannot_read() {
     ));
 }
 
+/// A held combined line needs only Field B's drawn cell (#1220), so two
+/// variables whose time axes differ in name and length still plot: A's steps
+/// against B's one cell. B's position is checked against B's own axis.
+///
+/// Built in memory as a Zarr v2 store: `a(time=3, y, x) = 100·t + 10·y + x` and
+/// `b(time_b=2, y, x) = 1000·t + 10·y + x`.
+#[test]
+fn a_held_combined_line_needs_only_bs_cell() {
+    use fieldglass::{CombineOp, LineRequest};
+    let f64s = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let array = |shape: &str| {
+        format!(
+            r#"{{"zarr_format":2,"shape":{shape},"chunks":{shape},"dtype":"<f8","compressor":null,"fill_value":null,"order":"C","filters":null}}"#
+        )
+        .into_bytes()
+    };
+    let field = |scale: f64, steps: usize| -> Vec<f64> {
+        (0..steps)
+            .flat_map(|t| {
+                (0..2).flat_map(move |y| {
+                    (0..2).map(move |x| scale * t as f64 + 10.0 * y as f64 + x as f64)
+                })
+            })
+            .collect()
+    };
+    let session = Session::open_store(fieldglass::MemoryObjects::from_iter(vec![
+        (".zgroup".to_string(), br#"{"zarr_format":2}"#.to_vec()),
+        ("a/.zarray".to_string(), array("[3,2,2]")),
+        (
+            "a/.zattrs".to_string(),
+            br#"{"_ARRAY_DIMENSIONS":["time","y","x"]}"#.to_vec(),
+        ),
+        ("a/0.0.0".to_string(), f64s(&field(100.0, 3))),
+        ("b/.zarray".to_string(), array("[2,2,2]")),
+        (
+            "b/.zattrs".to_string(),
+            br#"{"_ARRAY_DIMENSIONS":["time_b","y","x"]}"#.to_vec(),
+        ),
+        ("b/0.0.0".to_string(), f64s(&field(1000.0, 2))),
+    ]))
+    .expect("opens");
+    let (a, b) = (variable(&session, "a"), variable(&session, "b"));
+    let combined = |at_a: Vec<u32>, at_b: Vec<u32>, hold_b: bool| {
+        session.decode_line_combined(
+            &LineRequest::new(a, 0, at_a),
+            &LineRequest::new(b, 0, at_b),
+            hold_b,
+            CombineOp::Difference,
+            &opts(),
+        )
+    };
+
+    // A at `[1, 0]` along its three steps is 10, 110, 210; B at time 1 is 1010.
+    let line = combined(vec![0, 1, 0], vec![1, 1, 0], true).expect("the held line");
+    assert_eq!(
+        points(&line),
+        vec![Some(-1000.0), Some(-900.0), Some(-800.0)]
+    );
+    assert_eq!(line.dimension, "time", "labelled as a's");
+
+    // Read along the axis, the same two variables are not one axis.
+    assert!(matches!(
+        combined(vec![0, 1, 0], vec![1, 1, 0], false),
+        Err(Error::Unsupported { .. })
+    ));
+
+    // B's index is checked against B's own axis (length 2), not A's (3).
+    match combined(vec![0, 1, 0], vec![2, 1, 0], true) {
+        Err(Error::InvalidOption { detail, .. }) => {
+            assert!(detail.contains("past the end"), "{detail}");
+            assert!(detail.contains("time_b"), "{detail}");
+        }
+        other => panic!("off b's axis: {other:?}"),
+    }
+    // An index off a non-along axis of B is refused the same way.
+    assert!(matches!(
+        combined(vec![0, 1, 0], vec![0, 2, 0], true),
+        Err(Error::InvalidOption { .. })
+    ));
+}
+
 /// Every point of every line equals the cell `decode_slice` reports there.
 #[test]
 fn every_line_is_the_intersection_of_the_slices_it_crosses() {
