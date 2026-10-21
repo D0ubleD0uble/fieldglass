@@ -13,6 +13,7 @@
 
 import * as assert from "assert";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
@@ -551,7 +552,195 @@ suite("Zoom and pan through the panel (#1147)", function () {
     });
   });
 
-  const AUTO = 'input[name="bounds-mode"][value="auto"]';
+  /** Open `netcdf4_dimscale.nc`'s `temperature` (time × lat × lon) on
+   *  Equirectangular, and run `body` on it. A slice panel, which has the
+   *  Line plot box. */
+  async function onSliceMap(body: (panel: RealPanel) => Promise<void>): Promise<void> {
+    const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const temperature = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "temperature");
+    assert.ok(temperature, "the fixture has temperature");
+    const p = await provider();
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.index }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const from = panel.sent.length;
+      await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+      await panel.waitSent((m) => m.type === "gridReady" && m.options.projection === "equirectangular", from, "the map");
+      await body(panel);
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  }
+
+  /** With Line plot ticked, click the image `fy` of the way down and `fx`
+   *  across, and wait for the line through the cell there. The first click
+   *  opens the plot above the map, which moves the map down, so the image is
+   *  clicked twice: the second click is where the image is then, and its
+   *  client point and the place it reads are returned. */
+  async function plotAt(panel: RealPanel, fy: number, fx: number) {
+    let at: Awaited<ReturnType<RealPanel["probe"]>> | undefined;
+    let read: Msg | undefined;
+    for (const what of ["the first click", "the second click"]) {
+      const sent = panel.sent.length;
+      at = await panel.probe(fy, fx);
+      read = (await panel.waitSent(isType("probeResult"), sent, `the probe (${what})`)).result;
+      await panel.waitSent(isType("lineResult"), sent, `the line (${what})`);
+    }
+    assert.ok(at && read && typeof read.lat === "number", "the click reads a place");
+    const state = await panel.drive([]);
+    assert.strictEqual(state.linePlot?.shown, true, "the line is plotted");
+    return { point: at.point, place: { lat: read.lat as number, lon: read.lon as number }, readout: state.probe };
+  }
+
+  test("repeated wheel ticks after a probe with Line plot ticked keep the place under the pointer, and the plot (#1255)", async () => {
+    await onSliceMap(async (panel) => {
+      await panel.drive(NARROW);
+      await panel.drive([{ id: "line-toggle", checked: true }]);
+      const { point, place: start, readout } = await plotAt(panel, 0.4, 0.4);
+      const first = { point };
+      const before = lastDrawn(panel);
+      const lines = panel.received.filter(isType("lineRequest")).length;
+      const TICKS = 4;
+      const shown: Array<boolean | undefined> = [];
+      const readouts: string[] = [];
+      for (let i = 1; i <= TICKS; i++) {
+        await rendered(panel, () => panel.wheel({ client: first.point }, -120), `tick ${i}`);
+        const state = await panel.drive([]);
+        shown.push(state.linePlot?.shown);
+        readouts.push(state.probe);
+      }
+      const after = lastDrawn(panel);
+      const factor = Math.pow(1.002, -120 * TICKS);
+      close(after.usedLonMax - after.usedLonMin, (before.usedLonMax - before.usedLonMin) * factor, "every tick zoomed", 1e-3);
+      // Counted before the probe below, which asks for the line again.
+      assert.strictEqual(panel.received.filter(isType("lineRequest")).length, lines, "the ticks ask for no new line");
+      const end = await placeAt(panel, first.point, "after the ticks");
+      samePlace(start, end, [before, after], "the place under the pointer");
+      assert.deepStrictEqual(shown, Array(TICKS).fill(true), "the plot stays through every tick");
+      assert.deepStrictEqual(readouts, Array(TICKS).fill(readout), "and so does the readout of its cell");
+    });
+  });
+
+  test("a colour change keeps the line plot, and a step of the slice clears it (#1255)", async () => {
+    await onSliceMap(async (panel) => {
+      await panel.drive([{ id: "line-toggle", checked: true }]);
+      const { readout } = await plotAt(panel, 0.5, 0.5);
+      const native = loadNative();
+      assert.ok(native, "native binding required");
+
+      // Each of these changes only how the values are coloured.
+      const current = (await panel.controls())["picker-colormap"];
+      const other = native.colormaps().find((c) => c.name !== current);
+      assert.ok(other, "a second colour map to choose");
+      const colourOnly: Array<[string, Parameters<RealPanel["drive"]>[0]]> = [
+        ["a colour map", [{ id: "picker-colormap", value: other.name }]],
+        ["Reverse", [{ id: "reverse-colormap", checked: true }]],
+        ["a manual range", [{ selector: 'input[name="range-mode"][value="manual"]', checked: true }, { id: "range-max", value: 400 }]],
+      ];
+      for (const [what, actions] of colourOnly) {
+        const sent = panel.sent.length;
+        await panel.drive(actions);
+        await panel.waitSent(isType("gridReady"), sent, `the render after ${what}`);
+        const state = await panel.drive([]);
+        assert.strictEqual(state.linePlot?.shown, true, `${what} keeps the plot`);
+        assert.strictEqual(state.probe, readout, `${what} keeps the readout`);
+      }
+
+      // A step of the time axis is another field: its plot and readout go.
+      const sent = panel.sent.length;
+      await panel.drive([{ selector: '#slice-dims .slice-number[data-dim="0"]', value: 1 }]);
+      await panel.waitSent((m) => m.type === "gridReady" && m.slice?.sliceIndices?.[0] === 1, sent, "the next time step");
+      const state = await panel.drive([]);
+      assert.strictEqual(state.linePlot?.shown, false, "a step of the slice clears the plot");
+      assert.strictEqual(state.probe, "", "and the readout");
+    });
+  });
+
+  test("wheel ticks after a PNG export keep the place under the pointer (#1255)", async () => {
+    // A long directory with spaces, so the export's line wraps in a narrow
+    // panel: the room it keeps is the room it took, not one line.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass 1255 a directory long enough for the line to wrap "));
+    const w = vscode.window as unknown as Record<string, unknown>;
+    const saved = { showSaveDialog: w.showSaveDialog, showInformationMessage: w.showInformationMessage };
+    w.showSaveDialog = () => Promise.resolve(vscode.Uri.file(path.join(dir, "map with a long name to wrap the export line.png")));
+    w.showInformationMessage = () => Promise.resolve(undefined);
+    try {
+      await onMap(false, async (panel) => {
+        await panel.drive(NARROW);
+        const first = await panel.probe(0.3, 0.3);
+        const sent = panel.sent.length;
+        await panel.drive([{ id: "export-png", click: true }]);
+        const done = await panel.waitSent(isType("exportPngDone"), sent, "the PNG export's outcome");
+        assert.strictEqual(done.outcome.status, "saved", "the PNG is saved");
+        assert.match((await panel.drive([])).exportStatus, /^Exported PNG to /, "the export says where it went");
+        const start = await placeAt(panel, first.point, "before the ticks");
+        const before = lastDrawn(panel);
+        for (let i = 1; i <= 3; i++) {
+          await rendered(panel, () => panel.wheel({ client: first.point }, -120), `tick ${i}`);
+        }
+        const end = await placeAt(panel, first.point, "after the ticks");
+        assert.deepStrictEqual(end.rect.map(Math.round), start.rect.map(Math.round), "the image's box did not move");
+        samePlace(start, end, [before, lastDrawn(panel)], "the place under the pointer");
+      });
+    } finally {
+      w.showSaveDialog = saved.showSaveDialog;
+      w.showInformationMessage = saved.showInformationMessage;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a feature's status line cleared and said again by a gesture's render does not move the map (#1255)", async () => {
+    await onMap(false, async (panel) => {
+      await panel.drive(NARROW);
+      const sent = panel.sent.length;
+      await panel.drive([{ id: "overlay-contours", checked: true }]);
+      await panel.waitSent(isType("contourReady"), sent, "the contours");
+      // Every contour answer from here is held back, and answered instead
+      // with a refusal, as the provider answers for a grid it cannot contour.
+      // The refusal is posted through the same wrapper, so it is marked to
+      // pass the hold.
+      const held = panel.hold((m) => (m.type === "contourReady" || m.type === "contourError") && !m.byTest);
+      const refuse = async (what: string) => {
+        const asked = await waitUntil(() => {
+          const all = panel.received.filter(isType("contourRequest"));
+          const last = all[all.length - 1];
+          return last && held.held.some((m) => m.seq === last.seq) ? last : undefined;
+        }, `the contour request (${what})`);
+        await panel.post({ type: "contourError", seq: asked.seq, error: "not on this grid", byTest: true });
+        assert.strictEqual((await panel.drive([])).contourStatus, "Contours: not on this grid", `the line says so (${what})`);
+      };
+      try {
+        const first = await panel.probe(0.3, 0.3);
+        await rendered(panel, () => panel.wheel({ client: first.point }, -120), "the first tick");
+        await refuse("the first tick");
+        const start = await placeAt(panel, first.point, "before the ticks");
+        const before = lastDrawn(panel);
+        for (let i = 2; i <= 4; i++) {
+          await rendered(panel, () => panel.wheel({ client: first.point }, -120), `tick ${i}`);
+          // The render clears the line until the contours answer.
+          assert.strictEqual((await panel.drive([])).contourStatus, "", `tick ${i}'s render clears the line`);
+          const cleared = await placeAt(panel, first.point, `tick ${i}, the line cleared`);
+          assert.deepStrictEqual(
+            cleared.rect.map(Math.round),
+            start.rect.map(Math.round),
+            `tick ${i}: the cleared line keeps its room`,
+          );
+          await refuse(`tick ${i}`);
+        }
+        const end = await placeAt(panel, first.point, "after the ticks");
+        assert.deepStrictEqual(end.rect.map(Math.round), start.rect.map(Math.round), "the image's box did not move");
+        samePlace(start, end, [before, lastDrawn(panel)], "the place under the pointer");
+      } finally {
+        await held.release();
+      }
+    });
+  });
+
+  const AUTO ='input[name="bounds-mode"][value="auto"]';
   const MANUAL = 'input[name="bounds-mode"][value="manual"]';
 
   for (const [how, back] of [
