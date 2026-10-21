@@ -1445,7 +1445,7 @@ read it, the latter also under `wasm32-wasip1`.
 ## Non-finite coordinate fixture (`non_finite_coordinates.nc`)
 
 Target for #1172: 1-D coordinates holding NaN or infinity, which CF (§1.3,
-after the NUG) does not allow in a coordinate variable. Four `float32` 3 × 4
+after the NUG) does not allow in a coordinate variable. Five `float32` 3 × 4
 fields: `all_nan` on a latitude that is NaN throughout, `hole` on a latitude
 with NaN between finite ends, `infinite_end` on a longitude ending in
 +infinity, `placed`, the same field on finite coordinates, as the control, and
