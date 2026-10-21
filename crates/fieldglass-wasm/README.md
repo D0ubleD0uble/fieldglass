@@ -625,13 +625,17 @@ of that drift is the MARS short-name table, which now keeps each eccodes
 block's surface, probability and template conditions and the rival blocks
 that can outrank them. The rest is what merged since the previous recording.
 
+All three rows were re-recorded from the `ci.yml` run on #1123's PR (run
+39652231318), whose `full` build had drifted 2.2% from the row above it. That
+is the sharded-window planner and the ranged `openStore`.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,686,389 | 661,820 |
-| `+simd128` | 1,672,656 | 658,795 |
-| full | 2,237,984 | 875,896 |
+| baseline | 1,686,964 | 662,056 |
+| `+simd128` | 1,673,231 | 659,047 |
+| full | 2,285,313 | 895,421 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
