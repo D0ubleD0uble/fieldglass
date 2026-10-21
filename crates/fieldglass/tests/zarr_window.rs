@@ -416,6 +416,20 @@ fn a_request_that_does_not_describe_a_window_is_refused() {
     );
 }
 
+/// A time step past the end is worded as `decode_slice` and `decode_line` word
+/// it: one check, one message (#1301).
+#[test]
+fn a_time_step_past_the_end_names_the_axis() {
+    let session =
+        Session::open_store(MemoryObjects::from_iter(objects("window_v2"))).expect("opens");
+    let t2m = variable(&session, "t2m");
+    let err = session
+        .plan_window(&request(t2m, [0.0, 40.0, 0.0, 90.0], 3))
+        .expect_err("past the end");
+    assert_eq!(err.code(), "invalid_option");
+    assert!(err.to_string().contains("past the end of `"), "{err}");
+}
+
 #[test]
 fn a_store_with_no_coordinates_is_not_windowed() {
     // `temp(y, x)` carries no coordinate arrays, so its slice is placed in its

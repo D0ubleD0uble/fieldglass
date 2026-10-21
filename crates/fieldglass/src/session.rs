@@ -1044,25 +1044,24 @@ fn check_index_in_axis(
 }
 
 /// Check every held entry of a slice's `indices` against its own axis, as
-/// `line_region` does for a line. `dims` is the array's axes in declared
-/// order as `(name, length)`; the entries at `y_dim` and `x_dim` are drawn,
-/// not held, so they are not checked. Every refusal is [`Error::InvalidOption`],
-/// so a stale index is the caller's mistake and not a file that did not parse
-/// (#1301). Run it after the length and axis-pair checks and before the reader,
-/// for every path that reaches `read_plane` or `decode_plane`.
+/// [`Session::decode_line`] does for a line. `dims` is the array's axes in
+/// declared order; the entries at `y_dim` and `x_dim` are drawn, not held, so
+/// they are not checked. Every refusal is [`Error::InvalidOption`], so a stale
+/// index is the caller's mistake and not a file that did not parse (#1301). Run
+/// it after the length and axis-pair checks and before reading the plane.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 pub fn check_slice_indices(
     array: &str,
-    dims: &[(&str, u64)],
+    dims: &[fieldglass_core::array::Dimension],
     y_dim: usize,
     x_dim: usize,
     indices: &[u32],
 ) -> Result<(), Error> {
-    for (d, (&(dim_name, length), &at)) in dims.iter().zip(indices).enumerate() {
+    for (d, (dim, &at)) in dims.iter().zip(indices).enumerate() {
         if d == y_dim || d == x_dim {
             continue;
         }
-        check_index_in_axis(array, d, dim_name, length, u64::from(at))?;
+        check_index_in_axis(array, d, &dim.name, dim.length, u64::from(at))?;
     }
     Ok(())
 }
@@ -2313,12 +2312,7 @@ impl Session {
                         var.dims.len()
                     )));
                 }
-                let axes: Vec<(&str, u64)> = var
-                    .dims
-                    .iter()
-                    .map(|d| (d.name.as_str(), d.length))
-                    .collect();
-                check_slice_indices(&var.name, &axes, y, x, slice_indices)?;
+                check_slice_indices(&var.name, &var.dims, y, x, slice_indices)?;
                 let plane = read_plane(source, var, y, x, &fixed)?;
                 // The CF mask-and-scale, from the array's own attributes, so a
                 // packed `int16` arrives in physical units the way a GRIB field

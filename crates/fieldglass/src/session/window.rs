@@ -485,19 +485,14 @@ impl Session {
             )));
         }
         let mut fixed = Vec::with_capacity(rank);
-        for (d, (&at, axis)) in request.slice_indices.iter().zip(&var.dims).enumerate() {
+        for (d, &at) in request.slice_indices.iter().enumerate() {
             if d == y || d == x {
                 fixed.push(0);
                 continue;
             }
-            if u64::from(at) >= axis.length {
-                return Err(Error::invalid_option(format!(
-                    "`sliceIndices[{d}]` is {at}, past the {} positions of `{}`",
-                    axis.length, axis.name
-                )));
-            }
             fixed.push(u64::from(at));
         }
+        super::check_slice_indices(&var.name, &var.dims, y, x, &request.slice_indices)?;
         let [lat_min, lat_max, lon_min, lon_max] = request.bounds;
         if !request.bounds.iter().all(|v| v.is_finite()) || lat_min > lat_max || lon_min > lon_max {
             return Err(Error::invalid_option(format!(

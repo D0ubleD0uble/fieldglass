@@ -204,6 +204,10 @@ pub use render::{
     WarpTarget,
 };
 pub use session::PlacedSlice;
+/// The held-index check `Session::decode_slice` runs, for a host that holds its
+/// own array source (#1301).
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub use session::check_slice_indices;
 /// One line through a combined map, for a host that holds an `ArraySource`
 /// rather than a `Session` (#1208).
 #[cfg(all(feature = "analysis", any(feature = "netcdf", feature = "zarr")))]
@@ -221,8 +225,8 @@ pub use session::{PaletteOptions, Raster, WarpOptions};
 /// a host that holds an `ArraySource` rather than a `Session` (#172, #171).
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 pub use session::{
-    axis_values, check_slice_indices, dimensions_of, left_out_of, line_through, undrawable_of,
-    variables_of, vector_pairing_of,
+    axis_values, dimensions_of, left_out_of, line_through, undrawable_of, variables_of,
+    vector_pairing_of,
 };
 
 // The seams a **host** implements, and the error they return. `Session::open`

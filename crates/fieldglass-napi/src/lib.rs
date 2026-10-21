@@ -2932,12 +2932,7 @@ impl NetcdfFile {
         }
         // Each held index against its own axis, as `decode_line` words it
         // (#1301), before the reader calls it a parse error.
-        let axes: Vec<(&str, u64)> = var
-            .dims
-            .iter()
-            .map(|d| (d.name.as_str(), d.length))
-            .collect();
-        fieldglass::check_slice_indices(&var.name, &axes, y_dim, x_dim, slice_indices)?;
+        fieldglass::check_slice_indices(&var.name, &var.dims, y_dim, x_dim, slice_indices)?;
         // The two horizontal entries are ignored by the read, so they are not
         // part of what names the plane either.
         let fixed: Vec<usize> = slice_indices
