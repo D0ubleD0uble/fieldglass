@@ -223,6 +223,37 @@ fn what_the_warp_depends_on_makes_a_new_plan() {
 }
 
 #[test]
+fn a_refused_window_keeps_the_plan_it_found() {
+    // A Web Mercator band entirely poleward of its renderable range is
+    // refused while the target is built. The refusal must not cost the plan
+    // already held: going back to the earlier window is then free (#1278).
+    let fields = rtofs_fields();
+    let field = &fields[0];
+    let geometry = Arc::new(field.georef.geometry.clone());
+    let memo = WarpMemo::new();
+    let original = options("web_mercator");
+    assert_projects_as_fresh(&memo, &geometry, field, &original);
+    assert_eq!(memo.plans_made(), 1);
+
+    let mut polar = options("web_mercator");
+    polar.bounds_lat_min = Some(86.0);
+    polar.bounds_lat_max = Some(89.0);
+    polar.bounds_lon_min = Some(-100.0);
+    polar.bounds_lon_max = Some(-40.0);
+    let values = cells(field);
+    memo.project(&geometry, &on(field, &geometry), &values, &polar)
+        .expect_err("a band outside the Web Mercator range is refused");
+    assert_eq!(memo.plans_made(), 1, "a refusal plans nothing");
+
+    assert_projects_as_fresh(&memo, &geometry, field, &original);
+    assert_eq!(
+        memo.plans_made(),
+        1,
+        "the plan survived the refused request"
+    );
+}
+
+#[test]
 fn bilinear_on_a_grid_that_blends_makes_a_new_plan() {
     let session = Session::open(LAMBERT.to_vec()).expect("the fixture opens");
     let field = session
@@ -319,6 +350,35 @@ fn values_of_the_wrong_length_are_refused_as_project_refuses_them() {
     let fresh = project(&field.source(), &short, &o).expect_err("too few values");
     assert_eq!(memoised.message(), fresh.message());
     assert_eq!(memo.plans_made(), 0);
+}
+
+#[test]
+fn a_plan_past_the_budget_keeps_the_plan_before_it() {
+    let fields = rtofs_fields();
+    let field = &fields[0];
+    let geometry = Arc::new(field.georef.geometry.clone());
+    let o = options("equirectangular");
+    let fresh = project(&field.source(), &cells(field), &o).expect("a fresh warp");
+    let bytes = u64::from(fresh.width) * u64::from(fresh.height) * 4;
+
+    // Room for the default raster and no more.
+    let memo = WarpMemo::with_max_plan_bytes(bytes);
+    assert_projects_as_fresh(&memo, &geometry, field, &o);
+    assert_eq!(memo.plans_made(), 1);
+
+    // A named size twice as wide plans past the budget: it runs unmemoised.
+    let mut big = o.clone();
+    big.width = Some(fresh.width * 2);
+    big.height = Some(fresh.height);
+    assert_projects_as_fresh(&memo, &geometry, field, &big);
+    assert_eq!(memo.plans_made(), 1, "the oversize plan is not made");
+
+    assert_projects_as_fresh(&memo, &geometry, field, &o);
+    assert_eq!(
+        memo.plans_made(),
+        1,
+        "the kept plan still serves the original options"
+    );
 }
 
 #[test]
