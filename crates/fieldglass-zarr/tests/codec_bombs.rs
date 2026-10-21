@@ -22,8 +22,9 @@ use std::cell::Cell;
 use fieldglass_core::FieldglassError;
 use fieldglass_zarr::ChunkDecoder;
 
-/// The chunk's own length: the most any codec may write, and so the most any
-/// one allocation of a read may be.
+/// The chunk's own length: the most a compressor with nothing growing the
+/// bytes ahead of it may write, and so the most any one allocation of such a
+/// read may be.
 const CHUNK_BYTES: usize = 1536 * 2048;
 
 /// What each bomb decompresses to.
@@ -241,6 +242,41 @@ fn blosc_bombs_reserve_no_more_than_their_chunk() {
         &blosc(4, &zstd_bomb()),
         "zstd stream decompresses past the 3145728-byte ceiling",
     );
+}
+
+/// A v3 `uint8` array of one `(1536, 2048)` chunk under `codecs`, a JSON list
+/// after `bytes`.
+fn v3_decoder(codecs: &str) -> ChunkDecoder {
+    let meta = format!(
+        r#"{{"zarr_format": 3, "node_type": "array", "shape": [1536, 2048],
+            "data_type": "uint8",
+            "chunk_grid": {{"name": "regular", "configuration": {{"chunk_shape": [1536, 2048]}}}},
+            "chunk_key_encoding": {{"name": "default"}}, "fill_value": 0,
+            "codecs": [{{"name": "bytes"}}, {codecs}]}}"#
+    );
+    ChunkDecoder::from_v3_metadata(&meta).expect("metadata")
+}
+
+/// Behind a codec that grows the bytes, a compressor is held to what that
+/// codec could have handed it, not to the chunk, and its bomb stops there
+/// (#1012). A chain of any length stops at twice the chunk and 4 KiB.
+#[test]
+fn a_bomb_behind_a_growing_codec_stops_at_its_own_ceiling() {
+    let gzip = r#"{"name": "gzip", "configuration": {"level": 5}}"#;
+    let behind_crc = v3_decoder(&format!(r#"{{"name": "crc32c"}}, {gzip}"#));
+    let (largest, _, m) = measured_refusal(&behind_crc, "crc32c, gzip", &gzip_bomb());
+    let ceiling = CHUNK_BYTES + 4;
+    assert!(
+        m.contains(&format!("past the {ceiling}-byte ceiling")),
+        "{m}"
+    );
+    assert!(largest <= ceiling, "largest allocation {largest} bytes");
+
+    let long = v3_decoder(&[gzip; 12].join(", "));
+    let (largest, _, m) = measured_refusal(&long, "gzip x12", &gzip_bomb());
+    let cap = 2 * CHUNK_BYTES + 4096;
+    assert!(m.contains(&format!("past the {cap}-byte ceiling")), "{m}");
+    assert!(largest <= cap, "largest allocation {largest} bytes");
 }
 
 /// What every short blosc buffer's header states: one block of 256 MiB.

@@ -24,6 +24,12 @@
 //! fill (#986). Those two are arithmetic on the formats' limits, so they too
 //! depend on nothing.
 //!
+//! A codec behind another in a pipeline may be handed back more than the
+//! chunk: a checksum or a second compressor ahead of it grew the bytes. Its
+//! limit is then the chunk grown by each encoder's worst case, and
+//! [`deflate_compress_bound`] and [`zstd_compress_bound`] are the two that
+//! both the HDF5 and Zarr pipelines need (#1012).
+//!
 //! A zstd decoder also holds the frame's window beside the output, which no
 //! output limit sees, so [`zstd_window_limit`] sets the largest window a frame
 //! may declare from the same limit (#989).

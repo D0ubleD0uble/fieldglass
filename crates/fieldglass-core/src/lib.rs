@@ -29,8 +29,9 @@
 //! structure: which arrays render, and where a slice of one is placed (#704).
 //! `fieldglass-netcdf` also takes [`shuffle`], the byte transpose HDF5's
 //! shuffle filter applies, which Zarr's reader shares and which carries a
-//! Verus proof, [`capped`], the buffer growth its deflate and zstd filters
-//! share with Zarr's codecs so no output reserves past its limit (#981), and
+//! Verus proof, [`capped`], the buffer growth and limits its deflate and zstd
+//! filters share with Zarr's codecs so no output reserves past its limit
+//! (#981, #1012), and
 //! [`detect`](mod@detect), whose HDF5 signature search it shares so detection
 //! and the reader find the same files (#936).
 //! <!-- /parsing-surface -->
