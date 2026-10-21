@@ -268,9 +268,19 @@ impl CodecChain {
         shape: &[usize],
         element_size: usize,
     ) -> Result<Vec<u8>, FieldglassError> {
-        let ceilings = self.ceilings(expected);
+        // On the stack for any real chain: an allocation per chunk shows in
+        // every Zarr row of the perf gate.
+        let mut inline = [0; INLINE_STEPS];
+        let mut spilled = Vec::new();
+        let ceilings = if self.steps.len() <= INLINE_STEPS {
+            &mut inline[..self.steps.len()]
+        } else {
+            spilled.resize(self.steps.len(), 0);
+            &mut spilled[..]
+        };
+        self.ceilings(expected, ceilings);
         let mut data = stored.to_vec();
-        for (step, &limit) in self.steps.iter().zip(&ceilings).rev() {
+        for (step, &limit) in self.steps.iter().zip(ceilings.iter()).rev() {
             data = match step {
                 Codec::Blosc => blosc::decompress(&data, limit)?,
                 Codec::Zlib => deflate::inflate_zlib(&data, limit)?,
@@ -303,8 +313,8 @@ impl CodecChain {
         Ok(data)
     }
 
-    /// The most each step may decode to, in encode order: what the encoder
-    /// could have handed it (#1012).
+    /// Fill `out`, one entry per step, with the most each step may decode to,
+    /// in encode order: what the encoder could have handed it (#1012).
     ///
     /// v3 lets bytes→bytes codecs come in any order, so a step's input is not
     /// always the chunk. Behind `[bytes, crc32c, zstd]`, zstd decodes to the
@@ -319,19 +329,20 @@ impl CodecChain {
     /// ceiling is more than twice `expected` and [`CHAIN_SLACK`] bytes, which
     /// holds any real chain: on data that does not compress a compressor adds
     /// well under 1% and a few dozen bytes of framing.
-    fn ceilings(&self, expected: usize) -> Vec<usize> {
+    fn ceilings(&self, expected: usize, out: &mut [usize]) {
         let most = expected.saturating_mul(2).saturating_add(CHAIN_SLACK);
         let mut len = expected as u64;
-        self.steps
-            .iter()
-            .map(|step| {
-                let ceiling = len.min(most as u64) as usize;
-                len = step.growth(len);
-                ceiling
-            })
-            .collect()
+        for (step, ceiling) in self.steps.iter().zip(out) {
+            *ceiling = len.min(most as u64) as usize;
+            len = step.growth(len);
+        }
     }
 }
+
+/// The longest chain whose ceilings [`CodecChain::decode`] holds on the
+/// stack. numcodecs and zarr-python chains are a handful of steps; a longer
+/// one still decodes, with its ceilings on the heap.
+const INLINE_STEPS: usize = 8;
 
 /// The room a chain's ceilings have past twice the chunk ([`CodecChain::ceilings`]):
 /// the fixed framing of many codecs on a chunk too small for twice its length
@@ -526,11 +537,17 @@ mod tests {
         assert_eq!(one_byte.declared_endian(), None);
     }
 
+    fn ceilings(chain: &CodecChain, expected: usize) -> Vec<usize> {
+        let mut out = vec![0; chain.steps().len()];
+        chain.ceilings(expected, &mut out);
+        out
+    }
+
     /// Each step is held to what the steps ahead of it in the chain could
     /// have handed it, not to the chunk (#1012).
     #[test]
     fn each_step_is_held_to_its_own_output() {
-        let chain = |steps: Vec<Codec>| CodecChain::new(steps).ceilings(24);
+        let chain = |steps: Vec<Codec>| ceilings(&CodecChain::new(steps), 24);
         let bytes = || Codec::Bytes {
             endian: Some(Endian::Little),
         };
@@ -561,7 +578,7 @@ mod tests {
         );
         // `LZ4_COMPRESSBOUND(1020)` is 1020 + 4 + 16, behind a 4-byte length.
         assert_eq!(
-            CodecChain::new(vec![Codec::Lz4, Codec::Zlib]).ceilings(1_020),
+            ceilings(&CodecChain::new(vec![Codec::Lz4, Codec::Zlib]), 1_020),
             [1_020, 1_044]
         );
     }
@@ -570,7 +587,7 @@ mod tests {
     /// past twice the chunk and the slack.
     #[test]
     fn a_long_chain_cannot_lift_the_ceiling_without_bound() {
-        let ceilings = CodecChain::new(vec![Codec::Gzip; 1_000]).ceilings(1 << 20);
+        let ceilings = ceilings(&CodecChain::new(vec![Codec::Gzip; 1_000]), 1 << 20);
         assert_eq!(ceilings[0], 1 << 20);
         assert_eq!(ceilings.last(), Some(&((2 << 20) + CHAIN_SLACK)));
         assert!(ceilings.windows(2).all(|w| w[0] <= w[1]));
